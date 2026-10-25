@@ -11,7 +11,7 @@ import {
   WarningCircle,
   type Icon,
 } from '@phosphor-icons/react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -26,9 +26,12 @@ const popover =
 /** Opens its panel on click; closes on Escape, a click on the panel or a click elsewhere. */
 function Popover({
   trigger,
+  onOpen,
   children,
 }: {
   trigger: (open: boolean) => ReactNode;
+  /** Called each time the panel opens. */
+  onOpen?: () => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -42,7 +45,10 @@ function Popover({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen((v) => !v);
+        }}
         className="contents"
       >
         {trigger(open)}
@@ -234,8 +240,19 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
 export function FirmBell() {
   const list = useApiQuery(['notifications', 'bell'], () => api.notifications.list({ limit: 5 }));
   const unread = list.data?.unreadCount ?? 0;
+  const qc = useQueryClient();
+  // Octavia's N2: opening the list marks the notifications it shows as read (only those; the
+  // history stays in the Notification Center), and the badge counts the rest.
+  const markShownRead = () => {
+    const shown = (list.data?.items ?? []).filter((item) => !item.readAt);
+    if (!shown.length) return;
+    void Promise.allSettled(shown.map((item) => api.notifications.markRead(item.id))).then(() =>
+      qc.invalidateQueries({ queryKey: ['notifications'] }),
+    );
+  };
   return (
     <Popover
+      onOpen={markShownRead}
       trigger={() => (
         <span className="relative block rounded-control p-2 text-text hover:bg-canvas">
           <Bell aria-hidden weight="fill" className="size-6" />

@@ -736,20 +736,39 @@ describe('portal routes: the client login’s own', () => {
     ).toEqual({ count: 0 });
   });
 
-  it('preferences on the portal', async () => {
-    const prefs = exact(
-      NotificationPreferences,
+  it('preferences on the portal: email is always on for clients too (Client Portal guide 9.2)', async () => {
+    expectError(
       await portal('patch', '/notification-preferences', people.primary2, {
         items: [{ category: 'BILLING', email: false, sms: false }],
       }),
+      400,
+      'EMAIL_ALWAYS_ON',
     );
-    // A client may switch email off: the staff rule is the firm's side only.
+    // A row stored off before this rule (the sender tests below use it) reads as on.
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.create({
+        data: {
+          businessId: ids.firmA,
+          userId: people.primary2.id,
+          category: 'BILLING',
+          email: false,
+          sms: false,
+        },
+      }),
+    );
+    const prefs = exact(
+      NotificationPreferences,
+      await portal('patch', '/notification-preferences', people.primary2, {
+        items: [{ category: 'BILLING', sms: false }],
+      }),
+    );
+    expect(prefs.smsStopped).toBe(false);
     expect(prefs.items.find((i) => i.category === 'BILLING')).toEqual({
       category: 'BILLING',
-      email: false,
+      email: true,
       sms: false,
       locked: false,
-      emailLocked: false,
+      emailLocked: true,
     });
     expect(
       exact(
@@ -819,6 +838,56 @@ describe('SMS switch: a client with a phone number, whatever SMS_MODE says (q27)
     );
     expect(off.channels).toEqual(['EMAIL']);
     expect(off.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: false });
+  });
+
+  it("client: no text after an opt-out in the firm's consent records, until the firm records a new opt-in", async () => {
+    const consent = (status: 'OPTED_OUT' | 'OPTED_IN', source: string) =>
+      asOwner(ids.firmA, async (tx) => {
+        await tx.communicationConsent.deleteMany({ where: { clientId: ids.c1, channel: 'SMS' } });
+        await tx.communicationConsent.create({
+          data: { businessId: ids.firmA, clientId: ids.c1, channel: 'SMS', status, source },
+        });
+      });
+    const db = createDatabase(fx.appUrl, TEST_CLIENT_OPTIONS);
+    const texts = () =>
+      new PreferenceSource(db).allows(ids.firmA, { userId: people.spouse1.id }, 'DOCUMENTS', 'sms');
+    await setPhone(people.spouse1, '+15555550125');
+    try {
+      await portal('patch', '/notification-preferences', people.spouse1, optIn);
+      expect(await texts()).toBe(true);
+
+      // spouse1's client record replied STOP.
+      await consent('OPTED_OUT', 'reply_stop');
+      const stopped = exact(
+        NotificationPreferences,
+        await portal('get', '/notification-preferences', people.spouse1),
+      );
+      expect(stopped.channels).toEqual(['EMAIL']);
+      expect(stopped.smsStopped).toBe(true);
+      expect(stopped.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: false });
+      expectError(
+        await portal('patch', '/notification-preferences', people.spouse1, optIn),
+        400,
+        'VALIDATION_FAILED',
+      );
+      expect(await texts()).toBe(false);
+
+      // The firm records a new opt-in: the stored choice counts again.
+      await consent('OPTED_IN', 'staff');
+      const back = exact(
+        NotificationPreferences,
+        await portal('get', '/notification-preferences', people.spouse1),
+      );
+      expect([back.channels, back.smsStopped]).toEqual([['EMAIL', 'SMS'], false]);
+      expect(back.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: true });
+      expect(await texts()).toBe(true);
+    } finally {
+      await asOwner(ids.firmA, (tx) =>
+        tx.communicationConsent.deleteMany({ where: { clientId: ids.c1, channel: 'SMS' } }),
+      );
+      await setPhone(people.spouse1, null);
+      await db.disconnect();
+    }
   });
 });
 
@@ -977,7 +1046,7 @@ describe('tenant isolation and the error order', () => {
 });
 
 describe('NotifyService reads the preferences (step 5)', () => {
-  it('skips a channel the person switched off; ALWAYS_SENT and no-recipient messages always go', async () => {
+  it("sends a client's email even with an older row switched off; ALWAYS_SENT and no-recipient messages too", async () => {
     const db = createDatabase(fx.appUrl, TEST_CLIENT_OPTIONS);
     const mails: OutgoingEmail[] = [];
     const service = new SendingNotifyService({
@@ -995,7 +1064,8 @@ describe('NotifyService reads the preferences (step 5)', () => {
     const base = { to: people.primary2.email, businessId: ids.firmA } as const;
     const invoice = { name: 'Riley', invoiceNumber: 'R6-2', link };
     try {
-      // primary2 switched BILLING email off above (portal PATCH).
+      // primary2's older row has BILLING email off (above): personal and service email still
+      // goes (Client Portal guide 9.2).
       await service.send({
         ...base,
         template: 'invoice.sent',
@@ -1008,7 +1078,7 @@ describe('NotifyService reads the preferences (step 5)', () => {
         recipient: { clientAccountId: ids.account2 },
         data: invoice,
       });
-      expect(mails).toHaveLength(0);
+      expect(mails).toHaveLength(2);
       await service.send({ ...base, template: 'invoice.sent', data: invoice });
       await service.send({
         ...base,
@@ -1023,6 +1093,8 @@ describe('NotifyService reads the preferences (step 5)', () => {
         data: { name: 'Riley', signInLink: link },
       });
       expect(mails.map((m) => m.subject)).toEqual([
+        `New invoice from Fake ${ids.slugA}`,
+        `New invoice from Fake ${ids.slugA}`,
         `New invoice from Fake ${ids.slugA}`,
         `Fake ${ids.slugA} requested a document`,
         expect.any(String) as string,
@@ -1058,9 +1130,9 @@ describe('NotifyService reads the preferences (step 5)', () => {
       const staff = { userId: people.staff1.id };
       expect(await prefs.allows(ids.firmA, staff, 'DOCUMENTS', 'email')).toBe(true);
       expect(await prefs.allows(ids.firmA, staff, 'DOCUMENTS', 'sms')).toBe(false);
-      // A client's own choice still counts (primary2 switched BILLING email off above).
+      // So do clients' (Client Portal guide 9.2): primary2's older row has BILLING email off.
       const client = { userId: people.primary2.id };
-      expect(await prefs.allows(ids.firmA, client, 'BILLING', 'email')).toBe(false);
+      expect(await prefs.allows(ids.firmA, client, 'BILLING', 'email')).toBe(true);
     } finally {
       await db.disconnect();
     }

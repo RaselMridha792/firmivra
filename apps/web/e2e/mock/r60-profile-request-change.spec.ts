@@ -66,6 +66,15 @@ test('the licensing card is read-only, asks for its own fields and shows Firmivr
   for (const label of ['Regulatory Body', 'License Type', 'License Number', 'Expiration Date'])
     await expect(licensing).toContainText(label);
   await expect(licensing.getByRole('img', { name: 'Locked' })).toHaveCount(5);
+  // The license Firmivra recorded (firm_licenses), read-only.
+  for (const value of [
+    'Fake State Board of Accountancy',
+    'CPA Firm Permit',
+    'FAKE-123456',
+    '12/31/2027',
+    'Active',
+  ])
+    await expect(licensing).toContainText(value);
   const status = licensing.getByTestId('licensing-request');
   await expect(status).toContainText('In Review');
   await expect(status).toContainText('Request #1003');
@@ -74,6 +83,7 @@ test('the licensing card is read-only, asks for its own fields and shows Firmivr
   await licensing.getByRole('button', { name: 'Request Change' }).click();
   const dialog = page.getByRole('dialog', { name: 'Request a Change' });
   await expect(dialog.getByLabel('New Legal Company Name')).toHaveCount(0);
+  await expect(dialog).toContainText('Current: FAKE-123456');
   await dialog.getByLabel('New License Number').fill('CPA-000111');
   await dialog.getByLabel('Reason for the change *').fill('Our license was renewed.');
   await dialog.getByRole('button', { name: 'Submit Request' }).click();

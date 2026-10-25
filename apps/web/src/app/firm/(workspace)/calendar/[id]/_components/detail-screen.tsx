@@ -87,7 +87,7 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
   );
 }
 
-type Ask = 'cancel' | 'complete' | 'noShow';
+export type Ask = 'cancel' | 'complete' | 'noShow';
 
 /**
  * Appointment detail (`/calendar/[id]`, guide §6, §17; no design: the calendar chip and the
@@ -441,7 +441,7 @@ const ASKS: Record<
 };
 
 /** Mark Completed, No-Show or Cancel (R12's calls), after asking; Cancel takes a reason. */
-function CloseModal({
+export function CloseModal({
   id,
   ask,
   name,

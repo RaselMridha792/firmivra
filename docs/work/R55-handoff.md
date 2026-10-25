@@ -1,11 +1,12 @@
 # R55: handoff
 
-## Start here (handoff of 2026-10-25, for the next R55)
+## Start here (handoff of 2026-10-25 evening, for the next R55)
 
 Read these first:
 - `CLAUDE.md` and `docs/work/README.md`;
 - this section;
-- `docs/work/R55-settings.md` (Client Portal, and "Built on Oct 25").
+- `docs/work/R55-oct25-review.md` (the schema requests and what is built without schema);
+- Octavia's review of Oct 25: `docs/specs/review-2026-10-25/CHANGE-LIST.md` (A and D), `dashboard--developer-feedback.md`, `client-signups--developer-instructions.md`, `screenshots/client-signups-expanded-sidebar.png`.
 
 The older sections below are history.
 
@@ -13,17 +14,24 @@ The older sections below are history.
 
 | PR | Branch | What |
 | --- | --- | --- |
-| #1122 | `rasel/R55-portal-contact` | (e) The portal's contact details come from Company Profile and Locations: the LVP public footer (address, phone, email, office hours) and the signed-in Need Help? cards. `PortalInfo.contact`. |
-| #1123 | `rasel/R55-portal-tabs` | (f) Settings > Client Portal > Portal Features turns five tabs on and off (`portal_module_visibility` rows without a client); the portal API refuses a hidden tab (403 `MODULE_OFF`, `@PortalTabRoute`); the menu, tabs, links and pages follow. |
-| next | `rasel/R55-portal-notify-consent` | (g) A client's email notices are always on (400 `EMAIL_ALWAYS_ON`); SMS only with their Text box on and never after a STOP in `communication_consents` (`smsStopped`). Pushed, merged with main at Oct 25; open when #1122 or #1123 merges. |
-| next | `rasel/R55-portal-announcements` | (h) Announcements from Communications in the portal: `GET /portal/{slug}/me/announcements`, the dismissable card on the tabs, and View All Announcements (`/{slug}/announcements`). Pushed. It edits the same files as #1123 (`(tabs)/_components/side-cards.tsx`, `(tabs)/layout.tsx`, `app.module.ts`): after #1123 merges, merge `origin/main`, keep both changes, and re-run `portal-announcements` e2e and the `r55-portal-announcements` and `r55-portal-tabs` mock specs. |
+| #1141 | `rasel/R55-checkout-busy-test` | Test only: `invoice-checkout` e2e's 503 and 409 overlap cases hold the fake Stripe on a gate instead of a fixed delay. |
+| #1146 | `rasel/R55-dashboard-periods` | Dashboard C1 (global period and the widgets' own), C2 (Revenue Overview Month, Quarter, Year, Custom), K8 (comparisons: arrow, %, words, metric-aware colour, No change, New, N/A). The periods live in `packages/types/src/dashboard/periods.ts` (`rangeOf`). |
+| #1143 | `rasel/R55-oct25-schema-requests` | Docs: the two schema requests for Rasel's tap (D4 card templates; Client Sign-ups) and this handoff. |
 
-Before opening each: `git fetch origin && git merge origin/main`, rebuild `@firmivra/types`, re-run its e2e and mock spec, and check CI on the head. Docs PRs go one at a time. Code PRs: at most two open.
+Code PRs: at most two open (#1141 and #1146 now). Docs PRs: one at a time (#1143).
 
-### Merged this round (Oct 25)
+### Next, in order (Octavia's review of Oct 25)
 
-- #1112 Staff working hours read-only; #1113 Leads duplicates warning.
-- Before that (Oct 24): #1107, #1108, #1109 and the earlier L and SM items (history below).
+1. **Dashboard C5** (stage drill-down), one PR after #1141 or #1146 merges:
+   - Leads stage to `/leads?stage=SUBMITTED&from=&to=` (the Leads screen reads no URL filters yet: add them to `leads-screen.tsx`'s initial filters);
+   - Intake to the intake forms list with its open statuses;
+   - In Progress and Completed to `/tax-returns` with the status and the pipeline's days.
+   - The Tax Returns list filters by one `workflowStatus` while the dashboard counts `tax_returns.status` IN_PROGRESS and `first_filed_at`. R60's K4 and K5 redefine those cards by workflow statuses and Accepted. Agree the parameters with R60 (or wait for K4 and K5) so the stage counts reconcile with the destinations (her V1).
+   - Consultation holds no records: keep it unclickable with the dash.
+2. **Dashboard D2** (Help: in-app support message, FAQ, live chat or call by configured availability; show only configured channels; nothing sent by opening Help). Find the header Help menu (the `?` button) first.
+3. **D5** waits for K5 (R60) and D4 (schema, #1143).
+4. **Client Sign-ups D1** (the screen, no schema): tabs Waiting for Approval / Approved / Declined with tenant-wide counts, search, Date submitted sort (newest first, stable id tie-break, server paging), Filters (date range, potential-match status), Checks column (Potential match amber / No match found green, from the existing `existingClient` link candidate until `match_status` lands), detail panel, activity list, client view preview, approval-mode card (read-only until the schema), Back with restored context (B01 to B04), states and accessibility (spec §10). Today's API: `apps/api/src/client-auth/client-sign-ups.*` (oldest first, Waiting and Declined only, no counts, no search): extend it.
+5. **Client Sign-ups D2 to D4** (the guarded flow, the approval-mode setting with D3's defaults, contracts, F01 to F14, S01 to S16, B01 to B04) after Rasel's tap on #1143's Request 2.
 
 ### Not done, and why
 
@@ -36,14 +44,13 @@ Before opening each: `git fetch origin && git merge origin/main`, rebuild `@firm
 
 1. Leads search in the Leads filter row; bulk Convert and Preferred; Begin Online duplicates warn and link, no merge (all merged).
 2. Staff hours are read-only (merged, #1112). HR is a custom role.
-3. Client Portal: only the parts without schema, (e) to (h), one PR each (above).
+3. Client Portal: only the parts without schema, (e) to (h), one PR each.
 4. SM4, SM14, ownership transfer and Sign Out All Sessions stay unbuilt until Rasel's taps.
+5. (Oct 25) Ticking Text in the portal does **not** record an SMS opt-in in `communication_consents` for campaigns (Octavia has not approved that): it stays the opt-in for notification texts only, as (g) does.
+6. (Oct 25) Dismissed announcements stay per browser (`localStorage`) for now.
 
 ### Needs from others (current)
 
-- **Rasel (decisions):**
-  - (g) Should a client's Text box in the portal also record an SMS opt-in in `communication_consents`? Today it is the opt-in for notification texts only: the consent row only stops texts (STOP, unsubscribe). Recording it would also make the client eligible for SMS campaigns, which use the same row.
-  - (h) Dismissing an announcement card is per browser (`localStorage`). Server-side read state needs a column, or the recipient's `OPENED` status.
 - **R0:**
   - #1051 `lead_follow_ups` (L8);
   - `appointments.lead_id`;

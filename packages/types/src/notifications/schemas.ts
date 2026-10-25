@@ -196,8 +196,9 @@ export const NotificationPreference = z.object({
   locked: z.boolean(),
   /**
    * Email always goes out, so `email` is true: show the email box checked and disabled. Every
-   * category for the firm's staff (Octavia's Notifications review of Oct 18: employee email is
-   * always on, enforced by the API and the sender), and the locked categories for everyone.
+   * category is about the person's own account or services, so this is true for everyone: the
+   * firm's staff (Octavia's Notifications review of Oct 18) and clients (Client Portal guide 9.2:
+   * personal and service email is mandatory), enforced by the API and the sender.
    */
   emailLocked: z.boolean(),
 });
@@ -215,6 +216,12 @@ export const NotificationPreferences = z.object({
    * choice: the person opts in again for the new number.
    */
   channels: z.array(DeliveryChannel),
+  /**
+   * The client stopped texts from this firm (a STOP reply or an unsubscribe, in the firm's
+   * consent records): SMS is not offered and nothing is texted until the firm records a new
+   * opt-in (Client Portal guide 7.5). Always false for the firm's staff.
+   */
+  smsStopped: z.boolean(),
   /** Every category, in the order of NotificationCategory. */
   items: z.array(NotificationPreference),
 });
@@ -223,8 +230,8 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
 /**
  * PATCH .../notification-preferences: only the categories and channels given change (one switch,
  * or the whole form). A locked category is refused like any bad input (400), and so is
- * `sms: true` while SMS is not in the person's `channels` (the API checks that one). For the
- * firm's staff, `email: false` is 400 EMAIL_ALWAYS_ON.
+ * `sms: true` while SMS is not in the person's `channels` (the API checks that one).
+ * `email: false` is 400 EMAIL_ALWAYS_ON for everyone.
  */
 export const UpdateNotificationPreferencesRequest = z.strictObject({
   items: z

@@ -18,7 +18,7 @@ import { DashboardService } from './dashboard.service.js';
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
-  /** ?pipelinePeriod and ?revenueYear: the design's This Month and This Year selectors. */
+  /** The global period, the Client Pipeline's and Revenue Overview's (C1, C2), each with Custom days. */
   @Get('summary')
   summary(
     @CurrentAuth() auth: AuthContext,

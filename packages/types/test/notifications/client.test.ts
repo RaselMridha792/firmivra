@@ -48,6 +48,7 @@ const item = {
 };
 const prefs = {
   channels: ['EMAIL'],
+  smsStopped: false,
   items: [{ category: 'ACCOUNT', email: true, sms: false, locked: true, emailLocked: true }],
 };
 
@@ -229,7 +230,9 @@ describe('notification links', () => {
       `/clients/${clientId}/invoices`,
     );
     expect(notificationLink(target('engagement', clientId), firm)).toBe(`/clients/${clientId}`);
-    expect(notificationLink(target('appointment'), firm)).toBe('/calendar');
+    // The appointment itself (Octavia's N3), with or without a client.
+    expect(notificationLink(target('appointment'), firm)).toBe(`/calendar/${id}`);
+    expect(notificationLink(target('appointment', clientId), firm)).toBe(`/calendar/${id}`);
     expect(notificationLink(target('client_account'), firm)).toBe('/sign-ups');
     expect(notificationLink(target('membership'), firm)).toBe('/team');
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
@@ -299,6 +302,9 @@ describe('notification schemas', () => {
     expect(Object.keys(NOTIFICATION_CATEGORY_LABELS)).toEqual(NotificationCategory.options);
     expect(NotificationPreferences.parse(prefs)).toEqual(prefs);
     expect(NotificationPreferences.safeParse({ ...prefs, channels: ['PUSH'] }).success).toBe(false);
+    // A client's stopped texts are always said, never left out.
+    const { smsStopped: _left, ...without } = prefs;
+    expect(NotificationPreferences.safeParse(without).success).toBe(false);
   });
 
   it('locks only account notices, and every locked event is an account one', () => {

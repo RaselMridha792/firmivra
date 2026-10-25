@@ -69,7 +69,6 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
-  /** A saved Create Staff form (no account, no invite). */
   /** A saved job title (Offices & Job Titles). */
   staffJobTitle: {
     async create({ tx, businessId }) {
@@ -80,6 +79,17 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A saved work schedule (Offices & Job Titles > Work Schedules). */
+  staffWorkSchedule: {
+    async create({ tx, businessId }) {
+      const row = await tx.staffWorkSchedule.create({
+        data: { businessId, name: `Fake schedule ${tag()}` },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
+  /** A saved Create Staff form (no account, no invite). */
   staffDraft: {
     async create({ tx, businessId, get }) {
       const owner = await tx.membership.findFirstOrThrow({
@@ -233,4 +243,14 @@ export const cases: CaseModule['cases'] = {
   },
   ['POST /api/v1/business/staff-job-titles/:id/archive']: { params: { id: 'staffJobTitle' } },
   ['POST /api/v1/business/staff-job-titles/:id/restore']: { params: { id: 'staffJobTitle' } },
+  ['PATCH /api/v1/business/staff-work-schedules/:id']: {
+    params: { id: 'staffWorkSchedule' },
+    body: () => ({ name: `Fake renamed schedule ${tag()}` }),
+  },
+  ['POST /api/v1/business/staff-work-schedules/:id/archive']: {
+    params: { id: 'staffWorkSchedule' },
+  },
+  ['POST /api/v1/business/staff-work-schedules/:id/restore']: {
+    params: { id: 'staffWorkSchedule' },
+  },
 };

@@ -2,6 +2,7 @@
 
 import type { DashboardSummary } from '@firmivra/types';
 import type { UseQueryResult } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { Widget } from './widget';
 
 /** The design's five stages and bar colours. */
@@ -14,10 +15,19 @@ const STAGES = [
   { key: 'completed', label: 'Completed', bar: 'bg-linear-to-t from-success to-success/60' },
 ] as const;
 
-/** Where the firm's work is; a stage no record holds yet shows a dash and an empty track. */
-export function PipelineWidget({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
+/**
+ * Where the firm's work is; a stage no record holds yet shows a dash and an empty track. The
+ * widget's own period (C1, `action`) picks the days Completed counts; the other stages are open now.
+ */
+export function PipelineWidget({
+  summary,
+  action,
+}: {
+  summary: UseQueryResult<DashboardSummary>;
+  action?: ReactNode;
+}) {
   return (
-    <Widget title="Client Pipeline" query={summary} isEmpty={() => false} empty="">
+    <Widget title="Client Pipeline" query={summary} isEmpty={() => false} empty="" action={action}>
       {({ pipeline }) => {
         const max = Math.max(1, ...STAGES.map((s) => pipeline[s.key] ?? 0));
         const total = STAGES.reduce((sum, s) => sum + (pipeline[s.key] ?? 0), 0);
