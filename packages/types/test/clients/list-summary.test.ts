@@ -151,14 +151,34 @@ describe('api.clients summary and bulk', () => {
 });
 
 describe('api.dashboard summary query', () => {
-  it('defaults the pipeline period and sends the revenue year', async () => {
-    expect(DashboardSummaryQuery.parse({})).toEqual({ pipelinePeriod: 'THIS_MONTH' });
+  it('defaults the periods and sends the chosen ones', async () => {
+    expect(DashboardSummaryQuery.parse({})).toEqual({
+      period: 'THIS_MONTH',
+      pipelinePeriod: 'THIS_MONTH',
+      revenuePeriod: 'YEAR',
+    });
     expect(DashboardSummaryQuery.safeParse({ pipelinePeriod: 'NEXT_YEAR' }).success).toBe(false);
     const { fn, calls } = fakeFetch(500, {});
     const dashboard = createDashboardClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
     await dashboard.summary({ pipelinePeriod: 'THIS_YEAR', revenueYear: 2025 }).catch(() => null);
     expect(calls[0]?.url).toBe(
-      '/api/v1/business/dashboard/summary?pipelinePeriod=THIS_YEAR&revenueYear=2025',
+      '/api/v1/business/dashboard/summary?period=THIS_MONTH&pipelinePeriod=THIS_YEAR&revenuePeriod=YEAR&revenueYear=2025',
     );
+  });
+
+  // Octavia's review of Oct 25, C1: a Custom period needs both days, in order, and only Custom.
+  it('checks Custom days and keeps the revenue year to the Year period', () => {
+    const ok = (q: object) => DashboardSummaryQuery.safeParse(q).success;
+    expect(ok({ period: 'CUSTOM', from: '2026-10-01', to: '2026-10-25' })).toBe(true);
+    expect(ok({ period: 'CUSTOM', from: '2026-10-01' })).toBe(false);
+    expect(ok({ period: 'CUSTOM', from: '2026-10-25', to: '2026-10-01' })).toBe(false);
+    expect(ok({ period: 'TODAY', from: '2026-10-01' })).toBe(false);
+    expect(
+      ok({ pipelinePeriod: 'CUSTOM', pipelineFrom: '2026-10-01', pipelineTo: '2026-10-02' }),
+    ).toBe(true);
+    expect(ok({ revenuePeriod: 'MONTH', revenueYear: 2025 })).toBe(false);
+    expect(
+      ok({ revenuePeriod: 'CUSTOM', revenueFrom: '2026-10-01', revenueTo: '2026-10-01' }),
+    ).toBe(true);
   });
 });

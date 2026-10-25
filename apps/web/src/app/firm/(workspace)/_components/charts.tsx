@@ -1,11 +1,28 @@
 'use client';
 
-import type { DashboardSummary } from '@firmivra/types';
+import type { DashboardRevenue, DashboardSummary } from '@firmivra/types';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { money } from './kpi-cards';
+import type { ReactNode } from 'react';
+import { money, Trend } from './kpi-cards';
+import { comparedWith } from './period-select';
 import { Widget } from './widget';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const days = (from: string, to: string) => (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1;
+
+/** What the revenue comparison is against (C2): the API's span before, in words. */
+function revenueAgainst(r: DashboardRevenue, today: string): string {
+  if (r.period === 'MONTH') return comparedWith('THIS_MONTH');
+  if (r.period === 'QUARTER') return comparedWith('THIS_QUARTER');
+  if (r.period === 'YEAR') return r.to === today ? comparedWith('THIS_YEAR') : 'vs the year before';
+  return comparedWith('CUSTOM', days(r.from, r.to));
+}
+
+/** A bar's label: its day of the month, or its month when it covers more than a day. */
+const barLabel = (b: { from: string; to: string }) =>
+  b.from === b.to
+    ? String(Number(b.from.slice(8)))
+    : (MONTHS[Number(b.from.slice(5, 7)) - 1] ?? '');
 const short = (cents: number) =>
   new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(
     cents / 100,
@@ -18,28 +35,46 @@ function niceMax(cents: number): number {
   return step * 3;
 }
 
-type Props = { summary: UseQueryResult<DashboardSummary> };
+type Props = {
+  summary: UseQueryResult<DashboardSummary>;
+  /** The period selector in the title bar (C2). */
+  action?: ReactNode;
+};
 
-/** This year's money received by month: plain SVG bars, the current month in gold. */
-export function RevenueOverview({ summary }: Props) {
+/**
+ * The period's money received: plain SVG bars (days for a month, months otherwise), the bar
+ * holding today in gold, and the change against the span before (C2).
+ */
+export function RevenueOverview({ summary, action }: Props) {
   return (
-    <Widget title="Revenue Overview" query={summary} isEmpty={() => false} empty="">
+    <Widget title="Revenue Overview" query={summary} isEmpty={() => false} empty="" action={action}>
       {({ revenue, today }) => {
-        const peak = Math.max(0, ...revenue.byMonthCents);
+        const bars = revenue.buckets;
+        const peak = Math.max(0, ...bars.map((b) => b.cents));
         const top = niceMax(peak);
-        const now = Number(today.slice(5, 7)) - 1;
         const y = (cents: number) => 130 - (Math.max(0, cents) / top) * 120;
+        const slot = 300 / Math.max(1, bars.length);
+        const width = Math.max(2, Math.min(14, slot * 0.6));
+        // Every bar's label while they fit, every few otherwise.
+        const every = Math.ceil(bars.length / 12);
         return (
           <>
             {revenue.totalCents > 0 ? (
-              <p className="text-3xl font-bold text-heading">{money(revenue.totalCents)}</p>
+              <div className="flex flex-wrap items-end gap-3">
+                <p className="text-3xl font-bold text-heading">{money(revenue.totalCents)}</p>
+                <Trend
+                  kpi={{ value: revenue.totalCents, previous: revenue.previousCents }}
+                  favour="up"
+                  against={revenueAgainst(revenue, today)}
+                />
+              </div>
             ) : (
-              <p className="text-sm text-muted">No revenue yet</p>
+              <p className="text-sm text-muted">No revenue in this period</p>
             )}
             <svg
               viewBox="0 0 340 150"
               role="img"
-              aria-label={`Revenue by month, ${revenue.year}`}
+              aria-label={`Revenue from ${revenue.from} to ${revenue.to}: ${money(revenue.totalCents)}`}
               className="w-full"
             >
               {[0, 1, 2, 3].map((i) => (
@@ -56,26 +91,28 @@ export function RevenueOverview({ summary }: Props) {
                   </text>
                 </g>
               ))}
-              {revenue.byMonthCents.map((cents, i) => (
-                <g key={MONTHS[i]}>
+              {bars.map((b, i) => (
+                <g key={b.from}>
                   <rect
-                    x={40 + i * 25}
-                    width="14"
-                    y={y(cents)}
-                    height={130 - y(cents)}
+                    x={40 + i * slot + (slot - width) / 2}
+                    width={width}
+                    y={y(b.cents)}
+                    height={130 - y(b.cents)}
                     rx="2"
-                    className={i === now ? 'fill-gold' : 'fill-info'}
+                    className={b.from <= today && today <= b.to ? 'fill-gold' : 'fill-info'}
                   >
-                    <title>{`${MONTHS[i]}: ${money(cents)}`}</title>
+                    <title>{`${b.from === b.to ? b.from : `${b.from} to ${b.to}`}: ${money(b.cents)}`}</title>
                   </rect>
-                  <text
-                    x={47 + i * 25}
-                    y="146"
-                    textAnchor="middle"
-                    className="fill-muted text-[9px]"
-                  >
-                    {MONTHS[i]}
-                  </text>
+                  {i % every === 0 ? (
+                    <text
+                      x={40 + i * slot + slot / 2}
+                      y="146"
+                      textAnchor="middle"
+                      className="fill-muted text-[9px]"
+                    >
+                      {barLabel(b)}
+                    </text>
+                  ) : null}
                 </g>
               ))}
             </svg>
@@ -97,10 +134,16 @@ const RING = [
 ];
 const DOT = ['bg-info', 'bg-gold', 'bg-sky', 'bg-purple', 'bg-success', 'bg-orange', 'bg-accent'];
 
-/** This year's money by service: a plain SVG donut and its legend. */
-export function ServiceBreakdown({ summary }: Props) {
+/** The revenue period's money by service: a plain SVG donut and its legend. */
+export function ServiceBreakdown({ summary, action }: Props) {
   return (
-    <Widget title="Service Breakdown" query={summary} isEmpty={() => false} empty="">
+    <Widget
+      title="Service Breakdown"
+      query={summary}
+      isEmpty={() => false}
+      empty=""
+      action={action}
+    >
       {({ revenue }) => {
         const total = revenue.byService.reduce((sum, s) => sum + s.cents, 0);
         const C = 2 * Math.PI * 40;
@@ -159,7 +202,7 @@ export function ServiceBreakdown({ summary }: Props) {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted">No revenue yet</p>
+              <p className="text-sm text-muted">No revenue in this period</p>
             )}
           </div>
         );

@@ -886,7 +886,10 @@ export function createDocumentLibraryMock(options: {
       if (!client) throw fail(404, 'NOT_FOUND', 'Not found');
       const template = templates.find((t) => t.id === input.templateId);
       const items = [
-        ...(template?.items ?? []).map((i) => ({ ...i, instructions: i.description })),
+        ...(input.copyTemplateItems ? (template?.items ?? []) : []).map((i) => ({
+          ...i,
+          instructions: i.description,
+        })),
         ...(input.items ?? []).map((i) => ({ ...i, instructions: i.instructions ?? null })),
       ];
       if (

@@ -678,6 +678,45 @@ describe("sending tells the client on the request's own switches", () => {
   });
 });
 
+describe('a request type with its documents as edited', () => {
+  it('keeps the type without copying its documents, and still checks the template', async () => {
+    const draft = ok(
+      await call('post', '/document-request-packets', staffA, {
+        idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'Typed, edited checklist',
+        templateId: ids.template,
+        copyTemplateItems: false,
+        items: [{ title: 'W-2', required: false }, { title: 'Fake lease' }],
+      }),
+      RequestPacketDetail,
+      201,
+    );
+    expect(draft.templateId).toBe(ids.template);
+    expect(draft.checklist.map((i) => [i.title, i.required])).toEqual([
+      ['W-2', false],
+      ['Fake lease', true],
+    ]);
+    const typed = ok(
+      await call('get', `/document-request-packets?tab=draft&templateId=${ids.template}`, staffA),
+      RequestPacketPage,
+    );
+    expect(typed.items.map((r) => r.id)).toContain(draft.id);
+    expectError(
+      await call('post', '/document-request-packets', staffA, {
+        idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'x',
+        templateId: randomUUID(),
+        copyTemplateItems: false,
+        items: [{ title: 'W-2' }],
+      }),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
 describe('another firm', () => {
   it('reaches none of it', async () => {
     for (const [method, path, body] of [

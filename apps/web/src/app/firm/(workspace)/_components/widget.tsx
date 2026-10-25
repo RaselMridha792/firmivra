@@ -16,6 +16,7 @@ export function Widget<T>({
   isEmpty,
   className = '',
   navy = false,
+  action,
   children,
 }: {
   title: string;
@@ -27,6 +28,8 @@ export function Widget<T>({
   className?: string;
   /** The design's filled navy title bar (Upcoming Appointments). */
   navy?: boolean;
+  /** A control in the title bar, such as the widget's period selector. */
+  action?: ReactNode;
   children: (data: T) => ReactNode;
 }) {
   return (
@@ -39,6 +42,7 @@ export function Widget<T>({
         className={`flex items-center justify-between gap-3 ${navy ? '-mx-5 -mt-5 rounded-t-xl bg-navigation px-5 py-3 text-on-action' : 'text-heading'}`}
       >
         <h2 className="text-xl font-bold">{title}</h2>
+        {action}
         {link ? (
           <Link
             href={link.href}

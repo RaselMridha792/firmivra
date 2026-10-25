@@ -19,6 +19,77 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 25 (fifth session, later): start here
+
+The fifth R60 stops here; its context is full. The next R60 reads `CLAUDE.md`,
+`docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules) and this file, then
+`git fetch origin`.
+
+**Rasel's message (Oct 25, evening).** Octavia's review of Oct 25 is
+`docs/specs/review-2026-10-25/CHANGE-LIST.md`, with her guides `dashboard--developer-feedback.md`
+and `clients--developer-feedback.md`. R60 takes:
+- **A. Dashboard,** in four groups, one PR each:
+  1. KPI cards and destinations (K2 to K7).
+  2. Tasks, appointments and notifications (T4, T5, A2 to A4, N2, N3).
+  3. Quick actions and + New (Q1 to Q7, Q10).
+  4. The client form and Report a Problem (D1, D3).
+- **B. Clients (section E),** in two PRs:
+  1. E1 to E7.
+  2. E8 to E10, plus the Added Last 30 Days filter, More Filters and the Archived Clients shortcut.
+  Export, the extra bulk actions and linked Business and Personal profiles are later, or for a fresh session.
+
+Two PRs open at most. Keep her PASS items working, never seed her example data, and do not touch
+`packages/db`, `infra` or `.github`: write a request here and tell Rasel. Item (c), the staff phone
+verification, waits for R1's `staff_phone_codes` PR (Rasel's tap is given; R1 builds it after the
+prod release).
+
+**Open (two, the limit):**
+- **#1147 (group 1, K2 to K7)** (`rasel/R60-dashboard-kpis`).
+- **#1148 (group 2, T4, T5, A2 to A4, N2, N3)** (`rasel/R60-dashboard-lists`).
+
+**Built and pushed, no PR yet:** group 3 (Q1 to Q7, Q10), `rasel/R60-dashboard-quick` (head
+`ed98259`, from `main`). When a slot frees: merge `origin/main`. If #1148 merged first, the header
+popover in `firm-controls.tsx` conflicts: keep this branch's `Popover`, which already has #1148's
+`onOpen`, and keep #1148's `FirmBell`. The R60 file's progress log conflicts too: keep both entries,
+`main`'s first. Then run the checks and `gh pr create` with this session's `pr-quick.md` (its
+sheet link is pinned to `ed98259`).
+
+**Next, in this order:**
+1. **Group 4:** D1 (the shared client form: name, email, phone and the right address required for
+   Individual and Business, Business Name for Business, no misleading "optional", home or business
+   address wording) and D3 (Report a Problem's text exactly: "Describe what went wrong. Your firm
+   name and affected page will be included in the report."; attachments the user's choice). The
+   form is `clients/_components/clients-dialogs.tsx` (`AddClientDialog`); Report a Problem is in
+   `components/app-shell/firm-controls.tsx` (the Help panel). Check `packages/types` client
+   schemas for the required fields: E5 (Clients PR 1) needs the same rules plus a responsible party
+   for a Business; if that needs a column, write the request here first.
+2. **Clients PR 1, E1 to E7:**
+   - Pending Docs and Balance Due cards filter the list.
+   - Last Activity: inclusive boundaries in the firm's time zone.
+   - Stacy's service linkage: reconcile; do not rename services.
+   - Profile tabs Services, Intake Forms, Tasks, Notes and Activity, with enrolled services and the
+     Activity Log at the bottom of Overview.
+   - Required fields with the responsible party.
+   - Save / Discard / Keep Editing on Cancel.
+   - Return to Clients restores filters, search, sort, page and scroll.
+3. **Clients PR 2:** E8 to E10, Added Last 30 Days, More Filters and the Archived Clients shortcut.
+
+**Group 1's decisions (in #1147's body):**
+- New Leads = stage New Lead created this month.
+- Returns In Progress = `TAX_RETURN_IN_PROGRESS_STATUSES`.
+- Accepted Returns = accepted this month according to the status history.
+- Outstanding = every OPEN invoice.
+- Back to Dashboard is `?back=dashboard` (`lib/from-dashboard.ts`, `components/back-to-dashboard.tsx`).
+
+**Local state and tools:**
+- `firmivra_r60` holds one fake license and two fake upcoming appointments for LVP (for the sheets).
+- This session's scratchpad:
+  `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/40a63a02-fb97-48a6-861e-a53c02853169/scratchpad/`.
+  It holds `shots-kpi.cjs`, `shots-lists.cjs`, `shots-quick.cjs`, `compose.cjs` (now takes .webp),
+  `spec-*.json`, `pr-*.md` and `sub.py`.
+- Pass non-ASCII text to Python as a file, not through a heredoc on stdin (it arrives mangled).
+- A server page cannot call a function from a `'use client'` file: keep such helpers in `lib/`.
+
 ### Oct 25 (fifth session, end): start here
 
 The fifth R60 stops here. The next R60 reads `CLAUDE.md`, `docs/work/README.md`,
@@ -783,3 +854,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
   the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
   no table holds a staff code (column request item 13, for Rasel); (d) next.
+- Oct 25 (fifth session): Dashboard group 2 (`rasel/R60-dashboard-lists`): T4 (a task's title
+  opens `/tasks/{id}`; the client is a separate link, shown as a link only with Clients view), T5
+  (the checkbox asks "Mark this task complete?"; Cancel changes nothing; an error says the task is
+  unchanged), A2 (a row opens `/calendar/{id}`), A3 (the row menu: View Details, Edit,
+  Reschedule, Send Reminder, Mark Complete, Cancel with the calendar's own confirmation, Open
+  Client; by the role's grid; the video icon links only an https meeting link), A4 (the next two
+  weeks in a scrolling, keyboard-reachable list; `RowMenu` gains `fixed` so a scrolling list does
+  not clip it), N2 (opening the bell marks the notifications it shows as read), N3 (an appointment
+  notification opens `/calendar/{id}`). Contract unit 49 of 49, mock specs 3 new plus the
+  dashboard's and the notifications' 21; sheet shot on the real API (two fake appointments added
+  to the local database).
