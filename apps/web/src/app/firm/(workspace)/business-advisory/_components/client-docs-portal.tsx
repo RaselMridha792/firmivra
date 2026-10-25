@@ -38,6 +38,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { advisoryEngagements } from './advisory-engagements';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { uploadFile } from '../../../../../lib/upload';
@@ -92,6 +93,22 @@ async function download(id: string) {
 // ---------- Documents ----------
 
 /**
+ * The client's engagements on its advisory services. The documents API's `serviceId` is an
+ * engagement (the client's own service), while an advisory workstream names the catalog service:
+ * sending the workstream's id found nothing ("We couldn't find that item", Octavia Oct 25, B1 and
+ * B2). Files and requests go to an ACTIVE engagement (409 NO_OPEN_SERVICE otherwise).
+ */
+function useAdvisoryEngagements(
+  firmClientId: string | undefined,
+  workstreams: readonly { serviceId: string }[],
+) {
+  const query = useApiQuery([...BA_KEY, 'client-engagements', firmClientId], () =>
+    firmClientId ? api.engagements.listForClient(firmClientId) : Promise.resolve([]),
+  );
+  return { query, ...advisoryEngagements(query.data ?? [], workstreams) };
+}
+
+/**
  * /business-advisory/clients/[clientId]/documents: the client's files on their advisory services
  * (guide §6, §11), in the firm's private storage; upload (shared with the client or internal) and
  * request documents. Files live in the Documents module: reclassify and archive are done there.
@@ -100,8 +117,10 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
   const client = useAdvisoryClient(advisoryClientId);
   const c = client.data;
   const firmClientId = c?.client.id;
-  const services = c?.workstreams ?? [];
-  const advisory = new Set(services.map((w) => w.serviceId));
+  const engagements = useAdvisoryEngagements(firmClientId, c?.workstreams ?? []);
+  const services = engagements.all;
+  const open = engagements.open;
+  const advisory = engagements.ids;
   const { act, toast, say } = useAct();
   const [serviceId, setServiceId] = useState('');
   const [search, setSearch] = useState('');
@@ -202,7 +221,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             <button
               type="button"
               className={outlined}
-              disabled={!c || !services.length}
+              disabled={!c || !open.length}
               onClick={() => setDialog('request')}
             >
               <FilePlus aria-hidden weight="fill" className="size-4 text-action" /> Request Document
@@ -210,13 +229,30 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             <button
               type="button"
               className={primary}
-              disabled={!c || !services.length}
+              disabled={!c || !open.length}
               onClick={() => setDialog('upload')}
             >
               <FileArrowUp aria-hidden weight="fill" className="size-4" /> Upload Document
             </button>
           </div>
         </div>
+        {c && engagements.query.isError ? (
+          <p
+            role="status"
+            className="rounded-control bg-warning-soft px-4 py-3 text-sm text-heading"
+          >
+            {c.client.name}&apos;s services could not be loaded right now, so nothing can be filed
+            or requested here yet.
+          </p>
+        ) : c && engagements.query.isSuccess && !open.length ? (
+          <p
+            role="status"
+            className="rounded-control bg-warning-soft px-4 py-3 text-sm text-heading"
+          >
+            {c.client.name} has no active advisory service, so nothing can be filed or requested
+            here yet. Start the service from the client&apos;s profile first.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <SearchBox value={search} onChange={reset(setSearch)} label="Search documents" />
           <FilterSelect
@@ -319,7 +355,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       {dialog === 'upload' && c && firmClientId ? (
         <UploadDocumentDialog
           firmClientId={firmClientId}
-          services={services}
+          services={open}
           onClose={() => setDialog(undefined)}
           onDone={(name) => {
             setDialog(undefined);
@@ -330,7 +366,8 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       {dialog === 'request' && c && firmClientId ? (
         <RequestDocumentDialog
           firmClientId={firmClientId}
-          services={services}
+          clientName={c?.client.name ?? ''}
+          services={open}
           onClose={() => setDialog(undefined)}
           onDone={(title) => {
             setDialog(undefined);
@@ -417,6 +454,7 @@ function UploadDocumentDialog({
           />
           <Select
             label="Type"
+            disabled={categories.isSuccess && !categories.data.some((x) => !x.archivedAt)}
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
             options={[
@@ -427,6 +465,17 @@ function UploadDocumentDialog({
             ]}
           />
         </div>
+        {categories.isSuccess && !categories.data.some((x) => !x.archivedAt) ? (
+          <p className="text-xs text-muted">
+            The firm has no document types yet, so this file is saved without one.{' '}
+            <Link
+              href="/documents/settings?tab=general"
+              className="font-medium text-action underline"
+            >
+              Add document types
+            </Link>
+          </p>
+        ) : null}
         <FileDropzone
           label="File"
           onFiles={(files) => setFile(files[0])}
@@ -455,11 +504,13 @@ function UploadDocumentDialog({
 
 function RequestDocumentDialog({
   firmClientId,
+  clientName,
   services,
   onClose,
   onDone,
 }: {
   firmClientId: string;
+  clientName: string;
   services: Workstreams;
   onClose: () => void;
   onDone: (title: string) => void;
@@ -508,6 +559,16 @@ function RequestDocumentDialog({
     >
       <div className="flex flex-col gap-3" data-testid="request-document">
         <ErrorLine text={error} />
+        <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-control bg-canvas px-4 py-3 text-sm">
+          <dt className="font-semibold text-heading">Client</dt>
+          <dd className="text-text">{clientName}</dd>
+          <dt className="font-semibold text-heading">Recipient</dt>
+          <dd className="text-text">The client&apos;s portal login</dd>
+          <dt className="font-semibold text-heading">Item</dt>
+          <dd className="text-text">{title.trim() || 'Not named yet'}</dd>
+          <dt className="font-semibold text-heading">Channel</dt>
+          <dd className="text-text">Client portal, with an email that a request is waiting</dd>
+        </dl>
         <Select
           label="Service"
           value={serviceId}
@@ -544,7 +605,7 @@ export function ClientPortalTab({ advisoryClientId }: { advisoryClientId: string
   const client = useAdvisoryClient(advisoryClientId);
   const c = client.data;
   const firmClientId = c?.client.id;
-  const advisory = new Set((c?.workstreams ?? []).map((w) => w.serviceId));
+  const advisory = useAdvisoryEngagements(firmClientId, c?.workstreams ?? []).ids;
   const { act, toast } = useAct();
   const record = useApiQuery([...BA_KEY, 'client-record', firmClientId], () =>
     firmClientId
