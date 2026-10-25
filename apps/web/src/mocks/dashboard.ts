@@ -1,8 +1,12 @@
 import {
+  bucketsOf,
   type DashboardClient,
   type DashboardSummary,
   DashboardSummaryQuery,
   parseInput,
+  rangeOf,
+  revenueRangeOf,
+  shapeOf,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 
@@ -15,7 +19,13 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
   const q = parseInput(DashboardSummaryQuery, query);
   const today = new Date().toISOString().slice(0, 10);
   const thisYear = Number(today.slice(0, 4));
-  const year = q.revenueYear ?? thisYear;
+  const custom = (from?: string, to?: string) => (from && to ? { from, to } : undefined);
+  const range = rangeOf(q.period, today, custom(q.from, q.to));
+  const pipeline = rangeOf(q.pipelinePeriod, today, custom(q.pipelineFrom, q.pipelineTo));
+  const revenueRange = revenueRangeOf(q.revenuePeriod, today, {
+    year: q.revenueYear,
+    custom: custom(q.revenueFrom, q.revenueTo),
+  });
   const day = (offset: number) =>
     new Date(Date.parse(`${today}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
   const client = (n: number, displayName: string) => ({
@@ -27,20 +37,40 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
     name,
     cents,
   });
-  const month = Number(today.slice(5, 7));
-  // A past year is whole and a bit smaller; this year runs to this month.
-  const byMonthCents = [8, 14, 22, 30, 11, 18, 6, 12, 9, 15, 10, 7].map((k, i) =>
-    year < thisYear ? Math.round(k * 79_000) : i < month ? k * 100_000 : 0,
+  // Money on every bar up to today, nothing after it (a year's months to come are zero).
+  const pattern = [8, 14, 22, 30, 11, 18, 6, 12, 9, 15, 10, 7];
+  const daily =
+    shapeOf(q.revenuePeriod) === 'days' ||
+    revenueRange.to.slice(0, 7) === revenueRange.from.slice(0, 7);
+  const buckets = bucketsOf(revenueRange.from, revenueRange.to, shapeOf(q.revenuePeriod)).map(
+    (b, i) => ({
+      ...b,
+      cents: b.from > today ? 0 : (pattern[i % pattern.length] ?? 0) * (daily ? 4_000 : 100_000),
+    }),
   );
-  const totalCents = byMonthCents.reduce((sum, c) => sum + c, 0);
+  const totalCents = buckets.reduce((sum, b) => sum + b.cents, 0);
+  // Flow cards scale with the period's length; Today shows a first acceptance (New) and no leads.
+  const days = (Date.parse(range.to) - Date.parse(range.from)) / 86_400_000 + 1;
+  // This Month keeps the design's numbers.
+  const scale = (n: number) =>
+    q.period === 'THIS_MONTH' ? n : Math.max(0, Math.round((n * days) / 30));
+  const flows =
+    q.period === 'TODAY'
+      ? { newLeads: { value: 0, previous: 0 }, acceptedReturns: { value: 3, previous: 0 } }
+      : {
+          newLeads: { value: scale(24), previous: scale(17) },
+          acceptedReturns: { value: scale(52), previous: scale(41) },
+        };
 
+  const pipelineDays = (Date.parse(pipeline.to) - Date.parse(pipeline.from)) / 86_400_000 + 1;
   return {
     today,
+    range,
     kpis: {
       totalClients: { value: 127, previous: 113 },
-      newLeads: { value: 24, previous: 17 },
-      returnsInProgress: { value: 38, previous: 32 },
-      completedReturns: { value: 52, previous: 41 },
+      newLeads: flows.newLeads,
+      returnsInProgress: { value: 38, previous: 38 },
+      acceptedReturns: flows.acceptedReturns,
       outstandingInvoicesCents: { value: 1_856_000, previous: null },
       appointmentsToday: { value: 6, previous: null },
     },
@@ -49,14 +79,18 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
       consultation: null,
       intake: 15,
       inProgress: 38,
-      completed: { THIS_MONTH: 52, LAST_MONTH: 41, THIS_YEAR: 318 }[q.pipelinePeriod],
-      period: q.pipelinePeriod,
+      completed: pipeline.period === 'THIS_MONTH' ? 52 : Math.round((52 * pipelineDays) / 30),
+      period: pipeline.period,
+      from: pipeline.from,
+      to: pipeline.to,
     },
     revenue: {
-      year,
+      period: q.revenuePeriod,
+      from: revenueRange.from,
+      to: revenueRange.to,
       totalCents,
-      previousYearCents: Math.round(totalCents / 1.27),
-      byMonthCents,
+      previousCents: totalCents > 0 ? Math.round(totalCents / 1.27) : null,
+      buckets,
       byService: [
         service(1, 'Personal Tax Prep', Math.round(totalCents * 0.42)),
         service(2, 'Business Tax Prep', Math.round(totalCents * 0.24)),

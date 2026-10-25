@@ -14,20 +14,23 @@ test('every widget of the design, with trends only where the API gives the perio
   const cards = page.getByTestId('kpi-card');
   await expect(cards).toHaveCount(6);
   await expect(cards.first()).toContainText('127');
+  // K8 (Oct 25): arrow, percentage and words against the equivalent period before.
   for (const [i, label, trend] of [
-    [0, 'Total Clients', '12%vs last month'],
-    [1, 'New Leads', '41%vs last month'],
-    [2, 'Returns In Progress', '19%vs last week'],
-    [3, 'Completed Returns', '27%vs last month'],
+    [0, 'Total Clients', 'Up 12%, favourablevs last month to date'],
+    [1, 'New Leads', 'Up 41%, favourablevs last month to date'],
+    [2, 'Returns In Progress', 'No changevs last month to date'],
+    [3, 'Accepted Returns', 'Up 27%, favourablevs last month to date'],
   ] as const) {
     await expect(cards.nth(i)).toContainText(label);
-    await expect(cards.nth(i)).toContainText(`Up ${trend}`);
+    await expect(cards.nth(i)).toContainText(trend);
   }
-  // No previous value: no trend.
-  await expect(cards.nth(4)).toHaveText(/\$18,560Outstanding Invoices$/);
+  // No balance history: N/A, never an invented comparison.
+  await expect(cards.nth(4)).toHaveText(
+    /\$18,560Outstanding InvoicesN\/Ano earlier figure is kept$/,
+  );
   await expect(cards.nth(5).getByRole('link', { name: 'View Calendar' })).toHaveAttribute(
     'href',
-    '/calendar',
+    '/calendar/today?back=dashboard',
   );
 
   const stages = page.getByTestId('pipeline-stage');
@@ -39,7 +42,7 @@ test('every widget of the design, with trends only where the API gives the perio
     'Completed52',
   ]);
   const revenue = page.getByRole('region', { name: 'Revenue Overview' });
-  await expect(revenue.getByRole('img', { name: /Revenue by month/ })).toBeVisible();
+  await expect(revenue.getByRole('img', { name: /^Revenue from / })).toBeVisible();
   const services = page.getByRole('region', { name: 'Service Breakdown' });
   await expect(services.getByRole('listitem')).toHaveCount(6);
   await expect(services).toContainText('Personal Tax Prep42%');

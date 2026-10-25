@@ -9,6 +9,8 @@ import {
   DocumentId,
   DocumentRequestId,
   MyRequestPacketId,
+  MyRequestPacketRow,
+  type MyRequestPacket,
   type DocumentsClient,
   type Engagement,
   type FirmDocument,
@@ -226,6 +228,50 @@ const page = <T>(items: T[], query: { cursor?: string; limit: number }) => {
 };
 const yearsOf = (docs: FirmDocument[]) =>
   [...new Set(docs.flatMap((d) => (d.taxYear === null ? [] : [d.taxYear])))].sort((a, b) => b - a);
+
+export const PORTAL_PACKET_ID = '0199b6a6-0000-7000-8000-000000000024';
+
+/** The portal's one synthetic request packet: sent, nothing uploaded yet, with a message. */
+function portalPacket(): MyRequestPacket {
+  const sentAt = at(2);
+  const item = (n: number, title: string, required: boolean, instructions: string | null) => ({
+    id: `0199b6a6-0000-7000-8000-${String(100 + n).padStart(12, '0')}`,
+    title,
+    instructions,
+    required,
+    category: null,
+    status: 'REQUESTED' as const,
+    statusNote: null,
+    files: [],
+    canUpload: true,
+  });
+  return {
+    id: PORTAL_PACKET_ID,
+    reference: 'DR-0024',
+    title: '2025 Tax Documents',
+    service: { id: engagementFixtures()[0]!.id, title: 'Personal Tax Intake' },
+    status: 'OPEN',
+    view: 'NOT_STARTED',
+    dueOn: null,
+    overdue: false,
+    progress: { requiredTotal: 2, requiredAnswered: 0, itemsTotal: 3, itemsAnswered: 0 },
+    sentAt,
+    submittedAt: null,
+    message:
+      'Hi Jamie Sample,\n\nTo help us with your request, please upload the following documents. You can securely upload your documents through your client portal.\n\nThank you,\nSam Staff\nLVP Accounting & Taxes',
+    requestedBy: mockStaff.name,
+    taxYear: 2025,
+    expiresAt: null,
+    allowMultipleFiles: true,
+    items: [
+      item(1, 'W-2 Forms (All Employers)', true, 'All W-2 forms for tax year 2025.'),
+      item(2, '1099 Forms (All Applicable)', true, null),
+      item(3, 'Prior Year Tax Return (2024)', false, 'Upload a copy if available.'),
+    ],
+    canSubmit: false,
+    activity: [{ at: sentAt, kind: 'SENT', itemTitle: null, by: 'FIRM' }],
+  };
+}
 
 /** In-memory state shared by one mock client: documents, requests and pending uploads. */
 function store() {
@@ -658,15 +704,17 @@ export function createMyDocumentsMock(): MyDocumentsClient {
           }),
         );
     },
-    // The mock has single requests only: no request packets yet (an empty list, and 404 for one).
+    // One synthetic request packet with the firm's message (R56): the list and its page.
     packets: async () => {
       await mockDelay();
-      return [];
+      // The row's fields only (zod drops the page's).
+      return [MyRequestPacketRow.parse(portalPacket())];
     },
     packet: async (id) => {
       await mockDelay();
       parseInput(MyRequestPacketId, id);
-      throw notFound();
+      if (id !== PORTAL_PACKET_ID) throw notFound();
+      return portalPacket();
     },
     submitPacket: async (id) => {
       await mockDelay();

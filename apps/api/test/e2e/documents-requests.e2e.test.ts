@@ -23,6 +23,7 @@ import {
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const fx = inject('fixtures');
@@ -40,6 +41,8 @@ const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 let app: INestApplication;
 const tokens = new Map<string, string>();
 const ids = {} as Record<string, string>;
+/** What NotifyService was asked to send (its own preference rules are tested on their own). */
+const outbox: NotifyMessage[] = [];
 
 async function asOwner<T>(
   scope: Parameters<typeof runInScope>[1],
@@ -195,7 +198,15 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -600,6 +611,106 @@ describe('request packets', () => {
     );
     expectError(
       await call('get', `/document-request-packets/${draft.id}`, staffA),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
+describe("sending tells the client on the request's own switches", () => {
+  const PHONE = '+15555550142';
+  const sendOne = async (switches: {
+    notifyEmail: boolean;
+    notifyPortal: boolean;
+    notifySms: boolean;
+  }) => {
+    outbox.length = 0;
+    const sent = ok(
+      await call('post', '/document-request-packets', ownerA, {
+        idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'Fake switches request',
+        dueOn: future(10),
+        messageSubject: 'Action Needed',
+        messageBody: 'Fake message for {Client Name}.',
+        items: [{ title: 'Fake W-2' }],
+        send: true,
+        ...switches,
+      }),
+      RequestPacketDetail,
+      201,
+    );
+    const bell = await inFirm('a', (tx) =>
+      tx.notification.count({
+        where: { entityId: sent.checklist[0]!.id, recipientUserId: people.client.id },
+      }),
+    );
+    return { bell, sent: outbox.map((m) => [m.template, m.to]) };
+  };
+
+  it('email only, portal only, and a text only when the firm sends texts and the login has a phone', async () => {
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.update({ where: { id: people.client.id }, data: { phone: PHONE } }),
+    );
+    // The firm sends no texts yet: asking for one sends none.
+    expect(await sendOne({ notifyEmail: true, notifyPortal: false, notifySms: true })).toEqual({
+      bell: 0,
+      sent: [['document.requested', people.client.email]],
+    });
+    await inFirm('a', (tx) =>
+      tx.messageSettings.upsert({
+        where: { businessId: firms.a.id },
+        create: { businessId: firms.a.id, smsEnabled: true },
+        update: { smsEnabled: true },
+      }),
+    );
+    expect(await sendOne({ notifyEmail: false, notifyPortal: true, notifySms: true })).toEqual({
+      bell: 1,
+      sent: [['document.requested-sms', PHONE]],
+    });
+    const text = outbox[0]!;
+    // Through NotifyService with the login named, so the client's own consent to texts applies.
+    expect(text.recipient).toEqual({ userId: people.client.id });
+    expect(await sendOne({ notifyEmail: false, notifyPortal: false, notifySms: false })).toEqual({
+      bell: 0,
+      sent: [],
+    });
+  });
+});
+
+describe('a request type with its documents as edited', () => {
+  it('keeps the type without copying its documents, and still checks the template', async () => {
+    const draft = ok(
+      await call('post', '/document-request-packets', staffA, {
+        idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'Typed, edited checklist',
+        templateId: ids.template,
+        copyTemplateItems: false,
+        items: [{ title: 'W-2', required: false }, { title: 'Fake lease' }],
+      }),
+      RequestPacketDetail,
+      201,
+    );
+    expect(draft.templateId).toBe(ids.template);
+    expect(draft.checklist.map((i) => [i.title, i.required])).toEqual([
+      ['W-2', false],
+      ['Fake lease', true],
+    ]);
+    const typed = ok(
+      await call('get', `/document-request-packets?tab=draft&templateId=${ids.template}`, staffA),
+      RequestPacketPage,
+    );
+    expect(typed.items.map((r) => r.id)).toContain(draft.id);
+    expectError(
+      await call('post', '/document-request-packets', staffA, {
+        idempotencyKey: randomUUID(),
+        clientId: ids.c1,
+        title: 'x',
+        templateId: randomUUID(),
+        copyTemplateItems: false,
+        items: [{ title: 'W-2' }],
+      }),
       404,
       'NOT_FOUND',
     );

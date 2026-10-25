@@ -18,37 +18,139 @@ export const DashboardKpi = z.object({
 });
 export type DashboardKpi = z.infer<typeof DashboardKpi>;
 
+/**
+ * The six cards. `range` (the global period) drives the first four, each compared with the
+ * equivalent period before (`range.previousFrom` to `previousTo`); the last two never follow it.
+ */
 export const DashboardKpis = z.object({
-  /** Clients not archived; previous: at the start of this month. */
+  /** Clients not archived at the end of the period; previous: at the end of the period before. */
   totalClients: DashboardKpi,
-  /** Leads sent this month; previous: last month. */
+  /**
+   * Leads still at New Lead (SUBMITTED) that came in the period, as Leads lists them with Stage
+   * New Lead and the period's dates; previous: those of the period before, still at New Lead.
+   */
   newLeads: DashboardKpi,
-  /** Tax returns IN_PROGRESS; previous: 7 days ago (a return reworked after a rejection counts from its first filing). */
+  /**
+   * Tax returns in one of the in-progress workflow statuses (TAX_RETURN_IN_PROGRESS_STATUSES) at
+   * the end of the period, as Tax Returns lists them with Status In Progress (now: their status;
+   * earlier: the status history); previous: the same at the end of the period before.
+   */
   returnsInProgress: DashboardKpi,
-  /** Tax returns first filed this month; previous: last month. */
-  completedReturns: DashboardKpi,
-  /** Balance due on OPEN invoices, in cents; previous is null (partial payments keep no history). */
+  /**
+   * Tax returns Accepted in the period (Octavia's K5: not Transmitted, not Rejected), as Tax
+   * Returns lists them with Status Accepted and the period's accepted dates; previous: in the
+   * period before.
+   */
+  acceptedReturns: DashboardKpi,
+  /**
+   * Balance due on OPEN invoices now, in cents, whatever the period; previous is null (partial
+   * payments keep no history to compare).
+   */
   outstandingInvoicesCents: DashboardKpi,
-  /** Scheduled appointments today; previous is null (the design compares none). */
+  /** Scheduled appointments on the firm's today, whatever the period; previous is null. */
   appointmentsToday: DashboardKpi,
 });
 export type DashboardKpis = z.infer<typeof DashboardKpis>;
 
-/** The Client Pipeline's period selector: "Completed" counts returns first filed in it. */
-export const DashboardPipelinePeriod = z.enum(['THIS_MONTH', 'LAST_MONTH', 'THIS_YEAR']);
-export type DashboardPipelinePeriod = z.infer<typeof DashboardPipelinePeriod>;
+/**
+ * The dashboard's periods (Octavia's review of Oct 25, C1), on the firm's calendar. This Week
+ * (from Monday), This Month, This Quarter and This Year run to today; Last Month and Last Year
+ * are the whole period; Custom is `from` to `to`, both included, ending today at the latest.
+ */
+export const DashboardPeriod = z.enum([
+  'TODAY',
+  'THIS_WEEK',
+  'THIS_MONTH',
+  'LAST_MONTH',
+  'THIS_QUARTER',
+  'THIS_YEAR',
+  'LAST_YEAR',
+  'CUSTOM',
+]);
+export type DashboardPeriod = z.infer<typeof DashboardPeriod>;
+
+/** Kept for older callers: the Client Pipeline now takes any DashboardPeriod. */
+export const DashboardPipelinePeriod = DashboardPeriod;
+export type DashboardPipelinePeriod = DashboardPeriod;
+
+/** Revenue Overview and Service Breakdown (C2): this month, this quarter, a year, or Custom. */
+export const DashboardRevenuePeriod = z.enum(['MONTH', 'QUARTER', 'YEAR', 'CUSTOM']);
+export type DashboardRevenuePeriod = z.infer<typeof DashboardRevenuePeriod>;
+
+/** A period's days (both included) and the equivalent period before, for comparisons. */
+export const DashboardRange = z.object({
+  period: DashboardPeriod,
+  from: Day,
+  to: Day,
+  /**
+   * The equivalent elapsed period before: yesterday; last week, last month, the quarter before
+   * or last year to the same point; the whole period before for Last Month and Last Year; the
+   * same number of days just before a Custom range.
+   */
+  previousFrom: Day,
+  previousTo: Day,
+});
+export type DashboardRange = z.infer<typeof DashboardRange>;
+
+/** CUSTOM needs both days, `from` on or before `to`; other periods take neither. */
+const customRange =
+  (period: string, from: string, to: string) =>
+  (q: Record<string, unknown>, ctx: z.RefinementCtx) => {
+    const custom = q[period] === 'CUSTOM';
+    const a = q[from] as string | undefined;
+    const b = q[to] as string | undefined;
+    if (custom && (!a || !b)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [a ? to : from],
+        message: 'Choose a start and an end date',
+      });
+    } else if (custom && a && b && a > b) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [to],
+        message: 'The end date must be on or after the start date',
+      });
+    } else if (!custom && (a || b)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [a ? from : to],
+        message: 'Dates go with a Custom period only',
+      });
+    }
+  };
 
 /**
- * GET /business/dashboard/summary's query: the Client Pipeline period (default this month) and
- * the year of Revenue Overview and Service Breakdown (default this year; a future year is refused).
+ * GET /business/dashboard/summary's query: the global period (default this month), the Client
+ * Pipeline's own period (default this month), and Revenue Overview's period (default the year;
+ * `revenueYear` picks an earlier year). Custom days end today at the latest (400 otherwise).
  */
-export const DashboardSummaryQuery = z.strictObject({
-  pipelinePeriod: DashboardPipelinePeriod.optional().default('THIS_MONTH'),
-  revenueYear: z.coerce.number().int().min(2000).max(2100).optional(),
-});
+export const DashboardSummaryQuery = z
+  .strictObject({
+    period: DashboardPeriod.optional().default('THIS_MONTH'),
+    from: Day.optional(),
+    to: Day.optional(),
+    pipelinePeriod: DashboardPeriod.optional().default('THIS_MONTH'),
+    pipelineFrom: Day.optional(),
+    pipelineTo: Day.optional(),
+    revenuePeriod: DashboardRevenuePeriod.optional().default('YEAR'),
+    revenueFrom: Day.optional(),
+    revenueTo: Day.optional(),
+    revenueYear: z.coerce.number().int().min(2000).max(2100).optional(),
+  })
+  .superRefine(customRange('period', 'from', 'to'))
+  .superRefine(customRange('pipelinePeriod', 'pipelineFrom', 'pipelineTo'))
+  .superRefine(customRange('revenuePeriod', 'revenueFrom', 'revenueTo'))
+  .refine((q) => q.revenueYear === undefined || q.revenuePeriod === 'YEAR', {
+    path: ['revenueYear'],
+    message: 'A revenue year goes with the Year period only',
+  });
 export type DashboardSummaryQuery = z.input<typeof DashboardSummaryQuery>;
 
-/** The design's five stages. Null: no record holds that stage (Consultation, for now). */
+/**
+ * The design's five stages. Null: no record holds that stage (Consultation, for now). Leads,
+ * Intake and In Progress are open now; Completed counts returns first filed in `from` to `to`.
+ */
 export const DashboardPipeline = z.object({
   /** Leads waiting for the firm (SUBMITTED or IN_REVIEW). */
   leads: Count.nullable(),
@@ -57,24 +159,36 @@ export const DashboardPipeline = z.object({
   intake: Count.nullable(),
   /** The same as kpis.returnsInProgress.value. */
   inProgress: Count.nullable(),
-  /** Tax returns first filed in `period` (this month: the same as kpis.completedReturns.value). */
+  /** Tax returns first filed in `period`. */
   completed: Count.nullable(),
-  /** The period `completed` counts. */
-  period: DashboardPipelinePeriod,
+  /** The period `completed` counts, and its days. */
+  period: DashboardPeriod,
+  from: Day,
+  to: Day,
 });
 export type DashboardPipeline = z.infer<typeof DashboardPipeline>;
 
-/** Money received this year (Stripe payments less confirmed refunds, plus live check and cash). */
+/**
+ * Money received in the revenue period (Stripe payments less confirmed refunds, plus live check
+ * and cash), on the firm's calendar.
+ */
 export const DashboardRevenue = z.object({
-  year: z.number().int(),
+  period: DashboardRevenuePeriod,
+  /** The days counted (a year to date for this year; the whole year for an earlier one). */
+  from: Day,
+  to: Day,
   totalCents: z.number().int(),
   /**
-   * The year before over the same span (to the same day of the year for this year, the whole year
-   * for a past year), for "vs last year"; null when the firm has no payments that early.
+   * The equivalent span before (last month or the quarter before to the same day, last year to
+   * the same day or the whole year, the same number of days before a Custom range), for the
+   * comparison; null when the firm received no money in it.
    */
-  previousYearCents: z.number().int().nullable(),
-  /** Twelve months, January first. */
-  byMonthCents: z.array(z.number().int()).length(12),
+  previousCents: z.number().int().nullable(),
+  /**
+   * The chart's bars, each with its days: days for a month or a Custom range of up to 62 days,
+   * months otherwise. A year shows all twelve months (the months to come at zero).
+   */
+  buckets: z.array(z.object({ from: Day, to: Day, cents: z.number().int() })).max(62),
   /** Through the invoice's engagement; serviceId null: invoices with no engagement. Largest first. */
   byService: z.array(
     z.object({
@@ -99,6 +213,8 @@ export type DashboardTask = z.infer<typeof DashboardTask>;
 export const DashboardSummary = z.object({
   /** The firm's today (YYYY-MM-DD), the day every period above is counted from. */
   today: Day,
+  /** The global period, which the first four KPI cards follow. */
+  range: DashboardRange,
   kpis: DashboardKpis,
   pipeline: DashboardPipeline,
   revenue: DashboardRevenue,

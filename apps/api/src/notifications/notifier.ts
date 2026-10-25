@@ -45,6 +45,15 @@ export interface NotifyEventInput {
   actorUserId?: string | null;
   /** The producer's stable key: a retried job never writes a second item for the same person. */
   eventKey?: string;
+  /**
+   * The sender's choices for this occurrence (a document request's switches). Left out: the bell
+   * item and the email copy, as always, and no text. `inApp: false` writes no bell item (the email
+   * copy then goes once, outside the outbox); `email: false` sends no email copy; `sms: true` adds
+   * the event's text copy (SMS_EVENTS) for a client whose login has a phone, when the firm sends
+   * texts (its message settings) and NotifyService finds the client agreed to texts in the
+   * category (their preference, off unless chosen).
+   */
+  channels?: { inApp: boolean; email: boolean; sms: boolean };
 }
 
 /** What `notify` did: the bell items written, and `failed` when the database step failed. */
@@ -233,6 +242,11 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'payment.received',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
 
+/** Events with a text copy, and its NotifyService template (client side only, on request). */
+const SMS_EVENTS: Partial<Record<NotificationEvent, NotifyTemplate>> = {
+  'document.requested': 'document.requested-sms',
+};
+
 /**
  * Whether the record an outbox email is about still stands when the copy is retried (up to ~25
  * minutes later): an appointment still SCHEDULED at the time the email names (a later change sends
@@ -386,6 +400,9 @@ export class Notifier {
     }
     const sides: Side[] = audience === 'both' ? ['client', 'staff'] : [audience];
     const what = `${event} for ${def.kind} ${recordId.toLowerCase()}`;
+    const bell = input.channels?.inApp ?? true;
+    const mail = EMAIL_EVENTS.has(event) && (input.channels?.email ?? true);
+    const text = input.channels?.sms === true ? SMS_EVENTS[event] : undefined;
 
     type Copy = {
       id: string | null;
@@ -396,6 +413,8 @@ export class Notifier {
     };
     let written: Copy[];
     const actor: { copy: Copy | null } = { copy: null };
+    /** The people reached without a bell item (`inApp: false`), and every client for a text. */
+    const reached: { direct: Copy[]; clients: Copy[] } = { direct: [], clients: [] };
     try {
       written = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const record = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
@@ -405,7 +424,7 @@ export class Notifier {
         // The client who acted gets no bell item but keeps the email copy (a confirmation), once:
         // a retried call with the same eventKey sends it again only if nothing was written before.
         const acting = recipients.find((r) => r.userId === actorId && r.side === 'client');
-        if (acting && EMAIL_EVENTS.has(event)) {
+        if (acting && mail) {
           const before = input.eventKey
             ? await tx.notification.findFirst({
                 where: { businessId, eventKey: input.eventKey },
@@ -419,6 +438,13 @@ export class Notifier {
           (r) => r.userId !== actorId && !seen.has(r.userId) && seen.add(r.userId),
         );
         if (to.length === 0) return [];
+        reached.clients = to
+          .filter((r) => r.side === 'client')
+          .map((r) => ({ id: null, recipient: r, values: record.values }));
+        if (!bell) {
+          reached.direct = to.map((r) => ({ id: null, recipient: r, values: record.values }));
+          return [];
+        }
         const rows = await tx.notification.createManyAndReturn({
           data: to.map((r) => ({
             businessId,
@@ -440,7 +466,7 @@ export class Notifier {
         }));
         // The outbox: one EMAIL delivery per email copy, committed with its bell item, so a copy
         // that fails (or a task that stops before sending) is retried by the job.
-        const mailed = EMAIL_EVENTS.has(event)
+        const mailed = mail
           ? items.filter((i) => i.recipient.side === 'client' && i.recipient.email)
           : [];
         if (mailed.length > 0) {
@@ -459,10 +485,11 @@ export class Notifier {
       this.logger.warn(`${what}: not written (${errorName(error)})`);
       return { written: 0, failed: true };
     }
-    if (written.length === 0) this.logger.log(`${what}: nobody to notify`);
+    if (written.length === 0 && reached.clients.length === 0 && reached.direct.length === 0)
+      this.logger.log(`${what}: nobody to notify`);
 
-    if (EMAIL_EVENTS.has(event)) {
-      const target = { kind: def.kind, id: recordId.toLowerCase() };
+    const target = { kind: def.kind, id: recordId.toLowerCase() };
+    if (mail) {
       // The actor's confirmation has no bell item, so no outbox row: one attempt.
       if (actor.copy?.recipient.email) {
         await this.sendCopy(event as NotifyTemplate, businessId, null, actor.copy.recipient, {
@@ -479,8 +506,89 @@ export class Notifier {
           }),
         );
       }
+      // No bell item, so no outbox row: one attempt each, as the actor's confirmation.
+      for (const item of reached.direct) {
+        if (item.recipient.side !== 'client' || !item.recipient.email) continue;
+        await this.sendCopy(event as NotifyTemplate, businessId, null, item.recipient, {
+          ...target,
+          values: item.values,
+        });
+      }
+    }
+    if (text && reached.clients.length > 0) {
+      await this.sendTexts(text, businessId, reached.clients, target);
     }
     return { written: written.length };
+  }
+
+  /**
+   * The text copy, once for each client: only when the firm sends texts and the login has a
+   * phone; NotifyService then skips anyone who has not agreed to texts in the category. Ids only
+   * in the log, never a number.
+   */
+  private async sendTexts(
+    template: NotifyTemplate,
+    businessId: string,
+    clients: { recipient: Recipient; values: Payload }[],
+    target: { kind: NotificationTargetKind; id: string },
+  ): Promise<void> {
+    try {
+      const db = this.database.forBusiness(businessId);
+      const settings = await db.messageSettings.findUnique({
+        where: { businessId },
+        select: { smsEnabled: true },
+      });
+      if (!settings?.smsEnabled) {
+        this.logger.log(`${template} for ${target.kind} ${target.id}: the firm sends no texts`);
+        return;
+      }
+      const phones = await db.user.findMany({
+        where: { id: { in: clients.map((c) => c.recipient.userId) } },
+        select: { id: true, phone: true },
+      });
+      const link = await this.portalLink(businessId, target);
+      for (const c of clients) {
+        const to = phones.find((p) => p.id === c.recipient.userId)?.phone;
+        if (!to) continue;
+        const v = c.values;
+        const str = (key: string) => (typeof v[key] === 'string' ? v[key] : '');
+        try {
+          await this.sender.send({
+            template,
+            to,
+            businessId,
+            recipient: { userId: c.recipient.userId },
+            data: { title: str('title'), dueOn: str('dueOn') || null, link },
+          } as NotifyMessage);
+        } catch (error) {
+          this.logger.warn(
+            `${template} for user ${c.recipient.userId} not sent (${errorName(error)})`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `${template} for ${target.kind} ${target.id} not sent (${errorName(error)})`,
+      );
+    }
+  }
+
+  /** The record's page on the firm's portal, from config (never from the caller). */
+  private async portalLink(
+    businessId: string,
+    target: { kind: NotificationTargetKind; id: string },
+  ): Promise<string> {
+    const firm = await this.database
+      .forBusiness(businessId)
+      .business.findUnique({ where: { id: businessId }, select: { slug: true } });
+    const page = firm
+      ? notificationLink(
+          { kind: target.kind, id: target.id, clientId: null },
+          { site: 'portal', firmSlug: firm.slug },
+        )
+      : null;
+    if (!page) throw new Error('NoPortalPage');
+    return `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}${page}`;
   }
 
   /**
@@ -600,17 +708,7 @@ export class Notifier {
     target: { kind: NotificationTargetKind; id: string; values: Payload },
   ): Promise<string | null> {
     try {
-      const firm = await this.database
-        .forBusiness(businessId)
-        .business.findUnique({ where: { id: businessId }, select: { slug: true } });
-      const page = firm
-        ? notificationLink(
-            { kind: target.kind, id: target.id, clientId: null },
-            { site: 'portal', firmSlug: firm.slug },
-          )
-        : null;
-      if (!page) throw new Error('NoPortalPage');
-      const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}${page}`;
+      const link = await this.portalLink(businessId, target);
       const v = target.values;
       const str = (key: string) => (typeof v[key] === 'string' ? v[key] : '');
       const data =

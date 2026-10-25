@@ -8,11 +8,13 @@ import type {
   TaxReturnSummary,
   TaxReturnWorkflowStatus,
 } from '@firmivra/types';
+import { TAX_RETURN_IN_PROGRESS_STATUSES } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { zonedInstant } from '../reports/schedule-math.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { lockClient, memberNames, memberRef, notAMember } from '../workspaces/common.js';
 import { notFound } from './tax-return-rules.js';
@@ -139,6 +141,8 @@ export class TaxReturnWorkspaceService {
     if (q.tab === 'amended') and.push({ amendsReturnId: { not: null } });
     if (q.tab === 'prior_year') and.push({ taxYear: { lt: year - 1 } });
     if (q.workflowStatus) and.push({ workflowStatus: q.workflowStatus });
+    if (q.workflowGroup === 'IN_PROGRESS')
+      and.push({ workflowStatus: { in: [...TAX_RETURN_IN_PROGRESS_STATUSES] } });
     if (q.taxYear) and.push({ taxYear: q.taxYear });
     if (q.formType) and.push({ formType: { equals: q.formType, mode: 'insensitive' } });
     if (q.clientType) and.push({ client: { accountType: q.clientType } });
@@ -149,6 +153,18 @@ export class TaxReturnWorkspaceService {
     }
     if (q.updatedFrom) and.push({ updatedAt: { gte: toDay(q.updatedFrom) } });
     if (q.updatedTo) and.push({ updatedAt: { lt: new Date(toDay(q.updatedTo).getTime() + DAY) } });
+    if (q.acceptedFrom || q.acceptedTo) {
+      // Moved to Accepted in these days of the firm's calendar (the dashboard's Accepted Returns).
+      const settings = await this.inFirm(tenant, (tx) =>
+        tx.businessSettings.findUnique({ where: { businessId }, select: { timezone: true } }),
+      );
+      const tz = settings?.timezone ?? 'America/New_York';
+      const changedAt: Prisma.DateTimeFilter = {};
+      if (q.acceptedFrom) changedAt.gte = zonedInstant(q.acceptedFrom, '00:00', tz);
+      if (q.acceptedTo)
+        changedAt.lt = new Date(zonedInstant(q.acceptedTo, '00:00', tz).getTime() + DAY);
+      and.push({ history: { some: { workflowStatus: 'ACCEPTED', changedAt } } });
+    }
     if (q.search) {
       const s = q.search.trim();
       const contains = { contains: likeEscape(s), mode: 'insensitive' as const };

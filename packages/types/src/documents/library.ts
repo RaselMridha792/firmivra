@@ -589,8 +589,9 @@ const PacketSetup = {
 /**
  * POST /business/document-request-packets (Create Document Request): Save as Draft, or Send at
  * once (`send`). Sending needs a due date, a subject, a message and at least one item (400
- * REQUEST_INCOMPLETE). Retry-safe by `idempotencyKey`. `templateId` copies a template's items
- * (before `items`).
+ * REQUEST_INCOMPLETE). Retry-safe by `idempotencyKey`. `templateId` is the request's type and, by
+ * default, copies that template's items before `items`; with `copyTemplateItems: false` it names the
+ * type only and `items` is the whole checklist (the screen's documents as edited).
  */
 export const CreateRequestPacketRequest = z.strictObject({
   idempotencyKey: z.uuid(),
@@ -605,6 +606,8 @@ export const CreateRequestPacketRequest = z.strictObject({
     .optional()
     .default({ kind: 'CLIENT' }),
   templateId: z.uuid().nullable().optional(),
+  /** false: keep `templateId` as the type without copying its items (still checked as visible). */
+  copyTemplateItems: z.boolean().optional().default(true),
   items: z.array(ItemInput).max(100).optional(),
   send: z.boolean().optional().default(false),
   ...PacketSetup,
