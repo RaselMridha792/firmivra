@@ -31,6 +31,12 @@ import {
   StaffJobTitleList,
 } from './job-titles.js';
 import {
+  SaveStaffWorkScheduleRequest,
+  StaffWorkSchedule,
+  StaffWorkScheduleId,
+  StaffWorkScheduleList,
+} from './work-schedules.js';
+import {
   CreateCustomRoleRequest,
   CustomRole,
   CustomRoleDetail,
@@ -88,6 +94,8 @@ const STAFF = '/business/staff';
 const DRAFTS = '/business/staff-drafts';
 const TITLES = '/business/staff-job-titles';
 const title = (id: string) => `${TITLES}/${parseInput(StaffJobTitleId, id)}`;
+const SCHEDULES = '/business/staff-work-schedules';
+const schedule = (id: string) => `${SCHEDULES}/${parseInput(StaffWorkScheduleId, id)}`;
 const SECURITY_DEFAULTS = '/business/staff-security-defaults';
 const one = (id: string) => `${STAFF}/${parseInput(StaffId, id)}`;
 const post = (body?: unknown) => ({ method: 'POST', ...(body === undefined ? {} : { body }) });
@@ -307,6 +315,29 @@ export function createStaffClient(request: ApiRequest, baseUrl = '') {
       request(StaffJobTitle, `${title(id)}/archive`, post()),
     restoreJobTitle: async (id: string): Promise<StaffJobTitle> =>
       request(StaffJobTitle, `${title(id)}/restore`, post()),
+    // Offices & Job Titles, Work Schedules: the firm's saved schedules (Owner and Admin)
+    workSchedules: async (includeArchived = false): Promise<StaffWorkSchedule[]> =>
+      (
+        await request(
+          StaffWorkScheduleList,
+          `${SCHEDULES}${toQuery({ includeArchived: includeArchived ? 'true' : undefined })}`,
+        )
+      ).items,
+    createWorkSchedule: async (body: SaveStaffWorkScheduleRequest): Promise<StaffWorkSchedule> =>
+      request(StaffWorkSchedule, SCHEDULES, post(parseInput(SaveStaffWorkScheduleRequest, body))),
+    renameWorkSchedule: async (
+      id: string,
+      body: SaveStaffWorkScheduleRequest,
+    ): Promise<StaffWorkSchedule> =>
+      request(
+        StaffWorkSchedule,
+        schedule(id),
+        patch(parseInput(SaveStaffWorkScheduleRequest, body)),
+      ),
+    archiveWorkSchedule: async (id: string): Promise<StaffWorkSchedule> =>
+      request(StaffWorkSchedule, `${schedule(id)}/archive`, post()),
+    restoreWorkSchedule: async (id: string): Promise<StaffWorkSchedule> =>
+      request(StaffWorkSchedule, `${schedule(id)}/restore`, post()),
     // New Accounts & Security: what every new staff account starts from (Owner and Admin)
     securityDefaults: async (): Promise<StaffSecurityDefaults> =>
       request(StaffSecurityDefaults, SECURITY_DEFAULTS),

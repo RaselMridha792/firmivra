@@ -6,6 +6,7 @@ import {
   SaveStaffDraftRequest,
   SaveStaffJobTitleRequest,
   SaveStaffSecurityDefaultsRequest,
+  SaveStaffWorkScheduleRequest,
   SetStaffNoteRequest,
   SetStaffOverridesRequest,
   SetStaffPermissionsRequest,
@@ -24,6 +25,8 @@ import {
   StaffSessionId,
   UpdateStaffDocumentRequest,
   UpdateStaffRequest,
+  StaffWorkScheduleId,
+  StaffWorkScheduleListQuery,
   UsersQuery,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -64,4 +67,7 @@ export const StaffImportBody = clean(StaffImportRequest);
 export const StaffJobTitleIdParam = StaffJobTitleId;
 export const StaffJobTitleListQ = StaffJobTitleListQuery;
 export const SaveStaffJobTitleBody = clean(SaveStaffJobTitleRequest);
+export const StaffWorkScheduleIdParam = StaffWorkScheduleId;
+export const StaffWorkScheduleListQ = StaffWorkScheduleListQuery;
+export const SaveStaffWorkScheduleBody = clean(SaveStaffWorkScheduleRequest);
 export const SaveStaffSecurityDefaultsBody = clean(SaveStaffSecurityDefaultsRequest);

@@ -766,3 +766,12 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   design's "Start Date" (step 1 card 4 and Edit Staff card 4) now saves it, and Edit Staff gains
   Hire Date so it stays editable; the Success page's Start Date reads it first. staff-write e2e
   23 of 23, types 22 of 22, staff mock specs 18 of 18; sheet shot on the real API.
+- Oct 25 (fifth session): (b) SM8 company work schedules (`rasel/R60-staff-schedules`, from
+  `main`, local until a PR slot frees): `api.staff` work schedules (list, add, rename, archive,
+  restore; 409 `WORK_SCHEDULE_EXISTS` and `WORK_SCHEDULE_ARCHIVED`) on R1's
+  `staff_work_schedules`, as #1088's job titles; `StaffFormOptions.workSchedules` = the presets,
+  then the saved live ones (a saved one named like a preset is offered once); a Work Schedules card
+  on Offices & Job Titles (the Job Titles card made generic); step 4's note says a custom schedule
+  stays on its record. Staff e2e 24 of 24 (schedules 8, job titles 8, staff 8), isolation: only
+  the four known local failures, mock specs 11 of 11; sheet shot on the real API. (c) is blocked:
+  no table holds a staff code (column request item 13, for Rasel); (d) next.
