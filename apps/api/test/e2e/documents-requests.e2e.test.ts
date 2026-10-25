@@ -606,6 +606,43 @@ describe('request packets', () => {
   });
 });
 
+describe('a file that answers a request item', () => {
+  it('names the item and its request in its details (Frame 2 opens the request)', async () => {
+    const packet = ok(
+      await call('get', `/document-request-packets/${ids.packet}`, ownerA),
+      RequestPacketDetail,
+    );
+    const item = packet.checklist[0]!;
+    const tag = randomUUID();
+    const file = await inFirm('a', (tx) =>
+      tx.document.create({
+        data: {
+          businessId: firms.a.id,
+          clientId: ids.c1!,
+          engagementId: ids.c1e0!,
+          requestId: item.id,
+          direction: 'CLIENT_TO_FIRM',
+          fileName: 'answer.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: createHash('sha256').update(tag).digest('hex'),
+          s3Key: `tenant/${firms.a.id}/e2e/${tag}.pdf`,
+        },
+        select: { id: true },
+      }),
+    );
+    const res = await call('get', `/documents/${file.id}/details`, ownerA);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect((res.body as { request: unknown }).request).toEqual({
+      id: item.id,
+      title: item.title,
+      packetId: ids.packet,
+    });
+    const shared = await call('get', `/documents/${ids.shared}/details`, ownerA);
+    expect((shared.body as { request: unknown }).request).toBeNull();
+  });
+});
+
 describe('another firm', () => {
   it('reaches none of it', async () => {
     for (const [method, path, body] of [

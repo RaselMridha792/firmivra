@@ -85,6 +85,8 @@ export const LibraryDocument = z.object({
   superseded: z.boolean(),
   /** The request item it answers. */
   requestId: z.uuid().nullable(),
+  /** That request item and its request (Frame 3's page), or null. */
+  request: z.object({ id: z.uuid(), title: z.string(), packetId: z.uuid().nullable() }).nullable(),
   /** The client can see it: shared by the firm, or uploaded by the client. */
   visibleToClient: z.boolean(),
   uploadedBy: z.object({ name: z.string(), byClient: z.boolean() }).nullable(),
