@@ -3,6 +3,7 @@
 import { DOCUMENT_ERRORS, type ClientListItem, type FirmDocument } from '@firmivra/types';
 import { Card, Table, type Column, type TableSort } from '@firmivra/ui';
 import { DotsThreeVertical } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -65,7 +66,15 @@ function ActionsMenu({
           >
             Download
           </button>
-          {['Rename', 'Move', 'Share', 'Request e-sign', 'Archive'].map((label) => (
+          <Link
+            role="menuitem"
+            href={`/documents/${row.id}/share`}
+            data-testid="document-share"
+            className="block w-full px-3 py-2 text-left text-sm text-text hover:bg-canvas"
+          >
+            Share
+          </Link>
+          {['Rename', 'Move', 'Request e-sign', 'Archive'].map((label) => (
             <button
               key={label}
               type="button"
@@ -85,9 +94,9 @@ function ActionsMenu({
 
 /**
  * The library table, for the one selected client (the API has no firm-wide list: R34 PR). Row
- * actions: Download is real (the same route every document screen uses). The rest — Rename, Move,
- * Share, E-sign, Review, Archive — have no endpoint yet, so the menu names them as not available
- * rather than inventing a working control (R34 PR).
+ * actions: Download is real (the same route every document screen uses), and Share opens Share
+ * Document (R56). The rest — Rename, Move, E-sign, Review, Archive — are not built on this table
+ * yet, so the menu names them as not available rather than inventing a working control (R34 PR).
  */
 export function DocumentsTable({
   rows,

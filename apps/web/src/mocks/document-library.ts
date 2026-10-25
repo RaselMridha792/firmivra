@@ -4,7 +4,11 @@ import {
   CreateRequestPacketRequest,
   CreateDocumentCategoryRequest,
   CreateDocumentFolderRequest,
+  CreateDocumentShareRequest,
   DocumentFolder,
+  type DocumentShare,
+  type LibraryDocument,
+  UpdateDocumentShareRequest,
   type DocumentCategory,
   type DocumentSettings,
   ReorderDocumentFoldersRequest,
@@ -431,6 +435,94 @@ export function createDocumentLibraryMock(options: {
         f.name.toLowerCase() === name.toLowerCase(),
     );
   let nextFolder = 100;
+  // Sharing (Frame 5): grants and their history per document; the tax return starts shared.
+  const sharedDoc = '0199b6a5-0000-7000-8000-000000000006';
+  const grants = new Map<string, DocumentShare[]>();
+  const accessLog = new Map<string, DocumentActivity[]>();
+  let nextShare = 1;
+  const shareId = () => `0199d2b0-6b00-7000-8000-${String(nextShare++).padStart(12, '0')}`;
+  const record = (docId: string, kind: DocumentActivity['kind'], label: string) =>
+    accessLog.set(docId, [
+      { id: shareId(), at: new Date().toISOString(), kind, label, by: MEMBERS[0]?.name ?? null },
+      ...(accessLog.get(docId) ?? []),
+    ]);
+  if (!options.empty) {
+    grants.set(sharedDoc, [
+      {
+        id: shareId(),
+        recipient: {
+          kind: 'MEMBER',
+          id: MEMBERS[1]!.userId,
+          name: MEMBERS[1]!.name,
+          email: null,
+        },
+        canDownload: true,
+        canUpload: true,
+        canSign: false,
+        expiresAt: null,
+        grantedBy: MEMBERS[0] ?? null,
+        createdAt: ago(72),
+      },
+    ]);
+    accessLog.set(sharedDoc, [
+      {
+        id: shareId(),
+        at: ago(72),
+        kind: 'SHARED',
+        label: `Shared with ${MEMBERS[1]!.name}`,
+        by: MEMBERS[0]?.name ?? null,
+      },
+    ]);
+  }
+  /** The documents mock's file, as the library reads it. */
+  const libraryDoc = async (id: string): Promise<LibraryDocument> => {
+    const d = await options.documents.get(id);
+    const client = clientFixtures().find((c) => c.id === d.clientId);
+    return {
+      id: d.id,
+      fileName: d.fileName,
+      contentType: d.contentType,
+      sizeBytes: d.sizeBytes,
+      client: { id: d.clientId, name: client?.displayName ?? 'Client' },
+      service: d.service,
+      folder: null,
+      category: d.category,
+      direction: d.direction,
+      taxYear: d.taxYear,
+      description: null,
+      tags: [],
+      reviewStatus: d.direction === 'FIRM_TO_CLIENT' ? 'COMPLETED' : null,
+      reviewer: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      scanStatus: d.scanStatus,
+      expiresOn: null,
+      versionNo: 1,
+      replacesId: null,
+      superseded: false,
+      requestId: d.requestId,
+      visibleToClient: d.direction !== 'INTERNAL',
+      uploadedBy: d.uploadedBy,
+      createdAt: d.createdAt,
+      updatedAt: d.createdAt,
+      archivedAt: null,
+      trashedAt: null,
+    };
+  };
+  const loginsOf = (clientId: string) =>
+    (clientFixtures().find((c) => c.id === clientId)?.portalLogins ?? [])
+      .filter((l) => l.status === 'ACTIVE')
+      .map((l) => ({
+        id: l.clientAccountId,
+        name: clientFixtures().find((c) => c.id === clientId)?.displayName ?? l.email,
+        email: l.email,
+        primary: l.portalRole === 'PRIMARY',
+      }));
+  const shareOf = (docId: string, id: string) => {
+    const g = (grants.get(docId) ?? []).find((x) => x.id === id);
+    if (!g) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+    return g;
+  };
   const packets = options.empty ? [] : packetFixtures();
   const templates = options.empty ? [] : requestTemplateFixtures();
   const fail = (status: number, code: string, message: string) =>
@@ -537,7 +629,10 @@ export function createDocumentLibraryMock(options: {
   return {
     list: notInMock,
     summary: notInMock,
-    get: notInMock,
+    get: async (id) => {
+      await mockDelay();
+      return libraryDoc(id);
+    },
     /** Through the documents mock, so `api.documents.confirmUpload` finds the ticket. */
     createUpload: async (body) =>
       options.documents.createUpload(body.clientId, {
@@ -558,13 +653,75 @@ export function createDocumentLibraryMock(options: {
     untrash: notInMock,
     versions: notInMock,
     activity: notInMock,
-    preview: notInMock,
+    preview: async (id) => {
+      const d = await libraryDoc(id);
+      if (d.scanStatus !== 'CLEAN') throw new ApiRequestError(409, 'FILE_NOT_CLEAN', 'Not clean');
+      return options.documents.download(id);
+    },
     bulk: notInMock,
-    access: notInMock,
-    share: notInMock,
-    updateShare: notInMock,
-    revokeShare: notInMock,
-    accessHistory: notInMock,
+    access: async (id) => {
+      const d = await libraryDoc(id);
+      return {
+        document: { id, fileName: d.fileName, versionNo: d.versionNo, direction: d.direction },
+        shares: structuredClone(grants.get(id) ?? []),
+        clientLogins: d.direction === 'INTERNAL' ? [] : loginsOf(d.client.id),
+      };
+    },
+    share: async (id, body) => {
+      const input = parseInput(CreateDocumentShareRequest, body);
+      const d = await libraryDoc(id);
+      const list = grants.get(id) ?? [];
+      const r = input.recipient;
+      if (r.kind === 'CLIENT' && d.direction === 'INTERNAL')
+        throw new ApiRequestError(409, 'INTERNAL_DOCUMENT', 'Internal document');
+      const who =
+        r.kind === 'CLIENT'
+          ? loginsOf(d.client.id).find((l) => l.id === r.clientAccountId)
+          : MEMBERS.map((m) => ({ id: m.userId, name: m.name, email: null })).find(
+              (m) => m.id === r.userId,
+            );
+      if (!who) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      if (list.some((g) => g.recipient.kind === r.kind && g.recipient.id === who.id))
+        throw new ApiRequestError(409, 'SHARE_EXISTS', 'Already shared');
+      const g: DocumentShare = {
+        id: shareId(),
+        recipient: { kind: r.kind, id: who.id, name: who.name, email: who.email },
+        canDownload: input.canDownload,
+        canUpload: input.canUpload,
+        canSign: input.canSign,
+        expiresAt: input.expiresAt ?? null,
+        grantedBy: MEMBERS[0] ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      grants.set(id, [...list, g]);
+      record(id, 'SHARED', `Shared with ${who.name}`);
+      return structuredClone(g);
+    },
+    updateShare: async (id, sid, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateDocumentShareRequest, body);
+      const g = shareOf(id, sid);
+      Object.assign(
+        g,
+        Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)),
+      );
+      record(id, 'SHARE_CHANGED', `Access of ${g.recipient.name} changed`);
+      return structuredClone(g);
+    },
+    revokeShare: async (id, sid) => {
+      await mockDelay();
+      const g = shareOf(id, sid);
+      grants.set(
+        id,
+        (grants.get(id) ?? []).filter((x) => x.id !== sid),
+      );
+      record(id, 'SHARE_REVOKED', `Access of ${g.recipient.name} revoked`);
+      return { ok: true };
+    },
+    accessHistory: async (id) => {
+      await mockDelay();
+      return structuredClone(accessLog.get(id) ?? []);
+    },
     folders: async () => {
       await mockDelay();
       return structuredClone(folders);
