@@ -166,7 +166,9 @@ test('F14: the client view preview offers only Sign In, Reset Password and Conta
   expect(hrefs.every(([, target]) => target === '_blank')).toBe(true);
   // The approval card shows the firm's mode; changing it is not open yet.
   const card = page.getByTestId('approval-card');
-  await expect(card.getByRole('radio', { name: 'Manual Review' })).toBeChecked();
+  await expect(card.getByRole('list', { name: 'Approval mode' })).toContainText(
+    "Manual Review(your firm's mode now)",
+  );
   await expect(card.getByRole('button', { name: 'Manage settings' })).toBeDisabled();
 });
 

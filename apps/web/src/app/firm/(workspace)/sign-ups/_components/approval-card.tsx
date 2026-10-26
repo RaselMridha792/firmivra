@@ -1,13 +1,19 @@
 'use client';
 
 import type { ClientSignUpSettings } from '@firmivra/types';
-import { Button, Radio } from '@firmivra/ui';
+import { Button } from '@firmivra/ui';
 import { Lock } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
 
+const MODES = [
+  { mode: 'MANUAL', label: 'Manual Review' },
+  { mode: 'AUTOMATIC', label: 'Automatic Approval' },
+] as const;
+
 /**
- * Client self-sign-up approval (the design's header card): the firm's mode as it is now. Both
- * modes are explained; the radios only show the mode. Changing it goes through Manage settings.
+ * Client self-sign-up approval (the design's header card): the firm's mode as it is now, drawn as
+ * the design's radios but only showing it. Both modes are explained. Changing it goes through
+ * Manage settings.
  */
 export function ApprovalCard({ settings }: { settings: UseQueryResult<ClientSignUpSettings> }) {
   const mode = settings.data?.mode;
@@ -21,25 +27,22 @@ export function ApprovalCard({ settings }: { settings: UseQueryResult<ClientSign
         <h2 id="su-approval" className="font-display text-xl font-bold text-heading">
           Client self-sign-up approval
         </h2>
-        <fieldset disabled className="mt-1">
-          <legend className="sr-only">Approval mode</legend>
-          <div className="flex flex-wrap gap-x-10">
-            <Radio
-              name="su-mode"
-              label="Manual Review"
-              checked={mode === 'MANUAL'}
-              readOnly
-              className="text-base! text-text"
-            />
-            <Radio
-              name="su-mode"
-              label="Automatic Approval"
-              checked={mode === 'AUTOMATIC'}
-              readOnly
-              className="text-base! text-text"
-            />
-          </div>
-        </fieldset>
+        <ul aria-label="Approval mode" className="mt-1 flex flex-wrap gap-x-10">
+          {MODES.map((m) => (
+            <li key={m.mode} className="flex min-h-11 items-center gap-3 text-base text-text">
+              <span
+                aria-hidden
+                className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${mode === m.mode ? 'border-action' : 'border-border'}`}
+              >
+                {mode === m.mode ? <span className="size-2.5 rounded-full bg-action" /> : null}
+              </span>
+              {m.label}
+              {mode === m.mode ? (
+                <span className="sr-only">(your firm&apos;s mode now)</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
         {settings.isError ? (
           <p role="alert" className="text-sm text-danger">
             The approval mode can&apos;t be shown right now.

@@ -925,3 +925,15 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   opens Add New Client with Back to Dashboard, and `/leads?new=1&stage=SUBMITTED&back=dashboard`
   opens Add New Lead with it. Web `tsc` 0, ESLint clean, mock specs 17 of 17 (r60 quick and KPI
   cards, r31 dashboard, r23 clients).
+- Oct 26 (seventh session): Client Sign-ups screen (D1, Rasel's order of Oct 26; R55 had not
+  started it), `rasel/R60-signups-screen` from `main` at `d2afe38`. Paths it owns:
+  `apps/web/src/app/firm/(workspace)/sign-ups/`, `apps/api/src/client-auth/client-sign-ups.*`, the
+  firm-side Sign-ups part of `packages/types/src/client-auth/`, the sign-ups mock in
+  `apps/web/src/mocks/client-auth.ts`, the Clients group in `components/app-shell/` and the
+  workspace layout, and their tests. List: three tabs with the firm's counts, search, sort, the
+  firm's days, the potential-match flag (a record with the email or the phone's last 10 digits,
+  archived ones too), numbered pages; detail with history and candidates (audited); settings
+  read; approve refuses a phone match (409 POTENTIAL_MATCH). Screen to her image. D3 (Manage
+  settings, automatic approval) and D2/D4 (the checks, Restore Access, Link Existing Record,
+  versions and idempotency) are the Sign-ups flow PR, next. API e2e 15 of 15, mock specs 19 of
+  19, types tests 17 of 17.

@@ -153,140 +153,148 @@ export function SignUpsScreen({
         </p>
       ) : null}
 
+      {/* Narrow screens: the list, then the open request, then the preview (spec, section 10). */}
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,36rem)]">
-        <div className="flex min-w-0 flex-col gap-5">
-          <section aria-label="Sign-up requests" className="flex min-w-0 flex-col gap-4">
-            <div
-              role="tablist"
-              aria-label="Sign-up status"
-              className="flex gap-6 overflow-x-auto border-b border-divider"
-            >
-              {TABS.map((tab) => {
-                const on = tab.status === place.status;
-                const count = counts?.[tab.status];
-                return (
-                  <button
-                    key={tab.status}
-                    type="button"
-                    role="tab"
-                    aria-selected={on}
-                    tabIndex={on ? 0 : -1}
-                    data-testid={`sign-ups-tab-${tab.status}`}
-                    onClick={() => change({ status: tab.status, match: '', request: '' })}
-                    onKeyDown={(event) => {
-                      const at = TABS.indexOf(tab);
-                      const next =
-                        event.key === 'ArrowRight'
-                          ? TABS[(at + 1) % TABS.length]
-                          : event.key === 'ArrowLeft'
-                            ? TABS[(at - 1 + TABS.length) % TABS.length]
-                            : undefined;
-                      if (!next) return;
-                      event.preventDefault();
-                      change({ status: next.status, match: '', request: '' });
-                      event.currentTarget.parentElement
-                        ?.querySelector<HTMLButtonElement>(
-                          `[data-testid="sign-ups-tab-${next.status}"]`,
-                        )
-                        ?.focus();
-                    }}
-                    className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium ${on ? 'border-action text-action' : 'border-transparent text-text hover:text-heading'}`}
-                  >
-                    {tab.label}
-                    {/* No false zero while the counts load (spec, section 10). */}
-                    {count === undefined ? null : (
-                      <span
-                        aria-label={`${count} in total`}
-                        className={`rounded-pill px-2 text-xs font-semibold ${on ? 'bg-accent-soft text-action' : 'bg-divider text-muted'}`}
-                      >
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <SearchField
-                label="Search name or email"
-                placeholder="Search name or email"
-                value={searchText}
-                maxLength={100}
-                onChange={(event) => setSearchText(event.target.value)}
-                className="bg-surface!"
-              />
-              <label className="relative flex h-10 shrink-0 items-center">
-                <span className="sr-only">Sort by date submitted</span>
-                <select
-                  data-testid="sign-ups-sort"
-                  value={place.sort}
-                  onChange={(event) =>
-                    change({ sort: event.target.value === 'oldest' ? 'oldest' : 'newest' })
-                  }
-                  className="h-10 cursor-pointer appearance-none rounded-lg border border-divider bg-surface pl-3 pr-9 text-sm text-text"
+        <section
+          aria-label="Sign-up requests"
+          className="flex min-w-0 flex-col gap-4 xl:col-start-1"
+        >
+          <div
+            role="tablist"
+            aria-label="Sign-up status"
+            className="flex gap-6 overflow-x-auto border-b border-divider"
+          >
+            {TABS.map((tab) => {
+              const on = tab.status === place.status;
+              const count = counts?.[tab.status];
+              return (
+                <button
+                  key={tab.status}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  tabIndex={on ? 0 : -1}
+                  data-testid={`sign-ups-tab-${tab.status}`}
+                  onClick={() => change({ status: tab.status, match: '', request: '' })}
+                  onKeyDown={(event) => {
+                    const at = TABS.indexOf(tab);
+                    const next =
+                      event.key === 'ArrowRight'
+                        ? TABS[(at + 1) % TABS.length]
+                        : event.key === 'ArrowLeft'
+                          ? TABS[(at - 1 + TABS.length) % TABS.length]
+                          : undefined;
+                    if (!next) return;
+                    event.preventDefault();
+                    change({ status: next.status, match: '', request: '' });
+                    event.currentTarget.parentElement
+                      ?.querySelector<HTMLButtonElement>(
+                        `[data-testid="sign-ups-tab-${next.status}"]`,
+                      )
+                      ?.focus();
+                  }}
+                  className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium ${on ? 'border-action text-action' : 'border-transparent text-text hover:text-heading'}`}
                 >
-                  <option value="newest">Date submitted: newest first</option>
-                  <option value="oldest">Date submitted: oldest first</option>
-                </select>
-                <CaretDown
-                  aria-hidden
-                  weight="bold"
-                  className="pointer-events-none absolute right-3 size-4 text-muted"
-                />
-              </label>
-              <FiltersMenu place={place} onApply={(patch) => change(patch)} />
-            </div>
-            <FilterChips
-              place={place}
-              onClear={(patch) => change(patch)}
-              onClearAll={() => {
+                  {tab.label}
+                  {/* No false zero while the counts load (spec, section 10). */}
+                  {count === undefined ? null : (
+                    <span
+                      aria-label={`${count} in total`}
+                      className={`rounded-pill px-2 text-xs font-semibold ${on ? 'bg-accent-soft text-action' : 'bg-divider text-muted'}`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <SearchField
+              label="Search name or email"
+              placeholder="Search name or email"
+              value={searchText}
+              maxLength={100}
+              minWidth="10rem"
+              onChange={(event) => setSearchText(event.target.value)}
+              className="bg-surface!"
+            />
+            <label className="relative flex h-10 shrink-0 items-center">
+              <span className="sr-only">Sort by date submitted</span>
+              <select
+                data-testid="sign-ups-sort"
+                value={place.sort}
+                onChange={(event) =>
+                  change({ sort: event.target.value === 'oldest' ? 'oldest' : 'newest' })
+                }
+                className="h-10 cursor-pointer appearance-none rounded-lg border border-divider bg-surface pl-3 pr-9 text-sm text-text"
+              >
+                <option value="newest">Date submitted</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+              <CaretDown
+                aria-hidden
+                weight="bold"
+                className="pointer-events-none absolute right-3 size-4 text-muted"
+              />
+            </label>
+            <FiltersMenu place={place} onApply={(patch) => change(patch)} />
+          </div>
+          <FilterChips
+            place={place}
+            onClear={(patch) => change(patch)}
+            onClearAll={() => {
+              setSearchText('');
+              change({ search: '', from: '', to: '', match: '' });
+            }}
+          />
+
+          <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
+            <RequestsTable
+              status={place.status}
+              sort={place.sort}
+              onSort={() => change({ sort: place.sort === 'newest' ? 'oldest' : 'newest' })}
+              list={list}
+              filtered={filtered}
+              selected={place.request}
+              onOpen={(row) => setPlace({ ...place, request: row.clientAccountId })}
+              onClear={() => {
                 setSearchText('');
                 change({ search: '', from: '', to: '', match: '' });
               }}
             />
-
-            <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
-              <RequestsTable
-                status={place.status}
-                list={list}
-                filtered={filtered}
-                selected={place.request}
-                onOpen={(row) => setPlace({ ...place, request: row.clientAccountId })}
-                onClear={() => {
-                  setSearchText('');
-                  change({ search: '', from: '', to: '', match: '' });
-                }}
-              />
-              {list.data && list.data.total > 0 ? (
-                <div className="flex flex-col gap-3 border-t border-divider px-4 py-3">
-                  <p aria-live="polite" data-testid="sign-ups-total" className="text-sm text-muted">
-                    {filtered
-                      ? `${list.data.total} matching ${list.data.total === 1 ? 'request' : 'requests'} · ${counts?.[place.status] ?? 0} ${noun} in total`
-                      : `${list.data.total} ${noun} ${list.data.total === 1 ? 'request' : 'requests'}`}
-                  </p>
-                  {pageCount > 1 ? (
-                    <Pagination
-                      page={place.page}
-                      pageCount={pageCount}
-                      onPage={(page) => setPlace({ ...place, page })}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="border-t border-divider px-4 py-4">
-                <RequestActivity id={place.request} />
+            {list.data && list.data.total > 0 ? (
+              <div className="flex flex-col gap-3 border-t border-divider px-4 py-3">
+                <p aria-live="polite" data-testid="sign-ups-total" className="text-sm text-muted">
+                  {filtered
+                    ? `${list.data.total} matching ${list.data.total === 1 ? 'request' : 'requests'} · ${counts?.[place.status] ?? 0} ${noun} in total`
+                    : `${list.data.total} ${noun} ${list.data.total === 1 ? 'request' : 'requests'}`}
+                </p>
+                {pageCount > 1 ? (
+                  <Pagination
+                    page={place.page}
+                    pageCount={pageCount}
+                    onPage={(page) => setPlace({ ...place, page })}
+                  />
+                ) : null}
               </div>
+            ) : null}
+            <div className="border-t border-divider px-4 py-4">
+              <RequestActivity id={place.request} />
             </div>
-          </section>
+          </div>
+        </section>
+        <div className="min-w-0 xl:col-start-2 xl:row-span-2 xl:row-start-1">
+          <RequestPanel
+            id={place.request}
+            onClose={() => setPlace({ ...place, request: '' })}
+            onNotice={setNotice}
+          />
+        </div>
+        <div className="min-w-0 xl:col-start-1">
           <ClientViewPreview portalBase={portalBase} />
         </div>
-
-        <RequestPanel
-          id={place.request}
-          onClose={() => setPlace({ ...place, request: '' })}
-          onNotice={setNotice}
-        />
       </div>
 
       <p className="flex items-start gap-3 rounded-xl border border-divider bg-info-soft px-4 py-3 text-sm text-text">
@@ -355,6 +363,8 @@ function FilterChips({
 /** One page of the tab's requests: applicant, submitted date and the check or decision. */
 function RequestsTable({
   status,
+  sort,
+  onSort,
   list,
   filtered,
   selected,
@@ -362,6 +372,8 @@ function RequestsTable({
   onClear,
 }: {
   status: SignUpListStatus;
+  sort: SignUpsPlace['sort'];
+  onSort: () => void;
   list: UseQueryResult<ClientSignUpList>;
   filtered: boolean;
   selected: string;
@@ -432,7 +444,13 @@ function RequestsTable({
     );
   }
   return (
-    <div className="overflow-x-auto">
+    // A labelled region the keyboard can scroll on a narrow screen (spec, section 10).
+    <div
+      role="region"
+      aria-label="Sign-up requests table"
+      tabIndex={0}
+      className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-focus"
+    >
       <table className="w-full min-w-[34rem] text-left text-sm" data-testid="sign-ups-table">
         <caption className="sr-only">Sign-up requests</caption>
         <thead className="bg-table-head text-text">
@@ -440,8 +458,26 @@ function RequestsTable({
             <th scope="col" className="px-4 py-3 font-medium">
               Applicant
             </th>
-            <th scope="col" className="px-4 py-3 font-medium">
-              Submitted
+            <th
+              scope="col"
+              aria-sort={sort === 'newest' ? 'descending' : 'ascending'}
+              className="px-4 py-3 font-medium"
+            >
+              <button
+                type="button"
+                onClick={onSort}
+                className="inline-flex items-center gap-1.5 font-medium hover:underline"
+              >
+                Submitted
+                <CaretDown
+                  aria-hidden
+                  weight="bold"
+                  className={`size-3.5 ${sort === 'oldest' ? 'rotate-180' : ''}`}
+                />
+                <span className="sr-only">
+                  , {sort === 'newest' ? 'newest first' : 'oldest first'}. Change the order.
+                </span>
+              </button>
             </th>
             <th scope="col" className="px-4 py-3 font-medium">
               {third}
@@ -457,7 +493,7 @@ function RequestsTable({
                 data-testid="sign-up-row"
                 aria-selected={on}
                 onClick={() => onOpen(row)}
-                className={`cursor-pointer border-t border-divider ${on ? 'bg-accent-soft shadow-[inset_3px_0_0_var(--color-action)]' : 'hover:bg-canvas'}`}
+                className={`cursor-pointer border-t border-divider ${on ? 'bg-info-soft shadow-[inset_3px_0_0_var(--color-action)]' : 'hover:bg-canvas'}`}
               >
                 <td className="px-4 py-3">
                   <span className="flex min-w-0 items-center gap-3">
