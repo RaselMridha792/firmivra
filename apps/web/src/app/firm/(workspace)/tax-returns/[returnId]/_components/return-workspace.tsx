@@ -3,6 +3,7 @@
 import type { TaxReturnDetail, TaxReturnWorkflowStatus } from '@firmivra/types';
 import { ActionMenu, Avatar, Badge, Tabs, Toast } from '@firmivra/ui';
 import {
+  Archive,
   ArrowLeft,
   CalendarBlank,
   CalendarPlus,
@@ -129,6 +130,7 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
       ) : (
         <div className={`${card} h-32 animate-pulse`} aria-label="Loading" />
       )}
+      {r?.archivedAt ? <ArchivedNotice detail={r} onNotice={notice} /> : null}
       {r ? <InfoCards detail={r} onNotice={notice} /> : null}
       {r ? (
         <div className="min-w-0 [&_[role=tablist]]:justify-between [&_[role=tab]]:text-base">
@@ -577,6 +579,37 @@ function Overview({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Not
         <UpcomingTasks detail={detail} onNotice={onNotice} />
         <ActivityPanel detail={detail} limit={4} />
       </div>
+    </div>
+  );
+}
+
+/** An archived return (Octavia's TX-F35): read-only until restored, with its history kept. */
+function ArchivedNotice({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
+  const act = useAct(onNotice);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div
+      role="status"
+      className={`${card} flex flex-wrap items-center justify-between gap-3 p-4`}
+      data-testid="archived-return"
+    >
+      <p className="flex items-center gap-2 text-sm text-text">
+        <Archive aria-hidden weight="fill" className="size-5 shrink-0 text-muted" />
+        This return is archived. Its history, documents and filings are kept; restore it to make
+        changes.
+      </p>
+      <button
+        type="button"
+        className={outlined}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          await act(() => api.taxReturnWorkspace.restore(detail.id), 'Return restored.');
+          setBusy(false);
+        }}
+      >
+        Restore Return
+      </button>
     </div>
   );
 }

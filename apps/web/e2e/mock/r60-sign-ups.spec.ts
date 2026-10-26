@@ -141,6 +141,8 @@ test('F07, F08, F11: a potential match keeps Approve off; Keep Pending changes n
   await expect(page.getByTestId('sign-up-activity')).toContainText('Application submitted');
 
   await p.getByRole('button', { name: 'Keep Pending' }).click();
+  await page.getByRole('dialog').getByLabel('Note for your firm (optional)').fill('Calling back');
+  await page.getByRole('dialog').getByRole('button', { name: 'Keep Pending' }).click();
   await expect(page.getByTestId('sign-ups-feedback')).toContainText(
     "Lee Roe's request stays waiting for approval. Nothing was changed.",
   );
