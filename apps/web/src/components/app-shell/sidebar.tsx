@@ -50,6 +50,7 @@ export function Sidebar({
   // the current page.
   const current = sections
     .flat()
+    .flatMap((item) => [item, ...(item.children ?? [])])
     .map((item) => item.href)
     .filter((href): href is string => Boolean(href) && isActive(pathname, href ?? ''))
     .reduce<string | undefined>(
@@ -93,6 +94,8 @@ export function Sidebar({
     };
   }, [current]);
   const [moreBelow, setMoreBelow] = useState(false);
+  // Groups start open, so every page stays one click away; the person may close one.
+  const [closed, setClosed] = useState<readonly string[]>([]);
   useEffect(() => {
     const menu = menuRef.current;
     if (!menu) return;
@@ -186,6 +189,54 @@ export function Sidebar({
                 // The firm menu as the firm-workspace designs draw it (dashboard, Integrations):
                 // 34 px rows of 14 px regular text, the open page semibold (R1, Oct 20).
                 const row = `flex items-start ${brand ? 'gap-3 px-3.5 py-1.5 text-sm leading-5 font-normal' : 'gap-2.5 px-6 py-2 text-base'}`;
+                if (item.children) {
+                  const open = !closed.includes(item.label);
+                  const id = `nav-group-${item.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+                  return (
+                    <li key={item.label} className={brand ? 'my-px' : undefined}>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={id}
+                        onClick={() =>
+                          setClosed(
+                            open
+                              ? [...closed, item.label]
+                              : closed.filter((label) => label !== item.label),
+                          )
+                        }
+                        className={`${row} w-[calc(100%-1.625rem)] text-left hover:bg-navigation-hover ${brand ? 'ml-3 mr-3.5 rounded-control' : 'mr-3 rounded-r-control border-l-4 border-transparent'}`}
+                      >
+                        {body}
+                        <ChevronDown
+                          aria-hidden
+                          className={`size-4 shrink-0 self-center transition-transform ${open ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                      {open ? (
+                        <ul
+                          id={id}
+                          className={`flex flex-col border-l border-on-navigation/30 ${brand ? 'ml-6 mr-3.5 mt-px' : 'ml-9 mr-3'}`}
+                        >
+                          {item.children.map((child) =>
+                            child.href ? (
+                              <li key={child.label} className="my-px">
+                                <Link
+                                  href={child.href}
+                                  onClick={onNavigate}
+                                  aria-current={child.href === current ? 'page' : undefined}
+                                  className={`ml-2 flex items-start rounded-control py-1.5 pl-5 pr-3 leading-5 ${brand ? 'text-sm' : 'text-base'} ${child.href === current ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover'}`}
+                                >
+                                  {child.label}
+                                </Link>
+                              </li>
+                            ) : null,
+                          )}
+                        </ul>
+                      ) : null}
+                    </li>
+                  );
+                }
                 if (!item.href) {
                   return (
                     <li

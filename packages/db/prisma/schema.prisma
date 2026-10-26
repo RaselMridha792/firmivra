@@ -11119,6 +11119,17 @@ enum TaxAmountStatus {
   FINAL
 }
 
+/// Where a jurisdiction's refund or amount due came from. Every amount is entered by staff; this
+/// says what they copied it from.
+enum TaxAmountSource {
+  /// The result in the firm's own tax software.
+  TAX_SOFTWARE
+  /// An agency's notice or acknowledgment.
+  AGENCY_NOTICE
+  /// The preparer's own estimate, before the software or the agency has a figure.
+  STAFF_ESTIMATE
+}
+
 enum TaxAckStatus {
   PENDING
   ACCEPTED
@@ -11129,22 +11140,29 @@ enum TaxAckStatus {
 /// filed, where it stands, the refund or amount due the firm expects. Extensions are the compliance deadline's (R38). Status
 /// tracking only: the firm records what its tax software did.
 model TaxReturnFiling {
-  id             String                @id @default(uuid(7)) @db.Uuid
-  businessId     String                @map("business_id") @db.Uuid
-  taxReturnId    String                @map("tax_return_id") @db.Uuid
+  id                 String                @id @default(uuid(7)) @db.Uuid
+  businessId         String                @map("business_id") @db.Uuid
+  taxReturnId        String                @map("tax_return_id") @db.Uuid
   /// "US" for federal, or a two-letter state code.
-  jurisdiction   String
-  filingMethod   TaxFilingMethod       @default(EFILE) @map("filing_method")
+  jurisdiction       String
+  filingMethod       TaxFilingMethod       @default(EFILE) @map("filing_method")
   /// Closing the return waits for the required jurisdictions only.
-  required       Boolean               @default(true)
-  status         TaxJurisdictionStatus @default(NOT_FILED)
-  paperFiledOn   DateTime?             @map("paper_filed_on") @db.Date
+  required           Boolean               @default(true)
+  status             TaxJurisdictionStatus @default(NOT_FILED)
+  paperFiledOn       DateTime?             @map("paper_filed_on") @db.Date
   /// In cents. At most one of the two is above zero; the amount's status says estimate or final.
-  refundCents    Int?                  @map("refund_cents")
-  amountDueCents Int?                  @map("amount_due_cents")
-  amountStatus   TaxAmountStatus?      @map("amount_status")
-  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  refundCents        Int?                  @map("refund_cents")
+  amountDueCents     Int?                  @map("amount_due_cents")
+  amountStatus       TaxAmountStatus?      @map("amount_status")
+  /// Where the amount came from, and its version (1 for the first amount, then up by one on each
+  /// change); set together, only with an amount. Rows from before have neither.
+  amountSource       TaxAmountSource?      @map("amount_source")
+  amountVersion      Int?                  @map("amount_version")
+  /// The paper filing's mail tracking number ("Mail Tracking Number", never a submission id); only
+  /// on a PAPER filing. Tracking proves neither delivery nor acceptance.
+  mailTrackingNumber String?               @map("mail_tracking_number")
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   taxReturn TaxReturn                @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
   attempts  TaxReturnFilingAttempt[]
@@ -11170,6 +11188,9 @@ model TaxReturnFilingAttempt {
   rejectCode        String?      @map("reject_code")
   rejectDescription String?      @map("reject_description")
   correctiveAction  String?      @map("corrective_action")
+  /// The agency that rejected it ("IRS", "Georgia DOR"), as the acknowledgment names it; only on a
+  /// rejection, and kept once recorded.
+  rejectingAgency   String?      @map("rejecting_agency")
   recordedByUserId  String       @map("recorded_by_user_id") @db.Uuid
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 

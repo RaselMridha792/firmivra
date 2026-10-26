@@ -1,3 +1,5 @@
+import type { SignUpEvent, SignUpListStatus } from '@firmivra/types';
+
 /** Every sign-ups query starts with this key. */
 export const SIGN_UPS = ['client-sign-ups'] as const;
 
@@ -5,16 +7,34 @@ export const SIGN_UPS = ['client-sign-ups'] as const;
 export const SIGN_UP_ERRORS: Record<string, string> = {
   NOT_PENDING: 'Someone at your firm already handled this sign-up. The list is now up to date.',
   DUPLICATE_EMAIL:
-    'A client of your firm already uses this email. Check the client list before approving.',
+    'A client of your firm already uses this email. Review the existing client record first.',
+  POTENTIAL_MATCH:
+    'This sign-up may belong to a client your firm already has, so it stays waiting. Review the existing client record first.',
   CLIENT_NOT_LINKABLE:
     'This sign-up can no longer be linked to that client. Check the client list before approving.',
+  NOT_FOUND: 'This sign-up is no longer here. It may belong to another firm or have been removed.',
 };
 
-export const signedUpText = (iso: string) =>
-  new Date(iso).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+/** The tabs, in the design's order and words. */
+export const TABS: { status: SignUpListStatus; label: string; noun: string }[] = [
+  { status: 'PENDING_APPROVAL', label: 'Waiting for Approval', noun: 'waiting' },
+  { status: 'APPROVED', label: 'Approved', noun: 'approved' },
+  { status: 'DECLINED', label: 'Declined', noun: 'declined' },
+];
+
+/** "Oct 24, 2026", in the browser's zone. */
+export const dayText = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+/** "Oct 24, 2026 at 10:42 AM", as the design's activity list writes it. */
+export const momentText = (iso: string) =>
+  `${dayText(iso)} at ${new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+
+/** Each history step's line in the activity list. */
+export const EVENT_TEXT: Record<SignUpEvent['kind'], string> = {
+  SUBMITTED: 'Application submitted',
+  EMAIL_VERIFIED: 'Email verified',
+  PHONE_VERIFIED: 'Phone verified',
+  APPROVED: 'Approved',
+  DECLINED: 'Declined',
+};
