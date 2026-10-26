@@ -126,6 +126,7 @@ export function RecipientSection({
   team,
   errors,
   number = 1,
+  locked = false,
 }: {
   draft: RequestDraft;
   onChange: Patch;
@@ -133,6 +134,8 @@ export function RecipientSection({
   team: TeamMember[] | null;
   errors: DraftErrors;
   number?: number;
+  /** A saved draft: its recipient and client stay as saved. */
+  locked?: boolean;
 }) {
   const member = draft.recipientKind === 'MEMBER';
   return (
@@ -147,6 +150,7 @@ export function RecipientSection({
           title="Client"
           note="Send to an existing client"
           checked={!member}
+          disabled={locked}
           onSelect={() => onChange({ recipientKind: 'CLIENT' })}
         />
         <RecipientCard
@@ -161,7 +165,7 @@ export function RecipientSection({
           title="Team Member"
           note="Send to a staff member"
           checked={member}
-          disabled={!team}
+          disabled={!team || locked}
           onSelect={() => onChange({ recipientKind: 'MEMBER' })}
         />
       </div>
@@ -170,6 +174,7 @@ export function RecipientSection({
           <Select
             label="Team Member *"
             value={draft.memberUserId}
+            disabled={locked}
             error={errors['member']}
             onChange={(e) => onChange({ memberUserId: e.target.value })}
             options={[
@@ -183,7 +188,7 @@ export function RecipientSection({
           value={draft.client}
           onChange={(client) => onChange({ client })}
           error={errors['client']}
-          disabled={false}
+          disabled={locked}
         />
       </div>
     </Section>
@@ -198,8 +203,11 @@ export function DetailsSection({
   onChange,
   errors,
   extra,
+  typeLocked = false,
 }: {
   draft: RequestDraft;
+  /** A saved draft: its type stays as saved. */
+  typeLocked?: boolean;
   /** The firm's request types; null when they could not be loaded. */
   types: RequestTemplate[] | null;
   onType: (typeId: string) => void;
@@ -221,6 +229,7 @@ export function DetailsSection({
         <Select
           label="Request Type *"
           value={draft.typeId}
+          disabled={typeLocked}
           error={errors['type'] ?? (types ? undefined : 'Request types could not be loaded.')}
           onChange={(e) => onType(e.target.value)}
           options={[

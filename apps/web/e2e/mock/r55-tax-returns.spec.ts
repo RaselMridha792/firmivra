@@ -20,7 +20,7 @@ test('the sidebar opens the Tax Returns overview with every widget', async ({ pa
   await expect(page.getByTestId('return-link')).toHaveCount(10);
   await expect(page.getByText(/Showing 1\s*[–-]\s*10 of \d+ returns/)).toBeVisible();
   await expect(page.getByTestId('season-progress')).toContainText('Completed');
-  await expect(page.getByTestId('quick-actions').getByRole('button')).toHaveCount(5);
+  await expect(page.getByTestId('quick-actions').getByRole('button')).toHaveCount(6);
   await expect(page.getByTestId('helpful-links').getByRole('link')).toHaveCount(5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -40,7 +40,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import {
   FirmBell,
@@ -52,6 +52,7 @@ import {
 } from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
+import { OriginBar } from '../../../components/origin-bar';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
 import { COMPANY } from '../../../lib/company';
@@ -68,6 +69,8 @@ const solid =
   (Glyph: Icon): NavItem['icon'] =>
   (props) => <Glyph weight="fill" {...props} />;
 
+type MenuItem = Omit<NavItem, 'children'> & { managers?: true; children?: MenuItem[] };
+
 const link = (label: string, glyph: Icon, href: string, managers?: true) => ({
   label,
   icon: solid(glyph),
@@ -75,21 +78,30 @@ const link = (label: string, glyph: Icon, href: string, managers?: true) => ({
   ...(managers && { managers }),
 });
 // A module that is not built opens the shared module page (src/lib/firm-modules.ts).
-const mod = (slug: string): NavItem & { managers?: true } => {
+const mod = (slug: string): MenuItem => {
   const m = findModule(slug);
   if (!m) throw new Error(`Unknown module: ${slug}`);
   return link(m.label, m.icon, moduleHref(slug));
 };
 
-/** Octavia's order (docs/mockups/firm-workspace/dashboard); the four extras keep their place. */
-const items: (NavItem & { managers?: true })[] = [
+/**
+ * Octavia's order (docs/mockups/firm-workspace/dashboard); the extras keep their place. Clients is
+ * a group of Overview, Sign-ups and Documents, as her Client Sign-ups design of Oct 25 draws it.
+ */
+const items: MenuItem[] = [
   link('Dashboard', House, '/'),
-  link('Clients', Users, '/clients'),
-  link('Sign-ups', UserPlus, '/sign-ups', true),
+  {
+    label: 'Clients',
+    icon: solid(Users),
+    children: [
+      link('Overview', Users, '/clients'),
+      link('Sign-ups', UserPlus, '/sign-ups', true),
+      link('Documents', Files, '/documents'),
+    ],
+  },
   link('Leads', Target, '/leads'),
   link('Appointments', CalendarDots, '/calendar'),
   link('Intake Forms', FileText, '/intake-forms'),
-  link('Documents', Files, '/documents'),
   mod('client-portal'),
   link('Tax Returns', IdentificationCard, '/tax-returns'),
   link('Bookkeeping', Calculator, '/bookkeeping'),
@@ -246,6 +258,9 @@ function FirmShell({
       sections={[
         items
           .filter((i) => manager || !i.managers)
+          .map((i) =>
+            i.children ? { ...i, children: i.children.filter((c) => manager || !c.managers) } : i,
+          )
           .map((i) => (i.href === '/messages' && badge ? { ...i, badge } : i)),
       ]}
       roleLabel={role ? FIRM_ROLE_LABELS[role] : 'Staff'}
@@ -278,6 +293,10 @@ function FirmShell({
         />
       }
     >
+      {/* SH1: Back to the exact place a workspace link came from (`?from=`). */}
+      <Suspense fallback={null}>
+        <OriginBar />
+      </Suspense>
       {children}
       <HelpSupportPanel
         open={help}

@@ -119,6 +119,11 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     name: 'Robin Example',
     signUpLink: 'https://portal.example.test/sample/sign-up',
   },
+  'client.portal-invitation': {
+    name: 'Robin Example',
+    link: 'https://portal.example.test/sample/invitation#token=sample',
+    expiresAt: new Date('2026-11-01T12:00:00Z'),
+  },
   'message.received': {
     name: 'Robin Example',
     link: 'https://portal.example.test/sample/messages',
