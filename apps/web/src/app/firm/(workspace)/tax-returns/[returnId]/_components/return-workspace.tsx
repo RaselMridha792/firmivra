@@ -24,6 +24,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import {
   AssignDialog,
   DetailsDialog,
+  RejectDialog,
   StatusDialog,
   isBackward,
   useAct,
@@ -201,6 +202,7 @@ function Header({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notic
     api.taxReturns.listForClient(detail.client.id),
   );
   const [statusTo, setStatusTo] = useState<TaxReturnWorkflowStatus>();
+  const [rejecting, setRejecting] = useState(false);
   const years = [...new Set((siblings.data ?? []).map((s) => s.taxYear))].sort((a, b) => b - a);
   const sameYear = (siblings.data ?? []).filter((s) => s.taxYear === detail.taxYear);
   const archived = !!client.data?.archivedAt;
@@ -208,7 +210,8 @@ function Header({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notic
   const select =
     'min-h-10 rounded-control border border-divider bg-surface px-2 text-base text-heading';
   const change = (to: TaxReturnWorkflowStatus) => {
-    if (isBackward(detail.workflowStatus, to)) setStatusTo(to);
+    if (to === 'REJECTED') setRejecting(true);
+    else if (isBackward(detail.workflowStatus, to)) setStatusTo(to);
     else
       void act(
         () => api.taxReturnWorkspace.changeStatus(detail.id, { workflowStatus: to }),
@@ -297,6 +300,9 @@ function Header({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notic
           </select>
         </label>
       </div>
+      {rejecting ? (
+        <RejectDialog row={detail} onClose={() => setRejecting(false)} onNotice={onNotice} />
+      ) : null}
       {statusTo ? (
         <StatusDialog
           row={{ ...detail, client: detail.client }}
@@ -755,6 +761,7 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
   const router = useRouter();
   const act = useAct(onNotice);
   const [back, setBack] = useState<TaxReturnWorkflowStatus>();
+  const [rejecting, setRejecting] = useState(false);
   const next = NEXT[detail.workflowStatus];
   const goEfile =
     detail.workflowStatus === 'READY_TO_FILE' ||
@@ -824,15 +831,17 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
                   ? others.map((s) => ({
                       label: `Move to ${STATUS_LABEL[s]}`,
                       onSelect: () =>
-                        isBackward(detail.workflowStatus, s)
-                          ? setBack(s)
-                          : void act(
-                              () =>
-                                api.taxReturnWorkspace.changeStatus(detail.id, {
-                                  workflowStatus: s,
-                                }),
-                              `Moved to ${STATUS_LABEL[s]}.`,
-                            ),
+                        s === 'REJECTED'
+                          ? setRejecting(true)
+                          : isBackward(detail.workflowStatus, s)
+                            ? setBack(s)
+                            : void act(
+                                () =>
+                                  api.taxReturnWorkspace.changeStatus(detail.id, {
+                                    workflowStatus: s,
+                                  }),
+                                `Moved to ${STATUS_LABEL[s]}.`,
+                              ),
                     }))
                   : [
                       {
@@ -848,6 +857,9 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
       </div>
       {back ? (
         <StatusDialog row={detail} onClose={() => setBack(undefined)} onNotice={onNotice} />
+      ) : null}
+      {rejecting ? (
+        <RejectDialog row={detail} onClose={() => setRejecting(false)} onNotice={onNotice} />
       ) : null}
     </div>
   );

@@ -19,6 +19,7 @@ import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import {
   DetailsDialog,
+  RejectDialog,
   StatusDialog,
   isBackward,
   useAct,
@@ -317,6 +318,7 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
   const act = useAct(onNotice);
   const router = useRouter();
   const [back, setBack] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const canFile = detail.canMoveTo.includes('READY_TO_FILE');
   const blocked = detail.blockers.filter(
     (b) => b !== 'NO_FILING_TRANSMITTED' && b !== 'FILINGS_NOT_ACCEPTED',
@@ -372,13 +374,17 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
                   .map((s) => ({
                     label: `Move to ${STATUS_LABEL[s]}`,
                     onSelect: () =>
-                      isBackward(detail.workflowStatus, s)
-                        ? setBack(true)
-                        : void act(
-                            () =>
-                              api.taxReturnWorkspace.changeStatus(detail.id, { workflowStatus: s }),
-                            `Moved to ${STATUS_LABEL[s]}.`,
-                          ),
+                      s === 'REJECTED'
+                        ? setRejecting(true)
+                        : isBackward(detail.workflowStatus, s)
+                          ? setBack(true)
+                          : void act(
+                              () =>
+                                api.taxReturnWorkspace.changeStatus(detail.id, {
+                                  workflowStatus: s,
+                                }),
+                              `Moved to ${STATUS_LABEL[s]}.`,
+                            ),
                   })),
               ],
             },
@@ -408,6 +414,9 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
       </div>
       {back ? (
         <StatusDialog row={detail} onClose={() => setBack(false)} onNotice={onNotice} />
+      ) : null}
+      {rejecting ? (
+        <RejectDialog row={detail} onClose={() => setRejecting(false)} onNotice={onNotice} />
       ) : null}
     </div>
   );
