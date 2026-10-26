@@ -114,6 +114,29 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped on Rasel's word (a long context), after the three schema items were built.
 
+**Update (Oct 26).** This wins over the rest of this section. The session stopped at a long context, on Rasel's word.
+- **Merged since:** #1152 (sign-ups), #1159 (card templates), #1137 (smoke-test logging), #1158 (handoff).
+- **Open:** **#1160**, EIN status: green, with `main` merged in at `e57fe55aa`. It's the only migration PR open.
+- **Rasel's tap of Oct 26, for Octavia's Oct 25 reviews:** four `packages/db` items, each its own migration PR, one at a time, in this order:
+  1. **Stop Future Billing:** `rasel/R1-stop-future-billing` (pushed at `c036e7e53`, stacked on #1160, **no PR yet**).
+     - `engagements.stop_future_billing` (default false) and `billing_stops_on`, set together.
+     - The test `packages/db/test/stop-future-billing.test.ts` is written but **not yet run**: Docker Desktop had stopped, so the local Postgres was down.
+     - When Docker is back: run the test with `--no-file-parallelism`, plus `seed`, `rls-coverage` and `enums`. Then open the PR after #1160 merges, with `main` merged in.
+  2. **Tax Returns filing details:**
+     - on `tax_return_filings`: a mail tracking number, the amount source and the amount version;
+     - on `tax_return_filing_attempts`: the rejecting agency;
+     - one migration per table, in one PR.
+  3. **Tax Returns validation issues:** a new table with severity (`ERROR`, `MANUAL_WARNING`, `INFO`), a responsible person (a member), the return's version and a link to a review step (`tax_return_checklist_items`). Forced RLS per firm, an isolation test, and `gen:enums`.
+  4. **Business identity on a business return:**
+     - a snapshot copied onto the return at creation from the client's business record: business name, EIN and address;
+     - the EIN follows the existing rules (sealed with `sealed_value_ok`, last four only, masked on read);
+     - the client's own record stays the source for new returns.
+- **Then, read-only:** the Bookkeeping gap check against `docs/specs/review-2026-10-26/bookkeeping--developer-review.md` (chargebacks, payouts, close lock details). Report the gaps and build nothing until Rasel sends a card.
+  - Already in place: transactions with splits, transfer pairs and refunds; settlements and their items; reconciliations with a statement, cleared count, difference and approval; periods with `close_version`; close items; report versions; terms and terms events; activity.
+- **TX-F18** (who may assign) is a role check, not part of this.
+- **The prod one-offs still wait on Rasel:** the alarm email subscription, the two Cognito subs and LVP's legal name.
+- **If Docker Desktop is down:** Rasel starts it. Then run `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`, never compose from this worktree.
+
 ### Prod (v1.0.0 is live)
 - **Release:** `v1.0.0` on `564c8cfaf` is live (prod log 8a to 8d).
   - The 3 sites and `/api/v1/health` answer 200.
