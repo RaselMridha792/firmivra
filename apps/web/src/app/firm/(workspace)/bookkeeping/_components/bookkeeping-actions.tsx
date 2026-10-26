@@ -39,6 +39,7 @@ import { BK_ERRORS, BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeep
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { describeConnection } from '../../../../../lib/connection-state';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 
@@ -302,11 +303,15 @@ export function ConnectDialog({
                 <span className="block font-medium text-heading">{k.label}</span>
                 <span className="block text-xs text-muted">
                   {k.companyName ?? k.providerCompanyId} ·{' '}
-                  {k.status === 'CONNECTED'
-                    ? 'Connected'
-                    : k.status === 'DISCONNECTED'
-                      ? 'Disconnected'
-                      : (k.lastErrorCode ?? 'Needs attention')}
+                  {
+                    describeConnection({
+                      provider: k.label,
+                      status: k.status,
+                      lastSuccessAt: k.lastSuccessfulSyncAt,
+                      lastAttemptAt: k.lastSyncAt,
+                      errorCode: k.lastErrorCode,
+                    }).label
+                  }
                 </span>
               </span>
               {k.status === 'DISCONNECTED' ? (
