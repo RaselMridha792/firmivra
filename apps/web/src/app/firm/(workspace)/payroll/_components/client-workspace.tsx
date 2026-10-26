@@ -11,6 +11,7 @@ import {
   ChartBar,
   CurrencyDollar,
   FileText,
+  UploadSimple,
   Folder,
   ListChecks,
   Plus,
@@ -63,6 +64,10 @@ import {
   CommunicationsTab,
 } from './workspace-tabs';
 import { OriginLink } from '../../../../../components/origin-link';
+import {
+  ServiceDocumentsProvider,
+  useServiceDocuments,
+} from '../../../../../components/service-documents';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -129,182 +134,202 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
         ? 'The payroll service is on hold.'
         : '';
 
+  // SH3: Request Documents and Upload Document open here, for this client's payroll service.
+  const docTarget = w
+    ? {
+        clientId: w.client.id,
+        clientName: w.client.displayName,
+        engagementId: w.engagementId,
+        service: 'Payroll',
+      }
+    : undefined;
   return (
-    <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-client">
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href="/payroll" aria-label="Back to Payroll" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
-        <Link href="/payroll" className="text-link">
-          Payroll
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <Link href="/payroll" className="text-link">
-          Clients
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">{w?.client.displayName ?? 'Client'}</span>
-      </nav>
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <span
-            aria-hidden
-            className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-success text-2xl font-bold text-on-action"
-          >
-            {w ? initials(w.client.displayName) : ''}
+    <ServiceDocumentsProvider target={docTarget} onDone={(text) => notice(text, 'success')}>
+      <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-client">
+        <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
+          <Link href="/payroll" aria-label="Back to Payroll" className="text-link">
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
+          </Link>
+          <Link href="/payroll" className="text-link">
+            Payroll
+          </Link>
+          <span aria-hidden className="text-muted">
+            ›
           </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1
-                className="font-display text-3xl font-bold text-heading"
-                data-testid="client-title"
-              >
-                {w?.client.displayName ?? 'Payroll client'}
-              </h1>
-              {w ? <ClientStatusPill status={w.status} /> : null}
-            </div>
-            <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text">
-              {w ? (
-                <>
-                  {w.industry ? <span>{w.industry}</span> : null}
-                  <span>{w.employeeCount ?? '—'} Employees</span>
-                  <span>
-                    {w.frequency ? `${FREQUENCY_LABEL[w.frequency]} Payroll` : 'Frequency not set'}
-                  </span>
-                  {w.serviceSince ? <span>Client Since: {dayText(w.serviceSince)}</span> : null}
-                </>
-              ) : (
-                <span className="text-muted">
-                  {ws.isError ? 'This payroll client is not available right now.' : 'Loading…'}
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-        {w ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <ClientActionMenu
-              client={{
-                id: w.id,
-                client: w.client,
-                provider: w.provider,
-                status: w.status,
-                frequency: w.frequency,
-                assignedTo: w.assignedTo,
-              }}
-              label="Client Actions"
-              onNotice={notice}
-              trigger={
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
-                  Client Actions
-                </span>
-              }
-            />
-            <div className="flex">
-              <button
-                type="button"
-                aria-label="Previous client"
-                disabled={at <= 0}
-                onClick={() => step(-1)}
-                className="flex size-10 items-center justify-center rounded-l-lg border border-action text-action disabled:opacity-40"
-              >
-                <CaretLeft aria-hidden weight="bold" className="size-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Next client"
-                disabled={at < 0 || at >= ids.length - 1}
-                onClick={() => step(1)}
-                className="flex size-10 items-center justify-center rounded-r-lg border border-l-0 border-action text-action disabled:opacity-40"
-              >
-                <CaretRight aria-hidden weight="bold" className="size-4" />
-              </button>
-            </div>
-            <div className="text-sm" data-testid="next-payroll">
-              <p className="text-text">Next Payroll Date</p>
-              <p className="flex items-center gap-2 font-display text-xl font-bold text-heading">
-                <CalendarCheck aria-hidden weight="fill" className="size-5 text-action" />
-                {w.nextPayrollOn ? dayText(w.nextPayrollOn) : '—'}
-              </p>
-              {w.nextPayrollSource ? (
-                <p className="text-xs text-muted">
-                  From the {w.nextPayrollSource === 'provider' ? 'provider' : 'schedule'}
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              data-testid="run-payroll"
-              disabled={Boolean(why) || create.isPending}
-              title={why || undefined}
-              onClick={runPayroll}
-              className="inline-flex min-h-12 items-center gap-2 rounded-control bg-action px-6 text-base font-medium text-on-action hover:bg-action-hover disabled:opacity-50"
+          <Link href="/payroll" className="text-link">
+            Clients
+          </Link>
+          <span aria-hidden className="text-muted">
+            ›
+          </span>
+          <span className="font-semibold text-heading">{w?.client.displayName ?? 'Client'}</span>
+        </nav>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <span
+              aria-hidden
+              className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-success text-2xl font-bold text-on-action"
             >
-              <Play aria-hidden weight="fill" className="size-5" />{' '}
-              {w.currentRun ? 'Continue Payroll' : 'Run Payroll'}
-            </button>
+              {w ? initials(w.client.displayName) : ''}
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1
+                  className="font-display text-3xl font-bold text-heading"
+                  data-testid="client-title"
+                >
+                  {w?.client.displayName ?? 'Payroll client'}
+                </h1>
+                {w ? <ClientStatusPill status={w.status} /> : null}
+              </div>
+              <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-text">
+                {w ? (
+                  <>
+                    {w.industry ? <span>{w.industry}</span> : null}
+                    <span>{w.employeeCount ?? '—'} Employees</span>
+                    <span>
+                      {w.frequency
+                        ? `${FREQUENCY_LABEL[w.frequency]} Payroll`
+                        : 'Frequency not set'}
+                    </span>
+                    {w.serviceSince ? <span>Client Since: {dayText(w.serviceSince)}</span> : null}
+                  </>
+                ) : (
+                  <span className="text-muted">
+                    {ws.isError ? 'This payroll client is not available right now.' : 'Loading…'}
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
+          {w ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <ClientActionMenu
+                client={{
+                  id: w.id,
+                  client: w.client,
+                  provider: w.provider,
+                  status: w.status,
+                  frequency: w.frequency,
+                  assignedTo: w.assignedTo,
+                  engagementId: w.engagementId,
+                }}
+                label="Client Actions"
+                onNotice={notice}
+                trigger={
+                  <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
+                    Client Actions
+                  </span>
+                }
+              />
+              <div className="flex">
+                <button
+                  type="button"
+                  aria-label="Previous client"
+                  disabled={at <= 0}
+                  onClick={() => step(-1)}
+                  className="flex size-10 items-center justify-center rounded-l-lg border border-action text-action disabled:opacity-40"
+                >
+                  <CaretLeft aria-hidden weight="bold" className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next client"
+                  disabled={at < 0 || at >= ids.length - 1}
+                  onClick={() => step(1)}
+                  className="flex size-10 items-center justify-center rounded-r-lg border border-l-0 border-action text-action disabled:opacity-40"
+                >
+                  <CaretRight aria-hidden weight="bold" className="size-4" />
+                </button>
+              </div>
+              <div className="text-sm" data-testid="next-payroll">
+                <p className="text-text">Next Payroll Date</p>
+                <p className="flex items-center gap-2 font-display text-xl font-bold text-heading">
+                  <CalendarCheck aria-hidden weight="fill" className="size-5 text-action" />
+                  {w.nextPayrollOn ? dayText(w.nextPayrollOn) : '—'}
+                </p>
+                {w.nextPayrollSource ? (
+                  <p className="text-xs text-muted">
+                    From the {w.nextPayrollSource === 'provider' ? 'provider' : 'schedule'}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                data-testid="run-payroll"
+                disabled={Boolean(why) || create.isPending}
+                title={why || undefined}
+                onClick={runPayroll}
+                className="inline-flex min-h-12 items-center gap-2 rounded-control bg-action px-6 text-base font-medium text-on-action hover:bg-action-hover disabled:opacity-50"
+              >
+                <Play aria-hidden weight="fill" className="size-5" />{' '}
+                {w.currentRun ? 'Continue Payroll' : 'Run Payroll'}
+              </button>
+            </div>
+          ) : null}
+        </header>
+        {why ? <p className="text-right text-xs text-muted">{why}</p> : null}
+        {message ? (
+          <Toast
+            message={message.text}
+            tone={message.tone}
+            onDismiss={() => setMessage(undefined)}
+          />
         ) : null}
-      </header>
-      {why ? <p className="text-right text-xs text-muted">{why}</p> : null}
-      {message ? (
-        <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
-      ) : null}
 
-      <nav
-        aria-label="Payroll client tabs"
-        role="tablist"
-        className="flex overflow-x-auto border-b border-divider"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={current === t.id}
-            onClick={() => setCurrent(t.id)}
-            className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${current === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+        <nav
+          aria-label="Payroll client tabs"
+          role="tablist"
+          className="flex overflow-x-auto border-b border-divider"
+        >
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={current === t.id}
+              onClick={() => setCurrent(t.id)}
+              className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${current === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
 
-      {current === 'overview' ? (
-        <Overview
-          w={w}
-          failed={ws.isError}
-          pending={ws.isPending}
-          onTab={setCurrent}
-          onAdd={setAdding}
-          notice={notice}
-        />
-      ) : null}
-      {current === 'employees' ? <EmployeesTab id={id} onAdd={setAdding} notice={notice} /> : null}
-      {current === 'runs' ? <RunsTab id={id} /> : null}
-      {current === 'filings' ? <FilingsTab id={id} /> : null}
-      {current === 'reports' ? <ReportsTab id={id} /> : null}
-      {current === 'documents' ? <DocumentsTab clientId={w?.client.id} /> : null}
-      {current === 'tasks' ? <TasksTab clientId={w?.client.id} /> : null}
-      {current === 'notes' ? <NotesTab id={id} notice={notice} /> : null}
-      {current === 'communications' ? <CommunicationsTab /> : null}
-      {current === 'settings' && w ? <SettingsTab w={w} notice={notice} /> : null}
-      {adding ? (
-        <WorkerDialog
-          payrollClientId={id}
-          defaultType={adding}
-          onClose={() => setAdding(undefined)}
-          onDone={(text) => {
-            setAdding(undefined);
-            notice(text, 'success');
-          }}
-        />
-      ) : null}
-    </div>
+        {current === 'overview' ? (
+          <Overview
+            w={w}
+            failed={ws.isError}
+            pending={ws.isPending}
+            onTab={setCurrent}
+            onAdd={setAdding}
+            notice={notice}
+          />
+        ) : null}
+        {current === 'employees' ? (
+          <EmployeesTab id={id} onAdd={setAdding} notice={notice} />
+        ) : null}
+        {current === 'runs' ? <RunsTab id={id} /> : null}
+        {current === 'filings' ? <FilingsTab id={id} /> : null}
+        {current === 'reports' ? <ReportsTab id={id} /> : null}
+        {current === 'documents' ? <DocumentsTab clientId={w?.client.id} /> : null}
+        {current === 'tasks' ? <TasksTab clientId={w?.client.id} /> : null}
+        {current === 'notes' ? <NotesTab id={id} notice={notice} /> : null}
+        {current === 'communications' ? <CommunicationsTab /> : null}
+        {current === 'settings' && w ? <SettingsTab w={w} notice={notice} /> : null}
+        {adding ? (
+          <WorkerDialog
+            payrollClientId={id}
+            defaultType={adding}
+            onClose={() => setAdding(undefined)}
+            onDone={(text) => {
+              setAdding(undefined);
+              notice(text, 'success');
+            }}
+          />
+        ) : null}
+      </div>
+    </ServiceDocumentsProvider>
   );
 }
 
@@ -367,6 +392,7 @@ function Overview({
   notice: (text: string, tone: 'success' | 'error') => void;
 }) {
   const router = useRouter();
+  const docs = useServiceDocuments();
   const sync = useApiMutation(() => api.payroll.sync(w?.id as string), {
     invalidate: [...PAYROLL_KEY],
   });
@@ -541,9 +567,12 @@ function Overview({
         <button type="button" className={outlined} onClick={() => onAdd('CONTRACTOR')}>
           <Users aria-hidden weight="fill" className="size-4" /> Add Contractor
         </button>
-        <OriginLink href="/documents/requests" className={outlined}>
+        <button type="button" className={outlined} onClick={() => docs.open('request')}>
           <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
-        </OriginLink>
+        </button>
+        <button type="button" className={outlined} onClick={() => docs.open('upload')}>
+          <UploadSimple aria-hidden weight="fill" className="size-4" /> Upload Document
+        </button>
         <OriginLink href="/tasks/new" className={outlined}>
           <Plus aria-hidden weight="bold" className="size-4" /> Create Task
         </OriginLink>
@@ -562,6 +591,7 @@ function Overview({
               status: w.status,
               frequency: w.frequency,
               assignedTo: w.assignedTo,
+              engagementId: w.engagementId,
             }}
             label="More Actions"
             onNotice={notice}
@@ -800,10 +830,11 @@ function OverviewDocuments({
   clientId: string | undefined;
   onAll: () => void;
 }) {
-  const docs = useApiQuery([...PAYROLL_KEY, 'documents', clientId ?? ''], async () =>
+  const docs = useServiceDocuments();
+  const files = useApiQuery([...PAYROLL_KEY, 'documents', clientId ?? ''], async () =>
     clientId ? api.documents.list(clientId) : { items: [] },
   );
-  const rows = (docs.data?.items ?? []).slice(0, 5);
+  const rows = (files.data?.items ?? []).slice(0, 5);
   return (
     <section className={card} data-testid="panel-documents" aria-label="Documents">
       <CardHead
@@ -817,9 +848,9 @@ function OverviewDocuments({
       />
       {rows.length === 0 ? (
         <p className={quiet}>
-          {docs.isError
+          {files.isError
             ? 'Documents are not available right now.'
-            : docs.isPending
+            : files.isPending
               ? 'Loading…'
               : 'No documents yet.'}
         </p>
@@ -839,9 +870,9 @@ function OverviewDocuments({
         </ul>
       )}
       {clientId ? (
-        <OriginLink href={`/clients/${clientId}/documents`} className={`${outlined} mt-3`}>
+        <button type="button" className={`${outlined} mt-3`} onClick={() => docs.open('upload')}>
           Upload Document
-        </OriginLink>
+        </button>
       ) : null}
     </section>
   );
