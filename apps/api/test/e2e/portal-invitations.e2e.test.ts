@@ -149,7 +149,7 @@ beforeAll(async () => {
     ] as const) {
       await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
     }
-    const client = (data: object) =>
+    const client = (data: { displayName: string; email?: string; assignedUserId?: string }) =>
       tx.client.create({ data: { ...A, ...data }, select: { id: true } }).then((c) => c.id);
     ids.mine = await client({
       displayName: 'Robin Example',
