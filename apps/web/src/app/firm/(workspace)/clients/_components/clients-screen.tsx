@@ -29,6 +29,7 @@ import {
   PAGE_SIZES,
   tabFor,
 } from './list-parts';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 /** Waits until typing pauses, so each key press doesn't send a request. */
 function useSettled(value: string, ms = 300) {
@@ -61,14 +62,24 @@ type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] 
  * Client, Bulk Actions, the table and numbered pages. Owner and Admin see every client; Staff see
  * the clients assigned to them (the API decides) and no assignee filter, bulk or archive controls.
  */
-export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }) {
+export function ClientsScreen({
+  initialSearch = '',
+  initialAdding = false,
+  fromDashboard = false,
+}: {
+  initialSearch?: string;
+  /** Open Add Client at once (the dashboard's shortcuts). */
+  initialAdding?: boolean;
+  /** Opened from the dashboard (Total Clients, Add Client): Back to Dashboard (Octavia's K2). */
+  fromDashboard?: boolean;
+}) {
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
   const [filters, setFilters] = useState<ClientFilters>({ ...NO_FILTERS, search: initialSearch });
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(PAGE_SIZES[0] ?? 8);
   const [selected, setSelected] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
 
@@ -134,6 +145,7 @@ export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header>
         <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
           Clients

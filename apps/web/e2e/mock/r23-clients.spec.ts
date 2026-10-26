@@ -164,7 +164,12 @@ test('Add New Client creates the client and opens their record', async ({ page }
   await dialog.getByRole('button', { name: 'Add Client' }).click();
   await expect(dialog.getByText('Enter a name')).toBeVisible();
   await dialog.getByLabel('Full name').fill('Avery Testcase');
-  await dialog.getByLabel('Email (optional)').fill('avery.testcase@example.test');
+  await dialog.getByLabel('Email').fill('avery.testcase@example.test');
+  await dialog.getByLabel('Phone').fill('404 555 0100');
+  await dialog.getByLabel('Street address').fill('1 Fake Street');
+  await dialog.getByLabel('City').fill('Faketown');
+  await dialog.getByLabel('State').selectOption('GA');
+  await dialog.getByLabel('ZIP code').fill('30301');
   await dialog.getByRole('button', { name: 'Add Client' }).click();
   // The record's route may still be compiling in dev.
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });

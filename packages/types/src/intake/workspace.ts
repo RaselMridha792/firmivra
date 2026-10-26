@@ -74,6 +74,10 @@ export type FormRecipient = z.infer<typeof FormRecipient>;
 // ---------- Dashboard ----------
 
 /** Status tabs: All Forms, Sent (= Not Started), In Progress, Submitted, Completed, Expired. */
+/**
+ * The list's tabs, and `open` (not a tab: the dashboard's Intake stage, C5): every form not
+ * finished, i.e. sent, in progress, to correct, submitted or under review.
+ */
 export const AssignedFormTab = z.enum([
   'all',
   'sent',
@@ -81,6 +85,7 @@ export const AssignedFormTab = z.enum([
   'submitted',
   'completed',
   'expired',
+  'open',
 ]);
 export type AssignedFormTab = z.infer<typeof AssignedFormTab>;
 

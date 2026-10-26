@@ -110,6 +110,49 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 25)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped on Rasel's word (a long context), after the three schema items were built.
+
+### Prod (v1.0.0 is live)
+- **Release:** `v1.0.0` on `564c8cfaf` is live (prod log 8a to 8d).
+  - The 3 sites and `/api/v1/health` answer 200.
+  - api and web run 2 tasks each, with auto scaling from 2 to 6.
+  - All 162 migrations ran once.
+- **Stripe:** `firmivra/prod/stripe` holds empty values, so payments are off. The live-key swap steps and the key format rule are in "Update (Oct 25)" above.
+- **Left, each on Rasel's word, with the command shown first:**
+  1. The alarm email subscription: Rasel runs `aws sns subscribe … --protocol email` with his address, then confirms the email.
+  2. The bootstrap one-off (`scripts/bootstrap-prod.mjs`) needs the 2 Cognito subs (a Super Admin in `firmivra-prod-admins`, LVP's Owner in `firmivra-prod-staff`) and `FIRM_LEGAL_NAME`. The overrides shape and the `run-task` command are in R1's reply of Oct 25. The network values come from `firmivra-prod-app`'s outputs.
+  3. **LVP's KMS key:** `create-firm-key` refuses outside `APP_ENV=dev`. The prod API's firm-key sweep makes LVP's key after the bootstrap; check its alias read-only.
+  4. `set-module` for LVP (which modules and why: Rasel). The database URL is built inside the container from `DB_*`.
+  5. The smoke test.
+- **#1137** (open, `chore:`): the smoke step logs curl's exit code and error. v1.0.0's smoke step printed empty codes, cause unknown. Rasel merges.
+
+### Schema queue (Rasel's tap of Oct 25 12:48 UTC, "Approve all three": one PR at a time)
+1. **#1152** (open): R55's Client Sign-ups, as three migrations, one busy table each. CI went red once on `packages/types/src/db-enums.ts`; the regenerated file is pushed.
+2. `rasel/R1-dashboard-card-templates` (pushed, no PR, stacked on #1152): R55's D4 `dashboard_card_templates`. Opens after #1152 merges.
+3. `rasel/R1-client-ein-status` (pushed, no PR, stacked on 2): R56's B15 `client_profiles.ein_status`. Opens after 2 merges.
+- **Before opening each:**
+  - merge `origin/main`, and if another migration landed meanwhile, regenerate the folder so it sorts last;
+  - `pnpm --filter @firmivra/db gen:enums` and `generate`;
+  - with #1152 merged, keep `main`'s side where it equals the merged head.
+- Rasel's answers (POLICY_CHANGE without a sign-up, no backfill, the database rules, no DELETE on cards, `ein_status` on `client_profiles`) are in each PR's text.
+
+### Dev
+- **Octavia's LVP client login:**
+  - a new password is set; it's only on line 3 of `F:/firmivra-octavia-logins.txt`;
+  - her account `ad3c1e7a-…` was linked to a new client record `01a17353-1464-7af4-a696-3eaff05ca878` by a one-transaction fix (two audit rows, `from: dev_link_fix`).
+  - She was the only `ACTIVE` account without a client record in any of the 15 dev firms.
+  - The Oct 11 cause was an ad-hoc one-off (#442's "one-off client-account scripts"), not a script in the repo. No code change.
+- **R60's request 13:** `staff_phone_codes` merged (#1145).
+
+### Lessons
+- **New enum:** run `pnpm --filter @firmivra/db gen:enums`, or `test/enums.test.ts` fails in CI.
+- **New table:** add a `knownEmpty` line in `seed.test.ts`, with a reason.
+- **Local db suite:** run it with `--no-file-parallelism`. In parallel, the local Postgres runs "out of shared memory".
+- **Local `platform-sales` failure:** a stale `null` stage in the reused test database. It passes in CI.
+- **Commits and PRs carry no attribution lines** (CLAUDE.md, Rasel).
+
 ## Handoff (R1 session, Oct 24 evening)
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.

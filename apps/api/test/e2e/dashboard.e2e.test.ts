@@ -52,6 +52,16 @@ async function summary(
     .set('x-business-id', firms[firm].id)
     .set('authorization', `Bearer ${token}`);
 }
+/** A list the dashboard opens, as the same member reads it: its total. */
+async function totalOf(who: Person, path: string): Promise<number> {
+  const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
+  const res = await request(app.getHttpServer())
+    .get(`/api/v1${path}`)
+    .set('x-business-id', firms.a.id)
+    .set('authorization', `Bearer ${token}`);
+  expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(200);
+  return (res.body as { total: number }).total;
+}
 const read = async (who: Person, firm: 'a' | 'b', query = '') => {
   const res = await summary(who, firm, 'STAFF', query);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -140,14 +150,37 @@ beforeAll(async () => {
     await ret(c1);
     await ret(c2, { createdAt: ago(10) });
     const filed = await ret(c2);
+    // Accepted this month (K5): the database keeps the client status and the history with it.
     await tx.taxReturn.update({
       where: { id: filed.id },
-      data: { status: 'FILED', filedOn: day(0) },
+      data: { workflowStatus: 'ACCEPTED', filedOn: day(0) },
     });
     const service = await tx.service.create({
       data: { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping' },
     });
     bookkeeping = service.id;
+    // New Leads (K3): still at New Lead and in this month; a later stage and an archived lead are
+    // left out. (The database sets created_at, so no lead of last month can be seeded here.)
+    const lead = (key: string, extra: object) =>
+      tx.lead.create({
+        data: {
+          businessId,
+          serviceId: service.id,
+          firstName: 'Dash',
+          lastName: `Lead ${key} (fake)`,
+          email: `dash-${key}-${firms.a.id.slice(0, 8)}@lead.test`,
+          ...extra,
+        },
+      });
+    const sent = { submittedAt: new Date() };
+    await lead('new', { status: 'SUBMITTED', ...sent });
+    await lead('review', { status: 'IN_REVIEW', ...sent });
+    await lead('archived', {
+      status: 'SUBMITTED',
+      ...sent,
+      archivedAt: new Date(),
+      archivedByUserId: people.ownerA.id,
+    });
     const engagement = await tx.engagement.create({
       data: { businessId, clientId: c2, serviceId: service.id, title: 'Bookkeeping (fake)' },
     });
@@ -209,10 +242,10 @@ describe('GET /business/dashboard/summary', () => {
     expect(s.today).toBe(nyDay(0));
     expect(s.kpis).toEqual({
       totalClients: { value: 3, previous: 1 },
-      newLeads: { value: 0, previous: 0 },
+      newLeads: { value: 1, previous: 0 },
       // The return made 10 days ago did not exist on the same day last month.
       returnsInProgress: { value: 2, previous: 0 },
-      completedReturns: { value: 1, previous: 0 },
+      acceptedReturns: { value: 1, previous: 0 },
       outstandingInvoicesCents: { value: 36_000, previous: null },
       appointmentsToday: { value: 1, previous: null },
     });
@@ -224,7 +257,8 @@ describe('GET /business/dashboard/summary', () => {
       previousTo: expect.any(String) as string,
     });
     expect(s.pipeline).toEqual({
-      leads: 0,
+      // C5: the New Lead that came this month, as Leads lists them (In Review and archived not).
+      leads: 1,
       consultation: null,
       intake: 0,
       inProgress: 2,
@@ -265,7 +299,8 @@ describe('GET /business/dashboard/summary', () => {
     const s = await read(people.staffA, 'a');
     expect(s.kpis.totalClients).toEqual({ value: 1, previous: 0 });
     expect(s.kpis.returnsInProgress).toEqual({ value: 1, previous: 0 });
-    expect(s.kpis.completedReturns.value).toBe(0);
+    expect(s.kpis.acceptedReturns.value).toBe(0);
+    expect(s.kpis.newLeads).toEqual({ value: 0, previous: 0 });
     expect(s.kpis.outstandingInvoicesCents.value).toBe(6_000);
     expect(s.kpis.appointmentsToday.value).toBe(1);
     expect(s.revenue.totalCents).toBe(4_000);
@@ -276,7 +311,8 @@ describe('GET /business/dashboard/summary', () => {
     const b = await read(people.ownerB, 'b');
     expect(b.kpis.totalClients.value).toBe(1);
     expect(b.kpis.returnsInProgress.value).toBe(1);
-    expect(b.kpis.completedReturns.value).toBe(0);
+    expect(b.kpis.acceptedReturns.value).toBe(0);
+    expect(b.kpis.newLeads.value).toBe(0);
     expect(b.kpis.outstandingInvoicesCents.value).toBe(100_100);
     expect(b.kpis.appointmentsToday.value).toBe(0);
     expect(b.revenue.totalCents).toBe(99_900);
@@ -313,11 +349,13 @@ describe('GET /business/dashboard/summary', () => {
       to: today.today,
       previousTo: nyDay(-1),
     });
-    expect(today.kpis.completedReturns).toEqual({ value: 1, previous: 0 });
+    expect(today.kpis.acceptedReturns).toEqual({ value: 1, previous: 0 });
+    expect(today.kpis.newLeads).toEqual({ value: 1, previous: 0 });
     expect(today.kpis.totalClients).toEqual({ value: 3, previous: 1 });
     const lastMonth = await read(people.ownerA, 'a', '?period=LAST_MONTH');
-    // Nothing was filed last month; the cards that never follow the period stay as they are.
-    expect(lastMonth.kpis.completedReturns.value).toBe(0);
+    // Nothing was accepted last month; the cards that never follow the period stay as they are.
+    expect(lastMonth.kpis.acceptedReturns.value).toBe(0);
+    expect(lastMonth.kpis.newLeads.value).toBe(0);
     expect(lastMonth.kpis.totalClients.value).toBe(1);
     expect(lastMonth.kpis.outstandingInvoicesCents).toEqual({ value: 36_000, previous: null });
     expect(lastMonth.kpis.appointmentsToday).toEqual({ value: 1, previous: null });
@@ -382,6 +420,26 @@ describe('GET /business/dashboard/summary', () => {
     const future = await summary(people.ownerA, 'a', 'STAFF', `?revenueYear=${lastYear + 2}`);
     expect(future.status).toBe(400);
     expect((future.body as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+  });
+
+  // Octavia's C5 (V1): each stage counts exactly what the list it opens shows, for each member.
+  it('counts each pipeline stage as the list it opens shows it', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      for (const query of ['', '?pipelinePeriod=THIS_YEAR', '?pipelinePeriod=TODAY']) {
+        const { pipeline: p } = await read(who, 'a', query);
+        const span = `from=${p.from}&to=${p.to}`;
+        expect([
+          query,
+          await totalOf(who, `/business/leads/pipeline?stage=SUBMITTED&${span}`),
+          await totalOf(who, '/business/intakes?tab=open'),
+          await totalOf(who, '/business/tax-returns?workflowGroup=IN_PROGRESS'),
+          await totalOf(
+            who,
+            `/business/tax-returns?workflowStatus=ACCEPTED&acceptedFrom=${p.from}&acceptedTo=${p.to}`,
+          ),
+        ]).toEqual([query, p.leads, p.intake, p.inProgress, p.completed]);
+      }
+    }
   });
 
   it("gives each due task its priority, and no tax season until the firm's settings hold one", async () => {
