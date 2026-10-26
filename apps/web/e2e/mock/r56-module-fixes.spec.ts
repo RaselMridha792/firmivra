@@ -75,3 +75,29 @@ test('PY-F09: Payroll Runs shows its columns and says why there is no run yet', 
   await expect(runs).toContainText('No payroll runs yet');
   await expect(runs).not.toContainText('$0');
 });
+
+test('BK-D03: a custom Report Due period filters the list, start no later than end', async ({
+  page,
+}) => {
+  await page.goto(`${app}/bookkeeping`);
+  await page.getByLabel('Report Due').selectOption('CUSTOM');
+  const custom = page.getByTestId('due-custom');
+  await custom.getByLabel('Due from').fill('2026-12-10');
+  await custom.getByLabel('Due to').fill('2026-12-01');
+  await expect(custom.getByRole('alert')).toHaveText('The start date is after the end date.');
+  await custom.getByLabel('Due to').fill('2027-03-31');
+  await expect(custom).toContainText('Both dates are included.');
+  await expect(page).toHaveURL(/due=CUSTOM&dueFrom=2026-12-10&dueTo=2027-03-31/);
+});
+
+test('BK-D04: Missing Documents counts days since the request was sent, no number assumed', async ({
+  page,
+}) => {
+  await page.goto(`${app}/bookkeeping/settings`);
+  await expect(
+    page.getByLabel('Missing Documents after (days since the request was sent)'),
+  ).toBeVisible();
+  await expect(page.getByTestId('missing-docs-help')).toContainText(
+    'Requests that were received, accepted or cancelled stop counting.',
+  );
+});
