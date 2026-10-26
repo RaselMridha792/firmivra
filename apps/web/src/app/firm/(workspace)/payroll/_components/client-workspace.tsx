@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarCheck,
-  CaretDown,
   CaretLeft,
   CaretRight,
   ChartBar,
@@ -200,7 +199,7 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
               onNotice={notice}
               trigger={
                 <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
-                  Client Actions <CaretDown aria-hidden weight="bold" className="size-3" />
+                  Client Actions
                 </span>
               }
             />
@@ -567,8 +566,7 @@ function Overview({
             onNotice={notice}
             trigger={
               <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
-                <DotsThreeVertical aria-hidden weight="bold" className="size-4" /> More Actions{' '}
-                <CaretDown aria-hidden weight="bold" className="size-3" />
+                <DotsThreeVertical aria-hidden weight="bold" className="size-4" /> More Actions
               </span>
             }
           />

@@ -41,6 +41,8 @@ export interface ClientFilters {
   to: string;
   /** Current (not archived) clients, archived ones, or both. */
   records: Records;
+  /** The Pending Documents or Balances Due card's clients (Octavia's E1), or ''. */
+  owes: '' | 'DOCUMENTS' | 'BALANCE';
 }
 
 export const NO_FILTERS: ClientFilters = {
@@ -51,6 +53,7 @@ export const NO_FILTERS: ClientFilters = {
   from: '',
   to: '',
   records: 'active',
+  owes: '',
 };
 
 /** The tab that shows the same clients as these filters, or '' when none does. */
