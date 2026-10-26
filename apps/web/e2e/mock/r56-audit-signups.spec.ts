@@ -17,8 +17,11 @@ test('Audit log: an area chip filters by its action prefix', async ({ page }) =>
   await expect(rows).toHaveCount(6);
 });
 
-test('Sign-ups: each view shows its count and the approval steps', async ({ page }) => {
+test('Sign-ups: each tab shows its count', async ({ page }) => {
   await page.goto(app('/sign-ups'));
-  await expect(page.getByRole('button', { name: /^Waiting for approval/ })).toContainText('2');
-  await expect(page.getByText('How approval works')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Waiting for Approval/ })).toContainText('4', {
+    timeout: 60_000,
+  });
+  await expect(page.getByRole('tab', { name: /^Approved/ })).toContainText('1');
+  await expect(page.getByRole('tab', { name: /^Declined/ })).toContainText('1');
 });

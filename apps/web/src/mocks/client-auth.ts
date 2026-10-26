@@ -14,9 +14,11 @@ import {
   ChangeEmailRequest,
   ChangePhoneRequest,
   type ClientSignUp,
+  ClientSignUpDetail,
   ClientSignUpList,
   type ClientSignUpsClient,
   ClientSignUpsQuery,
+  ClientSignUpSettings,
   DeclineSignUpRequest,
   DeclineSignUpResponse,
   ForgotPasswordRequest,
@@ -59,21 +61,29 @@ const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => (
   accountType: 'INDIVIDUAL',
   status: 'PENDING_APPROVAL',
   signedUpAt: '2026-10-07T12:03:00.000Z',
+  approvedAt: null,
   declinedAt: null,
   declineReason: null,
-  existingClient: null,
+  match: null,
+  client: null,
   ...fields,
 });
+/** Who decided in the mock firm (a fake name). */
+const MOCK_DECIDER = 'Fake Owner';
+/** A phone's last 10 digits, as the API compares them. */
+const tenDigits = (phone: string) => phone.replace(/\D/g, '').slice(-10);
 
 /**
- * Client records the mock firm already has. Approve links a sign-up to one only if its email is
- * the sign-up's verified email (both lower-cased) and it has no primary portal login yet
- * (`linkable`); `existingClient` shows only such a record.
+ * Client records the mock firm already has. A waiting sign-up with a record's email or phone
+ * number is a potential match. Approve links a sign-up to one only if its email is the sign-up's
+ * verified email (both lower-cased) and it has no primary portal login yet (`linkable`).
  */
 interface MockClientRecord {
   clientId: string;
+  clientNumber: string;
   displayName: string;
   email: string | null;
+  phone?: string;
   hasPrimaryLogin: boolean;
   /** Archived records are restored first: never linkable. */
   archived?: boolean;
@@ -84,6 +94,7 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
   // Added by staff before Jane signed up: linkable to Jane's sign-up.
   {
     clientId: JANE_CLIENT_ID,
+    clientNumber: 'CL-10002',
     displayName: 'Jane Roe',
     email: 'Jane@Example.com',
     hasPrimaryLogin: false,
@@ -92,19 +103,25 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
   // sign-up cannot be approved as a new client either (DUPLICATE_EMAIL).
   {
     clientId: SAM_CLIENT_ID,
+    clientNumber: 'CL-10003',
     displayName: 'Sam Poe',
     email: 'sam@example.com',
     hasPrimaryLogin: true,
+  },
+  // Another email, but Lee's phone number: a potential match by phone.
+  {
+    clientId: '00000000-0000-4000-a000-000000000405',
+    clientNumber: 'CL-10005',
+    displayName: 'Lee Roe',
+    email: 'lee.roe@example.com',
+    phone: '(404) 555-0199',
+    hasPrimaryLogin: false,
   },
 ];
 const linkable = (signUp: { email: string }, record: MockClientRecord) =>
   !record.hasPrimaryLogin &&
   !record.archived &&
   record.email?.toLowerCase() === signUp.email.toLowerCase();
-const existingClientFor = (email: string): ClientSignUp['existingClient'] => {
-  const record = CLIENT_RECORDS.find((r) => linkable({ email }, r));
-  return record ? { clientId: record.clientId, displayName: record.displayName } : null;
-};
 
 // Error bodies the screens must handle: `errors` in the fixtures below.
 const error = (code: string, message: string) =>
@@ -223,10 +240,13 @@ function buildFixtures() {
         phone: '+14045550188',
         accountType: 'BUSINESS',
         signedUpAt: '2026-10-07T13:20:00.000Z',
-        existingClient: existingClientFor('jane@example.com'),
+        match: 'POTENTIAL_MATCH',
       }),
     ],
-    nextCursor: null,
+    total: 2,
+    page: 1,
+    limit: 10,
+    counts: { PENDING_APPROVAL: 2, APPROVED: 0, DECLINED: 0 },
   });
   /** POST /api/v1/client-sign-ups/{id}/approve */
   const approvedSignUp = ApproveSignUpResponse.parse({
@@ -272,6 +292,11 @@ function buildFixtures() {
     duplicateEmail: error(
       'DUPLICATE_EMAIL',
       'A client of this firm already has this email. Link the sign-up to that record.',
+    ),
+    /** 409 on approve without clientId when a client of the firm already has the phone. */
+    potentialMatch: error(
+      'POTENTIAL_MATCH',
+      'This sign-up may belong to a client your firm already has. It stays waiting.',
     ),
   } as const;
   return {
@@ -603,19 +628,42 @@ export function createClientSignUpsMock(
     signUpItem(3, {
       name: 'Sam Poe',
       email: 'sam@example.com',
+      phone: '+17705550144',
       signedUpAt: '2026-10-07T14:40:00.000Z',
+    }),
+    signUpItem(5, {
+      name: 'Lee Roe',
+      email: 'lee@example.com',
+      phone: '+14045550199',
+      signedUpAt: '2026-10-06T21:15:00.000Z',
     }),
     signUpItem(4, {
       name: 'Alex Moe',
       email: 'alex@example.com',
+      phone: '+17705550155',
       status: 'DECLINED',
+      signedUpAt: '2026-10-05T16:00:00.000Z',
       declinedAt: '2026-10-06T10:00:00.000Z',
       declineReason: 'Not a client of ours',
+    }),
+    signUpItem(6, {
+      name: 'Kim Doe',
+      email: 'kim@example.com',
+      phone: '+17705550166',
+      status: 'APPROVED',
+      signedUpAt: '2026-10-04T15:30:00.000Z',
+      approvedAt: '2026-10-04T18:00:00.000Z',
+      client: {
+        clientId: '00000000-0000-4000-a000-000000000406',
+        clientNumber: 'CL-10006',
+        displayName: 'Kim Doe',
+      },
     }),
   ].map(copy);
   const records = CLIENT_RECORDS.map(copy);
   let nextClient = 500;
-  const PAGE = 2;
+  const decidedBy = new Map<string, string>([[signUpItem(4, {}).clientAccountId, MOCK_DECIDER]]);
+  decidedBy.set(signUpItem(6, {}).clientAccountId, MOCK_DECIDER);
   const allowed = () => {
     if (options.role === 'STAFF') {
       throw fail(403, error('FORBIDDEN', 'This action is not permitted'));
@@ -627,20 +675,97 @@ export function createClientSignUpsMock(
     if (row.status !== 'PENDING_APPROVAL') throw fail(409, errors.notPending);
     return row;
   };
+  /** The firm's records a sign-up may belong to, as the API matches them. */
+  const candidatesOf = (row: ClientSignUp) =>
+    records
+      .map((r) => ({
+        record: r,
+        matchedOn: [
+          ...(r.email?.toLowerCase() === row.email.toLowerCase() ? (['email'] as const) : []),
+          ...(r.phone && tenDigits(r.phone) === tenDigits(row.phone) ? (['phone'] as const) : []),
+        ],
+      }))
+      .filter((c) => c.matchedOn.length > 0);
+  const withMatch = (row: ClientSignUp): ClientSignUp => ({
+    ...copy(row),
+    match:
+      row.status === 'PENDING_APPROVAL'
+        ? candidatesOf(row).length
+          ? 'POTENTIAL_MATCH'
+          : 'NO_MATCH'
+        : null,
+  });
+  /** The firm's calendar day (New York in the mock), as the API reads `from` and `to`. */
+  const firmDay = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
   return {
     list: async (query = {}) => {
       await pause();
       allowed();
       const q = parseInput(ClientSignUpsQuery, query);
-      const matching = rows
-        .filter((r) => r.status === q.status)
-        .sort((a, b) => a.signedUpAt.localeCompare(b.signedUpAt));
-      const start = q.cursor ? Number(q.cursor) : 0;
-      const size = Math.min(q.limit, PAGE);
-      const items = matching.slice(start, start + size).map(copy);
-      const next = start + size < matching.length ? String(start + size) : null;
-      return { items, nextCursor: next };
+      const term = q.search?.trim().toLowerCase();
+      const inTab = rows.map(withMatch).filter((r) => r.status === q.status);
+      const matching = inTab
+        .filter(
+          (r) =>
+            !term || r.name.toLowerCase().includes(term) || r.email.toLowerCase().includes(term),
+        )
+        .filter((r) => !q.from || firmDay(r.signedUpAt) >= q.from)
+        .filter((r) => !q.to || firmDay(r.signedUpAt) <= q.to)
+        .filter((r) => q.status !== 'PENDING_APPROVAL' || !q.match || r.match === q.match)
+        .sort((a, b) =>
+          q.sort === 'oldest'
+            ? a.signedUpAt.localeCompare(b.signedUpAt)
+            : b.signedUpAt.localeCompare(a.signedUpAt),
+        );
+      const count = (status: ClientSignUp['status']) =>
+        rows.filter((r) => r.status === status).length;
+      const start = (q.page - 1) * q.limit;
+      return {
+        items: matching.slice(start, start + q.limit),
+        total: matching.length,
+        page: q.page,
+        limit: q.limit,
+        counts: {
+          PENDING_APPROVAL: count('PENDING_APPROVAL'),
+          APPROVED: count('APPROVED'),
+          DECLINED: count('DECLINED'),
+        },
+      };
+    },
+    get: async (clientAccountId) => {
+      await pause();
+      allowed();
+      const row = rows.find((r) => r.clientAccountId === clientAccountId);
+      if (!row) throw fail(404, error('NOT_FOUND', 'Not found'));
+      const at = (minutes: number) =>
+        new Date(new Date(row.signedUpAt).getTime() + minutes * 60_000).toISOString();
+      const by = decidedBy.get(row.clientAccountId) ?? null;
+      return ClientSignUpDetail.parse({
+        ...withMatch(row),
+        history: [
+          { kind: 'SUBMITTED', at: row.signedUpAt, actorName: null },
+          { kind: 'EMAIL_VERIFIED', at: at(1), actorName: null },
+          { kind: 'PHONE_VERIFIED', at: at(2), actorName: null },
+          ...(row.approvedAt ? [{ kind: 'APPROVED', at: row.approvedAt, actorName: by }] : []),
+          ...(row.declinedAt ? [{ kind: 'DECLINED', at: row.declinedAt, actorName: by }] : []),
+        ],
+        candidates:
+          row.status === 'PENDING_APPROVAL'
+            ? candidatesOf(row).map((c) => ({
+                clientId: c.record.clientId,
+                clientNumber: c.record.clientNumber,
+                displayName: c.record.displayName,
+                matchedOn: c.matchedOn,
+              }))
+            : [],
+      });
+    },
+    settings: async () => {
+      await pause();
+      allowed();
+      return ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
     },
     approve: async (clientAccountId, body = {}) => {
       await pause();
@@ -654,13 +779,23 @@ export function createClientSignUpsMock(
         record.hasPrimaryLogin = true;
       } else if (records.some((r) => r.email?.toLowerCase() === row.email.toLowerCase())) {
         throw fail(409, errors.duplicateEmail);
+      } else if (candidatesOf(row).length) {
+        throw fail(409, errors.potentialMatch);
       }
-      rows = rows.filter((r) => r !== row);
+      const approvedAt = new Date().toISOString();
+      const id = clientId ?? `00000000-0000-4000-a000-${String(nextClient).padStart(12, '0')}`;
+      const client = {
+        clientId: id,
+        clientNumber: `CL-${10000 + nextClient++}`,
+        displayName: row.name,
+      };
+      rows = rows.map((r) => (r === row ? { ...r, status: 'APPROVED', approvedAt, client } : r));
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
       return {
         clientAccountId: row.clientAccountId,
-        clientId: clientId ?? `00000000-0000-4000-a000-${String(nextClient++).padStart(12, '0')}`,
+        clientId: id,
         status: 'ACTIVE',
-        approvedAt: new Date().toISOString(),
+        approvedAt,
       };
     },
     decline: async (clientAccountId, body = {}) => {
@@ -672,6 +807,7 @@ export function createClientSignUpsMock(
       rows = rows.map((r) =>
         r === row ? { ...r, status: 'DECLINED', declinedAt, declineReason: reason ?? null } : r,
       );
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
       return { clientAccountId: row.clientAccountId, status: 'DECLINED', declinedAt };
     },
   };
