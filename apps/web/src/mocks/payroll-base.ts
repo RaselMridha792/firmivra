@@ -584,6 +584,8 @@ export function seedStore(empty: boolean): Store {
     registerServiceEngagement({
       id: uuid('1e00', n),
       clientId: uuid('1d00', n),
+      clientName: s.name,
+      kind: 'PAYROLL',
       title: 'Payroll',
       status: 'ACTIVE',
     });

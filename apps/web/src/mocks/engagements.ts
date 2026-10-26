@@ -17,6 +17,7 @@ import {
   UpdateEngagementRequest,
 } from '@firmivra/types';
 import { clientFixtures, firstClientId, mockStaff, type MockFirmRole } from './clients';
+import { serviceMockEngagements } from './service-engagements';
 
 /**
  * Mock data for `api.engagements` and `api.myServices(slug)` (R10). Synthetic data only. Same
@@ -190,7 +191,22 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       await pause();
       const id = parseInput(ClientId, clientId);
       const { status } = parseInput(ListEngagementsQuery, query);
-      if (!clients.has(id)) throw notFound();
+      if (!clients.has(id)) {
+        // SH4: a Payroll or Bookkeeping mock client (mocks/service-engagements.ts).
+        const extra = serviceMockEngagements(id);
+        if (!extra.length) throw notFound();
+        return extra.map((e) =>
+          Engagement.parse({
+            ...structuredClone(engagementFixtures()[0]!),
+            id: e.id,
+            clientId: e.clientId,
+            title: e.title,
+            taxYear: null,
+            status: 'ACTIVE',
+            service: ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
+          }),
+        );
+      }
       return all()
         .filter((r) => r.clientId === id && (!status || r.status === status))
         .sort(newestFirst)

@@ -390,6 +390,8 @@ export function createBookkeepingMock({
       registerServiceEngagement({
         id: uid('b400', i + 1),
         clientId: ref.id,
+        clientName: ref.displayName,
+        kind: 'BOOKKEEPING',
         title: 'Bookkeeping',
         status: 'ACTIVE',
       });
