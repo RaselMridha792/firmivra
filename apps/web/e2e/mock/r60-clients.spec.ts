@@ -54,6 +54,12 @@ test('E7: Return to Clients and Back bring the same list back; a new visit start
   await expect(owed).toHaveAttribute('aria-pressed', 'false', { timeout: 60_000 });
   await owed.click();
   await expect(page).toHaveURL(/\/clients\?owes=BALANCE$/);
+  // The browser's Back straight from the client's page brings the filter back.
+  await names(page).first().click();
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/clients\?owes=BALANCE$/);
+  await expect(card(page, 'Balances Due')).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => window.scrollTo(0, 250));
   await page.waitForTimeout(300);
 

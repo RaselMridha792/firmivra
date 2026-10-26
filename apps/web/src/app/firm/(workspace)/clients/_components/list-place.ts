@@ -44,8 +44,9 @@ export function useListPlace(place: ClientsPlace, fromDashboard: boolean, loaded
     .join('&');
   const url = `/clients${query ? `?${query}` : ''}`;
   useEffect(() => {
-    // Next's own history state is kept, so Back and Forward still work.
-    window.history.replaceState(window.history.state, '', url);
+    // A null state lets Next keep its router in step with the address (Next's history docs), so
+    // the browser's Back returns to this address.
+    window.history.replaceState(null, '', url);
     session.set(LAST_CLIENTS_LIST, url);
   }, [url]);
   useEffect(() => {

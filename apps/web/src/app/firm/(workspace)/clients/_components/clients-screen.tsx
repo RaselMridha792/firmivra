@@ -10,8 +10,10 @@ import {
   ShieldCheck,
   Users,
 } from '@phosphor-icons/react';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { clientsPlaceFrom } from '../../../../../lib/clients-place';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -81,17 +83,23 @@ export function ClientsScreen({
 }) {
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
+  // On the browser's Back, Next shows this page as it was first drawn: the place comes from the
+  // address as it is now, not from the first render's props.
+  const params = useSearchParams();
+  const [start] = useState(() =>
+    initialPlace ? clientsPlaceFrom(Object.fromEntries(params)) : undefined,
+  );
   const [filters, setFilters] = useState<ClientFilters>(() => {
-    if (!initialPlace) return { ...NO_FILTERS, search: initialSearch };
-    const { page: _page, limit: _limit, ...place } = initialPlace;
+    if (!start) return { ...NO_FILTERS, search: initialSearch };
+    const { page: _page, limit: _limit, ...place } = start;
     return {
       ...NO_FILTERS,
       ...place,
       clientStatus: place.clientStatus as ClientFilters['clientStatus'],
     };
   });
-  const [page, setPage] = useState(initialPlace?.page ?? 1);
-  const [limit, setLimit] = useState(initialPlace?.limit ?? PAGE_SIZES[0] ?? 8);
+  const [page, setPage] = useState(start?.page ?? 1);
+  const [limit, setLimit] = useState(start?.limit ?? PAGE_SIZES[0] ?? 8);
   const [selected, setSelected] = useState<string[]>([]);
   const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
