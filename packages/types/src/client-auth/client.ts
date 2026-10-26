@@ -22,12 +22,21 @@ import {
   ClientSignUpsQuery,
   DeclineSignUpRequest,
   DeclineSignUpResponse,
+  KeepSignUpPendingRequest,
+  KeepSignUpPendingResponse,
   LegalDocument,
+  LinkSignUpRequest,
   type LegalKind,
   PortalInfo,
+  RecordSignUpChecksRequest,
   ResendCodeRequest,
+  RestoreSignUpAccessRequest,
+  RestoreSignUpAccessResponse,
+  SignUpNotAMatchRequest,
+  SignUpNotAMatchResponse,
   SignUpRequest,
   SignUpState,
+  UpdateClientSignUpSettingsRequest,
   VerifyCodeRequest,
 } from './schemas.js';
 
@@ -109,13 +118,21 @@ export function createClientSignUpsClient(request: ApiRequest) {
       request(ClientSignUpDetail, one(clientAccountId)),
     settings: async (): Promise<ClientSignUpSettings> =>
       request(ClientSignUpSettings, `${SIGN_UPS}/settings`),
+    /** Changes the approval mode. 409 STALE_VERSION or IDEMPOTENCY_KEY_REUSED. */
+    updateSettings: async (
+      body: UpdateClientSignUpSettingsRequest,
+    ): Promise<ClientSignUpSettings> =>
+      request(ClientSignUpSettings, `${SIGN_UPS}/settings`, {
+        method: 'PATCH',
+        body: parseInput(UpdateClientSignUpSettingsRequest, body),
+      }),
     /**
      * Creates the client record, or links to `{ clientId }` so the firm gets no duplicate.
      * 409 NOT_PENDING, DUPLICATE_EMAIL or POTENTIAL_MATCH; 404 for an unknown clientId.
      */
     approve: async (
       clientAccountId: string,
-      body: ApproveSignUpRequest = {},
+      body: ApproveSignUpRequest,
     ): Promise<ApproveSignUpResponse> =>
       request(ApproveSignUpResponse, `${one(clientAccountId)}/approve`, {
         method: 'POST',
@@ -124,11 +141,56 @@ export function createClientSignUpsClient(request: ApiRequest) {
     /** Closes the login; the client gets an email. 409 NOT_PENDING. */
     decline: async (
       clientAccountId: string,
-      body: DeclineSignUpRequest = {},
+      body: DeclineSignUpRequest,
     ): Promise<DeclineSignUpResponse> =>
       request(DeclineSignUpResponse, `${one(clientAccountId)}/decline`, {
         method: 'POST',
         body: parseInput(DeclineSignUpRequest, body),
+      }),
+    /** Records the three checks for one candidate record; answers the detail. */
+    recordChecks: async (
+      clientAccountId: string,
+      body: RecordSignUpChecksRequest,
+    ): Promise<ClientSignUpDetail> =>
+      request(ClientSignUpDetail, `${one(clientAccountId)}/checks`, {
+        method: 'POST',
+        body: parseInput(RecordSignUpChecksRequest, body),
+      }),
+    /** Link Existing Record after the checks. 409 CHECKS_REQUIRED or CLIENT_NOT_LINKABLE. */
+    link: async (
+      clientAccountId: string,
+      body: LinkSignUpRequest,
+    ): Promise<ApproveSignUpResponse> =>
+      request(ApproveSignUpResponse, `${one(clientAccountId)}/link`, {
+        method: 'POST',
+        body: parseInput(LinkSignUpRequest, body),
+      }),
+    /** Restore Access after the checks. 409 CHECKS_REQUIRED or NO_PORTAL_LOGIN. */
+    restoreAccess: async (
+      clientAccountId: string,
+      body: RestoreSignUpAccessRequest,
+    ): Promise<RestoreSignUpAccessResponse> =>
+      request(RestoreSignUpAccessResponse, `${one(clientAccountId)}/restore-access`, {
+        method: 'POST',
+        body: parseInput(RestoreSignUpAccessRequest, body),
+      }),
+    /** The open phone matches are not this person. 409 DUPLICATE_EMAIL for an email match. */
+    notAMatch: async (
+      clientAccountId: string,
+      body: SignUpNotAMatchRequest,
+    ): Promise<SignUpNotAMatchResponse> =>
+      request(SignUpNotAMatchResponse, `${one(clientAccountId)}/not-a-match`, {
+        method: 'POST',
+        body: parseInput(SignUpNotAMatchRequest, body),
+      }),
+    /** Keep Pending with an optional note; nothing changes. */
+    keepPending: async (
+      clientAccountId: string,
+      body: KeepSignUpPendingRequest,
+    ): Promise<KeepSignUpPendingResponse> =>
+      request(KeepSignUpPendingResponse, `${one(clientAccountId)}/keep-pending`, {
+        method: 'POST',
+        body: parseInput(KeepSignUpPendingRequest, body),
       }),
   };
 }

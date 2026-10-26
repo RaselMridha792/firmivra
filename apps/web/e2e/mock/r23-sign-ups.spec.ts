@@ -34,6 +34,8 @@ test('the owner approves and declines sign-ups from the request panel', async ({
   await page.getByRole('button', { name: "Review Lee Roe's request" }).click();
   await panel.getByRole('button', { name: 'Decline' }).click();
   const decline = page.getByRole('dialog');
+  // The applicant is told by default; staff may untick it.
+  await expect(decline.getByLabel('Email Lee Roe that the request was declined')).toBeChecked();
   await decline.getByLabel('Reason (optional)').fill('Not a client of ours');
   await decline.getByRole('button', { name: 'Decline' }).click();
   await expect(decline).toBeHidden();
