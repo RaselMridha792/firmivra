@@ -55,6 +55,7 @@ import {
   ServiceDocumentsProvider,
   useServiceDocuments,
 } from '../../../../../components/service-documents';
+import { CohortLegend } from '../../../../../components/cohort-legend';
 
 const TABS = [
   { id: 'ALL', label: 'All Clients' },
@@ -73,6 +74,9 @@ const PERIODS: { value: BookkeepingOverviewPeriod; label: string }[] = [
   { value: 'THIS_QUARTER', label: 'This Quarter' },
   { value: 'THIS_YEAR', label: 'This Year' },
 ];
+/** A KPI card that filters the list (SH8): the whole card is the button, the selection shows. */
+const kpiButton =
+  'block w-full rounded-card text-left focus-visible:outline-2 focus-visible:outline-focus aria-pressed:ring-2 aria-pressed:ring-action';
 const STATUS_TONE: Record<string, ChartTone> = {
   ON_TRACK: 'green',
   NEEDS_ATTENTION: 'yellow',
@@ -114,6 +118,12 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
     id: initial.sort || 'name',
     descending: initial.desc === '1',
   });
+  // SH8: a cohort (a KPI card or a status in the chart) filters the same list; the period stays.
+  const pick = (next: TabId) => {
+    setTab(next);
+    setPage(1);
+    if (next !== 'ALL') document.getElementById('bk-list')?.scrollIntoView({ block: 'start' });
+  };
   // SH1: the list's view stays in the address, so Back from a page it opens restores it.
   useEffect(() => {
     writeListQuery(
@@ -335,16 +345,24 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
 
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5" data-testid="bk-kpis">
           <li>
-            <KpiCard
-              icon={UsersThree}
-              tone="blue"
-              value={k?.activeClients.value ?? '—'}
-              label="Active Bookkeeping Clients"
-              loading={overview.isPending}
-              {...(k && trendOf(k.activeClients)
-                ? { trend: trendOf(k.activeClients)!, note: 'vs last period' }
-                : {})}
-            />
+            <button
+              type="button"
+              className={kpiButton}
+              aria-pressed={tab === 'ALL'}
+              aria-label="Active Bookkeeping Clients: show all of them in the list"
+              onClick={() => pick('ALL')}
+            >
+              <KpiCard
+                icon={UsersThree}
+                tone="blue"
+                value={k?.activeClients.value ?? '—'}
+                label="Active Bookkeeping Clients"
+                loading={overview.isPending}
+                {...(k && trendOf(k.activeClients)
+                  ? { trend: trendOf(k.activeClients)!, note: 'vs last period' }
+                  : {})}
+              />
+            </button>
           </li>
           <li>
             <KpiCard
@@ -389,13 +407,21 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
             />
           </li>
           <li>
-            <KpiCard
-              icon={FileText}
-              tone="blue"
-              value={k?.clientsWithUpcomingReports.value ?? '—'}
-              label="Clients with Upcoming Reports"
-              loading={overview.isPending}
-            />
+            <button
+              type="button"
+              className={kpiButton}
+              aria-pressed={tab === 'UPCOMING'}
+              aria-label="Clients with Upcoming Reports: show them in the list"
+              onClick={() => pick('UPCOMING')}
+            >
+              <KpiCard
+                icon={FileText}
+                tone="blue"
+                value={k?.clientsWithUpcomingReports.value ?? '—'}
+                label="Clients with Upcoming Reports"
+                loading={overview.isPending}
+              />
+            </button>
           </li>
         </ul>
 
@@ -410,7 +436,7 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
             </h2>
             <DonutChart
               size="md"
-              legend
+              legend={false}
               centerValue={o?.statusBreakdown.total ?? 0}
               centerLabel="Clients"
               segments={(o?.statusBreakdown.items ?? []).map((i) => ({
@@ -420,6 +446,23 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
               }))}
               emptyText="No bookkeeping clients yet"
             />
+            {o?.statusBreakdown.items.length ? (
+              <CohortLegend
+                label="Filter the client list by bookkeeping status"
+                selected={STATUS_TONE[tab] ? tab : undefined}
+                onPick={(status) => pick(status as TabId)}
+                onClear={() => pick('ALL')}
+                rows={o.statusBreakdown.items.map((i) => ({
+                  key: i.status,
+                  label: STATUS_LABEL[i.status],
+                  tone: STATUS_TONE[i.status] ?? 'grey',
+                  count: i.count,
+                  percent: o.statusBreakdown.total
+                    ? Math.round((i.count / o.statusBreakdown.total) * 100)
+                    : 0,
+                }))}
+              />
+            ) : null}
           </section>
           <section
             className={card}
@@ -529,6 +572,7 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div
+              id="bk-list"
               role="tablist"
               aria-label="Client views"
               className="relative flex overflow-x-auto border-b border-divider"
