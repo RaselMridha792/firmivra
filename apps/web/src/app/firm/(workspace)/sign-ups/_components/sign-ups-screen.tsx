@@ -1,287 +1,559 @@
 'use client';
 
-import type { ClientSignUp, SignUpListStatus } from '@firmivra/types';
-import { Avatar, Badge, Button, EmptyState } from '@firmivra/ui';
-import { CheckCircle, EnvelopeSimple, UserPlus, XCircle } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
+import {
+  ApiRequestError,
+  type ClientSignUp,
+  type ClientSignUpList,
+  type ClientSignUpsQuery,
+  type SignUpListStatus,
+} from '@firmivra/types';
+import { Avatar, Badge, Pagination, SearchField, Skeleton } from '@firmivra/ui';
+import { CaretDown, CheckCircle, Info, WarningCircle } from '@phosphor-icons/react';
+import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { ACCOUNT_TYPES, CLIENTS, formatPhone } from '../../clients/_components/client-parts';
-import { DeclineDialog } from './decline-dialog';
-import { SIGN_UP_ERRORS, SIGN_UPS, signedUpText } from './sign-up-parts';
+import { useApiQuery } from '../../../../../lib/query';
+import { ApprovalCard } from './approval-card';
+import { ClientViewPreview } from './client-view-preview';
+import { FiltersMenu } from './filters-menu';
+import { type Notice, RequestActivity, RequestPanel } from './request-panel';
+import { dayText, SIGN_UP_ERRORS, SIGN_UPS, TABS } from './sign-up-parts';
+import {
+  SIGN_UP_PAGE_SIZE,
+  type SignUpsPlace,
+  signUpsPlaceFrom,
+  signUpsPlaceQuery,
+} from './sign-ups-place';
 
-const VIEWS: { status: SignUpListStatus; label: string }[] = [
-  { status: 'PENDING_APPROVAL', label: 'Waiting for approval' },
-  { status: 'DECLINED', label: 'Declined' },
-];
-
-type Feedback = { ok: boolean; text: string; clientId?: string };
+/** Waits until typing pauses, so each key press doesn't send a request. */
+function useSettled(value: string, ms = 300) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}
 
 /**
- * Client sign-ups from the portal, oldest first: verified people waiting for the firm. Owner and
- * Admin approve (creating the client record, or linking the one with the same email) or decline.
- * Staff get 403 from the API and see the no-permission state.
+ * Client Sign-ups (Octavia's spec of Oct 25 and its expanded-sidebar design): the firm's approval
+ * mode, the three tabs with the firm's own counts, search, sort and filters, the requests with
+ * their match check, the open request's panel and activity, and what a client sees. The tab,
+ * search, sort, filters, page and open request live in the address, so Back returns to the same
+ * view. Owner and Admin only: Staff get 403 from the API and the no-permission state.
  */
-export function SignUpsScreen() {
-  const [status, setStatus] = useState<SignUpListStatus>('PENDING_APPROVAL');
-  const [cursors, setCursors] = useState<string[]>([]);
-  const [declining, setDeclining] = useState<ClientSignUp | null>(null);
-  // Only the latest action's result shows.
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const cursor = cursors.at(-1);
-  const query = { status, ...(cursor ? { cursor } : {}) };
-  const signUps = useApiQuery([...SIGN_UPS, query], () => api.clientSignUps.list(query));
-  const approve = useApiMutation(
-    (signUp: ClientSignUp) =>
-      api.clientSignUps.approve(
-        signUp.clientAccountId,
-        signUp.existingClient ? { clientId: signUp.existingClient.clientId } : {},
-      ),
-    { invalidate: SIGN_UPS },
-  );
-  const queryClient = useQueryClient();
-  // The first page of each view gives its count ("25+" when there are more pages).
-  const pending = useApiQuery([...SIGN_UPS, 'count', 'PENDING_APPROVAL'], () =>
-    api.clientSignUps.list({ status: 'PENDING_APPROVAL' }),
-  );
-  const declined = useApiQuery([...SIGN_UPS, 'count', 'DECLINED'], () =>
-    api.clientSignUps.list({ status: 'DECLINED' }),
-  );
-  const countOf = (view: SignUpListStatus) => {
-    const data = (view === 'DECLINED' ? declined : pending).data;
-    return data ? `${data.items.length}${data.nextCursor ? '+' : ''}` : null;
-  };
+export function SignUpsScreen({
+  portalBase,
+}: {
+  /** The client portal's address (PORTAL_BASE_URL), for the client view preview. */
+  portalBase: string;
+}) {
+  // The address as the browser has it now: on Back, Next shows this page as it was first drawn,
+  // so its place comes from the address, not from the first render's props.
+  const params = useSearchParams();
+  const [place, setPlace] = useState(() => signUpsPlaceFrom(Object.fromEntries(params)));
+  const [searchText, setSearchText] = useState(place.search);
+  // The API refuses control characters.
+  const settled = useSettled(searchText.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
+  const [notice, setNotice] = useState<Notice | null>(null);
+  // A new search starts on the first page.
+  if (settled !== place.search) setPlace({ ...place, search: settled, page: 1 });
 
-  const show = (next: SignUpListStatus) => {
-    setStatus(next);
-    setCursors([]);
-    setFeedback(null);
+  const change = (patch: Partial<SignUpsPlace>) => {
+    // Any change of tab, sort or filter starts on the first page.
+    setPlace({ ...place, page: 1, ...patch });
+    setNotice(null);
   };
+  const url = `/sign-ups${signUpsPlaceQuery(place) ? `?${signUpsPlaceQuery(place)}` : ''}`;
+  useEffect(() => {
+    // A null state lets Next keep its router in step with the address (Next's history docs).
+    window.history.replaceState(null, '', url);
+  }, [url]);
+
+  const query = useMemo<ClientSignUpsQuery>(
+    () => ({
+      status: place.status,
+      sort: place.sort,
+      page: place.page,
+      limit: SIGN_UP_PAGE_SIZE,
+      ...(place.search ? { search: place.search } : {}),
+      ...(place.from ? { from: place.from } : {}),
+      ...(place.to ? { to: place.to } : {}),
+      ...(place.match ? { match: place.match } : {}),
+    }),
+    [place],
+  );
+  const list = useApiQuery([...SIGN_UPS, 'list', query], () => api.clientSignUps.list(query));
+  const settings = useApiQuery([...SIGN_UPS, 'settings'], () => api.clientSignUps.settings());
+  const counts = list.data?.counts;
+  const filtered = Boolean(place.search || place.from || place.to || place.match);
+  const noun = TABS.find((t) => t.status === place.status)?.noun ?? '';
+
+  // After a decision empties the last page, step back to the new last page.
+  const pageCount = list.data ? Math.max(1, Math.ceil(list.data.total / SIGN_UP_PAGE_SIZE)) : 1;
+  if (list.data && place.page > pageCount) setPlace({ ...place, page: pageCount });
+  // Staff, or a role that lost access: nothing of the queue shows (spec, section 10).
+  const forbidden = list.error instanceof ApiRequestError && list.error.code === 'FORBIDDEN';
+
+  const header = (
+    <header className="min-w-0">
+      <nav aria-label="Breadcrumb" className="text-sm">
+        <Link href="/clients" className="text-link hover:underline">
+          Clients
+        </Link>
+        <span aria-hidden className="mx-2 text-muted">
+          /
+        </span>
+        <span aria-current="page" className="text-text">
+          Sign-ups
+        </span>
+      </nav>
+      <h1
+        data-testid="page-title"
+        className="mt-1 font-display text-3xl font-bold text-heading sm:text-4xl"
+      >
+        Client sign-ups
+      </h1>
+      <p className="mt-1 text-base text-muted">Review client self-sign-ups and manage access.</p>
+    </header>
+  );
+  if (forbidden) {
+    return (
+      <div className="flex min-w-0 flex-col gap-5">
+        {header}
+        <PageState query={list}>{() => null}</PageState>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <header className="flex min-w-0 items-center gap-4">
-        <span
-          aria-hidden
-          className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-action text-on-action sm:size-20"
+      {header}
+
+      <ApprovalCard settings={settings} />
+      {notice ? (
+        <p
+          data-testid="sign-ups-feedback"
+          role={notice.ok ? 'status' : 'alert'}
+          className={`text-sm ${notice.ok ? 'text-success' : 'text-danger'}`}
         >
-          <UserPlus weight="fill" className="size-10" />
-        </span>
-        <div className="min-w-0">
-          <h1
-            data-testid="page-title"
-            className="font-display text-3xl font-bold text-heading sm:text-4xl"
-          >
-            Sign-ups
-          </h1>
-          <p className="text-base text-muted">
-            People who signed up on your client portal and verified their email and phone. Approve
-            them to open their portal access.
-          </p>
-        </div>
-      </header>
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <nav aria-label="Sign-ups" className="flex gap-1 overflow-x-auto border-b border-border">
-            {VIEWS.map((view) => (
-              <button
-                key={view.status}
-                type="button"
-                aria-pressed={status === view.status}
-                onClick={() => show(view.status)}
-                className={`-mb-px whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${status === view.status ? 'border-brand-600 text-brand-600' : 'border-transparent text-muted hover:text-text'}`}
-              >
-                {view.label}
-                {countOf(view.status) !== null ? (
-                  <span className="ml-2 rounded-full bg-canvas px-2 py-0.5 text-xs text-muted">
-                    {countOf(view.status)}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-          {feedback ? (
-            <p
-              data-testid="sign-ups-feedback"
-              role={feedback.ok ? 'status' : 'alert'}
-              className={`text-sm ${feedback.ok ? 'text-success' : 'text-danger'}`}
-            >
-              {feedback.text}
-              {feedback.clientId ? (
-                <>
-                  {' '}
-                  <Link
-                    href={`/clients/${feedback.clientId}`}
-                    className="text-link hover:underline"
-                  >
-                    Open client record
-                  </Link>
-                </>
-              ) : null}
-            </p>
+          {notice.text}
+          {notice.clientId ? (
+            <>
+              {' '}
+              <Link href={`/clients/${notice.clientId}`} className="text-link hover:underline">
+                Open client record
+              </Link>
+            </>
           ) : null}
-          <PageState query={signUps}>
-            {(page) =>
-              page.items.length ? (
-                <div className="flex flex-col gap-4">
-                  <ul className="divide-y divide-border rounded-xl bg-surface shadow-md">
-                    {page.items.map((signUp) => (
-                      <li
-                        key={signUp.clientAccountId}
-                        data-testid="sign-up-row"
-                        className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
-                      >
-                        <span className="flex min-w-0 gap-3">
-                          <Avatar name={signUp.name} />
-                          <span className="min-w-0">
-                            <span className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium text-text">{signUp.name}</span>
-                              <Badge tone="info">{ACCOUNT_TYPES[signUp.accountType]}</Badge>
-                            </span>
-                            <span className="mt-1 block text-sm wrap-anywhere text-muted">
-                              {signUp.email}
-                              <span aria-hidden> · </span>
-                              <span className="whitespace-nowrap">{formatPhone(signUp.phone)}</span>
-                            </span>
-                            <span className="mt-1 block text-xs text-muted">
-                              {signUp.status === 'DECLINED' && signUp.declinedAt
-                                ? `Declined ${signedUpText(signUp.declinedAt)}${signUp.declineReason ? `: ${signUp.declineReason}` : ''}`
-                                : `Signed up ${signedUpText(signUp.signedUpAt)}`}
-                            </span>
-                            {signUp.existingClient && signUp.status === 'PENDING_APPROVAL' ? (
-                              <span className="mt-2 block text-sm text-info">
-                                Matches your client {signUp.existingClient.displayName}. Approving
-                                links this login to that record.
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                        {signUp.status === 'PENDING_APPROVAL' ? (
-                          <span className="flex shrink-0 gap-2">
-                            <Button
-                              disabled={approve.isPending}
-                              onClick={() =>
-                                approve.mutate(signUp, {
-                                  onSuccess: (done) => {
-                                    void queryClient.invalidateQueries({ queryKey: CLIENTS });
-                                    setFeedback({
-                                      ok: true,
-                                      text: `${signUp.name} is approved and can now use your portal.`,
-                                      clientId: done.clientId,
-                                    });
-                                  },
-                                  onError: (error) => {
-                                    // NOT_PENDING: someone else handled it; refetch so the row goes.
-                                    void queryClient.invalidateQueries({ queryKey: SIGN_UPS });
-                                    setFeedback({
-                                      ok: false,
-                                      text: errorMessage(error, SIGN_UP_ERRORS),
-                                    });
-                                  },
-                                })
-                              }
-                            >
-                              Approve
-                            </Button>
-                            <Button variant="secondary" onClick={() => setDeclining(signUp)}>
-                              Decline
-                            </Button>
-                          </span>
-                        ) : (
-                          <Badge tone="danger">Declined</Badge>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  {cursors.length || page.nextCursor ? (
-                    <div className="flex items-center gap-3 text-sm text-muted">
-                      <p aria-live="polite">Page {cursors.length + 1}</p>
-                      <Button
-                        variant="secondary"
-                        disabled={!cursors.length}
-                        onClick={() => setCursors(cursors.slice(0, -1))}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        disabled={!page.nextCursor}
-                        onClick={() => page.nextCursor && setCursors([...cursors, page.nextCursor])}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <EmptyState
-                  title={status === 'DECLINED' ? 'No declined sign-ups' : 'No one is waiting'}
-                  description={
-                    status === 'DECLINED'
-                      ? 'Sign-ups you decline are listed here.'
-                      : 'When someone signs up on your client portal and verifies their email and phone, they appear here for you to approve.'
-                  }
-                />
-              )
-            }
-          </PageState>
+        </p>
+      ) : null}
+
+      {/* Narrow screens: the list, then the open request, then the preview (spec, section 10). */}
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,36rem)]">
+        <section
+          aria-label="Sign-up requests"
+          className="flex min-w-0 flex-col gap-4 xl:col-start-1"
+        >
+          <div
+            role="tablist"
+            aria-label="Sign-up status"
+            className="flex gap-6 overflow-x-auto border-b border-divider"
+          >
+            {TABS.map((tab) => {
+              const on = tab.status === place.status;
+              const count = counts?.[tab.status];
+              return (
+                <button
+                  key={tab.status}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  tabIndex={on ? 0 : -1}
+                  data-testid={`sign-ups-tab-${tab.status}`}
+                  onClick={() => change({ status: tab.status, match: '', request: '' })}
+                  onKeyDown={(event) => {
+                    const at = TABS.indexOf(tab);
+                    const next =
+                      event.key === 'ArrowRight'
+                        ? TABS[(at + 1) % TABS.length]
+                        : event.key === 'ArrowLeft'
+                          ? TABS[(at - 1 + TABS.length) % TABS.length]
+                          : undefined;
+                    if (!next) return;
+                    event.preventDefault();
+                    change({ status: next.status, match: '', request: '' });
+                    event.currentTarget.parentElement
+                      ?.querySelector<HTMLButtonElement>(
+                        `[data-testid="sign-ups-tab-${next.status}"]`,
+                      )
+                      ?.focus();
+                  }}
+                  className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium ${on ? 'border-action text-action' : 'border-transparent text-text hover:text-heading'}`}
+                >
+                  {tab.label}
+                  {/* No false zero while the counts load (spec, section 10). */}
+                  {count === undefined ? null : (
+                    <span
+                      aria-label={`${count} in total`}
+                      className={`rounded-pill px-2 text-xs font-semibold ${on ? 'bg-accent-soft text-action' : 'bg-divider text-muted'}`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <SearchField
+              label="Search name or email"
+              placeholder="Search name or email"
+              value={searchText}
+              maxLength={100}
+              minWidth="10rem"
+              onChange={(event) => setSearchText(event.target.value)}
+              className="bg-surface!"
+            />
+            <label className="relative flex h-10 shrink-0 items-center">
+              <span className="sr-only">Sort by date submitted</span>
+              <select
+                data-testid="sign-ups-sort"
+                value={place.sort}
+                onChange={(event) =>
+                  change({ sort: event.target.value === 'oldest' ? 'oldest' : 'newest' })
+                }
+                className="h-10 cursor-pointer appearance-none rounded-lg border border-divider bg-surface pl-3 pr-9 text-sm text-text"
+              >
+                <option value="newest">Date submitted</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+              <CaretDown
+                aria-hidden
+                weight="bold"
+                className="pointer-events-none absolute right-3 size-4 text-muted"
+              />
+            </label>
+            <FiltersMenu place={place} onApply={(patch) => change(patch)} />
+          </div>
+          <FilterChips
+            place={place}
+            onClear={(patch) => change(patch)}
+            onClearAll={() => {
+              setSearchText('');
+              change({ search: '', from: '', to: '', match: '' });
+            }}
+          />
+
+          <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
+            <RequestsTable
+              status={place.status}
+              sort={place.sort}
+              onSort={() => change({ sort: place.sort === 'newest' ? 'oldest' : 'newest' })}
+              list={list}
+              filtered={filtered}
+              selected={place.request}
+              onOpen={(row) => setPlace({ ...place, request: row.clientAccountId })}
+              onClear={() => {
+                setSearchText('');
+                change({ search: '', from: '', to: '', match: '' });
+              }}
+            />
+            {list.data && list.data.total > 0 ? (
+              <div className="flex flex-col gap-3 border-t border-divider px-4 py-3">
+                <p aria-live="polite" data-testid="sign-ups-total" className="text-sm text-muted">
+                  {filtered
+                    ? `${list.data.total} matching ${list.data.total === 1 ? 'request' : 'requests'} · ${counts?.[place.status] ?? 0} ${noun} in total`
+                    : `${list.data.total} ${noun} ${list.data.total === 1 ? 'request' : 'requests'}`}
+                </p>
+                {pageCount > 1 ? (
+                  <Pagination
+                    page={place.page}
+                    pageCount={pageCount}
+                    onPage={(page) => setPlace({ ...place, page })}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            <div className="border-t border-divider px-4 py-4">
+              <RequestActivity id={place.request} />
+            </div>
+          </div>
+        </section>
+        <div className="min-w-0 xl:col-start-2 xl:row-span-2 xl:row-start-1">
+          <RequestPanel
+            id={place.request}
+            onClose={() => setPlace({ ...place, request: '' })}
+            onNotice={setNotice}
+          />
         </div>
-        <HowItWorks />
+        <div className="min-w-0 xl:col-start-1">
+          <ClientViewPreview portalBase={portalBase} />
+        </div>
       </div>
-      <DeclineDialog
-        signUp={declining}
-        onClose={() => setDeclining(null)}
-        onDone={(signUp) => {
-          setDeclining(null);
-          setFeedback({ ok: true, text: `${signUp.name}'s sign-up was declined.` });
-        }}
-      />
+
+      <p className="flex items-start gap-3 rounded-xl border border-divider bg-info-soft px-4 py-3 text-sm text-text">
+        <Info aria-hidden weight="fill" className="mt-0.5 size-5 shrink-0 text-info" />
+        Actual duplicates require separate authorized review and client permission before any close,
+        replace, or merge action.
+      </p>
     </div>
   );
 }
 
-const STEPS = [
-  {
-    icon: EnvelopeSimple,
-    title: 'They sign up',
-    text: 'On your client portal, then verify their email and phone.',
-  },
-  {
-    icon: CheckCircle,
-    title: 'You approve',
-    text: 'A client record is made, or the matching one is linked.',
-  },
-  {
-    icon: XCircle,
-    title: 'Or you decline',
-    text: 'They cannot sign in; your reason stays with the firm.',
-  },
-];
-
-/** What approving and declining do, beside the list. */
-function HowItWorks() {
+/** The current filters as chips, each with its own remove, and Clear. */
+function FilterChips({
+  place,
+  onClear,
+  onClearAll,
+}: {
+  place: SignUpsPlace;
+  onClear: (patch: Partial<SignUpsPlace>) => void;
+  onClearAll: () => void;
+}) {
+  const chips: { label: string; patch: Partial<SignUpsPlace> }[] = [];
+  if (place.search) chips.push({ label: `Search: ${place.search}`, patch: { search: '' } });
+  if (place.from || place.to) {
+    const day = (d: string) => dayText(`${d}T12:00:00`);
+    chips.push({
+      label: `Submitted ${place.from ? `from ${day(place.from)}` : ''}${place.from && place.to ? ' ' : ''}${place.to ? `to ${day(place.to)}` : ''}`,
+      patch: { from: '', to: '' },
+    });
+  }
+  if (place.match) {
+    chips.push({
+      label: place.match === 'POTENTIAL_MATCH' ? 'Potential match' : 'No match found',
+      patch: { match: '' },
+    });
+  }
+  if (!chips.length) return null;
   return (
-    <aside className="h-fit min-w-0 rounded-xl bg-surface p-4 shadow-md" aria-labelledby="su-how">
-      <h2 id="su-how" className="mb-3 font-display text-lg font-bold text-heading">
-        How approval works
-      </h2>
-      <ol className="flex flex-col gap-3">
-        {STEPS.map((s) => (
-          <li key={s.title} className="flex gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-soft text-info">
-              <s.icon aria-hidden weight="fill" className="size-5" />
-            </span>
-            <span className="text-sm">
-              <span className="block font-semibold text-heading">{s.title}</span>
-              <span className="text-muted">{s.text}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </aside>
+    <ul aria-label="Current filters" className="flex flex-wrap items-center gap-2">
+      {chips.map((chip) => (
+        <li key={chip.label}>
+          <button
+            type="button"
+            onClick={() => (chip.patch.search === '' ? onClearAll() : onClear(chip.patch))}
+            aria-label={`Remove ${chip.label}`}
+            className="inline-flex min-h-8 items-center gap-2 rounded-pill bg-accent-soft px-3 text-xs font-medium text-action hover:bg-folder-surface"
+          >
+            {chip.label}
+            <span aria-hidden>×</span>
+          </button>
+        </li>
+      ))}
+      <li>
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="min-h-8 px-2 text-xs font-medium text-link hover:underline"
+        >
+          Clear
+        </button>
+      </li>
+    </ul>
+  );
+}
+
+/** One page of the tab's requests: applicant, submitted date and the check or decision. */
+function RequestsTable({
+  status,
+  sort,
+  onSort,
+  list,
+  filtered,
+  selected,
+  onOpen,
+  onClear,
+}: {
+  status: SignUpListStatus;
+  sort: SignUpsPlace['sort'];
+  onSort: () => void;
+  list: UseQueryResult<ClientSignUpList>;
+  filtered: boolean;
+  selected: string;
+  onOpen: (row: ClientSignUp) => void;
+  onClear: () => void;
+}) {
+  const third =
+    status === 'PENDING_APPROVAL' ? 'Checks' : status === 'APPROVED' ? 'Client ID' : 'Declined';
+  if (list.isPending) {
+    return (
+      <div
+        aria-busy="true"
+        aria-label="Loading sign-up requests"
+        className="flex flex-col gap-3 p-4"
+      >
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-14 w-full" />
+        <Skeleton className="h-14 w-full" />
+      </div>
+    );
+  }
+  if (list.isError) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-3 p-6">
+        <p className="text-sm text-danger">{errorMessage(list.error, SIGN_UP_ERRORS)}</p>
+        <button
+          type="button"
+          onClick={() => void list.refetch()}
+          className="min-h-10 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+  const rows = list.data.items;
+  if (!rows.length) {
+    const noun = TABS.find((t) => t.status === status)?.noun ?? '';
+    return (
+      <div data-testid="sign-ups-empty" className="flex flex-col items-start gap-2 p-6">
+        {filtered ? (
+          <>
+            <p className="font-semibold text-heading">No {noun} requests match</p>
+            <p className="text-sm text-muted">
+              Nothing matches your search and filters. Clear them to see every {noun} request.
+            </p>
+            <button
+              type="button"
+              onClick={onClear}
+              className="min-h-10 text-sm font-medium text-link hover:underline"
+            >
+              Clear search and filters
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="font-semibold text-heading">No {noun} requests</p>
+            <p className="text-sm text-muted">
+              {status === 'PENDING_APPROVAL'
+                ? 'When someone signs up on your client portal and verifies their email and phone, their request waits here.'
+                : status === 'APPROVED'
+                  ? 'Requests your firm approves are listed here with their Client ID.'
+                  : 'Requests your firm declines are listed here.'}
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
+  return (
+    // A labelled region the keyboard can scroll on a narrow screen (spec, section 10).
+    <div
+      role="region"
+      aria-label="Sign-up requests table"
+      tabIndex={0}
+      className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      <table className="w-full min-w-[34rem] text-left text-sm" data-testid="sign-ups-table">
+        <caption className="sr-only">Sign-up requests</caption>
+        <thead className="bg-table-head text-text">
+          <tr>
+            <th scope="col" className="px-4 py-3 font-medium">
+              Applicant
+            </th>
+            <th
+              scope="col"
+              aria-sort={sort === 'newest' ? 'descending' : 'ascending'}
+              className="px-4 py-3 font-medium"
+            >
+              <button
+                type="button"
+                onClick={onSort}
+                className="inline-flex items-center gap-1.5 font-medium hover:underline"
+              >
+                Submitted
+                <CaretDown
+                  aria-hidden
+                  weight="bold"
+                  className={`size-3.5 ${sort === 'oldest' ? 'rotate-180' : ''}`}
+                />
+                <span className="sr-only">
+                  , {sort === 'newest' ? 'newest first' : 'oldest first'}. Change the order.
+                </span>
+              </button>
+            </th>
+            <th scope="col" className="px-4 py-3 font-medium">
+              {third}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const on = row.clientAccountId === selected;
+            return (
+              <tr
+                key={row.clientAccountId}
+                data-testid="sign-up-row"
+                aria-selected={on}
+                onClick={() => onOpen(row)}
+                className={`cursor-pointer border-t border-divider ${on ? 'bg-info-soft shadow-[inset_3px_0_0_var(--color-action)]' : 'hover:bg-canvas'}`}
+              >
+                <td className="px-4 py-3">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Avatar name={row.name} />
+                    <span className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpen(row);
+                        }}
+                        aria-label={`Review ${row.name}'s request`}
+                        className="block text-left font-semibold text-heading hover:underline"
+                      >
+                        {row.name}
+                      </button>
+                      <span className="block text-muted wrap-anywhere">{row.email}</span>
+                    </span>
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-text">
+                  <time dateTime={row.signedUpAt}>{dayText(row.signedUpAt)}</time>
+                </td>
+                <td className="px-4 py-3">
+                  <RowCheck row={row} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The third column: the match check while waiting, else the decision. Text, never colour only. */
+function RowCheck({ row }: { row: ClientSignUp }) {
+  if (row.status === 'APPROVED') {
+    return row.client ? (
+      <span className="whitespace-nowrap font-medium text-text">{row.client.clientNumber}</span>
+    ) : (
+      <span className="text-muted">Not linked</span>
+    );
+  }
+  if (row.status === 'DECLINED') {
+    return (
+      <Badge tone="danger">
+        {row.declinedAt ? `Declined ${dayText(row.declinedAt)}` : 'Declined'}
+      </Badge>
+    );
+  }
+  return row.match === 'POTENTIAL_MATCH' ? (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+      <WarningCircle aria-hidden weight="fill" className="size-5 text-warning" />
+      <Badge tone="warning">Potential match</Badge>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap font-medium text-success">
+      <CheckCircle aria-hidden weight="fill" className="size-5" />
+      No match found
+    </span>
   );
 }

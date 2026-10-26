@@ -94,6 +94,9 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'client' },
     bodyIds: { taxStatusId: 'taxStatus' },
   },
+  'GET /api/v1/client-sign-ups/:clientAccountId': {
+    params: { clientAccountId: 'pendingClientAccount' },
+  },
   'POST /api/v1/client-sign-ups/:clientAccountId/approve': {
     params: { clientAccountId: 'pendingClientAccount' },
     bodyIds: { clientId: 'linkableClient' },
