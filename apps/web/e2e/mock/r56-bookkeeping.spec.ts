@@ -162,3 +162,9 @@ test('Settings: the checklists and a saved change', async ({ page }) => {
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByText('Settings saved.')).toBeVisible();
 });
+
+test('Zero tolerance (Oct 26): Settings has no tolerance field', async ({ page }) => {
+  await page.goto(`${base}/settings`);
+  await expect(page.getByTestId('bk-settings')).toBeVisible();
+  await expect(page.getByLabel('Reconciliation tolerance ($)')).toHaveCount(0);
+});
