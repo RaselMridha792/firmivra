@@ -90,6 +90,9 @@ describe('seed', () => {
       // R55's D4 (Oct 25): a firm has no card templates until it saves one (the defaults are not
       // rows), never seeded.
       'dashboard_card_templates',
+      // Octavia's TX-F19 (Oct 26): a return has no validation issues until a reviewer raises one,
+      // never seeded.
+      'tax_return_validation_issues',
     ];
     const empty: string[] = [];
     for (const t of tables) {

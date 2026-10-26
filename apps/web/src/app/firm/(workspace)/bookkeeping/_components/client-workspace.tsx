@@ -40,6 +40,7 @@ import {
   subtle,
 } from './bookkeeping-shared';
 import { PeriodsTab, ReportsTab, SettingsTab } from './workspace-tabs';
+import { OriginLink } from '../../../../../components/origin-link';
 
 const TABS = [
   'Overview',
@@ -194,9 +195,9 @@ export function ClientWorkspace({ id }: { id: string }) {
               {w.nextReportDueOn ? dayText(w.nextReportDueOn) : '—'}
             </span>
           </div>
-          <Link href={`/documents?clientId=${w.client.id}`} className={primary}>
+          <OriginLink href={`/documents?clientId=${w.client.id}`} className={primary}>
             <FileText aria-hidden weight="bold" className="size-4" /> Request Documents
-          </Link>
+          </OriginLink>
         </div>
       </header>
       {message ? (
@@ -212,9 +213,9 @@ export function ClientWorkspace({ id }: { id: string }) {
           const href = LINKS[t]?.(w);
           const cls = `-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-4 text-sm whitespace-nowrap ${tab === t ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`;
           return href ? (
-            <Link key={t} href={href} role="tab" aria-selected={false} className={cls}>
+            <OriginLink key={t} href={href} role="tab" aria-selected={false} className={cls}>
               {t}
-            </Link>
+            </OriginLink>
           ) : (
             <button
               key={t}
@@ -346,9 +347,9 @@ export function ClientWorkspace({ id }: { id: string }) {
               <CheckCircle aria-hidden weight="fill" className="size-4 text-success" /> Reconcile
               Accounts
             </button>
-            <Link href={`/tasks?clientId=${w.client.id}`} className={subtle}>
+            <OriginLink href={`/tasks?clientId=${w.client.id}`} className={subtle}>
               <Plus aria-hidden weight="bold" className="size-4 text-action" /> Create Task
-            </Link>
+            </OriginLink>
             <button type="button" className={subtle} onClick={() => setTab('Reports')}>
               <FileText aria-hidden weight="fill" className="size-4 text-action" /> Generate Report
             </button>
@@ -412,24 +413,27 @@ export function ClientWorkspace({ id }: { id: string }) {
             <section className={card} aria-label="Bookkeeping tasks" data-testid="shared-tasks">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h2 className="font-display text-lg font-bold text-heading">Bookkeeping Tasks</h2>
-                <Link href={`/tasks?clientId=${w.client.id}`} className={linkBtn}>
+                <OriginLink href={`/tasks?clientId=${w.client.id}`} className={linkBtn}>
                   View All
-                </Link>
+                </OriginLink>
               </div>
               <p className="text-sm text-heading">
                 {w.shared.openTasks} open
                 {w.shared.overdueTasks ? `, ${w.shared.overdueTasks} overdue` : ''}
               </p>
-              <Link href={`/tasks?clientId=${w.client.id}`} className={`${outlined} mt-3 min-h-9`}>
+              <OriginLink
+                href={`/tasks?clientId=${w.client.id}`}
+                className={`${outlined} mt-3 min-h-9`}
+              >
                 <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-              </Link>
+              </OriginLink>
             </section>
             <section className={card} aria-label="Recent documents" data-testid="shared-documents">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h2 className="font-display text-lg font-bold text-heading">Recent Documents</h2>
-                <Link href={`/documents?clientId=${w.client.id}`} className={linkBtn}>
+                <OriginLink href={`/documents?clientId=${w.client.id}`} className={linkBtn}>
                   View All
-                </Link>
+                </OriginLink>
               </div>
               <p className="text-sm text-heading">
                 {w.shared.documents} documents
@@ -437,24 +441,24 @@ export function ClientWorkspace({ id }: { id: string }) {
                   ? `, ${w.shared.outstandingDocumentRequests} requested`
                   : ''}
               </p>
-              <Link
+              <OriginLink
                 href={`/documents?clientId=${w.client.id}`}
                 className={`${outlined} mt-3 min-h-9`}
               >
                 Upload Document
-              </Link>
+              </OriginLink>
             </section>
             <section className={card} aria-label="Client notes" data-testid="shared-notes">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h2 className="font-display text-lg font-bold text-heading">Client Notes</h2>
-                <Link href={`/clients/${w.client.id}`} className={linkBtn}>
+                <OriginLink href={`/clients/${w.client.id}`} className={linkBtn}>
                   View All
-                </Link>
+                </OriginLink>
               </div>
               <p className="text-sm text-heading">{w.shared.notes} notes</p>
-              <Link href={`/clients/${w.client.id}`} className={`${outlined} mt-3 min-h-9`}>
+              <OriginLink href={`/clients/${w.client.id}`} className={`${outlined} mt-3 min-h-9`}>
                 <Plus aria-hidden weight="bold" className="size-4" /> Add Note
-              </Link>
+              </OriginLink>
             </section>
           </div>
 
