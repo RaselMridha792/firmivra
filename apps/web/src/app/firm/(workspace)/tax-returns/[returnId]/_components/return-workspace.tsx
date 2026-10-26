@@ -638,11 +638,13 @@ ${[address.city, address.state].filter(Boolean).join(', ')} ${address.postalCode
       ) : !c ? (
         <p className={quiet}>Loading…</p>
       ) : (
-        <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-sm">
+        // The value column may shrink below its longest word, so a long email or address wraps
+        // inside the card instead of running behind the next one (Octavia's TX-F01).
+        <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-heading">{k}</dt>
-              <dd className="border-b border-divider pb-2 break-words whitespace-pre-line text-text">
+              <dd className="min-w-0 border-b border-divider pb-2 wrap-anywhere whitespace-pre-line text-text">
                 {v}
               </dd>
             </div>
