@@ -32,6 +32,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../../../components/firm-context';
 import { api } from '../../../../../../../lib/api';
@@ -109,6 +110,7 @@ const linkButton = 'text-sm font-medium text-action underline';
  */
 export function RequestDetailScreen({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
   const query = useQuery({
@@ -225,7 +227,15 @@ export function RequestDetailScreen({ id }: { id: string }) {
           },
         ]
       : []),
-    ...(can.editDraft ? [{ label: 'Edit Details', onSelect: () => setAsk({ kind: 'edit' }) }] : []),
+    ...(can.editDraft
+      ? [
+          {
+            label: 'Edit Draft',
+            onSelect: () => router.push(`/documents/requests/new?draft=${p.id}`),
+          },
+          { label: 'Edit Details', onSelect: () => setAsk({ kind: 'edit' }) },
+        ]
+      : []),
     ...(can.changeDates
       ? [{ label: 'Change Due Date', onSelect: () => setAsk({ kind: 'due' }) }]
       : []),
