@@ -43,6 +43,8 @@ export const TAB_STATUSES: Record<string, IntakeStatus[]> = {
   submitted: ['SUBMITTED', 'UNDER_REVIEW'],
   completed: ['COMPLETED'],
   expired: ['EXPIRED'],
+  // The dashboard's Intake stage (C5): every form not finished.
+  open: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION', 'SUBMITTED', 'UNDER_REVIEW'],
 };
 
 /** The category tab a service's forms sit under. */

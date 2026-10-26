@@ -389,6 +389,7 @@ const TAB_STATUS: Record<string, readonly IntakeStatus[]> = {
   submitted: ['SUBMITTED', 'UNDER_REVIEW'],
   completed: ['COMPLETED'],
   expired: ['EXPIRED'],
+  open: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION', 'SUBMITTED', 'UNDER_REVIEW'],
 };
 
 const toRow = (r: AssignedFormRecord): AssignedFormRow => ({

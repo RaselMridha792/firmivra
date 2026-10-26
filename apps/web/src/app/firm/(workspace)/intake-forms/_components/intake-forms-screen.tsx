@@ -48,6 +48,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useMemo, useState } from 'react';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 import { PageState as ApiPageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -462,9 +463,16 @@ function FormRowActions({
   );
 }
 
-export function IntakeFormsScreen() {
+export function IntakeFormsScreen({
+  notFinished = false,
+  fromDashboard = false,
+}: {
+  /** Opened on the forms not finished yet (the dashboard's Intake stage). */
+  notFinished?: boolean;
+  fromDashboard?: boolean;
+} = {}) {
   const router = useRouter();
-  const [tab, setTab] = useState<AssignedFormTab>('all');
+  const [tab, setTab] = useState<AssignedFormTab>(notFinished ? 'open' : 'all');
   const [searchText, setSearchText] = useState('');
   const search = useDeferredValue(searchText.trim());
   const [page, setPage] = useState(1);
@@ -666,6 +674,7 @@ export function IntakeFormsScreen() {
 
   return (
     <div className="space-y-4" data-testid="intake-forms-page">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -707,6 +716,27 @@ export function IntakeFormsScreen() {
               label="Filter intake forms by status"
               variant="segmented"
             />
+            {tab === 'open' ? (
+              <p
+                data-testid="not-finished-filter"
+                className="mt-2 flex flex-wrap items-center gap-2 text-sm text-text"
+              >
+                <span className="rounded-pill bg-info-soft px-3 py-1 font-medium text-info">
+                  Not finished: sent, in progress, to correct, submitted or under review
+                </span>
+                <button
+                  type="button"
+                  className="text-link underline"
+                  onClick={() => {
+                    setTab('all');
+                    setPage(1);
+                    setSelected([]);
+                  }}
+                >
+                  Clear
+                </button>
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row xl:flex-none">
             <div className="relative min-w-0 sm:w-56">
