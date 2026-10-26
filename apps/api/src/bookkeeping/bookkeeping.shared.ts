@@ -44,7 +44,7 @@ export const errors = {
     conflict('CLOSE_ITEMS_OPEN', 'Complete the required close steps before closing the period'),
   reconState: (message: string) => conflict('RECON_STATE', message),
   reconDifference: () =>
-    conflict('RECON_DIFFERENCE', 'The difference is outside the tolerance. Resolve it first'),
+    conflict('RECON_DIFFERENCE', 'The difference must be zero. Resolve it first'),
   reportState: (message: string) => conflict('REPORT_STATE', message),
   reportNotPublished: () =>
     conflict(

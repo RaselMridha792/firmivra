@@ -2090,7 +2090,7 @@ describe('reconciliations', () => {
     );
   });
 
-  it("the firm's tolerance lets a small difference through", async () => {
+  it("zero tolerance: the firm's old tolerance setting lets no difference through", async () => {
     await call('put', '/settings', people.ownerA, { reconToleranceCents: 500 });
     const second = (await mkAccount(bk, { name: 'Fake tolerance account' })).id;
     const r = exact(
@@ -2103,14 +2103,13 @@ describe('reconciliations', () => {
       }),
       201,
     );
-    expect(r).toMatchObject({ differenceCents: 300, toleranceCents: 500, withinTolerance: true });
+    expect(r).toMatchObject({ differenceCents: 300, toleranceCents: 0, withinTolerance: false });
     await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
-    expect(
-      exact(
-        BookkeepingReconciliation,
-        await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
-      ).status,
-    ).toBe('APPROVED');
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_DIFFERENCE',
+    );
     await call('put', '/settings', people.ownerA, {});
   });
 
