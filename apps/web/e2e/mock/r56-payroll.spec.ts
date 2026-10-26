@@ -114,7 +114,9 @@ test('Client workspace: panels, tabs, notes and settings', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Note' }).click();
   await expect(page.getByText('Note added.')).toBeVisible();
   await tab('Settings').click();
-  await page.getByLabel('Plan or service').fill('Payroll Plus');
+  // SH9: the plan comes from Services & Pricing (the last payroll service listed).
+  const plans = page.getByLabel('Plan or service').locator('option');
+  await page.getByLabel('Plan or service').selectOption({ index: (await plans.count()) - 1 });
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByText('Settings saved.')).toBeVisible();
   await expect(page.getByTestId('change-history')).toContainText('plan');

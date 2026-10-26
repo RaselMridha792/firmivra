@@ -38,6 +38,7 @@ import { OriginLink } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 
 type Notice = (text: string, tone: 'success' | 'error') => void;
 const empty = (pending: boolean, failed: boolean, none: string, error: string) =>
@@ -827,11 +828,10 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
             maxLength={100}
             onChange={(e) => setF({ ...f, industry: e.target.value })}
           />
-          <Input
-            label="Plan or service"
+          <CatalogPlanSelect
+            kind="PAYROLL"
             value={f.plan}
-            maxLength={100}
-            onChange={(e) => setF({ ...f, plan: e.target.value })}
+            onChange={(plan) => setF({ ...f, plan })}
           />
           <Input
             label="Next payroll date (override)"

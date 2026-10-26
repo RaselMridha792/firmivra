@@ -56,6 +56,7 @@ import {
   useServiceDocuments,
 } from '../../../../../components/service-documents';
 import { CohortLegend } from '../../../../../components/cohort-legend';
+import { CatalogPlanSelect, useCatalogPlans } from '../../../../../components/catalog-plan-select';
 
 const TABS = [
   { id: 'ALL', label: 'All Clients' },
@@ -194,8 +195,14 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
     engagementId: r.engagementId,
     service: 'Bookkeeping',
   }));
+  // SH9 (BK-D07): the Plan Type filter offers the Services & Pricing plans, and any other
+  // plan a client still has.
+  const catalogPlans = useCatalogPlans('BOOKKEEPING').plans.map((p) => p.name);
   const planOptions = [
-    ...new Set((allPlans.data?.items ?? []).map((r) => r.plan).filter((p): p is string => !!p)),
+    ...new Set([
+      ...catalogPlans,
+      ...(allPlans.data?.items ?? []).map((r) => r.plan).filter((p): p is string => !!p),
+    ]),
   ];
   const o = overview.data;
   const k = o?.kpis;
@@ -882,14 +889,7 @@ function AddClientDialog({ onClose, onNotice }: { onClose: () => void; onNotice:
             ...rows.map((c) => ({ value: c.id, label: c.displayName })),
           ]}
         />
-        <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-          Plan (optional)
-          <input
-            value={plan}
-            onChange={(e) => setPlan(e.target.value)}
-            className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-          />
-        </label>
+        <CatalogPlanSelect kind="BOOKKEEPING" value={plan} onChange={setPlan} label="Plan" />
         {error ? (
           <p role="alert" className="text-sm text-danger">
             {error}

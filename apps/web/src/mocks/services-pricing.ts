@@ -518,6 +518,7 @@ const toRow = (sv: CatalogService): CatalogServiceRow => ({
   category: sv.category,
   price: sv.price,
   status: sv.status,
+  kind: sv.kind,
   updatedAt: sv.updatedAt,
   updatedBy: sv.updatedBy,
 });
