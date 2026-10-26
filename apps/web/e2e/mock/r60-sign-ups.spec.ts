@@ -141,6 +141,8 @@ test('F07, F08, F11: a potential match keeps Approve off; Keep Pending changes n
   await expect(page.getByTestId('sign-up-activity')).toContainText('Application submitted');
 
   await p.getByRole('button', { name: 'Keep Pending' }).click();
+  await page.getByRole('dialog').getByLabel('Note for your firm (optional)').fill('Calling back');
+  await page.getByRole('dialog').getByRole('button', { name: 'Keep Pending' }).click();
   await expect(page.getByTestId('sign-ups-feedback')).toContainText(
     "Lee Roe's request stays waiting for approval. Nothing was changed.",
   );
@@ -164,12 +166,37 @@ test('F14: the client view preview offers only Sign In, Reset Password and Conta
     '/lvp',
   ]);
   expect(hrefs.every(([, target]) => target === '_blank')).toBe(true);
-  // The approval card shows the firm's mode; changing it is not open yet.
+});
+
+test('S11: Manage settings names the firm and both modes; Cancel changes nothing, Confirm once', async ({
+  page,
+}) => {
+  await open(page);
   const card = page.getByTestId('approval-card');
-  await expect(card.getByRole('list', { name: 'Approval mode' })).toContainText(
-    "Manual Review(your firm's mode now)",
+  const modes = card.getByRole('list', { name: 'Approval mode' });
+  await expect(modes).toContainText("Manual Review(your firm's mode now)");
+  await card.getByRole('button', { name: 'Manage settings' }).click();
+  const dialog = page.getByRole('dialog', {
+    name: 'Change how LVP Accounting & Taxes approves sign-ups?',
+  });
+  await expect(dialog.getByRole('button', { name: 'Confirm change' })).toBeDisabled();
+  await dialog.getByRole('radio', { name: 'Automatic Approval' }).check();
+  await expect(dialog).toContainText('Current modeManual Review');
+  await expect(dialog).toContainText('Requested modeAutomatic Approval');
+  await expect(dialog).toContainText('Requests already waiting stay waiting');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(modes).toContainText("Manual Review(your firm's mode now)");
+
+  await card.getByRole('button', { name: 'Manage settings' }).click();
+  await dialog.getByRole('radio', { name: 'Automatic Approval' }).check();
+  await dialog.getByRole('button', { name: 'Confirm change' }).click();
+  await expect(page.getByTestId('sign-ups-feedback')).toContainText(
+    'New sign-ups now use Automatic Approval.',
   );
-  await expect(card.getByRole('button', { name: 'Manage settings' })).toBeDisabled();
+  await expect(modes).toContainText("Automatic Approval(your firm's mode now)");
+  // A mode change approves nothing already waiting.
+  await expect(tab(page, /^Waiting for Approval/)).toContainText('4');
 });
 
 test('no horizontal scroll at 1440 and 375 px, with a request open', async ({ page }) => {

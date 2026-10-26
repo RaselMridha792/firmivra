@@ -11,6 +11,9 @@ import {
   portalCookies,
   SignUpRequest,
   SignUpState,
+  KeepSignUpPendingRequest,
+  RecordSignUpChecksRequest,
+  SignUpNotAMatchRequest,
 } from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
@@ -64,9 +67,19 @@ describe('#72 review: one-line names, strict queue requests', () => {
     for (const name of ['Jane\nClient', 'Jane\u0007', 'Jane\u001b[31m']) {
       expect([name, SignUpRequest.safeParse({ ...base, name }).success]).toEqual([name, false]);
     }
-    expect(DeclineSignUpRequest.safeParse({ reason: 'Two\nlines are fine' }).success).toBe(true);
-    expect(DeclineSignUpRequest.safeParse({ reason: 'nul\u0000' }).success).toBe(false);
-    expect(DeclineSignUpRequest.safeParse({ reason: 'ok', extra: 1 }).success).toBe(false);
+    const write = { version: 1, idempotencyKey: '0190a000-0000-7000-8000-0000000000cc' };
+    expect(
+      DeclineSignUpRequest.safeParse({ reason: 'Two\nlines are fine', ...write }).success,
+    ).toBe(true);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'nul\u0000', ...write }).success).toBe(false);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'ok', extra: 1, ...write }).success).toBe(
+      false,
+    );
+    // Every write names the version it read and its own key; decline tells the client by default.
+    expect(DeclineSignUpRequest.safeParse({ reason: 'ok' }).success).toBe(false);
+    expect(DeclineSignUpRequest.parse(write)).toEqual({ ...write, notify: true });
+    expect(DeclineSignUpRequest.safeParse({ ...write, version: 0 }).success).toBe(false);
+    expect(DeclineSignUpRequest.safeParse({ ...write, idempotencyKey: 'k1' }).success).toBe(false);
     expect(ClientSignUpsQuery.safeParse({ debug: '1' }).success).toBe(false);
   });
 });
@@ -271,18 +284,22 @@ describe('createClientSignUpsClient', () => {
       clientId: existing,
       status: 'ACTIVE',
       approvedAt: '2026-10-07T12:00:00.000Z',
+      version: 2,
+      correlationId: '0190a000-0000-7000-8000-0000000000dd',
     });
+    const write = { version: 1, idempotencyKey: '0190a000-0000-7000-8000-0000000000cc' };
     await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: approve.fn })).approve(id, {
       clientId: existing,
+      ...write,
     });
     expect(approve.calls[0]?.url).toBe(`/client-sign-ups/${id}/approve`);
-    expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing });
+    expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing, ...write });
 
     // Strict: an unknown field is refused before anything is sent.
     const strict = fakeFetch(200, {});
     const sent = createClientSignUpsClient(createRequest({ baseUrl: '', fetch: strict.fn }));
     await expect(
-      sent.approve(id, { clientId: existing, force: true } as ApproveSignUpRequest),
+      sent.approve(id, { clientId: existing, force: true, ...write } as ApproveSignUpRequest),
     ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(strict.calls).toHaveLength(0);
 
@@ -290,11 +307,60 @@ describe('createClientSignUpsClient', () => {
       clientAccountId: id,
       status: 'DECLINED',
       declinedAt: '2026-10-07T12:00:00.000Z',
+      version: 2,
+      correlationId: '0190a000-0000-7000-8000-0000000000dd',
+      notified: false,
     });
     await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: decline.fn })).decline(id, {
       reason: 'Not a client of ours',
+      notify: false,
+      ...write,
     });
     expect(decline.calls[0]?.url).toBe(`/client-sign-ups/${id}/decline`);
-    expect(bodyOf(decline.calls[0]?.init)).toEqual({ reason: 'Not a client of ours' });
+    expect(bodyOf(decline.calls[0]?.init)).toEqual({
+      reason: 'Not a client of ours',
+      notify: false,
+      ...write,
+    });
+  });
+});
+
+describe('Resolve Existing Account (D2)', () => {
+  const candidateClientId = '0190a000-0000-7000-8000-0000000000aa';
+  const key = '0190a000-0000-7000-8000-0000000000bb';
+
+  it('records the three checks with an explicit permission, and nothing else', () => {
+    const checks = {
+      candidateClientId,
+      contactRef: 'CLIENT_PHONE',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope: 'LINK_RECORD',
+    };
+    expect(RecordSignUpChecksRequest.safeParse(checks).success).toBe(true);
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, permissionScope: null }).success).toBe(
+      true,
+    );
+    const { permissionScope: _left, ...without } = checks;
+    expect(RecordSignUpChecksRequest.safeParse(without).success).toBe(false);
+    // The sign-up's own phone is never a contact to call.
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, phone: '+17705550101' }).success).toBe(
+      false,
+    );
+  });
+
+  it('Not a Match needs a short reason; Keep Pending a key and an optional note', () => {
+    const write = { version: 1, idempotencyKey: key };
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'Another person' }).success).toBe(
+      true,
+    );
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: '  ' }).success).toBe(false);
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'x'.repeat(301) }).success).toBe(
+      false,
+    );
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key }).success).toBe(true);
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key, version: 1 }).success).toBe(
+      false,
+    );
   });
 });

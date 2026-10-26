@@ -1,8 +1,9 @@
 'use client';
 
-import type { ApproveSignUpResponse, ClientSignUp } from '@firmivra/types';
+import { ApiRequestError, type ApproveSignUpResponse, type ClientSignUp } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -25,11 +26,19 @@ export function ApproveDialog({
 }) {
   const { firm } = useFirm();
   const queryClient = useQueryClient();
-  const approve = useApiMutation((id: string) => api.clientSignUps.approve(id, {}), {
-    invalidate: SIGN_UPS,
-  });
+  // One key while the dialog is open: a retry after a lost answer returns the first outcome.
+  const keyRef = useRef<string | null>(null);
+  const approve = useApiMutation(
+    (s: ClientSignUp) =>
+      api.clientSignUps.approve(s.clientAccountId, {
+        version: s.version,
+        idempotencyKey: (keyRef.current ??= crypto.randomUUID()),
+      }),
+    { invalidate: SIGN_UPS },
+  );
   const close = () => {
     approve.reset();
+    keyRef.current = null;
     onClose();
   };
   return (
@@ -43,6 +52,9 @@ export function ApproveDialog({
         {approve.error ? (
           <p role="alert" className="text-sm text-danger">
             {errorMessage(approve.error, SIGN_UP_ERRORS)}
+            {approve.error instanceof ApiRequestError
+              ? ''
+              : ' If it went through, Approve again shows the result and approves nothing twice.'}
           </p>
         ) : null}
         <div className="flex justify-end gap-3">
@@ -54,10 +66,11 @@ export function ApproveDialog({
             disabled={approve.isPending || !signUp}
             onClick={() =>
               signUp &&
-              approve.mutate(signUp.clientAccountId, {
+              approve.mutate(signUp, {
                 onSuccess: (done) => {
                   void queryClient.invalidateQueries({ queryKey: CLIENTS });
                   approve.reset();
+                  keyRef.current = null;
                   onDone(done);
                 },
                 // Someone else decided, or a match appeared: reload what the server says now.

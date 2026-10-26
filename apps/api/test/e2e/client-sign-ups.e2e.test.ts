@@ -9,7 +9,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, type Database, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type {
   ApproveSignUpResponse,
@@ -20,6 +20,8 @@ import type {
 import { AppModule } from '../../src/app.module.js';
 import { LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { CLIENT_CODE_SENDER } from '../../src/client-auth/client-code-sender.js';
+import { approveAutomatically } from '../../src/client-auth/sign-up-decisions.js';
+import { DATABASE } from '../../src/database/database.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { type Env, loadEnv } from '../../src/config/env.js';
 
@@ -57,11 +59,30 @@ const signUps = {} as Record<
   | 'archived'
   | 'notice'
   | 'phoned'
-  | 'late',
+  | 'late'
+  | 'retry'
+  | 'auto'
+  | 'autoMatch'
+  | 'manual'
+  | 'linkB'
+  | 'restoreB'
+  | 'notMatchB'
+  | 'emailB'
+  | 'keepB',
   SignUp
 >;
 const records = {} as Record<
-  'jane' | 'johnLinked' | 'other' | 'ofY' | 'archived' | 'phoned',
+  | 'jane'
+  | 'johnLinked'
+  | 'other'
+  | 'ofY'
+  | 'archived'
+  | 'phoned'
+  | 'autoMatch'
+  | 'linkB'
+  | 'restoreB'
+  | 'notMatchB'
+  | 'emailB',
   string
 >;
 /** When true, the client notices fail (a mail outage). */
@@ -99,7 +120,7 @@ async function tokenFor(email: string): Promise<string> {
 /** A signed-in firm call (Bearer: no cookie, so no Origin needed) in `businessId`. */
 async function as(
   who: Person,
-  method: 'get' | 'post',
+  method: 'get' | 'post' | 'patch',
   path: string,
   body?: object,
   businessId = firmX.id,
@@ -112,10 +133,15 @@ async function as(
     .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`);
   return body ? req.send(body) : req;
 }
-const approve = (s: SignUp, body?: object, by: Person = staff.ownerX) =>
-  as(by, 'post', `/${s.accountId}/approve`, body);
-const decline = (s: SignUp, body?: object, by: Person = staff.ownerX) =>
-  as(by, 'post', `/${s.accountId}/decline`, body);
+/** Every write sends the version it read and its own key (Octavia's D4); `body` may override. */
+const write = async (s: SignUp) => ({
+  version: (await account(s)).version,
+  idempotencyKey: randomUUID(),
+});
+const approve = async (s: SignUp, body?: object, by: Person = staff.ownerX) =>
+  as(by, 'post', `/${s.accountId}/approve`, { ...(await write(s)), ...body });
+const decline = async (s: SignUp, body?: object, by: Person = staff.ownerX) =>
+  as(by, 'post', `/${s.accountId}/decline`, { ...(await write(s)), ...body });
 
 const account = (s: SignUp, businessId = firmX.id) =>
   asOwner({ kind: 'business', businessId }, (tx) =>
@@ -127,6 +153,10 @@ const account = (s: SignUp, businessId = firmX.id) =>
         approvedByUserId: true,
         declinedByUserId: true,
         declineReason: true,
+        version: true,
+        matchStatus: true,
+        decidedAutomatically: true,
+        decisionPolicyVersion: true,
       },
     }),
   );
@@ -384,7 +414,13 @@ describe('the queue', () => {
       signUps.ofY.accountId,
     ]);
     // Firm Y acting on firm X's sign-up: 404, nothing changes.
-    const cross = await as(ownerY, 'post', `/${signUps.plain.accountId}/approve`, {}, firmY.id);
+    const cross = await as(
+      ownerY,
+      'post',
+      `/${signUps.plain.accountId}/approve`,
+      { version: 1, idempotencyKey: randomUUID() },
+      firmY.id,
+    );
     expect([cross.status, codeOf(cross)]).toEqual([404, 'NOT_FOUND']);
     expect((await account(signUps.plain)).status).toBe('PENDING_APPROVAL');
     // Nor can it read one, or firm X's settings through its own firm.
@@ -408,6 +444,10 @@ describe('the queue', () => {
         clientNumber: expect.stringMatching(/^CL-\d+$/) as string,
         displayName: 'Record jane',
         matchedOn: ['email'],
+        resolution: 'OPEN',
+        hasPortalLogin: false,
+        checks: null,
+        actions: [],
       },
     ]);
     expect(jane.history.map((h) => [h.kind, h.actorName])).toEqual([
@@ -504,7 +544,12 @@ describe('approve', () => {
       {
         action: 'client_account.approved',
         actorUserId: staff.ownerX.id,
-        metadata: { clientId: body.clientId, linked: false },
+        metadata: {
+          clientId: body.clientId,
+          linked: false,
+          policyVersion: 1,
+          correlationId: body.correlationId,
+        },
       },
     ]);
 
@@ -568,7 +613,7 @@ describe('approve', () => {
         select: { metadata: true },
       }),
     );
-    expect(audit.metadata).toEqual({ clientId: records.jane, linked: true });
+    expect(audit.metadata).toMatchObject({ clientId: records.jane, linked: true });
   });
 
   it('two approvals at once: one wins, one client record', async () => {
@@ -618,7 +663,14 @@ describe('decline', () => {
         select: { metadata: true, actorUserId: true },
       }),
     );
-    expect(audit).toEqual({ metadata: { withReason: true }, actorUserId: staff.adminX.id });
+    expect(audit).toEqual({
+      metadata: {
+        withReason: true,
+        notified: true,
+        correlationId: (res.body as { correlationId: string }).correlationId,
+      },
+      actorUserId: staff.adminX.id,
+    });
 
     for (const again of [await decline(signUps.decline), await approve(signUps.decline)]) {
       expect([again.status, codeOf(again)]).toEqual([409, 'NOT_PENDING']);
@@ -722,5 +774,350 @@ describe('after the decisions', () => {
       .body as ClientSignUpDetail;
     expect(declined).toMatchObject({ status: 'DECLINED', declineReason: 'Not a client of ours' });
     expect(declined.history.at(-1)).toMatchObject({ kind: 'DECLINED', actorName: 'Fake staff' });
+  });
+});
+
+describe('versions, retries and the approval mode (D3, D4)', () => {
+  const operations = (key: string) =>
+    asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientSignupOperation.findMany({
+        where: { idempotencyKey: key },
+        select: { kind: true, actorUserId: true, status: true },
+      }),
+    );
+
+  it('S04 to S06: one outcome per key, nothing sent twice; other data or an old version is refused', async () => {
+    await signUp('retry', firmX, 20);
+    const key = randomUUID();
+    const stale = await approve(signUps.retry, { version: 2, idempotencyKey: key });
+    expect([stale.status, codeOf(stale)]).toEqual([409, 'STALE_VERSION']);
+
+    const sent = outbox.length;
+    const first = await approve(signUps.retry, { version: 1, idempotencyKey: key });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ status: 'ACTIVE', version: 2 });
+    // The retry (a timeout, a double click) gets the committed outcome and nothing happens again.
+    const again = await approve(signUps.retry, { version: 1, idempotencyKey: key });
+    expect([again.status, again.body]).toEqual([200, first.body]);
+    expect(outbox.length).toBe(sent + 1);
+    const clients = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.client.count({ where: { email: signUps.retry.email } }),
+    );
+    expect(clients).toBe(1);
+    expect(await operations(key)).toEqual([
+      { kind: 'APPROVE', actorUserId: staff.ownerX.id, status: 'COMMITTED' },
+    ]);
+
+    // The same key with other data never changes the earlier operation.
+    const reused = await decline(signUps.retry, { version: 1, idempotencyKey: key });
+    expect([reused.status, codeOf(reused)]).toEqual([409, 'IDEMPOTENCY_KEY_REUSED']);
+    expect(await account(signUps.retry)).toMatchObject({ status: 'ACTIVE', version: 2 });
+  });
+
+  it('S11, S12, F05, F06: the mode changes once, audited; Automatic approves only without a match', async () => {
+    const settings = async () =>
+      (await as(staff.ownerX, 'get', '/settings')).body as ClientSignUpSettings;
+    const patch = (body: object, by: Person = staff.ownerX) => as(by, 'patch', '/settings', body);
+    const queued = async () =>
+      ((await as(staff.ownerX, 'get', '')).body as ClientSignUpList).counts.PENDING_APPROVAL;
+    const before = await queued();
+    expect(await settings()).toMatchObject({ mode: 'MANUAL', version: 1 });
+
+    const key = randomUUID();
+    const denied = await patch(
+      { mode: 'AUTOMATIC', version: 1, idempotencyKey: key },
+      staff.staffX,
+    );
+    expect(denied.status).toBe(403);
+    const stale = await patch({ mode: 'AUTOMATIC', version: 2, idempotencyKey: key });
+    expect([stale.status, codeOf(stale)]).toEqual([409, 'STALE_VERSION']);
+    const changed = await patch({ mode: 'AUTOMATIC', version: 1, idempotencyKey: key });
+    expect(changed.status).toBe(200);
+    expect(changed.body).toMatchObject({ mode: 'AUTOMATIC', version: 2 });
+    const again = await patch({ mode: 'AUTOMATIC', version: 1, idempotencyKey: key });
+    expect([again.status, again.body]).toEqual([200, changed.body]);
+    const reused = await patch({ mode: 'MANUAL', version: 1, idempotencyKey: key });
+    expect([reused.status, codeOf(reused)]).toEqual([409, 'IDEMPOTENCY_KEY_REUSED']);
+    expect(await settings()).toMatchObject({ mode: 'AUTOMATIC', version: 2 });
+    const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'client_sign_up_policy.changed' },
+        select: { metadata: true, actorUserId: true },
+      }),
+    );
+    expect(audit).toEqual([
+      {
+        metadata: {
+          from: 'MANUAL',
+          to: 'AUTOMATIC',
+          version: 2,
+          correlationId: expect.any(String) as string,
+        },
+        actorUserId: staff.ownerX.id,
+      },
+    ]);
+    // A mode change approves nothing already waiting.
+    expect(await queued()).toBe(before);
+
+    // The rule itself, in the app's own database, as a completed sign-up runs it.
+    const db = app.get<Database>(DATABASE);
+    const decide = (s: SignUp) =>
+      db.withScope({ kind: 'business', businessId: firmX.id }, (tx) =>
+        approveAutomatically(tx, firmX.id, s.accountId),
+      );
+    await signUp('auto', firmX, 21);
+    const matchEmail = `r3-q-auto-record-${tag}@example.com`;
+    await record('autoMatch', firmX, matchEmail);
+    await signUp('autoMatch', firmX, 22, { email: matchEmail });
+    expect(await decide(signUps.auto)).toMatchObject({ approved: true, policyVersion: 2 });
+    expect(await account(signUps.auto)).toMatchObject({
+      status: 'ACTIVE',
+      approvedByUserId: null,
+      decidedAutomatically: true,
+      decisionPolicyVersion: 2,
+      matchStatus: 'NO_MATCH',
+      version: 2,
+    });
+    expect((await account(signUps.auto)).clientId).not.toBeNull();
+    expect(await operations(`automatic:${signUps.auto.accountId}`)).toEqual([
+      { kind: 'APPROVE', actorUserId: null, status: 'COMMITTED' },
+    ]);
+    // Decided once: a second run changes nothing. A match stays waiting, flagged.
+    expect(await decide(signUps.auto)).toEqual({ approved: false });
+    expect(await decide(signUps.autoMatch)).toEqual({ approved: false });
+    expect(await account(signUps.autoMatch)).toMatchObject({
+      status: 'PENDING_APPROVAL',
+      clientId: null,
+      matchStatus: 'POTENTIAL_MATCH',
+    });
+    const detail = (await as(staff.ownerX, 'get', `/${signUps.auto.accountId}`))
+      .body as ClientSignUpDetail;
+    expect(detail).toMatchObject({ status: 'APPROVED', automatic: true, allowedActions: [] });
+
+    // Back to Manual Review: the rule approves nothing.
+    const manual = await patch({ mode: 'MANUAL', version: 2, idempotencyKey: randomUUID() });
+    expect(manual.body).toMatchObject({ mode: 'MANUAL', version: 3 });
+    await signUp('manual', firmX, 23);
+    expect(await decide(signUps.manual)).toEqual({ approved: false });
+    expect(await account(signUps.manual)).toMatchObject({ status: 'PENDING_APPROVAL' });
+  });
+});
+
+describe('Resolve Existing Account (D2, Rasel of Oct 26)', () => {
+  const detail = async (s: SignUp) =>
+    (await as(staff.ownerX, 'get', `/${s.accountId}`)).body as ClientSignUpDetail;
+  const checks = (s: SignUp, candidateClientId: string, permissionScope: string | null) =>
+    as(staff.ownerX, 'post', `/${s.accountId}/checks`, {
+      candidateClientId,
+      contactRef: 'CLIENT_PHONE',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope,
+    });
+  const onRecord = async (s: SignUp, path: string, candidateClientId: string, key = randomUUID()) =>
+    as(staff.ownerX, 'post', `/${s.accountId}/${path}`, {
+      candidateClientId,
+      version: (await account(s)).version,
+      idempotencyKey: key,
+    });
+  /** Moves a request's checks back, as if they were recorded 25 hours ago. */
+  const age = (s: SignUp) =>
+    asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientSignupVerification.updateMany({
+        where: { clientAccountId: s.accountId },
+        data: { createdAt: new Date(Date.now() - 25 * 3_600_000) },
+      }),
+    );
+  const ops = (s: SignUp) =>
+    asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientSignupOperation.findMany({
+        where: { clientAccountId: s.accountId },
+        select: { kind: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    await signUp('linkB', firmX, 30);
+    await signUp('restoreB', firmX, 31);
+    await signUp('notMatchB', firmX, 32);
+    await signUp('emailB', firmX, 33);
+    await signUp('keepB', firmX, 34);
+    // Each record has the sign-up's phone written another way and another email.
+    await record('linkB', firmX, `r3-q-link-record-${tag}@example.com`, '(770) 555-0130');
+    await record('restoreB', firmX, `r3-q-restore-record-${tag}@example.com`, '770.555.0131');
+    await record('notMatchB', firmX, `r3-q-other-person-${tag}@example.com`, '7705550132');
+    await record('emailB', firmX, signUps.emailB.email);
+    // The person behind restoreB already has a login on that record.
+    const owner = person('restoreOwner');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: owner.id, cognitoSub: owner.id, pool: 'CLIENT', email: owner.email, name: 'R' },
+      }),
+    );
+    await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientAccount.create({
+        data: {
+          businessId: firmX.id,
+          userId: owner.id,
+          email: owner.email,
+          status: 'ACTIVE',
+          clientId: records.restoreB,
+          portalRole: 'PRIMARY',
+        },
+      }),
+    );
+  });
+
+  it('F08 to F10: Link Existing Record waits for the three checks with permission to link, then keeps the Client ID', async () => {
+    const before = await detail(signUps.linkB);
+    expect(before.allowedActions).toEqual(['DECLINE', 'KEEP_PENDING', 'NOT_A_MATCH']);
+    expect(before.candidates).toMatchObject([
+      {
+        clientId: records.linkB,
+        matchedOn: ['phone'],
+        resolution: 'OPEN',
+        hasPortalLogin: false,
+        checks: null,
+        actions: [],
+      },
+    ]);
+    const none = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect([none.status, codeOf(none)]).toEqual([409, 'CHECKS_REQUIRED']);
+    // Only a record the request may belong to, and only a contact the record has.
+    const other = await checks(signUps.linkB, records.other, 'LINK_RECORD');
+    expect([other.status, codeOf(other)]).toEqual([409, 'NOT_A_CANDIDATE']);
+    // Permission for another action does not count.
+    expect((await checks(signUps.linkB, records.linkB, 'RESTORE_ACCESS')).status).toBe(200);
+    const wrong = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect([wrong.status, codeOf(wrong)]).toEqual([409, 'CHECKS_REQUIRED']);
+
+    const recorded = await checks(signUps.linkB, records.linkB, 'LINK_RECORD');
+    expect(recorded.status).toBe(200);
+    const c = (recorded.body as ClientSignUpDetail).candidates[0]!;
+    expect(c).toMatchObject({ actions: ['LINK'], checks: { permissionScope: 'LINK_RECORD' } });
+    const hours = (Date.parse(c.checks!.expiresAt) - Date.parse(c.checks!.recordedAt)) / 3_600_000;
+    expect(hours).toBe(24);
+
+    const sent = outbox.length;
+    const linked = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({ clientId: records.linkB, status: 'ACTIVE' });
+    expect(await account(signUps.linkB)).toMatchObject({
+      status: 'ACTIVE',
+      clientId: records.linkB,
+      matchStatus: 'LINKED',
+    });
+    // The record keeps its own email, and no second record was made.
+    const kept = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.client.findUniqueOrThrow({ where: { id: records.linkB }, select: { email: true } }),
+    );
+    expect(kept.email).toBe(`r3-q-link-record-${tag}@example.com`);
+    expect(outbox.slice(sent)).toEqual([
+      expect.objectContaining({ kind: 'approved', to: signUps.linkB.email }),
+    ]);
+    expect(await ops(signUps.linkB)).toEqual([{ kind: 'LINK_EXISTING' }]);
+    const after = await detail(signUps.linkB);
+    expect(after.history.map((h) => h.kind)).toEqual(
+      expect.arrayContaining(['CHECKS_RECORDED', 'LINKED', 'APPROVED']),
+    );
+  });
+
+  it('S02, S03: Restore Access closes the request, makes no client and sends the existing login its recovery email', async () => {
+    expect((await detail(signUps.restoreB)).candidates[0]).toMatchObject({
+      hasPortalLogin: true,
+      actions: [],
+    });
+    expect((await checks(signUps.restoreB, records.restoreB, 'BOTH')).status).toBe(200);
+    // Checks older than 24 hours count no more.
+    await age(signUps.restoreB);
+    const old = await onRecord(signUps.restoreB, 'restore-access', records.restoreB);
+    expect([old.status, codeOf(old)]).toEqual([409, 'CHECKS_REQUIRED']);
+    const fresh = await checks(signUps.restoreB, records.restoreB, 'BOTH');
+    expect((fresh.body as ClientSignUpDetail).candidates[0]!.actions).toEqual(['RESTORE_ACCESS']);
+    // A record with a login is never linked a second login.
+    const link = await onRecord(signUps.restoreB, 'link', records.restoreB);
+    expect([link.status, codeOf(link)]).toEqual([409, 'CLIENT_NOT_LINKABLE']);
+    expect((await account(signUps.restoreB)).status).toBe('PENDING_APPROVAL');
+
+    const sent = outbox.length;
+    const key = randomUUID();
+    const restored = await onRecord(signUps.restoreB, 'restore-access', records.restoreB, key);
+    expect(restored.status).toBe(200);
+    expect(restored.body).toMatchObject({ status: 'DECLINED', clientId: records.restoreB });
+    const again = await as(staff.ownerX, 'post', `/${signUps.restoreB.accountId}/restore-access`, {
+      candidateClientId: records.restoreB,
+      version: (restored.body as { version: number }).version - 1,
+      idempotencyKey: key,
+    });
+    expect([again.status, again.body]).toEqual([200, restored.body]);
+    expect(await account(signUps.restoreB)).toMatchObject({
+      status: 'DECLINED',
+      clientId: null,
+      declineReason: 'access restored',
+    });
+    // No decline notice to the sign-up's address; the recovery goes to the login on file.
+    expect(outbox.slice(sent)).toEqual([]);
+    const clients = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.client.count({ where: { email: signUps.restoreB.email } }),
+    );
+    expect(clients).toBe(0);
+    expect(await ops(signUps.restoreB)).toEqual([{ kind: 'RESTORE_ACCESS' }]);
+  });
+
+  it('F12: Not a Match by Owner or Admin, with a reason, for phone matches; an email match stays blocked', async () => {
+    const held = await approve(signUps.notMatchB);
+    expect([held.status, codeOf(held)]).toEqual([409, 'POTENTIAL_MATCH']);
+    const body = async () => ({ ...(await write(signUps.notMatchB)), reason: 'Another person' });
+    const byStaff = await as(
+      staff.staffX,
+      'post',
+      `/${signUps.notMatchB.accountId}/not-a-match`,
+      await body(),
+    );
+    expect(byStaff.status).toBe(403);
+    const noReason = await as(staff.ownerX, 'post', `/${signUps.notMatchB.accountId}/not-a-match`, {
+      ...(await write(signUps.notMatchB)),
+    });
+    expect(noReason.status).toBe(400);
+    const resolved = await as(
+      staff.adminX,
+      'post',
+      `/${signUps.notMatchB.accountId}/not-a-match`,
+      await body(),
+    );
+    expect(resolved.status).toBe(200);
+    expect(resolved.body).toMatchObject({ resolved: 1, version: 2 });
+    const now = await detail(signUps.notMatchB);
+    expect(now).toMatchObject({ match: 'NO_MATCH', version: 2 });
+    expect(now.candidates[0]).toMatchObject({ resolution: 'NOT_A_MATCH' });
+    expect(now.allowedActions).toEqual(['APPROVE', 'DECLINE', 'KEEP_PENDING']);
+    expect(now.history.find((h) => h.kind === 'NOT_A_MATCH')).toMatchObject({
+      note: 'Another person',
+    });
+    // Approving checks again and now makes the new client.
+    const approved = await approve(signUps.notMatchB);
+    expect(approved.status).toBe(200);
+    expect(approved.body.clientId).not.toBe(records.notMatchB);
+
+    expect((await detail(signUps.emailB)).allowedActions).toEqual(['DECLINE', 'KEEP_PENDING']);
+    const email = await as(staff.ownerX, 'post', `/${signUps.emailB.accountId}/not-a-match`, {
+      ...(await write(signUps.emailB)),
+      reason: 'Not her',
+    });
+    expect([email.status, codeOf(email)]).toEqual([409, 'DUPLICATE_EMAIL']);
+  });
+
+  it('F11: Keep Pending changes nothing and keeps the note in the history', async () => {
+    const kept = await as(staff.ownerX, 'post', `/${signUps.keepB.accountId}/keep-pending`, {
+      note: 'Waiting for the client to call back',
+      idempotencyKey: randomUUID(),
+    });
+    expect(kept.status).toBe(200);
+    expect(await account(signUps.keepB)).toMatchObject({ status: 'PENDING_APPROVAL', version: 1 });
+    const d = await detail(signUps.keepB);
+    expect(d.history.find((h) => h.kind === 'KEPT_PENDING')).toMatchObject({
+      note: 'Waiting for the client to call back',
+      actorName: expect.any(String),
+    });
   });
 });
