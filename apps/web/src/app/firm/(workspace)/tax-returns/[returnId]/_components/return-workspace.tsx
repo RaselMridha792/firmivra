@@ -20,6 +20,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { IntakeFormCard } from './intake-form-card';
 import {
   AssignDialog,
   DetailsDialog,
@@ -458,6 +459,7 @@ function TabBody({
     case 'documents':
       return (
         <div className={two}>
+          <IntakeFormCard detail={detail} onNotice={onNotice} />
           <DocumentChecklist detail={detail} />
           <ReturnDocumentsPanel detail={detail} onNotice={onNotice} />
         </div>
