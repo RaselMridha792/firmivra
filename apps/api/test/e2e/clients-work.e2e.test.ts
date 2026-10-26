@@ -284,7 +284,10 @@ describe('GET /business/clients: the work around each client', () => {
     const recent = await list(`?lastActivityFrom=${nyDay(-10)}&lastActivityTo=${nyDay(0)}`);
     expect(recent.items.map((r) => r.id)).toEqual([ids.w1]);
     // Firm B's service id names nothing in firm A: no rows, not an error.
-    const svcB = await inFirm('b', (tx) => tx.service.findFirstOrThrow({ select: { id: true } }));
+    // The owner client sees every firm's rows, so the firm is named (row order is not).
+    const svcB = await inFirm('b', (tx) =>
+      tx.service.findFirstOrThrow({ where: { businessId: firms.b.id }, select: { id: true } }),
+    );
     expect((await list(`?serviceId=${svcB.id}`)).items).toEqual([]);
     const first = await list('?page=1&limit=3');
     const second = await list('?page=2&limit=3');
@@ -293,6 +296,50 @@ describe('GET /business/clients: the work around each client', () => {
     expect([first.total, second.total, first.nextCursor]).toEqual([4, 4, null]);
     const both = await call('get', '?page=1&cursor=abc', people.ownerA);
     expect([both.status, codeOf(both.body)]).toEqual([400, 'VALIDATION_FAILED']);
+  });
+
+  it('filters to the clients the Pending Documents and Balances Due cards count (E1)', async () => {
+    // A settled invoice owes nothing: w2's is paid in full.
+    await inFirm('a', async (tx) => {
+      const { id } = await tx.invoice.create({
+        data: { businessId: firms.a.id, clientId: ids.w2, number: `INV-${randomUUID()}` },
+      });
+      await tx.invoiceLine.create({
+        data: {
+          businessId: firms.a.id,
+          invoiceId: id,
+          description: 'Fake',
+          unitAmountCents: 9_000,
+        },
+      });
+      await tx.invoice.update({ where: { id }, data: { status: 'OPEN', issuedAt: new Date() } });
+      await tx.offlinePayment.create({
+        data: {
+          businessId: firms.a.id,
+          invoiceId: id,
+          recordedByUserId: people.ownerA.id,
+          method: 'CASH',
+          amountCents: 9_000,
+          receivedOn: new Date(`${nyDay(0)}T00:00:00.000Z`),
+          idempotencyKey: randomUUID(),
+        },
+      });
+    });
+    const s = await summary(people.ownerA);
+    const docs = await list('?owes=DOCUMENTS');
+    const owed = await list('?owes=BALANCE');
+    expect(docs.items.map((r) => r.id)).toEqual([ids.w1]);
+    expect(owed.items.map((r) => r.id)).toEqual([ids.w1]);
+    // Each card's number is its list's total.
+    expect([docs.total, owed.total]).toEqual([
+      s.kpis.pendingDocuments.value,
+      s.kpis.balancesDue.value,
+    ]);
+    // Staff see only their own; firm B's owing clients never appear in firm A.
+    expect((await list('?owes=BALANCE', people.staffA)).items.map((r) => r.id)).toEqual([ids.w1]);
+    expect((await list('?owes=DOCUMENTS&clientStatus=NEW')).items).toEqual([]);
+    const bad = await call('get', '?owes=OVERDUE', people.ownerA);
+    expect([bad.status, codeOf(bad.body)]).toEqual([400, 'VALIDATION_FAILED']);
   });
 
   it('gives Staff only their own clients, with the same work fields', async () => {
@@ -429,5 +476,42 @@ describe('POST /business/clients/bulk', () => {
       businessId: firms.b.id,
     });
     expect(leaked.status).toBe(400);
+  });
+});
+
+describe('services from advisory enrollment (E3)', () => {
+  it('counts an enrolled advisory workstream as the service, in the row, the filter and the tab', async () => {
+    const svc = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a.id, kind: 'BUSINESS_DEVELOPMENT', name: 'Growth Advisory' },
+      });
+      // w5 is enrolled (no engagement: the advisory module keeps it as a workstream); w2 only
+      // showed interest, which is not an enrolment.
+      for (const [clientId, status] of [
+        [ids.w5, 'ACCEPTED'],
+        [ids.w2, 'PROPOSED'],
+      ] as const) {
+        const advisory = await tx.advisoryClient.create({
+          data: { businessId: firms.a.id, clientId },
+        });
+        await tx.advisoryWorkstream.create({
+          data: {
+            businessId: firms.a.id,
+            advisoryClientId: advisory.id,
+            serviceId: service.id,
+            status,
+          },
+        });
+      }
+      return service.id;
+    });
+    const filtered = await list(`?serviceId=${svc}`);
+    expect(filtered.items.map((r) => r.id)).toEqual([ids.w5]);
+    expect(filtered.items[0]?.services.map((s) => s.name)).toContain('Growth Advisory');
+    const s = await summary(people.ownerA);
+    expect(s.counts.byService.find((b) => b.id === svc)).toMatchObject({ count: 1 });
+    // Firm B's tabs never see firm A's enrolments.
+    const b = await summary(people.ownerB, 'b');
+    expect(b.counts.byService.some((x) => x.id === svc)).toBe(false);
   });
 });
