@@ -10,7 +10,6 @@ import {
   FileText,
   Plugs,
 } from '@phosphor-icons/react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   CLIENT_STATUS_LABEL,
@@ -23,6 +22,7 @@ import {
   quiet,
   CardHead,
 } from './payroll-shared';
+import { OriginLink } from '../../../../../components/origin-link';
 
 const DOT: Record<string, string> = {
   green: 'bg-chart-green',
@@ -235,9 +235,9 @@ export function ProvidersCard({
         icon={Plugs}
         title="Connected Payroll Providers"
         aside={
-          <Link href="/integrations" className={linkBtn}>
+          <OriginLink href="/integrations" className={linkBtn}>
             Manage Integrations
-          </Link>
+          </OriginLink>
         }
       />
       {rows.length === 0 ? (
