@@ -445,6 +445,23 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
 
 ## Needs from others
 
+- **From Rasel (Oct 26), two decisions for Clients; neither is guessed:**
+  - **E2, Last Activity: which events count, and who writes them?** `clients.last_activity_at`
+    (R37) is meant to be set on each event, but only e-sign completion sets it, so the column and
+    its From/To filter miss almost everything. The day boundaries are already right (the firm's
+    time zone, both ends included).
+    - Proposed events: a message in the client's thread, a document uploaded or requested, an
+      invoice sent or a payment received, an appointment booked or held, an intake submitted, a
+      signature completed, and a note or task change.
+    - Choose one way to keep it: (a) each module sets the column in its own write (the column stays
+      cheap to sort and filter, but every module's owner touches their write), or (b) the list
+      computes the latest of those events in SQL (one place, but a heavier query on every list
+      page and filter).
+  - **Column request 14, E5's responsible party:** the exact request is item 14 under "Column
+    request for R1" below: a `client_contacts` table (one `RESPONSIBLE_PARTY` per client, room for
+    the linked Business and Personal profiles), or three nullable columns on `client_profiles`.
+    Choose one for R1; E5's other checks don't wait for it.
+
 - **From R1 (Oct 24): column requests 7 to 11 are built** (merged as #1095 on Oct 24), one PR on R1's branch `rasel/R1-r60-columns-2`. Its PR opened on Oct 24 after the idempotency PR (#1084) merged, one migration PR at a time; not merged yet. Build on these names once it merges:
   - **7, `firm_licenses`:**
     - Columns: `regulatory_body` (1 to 120), `license_type` (1 to 80), `license_number` (1 to 60), each trimmed, something visible and no control characters; `expires_on`; `status` (`FirmLicenseStatus`: ACTIVE, EXPIRED, SUSPENDED or REVOKED, default ACTIVE); `verified_by_user_id` with `verified_at`.
