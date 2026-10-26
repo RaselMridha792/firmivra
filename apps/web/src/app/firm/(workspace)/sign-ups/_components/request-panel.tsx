@@ -94,6 +94,8 @@ export function RequestPanel({
   const r = detail.data;
   const waiting = r.status === 'PENDING_APPROVAL';
   const matched = waiting && r.match === 'POTENTIAL_MATCH';
+  // What the server allows now (a match, or a decision made elsewhere, takes it away).
+  const can = (action: 'APPROVE' | 'DECLINE') => r.allowedActions.includes(action);
   const badge = STATUS_BADGE[r.status];
   return (
     <aside aria-labelledby="su-panel" className={card} data-testid="sign-up-panel">
@@ -141,13 +143,17 @@ export function RequestPanel({
           </p>
           <div className="mt-3 flex flex-wrap gap-3">
             <Button
-              disabled={matched}
+              disabled={!can('APPROVE')}
               aria-describedby="su-approve-note"
               onClick={() => setDeciding('approve')}
             >
               Approve
             </Button>
-            <Button variant="outline" onClick={() => setDeciding('decline')}>
+            <Button
+              variant="outline"
+              disabled={!can('DECLINE')}
+              onClick={() => setDeciding('decline')}
+            >
               Decline
             </Button>
           </div>
@@ -303,7 +309,11 @@ function MatchReview({
 /** A decided request: its outcome instead of action buttons. */
 function Decision({ request: r }: { request: ClientSignUpDetail }) {
   const last = [...r.history].reverse().find((h) => h.kind === 'APPROVED' || h.kind === 'DECLINED');
-  const by = last?.actorName ? ` by ${last.actorName}` : '';
+  const by = r.automatic
+    ? ' automatically, by your Automatic Approval rule'
+    : last?.actorName
+      ? ` by ${last.actorName}`
+      : '';
   if (r.status === 'APPROVED') {
     return (
       <div className="mt-4 flex items-start gap-3 rounded-lg border border-divider bg-success-soft p-4">
@@ -370,7 +380,11 @@ export function RequestActivity({ id }: { id: string }) {
               <span className="text-sm">
                 <span className="block font-medium text-heading">
                   {EVENT_TEXT[event.kind]}
-                  {event.actorName ? ` by ${event.actorName}` : ''}
+                  {event.actorName
+                    ? ` by ${event.actorName}`
+                    : event.kind === 'APPROVED' && detail.data?.automatic
+                      ? ' automatically'
+                      : ''}
                 </span>
                 <time dateTime={event.at} className="text-muted">
                   {momentText(event.at)}

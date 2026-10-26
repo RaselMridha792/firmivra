@@ -20,6 +20,7 @@ import {
   ClientSignUpsQuery,
   ClientSignUpSettings,
   DeclineSignUpRequest,
+  UpdateClientSignUpSettingsRequest,
   DeclineSignUpResponse,
   ForgotPasswordRequest,
   LegalDocument,
@@ -66,6 +67,7 @@ const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => (
   declineReason: null,
   match: null,
   client: null,
+  version: 1,
   ...fields,
 });
 /** Who decided in the mock firm (a fake name). */
@@ -254,12 +256,17 @@ function buildFixtures() {
     clientId: '00000000-0000-4000-a000-000000000401',
     status: 'ACTIVE',
     approvedAt: '2026-10-07T15:00:00.000Z',
+    version: 2,
+    correlationId: '00000000-0000-4000-a000-000000000901',
   });
   /** POST /api/v1/client-sign-ups/{id}/decline */
   const declinedSignUp = DeclineSignUpResponse.parse({
     clientAccountId: '00000000-0000-4000-a000-000000000302',
     status: 'DECLINED',
     declinedAt: '2026-10-07T15:05:00.000Z',
+    version: 2,
+    correlationId: '00000000-0000-4000-a000-000000000902',
+    notified: true,
   });
   const errors = {
     /** 400 on verify-email and verify-phone: stay on the page. */
@@ -293,6 +300,8 @@ function buildFixtures() {
       'DUPLICATE_EMAIL',
       'A client of this firm already has this email. Link the sign-up to that record.',
     ),
+    /** 409 on a write whose version is no longer the current one. */
+    staleVersion: error('STALE_VERSION', 'This changed since you opened it. Read it again.'),
     /** 409 on approve without clientId when a client of the firm already has the phone. */
     potentialMatch: error(
       'POTENTIAL_MATCH',
@@ -426,6 +435,8 @@ export function createPortalAuthMock(
       step: signUp.step,
       email: signUp.email,
       phoneMasked: masked(signUp.phone),
+      // The mock firm is in Manual Review.
+      approved: false,
       resendAvailableAt:
         signUp.step === 'DONE' || signUp.step === 'CONTACT_FIRM'
           ? null
@@ -662,6 +673,9 @@ export function createClientSignUpsMock(
   ].map(copy);
   const records = CLIENT_RECORDS.map(copy);
   let nextClient = 500;
+  let policy = ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
+  /** Each key's first outcome, so a retry returns it (the API's idempotency). */
+  const outcomes = new Map<string, unknown>();
   const decidedBy = new Map<string, string>([[signUpItem(4, {}).clientAccountId, MOCK_DECIDER]]);
   decidedBy.set(signUpItem(6, {}).clientAccountId, MOCK_DECIDER);
   const allowed = () => {
@@ -674,6 +688,9 @@ export function createClientSignUpsMock(
     if (!row) throw fail(404, error('NOT_FOUND', 'Not found'));
     if (row.status !== 'PENDING_APPROVAL') throw fail(409, errors.notPending);
     return row;
+  };
+  const current = (row: ClientSignUp, version: number) => {
+    if (row.version !== version) throw fail(409, errors.staleVersion);
   };
   /** The firm's records a sign-up may belong to, as the API matches them. */
   const candidatesOf = (row: ClientSignUp) =>
@@ -742,8 +759,12 @@ export function createClientSignUpsMock(
       const at = (minutes: number) =>
         new Date(new Date(row.signedUpAt).getTime() + minutes * 60_000).toISOString();
       const by = decidedBy.get(row.clientAccountId) ?? null;
+      const matched = row.status === 'PENDING_APPROVAL' && candidatesOf(row).length > 0;
       return ClientSignUpDetail.parse({
         ...withMatch(row),
+        automatic: false,
+        allowedActions:
+          row.status === 'PENDING_APPROVAL' ? (matched ? ['DECLINE'] : ['APPROVE', 'DECLINE']) : [],
         history: [
           { kind: 'SUBMITTED', at: row.signedUpAt, actorName: null },
           { kind: 'EMAIL_VERIFIED', at: at(1), actorName: null },
@@ -765,13 +786,29 @@ export function createClientSignUpsMock(
     settings: async () => {
       await pause();
       allowed();
-      return ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
+      return copy(policy);
     },
-    approve: async (clientAccountId, body = {}) => {
+    updateSettings: async (body) => {
       await pause();
       allowed();
-      const { clientId } = parseInput(ApproveSignUpRequest, body);
+      const { mode, version, idempotencyKey } = parseInput(UpdateClientSignUpSettingsRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as ClientSignUpSettings);
+      if (policy.version !== version) throw fail(409, errors.staleVersion);
+      if (policy.mode !== mode) {
+        policy = { mode, version: version + 1, changedAt: new Date().toISOString() };
+      }
+      outcomes.set(idempotencyKey, policy);
+      return copy(policy);
+    },
+    approve: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { clientId, version, idempotencyKey } = parseInput(ApproveSignUpRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['approve']>>);
       const row = pending(clientAccountId);
+      current(row, version);
       if (clientId) {
         const record = records.find((r) => r.clientId === clientId);
         if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
@@ -789,26 +826,52 @@ export function createClientSignUpsMock(
         clientNumber: `CL-${10000 + nextClient++}`,
         displayName: row.name,
       };
-      rows = rows.map((r) => (r === row ? { ...r, status: 'APPROVED', approvedAt, client } : r));
-      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
-      return {
-        clientAccountId: row.clientAccountId,
-        clientId: id,
-        status: 'ACTIVE',
-        approvedAt,
-      };
-    },
-    decline: async (clientAccountId, body = {}) => {
-      await pause();
-      allowed();
-      const { reason } = parseInput(DeclineSignUpRequest, body);
-      const row = pending(clientAccountId);
-      const declinedAt = new Date().toISOString();
       rows = rows.map((r) =>
-        r === row ? { ...r, status: 'DECLINED', declinedAt, declineReason: reason ?? null } : r,
+        r === row ? { ...r, status: 'APPROVED', approvedAt, client, version: version + 1 } : r,
       );
       decidedBy.set(row.clientAccountId, MOCK_DECIDER);
-      return { clientAccountId: row.clientAccountId, status: 'DECLINED', declinedAt };
+      const done = {
+        clientAccountId: row.clientAccountId,
+        clientId: id,
+        status: 'ACTIVE' as const,
+        approvedAt,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    decline: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { reason, notify, version, idempotencyKey } = parseInput(DeclineSignUpRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['decline']>>);
+      const row = pending(clientAccountId);
+      current(row, version);
+      const declinedAt = new Date().toISOString();
+      rows = rows.map((r) =>
+        r === row
+          ? {
+              ...r,
+              status: 'DECLINED',
+              declinedAt,
+              declineReason: reason ?? null,
+              version: version + 1,
+            }
+          : r,
+      );
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
+      const done = {
+        clientAccountId: row.clientAccountId,
+        status: 'DECLINED' as const,
+        declinedAt,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+        notified: notify,
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
     },
   };
 }
