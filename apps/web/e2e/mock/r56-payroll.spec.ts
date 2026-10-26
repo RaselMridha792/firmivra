@@ -48,7 +48,7 @@ test('Views and filters: Past Due, search, more filters, Clear', async ({ page }
 test('Actions menu: the design list, a note and a status change', async ({ page }) => {
   await page.goto(base);
   await page.getByRole('button', { name: 'Actions for Green Leaf Café LLC' }).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(21);
+  await expect(page.getByRole('menuitem')).toHaveCount(22);
   await expect(page.getByRole('menuitem', { name: 'Remove Payroll Service' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Add Note' }).click();
   await page

@@ -2,6 +2,7 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { clientPath, portalMe } from '../clients/client.js';
 import {
   CancelEngagementRequest,
+  StopFutureBillingRequest,
   CreateEngagementRequest,
   Engagement,
   EngagementHistory,
@@ -62,6 +63,16 @@ export function createEngagementsClient(request: ApiRequest) {
      */
     reactivate: async (id: string): Promise<Engagement> =>
       request(Engagement, `${one(id)}/reactivate`, { method: 'POST', body: {} }),
+    /**
+     * Stop (or resume) future billing (SH10): Owner and Admin (403 for Staff). 409 NOT_RECURRING
+     * for a one-time service, INVALID_STATUS for a cancelled or completed one, NO_BILLING_DATE
+     * when there is no next billing date and no `stopsOn`, DATE_IN_PAST for an earlier date.
+     */
+    stopBilling: async (id: string, body: StopFutureBillingRequest): Promise<Engagement> =>
+      request(Engagement, `${one(id)}/billing-stop`, {
+        method: 'POST',
+        body: parseInput(StopFutureBillingRequest, body),
+      }),
     /** Status and stage changes, newest first. */
     history: async (id: string): Promise<EngagementHistory['items']> =>
       (await request(EngagementHistory, `${one(id)}/history`)).items,
