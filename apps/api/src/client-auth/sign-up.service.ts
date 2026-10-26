@@ -22,6 +22,7 @@ import { errorName, Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
 import { canonicalIp, networkOf } from '../common/network.js';
 import { PortalInfoService } from './portal-info.controller.js';
+import { type AutomaticDecision, approveAutomatically } from './sign-up-decisions.js';
 import {
   SIGN_UP_SECONDS,
   type SignUpSession,
@@ -326,13 +327,14 @@ export class SignUpService {
         await this.log(s.businessId, s.userId, 'client_account.verified', account.id, {
           phoneVerified: false,
         });
-        await this.submitted(s.businessId, account.id, s.userId);
+        await this.completed(s.businessId, account.id, s.userId, s.firmSlug);
         // The sign-up is complete: a busy database while reading the state never makes it an error.
         return this.stateOf(s, expiresAt).catch(() => ({
           step: 'DONE' as const,
           email: s.email,
           phoneMasked: maskPhone(s.phone),
           resendAvailableAt: null,
+          approved: false,
         }));
       }
       // The email is proved: a busy database or a refused SMS never turns this into an error.
@@ -350,6 +352,7 @@ export class SignUpService {
         email: s.email,
         phoneMasked: maskPhone(s.phone),
         resendAvailableAt: new Date(Date.now() + CODE_LIMITS.resendGapMs).toISOString(),
+        approved: false,
       }));
     });
   }
@@ -386,7 +389,7 @@ export class SignUpService {
         });
       });
       await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
-      await this.submitted(s.businessId, account.id, s.userId);
+      await this.completed(s.businessId, account.id, s.userId, s.firmSlug);
       return this.stateOf(s, expiresAt);
     });
   }
@@ -993,9 +996,12 @@ export class SignUpService {
   private async stateOf(s: SignUpSession, expiresAt: number): Promise<SignUpState> {
     const shown = { email: s.email, phoneMasked: maskPhone(s.phone) };
     const attempt = await this.attemptState(s.userId);
-    const step = stepFor(s, await this.attemptAccount(s), attempt);
+    const account = await this.attemptAccount(s);
+    const step = stepFor(s, account, attempt);
+    // Approved at once by the firm's Automatic Approval rule: the portal is open now.
+    const approved = step === 'DONE' && account?.status === 'ACTIVE';
     if (step === 'DONE' || step === 'CONTACT_FIRM')
-      return { step, ...shown, resendAvailableAt: null };
+      return { step, ...shown, resendAvailableAt: null, approved };
     const at =
       attempt && attempt.requests >= SIGN_UP_LIMITS.sendsPerSession
         ? expiresAt * 1000
@@ -1003,7 +1009,68 @@ export class SignUpService {
             Math.max(attempt ? attempt.resendAt : Date.now(), await this.limitsOpenAt()),
             expiresAt * 1000,
           );
-    return { step, ...shown, resendAvailableAt: new Date(at).toISOString() };
+    return { step, ...shown, resendAvailableAt: new Date(at).toISOString(), approved: false };
+  }
+
+  /**
+   * The sign-up is complete. The firm's Automatic Approval rule decides first (sign-up-decisions.ts):
+   * approved now, with the client record, the audit and the approval email; or left waiting, and
+   * then the firm's bell rings. Nothing here ever fails the sign-up.
+   */
+  private async completed(
+    businessId: string,
+    accountId: string,
+    actorUserId: string,
+    firmSlug: string,
+  ): Promise<void> {
+    let decision: AutomaticDecision = { approved: false };
+    try {
+      decision = await this.db.withScope({ kind: 'business', businessId }, (tx) =>
+        approveAutomatically(tx, businessId, accountId),
+      );
+    } catch (e) {
+      // Ids only (hard rule 4). The request waits for the firm, as in Manual Review.
+      this.logger.warn(
+        `Automatic approval of client account ${accountId} not decided (${errorName(e)})`,
+      );
+    }
+    if (!decision.approved) return this.submitted(businessId, accountId, actorUserId);
+    // No member decided: the audit rows have no actor, and say which policy version applied.
+    await this.audit.log(
+      'client.created',
+      { type: 'client', id: decision.clientId },
+      { from: 'portal_sign_up', clientAccountId: accountId, automatic: true },
+      { businessId },
+    );
+    await this.audit.log(
+      'client_account.approved',
+      { type: 'client_account', id: accountId },
+      {
+        clientId: decision.clientId,
+        linked: false,
+        automatic: true,
+        policyVersion: decision.policyVersion,
+        correlationId: decision.correlationId,
+      },
+      { businessId },
+    );
+    try {
+      const firm = await this.portal.activeFirm(firmSlug);
+      const account = await this.db.forBusiness(businessId).clientAccount.findUniqueOrThrow({
+        where: { id: accountId },
+        select: { email: true, user: { select: { name: true } } },
+      });
+      await this.sender.signUpApproved({
+        to: account.email,
+        businessId,
+        businessName: firm.name,
+        name: account.user.name,
+        signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
+      });
+    } catch {
+      // Ids only (hard rule 4). The approval stands; R6's retries own delivery.
+      this.logger.warn(`Could not send the approval notice for client account ${accountId}`);
+    }
   }
 
   /**

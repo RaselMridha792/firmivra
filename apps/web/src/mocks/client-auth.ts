@@ -20,6 +20,14 @@ import {
   ClientSignUpsQuery,
   ClientSignUpSettings,
   DeclineSignUpRequest,
+  KeepSignUpPendingRequest,
+  LinkSignUpRequest,
+  RecordSignUpChecksRequest,
+  RestoreSignUpAccessRequest,
+  type SignUpChecks,
+  type SignUpEvent,
+  SignUpNotAMatchRequest,
+  UpdateClientSignUpSettingsRequest,
   DeclineSignUpResponse,
   ForgotPasswordRequest,
   LegalDocument,
@@ -66,6 +74,7 @@ const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => (
   declineReason: null,
   match: null,
   client: null,
+  version: 1,
   ...fields,
 });
 /** Who decided in the mock firm (a fake name). */
@@ -254,12 +263,17 @@ function buildFixtures() {
     clientId: '00000000-0000-4000-a000-000000000401',
     status: 'ACTIVE',
     approvedAt: '2026-10-07T15:00:00.000Z',
+    version: 2,
+    correlationId: '00000000-0000-4000-a000-000000000901',
   });
   /** POST /api/v1/client-sign-ups/{id}/decline */
   const declinedSignUp = DeclineSignUpResponse.parse({
     clientAccountId: '00000000-0000-4000-a000-000000000302',
     status: 'DECLINED',
     declinedAt: '2026-10-07T15:05:00.000Z',
+    version: 2,
+    correlationId: '00000000-0000-4000-a000-000000000902',
+    notified: true,
   });
   const errors = {
     /** 400 on verify-email and verify-phone: stay on the page. */
@@ -293,6 +307,8 @@ function buildFixtures() {
       'DUPLICATE_EMAIL',
       'A client of this firm already has this email. Link the sign-up to that record.',
     ),
+    /** 409 on a write whose version is no longer the current one. */
+    staleVersion: error('STALE_VERSION', 'This changed since you opened it. Read it again.'),
     /** 409 on approve without clientId when a client of the firm already has the phone. */
     potentialMatch: error(
       'POTENTIAL_MATCH',
@@ -426,6 +442,8 @@ export function createPortalAuthMock(
       step: signUp.step,
       email: signUp.email,
       phoneMasked: masked(signUp.phone),
+      // The mock firm is in Manual Review.
+      approved: false,
       resendAvailableAt:
         signUp.step === 'DONE' || signUp.step === 'CONTACT_FIRM'
           ? null
@@ -662,6 +680,30 @@ export function createClientSignUpsMock(
   ].map(copy);
   const records = CLIENT_RECORDS.map(copy);
   let nextClient = 500;
+  let policy = ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
+  /** Each key's first outcome, so a retry returns it (the API's idempotency). */
+  const outcomes = new Map<string, unknown>();
+  // Resolve Existing Account (D2): resolutions and checks per request and record, and the
+  // review's own steps for the history.
+  const pair = (accountId: string, clientId: string) => `${accountId}:${clientId}`;
+  const resolutions = new Map<string, 'NOT_A_MATCH' | 'VERIFIED'>();
+  const recordedChecks = new Map<string, SignUpChecks>();
+  const steps = new Map<string, SignUpEvent[]>();
+  const step = (accountId: string, kind: SignUpEvent['kind'], note: string | null = null) =>
+    steps.set(accountId, [
+      ...(steps.get(accountId) ?? []),
+      { kind, at: new Date().toISOString(), actorName: MOCK_DECIDER, note },
+    ]);
+  const freshChecks = (accountId: string, clientId: string) => {
+    const c = recordedChecks.get(pair(accountId, clientId));
+    return c && Date.parse(c.expiresAt) > Date.now() ? c : null;
+  };
+  const allows = (c: SignUpChecks | null, action: 'LINK' | 'RESTORE_ACCESS') =>
+    !!c &&
+    c.callOutcome === 'REACHED' &&
+    c.identityResult === 'VERIFIED' &&
+    (c.permissionScope === 'BOTH' ||
+      c.permissionScope === (action === 'LINK' ? 'LINK_RECORD' : 'RESTORE_ACCESS'));
   const decidedBy = new Map<string, string>([[signUpItem(4, {}).clientAccountId, MOCK_DECIDER]]);
   decidedBy.set(signUpItem(6, {}).clientAccountId, MOCK_DECIDER);
   const allowed = () => {
@@ -675,6 +717,9 @@ export function createClientSignUpsMock(
     if (row.status !== 'PENDING_APPROVAL') throw fail(409, errors.notPending);
     return row;
   };
+  const current = (row: ClientSignUp, version: number) => {
+    if (row.version !== version) throw fail(409, errors.staleVersion);
+  };
   /** The firm's records a sign-up may belong to, as the API matches them. */
   const candidatesOf = (row: ClientSignUp) =>
     records
@@ -685,21 +730,35 @@ export function createClientSignUpsMock(
           ...(r.phone && tenDigits(r.phone) === tenDigits(row.phone) ? (['phone'] as const) : []),
         ],
       }))
-      .filter((c) => c.matchedOn.length > 0);
+      .filter((c) => c.matchedOn.length > 0)
+      .map((c) => ({
+        ...c,
+        resolution: resolutions.get(pair(row.clientAccountId, c.record.clientId)) ?? 'OPEN',
+      }));
+  /** As the API: an email match always holds a request back, a phone match until resolved. */
+  const holding = (row: ClientSignUp) =>
+    candidatesOf(row).filter(
+      (c) => c.matchedOn.includes('email') || c.resolution !== 'NOT_A_MATCH',
+    );
   const withMatch = (row: ClientSignUp): ClientSignUp => ({
     ...copy(row),
     match:
       row.status === 'PENDING_APPROVAL'
-        ? candidatesOf(row).length
+        ? holding(row).length
           ? 'POTENTIAL_MATCH'
           : 'NO_MATCH'
         : null,
   });
+  const candidateOf = (row: ClientSignUp, clientId: string) => {
+    const c = candidatesOf(row).find((x) => x.record.clientId === clientId);
+    if (!c) throw fail(409, error('NOT_A_CANDIDATE', 'Not one this sign-up may belong to'));
+    return c;
+  };
   /** The firm's calendar day (New York in the mock), as the API reads `from` and `to`. */
   const firmDay = (iso: string) =>
     new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
-  return {
+  const client: ClientSignUpsClient = {
     list: async (query = {}) => {
       await pause();
       allowed();
@@ -742,36 +801,78 @@ export function createClientSignUpsMock(
       const at = (minutes: number) =>
         new Date(new Date(row.signedUpAt).getTime() + minutes * 60_000).toISOString();
       const by = decidedBy.get(row.clientAccountId) ?? null;
+      const waiting = row.status === 'PENDING_APPROVAL';
+      const open = waiting ? holding(row) : [];
+      const resolvable =
+        open.length > 0 &&
+        !open.some((c) => c.matchedOn.includes('email')) &&
+        open.every((c) => c.resolution === 'OPEN');
       return ClientSignUpDetail.parse({
         ...withMatch(row),
+        automatic: false,
+        allowedActions: waiting
+          ? [
+              ...(open.length ? [] : ['APPROVE']),
+              'DECLINE',
+              'KEEP_PENDING',
+              ...(resolvable ? ['NOT_A_MATCH'] : []),
+            ]
+          : [],
         history: [
           { kind: 'SUBMITTED', at: row.signedUpAt, actorName: null },
           { kind: 'EMAIL_VERIFIED', at: at(1), actorName: null },
           { kind: 'PHONE_VERIFIED', at: at(2), actorName: null },
+          ...(steps.get(row.clientAccountId) ?? []),
           ...(row.approvedAt ? [{ kind: 'APPROVED', at: row.approvedAt, actorName: by }] : []),
           ...(row.declinedAt ? [{ kind: 'DECLINED', at: row.declinedAt, actorName: by }] : []),
         ],
-        candidates:
-          row.status === 'PENDING_APPROVAL'
-            ? candidatesOf(row).map((c) => ({
+        candidates: waiting
+          ? candidatesOf(row).map((c) => {
+              const checks = freshChecks(row.clientAccountId, c.record.clientId);
+              const login = c.record.hasPrimaryLogin;
+              return {
                 clientId: c.record.clientId,
                 clientNumber: c.record.clientNumber,
                 displayName: c.record.displayName,
                 matchedOn: c.matchedOn,
-              }))
-            : [],
+                resolution: c.resolution,
+                hasPortalLogin: login,
+                checks,
+                actions: [
+                  ...(login && allows(checks, 'RESTORE_ACCESS') ? ['RESTORE_ACCESS'] : []),
+                  ...(!login && !c.record.archived && allows(checks, 'LINK') ? ['LINK'] : []),
+                ],
+              };
+            })
+          : [],
       });
     },
     settings: async () => {
       await pause();
       allowed();
-      return ClientSignUpSettings.parse({ mode: 'MANUAL', version: 1, changedAt: null });
+      return copy(policy);
     },
-    approve: async (clientAccountId, body = {}) => {
+    updateSettings: async (body) => {
       await pause();
       allowed();
-      const { clientId } = parseInput(ApproveSignUpRequest, body);
+      const { mode, version, idempotencyKey } = parseInput(UpdateClientSignUpSettingsRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as ClientSignUpSettings);
+      if (policy.version !== version) throw fail(409, errors.staleVersion);
+      if (policy.mode !== mode) {
+        policy = { mode, version: version + 1, changedAt: new Date().toISOString() };
+      }
+      outcomes.set(idempotencyKey, policy);
+      return copy(policy);
+    },
+    approve: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { clientId, version, idempotencyKey } = parseInput(ApproveSignUpRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['approve']>>);
       const row = pending(clientAccountId);
+      current(row, version);
       if (clientId) {
         const record = records.find((r) => r.clientId === clientId);
         if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
@@ -779,7 +880,7 @@ export function createClientSignUpsMock(
         record.hasPrimaryLogin = true;
       } else if (records.some((r) => r.email?.toLowerCase() === row.email.toLowerCase())) {
         throw fail(409, errors.duplicateEmail);
-      } else if (candidatesOf(row).length) {
+      } else if (holding(row).length) {
         throw fail(409, errors.potentialMatch);
       }
       const approvedAt = new Date().toISOString();
@@ -789,26 +890,198 @@ export function createClientSignUpsMock(
         clientNumber: `CL-${10000 + nextClient++}`,
         displayName: row.name,
       };
-      rows = rows.map((r) => (r === row ? { ...r, status: 'APPROVED', approvedAt, client } : r));
-      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
-      return {
-        clientAccountId: row.clientAccountId,
-        clientId: id,
-        status: 'ACTIVE',
-        approvedAt,
-      };
-    },
-    decline: async (clientAccountId, body = {}) => {
-      await pause();
-      allowed();
-      const { reason } = parseInput(DeclineSignUpRequest, body);
-      const row = pending(clientAccountId);
-      const declinedAt = new Date().toISOString();
       rows = rows.map((r) =>
-        r === row ? { ...r, status: 'DECLINED', declinedAt, declineReason: reason ?? null } : r,
+        r === row ? { ...r, status: 'APPROVED', approvedAt, client, version: version + 1 } : r,
       );
       decidedBy.set(row.clientAccountId, MOCK_DECIDER);
-      return { clientAccountId: row.clientAccountId, status: 'DECLINED', declinedAt };
+      const done = {
+        clientAccountId: row.clientAccountId,
+        clientId: id,
+        status: 'ACTIVE' as const,
+        approvedAt,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    decline: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { reason, notify, version, idempotencyKey } = parseInput(DeclineSignUpRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['decline']>>);
+      const row = pending(clientAccountId);
+      current(row, version);
+      const declinedAt = new Date().toISOString();
+      rows = rows.map((r) =>
+        r === row
+          ? {
+              ...r,
+              status: 'DECLINED',
+              declinedAt,
+              declineReason: reason ?? null,
+              version: version + 1,
+            }
+          : r,
+      );
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
+      const done = {
+        clientAccountId: row.clientAccountId,
+        status: 'DECLINED' as const,
+        declinedAt,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+        notified: notify,
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    recordChecks: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const b = parseInput(RecordSignUpChecksRequest, body);
+      const row = pending(clientAccountId);
+      const c = candidateOf(row, b.candidateClientId);
+      if (
+        (b.contactRef === 'CLIENT_PHONE' && !c.record.phone) ||
+        (b.contactRef === 'CLIENT_EMAIL' && !c.record.email)
+      ) {
+        throw fail(409, error('NO_SUCH_CONTACT', 'The record has no such contact'));
+      }
+      const now = new Date();
+      recordedChecks.set(pair(row.clientAccountId, c.record.clientId), {
+        id: crypto.randomUUID(),
+        candidateClientId: c.record.clientId,
+        contactRef: b.contactRef,
+        callOutcome: b.callOutcome,
+        identityResult: b.identityResult,
+        permissionScope: b.permissionScope,
+        recordedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 24 * 3_600_000).toISOString(),
+        actorName: MOCK_DECIDER,
+      });
+      step(row.clientAccountId, 'CHECKS_RECORDED');
+      return client.get(clientAccountId);
+    },
+    link: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { candidateClientId, version, idempotencyKey } = parseInput(LinkSignUpRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['link']>>);
+      const row = pending(clientAccountId);
+      current(row, version);
+      const c = candidateOf(row, candidateClientId);
+      if (!allows(freshChecks(row.clientAccountId, candidateClientId), 'LINK')) {
+        throw fail(409, error('CHECKS_REQUIRED', 'Record the three checks first'));
+      }
+      if (c.record.hasPrimaryLogin || c.record.archived) throw fail(409, errors.clientNotLinkable);
+      c.record.hasPrimaryLogin = true;
+      resolutions.set(pair(row.clientAccountId, candidateClientId), 'VERIFIED');
+      const approvedAt = new Date().toISOString();
+      const client = {
+        clientId: c.record.clientId,
+        clientNumber: c.record.clientNumber,
+        displayName: c.record.displayName,
+      };
+      rows = rows.map((r) =>
+        r === row ? { ...r, status: 'APPROVED', approvedAt, client, version: version + 1 } : r,
+      );
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
+      step(row.clientAccountId, 'LINKED');
+      const done = {
+        clientAccountId: row.clientAccountId,
+        clientId: c.record.clientId,
+        status: 'ACTIVE' as const,
+        approvedAt,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    restoreAccess: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { candidateClientId, version, idempotencyKey } = parseInput(
+        RestoreSignUpAccessRequest,
+        body,
+      );
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['restoreAccess']>>);
+      const row = pending(clientAccountId);
+      current(row, version);
+      const c = candidateOf(row, candidateClientId);
+      if (!allows(freshChecks(row.clientAccountId, candidateClientId), 'RESTORE_ACCESS')) {
+        throw fail(409, error('CHECKS_REQUIRED', 'Record the three checks first'));
+      }
+      if (!c.record.hasPrimaryLogin) {
+        throw fail(409, error('NO_PORTAL_LOGIN', 'The record has no portal login'));
+      }
+      resolutions.set(pair(row.clientAccountId, candidateClientId), 'VERIFIED');
+      const declinedAt = new Date().toISOString();
+      rows = rows.map((r) =>
+        r === row
+          ? {
+              ...r,
+              status: 'DECLINED',
+              declinedAt,
+              declineReason: 'access restored',
+              version: version + 1,
+            }
+          : r,
+      );
+      decidedBy.set(row.clientAccountId, MOCK_DECIDER);
+      step(row.clientAccountId, 'ACCESS_RESTORED');
+      const done = {
+        clientAccountId: row.clientAccountId,
+        status: 'DECLINED' as const,
+        declinedAt,
+        clientId: candidateClientId,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    notAMatch: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { reason, version, idempotencyKey } = parseInput(SignUpNotAMatchRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['notAMatch']>>);
+      const row = pending(clientAccountId);
+      current(row, version);
+      const open = holding(row);
+      if (open.some((c) => c.matchedOn.includes('email'))) throw fail(409, errors.duplicateEmail);
+      const phone = open.filter((c) => c.resolution === 'OPEN');
+      if (!phone.length) throw fail(409, error('NOT_A_CANDIDATE', 'Nothing to resolve'));
+      for (const c of phone)
+        resolutions.set(pair(row.clientAccountId, c.record.clientId), 'NOT_A_MATCH');
+      rows = rows.map((r) => (r === row ? { ...r, version: version + 1 } : r));
+      step(row.clientAccountId, 'NOT_A_MATCH', reason);
+      const done = {
+        clientAccountId: row.clientAccountId,
+        resolved: phone.length,
+        version: version + 1,
+        correlationId: crypto.randomUUID(),
+      };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
+    },
+    keepPending: async (clientAccountId, body) => {
+      await pause();
+      allowed();
+      const { note, idempotencyKey } = parseInput(KeepSignUpPendingRequest, body);
+      const prior = outcomes.get(idempotencyKey);
+      if (prior) return copy(prior as Awaited<ReturnType<ClientSignUpsClient['keepPending']>>);
+      const row = pending(clientAccountId);
+      step(row.clientAccountId, 'KEPT_PENDING', note ?? null);
+      const done = { clientAccountId: row.clientAccountId, correlationId: crypto.randomUUID() };
+      outcomes.set(idempotencyKey, done);
+      return copy(done);
     },
   };
+  return client;
 }
