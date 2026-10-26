@@ -99,11 +99,16 @@ and this file, then `git fetch origin`.
    - Tests: types 19 of 19, API e2e 21 of 21, mock 14 of 14. The isolation suite passes for the
      five routes (cases with `expect: 409`); the 10 known local file and export routes fail as on
      `main`.
-6. (c) Staff phone, `rasel/R60-staff-phone` (head `a654e22`), unchanged: body in the sixth
+6. **TX-F26** Mail Tracking Number, `rasel/R60-tax-returns-mail` (stacked on the amounts branch,
+   head `eaf590a`), body `pr-f26.md` (sheet pinned). `mailTrackingNumber` required on
+   `paper-filed` (R1's column), returned on the filing; Record Paper Filing asks for it; a paper
+   filing shows Mailed On and Mail Tracking Number. F25 needed nothing (method per jurisdiction
+   exists). The body proposes F27's Mailing Report columns for Octavia. API e2e 8 of 8, mock 6 of 6.
+7. (c) Staff phone, `rasel/R60-staff-phone` (head `a654e22`), unchanged: body in the sixth
    session's scratchpad `pr-phone.md`.
 
 Open the PRs in this order as slots free: F34 (archived), then F22 (stacked on it), F31, F28
-(stacked on F22), flow B (after #1171), the staff phone. Merge `origin/main` into each before
+(stacked on F22), F26 (stacked on F28), flow B (after #1171), the staff phone. Merge `origin/main` into each before
 opening; a stacked one also merges its base branch after that base merges.
 
 **Next, in this order (Rasel's block 3):**
@@ -113,9 +118,8 @@ opening; a stacked one also merges its base branch after that base merges.
    with R56's OriginLink once #1168 merges, so Back restores the return.
 2. F04 (Client Portal from a return): the firm-side Client Portal is still the placeholder module
    (`lib/firm-modules.ts`). It depends on that module; say so in the reply, build nothing twice.
-3. Then SH1 to SH6 in Tax Returns once R56's shared pieces land (#1168, #1173, #1174), F25 to F27
-   (filing method per jurisdiction, mail tracking on Mark Paper Filed: R1's
-   `mail_tracking_number` is on `main`; the Mailing Report needs her columns), F19 and F20
+3. Then SH1 to SH6 in Tax Returns once R56's shared pieces land (#1168, #1173, #1174), F27 (the
+   Mailing Report, once Octavia confirms the columns proposed in F26's PR), F19 and F20
    (validation issues: R1's queued `tax_return_validation_issues`), and TX-F18 after Rasel's
    word on role checks.
 
@@ -1238,4 +1242,4 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Return; mock 6 of 6), F28 (`rasel/R60-tax-returns-amounts`, amount source and version, Add/Edit
   Amount; API e2e 8 of 8, mock 17 of 17). Then Sign-ups flow B (`rasel/R60-signups-flow-b`, D2
   on Rasel's rules; types 19 of 19, API e2e 21 of 21, mock 14 of 14, isolation clean for its
-  routes).
+  routes), and TX-F26 (`rasel/R60-tax-returns-mail`, API e2e 8 of 8, mock 6 of 6).
