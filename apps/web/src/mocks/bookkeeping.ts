@@ -1,4 +1,6 @@
 import {
+  type BookkeepingTransactionRow,
+  ListBookkeepingTransactionsQuery,
   ApiRequestError,
   AddBookkeepingAccountRequest,
   AddBookkeepingClientRequest,
@@ -169,6 +171,66 @@ const SEED = [
 
 interface Ws extends BookkeepingClientWorkspace {
   _syncRuns: Map<string, import('@firmivra/types').BookkeepingSyncRun[]>;
+}
+
+const LEDGER_CATEGORIES = [
+  ['Sales Revenue', 'INCOME'],
+  ['Office Supplies', 'EXPENSE'],
+  ['Rent', 'EXPENSE'],
+  ['Software Subscriptions', 'EXPENSE'],
+] as const;
+const LEDGER_LINES = [
+  ['Fake Card Payout', 'Card sales payout', 'CREDIT', 'PAYOUT', 0, 'CATEGORIZED'],
+  ['Fake Paper Supply Co', 'Printer paper and toner', 'DEBIT', 'STANDARD', 1, 'CATEGORIZED'],
+  ['Fake Property Group', 'Monthly rent', 'DEBIT', 'STANDARD', 2, 'CATEGORIZED'],
+  ['Fake Cloud Tools', 'Software subscription', 'DEBIT', 'STANDARD', 3, 'MATCHED'],
+  ['Fake Coffee Roasters', 'Card purchase', 'DEBIT', 'STANDARD', null, 'UNCATEGORIZED'],
+  ['Fake Hardware Store', 'Card purchase', 'DEBIT', 'STANDARD', null, 'UNCATEGORIZED'],
+  ['Fake Bank', 'Monthly service fee', 'DEBIT', 'FEE', null, 'NEEDS_REVIEW'],
+  ['Transfer to savings', 'Online transfer', 'DEBIT', 'TRANSFER', null, 'EXCLUDED'],
+] as const;
+let ledgers: Map<string, BookkeepingTransactionRow[]> | undefined;
+/** The client's mock ledger: lines on its first account over the last weeks; none without one. */
+function ledgerOf(c: {
+  id: string;
+  accounts: { id: string; name: string; mask: string | null }[];
+}) {
+  ledgers ??= new Map();
+  let rows = ledgers.get(c.id);
+  if (!rows) {
+    const account = c.accounts[0];
+    rows = !account
+      ? []
+      : LEDGER_LINES.flatMap(([payee, description, direction, kind, cat, status], i) =>
+          [0, 1].map((round) => {
+            const n = i * 2 + round + 1;
+            const day = new Date(Date.now() - (n * 3 + round) * 86_400_000)
+              .toISOString()
+              .slice(0, 10);
+            return {
+              id: uid('b970', n + Number(c.id.slice(-4)) * 100),
+              transactionDate: day,
+              description,
+              payee,
+              amountCents: 1250 + ((n * 7919) % 90000),
+              direction,
+              kind,
+              status,
+              account: { id: account.id, name: account.name, mask: account.mask },
+              category:
+                cat === null
+                  ? null
+                  : { id: uid('b960', cat + 1), name: LEDGER_CATEGORIES[cat]![0] },
+              source: 'SYNC' as const,
+              splitCount: 0,
+              hasReceipt: n % 5 === 0,
+              cleared: status === 'MATCHED',
+            };
+          }),
+        ).sort((a, b) => (a.transactionDate < b.transactionDate ? 1 : -1));
+    ledgers.set(c.id, rows);
+  }
+  return rows;
 }
 
 export function createBookkeepingMock({
@@ -1224,6 +1286,51 @@ export function createBookkeepingMock({
       }),
 
     accounts: (cid) => run(() => ({ items: findClient(cid).accounts })),
+    // BK-T01: a ledger for each client with an account (made on first read), newest first.
+    transactions: (cid, q = {}) =>
+      run(() => {
+        const query = parseInput(ListBookkeepingTransactionsQuery, q);
+        const all = ledgerOf(findClient(cid));
+        const term = query.search?.toLowerCase();
+        const rows = all.filter(
+          (t) =>
+            (!query.status || t.status === query.status) &&
+            (!query.kind || t.kind === query.kind) &&
+            (!query.direction || t.direction === query.direction) &&
+            (!query.accountId || t.account.id === query.accountId) &&
+            (!query.categoryId || t.category?.id === query.categoryId) &&
+            (!query.from || t.transactionDate >= query.from) &&
+            (!query.to || t.transactionDate <= query.to) &&
+            (!term || `${t.payee ?? ''} ${t.description}`.toLowerCase().includes(term)),
+        );
+        const by = (s: string) => all.filter((t) => t.status === s).length;
+        return {
+          items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
+          total: rows.length,
+          page: query.page,
+          pageSize: query.pageSize,
+          counts: {
+            all: all.length,
+            uncategorized: by('UNCATEGORIZED'),
+            needsReview: by('NEEDS_REVIEW'),
+            categorized: by('CATEGORIZED'),
+            matched: by('MATCHED'),
+            excluded: by('EXCLUDED'),
+          },
+        };
+      }),
+    categories: (cid) =>
+      run(() => {
+        findClient(cid);
+        return {
+          items: LEDGER_CATEGORIES.map((c, i) => ({
+            id: uid('b960', i + 1),
+            name: c[0],
+            type: c[1],
+            active: true,
+          })),
+        };
+      }),
     addAccount: (cid, body) =>
       run(() => {
         const input = parseInput(AddBookkeepingAccountRequest, body);

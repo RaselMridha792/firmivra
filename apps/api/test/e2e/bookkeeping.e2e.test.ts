@@ -20,6 +20,8 @@ import {
   BookkeepingActivityList,
   BookkeepingClientPage,
   BookkeepingClientWorkspace,
+  BookkeepingTransactionPage,
+  BookkeepingCategoryList,
   BookkeepingConnection,
   BookkeepingConnectionList,
   BookkeepingOverview,
@@ -2560,6 +2562,101 @@ describe('settings', () => {
       expectError(await call('put', '/settings', people.ownerA, bad), 400, 'VALIDATION_FAILED');
     }
     expect(await auditActions(ids.firmA)).toBeDefined();
+  });
+});
+
+describe('transactions and categories (BK-T01, read side)', () => {
+  it('lists the ledger newest first, with search, filters and counts; Staff only their clients', async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const account = await mkAccount(bk);
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const category = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingCategory.create({
+        data: { ...A, name: 'Fake Office Supplies', type: 'EXPENSE' },
+        select: { id: true },
+      }),
+    );
+    await asOwner(ids.firmA, async (tx) => {
+      for (const [date, payee, cents, status] of [
+        ['2026-09-02', 'Fake Paper Co', 4200, 'CATEGORIZED'],
+        ['2026-09-15', 'Fake Coffee Roasters', 1850, 'UNCATEGORIZED'],
+        ['2026-10-01', 'Fake Landlord LLC', 120000, 'NEEDS_REVIEW'],
+      ] as const) {
+        await tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId: account.id,
+            transactionDate: new Date(`${date}T00:00:00.000Z`),
+            description: `Fake ${payee} payment`,
+            payee,
+            amountCents: cents,
+            direction: 'DEBIT',
+            status,
+            source: 'MANUAL',
+            ...(status === 'CATEGORIZED' ? { categoryId: category.id } : {}),
+          },
+        });
+      }
+    });
+
+    const page = exact(
+      BookkeepingTransactionPage,
+      await call('get', `/clients/${bk}/transactions`, people.staffA),
+    );
+    expect(page.items.map((r) => r.payee)).toEqual([
+      'Fake Landlord LLC',
+      'Fake Coffee Roasters',
+      'Fake Paper Co',
+    ]);
+    expect(page.counts).toMatchObject({ all: 3, uncategorized: 1, needsReview: 1, categorized: 1 });
+    expect(page.items[2]).toMatchObject({
+      category: { id: category.id, name: 'Fake Office Supplies' },
+      account: { id: account.id },
+      splitCount: 0,
+      hasReceipt: false,
+      cleared: false,
+    });
+    const searched = exact(
+      BookkeepingTransactionPage,
+      await call('get', `/clients/${bk}/transactions?search=coffee`, people.ownerA),
+    );
+    expect(searched.items.map((r) => r.payee)).toEqual(['Fake Coffee Roasters']);
+    expect(searched.counts.all).toBe(3);
+    const ranged = exact(
+      BookkeepingTransactionPage,
+      await call(
+        'get',
+        `/clients/${bk}/transactions?status=CATEGORIZED&from=2026-09-01&to=2026-09-30`,
+        people.ownerA,
+      ),
+    );
+    expect(ranged.total).toBe(1);
+    expectError(
+      await call('get', `/clients/${bk}/transactions?from=nope`, people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(await call('get', `/clients/${bk}/transactions`, people.staff2A), 404, 'NOT_FOUND');
+    expectError(
+      await call('get', `/clients/${bk}/transactions`, people.ownerB, undefined, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+
+    const categories = exact(
+      BookkeepingCategoryList,
+      await call('get', `/clients/${bk}/categories`, people.staffA),
+    );
+    expect(categories.items).toEqual([
+      { id: category.id, name: 'Fake Office Supplies', type: 'EXPENSE', active: true },
+    ]);
+    expect(await auditActions(bk)).toEqual(
+      expect.arrayContaining(['bookkeeping.transactions.listed', 'bookkeeping.categories.listed']),
+    );
   });
 });
 

@@ -7,6 +7,7 @@ import { BookkeepingStatusService } from './bookkeeping-status.service.js';
 import { BookkeepingTermsController } from './bookkeeping-terms.controller.js';
 import { BookkeepingTermsService } from './bookkeeping-terms.service.js';
 import { BookkeepingController } from './bookkeeping.controller.js';
+import { BookkeepingTransactionsService } from './bookkeeping-transactions.service.js';
 
 /** The firm's bookkeeping work (contract in packages/types/src/bookkeeping). */
 @Module({
@@ -19,6 +20,7 @@ import { BookkeepingController } from './bookkeeping.controller.js';
     BookkeepingPeriodsService,
     BookkeepingReportsService,
     BookkeepingTermsService,
+    BookkeepingTransactionsService,
   ],
 })
 export class BookkeepingModule {}
