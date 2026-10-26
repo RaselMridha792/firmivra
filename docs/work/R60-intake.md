@@ -82,11 +82,29 @@ and this file, then `git fetch origin`.
    amount in the audit entry; Add/Edit Amount per jurisdiction with Source. API e2e 8 of 8, every
    Tax Returns mock spec 17 of 17. Amounts with cents now show two digits ($1,250.50) in every
    Tax Returns view.
-5. (c) Staff phone, `rasel/R60-staff-phone` (head `a654e22`), unchanged: body in the sixth
+5. **Sign-ups flow B (D2)**, `rasel/R60-signups-flow-b` (stacked on flow A, #1171; head
+   `ce625ad`), body `pr-flowb.md` (sheet pinned). On Rasel's rules of Oct 26 (above):
+   - `POST .../checks` records the three checks per candidate record, valid 24 hours
+     (`SIGN_UP_CHECKS_HOURS`); another firm's record is 404, a non-candidate of the firm 409
+     `NOT_A_CANDIDATE`, a contact the record lacks 409 `NO_SUCH_CONTACT`.
+   - `.../link` (Link Existing Record, any email, Client ID kept, 409 `CHECKS_REQUIRED` or
+     `CLIENT_NOT_LINKABLE`).
+   - `.../restore-access` (declined "access restored", no client, `forgotPassword` on the record's
+     own login, 409 `NO_PORTAL_LOGIN`).
+   - `.../not-a-match` (phone matches only, reason; email 409 `DUPLICATE_EMAIL`).
+   - `.../keep-pending` (note in the history).
+   - Candidates carry their resolution (`holdsBack`): a resolved phone match stops holding a
+     request back everywhere, the automatic rule too.
+   - Screen: live checkboxes, Record Checks, confirmations, Not a Match and Keep Pending dialogs.
+   - Tests: types 19 of 19, API e2e 21 of 21, mock 14 of 14. The isolation suite passes for the
+     five routes (cases with `expect: 409`); the 10 known local file and export routes fail as on
+     `main`.
+6. (c) Staff phone, `rasel/R60-staff-phone` (head `a654e22`), unchanged: body in the sixth
    session's scratchpad `pr-phone.md`.
 
 Open the PRs in this order as slots free: F34 (archived), then F22 (stacked on it), F31, F28
-(stacked on F22). Merge `origin/main` into each before opening.
+(stacked on F22), flow B (after #1171), the staff phone. Merge `origin/main` into each before
+opening; a stacked one also merges its base branch after that base merges.
 
 **Next, in this order (Rasel's block 3):**
 1. F11 (Intake Form card in Intake & Documents): web only. `api.intakes.listForClient(clientId)`
@@ -95,8 +113,7 @@ Open the PRs in this order as slots free: F34 (archived), then F22 (stacked on i
    with R56's OriginLink once #1168 merges, so Back restores the return.
 2. F04 (Client Portal from a return): the firm-side Client Portal is still the placeholder module
    (`lib/firm-modules.ts`). It depends on that module; say so in the reply, build nothing twice.
-3. Then the staff phone PR and Sign-ups flow B (Rasel's rules above).
-4. Then SH1 to SH6 in Tax Returns once R56's shared pieces land (#1168, #1173, #1174), F25 to F27
+3. Then SH1 to SH6 in Tax Returns once R56's shared pieces land (#1168, #1173, #1174), F25 to F27
    (filing method per jurisdiction, mail tracking on Mark Paper Filed: R1's
    `mail_tracking_number` is on `main`; the Mailing Report needs her columns), F19 and F20
    (validation issues: R1's queued `tax_return_validation_issues`), and TX-F18 after Rasel's
@@ -107,8 +124,10 @@ return `01a17879-3c4d-74eb-8162-9e85cddde8bd` (restored, not archived). `package
 (`pnpm --filter @firmivra/db build`): the API reads `@firmivra/db` from `dist`, so a stale build
 hides new columns from the typecheck. This session's scratchpad is
 `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/8d8ff437-5c87-4a0b-a0bb-898ab8ccc0b7/scratchpad/`:
-`shots-tx-f01.cjs`, `shots-tx-f34.cjs`, `shots-tx-f22.cjs` (mock mode, port 3601), `compose.cjs`,
-`spec-*.json`, `probe-return.cjs` and `pr-*.md`.
+`shots-tx-f01.cjs`, `shots-tx-f34.cjs`, `shots-tx-f31.cjs` (local API), `shots-tx-f22.cjs`,
+`shots-tx-f28.cjs` and `shots-flowb.cjs` (mock mode, port 3601), `compose.cjs`, `spec-*.json`,
+`probe-return.cjs` and `pr-*.md`. Local synthetic business clients for F31: Sample Supplies LLC
+(fake) and Example Holdings (fake).
 
 ### Oct 26 (seventh session, end): start here
 
@@ -1217,4 +1236,6 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Rejected choice; types 6 of 6, API e2e 8 of 8, mock 12 of 12), F31
   (`rasel/R60-tax-returns-business`, business identity from the client record in Create New
   Return; mock 6 of 6), F28 (`rasel/R60-tax-returns-amounts`, amount source and version, Add/Edit
-  Amount; API e2e 8 of 8, mock 17 of 17).
+  Amount; API e2e 8 of 8, mock 17 of 17). Then Sign-ups flow B (`rasel/R60-signups-flow-b`, D2
+  on Rasel's rules; types 19 of 19, API e2e 21 of 21, mock 14 of 14, isolation clean for its
+  routes).
