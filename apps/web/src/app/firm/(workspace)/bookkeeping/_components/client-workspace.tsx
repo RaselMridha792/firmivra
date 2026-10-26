@@ -509,6 +509,29 @@ export function ClientWorkspace({ id }: { id: string }) {
               </section>
             </div>
 
+            {/* BK-A01: this client's bookkeeping activity, newest first. */}
+            <section className={card} aria-label="Client activity" data-testid="client-activity">
+              <h2 className="mb-2 font-display text-lg font-bold text-heading">Activity</h2>
+              {w.recentActivity.length === 0 ? (
+                <p className={quiet}>No activity for this client yet.</p>
+              ) : (
+                <ol className="flex flex-col">
+                  {w.recentActivity.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-t border-divider py-2 text-sm first:border-t-0"
+                    >
+                      <span className="min-w-0 flex-1 text-heading">{a.summary}</span>
+                      <span className="text-xs text-muted">
+                        {a.actor ? `${a.actor.name} · ` : ''}
+                        {dateTimeText(a.createdAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
             <div className="grid min-w-0 items-start gap-4 xl:grid-cols-3">
               <section className={card} aria-label="Income versus expenses" data-testid="trend">
                 <h2 className="mb-3 font-display text-lg font-bold text-heading">
