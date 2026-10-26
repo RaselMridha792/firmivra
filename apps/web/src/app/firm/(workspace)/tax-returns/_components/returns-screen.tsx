@@ -25,6 +25,7 @@ import {
   tileTones,
 } from '@firmivra/ui';
 import {
+  ArrowCounterClockwise,
   ArrowDown,
   ArrowSquareOut,
   ArrowUp,
@@ -232,8 +233,7 @@ export function ReturnsScreen({
     assigned ||
     search ||
     range.from ||
-    range.to ||
-    archived
+    range.to
   );
   const reset = () => {
     setYear('');
@@ -243,7 +243,6 @@ export function ReturnsScreen({
     setAssigned('');
     setSearch('');
     setRange({ from: '', to: '' });
-    setArchived(false);
     setPage(1);
   };
   const filter =
@@ -266,6 +265,14 @@ export function ReturnsScreen({
     const done = await act(
       () => Promise.all(ids.map((id) => api.taxReturnWorkspace.archive(id))),
       `${ids.length} ${ids.length === 1 ? 'return' : 'returns'} archived.`,
+    );
+    if (done) setSelected([]);
+  };
+  const bulkRestore = async () => {
+    const ids = selected;
+    const done = await act(
+      () => Promise.all(ids.map((id) => api.taxReturnWorkspace.restore(id))),
+      `${ids.length} ${ids.length === 1 ? 'return' : 'returns'} restored, with ${ids.length === 1 ? 'its' : 'their'} history.`,
     );
     if (done) setSelected([]);
   };
@@ -460,6 +467,17 @@ export function ReturnsScreen({
           <div className="flex flex-wrap items-end gap-2" data-testid="tr-filters">
             <div className="w-32">
               <Select
+                label="Show"
+                value={archived ? 'archived' : 'active'}
+                onChange={(e) => filter(setArchived)(e.target.value === 'archived')}
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'archived', label: 'Archived' },
+                ]}
+              />
+            </div>
+            <div className="w-32">
+              <Select
                 label="Tax Year"
                 value={year}
                 onChange={(e) => filter(setYear)(e.target.value)}
@@ -548,29 +566,38 @@ export function ReturnsScreen({
                 value={range}
                 onChange={(v) => filter(setRange)(v)}
               />
-              <label className="flex min-h-10 items-center gap-2 text-sm text-text">
-                <input
-                  type="checkbox"
-                  className="size-4"
-                  checked={archived}
-                  onChange={(e) => filter(setArchived)(e.target.checked)}
-                />
-                Show archived returns only
-              </label>
             </div>
+          ) : null}
+          {archived ? (
+            // Octavia's TX-F34: archived returns are found here and restored from their row menu
+            // or the bulk bar. They stay out of the cards and Tax Season Progress.
+            <p className={quiet} data-testid="archived-view">
+              Archived returns keep their history, documents and filings, and are not counted in the
+              cards above. Restore a return to bring it back to the active lists.
+            </p>
           ) : null}
           {selected.length ? (
             <BulkBar
               count={selected.length}
               noun="returns"
-              actions={[
-                {
-                  label: 'Assign Staff',
-                  icon: UserSwitch,
-                  onClick: () => setDialog('bulk-assign'),
-                },
-                { label: 'Archive', icon: Archive, onClick: () => void bulkArchive() },
-              ]}
+              actions={
+                archived
+                  ? [
+                      {
+                        label: 'Restore',
+                        icon: ArrowCounterClockwise,
+                        onClick: () => void bulkRestore(),
+                      },
+                    ]
+                  : [
+                      {
+                        label: 'Assign Staff',
+                        icon: UserSwitch,
+                        onClick: () => setDialog('bulk-assign'),
+                      },
+                      { label: 'Archive', icon: Archive, onClick: () => void bulkArchive() },
+                    ]
+              }
             />
           ) : null}
           {list.isError ? (
@@ -608,14 +635,30 @@ export function ReturnsScreen({
                   setPage(1);
                 },
               }}
-              emptyTitle={filtered || tab !== 'all' ? 'No returns match' : 'No tax returns yet'}
+              emptyTitle={
+                filtered || tab !== 'all'
+                  ? 'No returns match'
+                  : archived
+                    ? 'No archived returns'
+                    : 'No tax returns yet'
+              }
               emptyText={
                 filtered || tab !== 'all'
                   ? 'Try another tab, or clear the filters.'
-                  : 'Create a client’s first return to start tracking it here.'
+                  : archived
+                    ? 'A return you archive is listed here until you restore it.'
+                    : 'Create a client’s first return to start tracking it here.'
               }
               emptyAction={
-                filtered ? (
+                archived && !filtered ? (
+                  <button
+                    type="button"
+                    className={outlined}
+                    onClick={() => filter(setArchived)(false)}
+                  >
+                    Show Active Returns
+                  </button>
+                ) : filtered ? (
                   <button type="button" className={outlined} onClick={reset}>
                     Clear Filters
                   </button>
@@ -691,6 +734,7 @@ export function ReturnsScreen({
                 { label: 'Import Return', icon: UploadSimple, on: () => setDialog('import') },
                 { label: 'Bulk Upload Returns', icon: FileArrowUp, on: () => setDialog('bulk') },
                 { label: 'Generate E-File Reports', icon: FileText, on: () => setDialog('efile') },
+                { label: 'Archived Returns', icon: Archive, on: () => filter(setArchived)(true) },
                 ...(manager
                   ? [{ label: 'Print / Export List', icon: Printer, on: () => void exportList() }]
                   : []),
