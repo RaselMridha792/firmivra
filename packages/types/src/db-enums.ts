@@ -1729,6 +1729,10 @@ export type TaxJurisdictionStatus = z.infer<typeof TaxJurisdictionStatus>;
 export const TaxAmountStatus = z.enum(['ESTIMATED', 'FINAL']);
 export type TaxAmountStatus = z.infer<typeof TaxAmountStatus>;
 
+/** Where a jurisdiction's refund or amount due came from. Every amount is entered by staff; this says what they copied it from. */
+export const TaxAmountSource = z.enum(['TAX_SOFTWARE', 'AGENCY_NOTICE', 'STAFF_ESTIMATE']);
+export type TaxAmountSource = z.infer<typeof TaxAmountSource>;
+
 export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
 export type TaxAckStatus = z.infer<typeof TaxAckStatus>;
 
