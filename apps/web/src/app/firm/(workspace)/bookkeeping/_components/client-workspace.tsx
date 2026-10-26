@@ -134,6 +134,7 @@ export function ClientWorkspace({ id }: { id: string }) {
     paused: w.paused,
     software: sw ? { key: sw.provider, label: sw.label, status: sw.status } : null,
     client: { id: w.client.id, displayName: w.client.displayName },
+    assignedTo: w.assignedTo,
   };
 
   const accountCols: Column<BookkeepingClientWorkspace['accounts'][number]>[] = [
