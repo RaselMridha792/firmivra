@@ -145,7 +145,12 @@ export function ClientActionMenu({
       ChatCircleDots,
       go(`/messages?clientId=${client.client.id}&service=Payroll`),
     ),
-    item('Schedule Appointment', CalendarBlank, go('/calendar/new')),
+    // SH6: the form opens on this client and their payroll service.
+    item(
+      'Schedule Appointment',
+      CalendarBlank,
+      go(`/calendar/new?clientId=${client.client.id}&engagementId=${client.engagementId}`),
+    ),
     item('Update Payroll Status', Bell, () => setDialog('status'), { submenu: true }),
     item('Assign/Reassign Staff', UserSwitch, () => setDialog('assign')),
     item('Manage Payroll Connection', Plug, () => setDialog('connection')),

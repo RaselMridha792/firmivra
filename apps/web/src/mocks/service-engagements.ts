@@ -2,7 +2,7 @@
 // documents, clients and engagements mocks answer for them (a request, an upload, Create Task's
 // prefill). Those mocks ask here when they do not find a client.
 
-interface ServiceEngagement {
+export interface ServiceMockEngagement {
   id: string;
   clientId: string;
   clientName: string;
@@ -11,11 +11,11 @@ interface ServiceEngagement {
   status: 'ACTIVE';
 }
 
-let engagements: Map<string, ServiceEngagement> | undefined;
+let engagements: Map<string, ServiceMockEngagement> | undefined;
 const store = () => (engagements ??= new Map());
 
 /** Called by the Payroll and Bookkeeping mocks for each of their clients. */
-export function registerServiceEngagement(e: ServiceEngagement): void {
+export function registerServiceEngagement(e: ServiceMockEngagement): void {
   store().set(e.id, e);
 }
 
@@ -32,3 +32,6 @@ export const serviceMockClient = (clientId: string) =>
 /** A service mock client's engagements. */
 export const serviceMockEngagements = (clientId: string) =>
   [...store().values()].filter((e) => e.clientId === clientId);
+
+/** One service mock engagement by id. */
+export const serviceMockEngagement = (id: string) => store().get(id);

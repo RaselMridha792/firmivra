@@ -17,7 +17,11 @@ import {
   UpdateEngagementRequest,
 } from '@firmivra/types';
 import { clientFixtures, firstClientId, mockStaff, type MockFirmRole } from './clients';
-import { serviceMockEngagements } from './service-engagements';
+import {
+  type ServiceMockEngagement,
+  serviceMockEngagement,
+  serviceMockEngagements,
+} from './service-engagements';
 
 /**
  * Mock data for `api.engagements` and `api.myServices(slug)` (R10). Synthetic data only. Same
@@ -186,6 +190,17 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
   const { all, history, find, save } = createStore(clients);
   let nextId = 100;
   const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
+  /** SH4, SH6: a Payroll or Bookkeeping mock client's engagement, as a record. */
+  const serviceRecord = (e: ServiceMockEngagement) =>
+    Engagement.parse({
+      ...structuredClone(engagementFixtures()[0]!),
+      id: e.id,
+      clientId: e.clientId,
+      title: e.title,
+      taxYear: null,
+      status: 'ACTIVE',
+      service: ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
+    });
   return {
     listForClient: async (clientId, query = {}) => {
       await pause();
@@ -195,17 +210,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         // SH4: a Payroll or Bookkeeping mock client (mocks/service-engagements.ts).
         const extra = serviceMockEngagements(id);
         if (!extra.length) throw notFound();
-        return extra.map((e) =>
-          Engagement.parse({
-            ...structuredClone(engagementFixtures()[0]!),
-            id: e.id,
-            clientId: e.clientId,
-            title: e.title,
-            taxYear: null,
-            status: 'ACTIVE',
-            service: ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
-          }),
-        );
+        return extra.map(serviceRecord);
       }
       return all()
         .filter((r) => r.clientId === id && (!status || r.status === status))
@@ -214,7 +219,9 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
     },
     get: async (id) => {
       await pause();
-      return structuredClone(find(parseInput(EngagementId, id)));
+      const key = parseInput(EngagementId, id);
+      const extra = serviceMockEngagement(key);
+      return extra ? serviceRecord(extra) : structuredClone(find(key));
     },
     create: async (clientId, body) => {
       await pause();

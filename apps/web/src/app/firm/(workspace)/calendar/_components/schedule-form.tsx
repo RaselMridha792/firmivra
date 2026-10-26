@@ -39,6 +39,7 @@ import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 
 const TIME_ZONES: [string, string][] = [
   ['America/New_York', '(GMT-05:00) Eastern Time (ET)'],
@@ -284,15 +285,55 @@ function Segmented<T extends string>({
 export function ScheduleForm({
   record,
   at,
+  prefill,
+  cancelHref,
 }: {
   record?: AppointmentRecord;
   /** The date and hour picked on the calendar (`/calendar/new?date=&time=`). */
   at?: { date: string; time: string };
+  /** SH6: a service workspace's client and engagement (`?clientId=&engagementId=`). */
+  prefill?: { clientId?: string; engagementId?: string };
+  /** Where Cancel goes when a workspace opened the form (its `from`). */
+  cancelHref?: string;
 }) {
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
+  const client = useApiQuery(
+    [...SCHEDULING, 'prefill-client', prefill?.clientId ?? ''],
+    async () => (prefill?.clientId ? api.clients.get(prefill.clientId) : null),
+  );
+  const engagement = useApiQuery(
+    [...SCHEDULING, 'prefill-engagement', prefill?.engagementId ?? ''],
+    async () => (prefill?.engagementId ? api.engagements.get(prefill.engagementId) : null),
+  );
   const header = <ScheduleHeader editing={Boolean(record)} />;
-  if (options.data)
-    return <FormBody options={options.data} record={record} at={at} header={header} />;
+  const waiting = client.isPending || engagement.isPending;
+  if (options.data && !waiting) {
+    const c = client.data;
+    const start: Prefill | undefined = c
+      ? {
+          contact: {
+            kind: 'CLIENT',
+            id: c.id,
+            name: c.displayName,
+            businessName: c.accountType === 'BUSINESS' ? c.displayName : null,
+            email: c.email,
+            phone: c.phone,
+            clientType: c.accountType,
+          },
+          serviceId: engagement.data?.service.id,
+        }
+      : undefined;
+    return (
+      <FormBody
+        options={options.data}
+        record={record}
+        at={at}
+        prefill={start}
+        cancelHref={cancelHref}
+        header={header}
+      />
+    );
+  }
   return (
     <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-[1fr_22rem]">
       <div className="flex min-w-0 flex-col gap-4">
@@ -370,19 +411,51 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
   );
 }
 
+/** What a service workspace fills in: the client, and the engagement's service with its type. */
+interface Prefill {
+  contact: AppointmentContact;
+  serviceId: string | undefined;
+}
+
+/** The blank form on the workspace's client and service; the first type of that service. */
+function prefilled(o: SchedulingOptions, base: Form, p: Prefill): Form {
+  const serviceId = p.serviceId && o.services.some((x) => x.id === p.serviceId) ? p.serviceId : '';
+  const type = serviceId ? o.types.find((t) => t.serviceId === serviceId) : undefined;
+  return {
+    ...base,
+    contact: p.contact,
+    name: p.contact.name,
+    email: p.contact.email ?? '',
+    phone: p.contact.phone ?? '',
+    clientType: p.contact.clientType ?? 'INDIVIDUAL',
+    businessName: p.contact.businessName ?? '',
+    serviceId,
+    typeId: type?.id ?? base.typeId,
+  };
+}
+
 function FormBody({
   options: o,
   record,
   at,
+  prefill,
+  cancelHref,
   header,
 }: {
   options: SchedulingOptions;
   record?: AppointmentRecord;
   at?: { date: string; time: string };
+  prefill?: Prefill;
+  cancelHref?: string;
   header: ReactNode;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<Form>(() => (record ? fromRecord(record, o) : blank(o, at)));
+  const [form, setForm] = useState<Form>(() =>
+    record ? fromRecord(record, o) : prefill ? prefilled(o, blank(o, at), prefill) : blank(o, at),
+  );
+  // SH1: the workspace's Back asks first once something was changed here.
+  const [initial] = useState(() => JSON.stringify(form));
+  useUnsavedChanges(JSON.stringify(form) !== initial);
   const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
@@ -1379,7 +1452,7 @@ function FormBody({
 
       <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
         <Link
-          href={record ? `/calendar/${record.id}` : '/calendar'}
+          href={record ? `/calendar/${record.id}` : (cancelHref ?? '/calendar')}
           className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
         >
           Cancel
