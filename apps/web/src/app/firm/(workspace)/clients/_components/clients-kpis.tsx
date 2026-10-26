@@ -27,8 +27,10 @@ const CARDS: {
   label: string;
   icon: Icon;
   tone: KpiTone;
-  /** The tab the card opens; the API has no filter for documents owed or balances. */
+  /** The tab the card opens. */
   tab?: string;
+  /** Or the clients it counts (Octavia's E1): documents still owed, or an unpaid balance. */
+  owes?: 'DOCUMENTS' | 'BALANCE';
 }[] = [
   { key: 'totalClients', label: 'Total Clients', icon: UsersThree, tone: 'blue', tab: 'all' },
   { key: 'newClients', label: 'New Clients', icon: UserPlus, tone: 'purple', tab: 'new' },
@@ -39,8 +41,14 @@ const CARDS: {
     tone: 'green',
     tab: 'active',
   },
-  { key: 'pendingDocuments', label: 'Pending Documents', icon: FileText, tone: 'amber' },
-  { key: 'balancesDue', label: 'Balances Due', icon: CurrencyDollar, tone: 'red' },
+  {
+    key: 'pendingDocuments',
+    label: 'Pending Documents',
+    icon: FileText,
+    tone: 'amber',
+    owes: 'DOCUMENTS',
+  },
+  { key: 'balancesDue', label: 'Balances Due', icon: CurrencyDollar, tone: 'red', owes: 'BALANCE' },
   {
     key: 'inactiveClients',
     label: 'Inactive Clients',
@@ -53,14 +61,19 @@ const CARDS: {
 /**
  * The six cards of clients.jpg from GET /business/clients/summary. Without data (loading, or the
  * API unreachable) each card keeps its frame with "—"; the trend shows only where the API gives
- * last month's number.
+ * last month's number. Four open their tab; Pending Documents and Balances Due filter the list to
+ * the clients they count, and a second click (or Reset All) clears it.
  */
 export function ClientsKpis({
   summary,
   onTab,
+  owes,
+  onOwes,
 }: {
   summary: UseQueryResult<ClientsSummary>;
   onTab: (tab: string) => void;
+  owes: '' | 'DOCUMENTS' | 'BALANCE';
+  onOwes: (owes: '' | 'DOCUMENTS' | 'BALANCE') => void;
 }) {
   return (
     <section
@@ -68,7 +81,7 @@ export function ClientsKpis({
       data-testid="client-kpis"
       className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
     >
-      {CARDS.map(({ key, label, icon, tone, tab }) => {
+      {CARDS.map(({ key, label, icon, tone, tab, owes: counts }) => {
         const kpi = summary.data?.kpis[key];
         const trend = kpi ? monthTrend(kpi) : undefined;
         const card = (
@@ -82,13 +95,29 @@ export function ClientsKpis({
             note={trend ? 'vs last month' : undefined}
           />
         );
+        const button = `${fit} rounded-xl text-left hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`;
+        if (counts) {
+          const on = owes === counts;
+          return (
+            <button
+              key={key}
+              type="button"
+              data-testid="kpi-card"
+              aria-pressed={on}
+              onClick={() => onOwes(on ? '' : counts)}
+              className={`${button} ${on ? 'ring-2 ring-action' : ''}`}
+            >
+              {card}
+            </button>
+          );
+        }
         return tab ? (
           <button
             key={key}
             type="button"
             data-testid="kpi-card"
             onClick={() => onTab(tab)}
-            className={`${fit} rounded-xl text-left hover:brightness-95 focus-visible:outline-2 focus-visible:outline-focus`}
+            className={button}
           >
             {card}
           </button>

@@ -12,6 +12,8 @@ export interface NavItem {
   /** Count badge, for example pending applications. */
   badge?: number;
   soon?: boolean;
+  /** A group (the firm's Clients): a toggle that shows these items under it; no page of its own. */
+  children?: readonly NavItem[];
 }
 
 /** Sidebar groups, drawn with a divider between them. */
