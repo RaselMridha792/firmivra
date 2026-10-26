@@ -270,6 +270,16 @@ beforeAll(async () => {
   );
   // Another email, but Phoned's number written another way: a potential match by phone.
   await record('phoned', firmX, `r3-q-phoned-record-${tag}@example.com`, '(770) 555-0113');
+  // Sam's name on a record with another email and no phone: a name alone is never a match.
+  await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+    tx.client.create({
+      data: {
+        businessId: firmX.id,
+        displayName: 'Fake sam',
+        email: `r3-q-not-sam-${tag}@example.com`,
+      },
+    }),
+  );
 
   env = loadEnv({
     ...process.env,
@@ -412,6 +422,7 @@ describe('the queue', () => {
     ]);
     const sam = (await as(staff.adminX, 'get', `/${signUps.sam.accountId}`))
       .body as ClientSignUpDetail;
+    // A record with Sam's name only is not a match (S03).
     expect([sam.match, sam.candidates]).toEqual(['NO_MATCH', []]);
 
     const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
