@@ -379,6 +379,8 @@ export const TaxReturnFiling = z.object({
   amountSource: TaxAmountSource.nullable(),
   /** 1 for the first amount, one more for each change; null without an amount. */
   amountVersion: z.number().int().nullable(),
+  /** A paper filing's Mail Tracking Number (TX-F26); null for e-file and for older records. */
+  mailTrackingNumber: z.string().nullable(),
   attempts: z.array(TaxFilingAttempt),
 });
 export type TaxReturnFiling = z.infer<typeof TaxReturnFiling>;
@@ -450,8 +452,15 @@ export const UpdateTaxFilingAttemptRequest = z.discriminatedUnion('ackStatus', [
 ]);
 export type UpdateTaxFilingAttemptRequest = z.input<typeof UpdateTaxFilingAttemptRequest>;
 
-/** POST .../filings/{filingId}/paper-filed: a paper filing's date. */
-export const PaperFiledRequest = z.strictObject({ paperFiledOn: CalendarDate });
+/**
+ * POST .../filings/{filingId}/paper-filed: a paper filing's mailed date and its Mail Tracking
+ * Number, required (Octavia's TX-F26: no untracked exception). Tracking proves neither delivery
+ * nor the agency's acceptance.
+ */
+export const PaperFiledRequest = z.strictObject({
+  paperFiledOn: CalendarDate,
+  mailTrackingNumber: text(100, 'one', 'Enter the mail tracking number'),
+});
 export type PaperFiledRequest = z.input<typeof PaperFiledRequest>;
 
 // ---------- Checklists and validation (Frames 2 and 3) ----------
