@@ -173,6 +173,7 @@ import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
+import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
@@ -424,7 +425,10 @@ export const api = {
       ? createBookkeepingMock({ role: MOCK_ROLE, empty: mockedEmpty('bookkeeping') })
       : createBookkeepingClient(request),
   /** Bookkeeping Terms (R55): a bookkeeping client's engagement terms, versions, notices and history. */
-  bookkeepingTerms: createBookkeepingTermsClient(request),
+  bookkeepingTerms:
+    dev && mocked('bookkeepingTerms')
+      ? createBookkeepingTermsMock()
+      : createBookkeepingTermsClient(request),
   /**
    * Automations (R55): overview, rules and their versions, rule templates, logs and settings.
    * Mock: NEXT_PUBLIC_API_MOCK=automations (mocks/automations.ts, R56).
