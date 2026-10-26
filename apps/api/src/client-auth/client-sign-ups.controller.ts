@@ -9,6 +9,14 @@ import {
   type ClientSignUpSettings,
   DeclineSignUpRequest,
   type DeclineSignUpResponse,
+  KeepSignUpPendingRequest,
+  type KeepSignUpPendingResponse,
+  LinkSignUpRequest,
+  RecordSignUpChecksRequest,
+  RestoreSignUpAccessRequest,
+  type RestoreSignUpAccessResponse,
+  SignUpNotAMatchRequest,
+  type SignUpNotAMatchResponse,
   UpdateClientSignUpSettingsRequest,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
@@ -94,6 +102,86 @@ export class ClientSignUpsController {
     @CurrentAuth() auth: AuthContext,
   ): Promise<DeclineSignUpResponse> {
     return this.signUps.decline(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  /** Resolve Existing Account (Octavia's D2): the three checks for one candidate record. */
+  @Post(':clientAccountId/checks')
+  @HttpCode(200)
+  recordChecks(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(RecordSignUpChecksRequest))
+    body: z.output<typeof RecordSignUpChecksRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ClientSignUpDetail> {
+    return this.signUps.recordChecks(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  @Post(':clientAccountId/link')
+  @HttpCode(200)
+  link(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(LinkSignUpRequest)) body: z.output<typeof LinkSignUpRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ApproveSignUpResponse> {
+    return this.signUps.link(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  @Post(':clientAccountId/restore-access')
+  @HttpCode(200)
+  restoreAccess(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(RestoreSignUpAccessRequest))
+    body: z.output<typeof RestoreSignUpAccessRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<RestoreSignUpAccessResponse> {
+    return this.signUps.restoreAccess(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  @Post(':clientAccountId/not-a-match')
+  @HttpCode(200)
+  notAMatch(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(SignUpNotAMatchRequest))
+    body: z.output<typeof SignUpNotAMatchRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<SignUpNotAMatchResponse> {
+    return this.signUps.notAMatch(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+      body,
+    );
+  }
+
+  @Post(':clientAccountId/keep-pending')
+  @HttpCode(200)
+  keepPending(
+    @Param('clientAccountId') clientAccountId: string,
+    @Body(new ZodValidationPipe(KeepSignUpPendingRequest))
+    body: z.output<typeof KeepSignUpPendingRequest>,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<KeepSignUpPendingResponse> {
+    return this.signUps.keepPending(
       { businessId: tenant.businessId, userId: auth.userId },
       clientAccountId,
       body,
