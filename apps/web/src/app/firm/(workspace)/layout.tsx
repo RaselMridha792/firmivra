@@ -40,7 +40,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import {
   FirmBell,
@@ -52,6 +52,7 @@ import {
 } from '../../../components/app-shell/firm-controls';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
+import { OriginBar } from '../../../components/origin-bar';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
 import { COMPANY } from '../../../lib/company';
@@ -278,6 +279,10 @@ function FirmShell({
         />
       }
     >
+      {/* SH1: Back to the exact place a workspace link came from (`?from=`). */}
+      <Suspense fallback={null}>
+        <OriginBar />
+      </Suspense>
       {children}
       <HelpSupportPanel
         open={help}
