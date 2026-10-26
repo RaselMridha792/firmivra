@@ -229,7 +229,11 @@ export const dateTimeText = (iso: string) =>
 export const money = (cents: number | null | undefined) =>
   cents === null || cents === undefined
     ? '—'
-    : `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    : `$${(cents / 100).toLocaleString('en-US', {
+        // Whole dollars stay whole; any cents show as two digits ($1,250.50, not $1,250.5).
+        minimumFractionDigits: cents % 100 ? 2 : 0,
+        maximumFractionDigits: 2,
+      })}`;
 export const today = () => new Date().toISOString().slice(0, 10);
 /** Now as a `datetime-local` value in the browser's time zone, and back to an instant. */
 export const nowLocal = () => {

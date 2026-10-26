@@ -158,6 +158,8 @@ export class TaxReturnReviewService {
       refundCents: f.refundCents,
       amountDueCents: f.amountDueCents,
       amountStatus: f.amountStatus,
+      amountSource: f.amountSource,
+      amountVersion: f.amountVersion,
       attempts: f.attempts.map((a) => ({
         id: a.id,
         submissionId: a.submissionId,
@@ -230,6 +232,8 @@ export class TaxReturnReviewService {
         refundCents: true,
         amountDueCents: true,
         amountStatus: true,
+        amountSource: true,
+        amountVersion: true,
       },
     });
     if (!f) throw notFound();
@@ -261,9 +265,34 @@ export class TaxReturnReviewService {
           'amountStatus',
         );
       }
+      // TX-F28: an amount keeps where it came from, and each change of it is a new version.
+      const amountSent = (
+        ['refundCents', 'amountDueCents', 'amountStatus', 'amountSource'] as const
+      ).some((k) => body[k] !== undefined);
+      const source =
+        status === null
+          ? null
+          : body.amountSource !== undefined
+            ? body.amountSource
+            : f.amountSource;
+      if (amountSent && status !== null && !source) {
+        throw invalid('Say where the amount came from', 'amountSource');
+      }
+      const amount = amountSent
+        ? {
+            refundCents: refund,
+            amountDueCents: due,
+            amountStatus: status,
+            amountSource: source,
+            amountVersion: status === null ? null : (f.amountVersion ?? 0) + 1,
+          }
+        : undefined;
       await tx.taxReturnFiling.update({
         where: { id: filingId },
         data: {
+          ...(amount
+            ? { amountSource: amount.amountSource, amountVersion: amount.amountVersion }
+            : {}),
           ...(body.required !== undefined ? { required: body.required } : {}),
           ...(body.filingMethod !== undefined ? { filingMethod: body.filingMethod } : {}),
           ...(body.refundCents !== undefined ? { refundCents: body.refundCents } : {}),
@@ -271,7 +300,11 @@ export class TaxReturnReviewService {
           ...(body.amountStatus !== undefined ? { amountStatus: body.amountStatus } : {}),
         },
       });
-      await this.log(tx, tenant, id, 'filings_changed', { filingId, fields: fields.sort() });
+      await this.log(tx, tenant, id, 'filings_changed', {
+        filingId,
+        fields: fields.sort(),
+        ...(amount ? { amount } : {}),
+      });
       return this.filingList(tx, businessId, id);
     });
   }
