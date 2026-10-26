@@ -1,6 +1,5 @@
 // Unit tests for R3 sign-up pieces: the code sender stand-in, phone masking, Cognito attributes,
-// and the sign-ups queue's linking rule and paging cursor (step 4).
-import { BadRequestException } from '@nestjs/common';
+// and the sign-ups queue's linking rule (step 4). The queue pages by number now (Octavia's D1).
 import { describe, expect, it, vi } from 'vitest';
 import {
   type CognitoClient,
@@ -8,7 +7,6 @@ import {
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
 import { linkable } from '../../src/client-auth/client-records.js';
-import { decodeCursor, encodeCursor } from '../../src/client-auth/client-sign-ups.service.js';
 import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
 import { canonicalIp, networkOf } from '../../src/common/network.js';
 import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
@@ -83,16 +81,6 @@ describe('linkable: which client record approve may link a login to (#37)', () =
     // An archived record is restored first (#72 review).
     const archivedAt = new Date();
     expect(linkable(email, { email, primaryLogins: 0, archivedAt })).toBe(false);
-  });
-});
-
-describe('sign-ups queue cursor', () => {
-  it('round-trips the last row, and refuses anything else with 400', () => {
-    const row = { createdAt: new Date('2026-10-07T09:03:00.000Z'), id: crypto.randomUUID() };
-    expect(decodeCursor(encodeCursor(row))).toEqual({ t: row.createdAt, id: row.id });
-    for (const bad of ['', 'not-a-cursor', Buffer.from('{"t":1}').toString('base64url')]) {
-      expect(() => decodeCursor(bad)).toThrow(BadRequestException);
-    }
   });
 });
 

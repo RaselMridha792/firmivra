@@ -3,8 +3,10 @@ import type { z } from 'zod';
 import {
   ApproveSignUpRequest,
   type ApproveSignUpResponse,
+  type ClientSignUpDetail,
   type ClientSignUpList,
   ClientSignUpsQuery,
+  type ClientSignUpSettings,
   DeclineSignUpRequest,
   type DeclineSignUpResponse,
 } from '@firmivra/types';
@@ -35,6 +37,27 @@ export class ClientSignUpsController {
     @CurrentAuth() auth: AuthContext,
   ): Promise<ClientSignUpList> {
     return this.signUps.list({ businessId: tenant.businessId, userId: auth.userId }, query);
+  }
+
+  /** Before `:clientAccountId`, so "settings" is never read as a request id. */
+  @Get('settings')
+  settings(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ClientSignUpSettings> {
+    return this.signUps.settings({ businessId: tenant.businessId, userId: auth.userId });
+  }
+
+  @Get(':clientAccountId')
+  get(
+    @Param('clientAccountId') clientAccountId: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ClientSignUpDetail> {
+    return this.signUps.get(
+      { businessId: tenant.businessId, userId: auth.userId },
+      clientAccountId,
+    );
   }
 
   @Post(':clientAccountId/approve')

@@ -62,6 +62,8 @@ export interface NotifyTemplates {
   'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
+  /** The firm invites an existing client to its portal: a sealed link that expires. */
+  'client.portal-invitation': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
   /** A new message in a thread. Never the message text: the reader opens the link. */
   'message.received': IgnoredFirmName & { name: string; link: string };
   /**
@@ -237,6 +239,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.received': 'email',
   'intake.submitted-notice': 'email',
   'client.portal-invite': 'email',
+  'client.portal-invitation': 'email',
   'message.received': 'email',
   'lead.message-email': 'email',
   'lead.message-sms': 'sms',
@@ -283,6 +286,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.received': 'firm',
   'intake.submitted-notice': 'firm',
   'client.portal-invite': 'firm',
+  'client.portal-invitation': 'firm',
   'message.received': 'firm',
   'lead.message-email': 'firm',
   'lead.message-sms': 'firm',
@@ -314,6 +318,7 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'begin-online.resume-link',
   'lead.confirmation',
   'client.portal-invite',
+  'client.portal-invitation',
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
   'lead.message-email',
   'lead.message-sms',
@@ -359,6 +364,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.received': 'INTAKE',
   'intake.submitted-notice': 'INTAKE',
   'client.portal-invite': 'ACCOUNT',
+  'client.portal-invitation': 'ACCOUNT',
   'message.received': 'MESSAGES',
   'lead.message-email': 'ACCOUNT',
   'lead.message-sms': 'ACCOUNT',

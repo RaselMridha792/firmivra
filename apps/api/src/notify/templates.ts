@@ -549,6 +549,24 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'client.portal-invitation': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} invites you to its client portal`,
+      blocks: [
+        hello(d),
+        text(
+          `${firm} invites you to its client portal, where you can share documents, sign forms and message the firm. Create your account with this email address; ${firm} then approves it.`,
+        ),
+        button('Accept the invitation', link(d, 'link', o)),
+        small(
+          `The link works until ${dateTime(d, 'expiresAt', b.timeZone)}. A new invitation replaces this one. If you did not expect it, you can ignore this email.`,
+        ),
+      ],
+    };
+  },
+
   'message.received': (d, b, o) => {
     const firm = b.name;
     return {

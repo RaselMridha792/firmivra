@@ -25,7 +25,7 @@ const workspacePages: [path: string, title: string][] = [
   [`/clients/${id}/documents`, 'Client documents'],
   [`/clients/${id}/messages`, 'Client messages'],
   [`/clients/${id}/invoices`, 'Client invoices'],
-  ['/sign-ups', 'Sign-ups'],
+  ['/sign-ups', 'Client sign-ups'],
   ['/documents', 'Documents'],
   ['/messages', 'Messages'],
   ['/invoices', 'Invoices'],
@@ -105,7 +105,8 @@ test('Sign-ups, Staff Management, Audit log and Settings show for the owner, not
   await expect(page).toHaveURL(app('/sign-in'));
 
   await signIn(page, 'staff@lvp.test');
-  await expect(menu(page, 'Clients')).toBeVisible();
+  // Clients is a group now: its Overview link opens the list (Octavia's Sign-ups design).
+  await expect(menu(page, 'Overview')).toBeVisible();
   for (const label of managerItems) await expect(menu(page, label)).toHaveCount(0);
 });
 
