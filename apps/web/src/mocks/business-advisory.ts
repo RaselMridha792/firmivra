@@ -414,6 +414,17 @@ const SEEDS: Seed[] = [
   },
 ];
 
+/** Each seed's firm client as the advisory mock shows it (the portal invitations mock reads it). */
+export const advisoryClientContacts = () =>
+  SEEDS.map((s, i) => ({
+    id: uid('a220', i + 1),
+    name: s.person,
+    email: `${s.person.split(' ')[0]!.toLowerCase()}@${s.business
+      .toLowerCase()
+      .replace(/[^a-z]/g, '')
+      .slice(0, 18)}.example.test`,
+  }));
+
 interface ClientState {
   id: string;
   client: AdvisoryPersonClient;

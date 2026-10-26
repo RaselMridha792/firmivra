@@ -45,3 +45,4 @@ Queue (Scrum thread, 2026-10-18): Payroll, Bookkeeping (contract in #718; start 
 ## Progress log
 
 - 2026-10-18: Payroll built on the #716 contract with a new mock; 10-test spec passes; screenshots committed.
+- 2026-10-26: SH2 (Octavia's Oct 25 review, PY-F07, F08; TX-F02 for R60): the shared `ActionMenu` (`packages/ui`) draws its list in a portal (the trigger's dialog when inside one), fixed and clamped to the window (`placeMenu`: below or above, scrolls inside), one arrow on the trigger, arrow keys, Home, End, Escape (focus back) and Tab away; Payroll's Client Actions and More Actions lost their second arrow. On `rasel/R56-shared-row-menu` (from main; PR when a slot frees). Tests: ui 4, mock 4 new (`r56-row-menu`), payroll and bookkeeping specs 24 of 24.
