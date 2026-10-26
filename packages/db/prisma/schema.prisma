@@ -4720,6 +4720,19 @@ model TaxReturn {
   archivedAt             DateTime?               @map("archived_at") @db.Timestamptz(3)
   /// Who made the last change; the history row's author.
   updatedByUserId        String?                 @map("updated_by_user_id") @db.Uuid
+  /// TX-F31/F32 (Oct 26): a BUSINESS return's business identity, copied by the database at
+  /// creation from the client's own profile (never matched by name); later edits to the profile
+  /// don't change it. Correctable until the return is first filed, then frozen. Empty on an
+  /// INDIVIDUAL return.
+  businessName           String?                 @map("business_name")
+  /// The EIN sealed with the firm's key and its last 4 digits, set together; shown masked.
+  businessEinEnc         Bytes?                  @map("business_ein_enc")
+  businessEinLast4       String?                 @map("business_ein_last4")
+  businessAddressLine1   String?                 @map("business_address_line1")
+  businessAddressLine2   String?                 @map("business_address_line2")
+  businessCity           String?                 @map("business_city")
+  businessState          String?                 @map("business_state")
+  businessPostalCode     String?                 @map("business_postal_code")
 
   preparer       Membership?                @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
   reviewer       Membership?                @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
