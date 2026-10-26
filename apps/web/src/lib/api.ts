@@ -89,6 +89,8 @@ import {
   createTaxReturnWorkspaceClient,
   createTaxStatusesClient,
   createTeamClient,
+  createPortalInvitationClient,
+  createPortalInvitationsClient,
   createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
@@ -171,6 +173,7 @@ import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
+import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
@@ -271,6 +274,11 @@ export const api = {
     dev && mocked('clients')
       ? createClientsMock({ role: MOCK_ROLE })
       : createClientsClient(request),
+  /** A client's portal access and the firm's invitation (Business Advisory B3). */
+  portalInvitations:
+    dev && mocked('portalInvitations')
+      ? createPortalInvitationsMock()
+      : createPortalInvitationsClient(request),
   /** The firm's one tag list for Leads and Clients (L5, L6). */
   tags: dev && mocked('tags') ? createTagsMock({ role: MOCK_ROLE }) : createTagsClient(request),
   engagements:
@@ -588,6 +596,11 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
+  portalInvitation: (firmSlug: string) =>
+    dev && mocked('portalInvitation')
+      ? portalInvitationMock(firmSlug)
+      : createPortalInvitationClient(request, firmSlug),
   /** Begin Online (R11): the public intake on a firm's portal site, without an account. */
   beginOnline: (firmSlug: string) =>
     dev && mocked('beginOnline')
