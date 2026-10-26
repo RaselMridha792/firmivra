@@ -63,6 +63,7 @@ export function useAct(onNotice: Notice) {
 
 type Row = Pick<BookkeepingClientRow, 'id' | 'engagementId' | 'status' | 'paused' | 'software'> & {
   client: { id: string; displayName: string };
+  assignedTo?: BookkeepingClientRow['assignedTo'];
 };
 type DialogName = 'status' | 'assign' | 'pause' | 'archive' | 'connection' | 'log' | 'sync';
 
@@ -174,27 +175,47 @@ function AssignDialog({
 }) {
   const act = useAct(onNotice);
   const team = useApiQuery([...BK_KEY, 'team'], () => api.team.list());
-  const [who, setWho] = useState('');
+  // BK-D06: the dialog starts on the current assignee, so Assign never unassigns by accident,
+  // and offers only active members.
+  const current = row.assignedTo ?? null;
+  const [who, setWho] = useState(current?.userId ?? '');
+  const active = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
+  const name = active.find((m) => m.user.id === who)?.user.name;
+  const unchanged = who === (current?.userId ?? '');
   return (
     <Shell
       title="Assign / Reassign Staff"
       subtitle={row.client.displayName}
-      confirm="Assign"
+      confirm={who ? 'Assign' : 'Unassign'}
+      disabled={unchanged || team.isPending || team.isError}
       onClose={onClose}
       onConfirm={async () => {
+        if (unchanged || team.isError) return;
         await act(
           () => api.bookkeeping.assign(row.id, { assignedUserId: who || null }),
-          who ? 'Assigned.' : 'Unassigned.',
+          who ? `Assigned to ${name ?? 'the chosen member'}.` : 'Unassigned.',
         );
       }}
     >
+      <p className="text-sm text-text" data-testid="assigned-now">
+        Now: {current ? current.name : 'Unassigned'}
+      </p>
+      {team.isError ? (
+        <p role="alert" className="text-sm text-danger">
+          The team could not be loaded, so the assignment cannot change now.
+        </p>
+      ) : null}
       <Select
         label="Assigned to"
         value={who}
+        disabled={team.isPending || team.isError}
         onChange={(e) => setWho(e.target.value)}
         options={[
           { value: '', label: 'Unassigned' },
-          ...(team.data ?? []).map((m) => ({ value: m.user.id, label: m.user.name })),
+          ...(current && !active.some((m) => m.user.id === current.userId)
+            ? [{ value: current.userId, label: current.name }]
+            : []),
+          ...active.map((m) => ({ value: m.user.id, label: m.user.name })),
         ]}
       />
     </Shell>

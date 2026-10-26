@@ -36,8 +36,13 @@ export function SettingsScreen() {
   return <SettingsForm initial={q.data} />;
 }
 
+const newKey = () => crypto.randomUUID();
+
 function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
   const [s, setS] = useState(initial);
+  // BK-D05: each document row keeps one key while it is typed in (a key made from its text
+  // remounted the field on every keystroke and the caret was lost).
+  const [docKeys, setDocKeys] = useState(() => initial.documentChecklist.map(() => newKey()));
   const [msg, setMsg] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [busy, setBusy] = useState(false);
   const num = (v: string, d: number) => (v === '' ? d : Number(v));
@@ -131,7 +136,7 @@ function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
           {s.documentChecklist.length === 0 ? <p className={quiet}>No documents listed.</p> : null}
           {s.documentChecklist.map((d, i) => (
             <div
-              key={`${d.label}-${i}`}
+              key={docKeys[i] ?? i}
               className="grid items-end gap-2 sm:grid-cols-[1fr_9rem_auto]"
             >
               <Input
@@ -162,9 +167,10 @@ function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
               <button
                 type="button"
                 aria-label={`Remove ${d.label || 'document'}`}
-                onClick={() =>
-                  setS({ ...s, documentChecklist: s.documentChecklist.filter((_, j) => j !== i) })
-                }
+                onClick={() => {
+                  setS({ ...s, documentChecklist: s.documentChecklist.filter((_, j) => j !== i) });
+                  setDocKeys((keys) => keys.filter((_, j) => j !== i));
+                }}
                 className="flex size-10 items-center justify-center rounded-control text-danger hover:bg-danger-soft"
               >
                 <Trash aria-hidden weight="bold" className="size-4" />
@@ -174,12 +180,13 @@ function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
           <button
             type="button"
             className="inline-flex w-fit items-center gap-1 text-sm font-medium text-link"
-            onClick={() =>
+            onClick={() => {
               setS({
                 ...s,
                 documentChecklist: [...s.documentChecklist, { label: '', cadence: 'MONTHLY' }],
-              })
-            }
+              });
+              setDocKeys((keys) => [...keys, newKey()]);
+            }}
           >
             <Plus aria-hidden weight="bold" className="size-4" /> Add document
           </button>
