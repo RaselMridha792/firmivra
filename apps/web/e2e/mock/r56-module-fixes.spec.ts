@@ -101,3 +101,14 @@ test('BK-D04: Missing Documents counts days since the request was sent, no numbe
     'Requests that were received, accepted or cancelled stop counting.',
   );
 });
+
+test('BK-A01: the client workspace shows its activity, newest first', async ({ page }) => {
+  await page.goto(`${app}/bookkeeping`);
+  await page
+    .getByRole('link', { name: /Green Leaf/ })
+    .first()
+    .click();
+  const activity = page.getByTestId('client-activity');
+  await expect(activity.getByRole('heading', { name: 'Activity' })).toBeVisible();
+  await expect(activity.getByRole('listitem').first()).toBeVisible();
+});
