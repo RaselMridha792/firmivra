@@ -744,15 +744,18 @@ export function NotesTab({ id, notice }: { id: string; notice: Notice }) {
   );
 }
 
-/** Communications: opens the shared Messages module. */
-export function CommunicationsTab() {
+/** Communications: opens the shared Messages module on this client's conversations (SH5). */
+export function CommunicationsTab({ clientId }: { clientId: string | undefined }) {
   return (
     <section className={card} aria-label="Communications" data-testid="tab-communications">
       <h2 className="mb-2 font-display text-lg font-bold text-heading">Communications</h2>
       <p className="mb-3 text-sm text-text">
         Messages with this client are kept in Messages, with their full history.
       </p>
-      <OriginLink href="/messages" className={outlined}>
+      <OriginLink
+        href={clientId ? `/messages?clientId=${clientId}&service=Payroll` : '/messages'}
+        className={outlined}
+      >
         <ChatCircleDots aria-hidden weight="fill" className="size-4" /> Open Messages
       </OriginLink>
     </section>

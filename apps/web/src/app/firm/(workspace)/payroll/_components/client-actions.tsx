@@ -139,7 +139,12 @@ export function ClientActionMenu({
     ),
     item('Add Note', NotePencil, () => setDialog('note')),
     item('Log Activity', Phone, () => setDialog('activity')),
-    item('Send Message', ChatCircleDots, go('/messages')),
+    // SH5: this client's conversations, with New Message for them.
+    item(
+      'Send Message',
+      ChatCircleDots,
+      go(`/messages?clientId=${client.client.id}&service=Payroll`),
+    ),
     item('Schedule Appointment', CalendarBlank, go('/calendar/new')),
     item('Update Payroll Status', Bell, () => setDialog('status'), { submenu: true }),
     item('Assign/Reassign Staff', UserSwitch, () => setDialog('assign')),
