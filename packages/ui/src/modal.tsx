@@ -31,7 +31,12 @@ export function Modal({ open, title, subtitle, footer, children, onClose }: Moda
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      onCancel={onClose}
+      onCancel={(event) => {
+        // Escape asks the parent, which closes by setting `open` (a form with unsaved changes can
+        // ask first); the browser does not close the dialog on its own.
+        event.preventDefault();
+        onClose();
+      }}
       onKeyDown={(event) => {
         if (
           event.key === 'Tab' &&

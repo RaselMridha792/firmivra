@@ -95,9 +95,25 @@ describe('client-auth schemas', () => {
     expect(SignUpRequest.safeParse({ ...body, accountType: 'BOTH' }).success).toBe(false);
   });
 
-  it('defaults the sign-ups query to the pending queue, 25 at a time, at most 100', () => {
-    expect(ClientSignUpsQuery.parse({})).toEqual({ status: 'PENDING_APPROVAL', limit: 25 });
+  it('defaults the sign-ups query to the waiting tab, newest first, 10 a page, at most 100', () => {
+    expect(ClientSignUpsQuery.parse({})).toEqual({
+      status: 'PENDING_APPROVAL',
+      sort: 'newest',
+      page: 1,
+      limit: 10,
+    });
     expect(ClientSignUpsQuery.safeParse({ limit: 101 }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ status: 'ACTIVE' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ match: 'MAYBE' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-10-24', to: '2026-10-24' }).success).toBe(
+      true,
+    );
+    // The start after the end, a day that isn't a date, and the old cursor are refused.
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-10-25', to: '2026-10-24' }).success).toBe(
+      false,
+    );
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-13-01' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ cursor: 'c2' }).success).toBe(false);
   });
 
   it('gives each firm its own portal cookies, scoped to its own API routes', () => {
@@ -232,13 +248,19 @@ describe('Phone: international E.164 for every other phone field (Rasel, Oct 8)'
 
 describe('createClientSignUpsClient', () => {
   it('lists, approves and declines in the selected firm', async () => {
-    const { fn, calls } = fakeFetch(200, { items: [], nextCursor: null });
+    const { fn, calls } = fakeFetch(200, {
+      items: [],
+      total: 0,
+      page: 2,
+      limit: 10,
+      counts: { PENDING_APPROVAL: 0, APPROVED: 0, DECLINED: 0 },
+    });
     const signUps = createClientSignUpsClient(
       createRequest({ baseUrl: '/api/v1', businessId: 'b1', fetch: fn }),
     );
-    await signUps.list({ cursor: 'c2' });
+    await signUps.list({ page: 2, search: 'Fake', match: 'POTENTIAL_MATCH', from: '2026-10-01' });
     expect(calls[0]?.url).toBe(
-      '/api/v1/client-sign-ups?status=PENDING_APPROVAL&limit=25&cursor=c2',
+      '/api/v1/client-sign-ups?status=PENDING_APPROVAL&sort=newest&page=2&limit=10&search=Fake&from=2026-10-01&match=POTENTIAL_MATCH',
     );
     expect((calls[0]?.init.headers as Record<string, string>)['x-business-id']).toBe('b1');
 

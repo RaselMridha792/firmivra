@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { text } from '../clients/text.js';
+import { SearchText, text } from '../clients/text.js';
 import { Email, OneTimeCode, Password } from '../auth/schemas.js';
+import { ClientSignupMode } from '../db-enums.js';
 import { ClientAccountStatus } from '../schemas.js';
 
 // Client portal sign-up and sign-in, and the firm's pending sign-ups (docs/api/client-auth.yaml).
@@ -304,19 +305,54 @@ export type ChangeEmailRequest = z.input<typeof ChangeEmailRequest>;
 export const ChangePhoneRequest = z.object({ phone: SmsPhone });
 export type ChangePhoneRequest = z.input<typeof ChangePhoneRequest>;
 
-// ---------- Firm side: pending sign-ups (owner and admin) ----------
-export const SignUpListStatus = z.enum(['PENDING_APPROVAL', 'DECLINED']);
+// ---------- Firm side: Client Sign-ups (owner and admin) ----------
+/**
+ * The request's decision, as the screen's tabs show it (Octavia's Client Sign-ups, section 5):
+ * waiting (email and phone verified, not decided), approved by the firm, or declined. A potential
+ * match is a separate flag (`match`), so it never becomes a fourth tab.
+ */
+export const SignUpListStatus = z.enum(['PENDING_APPROVAL', 'APPROVED', 'DECLINED']);
 export type SignUpListStatus = z.infer<typeof SignUpListStatus>;
 
-/** GET /client-sign-ups?status=&cursor=&limit= */
-export const ClientSignUpsQuery = z.strictObject({
-  status: SignUpListStatus.default('PENDING_APPROVAL'),
-  cursor: z.string().min(1).max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-});
+/**
+ * A waiting request that may belong to a client the firm already has: one of the firm's client
+ * records (archived ones too) has the sign-up's email, or the same phone number (the last 10
+ * digits). A name alone never counts.
+ */
+export const SignUpMatch = z.enum(['POTENTIAL_MATCH', 'NO_MATCH']);
+export type SignUpMatch = z.infer<typeof SignUpMatch>;
+
+/**
+ * GET /client-sign-ups. Search matches the name or the email. Submitted on or after `from` and on
+ * or before `to` (the firm's calendar days). `match` applies to the Waiting tab only. Newest
+ * first by default, the request id breaking ties; numbered pages.
+ */
+export const ClientSignUpsQuery = z
+  .strictObject({
+    status: SignUpListStatus.default('PENDING_APPROVAL'),
+    search: SearchText.optional(),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+    match: SignUpMatch.optional(),
+    sort: z.enum(['newest', 'oldest']).default('newest'),
+    page: z.coerce.number().int().min(1).max(10_000).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(10),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, {
+    message: 'The start is after the end',
+    path: ['to'],
+  });
 export type ClientSignUpsQuery = z.input<typeof ClientSignUpsQuery>;
 
-/** A verified sign-up (email and phone) waiting for the firm, or declined. */
+/** The firm's client record an approved request opened, as its Client ID shows it ("CL-10001"). */
+export const SignUpClientRef = z.object({
+  clientId: z.uuid(),
+  clientNumber: z.string(),
+  displayName: z.string(),
+});
+export type SignUpClientRef = z.infer<typeof SignUpClientRef>;
+
+/** A verified sign-up (email and phone) waiting for the firm, approved or declined. */
 export const ClientSignUp = z.object({
   clientAccountId: z.uuid(),
   name: z.string(),
@@ -325,30 +361,69 @@ export const ClientSignUp = z.object({
   accountType: AccountType,
   status: SignUpListStatus,
   signedUpAt: z.iso.datetime({ offset: true }),
+  approvedAt: z.iso.datetime({ offset: true }).nullable(),
   declinedAt: z.iso.datetime({ offset: true }).nullable(),
+  /** For the firm only; never sent to the client. */
   declineReason: z.string().nullable(),
-  /**
-   * A client record of this firm that approve can link this login to (`clientId`) instead of
-   * creating a duplicate, or null. Only a record that approve would accept: its email is the
-   * sign-up's verified email (both lower-cased) and it has no primary portal login yet.
-   */
-  existingClient: z.object({ clientId: z.uuid(), displayName: z.string() }).nullable(),
+  /** Waiting requests only (null otherwise): checked against the firm's records on every read. */
+  match: SignUpMatch.nullable(),
+  /** Approved requests: the client record the login belongs to. */
+  client: SignUpClientRef.nullable(),
 });
 export type ClientSignUp = z.infer<typeof ClientSignUp>;
 
 export const ClientSignUpList = z.object({
-  items: z.array(ClientSignUp),
-  /** Pass as `cursor` for the next page; null on the last page. Oldest first. */
-  nextCursor: z.string().nullable(),
+  items: z.array(ClientSignUp).max(100),
+  /** Every request that matches the tab, search and filters. */
+  total: z.number().int().nonnegative(),
+  page: z.number().int().min(1),
+  limit: z.number().int().min(1),
+  /** The firm's requests in each tab, whatever the search and filters. */
+  counts: z.object({
+    PENDING_APPROVAL: z.number().int().nonnegative(),
+    APPROVED: z.number().int().nonnegative(),
+    DECLINED: z.number().int().nonnegative(),
+  }),
 });
 export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
+/** One step of a request's history: who (a member of the firm, or the applicant) and when. */
+export const SignUpEvent = z.object({
+  kind: z.enum(['SUBMITTED', 'EMAIL_VERIFIED', 'PHONE_VERIFIED', 'APPROVED', 'DECLINED']),
+  at: z.iso.datetime({ offset: true }),
+  /** The firm member who decided; null for the applicant's own steps. */
+  actorName: z.string().nullable(),
+});
+export type SignUpEvent = z.infer<typeof SignUpEvent>;
+
+/**
+ * GET /client-sign-ups/{clientAccountId}: the request, its history (oldest first) and, while it
+ * waits, the firm's client records it may belong to: the least needed to compare (name, Client
+ * ID, which fields matched; never their values). Audited.
+ */
+export const ClientSignUpDetail = ClientSignUp.extend({
+  history: z.array(SignUpEvent),
+  candidates: z.array(SignUpClientRef.extend({ matchedOn: z.array(z.enum(['email', 'phone'])) })),
+});
+export type ClientSignUpDetail = z.infer<typeof ClientSignUpDetail>;
+
+/**
+ * GET /client-sign-ups/settings: how the firm decides on new sign-ups
+ * (`business_settings.client_signup_mode`, MANUAL until the firm changes it) and its policy version.
+ */
+export const ClientSignUpSettings = z.object({
+  mode: ClientSignupMode,
+  version: z.number().int().min(1),
+  changedAt: z.iso.datetime({ offset: true }).nullable(),
+});
+export type ClientSignUpSettings = z.infer<typeof ClientSignUpSettings>;
+
 /**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
- * record from the sign-up, unless a client of the firm already has that email (409
- * DUPLICATE_EMAIL: link that record instead). With it, it links the login to that existing record
- * of this firm, and
- * only if the record's email is the sign-up's verified email (both lower-cased) and the record
+ * record from the sign-up, unless it may belong to a client the firm already has: 409
+ * DUPLICATE_EMAIL when a record has its email, 409 POTENTIAL_MATCH when one has its phone number
+ * (checked again inside the approval). With `clientId`, it links the login to that existing
+ * record of this firm, and only if the record's email is the sign-up's verified email (both lower-cased) and the record
  * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
  * client). Any other field is refused (400), so a typo never approves the wrong way.
  */
@@ -403,9 +478,13 @@ export const ClientAuthErrorCode = z.enum([
   'CLIENT_NOT_LINKABLE',
   /**
    * 409: approve without `clientId`, but a client of the firm already has the sign-up's email.
-   * The firm never gets a second client with one email: link that record (`existingClient`).
-   * Same code as the client records API (R10).
+   * The firm never gets a second client with one email. Same code as the client records API (R10).
    */
   'DUPLICATE_EMAIL',
+  /**
+   * 409: approve without `clientId`, but a client of the firm already has the sign-up's phone
+   * number: the request may be an existing client's, so it stays waiting (Octavia's Sign-ups, 4).
+   */
+  'POTENTIAL_MATCH',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;
