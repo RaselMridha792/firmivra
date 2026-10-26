@@ -59,7 +59,15 @@ pattern.
    candidate resolved as not a match), Keep Pending with a note, and Restore Access through
    `identity.forgotPassword` on the existing login.
 2. **D5:** nothing to build until D4's Settings exists (Needs).
-3. **Tax Returns** (Oct 26 review, section B), in Rasel's order: TX-F01 (Client Details overlap),
+3. **Tax Returns** (Oct 26 review, section B). **TX-F01 is fixed but not verified**, on
+   `rasel/R60-tax-returns-f01` (head `3ff1b5a`, from `main`, no PR). The details grids use
+   `minmax(0,1fr)` with `wrap-anywhere`, in Client Details and in the review page's Return Details.
+   Verifying it was blocked: Client Details says "The client's details are not available right now"
+   for LVP's seeded return `lvp2023` (local real API) and in mock mode. Find out why
+   `api.clients.get` fails on that page first: local data, or a regression on `main` since her
+   Oct 25 screenshot. Then run the scratchpad's `r60-tax-return-client-details.spec.ts` (a
+   real-API spec: a long email and address inside the card at 1440, 1024 and 375 px) and open the
+   PR with a sheet. Then, in Rasel's order: TX-F01 is done,
    F34 and F35 (archived filter and restore), F22 (rejection dialog), F31 (business identity on a
    business return), F11 (Intake Form card), F04 (Client Portal route), F28 (manual amounts). Then
    SH1 to SH6 once R56's shared components land (no second copy). F25 to F28 (amounts and
