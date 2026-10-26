@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarCheck,
-  CaretDown,
   CaretLeft,
   CaretRight,
   ChartBar,
@@ -63,6 +62,7 @@ import {
   TasksTab,
   CommunicationsTab,
 } from './workspace-tabs';
+import { OriginLink } from '../../../../../components/origin-link';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -200,7 +200,7 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
               onNotice={notice}
               trigger={
                 <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
-                  Client Actions <CaretDown aria-hidden weight="bold" className="size-3" />
+                  Client Actions
                 </span>
               }
             />
@@ -541,12 +541,12 @@ function Overview({
         <button type="button" className={outlined} onClick={() => onAdd('CONTRACTOR')}>
           <Users aria-hidden weight="fill" className="size-4" /> Add Contractor
         </button>
-        <Link href="/documents/requests" className={outlined}>
+        <OriginLink href="/documents/requests" className={outlined}>
           <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
-        </Link>
-        <Link href="/tasks/new" className={outlined}>
+        </OriginLink>
+        <OriginLink href="/tasks/new" className={outlined}>
           <Plus aria-hidden weight="bold" className="size-4" /> Create Task
-        </Link>
+        </OriginLink>
         <button type="button" className={outlined} onClick={() => onTab('reports')}>
           <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
         </button>
@@ -567,8 +567,7 @@ function Overview({
             onNotice={notice}
             trigger={
               <span className="inline-flex items-center gap-2 text-sm font-medium text-action">
-                <DotsThreeVertical aria-hidden weight="bold" className="size-4" /> More Actions{' '}
-                <CaretDown aria-hidden weight="bold" className="size-3" />
+                <DotsThreeVertical aria-hidden weight="bold" className="size-4" /> More Actions
               </span>
             }
           />
@@ -774,9 +773,12 @@ function OverviewTasks({ clientId, onAll }: { clientId: string | undefined; onAl
               key={t.id}
               className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
             >
-              <Link href={`/tasks/${t.id}`} className="min-w-0 truncate text-link hover:underline">
+              <OriginLink
+                href={`/tasks/${t.id}`}
+                className="min-w-0 truncate text-link hover:underline"
+              >
                 {t.title}
-              </Link>
+              </OriginLink>
               <span className="shrink-0 text-xs text-muted">
                 {t.dueOn ? dayText(t.dueOn) : '—'}
               </span>
@@ -784,9 +786,9 @@ function OverviewTasks({ clientId, onAll }: { clientId: string | undefined; onAl
           ))}
         </ul>
       )}
-      <Link href="/tasks/new" className={`${outlined} mt-3`}>
+      <OriginLink href="/tasks/new" className={`${outlined} mt-3`}>
         <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-      </Link>
+      </OriginLink>
     </section>
   );
 }
@@ -837,9 +839,9 @@ function OverviewDocuments({
         </ul>
       )}
       {clientId ? (
-        <Link href={`/clients/${clientId}/documents`} className={`${outlined} mt-3`}>
+        <OriginLink href={`/clients/${clientId}/documents`} className={`${outlined} mt-3`}>
           Upload Document
-        </Link>
+        </OriginLink>
       ) : null}
     </section>
   );

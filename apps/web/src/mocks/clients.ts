@@ -437,6 +437,9 @@ export function createClientsMock(
         )
         .filter((r) => !q.clientStatus || workOf(r.id).status === q.clientStatus)
         .filter((r) => !q.serviceId || workOf(r.id).services.some((x) => x.id === q.serviceId))
+        // The Pending Documents and Balances Due cards' clients, as the API (E1).
+        .filter((r) => q.owes !== 'DOCUMENTS' || workOf(r.id).missingDocuments > 0)
+        .filter((r) => q.owes !== 'BALANCE' || workOf(r.id).balanceDueCents > 0)
         .filter((r) => {
           if (!q.lastActivityFrom && !q.lastActivityTo) return true;
           const last = workOf(r.id).lastActivityAt?.slice(0, 10);
