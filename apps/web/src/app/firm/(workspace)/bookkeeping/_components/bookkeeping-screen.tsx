@@ -1,6 +1,6 @@
 'use client';
 
-import type { BookkeepingClientRow, BookkeepingOverviewPeriod } from '@firmivra/types';
+import { type BookkeepingClientRow, BookkeepingOverviewPeriod } from '@firmivra/types';
 import {
   Button,
   DonutChart,
@@ -26,7 +26,7 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -48,6 +48,9 @@ import {
   subtle,
   trendOf,
 } from './bookkeeping-shared';
+import { OriginLink } from '../../../../../components/origin-link';
+import { pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { BOOKKEEPING_VIEW, type BookkeepingView } from './list-view';
 
 const TABS = [
   { id: 'ALL', label: 'All Clients' },
@@ -89,22 +92,44 @@ const dueRange = (v: string) => {
 };
 
 /** /bookkeeping: the module home: KPIs, status and monthly charts, software, and the client list. */
-export function BookkeepingScreen() {
-  const [period, setPeriod] = useState<BookkeepingOverviewPeriod>('THIS_MONTH');
-  const [tab, setTab] = useState<TabId>('ALL');
-  const [type, setType] = useState('');
-  const [plan, setPlan] = useState('');
-  const [software, setSoftware] = useState('');
-  const [status, setStatus] = useState('');
-  const [due, setDue] = useState('');
-  const [search, setSearch] = useState('');
+export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: BookkeepingView }) {
+  const [period, setPeriod] = useState<BookkeepingOverviewPeriod>(
+    BookkeepingOverviewPeriod.safeParse(initial.period).data ?? 'THIS_MONTH',
+  );
+  const [tab, setTab] = useState<TabId>(TABS.find((t) => t.id === initial.tab)?.id ?? 'ALL');
+  const [type, setType] = useState(initial.type);
+  const [plan, setPlan] = useState(initial.plan);
+  const [software, setSoftware] = useState(initial.software);
+  const [status, setStatus] = useState(initial.status);
+  const [due, setDue] = useState(initial.due);
+  const [search, setSearch] = useState(initial.q);
   const [filters, setFilters] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(pageOf(initial.page));
+  const [pageSize, setPageSize] = useState(pageOf(initial.size, 10));
   const [sort, setSort] = useState<{ id: string; descending: boolean }>({
-    id: 'name',
-    descending: false,
+    id: initial.sort || 'name',
+    descending: initial.desc === '1',
   });
+  // SH1: the list's view stays in the address, so Back from a page it opens restores it.
+  useEffect(() => {
+    writeListQuery(
+      {
+        period,
+        tab,
+        type,
+        plan,
+        software,
+        status,
+        due,
+        q: search,
+        page: String(page),
+        size: String(pageSize),
+        sort: sort.id,
+        desc: sort.descending ? '1' : '0',
+      },
+      BOOKKEEPING_VIEW,
+    );
+  }, [period, tab, type, plan, software, status, due, search, page, pageSize, sort]);
   const [dialog, setDialog] = useState<'connect' | 'add'>();
   const [connectFor, setConnectFor] = useState<{ id: string; name: string }>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -270,9 +295,9 @@ export function BookkeepingScreen() {
           >
             <ArrowsClockwise aria-hidden weight="bold" className="size-4" /> Sync All Clients
           </button>
-          <Link href="/documents" className={subtle}>
+          <OriginLink href="/documents" className={subtle}>
             <FileText aria-hidden weight="bold" className="size-4" /> Request Documents
-          </Link>
+          </OriginLink>
           <Link href="/bookkeeping/reports" className={subtle}>
             <ChartBar aria-hidden weight="bold" className="size-4" /> View Reports
           </Link>
@@ -432,9 +457,9 @@ export function BookkeepingScreen() {
             <h2 className="font-display text-lg font-bold text-heading">
               Connected Accounting Software
             </h2>
-            <Link href="/integrations" className={linkBtn}>
+            <OriginLink href="/integrations" className={linkBtn}>
               Manage Integrations
-            </Link>
+            </OriginLink>
           </div>
           {o && o.software.length > 0 ? (
             <ul className="flex flex-col gap-1.5">

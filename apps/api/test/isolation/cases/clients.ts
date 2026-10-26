@@ -97,12 +97,14 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/client-sign-ups/:clientAccountId': {
     params: { clientAccountId: 'pendingClientAccount' },
   },
+  // Every Sign-ups write names the version it read and its own key: a fresh key per call.
   'POST /api/v1/client-sign-ups/:clientAccountId/approve': {
     params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ version: 1, idempotencyKey: randomUUID() }),
     bodyIds: { clientId: 'linkableClient' },
   },
   'POST /api/v1/client-sign-ups/:clientAccountId/decline': {
     params: { clientAccountId: 'pendingClientAccount' },
-    body: {},
+    body: () => ({ version: 1, idempotencyKey: randomUUID() }),
   },
 };

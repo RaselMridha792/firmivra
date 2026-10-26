@@ -36,6 +36,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { BK_ERRORS, BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 
@@ -464,9 +465,14 @@ export function ClientMenu({
   triggerLabel?: string;
 }) {
   const router = useRouter();
+  const toOrigin = useOriginNavigate();
   const act = useAct(onNotice);
   const [dialog, setDialog] = useState<DialogName>();
-  const go = (href: string) => () => router.push(href);
+  // SH1: a page outside the workspace gets Back to this exact place.
+  const go = (href: string) => () =>
+    href.startsWith('/payroll') || href.startsWith('/bookkeeping')
+      ? router.push(href)
+      : toOrigin(href);
   const connected = !!row.software;
   const items: ActionMenuItem[] = [
     {

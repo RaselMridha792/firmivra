@@ -581,6 +581,19 @@ function Overview({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Not
   );
 }
 
+/** An email that wraps before its @ first, and anywhere only when a part is still too long. */
+function EmailText({ value }: { value: string }) {
+  const at = value.lastIndexOf('@');
+  if (at <= 0) return value;
+  return (
+    <>
+      {value.slice(0, at)}
+      <wbr />
+      {value.slice(at)}
+    </>
+  );
+}
+
 /** Client Details: from the client record (Edit opens it), with the newest internal note. */
 function ClientDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
   const q = useApiQuery([...TR_KEY, 'client', detail.client.id], () =>
@@ -609,7 +622,7 @@ function ClientDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
               ] as [string, ReactNode],
             ]
           : [['Entity Type', p?.entityType ?? '—'] as [string, ReactNode]]),
-        ['Email', c.email ?? '—'],
+        ['Email', c.email ? <EmailText key="email" value={c.email} /> : '—'],
         ['Phone', c.phone ?? '—'],
         [
           'Address',
@@ -638,16 +651,21 @@ ${[address.city, address.state].filter(Boolean).join(', ')} ${address.postalCode
       ) : !c ? (
         <p className={quiet}>Loading…</p>
       ) : (
-        <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-sm">
-          {rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-heading">{k}</dt>
-              <dd className="border-b border-divider pb-2 break-words whitespace-pre-line text-text">
-                {v}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        // The value column may shrink below its longest word, so a long email or address wraps
+        // inside the card instead of running behind the next one (Octavia's TX-F01). In a narrow
+        // card (beside the checklist at 1440 px) each label sits above its value.
+        <div className="@container">
+          <dl className="grid grid-cols-1 gap-y-1 text-sm @xs:grid-cols-[7rem_minmax(0,1fr)] @xs:gap-x-3 @xs:gap-y-2">
+            {rows.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-heading">{k}</dt>
+                <dd className="mb-1 min-w-0 border-b border-divider pb-2 wrap-anywhere whitespace-pre-line text-text @xs:mb-0">
+                  {v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
       <NotesPanelPreview detail={detail} onNotice={onNotice} />
     </Panel>

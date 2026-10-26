@@ -1761,6 +1761,10 @@ export const TaxReturnDocumentKind = z.enum([
 ]);
 export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
 
+/** ERROR blocks Ready to File and transmission; a MANUAL_WARNING needs review but never blocks (Octavia, Oct 25); INFO never blocks. */
+export const TaxIssueSeverity = z.enum(['ERROR', 'MANUAL_WARNING', 'INFO']);
+export type TaxIssueSeverity = z.infer<typeof TaxIssueSeverity>;
+
 /** Calendar colours: token names the screens map to packages/ui (no hex values here). */
 export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);
 export type CalendarColor = z.infer<typeof CalendarColor>;

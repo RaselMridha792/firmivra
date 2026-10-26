@@ -1,7 +1,7 @@
 'use client';
 
-import type {
-  PayrollClientRow,
+import {
+  type PayrollClientRow,
   PayrollClientsQuery,
   PayrollClientTab,
   PayrollOverviewPeriod,
@@ -36,7 +36,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -64,6 +64,9 @@ import {
   outlined,
   quiet,
 } from './payroll-shared';
+import { OriginLink } from '../../../../../components/origin-link';
+import { pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { PAYROLL_VIEW, type PayrollView } from './list-view';
 
 const TABS: { id: PayrollClientTab; label: string }[] = [
   { id: 'ALL', label: 'All Clients' },
@@ -89,19 +92,53 @@ const BLANK = {
   syncStatus: '',
 };
 
+/** The filters of a view from the address; a value the API would refuse is left out. */
+function viewFilters(view: PayrollView): typeof BLANK {
+  const shape = PayrollClientsQuery.shape;
+  const keep = (key: keyof typeof BLANK) =>
+    view[key] && shape[key].safeParse(view[key]).success ? view[key] : '';
+  return {
+    clientType: keep('clientType'),
+    providerKey: keep('providerKey'),
+    frequency: keep('frequency'),
+    status: keep('status'),
+    assignedUserId: keep('assignedUserId'),
+    syncStatus: keep('syncStatus'),
+  };
+}
+
 /** /payroll: the overview. KPI cards, charts, the client table with its seven views, and the side widgets. */
-export function PayrollScreen() {
+export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollView }) {
   const router = useRouter();
-  const [period, setPeriod] = useState<PayrollOverviewPeriod>('THIS_MONTH');
-  const [tab, setTab] = useState<PayrollClientTab>('ALL');
-  const [filters, setFilters] = useState(BLANK);
-  const [more, setMore] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [period, setPeriod] = useState<PayrollOverviewPeriod>(
+    PayrollOverviewPeriod.safeParse(initial.period).data ?? 'THIS_MONTH',
+  );
+  const [tab, setTab] = useState<PayrollClientTab>(
+    PayrollClientTab.safeParse(initial.tab).data ?? 'ALL',
+  );
+  const [filters, setFilters] = useState(() => viewFilters(initial));
+  const [more, setMore] = useState(Object.values(viewFilters(initial)).some(Boolean));
+  const [search, setSearch] = useState(initial.q);
+  const [page, setPage] = useState(pageOf(initial.page));
   const [sort, setSort] = useState<Pick<PayrollClientsQuery, 'sort' | 'direction'>>({
-    sort: 'clientName',
-    direction: 'asc',
+    sort: PayrollClientsQuery.shape.sort.safeParse(initial.sort).data ?? 'clientName',
+    direction: PayrollClientsQuery.shape.direction.safeParse(initial.dir).data ?? 'asc',
   });
+  // SH1: the list's view stays in the address, so Back from a page it opens restores it.
+  useEffect(() => {
+    writeListQuery(
+      {
+        period,
+        tab,
+        q: search,
+        page: String(page),
+        sort: sort.sort ?? 'clientName',
+        dir: sort.direction ?? 'asc',
+        ...filters,
+      },
+      PAYROLL_VIEW,
+    );
+  }, [period, tab, search, page, sort, filters]);
   const [selected, setSelected] = useState<string[]>([]);
   const [dialog, setDialog] = useState<
     'settings' | 'add' | 'connect' | 'reports' | 'assign' | undefined
@@ -275,9 +312,9 @@ export function PayrollScreen() {
           <button type="button" className={outlined} onClick={() => setDialog('reports')}>
             <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
           </button>
-          <Link href="/documents/requests" className={outlined}>
+          <OriginLink href="/documents/requests" className={outlined}>
             <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
-          </Link>
+          </OriginLink>
           <button type="button" className={outlined} onClick={() => setDialog('settings')}>
             <Gear aria-hidden weight="fill" className="size-4" /> Payroll Settings
           </button>
