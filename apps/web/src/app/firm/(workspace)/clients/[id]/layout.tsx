@@ -2,12 +2,14 @@
 
 import { Badge } from '@firmivra/ui';
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { initials, publicPath } from '../../../../../components/app-shell/types';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
+import { LAST_CLIENTS_LIST } from '../../../../../lib/clients-place';
 import { ACCOUNT_TYPES, formatPhone, PortalBadge } from '../_components/client-parts';
+import { RETURNING, session } from '../_components/list-place';
 import { ArchiveAction } from './_components/archive-action';
 import { EditClient } from './_components/edit-client';
 import { useClientRecord } from './_components/use-client-record';
@@ -29,11 +31,24 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   const path = publicPath(usePathname());
   const base = `/clients/${encodeURIComponent(id)}`;
   const record = useClientRecord(id);
+  const router = useRouter();
 
   return (
     <div className="flex flex-col gap-5">
       <p className="text-sm text-muted">
-        <Link href="/clients" className="text-link hover:underline">
+        <Link
+          href="/clients"
+          onClick={(event) => {
+            // Return to Clients opens the list as it was left (Octavia's E7).
+            const last = session.get(LAST_CLIENTS_LIST);
+            session.set(RETURNING, '1');
+            if (last && last !== '/clients') {
+              event.preventDefault();
+              router.push(last);
+            }
+          }}
+          className="text-link hover:underline"
+        >
           Clients
         </Link>
         <span aria-hidden> / </span>
