@@ -96,3 +96,4 @@ export { DocumentRequestStatus } from './schemas.js';
 export { RecurrenceFrequency, ReminderChannel, SidebarPosition, SidebarStyle } from './schemas.js';
 export * from './bookkeeping/index.js';
 export * from './public-links/index.js';
+export * from './client-invitations/index.js';
