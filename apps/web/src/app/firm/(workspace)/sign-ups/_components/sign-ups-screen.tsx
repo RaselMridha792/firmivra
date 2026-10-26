@@ -134,7 +134,7 @@ export function SignUpsScreen({
     <div className="flex min-w-0 flex-col gap-5">
       {header}
 
-      <ApprovalCard settings={settings} />
+      <ApprovalCard settings={settings} onNotice={setNotice} />
       {notice ? (
         <p
           data-testid="sign-ups-feedback"

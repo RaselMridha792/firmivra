@@ -13,6 +13,9 @@ export const SIGN_UP_ERRORS: Record<string, string> = {
   CLIENT_NOT_LINKABLE:
     'This sign-up can no longer be linked to that client. Check the client list before approving.',
   NOT_FOUND: 'This sign-up is no longer here. It may belong to another firm or have been removed.',
+  STALE_VERSION:
+    'This changed since you opened it, and it is now up to date. Review it again before you decide.',
+  IDEMPOTENCY_KEY_REUSED: 'This was already sent with other details. Close and start again.',
 };
 
 /** The tabs, in the design's order and words. */

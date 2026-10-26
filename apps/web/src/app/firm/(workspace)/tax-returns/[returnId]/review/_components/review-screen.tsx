@@ -297,11 +297,11 @@ function ReturnDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
         </button>
       }
     >
-      <dl className="grid grid-cols-[9rem_1fr] gap-x-3 text-sm">
+      <dl className="grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="border-b border-divider py-1.5 text-heading">{k}</dt>
-            <dd className="border-b border-divider py-1.5 text-text">{v}</dd>
+            <dd className="min-w-0 border-b border-divider py-1.5 wrap-anywhere text-text">{v}</dd>
           </div>
         ))}
       </dl>

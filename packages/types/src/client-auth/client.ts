@@ -28,6 +28,7 @@ import {
   ResendCodeRequest,
   SignUpRequest,
   SignUpState,
+  UpdateClientSignUpSettingsRequest,
   VerifyCodeRequest,
 } from './schemas.js';
 
@@ -109,13 +110,21 @@ export function createClientSignUpsClient(request: ApiRequest) {
       request(ClientSignUpDetail, one(clientAccountId)),
     settings: async (): Promise<ClientSignUpSettings> =>
       request(ClientSignUpSettings, `${SIGN_UPS}/settings`),
+    /** Changes the approval mode. 409 STALE_VERSION or IDEMPOTENCY_KEY_REUSED. */
+    updateSettings: async (
+      body: UpdateClientSignUpSettingsRequest,
+    ): Promise<ClientSignUpSettings> =>
+      request(ClientSignUpSettings, `${SIGN_UPS}/settings`, {
+        method: 'PATCH',
+        body: parseInput(UpdateClientSignUpSettingsRequest, body),
+      }),
     /**
      * Creates the client record, or links to `{ clientId }` so the firm gets no duplicate.
      * 409 NOT_PENDING, DUPLICATE_EMAIL or POTENTIAL_MATCH; 404 for an unknown clientId.
      */
     approve: async (
       clientAccountId: string,
-      body: ApproveSignUpRequest = {},
+      body: ApproveSignUpRequest,
     ): Promise<ApproveSignUpResponse> =>
       request(ApproveSignUpResponse, `${one(clientAccountId)}/approve`, {
         method: 'POST',
@@ -124,7 +133,7 @@ export function createClientSignUpsClient(request: ApiRequest) {
     /** Closes the login; the client gets an email. 409 NOT_PENDING. */
     decline: async (
       clientAccountId: string,
-      body: DeclineSignUpRequest = {},
+      body: DeclineSignUpRequest,
     ): Promise<DeclineSignUpResponse> =>
       request(DeclineSignUpResponse, `${one(clientAccountId)}/decline`, {
         method: 'POST',

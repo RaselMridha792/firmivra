@@ -286,6 +286,11 @@ export const SignUpState = z.object({
   phoneMasked: z.string(),
   /** When "Resend Code" works again (the 45 s countdown); null at DONE and CONTACT_FIRM. */
   resendAvailableAt: z.iso.datetime({ offset: true }).nullable(),
+  /**
+   * At DONE: the firm approves sign-ups automatically and this one met its rule, so the portal is
+   * open now ("Account Created" says so). False while the firm still has to approve it.
+   */
+  approved: z.boolean().default(false),
 });
 export type SignUpState = z.infer<typeof SignUpState>;
 
@@ -369,6 +374,8 @@ export const ClientSignUp = z.object({
   match: SignUpMatch.nullable(),
   /** Approved requests: the client record the login belongs to. */
   client: SignUpClientRef.nullable(),
+  /** Raised by each decision; every write sends the version it read (a newer one is 409). */
+  version: z.number().int().min(1),
 });
 export type ClientSignUp = z.infer<typeof ClientSignUp>;
 
@@ -404,6 +411,13 @@ export type SignUpEvent = z.infer<typeof SignUpEvent>;
 export const ClientSignUpDetail = ClientSignUp.extend({
   history: z.array(SignUpEvent),
   candidates: z.array(SignUpClientRef.extend({ matchedOn: z.array(z.enum(['email', 'phone'])) })),
+  /** Approved by the firm's Automatic Approval rule (no member decided). */
+  automatic: z.boolean(),
+  /**
+   * What may be done now, checked on the server: a waiting request may be declined, and approved
+   * as a new client only with no potential match. Empty once decided.
+   */
+  allowedActions: z.array(z.enum(['APPROVE', 'DECLINE'])),
 });
 export type ClientSignUpDetail = z.infer<typeof ClientSignUpDetail>;
 
@@ -419,6 +433,28 @@ export const ClientSignUpSettings = z.object({
 export type ClientSignUpSettings = z.infer<typeof ClientSignUpSettings>;
 
 /**
+ * Every Sign-ups write (Octavia's spec, sections 7 and 8): the version it read, refused with 409
+ * STALE_VERSION once another change raised it, and one key per attempt. A retry with the same key
+ * and data returns the first outcome and does nothing again; the key with other data is 409
+ * IDEMPOTENCY_KEY_REUSED.
+ */
+const SignUpWrite = {
+  version: z.number().int().min(1),
+  idempotencyKey: z.uuid(),
+};
+
+/**
+ * PATCH /client-sign-ups/settings (Owner and Admin): the approval mode. It applies to sign-ups
+ * completed from then on: requests already waiting stay waiting. Audited with the old and new
+ * mode and the new policy version.
+ */
+export const UpdateClientSignUpSettingsRequest = z.strictObject({
+  mode: ClientSignupMode,
+  ...SignUpWrite,
+});
+export type UpdateClientSignUpSettingsRequest = z.input<typeof UpdateClientSignUpSettingsRequest>;
+
+/**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
  * record from the sign-up, unless it may belong to a client the firm already has: 409
  * DUPLICATE_EMAIL when a record has its email, 409 POTENTIAL_MATCH when one has its phone number
@@ -427,7 +463,10 @@ export type ClientSignUpSettings = z.infer<typeof ClientSignUpSettings>;
  * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
  * client). Any other field is refused (400), so a typo never approves the wrong way.
  */
-export const ApproveSignUpRequest = z.strictObject({ clientId: z.uuid().optional() });
+export const ApproveSignUpRequest = z.strictObject({
+  clientId: z.uuid().optional(),
+  ...SignUpWrite,
+});
 export type ApproveSignUpRequest = z.input<typeof ApproveSignUpRequest>;
 
 /** The client can use the portal. */
@@ -437,13 +476,22 @@ export const ApproveSignUpResponse = z.object({
   clientId: z.uuid(),
   status: ClientAccountStatus.extract(['ACTIVE']),
   approvedAt: z.iso.datetime({ offset: true }),
+  /** The request's version after the approval. */
+  version: z.number().int().min(1),
+  /** The operation's id in the audit log, the same on a retry. */
+  correlationId: z.uuid(),
 });
 export type ApproveSignUpResponse = z.infer<typeof ApproveSignUpResponse>;
 
-/** POST /client-sign-ups/{clientAccountId}/decline. The client gets an email. */
+/**
+ * POST /client-sign-ups/{clientAccountId}/decline. The client gets one email in the firm's neutral
+ * words, unless `notify` is false.
+ */
 export const DeclineSignUpRequest = z.strictObject({
   /** For the firm only; never sent to the client. */
   reason: text(500, 'many').optional(),
+  notify: z.boolean().default(true),
+  ...SignUpWrite,
 });
 export type DeclineSignUpRequest = z.input<typeof DeclineSignUpRequest>;
 
@@ -451,6 +499,10 @@ export const DeclineSignUpResponse = z.object({
   clientAccountId: z.uuid(),
   status: ClientAccountStatus.extract(['DECLINED']),
   declinedAt: z.iso.datetime({ offset: true }),
+  version: z.number().int().min(1),
+  correlationId: z.uuid(),
+  /** Whether the applicant is told (`notify`). */
+  notified: z.boolean(),
 });
 export type DeclineSignUpResponse = z.infer<typeof DeclineSignUpResponse>;
 
@@ -486,5 +538,9 @@ export const ClientAuthErrorCode = z.enum([
    * number: the request may be an existing client's, so it stays waiting (Octavia's Sign-ups, 4).
    */
   'POTENTIAL_MATCH',
+  /** 409: the request or setting changed since it was read. Nothing changed; read it again. */
+  'STALE_VERSION',
+  /** 409: an idempotency key already used with other data. The earlier operation stands. */
+  'IDEMPOTENCY_KEY_REUSED',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;

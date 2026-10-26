@@ -205,6 +205,7 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
     expect((await v.post('/verify-email', { code: '000000' })).body).toMatchObject({
       step: 'DONE',
       resendAvailableAt: null,
+      approved: false,
     });
     expect((await v.state()).body).toMatchObject({ step: 'DONE' });
     expect(codeOf(await v.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
@@ -253,7 +254,10 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
     expect(
       (queue.body as { items: { clientAccountId: string }[] }).items.map((i) => i.clientAccountId),
     ).toContain(account.id);
-    const approved = await firmCall('post', `/${account.id}/approve`, {});
+    const approved = await firmCall('post', `/${account.id}/approve`, {
+      version: 1,
+      idempotencyKey: randomUUID(),
+    });
     expect(approved.status, JSON.stringify(approved.body)).toBe(200);
     expect(approved.body).toMatchObject({ clientAccountId: account.id, status: 'ACTIVE' });
   });
@@ -275,7 +279,14 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
     expect(
       (queue.body as { items: { clientAccountId: string }[] }).items.map((i) => i.clientAccountId),
     ).not.toContain(account.id);
-    expect(codeOf(await firmCall('post', `/${account.id}/approve`, {}))).toBe('NOT_FOUND');
+    expect(
+      codeOf(
+        await firmCall('post', `/${account.id}/approve`, {
+          version: 1,
+          idempotencyKey: randomUUID(),
+        }),
+      ),
+    ).toBe('NOT_FOUND');
     const db = createDatabase(fx.appUrl, TEST_CLIENT_OPTIONS);
     try {
       expect(await portalClient(db, firmId, { email })).toBeUndefined();
