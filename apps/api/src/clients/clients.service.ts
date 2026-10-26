@@ -179,6 +179,12 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
   };
 }
 
+/**
+ * An advisory workstream the client is enrolled in (Octavia's E3): the counterpart of a PENDING or
+ * ACTIVE engagement. Interested, proposed, completed and declined ones are not enrolments.
+ */
+const ENROLLED_WORKSTREAMS = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_HOLD'] as const;
+
 /** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
   const { address, ssn: _s, ein: _e, dateOfBirth: _d, ...rest } = body;
@@ -238,6 +244,7 @@ export class ClientsService {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
     const days = await this.dayBounds(businessId, q.lastActivityFrom, q.lastActivityTo);
+    const owing = q.owes ? await this.owing(businessId, q.owes) : null;
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
       this.reach(actor),
@@ -247,12 +254,28 @@ export class ClientsService {
       q.clientStatus ? { status: q.clientStatus } : {},
       q.serviceId
         ? {
-            engagements: {
-              some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-            },
+            OR: [
+              {
+                engagements: {
+                  some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+                },
+              },
+              // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
+              {
+                advisoryRecords: {
+                  some: {
+                    archivedAt: null,
+                    workstreams: {
+                      some: { serviceId: q.serviceId, status: { in: [...ENROLLED_WORKSTREAMS] } },
+                    },
+                  },
+                },
+              },
+            ],
           }
         : {},
       days ? { lastActivityAt: { gte: days.start, lt: days.end } } : {},
+      owing ? { id: { in: owing } } : {},
       term
         ? {
             OR: [
@@ -309,6 +332,26 @@ export class ClientsService {
   }
 
   /** The firm's calendar days `from` to `to` (both included) as instants; null without either. */
+  /**
+   * The firm's clients who still owe documents or a balance (Octavia's E1), by the same rules as
+   * the summary's Pending Documents and Balances Due cards, so a card's count is what its list shows.
+   */
+  private async owing(businessId: string, owes: 'DOCUMENTS' | 'BALANCE'): Promise<string[]> {
+    const rows = await this.inFirm(businessId, (tx) =>
+      owes === 'DOCUMENTS'
+        ? tx.$queryRaw<{ id: string }[]>`
+            SELECT c.id::text AS id FROM clients c WHERE c.business_id = ${businessId}::uuid
+              AND EXISTS (SELECT 1 FROM document_requests d WHERE d.business_id = c.business_id
+                AND d.client_id = c.id AND d.status IN ('REQUESTED', 'REJECTED'))`
+        : tx.$queryRaw<{ id: string }[]>`
+            SELECT c.id::text AS id FROM clients c WHERE c.business_id = ${businessId}::uuid
+              AND EXISTS (SELECT 1 FROM invoices i WHERE i.business_id = c.business_id
+                AND i.client_id = c.id AND i.status = 'OPEN'
+                AND i.total_cents > app_invoice_paid_cents(i.id))`,
+    );
+    return rows.map((r) => r.id);
+  }
+
   private async dayBounds(
     businessId: string,
     from: string | undefined,
@@ -327,9 +370,9 @@ export class ClientsService {
   }
 
   /**
-   * The work around a page of clients, in the firm's scope: open engagements' services, document
-   * requests still owed (REQUESTED or REJECTED), the balance on OPEN invoices and the next
-   * SCHEDULED appointment.
+   * The work around a page of clients, in the firm's scope: the services they are in (open
+   * engagements, and advisory workstreams they are enrolled in), document requests still owed
+   * (REQUESTED or REJECTED), the balance on OPEN invoices and the next SCHEDULED appointment.
    */
   private async workOf(businessId: string, ids: string[]) {
     const services = new Map<string, ClientServiceRef[]>();
@@ -338,11 +381,23 @@ export class ClientsService {
     const next = new Map<string, Date>();
     if (ids.length === 0) return { services, missing, balance, next };
     const db = this.database.forBusiness(businessId);
-    const [engagements, requests, appointments, owed] = await Promise.all([
+    const [engagements, workstreams, requests, appointments, owed] = await Promise.all([
       db.engagement.findMany({
         where: { businessId, clientId: { in: ids }, status: { in: ['PENDING', 'ACTIVE'] } },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { clientId: true, service: { select: { id: true, name: true, kind: true } } },
+      }),
+      db.advisoryWorkstream.findMany({
+        where: {
+          businessId,
+          status: { in: [...ENROLLED_WORKSTREAMS] },
+          advisoryClient: { clientId: { in: ids }, archivedAt: null },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          advisoryClient: { select: { clientId: true } },
+          service: { select: { id: true, name: true, kind: true } },
+        },
       }),
       db.documentRequest.groupBy({
         by: ['clientId'],
@@ -370,7 +425,11 @@ export class ClientsService {
           GROUP BY i.client_id`,
       ),
     ]);
-    for (const e of engagements) {
+    const enrolled = [
+      ...engagements,
+      ...workstreams.map((w) => ({ clientId: w.advisoryClient.clientId, service: w.service })),
+    ];
+    for (const e of enrolled) {
       const list = services.get(e.clientId) ?? [];
       if (!list.some((s) => s.id === e.service.id)) list.push(e.service);
       services.set(e.clientId, list);
@@ -421,9 +480,16 @@ export class ClientsService {
         SELECT sv.id::text AS id, sv.name, sv.kind::text AS kind,
           count(DISTINCT c.id)::int AS count
         FROM services sv
-        LEFT JOIN engagements e ON e.business_id = sv.business_id AND e.service_id = sv.id
-          AND e.status IN ('PENDING', 'ACTIVE')
-        LEFT JOIN clients c ON c.business_id = e.business_id AND c.id = e.client_id
+        LEFT JOIN (
+          SELECT e.service_id, e.client_id FROM engagements e
+            WHERE e.business_id = ${businessId}::uuid AND e.status IN ('PENDING', 'ACTIVE')
+          UNION
+          SELECT w.service_id, a.client_id FROM advisory_workstreams w
+            JOIN advisory_clients a ON a.business_id = w.business_id AND a.id = w.advisory_client_id
+            WHERE w.business_id = ${businessId}::uuid AND a.archived_at IS NULL
+              AND w.status::text IN (${Prisma.join([...ENROLLED_WORKSTREAMS])})
+        ) en ON en.service_id = sv.id
+        LEFT JOIN clients c ON c.business_id = sv.business_id AND c.id = en.client_id
           AND c.archived_at IS NULL AND ${mine}
         WHERE sv.business_id = ${businessId}::uuid AND sv.archived_at IS NULL
         GROUP BY sv.id, sv.name, sv.kind
