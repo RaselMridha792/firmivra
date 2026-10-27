@@ -300,15 +300,41 @@ describe('filings', () => {
       TaxReturnDetail,
     );
     const attempt = t1.items[0]!.attempts[0]!.id;
-    const rejected = ok(
+    // TX-F22: Rejected waits for a recorded rejection, which names its agency and the fix.
+    expectError(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'REJECTED' }),
+      409,
+      'REJECTION_NOT_RECORDED',
+    );
+    expectError(
       await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
         ackStatus: 'REJECTED',
         acknowledgedAt: ago(10),
         rejectCode: 'IND-031',
+        correctiveAction: 'Fix the prior-year AGI',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const rejected = ok(
+      await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
+        ackStatus: 'REJECTED',
+        acknowledgedAt: ago(10),
+        rejectingAgency: 'IRS',
+        rejectCode: 'IND-031',
+        correctiveAction: 'Fix the prior-year AGI',
       }),
       TaxReturnFilingList,
     );
-    expect(rejected.items[0]).toMatchObject({ status: 'REJECTED' });
+    expect(rejected.items[0]).toMatchObject({
+      status: 'REJECTED',
+      attempts: [{ ackStatus: 'REJECTED', rejectingAgency: 'IRS', rejectCode: 'IND-031' }],
+    });
+    const moved = ok(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'REJECTED' }),
+      TaxReturnDetail,
+    );
+    expect(moved.workflowStatus).toBe('REJECTED');
     expectError(
       await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
         ackStatus: 'ACCEPTED',
@@ -346,7 +372,15 @@ describe('filings', () => {
       TaxReturnFilingList,
     );
     expect(accepted.items[0]).toMatchObject({ status: 'ACCEPTED' });
+    // TX-F24: the retransmission is a new attempt; the rejected one stays with its answer.
     expect(accepted.items[0]!.attempts).toHaveLength(2);
+    expect(accepted.items[0]!.attempts[1]).toMatchObject({
+      id: attempt,
+      submissionId: 'SUB-001',
+      ackStatus: 'REJECTED',
+      rejectingAgency: 'IRS',
+      correctiveAction: 'Fixed the prior-year AGI',
+    });
     const done = ok(
       await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'ACCEPTED' }),
       TaxReturnDetail,

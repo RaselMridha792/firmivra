@@ -319,7 +319,7 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
           <TasksTab clientId={w?.client.id} engagementId={w?.engagementId} />
         ) : null}
         {current === 'notes' ? <NotesTab id={id} notice={notice} /> : null}
-        {current === 'communications' ? <CommunicationsTab /> : null}
+        {current === 'communications' ? <CommunicationsTab clientId={w?.client.id} /> : null}
         {current === 'settings' && w ? <SettingsTab w={w} notice={notice} /> : null}
         {adding ? (
           <WorkerDialog

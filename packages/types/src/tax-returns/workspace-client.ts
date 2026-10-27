@@ -95,7 +95,10 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(CorrectTaxReturnBusinessIdentityRequest, body),
       }),
-    /** 409 STATUS_BLOCKED (with `details.blockers`), 400 REASON_REQUIRED going back. */
+    /**
+     * 409 STATUS_BLOCKED (with `details.blockers`), 400 REASON_REQUIRED going back, 409
+     * REJECTION_NOT_RECORDED for Rejected without a recorded rejection.
+     */
     changeStatus: async (
       id: string,
       body: ChangeTaxReturnStatusRequest,

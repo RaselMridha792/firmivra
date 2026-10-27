@@ -64,7 +64,8 @@ const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> =
   Documents: (w) => `/documents?clientId=${w.client.id}`,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
   Notes: (w) => `/clients/${w.client.id}`,
-  Communications: () => '/communications',
+  // SH5: this client's conversations in Messages, not every message.
+  Communications: (w) => `/messages?clientId=${w.client.id}&service=Bookkeeping`,
 };
 
 /** /bookkeeping/clients/[id]: the client's bookkeeping workspace. */
