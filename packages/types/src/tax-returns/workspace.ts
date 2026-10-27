@@ -5,6 +5,7 @@ import {
   ClientAccountType,
   EsignRequestStatus,
   TaxAckStatus,
+  TaxAmountSource,
   TaxAmountStatus,
   TaxApprovalStatus,
   TaxAuthorizationKind,
@@ -193,6 +194,24 @@ export const TaxReturnBlocker = z.enum([
 export type TaxReturnBlocker = z.infer<typeof TaxReturnBlocker>;
 
 /** GET /business/tax-returns/{id}: the workspace header, people, dates and Next Steps. */
+/**
+ * A business return's own copy of the business (Octavia's TX-F31, F32; R1's #1176): name, EIN and
+ * address, copied from the client's profile when the return was created, so later profile edits
+ * never rewrite it. The EIN stays sealed; only its last 4 come back.
+ */
+export const TaxReturnBusinessIdentity = z.object({
+  name: z.string().nullable(),
+  einLast4: z.string().nullable(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  /** Until the return is first filed; after that the database keeps it as filed. */
+  correctable: z.boolean(),
+});
+export type TaxReturnBusinessIdentity = z.infer<typeof TaxReturnBusinessIdentity>;
+
 export const TaxReturnDetail = TaxReturnRow.extend({
   client: ClientCell.extend({ email: z.string().nullable(), phone: z.string().nullable() }),
   engagement: z.object({ id: z.uuid(), title: z.string() }).nullable(),
@@ -216,9 +235,37 @@ export const TaxReturnDetail = TaxReturnRow.extend({
   canMoveTo: z.array(TaxReturnWorkflowStatus),
   /** Why it cannot move on to Ready to File, Transmitted or Accepted yet. */
   blockers: z.array(TaxReturnBlocker),
+  /** Business returns only (null for an individual return). */
+  businessIdentity: TaxReturnBusinessIdentity.nullable(),
   createdAt: DateTime,
 });
 export type TaxReturnDetail = z.infer<typeof TaxReturnDetail>;
+
+/**
+ * PUT /business/tax-returns/{id}/business-identity: corrects a business return's own copy until
+ * its first filing (409 RETURN_LOCKED after; 400 for an individual return). A field left out
+ * stays as it is and an empty one clears. The EIN is 9 digits (dashes allowed), sealed with the
+ * firm's key; only its last 4 ever come back. The client's profile is not changed.
+ */
+export const CorrectTaxReturnBusinessIdentityRequest = z
+  .strictObject({
+    name: clearable(text(200)),
+    ein: clearable(
+      z
+        .string()
+        .transform((v) => v.replace(/[\s-]/g, ''))
+        .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN')),
+    ),
+    addressLine1: clearable(text(200)),
+    addressLine2: clearable(text(200)),
+    city: clearable(text(100)),
+    state: clearable(text(50)),
+    postalCode: clearable(z.string().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code')),
+  })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), 'Change something first');
+export type CorrectTaxReturnBusinessIdentityRequest = z.input<
+  typeof CorrectTaxReturnBusinessIdentityRequest
+>;
 
 /**
  * POST /business/tax-returns (Create New Return). Quarterly needs `quarter`; Amended needs
@@ -277,7 +324,8 @@ export type UpdateTaxReturnDetailsRequest = z.input<typeof UpdateTaxReturnDetail
 /**
  * POST /business/tax-returns/{id}/status (Change Status, Ready for Review, Mark Ready to File,
  * Close). Going back a step needs a reason; Ready to File and Close need APPROVE or the
- * reviewer. 409 STATUS_BLOCKED with the blockers when the database refuses it.
+ * reviewer. 409 STATUS_BLOCKED with the blockers when the database refuses it. Rejected needs an
+ * agency's rejection recorded on a transmission first: 409 REJECTION_NOT_RECORDED (TX-F22).
  */
 export const ChangeTaxReturnStatusRequest = z.strictObject({
   workflowStatus: TaxReturnWorkflowStatus,
@@ -352,6 +400,8 @@ export const TaxFilingAttempt = z.object({
   acknowledgedAt: DateTime.nullable(),
   rejectCode: z.string().nullable(),
   rejectDescription: z.string().nullable(),
+  /** The agency that rejected it; null on an answer recorded before Oct 26. */
+  rejectingAgency: z.string().nullable(),
   correctiveAction: z.string().nullable(),
   recordedBy: MemberRef.nullable(),
   createdAt: DateTime,
@@ -371,6 +421,10 @@ export const TaxReturnFiling = z.object({
   amountDueCents: z.number().int().nullable(),
   /** ESTIMATED until the return is final. */
   amountStatus: TaxAmountStatus.nullable(),
+  /** What staff copied the amount from (Octavia's TX-F28); null without an amount. */
+  amountSource: TaxAmountSource.nullable(),
+  /** 1 for the first amount, one more for each change; null without an amount. */
+  amountVersion: z.number().int().nullable(),
   attempts: z.array(TaxFilingAttempt),
 });
 export type TaxReturnFiling = z.infer<typeof TaxReturnFiling>;
@@ -395,7 +449,11 @@ export const SetTaxReturnFilingsRequest = z.strictObject({
 });
 export type SetTaxReturnFilingsRequest = z.input<typeof SetTaxReturnFilingsRequest>;
 
-/** PATCH /business/tax-returns/{id}/filings/{filingId}: refund or amount due, method, required. */
+/**
+ * PATCH /business/tax-returns/{id}/filings/{filingId}: refund or amount due, method, required. An
+ * amount says where it came from (`amountSource`, 400 without one); each change of the amount
+ * raises its version, and clearing it clears both (TX-F28).
+ */
 export const UpdateTaxReturnFilingRequest = z
   .strictObject({
     required: z.boolean(),
@@ -404,6 +462,7 @@ export const UpdateTaxReturnFilingRequest = z
     refundCents: Cents.nullable(),
     amountDueCents: Cents.nullable(),
     amountStatus: TaxAmountStatus.nullable(),
+    amountSource: TaxAmountSource.nullable(),
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Change something first');
@@ -417,15 +476,20 @@ export const RecordTaxFilingAttemptRequest = z.strictObject({
 });
 export type RecordTaxFilingAttemptRequest = z.input<typeof RecordTaxFilingAttemptRequest>;
 
-/** PATCH /business/tax-returns/{id}/attempts/{attemptId}: the acknowledgment, or the fix note. */
+/**
+ * PATCH /business/tax-returns/{id}/attempts/{attemptId}: the acknowledgment, or the fix note. A
+ * rejection names the agency, its code or description, and the corrective action (Octavia's
+ * TX-F22); the API answers 400 when both the code and the description are missing.
+ */
 export const UpdateTaxFilingAttemptRequest = z.discriminatedUnion('ackStatus', [
   z.strictObject({ ackStatus: z.literal('ACCEPTED'), acknowledgedAt: DateTime }),
   z.strictObject({
     ackStatus: z.literal('REJECTED'),
     acknowledgedAt: DateTime,
+    rejectingAgency: text(100, 'one', 'Enter the agency that rejected it'),
     rejectCode: clearable(text(50)),
     rejectDescription: clearable(text(2000, 'many')),
-    correctiveAction: clearable(text(2000, 'many')),
+    correctiveAction: text(2000, 'many', 'Say what the firm will do about it'),
   }),
   /** After the answer, only the corrective action changes. */
   z.strictObject({ ackStatus: z.literal('NOTE'), correctiveAction: clearable(text(2000, 'many')) }),
@@ -648,6 +712,8 @@ export const TaxReturnWorkspaceErrorCode = z.enum([
   'STATUS_BLOCKED',
   /** 400: going back a step needs a reason. */
   'REASON_REQUIRED',
+  /** 409: Rejected needs the agency's rejection recorded on a transmission first. */
+  'REJECTION_NOT_RECORDED',
   /** 409: a filed return, a transmission or a decided approval does not change. */
   'RETURN_LOCKED',
   /** 409: a new transmission only after the last one was rejected; one waiting at a time. */

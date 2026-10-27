@@ -24,10 +24,32 @@ test('email is always on for staff; text messages wait for a verified mobile num
   await expect(page.getByLabel('Documents by text message')).toBeDisabled();
   const reason = page.getByTestId('sms-unavailable');
   await expect(reason).toContainText('verified mobile number');
-  await expect(reason.getByRole('link', { name: 'My Profile' })).toHaveAttribute(
-    'href',
-    '/profile',
-  );
+  await expect(reason).toContainText('under Mobile Number above');
   // Nothing can change, so nothing can be saved.
   await expect(page.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
+});
+
+test('Mobile Number texts a code, waits a minute between codes, and a right code verifies', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/settings/notifications`);
+  const card = page.getByTestId('mobile-number');
+  await expect(card).toContainText('(770) 555-0123', { timeout: 60_000 });
+  await expect(card.getByText('Not verified')).toBeVisible();
+  await expect(card.getByLabel('Code from the text')).toHaveCount(0);
+
+  await card.getByRole('button', { name: 'Send Code' }).click();
+  await expect(card).toContainText('We sent a 6-digit code to (770) 555-0123');
+  await expect(card.getByRole('button', { name: 'Send a New Code' })).toBeDisabled();
+  await expect(card.getByRole('status')).toContainText('You can send another code in');
+
+  await card.getByLabel('Code from the text').fill('123456');
+  await card.getByRole('button', { name: 'Verify' }).click();
+  await expect(card.getByRole('alert')).toContainText('That code is not right');
+
+  await card.getByLabel('Code from the text').fill('000000');
+  await card.getByRole('button', { name: 'Verify' }).click();
+  await expect(card.getByTestId('mobile-verified')).toContainText('Verified');
+  await expect(card.getByRole('button', { name: /Send/ })).toHaveCount(0);
 });
