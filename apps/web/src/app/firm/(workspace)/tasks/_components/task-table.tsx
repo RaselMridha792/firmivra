@@ -1,7 +1,17 @@
 'use client';
 
-import type { TaskOverviewQuery, TaskRow } from '@firmivra/types';
-import { BulkBar, Button, type Column, Input, Modal, Select, Table, Toast } from '@firmivra/ui';
+import type { TaskOverviewQuery, TaskProgress, TaskRow } from '@firmivra/types';
+import {
+  ActionMenu,
+  BulkBar,
+  Button,
+  type Column,
+  Input,
+  Modal,
+  Select,
+  Table,
+  Toast,
+} from '@firmivra/ui';
 import {
   Archive,
   ArrowsClockwise,
@@ -22,7 +32,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -37,6 +47,7 @@ import {
   dueText,
   shortName,
 } from './task-shared';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 
 type Dialog =
   | { kind: 'reassign' | 'due' | 'priority' | 'progress'; ids: string[] }
@@ -50,61 +61,6 @@ interface MenuItem {
   danger?: boolean;
 }
 
-function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) =>
-      rootRef.current && !rootRef.current.contains(e.target as Node) && setOpen(false);
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', esc);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', esc);
-    };
-  }, [open]);
-  return (
-    <div ref={rootRef} className="relative inline-block">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={label}
-        title={label}
-        onClick={() => setOpen(!open)}
-        className="inline-flex size-8 items-center justify-center rounded-lg border border-divider bg-surface text-heading hover:bg-canvas"
-      >
-        <DotsThreeVertical aria-hidden weight="bold" className="size-4" />
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          aria-label={label}
-          className="absolute top-full right-0 z-30 mt-1 w-60 rounded-xl border border-divider bg-surface p-2 shadow-lg"
-        >
-          {items.map(({ label: text, icon: Glyph, onSelect, danger }) => (
-            <button
-              key={text}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onSelect();
-                setOpen(false);
-              }}
-              className={`flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-left text-sm hover:bg-canvas ${danger ? 'text-danger' : 'text-text'}`}
-            >
-              <Glyph aria-hidden weight="fill" className="size-4 shrink-0" />
-              {text}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /** What a table of tasks offers: sort, page, select, row menu and the bulk bar. */
 export function TaskTable({
   query,
@@ -112,14 +68,26 @@ export function TaskTable({
   caption,
   emptyText,
   hideBulk,
+  compact,
+  inlineStatus,
+  newTaskHref = '/tasks/new',
 }: {
   query: TaskOverviewQuery;
   onQuery: (change: Partial<TaskOverviewQuery>) => void;
   caption: string;
   emptyText?: string;
   hideBulk?: boolean;
+  /** A service workspace's short list (SH4): title, due date, status and the same menu. */
+  compact?: boolean;
+  /** The status as a dropdown on each open or completed task (SH4). */
+  inlineStatus?: boolean;
+  /** Where Add Task goes: a service workspace passes its client, service and period. */
+  newTaskHref?: string;
 }) {
   const router = useRouter();
+  const toOrigin = useOriginNavigate();
+  // From a service workspace, a task's own pages get Back to the workspace (SH1).
+  const go = (href: string) => (compact ? toOrigin(href) : router.push(href));
   const list = useApiQuery([...TASKS_KEY, 'overview', query], () => api.taskWork.overview(query));
   const [selected, setSelected] = useState<string[]>([]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -131,10 +99,54 @@ export function TaskTable({
   const complete = useApiMutation((id: string) => api.taskWork.complete(id), options);
   const reopen = useApiMutation((id: string) => api.taskWork.reopen(id), options);
   const progress = useApiMutation(
-    (v: { id: string; progress: 'IN_PROGRESS' }) =>
+    (v: { id: string; progress: TaskProgress }) =>
       api.taskWork.setProgress(v.id, { progress: v.progress }),
     options,
   );
+  /** The inline status: a stage of an open task, Completed, or a completed task reopened. */
+  const setStatus = (t: TaskRow, value: string) => {
+    if (value === 'DONE') {
+      complete.mutate(t.id, { onSuccess: done(`${t.title} completed.`), onError: fail });
+    } else if (value === 'REOPEN') {
+      reopen.mutate(t.id, { onSuccess: done(`${t.title} reopened.`), onError: fail });
+    } else {
+      progress.mutate(
+        { id: t.id, progress: value as TaskProgress },
+        {
+          onSuccess: done(`${t.title}: ${PROGRESS_LABEL[value as TaskProgress]}.`),
+          onError: fail,
+        },
+      );
+    }
+  };
+  const statusCell = (t: TaskRow) =>
+    inlineStatus && t.status !== 'CANCELLED' ? (
+      <select
+        aria-label={`Status of ${t.title}`}
+        value={t.status === 'DONE' ? 'DONE' : t.progress}
+        disabled={complete.isPending || reopen.isPending || progress.isPending}
+        onChange={(e) => setStatus(t, e.target.value)}
+        className="min-h-8 rounded-control border border-border bg-surface px-2 text-xs text-text"
+      >
+        {t.status === 'DONE' ? (
+          <>
+            <option value="DONE">Completed</option>
+            <option value="REOPEN">Reopen</option>
+          </>
+        ) : (
+          <>
+            {Object.entries(PROGRESS_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+            <option value="DONE">Completed</option>
+          </>
+        )}
+      </select>
+    ) : (
+      <StatusPill task={t} />
+    );
   const duplicate = useApiMutation((id: string) => api.taskWork.duplicate(id), options);
   const bulk = useApiMutation(
     (body: Parameters<typeof api.taskWork.bulk>[0]) => api.taskWork.bulk(body),
@@ -191,7 +203,7 @@ export function TaskTable({
       sortable: true,
       cell: (t) => <PriorityPill priority={t.priority} />,
     },
-    { id: 'status', label: 'Status', sortable: true, cell: (t) => <StatusPill task={t} /> },
+    { id: 'status', label: 'Status', sortable: true, cell: statusCell },
     {
       id: 'assigned',
       label: 'Assigned To',
@@ -212,12 +224,12 @@ export function TaskTable({
   const menu = (t: TaskRow): MenuItem[] => {
     const open = t.status === 'OPEN';
     return [
-      { label: 'View', icon: Eye, onSelect: () => router.push(`/tasks/${t.id}`) },
-      { label: 'Edit', icon: PencilSimple, onSelect: () => router.push(`/tasks/${t.id}/edit`) },
+      { label: 'View', icon: Eye, onSelect: () => go(`/tasks/${t.id}`) },
+      { label: 'Edit', icon: PencilSimple, onSelect: () => go(`/tasks/${t.id}/edit`) },
       ...(open
         ? [
             {
-              label: 'Mark In Progress',
+              label: 'Mark as In Progress',
               icon: Spinner,
               onSelect: () =>
                 progress.mutate(
@@ -226,7 +238,7 @@ export function TaskTable({
                 ),
             },
             {
-              label: 'Complete',
+              label: 'Mark Complete',
               icon: CheckCircle,
               onSelect: () =>
                 complete.mutate(t.id, { onSuccess: done(`${t.title} completed.`), onError: fail }),
@@ -260,14 +272,14 @@ export function TaskTable({
         icon: Copy,
         onSelect: () =>
           duplicate.mutate(t.id, {
-            onSuccess: (copy) => router.push(`/tasks/${copy.id}/edit`),
+            onSuccess: (copy) => go(`/tasks/${copy.id}/edit`),
             onError: fail,
           }),
       },
       {
         label: 'Convert to Recurring',
         icon: Repeat,
-        onSelect: () => router.push(`/tasks/${t.id}`),
+        onSelect: () => go(`/tasks/${t.id}`),
       },
       {
         label: 'Save as Template',
@@ -285,13 +297,21 @@ export function TaskTable({
           ]
         : []),
       {
-        label: 'Archive',
+        label: 'Archive Task',
         icon: Archive,
         danger: true,
         onSelect: () => setDialog({ kind: 'confirm', action: 'ARCHIVE', ids: [t.id] }),
       },
     ];
   };
+
+  const rowMenu = (t: TaskRow) => (
+    <ActionMenu
+      label={`Actions for ${t.title}`}
+      trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
+      sections={[{ items: menu(t) }]}
+    />
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -356,52 +376,89 @@ export function TaskTable({
           ]}
         />
       ) : null}
-      <div data-testid="task-table" className="relative">
-        <Table
-          rows={rows}
-          columns={columns}
-          rowKey={(t) => t.id}
-          caption={caption}
-          dense
-          // One line per task in 12 px, as task/source/task.jpg draws the table (R1 firm audit).
-          tableClassName="[&_th]:!text-xs [&_td]:!text-xs [&_td]:whitespace-nowrap"
-          noun="tasks"
-          pageSize={size}
-          loading={list.isPending}
-          emptyTitle={list.isError ? 'Tasks are not available' : 'No tasks'}
-          emptyText={
-            list.isError
-              ? 'We could not load the tasks. Try again in a moment.'
-              : (emptyText ?? 'Tasks that match will appear here.')
-          }
-          emptyAction={
-            <Link
-              href="/tasks/new"
-              className="inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-medium text-on-action"
-            >
-              Add Task
-            </Link>
-          }
-          {...(hideBulk ? {} : { selection: { selected, onChange: setSelected } })}
-          rowActions={(t) => <RowMenu label={`Actions for ${t.title}`} items={menu(t)} />}
-          server={{
-            page: list.data?.page ?? 1,
-            total: list.data?.total ?? 0,
-            hasNext: (list.data?.page ?? 1) * size < (list.data?.total ?? 0),
-            hasPrevious: (list.data?.page ?? 1) > 1,
-            onNext: () => onQuery({ page: page + 1 }),
-            onPrevious: () => onQuery({ page: Math.max(1, page - 1) }),
-            onPage: (page) => onQuery({ page }),
-            sort,
-            onSort: (next) =>
-              onQuery({
-                sort: next.id as TaskOverviewQuery['sort'],
-                direction: next.descending ? 'desc' : 'asc',
-                page: 1,
-              }),
-          }}
-        />
-      </div>
+      {compact ? (
+        <div data-testid="task-list">
+          {rows.length === 0 ? (
+            <p className="text-sm text-muted">
+              {list.isError
+                ? 'Tasks are not available right now.'
+                : list.isPending
+                  ? 'Loading…'
+                  : (emptyText ?? 'No tasks yet.')}
+            </p>
+          ) : (
+            <ul className="flex flex-col" aria-label={caption}>
+              {rows.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex flex-wrap items-center gap-2 border-t border-divider py-2 text-sm first:border-t-0"
+                >
+                  <OriginLink
+                    href={`/tasks/${t.id}`}
+                    className="min-w-0 flex-1 truncate text-link hover:underline"
+                  >
+                    {t.title}
+                  </OriginLink>
+                  <span
+                    className={`shrink-0 text-xs ${t.overdue ? 'font-semibold text-danger' : 'text-muted'}`}
+                  >
+                    {dueText(t)}
+                  </span>
+                  {statusCell(t)}
+                  {rowMenu(t)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div data-testid="task-table" className="relative">
+          <Table
+            rows={rows}
+            columns={columns}
+            rowKey={(t) => t.id}
+            caption={caption}
+            dense
+            // One line per task in 12 px, as task/source/task.jpg draws the table (R1 firm audit).
+            tableClassName="[&_th]:!text-xs [&_td]:!text-xs [&_td]:whitespace-nowrap"
+            noun="tasks"
+            pageSize={size}
+            loading={list.isPending}
+            emptyTitle={list.isError ? 'Tasks are not available' : 'No tasks'}
+            emptyText={
+              list.isError
+                ? 'We could not load the tasks. Try again in a moment.'
+                : (emptyText ?? 'Tasks that match will appear here.')
+            }
+            emptyAction={
+              <Link
+                href={newTaskHref}
+                className="inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-medium text-on-action"
+              >
+                Add Task
+              </Link>
+            }
+            {...(hideBulk ? {} : { selection: { selected, onChange: setSelected } })}
+            rowActions={rowMenu}
+            server={{
+              page: list.data?.page ?? 1,
+              total: list.data?.total ?? 0,
+              hasNext: (list.data?.page ?? 1) * size < (list.data?.total ?? 0),
+              hasPrevious: (list.data?.page ?? 1) > 1,
+              onNext: () => onQuery({ page: page + 1 }),
+              onPrevious: () => onQuery({ page: Math.max(1, page - 1) }),
+              onPage: (page) => onQuery({ page }),
+              sort,
+              onSort: (next) =>
+                onQuery({
+                  sort: next.id as TaskOverviewQuery['sort'],
+                  direction: next.descending ? 'desc' : 'asc',
+                  page: 1,
+                }),
+            }}
+          />
+        </div>
+      )}
       {dialog && dialog.kind !== 'template' && dialog.kind !== 'confirm' ? (
         <ChangeDialog
           kind={dialog.kind}

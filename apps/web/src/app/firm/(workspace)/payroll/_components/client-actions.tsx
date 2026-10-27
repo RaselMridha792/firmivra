@@ -51,6 +51,7 @@ import {
 } from './payroll-shared';
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 type Kind =
   | 'sync'
@@ -131,7 +132,11 @@ export function ClientActionMenu({
       }),
     ),
     item('View Documents', Folder, go(`/clients/${client.client.id}/documents`)),
-    item('Create Task', ListChecks, go('/tasks/new')),
+    item(
+      'Create Task',
+      ListChecks,
+      go(newTaskHref({ clientId: client.client.id, engagementId: client.engagementId })),
+    ),
     item('Add Note', NotePencil, () => setDialog('note')),
     item('Log Activity', Phone, () => setDialog('activity')),
     item('Send Message', ChatCircleDots, go('/messages')),
