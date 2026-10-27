@@ -45,6 +45,8 @@ import {
   ServiceDocumentsProvider,
   useServiceDocuments,
 } from '../../../../../components/service-documents';
+import { ServiceTasks } from '../../tasks/_components/service-tasks';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 const TABS = [
   'Overview',
@@ -62,7 +64,8 @@ const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> =
   Documents: (w) => `/documents?clientId=${w.client.id}`,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
   Notes: (w) => `/clients/${w.client.id}`,
-  Communications: () => '/communications',
+  // SH5: this client's conversations in Messages, not every message.
+  Communications: (w) => `/messages?clientId=${w.client.id}&service=Bookkeeping`,
 };
 
 /** /bookkeeping/clients/[id]: the client's bookkeeping workspace. */
@@ -100,6 +103,12 @@ export function ClientWorkspace({ id }: { id: string }) {
   const nextC = at >= 0 && at < list.length - 1 ? list[at + 1] : undefined;
   const sw = w.connections.find((k) => k.status !== 'DISCONNECTED');
   const cur = w.currentPeriod;
+  // SH4: Create Task opens on this client, its bookkeeping and the current period.
+  const taskHref = newTaskHref({
+    clientId: w.client.id,
+    engagementId: w.engagementId,
+    ...(cur ? { period: cur.label } : {}),
+  });
   // SH3: Request Documents and Upload Document open here, for this client's bookkeeping and period.
   const docTarget = {
     clientId: w.client.id,
@@ -366,7 +375,7 @@ export function ClientWorkspace({ id }: { id: string }) {
                 <CheckCircle aria-hidden weight="fill" className="size-4 text-success" /> Reconcile
                 Accounts
               </button>
-              <OriginLink href={`/tasks?clientId=${w.client.id}`} className={subtle}>
+              <OriginLink href={taskHref} className={subtle}>
                 <Plus aria-hidden weight="bold" className="size-4 text-action" /> Create Task
               </OriginLink>
               <button type="button" className={subtle} onClick={() => setTab('Reports')}>
@@ -437,14 +446,17 @@ export function ClientWorkspace({ id }: { id: string }) {
                     View All
                   </OriginLink>
                 </div>
-                <p className="text-sm text-heading">
+                <p className="mb-2 text-sm text-heading">
                   {w.shared.openTasks} open
                   {w.shared.overdueTasks ? `, ${w.shared.overdueTasks} overdue` : ''}
                 </p>
-                <OriginLink
-                  href={`/tasks?clientId=${w.client.id}`}
-                  className={`${outlined} mt-3 min-h-9`}
-                >
+                <ServiceTasks
+                  clientId={w.client.id}
+                  engagementId={w.engagementId}
+                  {...(cur ? { period: cur.label } : {})}
+                  caption="Bookkeeping tasks"
+                />
+                <OriginLink href={taskHref} className={`${outlined} mt-3 min-h-9`}>
                   <Plus aria-hidden weight="bold" className="size-4" /> Add Task
                 </OriginLink>
               </section>

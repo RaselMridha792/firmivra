@@ -33,6 +33,7 @@ import {
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
   createIntakeFormsClient,
+  createIntakesClient,
   createInvoicesClient,
   createLeadPipelineClient,
   createLeadsClient,
@@ -131,7 +132,7 @@ import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
-import { createIntakeFormsMock } from '../mocks/intake-forms';
+import { createIntakeFormsMock, createIntakesMock } from '../mocks/intake-forms';
 import { createServicesPricingMock } from '../mocks/services-pricing';
 import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
@@ -307,6 +308,8 @@ export const api = {
     dev && mocked('intakeForms')
       ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
       : createIntakeFormsClient(request),
+  /** A client's intakes (R11's GET /business/clients/{id}/intakes): the return's Intake Form card. */
+  intakes: dev && mocked('intakes') ? createIntakesMock() : createIntakesClient(request),
   /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
   servicesPricing:
     dev && mocked('servicesPricing')

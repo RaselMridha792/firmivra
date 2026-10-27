@@ -1,10 +1,12 @@
 // Mock mode only (SH3): the Payroll and Bookkeeping mocks' clients and their engagements, so the
-// documents mock files a request or an upload made in those workspaces. The clients mock does not
-// know these clients; the documents mock asks here when it does not find one.
+// documents, clients and engagements mocks answer for them (a request, an upload, Create Task's
+// prefill). Those mocks ask here when they do not find a client.
 
 interface ServiceEngagement {
   id: string;
   clientId: string;
+  clientName: string;
+  kind: 'PAYROLL' | 'BOOKKEEPING';
   title: string;
   status: 'ACTIVE';
 }
@@ -26,3 +28,7 @@ export const serviceEngagement = (clientId: string, id: string) => {
 /** True when a service mock has this client. */
 export const serviceMockClient = (clientId: string) =>
   [...store().values()].some((e) => e.clientId === clientId);
+
+/** A service mock client's engagements. */
+export const serviceMockEngagements = (clientId: string) =>
+  [...store().values()].filter((e) => e.clientId === clientId);

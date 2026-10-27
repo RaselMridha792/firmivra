@@ -68,6 +68,8 @@ import {
   ServiceDocumentsProvider,
   useServiceDocuments,
 } from '../../../../../components/service-documents';
+import { ServiceTasks } from '../../tasks/_components/service-tasks';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -313,9 +315,11 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
         {current === 'filings' ? <FilingsTab id={id} /> : null}
         {current === 'reports' ? <ReportsTab id={id} /> : null}
         {current === 'documents' ? <DocumentsTab clientId={w?.client.id} /> : null}
-        {current === 'tasks' ? <TasksTab clientId={w?.client.id} /> : null}
+        {current === 'tasks' ? (
+          <TasksTab clientId={w?.client.id} engagementId={w?.engagementId} />
+        ) : null}
         {current === 'notes' ? <NotesTab id={id} notice={notice} /> : null}
-        {current === 'communications' ? <CommunicationsTab /> : null}
+        {current === 'communications' ? <CommunicationsTab clientId={w?.client.id} /> : null}
         {current === 'settings' && w ? <SettingsTab w={w} notice={notice} /> : null}
         {adding ? (
           <WorkerDialog
@@ -573,9 +577,14 @@ function Overview({
         <button type="button" className={outlined} onClick={() => docs.open('upload')}>
           <UploadSimple aria-hidden weight="fill" className="size-4" /> Upload Document
         </button>
-        <OriginLink href="/tasks/new" className={outlined}>
-          <Plus aria-hidden weight="bold" className="size-4" /> Create Task
-        </OriginLink>
+        {w ? (
+          <OriginLink
+            href={newTaskHref({ clientId: w.client.id, engagementId: w.engagementId })}
+            className={outlined}
+          >
+            <Plus aria-hidden weight="bold" className="size-4" /> Create Task
+          </OriginLink>
+        ) : null}
         <button type="button" className={outlined} onClick={() => onTab('reports')}>
           <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
         </button>
@@ -704,7 +713,11 @@ function Overview({
             </p>
           )}
         </section>
-        <OverviewTasks clientId={w?.client.id} onAll={() => onTab('tasks')} />
+        <OverviewTasks
+          clientId={w?.client.id}
+          engagementId={w?.engagementId}
+          onAll={() => onTab('tasks')}
+        />
       </div>
       <div className="grid items-start gap-4 lg:grid-cols-3">
         <section
@@ -770,13 +783,15 @@ function Overview({
   );
 }
 
-function OverviewTasks({ clientId, onAll }: { clientId: string | undefined; onAll: () => void }) {
-  const tasks = useApiQuery([...PAYROLL_KEY, 'tasks', clientId ?? ''], async () =>
-    clientId
-      ? api.taskWork.overview({ view: 'all', status: 'OPEN', clientId, pageSize: 5 })
-      : { items: [] },
-  );
-  const rows = tasks.data?.items ?? [];
+function OverviewTasks({
+  clientId,
+  engagementId,
+  onAll,
+}: {
+  clientId: string | undefined;
+  engagementId: string | undefined;
+  onAll: () => void;
+}) {
   return (
     <section className={card} data-testid="panel-tasks" aria-label="Payroll Tasks">
       <CardHead
@@ -788,37 +803,16 @@ function OverviewTasks({ clientId, onAll }: { clientId: string | undefined; onAl
           </button>
         }
       />
-      {rows.length === 0 ? (
-        <p className={quiet}>
-          {tasks.isError
-            ? 'Tasks are not available right now.'
-            : tasks.isPending
-              ? 'Loading…'
-              : 'No open tasks for this client.'}
-        </p>
+      {clientId ? (
+        <ServiceTasks clientId={clientId} engagementId={engagementId} caption="Payroll tasks" />
       ) : (
-        <ul className="flex flex-col">
-          {rows.map((t) => (
-            <li
-              key={t.id}
-              className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
-            >
-              <OriginLink
-                href={`/tasks/${t.id}`}
-                className="min-w-0 truncate text-link hover:underline"
-              >
-                {t.title}
-              </OriginLink>
-              <span className="shrink-0 text-xs text-muted">
-                {t.dueOn ? dayText(t.dueOn) : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <p className={quiet}>Loading…</p>
       )}
-      <OriginLink href="/tasks/new" className={`${outlined} mt-3`}>
-        <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-      </OriginLink>
+      {clientId ? (
+        <OriginLink href={newTaskHref({ clientId, engagementId })} className={`${outlined} mt-3`}>
+          <Plus aria-hidden weight="bold" className="size-4" /> Add Task
+        </OriginLink>
+      ) : null}
     </section>
   );
 }
