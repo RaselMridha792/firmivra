@@ -3186,7 +3186,9 @@ model Service {
   updatedByUserId        String?             @map("updated_by_user_id") @db.Uuid
 
   business         Business               @relation(fields: [businessId], references: [id])
-  engagements      Engagement[]
+  engagements      Engagement[]           @relation("EngagementService")
+  /// Engagements on this catalog service as their plan (SH9).
+  planEngagements  Engagement[]           @relation("EngagementCatalogService")
   intakeForms      IntakeForm[]
   agreements       FirmAgreement[]
   leads            Lead[]
@@ -3236,6 +3238,10 @@ model Engagement {
   periodStart         DateTime?        @map("period_start") @db.Date
   periodEnd           DateTime?        @map("period_end") @db.Date
   package             String?
+  /// SH9 (Oct 26): the plan chosen from Services & Pricing, by id (the firm's own catalog service);
+  /// `package` keeps the name as it was saved. Empty until the plan endpoints set it; deleting the
+  /// catalog service clears it (SET NULL on this column only, see the migration).
+  catalogServiceId    String?          @map("catalog_service_id") @db.Uuid
   status              EngagementStatus @default(ACTIVE)
   /// One of the service's stages.
   stage               String?
@@ -3259,7 +3265,8 @@ model Engagement {
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service                Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  service                Service                   @relation("EngagementService", fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  catalogService         Service?                  @relation("EngagementCatalogService", fields: [businessId, catalogServiceId], references: [businessId, id], onDelete: SetNull)
   assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   statusHistory          EngagementStatusHistory[]
   tasks                  Task[]
@@ -3302,6 +3309,7 @@ model Engagement {
   @@unique([businessId, clientId, id])
   @@index([businessId, status, assignedUserId])
   @@index([businessId, serviceId])
+  @@index([businessId, catalogServiceId])
   @@map("engagements")
 }
 
