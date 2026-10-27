@@ -1189,7 +1189,19 @@ export function createDocumentLibraryMock(options: {
       recount(p);
       return detail(p);
     },
-    reorderItems: notInMock,
+    reorderItems: async (id, body) => {
+      await mockDelay();
+      const p = find(id);
+      draftOnly(p);
+      const ids = body.ids;
+      for (const item of checklistOf(p)) {
+        const at = ids.indexOf(item.id);
+        if (at >= 0) item.sortOrder = at;
+      }
+      checklistOf(p).sort((a, b) => a.sortOrder - b.sortOrder);
+      touch(p);
+      return detail(p);
+    },
     templates: async () => {
       await mockDelay();
       return structuredClone(templates);

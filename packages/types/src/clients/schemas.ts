@@ -128,6 +128,12 @@ export const ListClientsQuery = z
     /** Last activity on or after / on or before these days (the firm's calendar days). */
     lastActivityFrom: CalendarDate.optional(),
     lastActivityTo: CalendarDate.optional(),
+    /**
+     * Clients who still owe something, as the Pending Documents and Balances Due cards count them
+     * (Octavia's E1): DOCUMENTS, at least one document request REQUESTED or REJECTED; BALANCE, an
+     * unpaid balance on an OPEN invoice, overdue or not.
+     */
+    owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */

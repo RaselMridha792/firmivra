@@ -3,6 +3,7 @@
 import type { TaxReturnDetail, TaxReturnWorkflowStatus } from '@firmivra/types';
 import { ActionMenu, Avatar, Badge, Tabs, Toast } from '@firmivra/ui';
 import {
+  Archive,
   ArrowLeft,
   CalendarBlank,
   CalendarPlus,
@@ -129,6 +130,7 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
       ) : (
         <div className={`${card} h-32 animate-pulse`} aria-label="Loading" />
       )}
+      {r?.archivedAt ? <ArchivedNotice detail={r} onNotice={notice} /> : null}
       {r ? <InfoCards detail={r} onNotice={notice} /> : null}
       {r ? (
         <div className="min-w-0 [&_[role=tablist]]:justify-between [&_[role=tab]]:text-base">
@@ -581,6 +583,50 @@ function Overview({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Not
   );
 }
 
+/** An archived return (Octavia's TX-F35): read-only until restored, with its history kept. */
+function ArchivedNotice({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
+  const act = useAct(onNotice);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div
+      role="status"
+      className={`${card} flex flex-wrap items-center justify-between gap-3 p-4`}
+      data-testid="archived-return"
+    >
+      <p className="flex items-center gap-2 text-sm text-text">
+        <Archive aria-hidden weight="fill" className="size-5 shrink-0 text-muted" />
+        This return is archived. Its history, documents and filings are kept; restore it to make
+        changes.
+      </p>
+      <button
+        type="button"
+        className={outlined}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          await act(() => api.taxReturnWorkspace.restore(detail.id), 'Return restored.');
+          setBusy(false);
+        }}
+      >
+        Restore Return
+      </button>
+    </div>
+  );
+}
+
+/** An email that wraps before its @ first, and anywhere only when a part is still too long. */
+function EmailText({ value }: { value: string }) {
+  const at = value.lastIndexOf('@');
+  if (at <= 0) return value;
+  return (
+    <>
+      {value.slice(0, at)}
+      <wbr />
+      {value.slice(at)}
+    </>
+  );
+}
+
 /** Client Details: from the client record (Edit opens it), with the newest internal note. */
 function ClientDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
   const q = useApiQuery([...TR_KEY, 'client', detail.client.id], () =>
@@ -609,7 +655,7 @@ function ClientDetails({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
               ] as [string, ReactNode],
             ]
           : [['Entity Type', p?.entityType ?? '—'] as [string, ReactNode]]),
-        ['Email', c.email ?? '—'],
+        ['Email', c.email ? <EmailText key="email" value={c.email} /> : '—'],
         ['Phone', c.phone ?? '—'],
         [
           'Address',
@@ -638,16 +684,21 @@ ${[address.city, address.state].filter(Boolean).join(', ')} ${address.postalCode
       ) : !c ? (
         <p className={quiet}>Loading…</p>
       ) : (
-        <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-sm">
-          {rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-heading">{k}</dt>
-              <dd className="border-b border-divider pb-2 break-words whitespace-pre-line text-text">
-                {v}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        // The value column may shrink below its longest word, so a long email or address wraps
+        // inside the card instead of running behind the next one (Octavia's TX-F01). In a narrow
+        // card (beside the checklist at 1440 px) each label sits above its value.
+        <div className="@container">
+          <dl className="grid grid-cols-1 gap-y-1 text-sm @xs:grid-cols-[7rem_minmax(0,1fr)] @xs:gap-x-3 @xs:gap-y-2">
+            {rows.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-heading">{k}</dt>
+                <dd className="mb-1 min-w-0 border-b border-divider pb-2 wrap-anywhere whitespace-pre-line text-text @xs:mb-0">
+                  {v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
       <NotesPanelPreview detail={detail} onNotice={onNotice} />
     </Panel>
