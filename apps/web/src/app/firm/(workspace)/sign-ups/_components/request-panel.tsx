@@ -1,6 +1,11 @@
 'use client';
 
-import { ApiRequestError, type ClientSignUpDetail } from '@firmivra/types';
+import {
+  ApiRequestError,
+  type ClientSignUpDetail,
+  type SignUpCandidate,
+  type SignUpChecks,
+} from '@firmivra/types';
 import { Avatar, Badge, Button, Checkbox, Skeleton } from '@firmivra/ui';
 import { ArrowSquareOut, CheckCircle, Prohibit, Warning, X } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -11,6 +16,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, formatPhone } from '../../clients/_components/client-parts';
 import { ApproveDialog } from './approve-dialog';
 import { DeclineDialog } from './decline-dialog';
+import { ChecksDialog, KeepPendingDialog, NotAMatchDialog, ResolveDialog } from './resolve-dialogs';
 import { dayText, EVENT_TEXT, momentText, SIGN_UP_ERRORS, SIGN_UPS } from './sign-up-parts';
 
 export type Notice = { ok: boolean; text: string; clientId?: string };
@@ -29,10 +35,10 @@ const STATUS_BADGE = {
 } as const;
 
 /** The three checks a potential match needs before access is restored or a record linked. */
-const CHECKS = [
-  'Call the contact already on file',
-  "Verify the client's identity",
-  "Record the client's permission",
+const CHECKS: { label: string; done: (c: SignUpChecks) => boolean }[] = [
+  { label: 'Call the contact already on file', done: (c) => c.callOutcome === 'REACHED' },
+  { label: "Verify the client's identity", done: (c) => c.identityResult === 'VERIFIED' },
+  { label: "Record the client's permission", done: (c) => c.permissionScope !== null },
 ];
 
 const card = 'min-w-0 rounded-xl border border-divider bg-surface p-5';
@@ -215,7 +221,7 @@ function PanelTitle({ title, onClose }: { title: string; onClose?: () => void })
   );
 }
 
-/** A potential match: the existing record(s), the required checks, and what stays off. */
+/** A potential match: the existing record(s), the checks recorded for each, and the decisions. */
 function MatchReview({
   request,
   onNotice,
@@ -225,8 +231,23 @@ function MatchReview({
   onNotice: (notice: Notice) => void;
   onClose: () => void;
 }) {
+  const [checking, setChecking] = useState<SignUpCandidate | null>(null);
+  const [resolving, setResolving] = useState<{
+    kind: 'RESTORE_ACCESS' | 'LINK';
+    candidate: SignUpCandidate;
+  } | null>(null);
+  const [notMatch, setNotMatch] = useState(false);
+  const [keeping, setKeeping] = useState(false);
   const on = (fields: string[]) =>
     fields.map((f) => (f === 'email' ? 'email' : 'phone number')).join(' and ');
+  // A record resolved as not a match no longer holds the request back (an email match always does).
+  const open = request.candidates.filter(
+    (c) => c.resolution !== 'NOT_A_MATCH' || c.matchedOn.includes('email'),
+  );
+  const done = (text: string, clientId?: string) => {
+    setResolving(null);
+    onNotice({ ok: true, text, ...(clientId ? { clientId } : {}) });
+  };
   return (
     <>
       <div
@@ -258,6 +279,8 @@ function MatchReview({
                   </Link>
                   <span className="text-xs text-muted">
                     {c.clientNumber} · {c.displayName} · same {on(c.matchedOn)}
+                    {c.hasPortalLogin ? ' · has a portal login' : ''}
+                    {c.resolution === 'NOT_A_MATCH' ? ' · marked not a match' : ''}
                   </span>
                 </li>
               ))}
@@ -266,42 +289,99 @@ function MatchReview({
         </div>
       </div>
 
-      <fieldset className="mt-5" aria-describedby="su-checks-note">
-        <legend className="font-semibold text-heading">Required before restoring or linking</legend>
-        {CHECKS.map((label) => (
-          <Checkbox key={label} label={label} disabled checked={false} readOnly />
-        ))}
-        <p id="su-checks-note" className="text-sm text-muted">
-          Do not rely on new contact details from this request.
-        </p>
-      </fieldset>
-      <div className="mt-4 border-t border-divider pt-4">
-        <p className="text-sm text-text">
-          Preserve the existing Client ID. No duplicate profile is created.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-3">
-          <Button disabled aria-describedby="su-resolve-note">
-            Restore Access
+      {open.map((c) => (
+        <div key={c.clientId} className="mt-5" data-testid={`checks-${c.clientNumber}`}>
+          <fieldset aria-describedby={`su-checks-${c.clientId}`}>
+            <legend className="font-semibold text-heading">
+              Required before restoring or linking
+              {open.length > 1 ? ` (${c.clientNumber})` : ''}
+            </legend>
+            {CHECKS.map((check) => (
+              <Checkbox
+                key={check.label}
+                label={check.label}
+                disabled
+                checked={!!c.checks && check.done(c.checks)}
+                readOnly
+              />
+            ))}
+            <p id={`su-checks-${c.clientId}`} className="text-sm text-muted">
+              {c.checks
+                ? `Recorded${c.checks.actorName ? ` by ${c.checks.actorName}` : ''}, ${momentText(c.checks.recordedAt)}. They count until ${momentText(c.checks.expiresAt)}.`
+                : 'Not recorded yet. Do not rely on new contact details from this request.'}
+            </p>
+          </fieldset>
+          <Button variant="secondary" className="mt-2" onClick={() => setChecking(c)}>
+            Record Checks
           </Button>
-          <Button disabled aria-describedby="su-resolve-note">
-            Link Existing Record
-          </Button>
-          <Button
-            onClick={() => {
-              onNotice({
-                ok: true,
-                text: `${request.name}'s request stays waiting for approval. Nothing was changed.`,
-              });
-              onClose();
-            }}
-          >
-            Keep Pending
-          </Button>
+          <div className="mt-4 border-t border-divider pt-4">
+            <p className="text-sm text-text">
+              {c.hasPortalLogin
+                ? 'This record already has a portal login: restore its access, never a second login.'
+                : 'Preserve the existing Client ID. No duplicate profile is created.'}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <Button
+                disabled={!c.actions.includes('RESTORE_ACCESS')}
+                aria-describedby={`su-resolve-${c.clientId}`}
+                onClick={() => setResolving({ kind: 'RESTORE_ACCESS', candidate: c })}
+              >
+                Restore Access
+              </Button>
+              <Button
+                disabled={!c.actions.includes('LINK')}
+                aria-describedby={`su-resolve-${c.clientId}`}
+                onClick={() => setResolving({ kind: 'LINK', candidate: c })}
+              >
+                Link Existing Record
+              </Button>
+            </div>
+            <p id={`su-resolve-${c.clientId}`} className="mt-2 text-xs text-muted">
+              {c.actions.length
+                ? 'The checks recorded allow this now.'
+                : 'Available only after all three checks are recorded, with the client’s permission for it, in the last 24 hours.'}
+            </p>
+          </div>
         </div>
-        <p id="su-resolve-note" className="mt-2 text-xs text-muted">
-          Available only after all required checks are recorded.
-        </p>
+      ))}
+
+      <div className="mt-4 flex flex-wrap gap-3 border-t border-divider pt-4">
+        <Button variant="outline" onClick={() => setKeeping(true)}>
+          Keep Pending
+        </Button>
+        {request.allowedActions.includes('NOT_A_MATCH') ? (
+          <Button variant="outline" onClick={() => setNotMatch(true)}>
+            Not a Match
+          </Button>
+        ) : null}
       </div>
+
+      <ChecksDialog request={request} candidate={checking} onClose={() => setChecking(null)} />
+      <ResolveDialog
+        request={request}
+        action={resolving}
+        onClose={() => setResolving(null)}
+        onDone={done}
+      />
+      <NotAMatchDialog
+        request={request}
+        open={notMatch}
+        onClose={() => setNotMatch(false)}
+        onDone={(text) => {
+          setNotMatch(false);
+          onNotice({ ok: true, text });
+        }}
+      />
+      <KeepPendingDialog
+        request={request}
+        open={keeping}
+        onClose={() => setKeeping(false)}
+        onDone={(text) => {
+          setKeeping(false);
+          onNotice({ ok: true, text });
+          onClose();
+        }}
+      />
     </>
   );
 }
@@ -386,6 +466,9 @@ export function RequestActivity({ id }: { id: string }) {
                       ? ' automatically'
                       : ''}
                 </span>
+                {event.note ? (
+                  <span className="block text-text wrap-anywhere">“{event.note}”</span>
+                ) : null}
                 <time dateTime={event.at} className="text-muted">
                   {momentText(event.at)}
                 </time>

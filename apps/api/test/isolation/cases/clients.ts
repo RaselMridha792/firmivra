@@ -107,4 +107,38 @@ export const cases: CaseModule['cases'] = {
     params: { clientAccountId: 'pendingClientAccount' },
     body: () => ({ version: 1, idempotencyKey: randomUUID() }),
   },
+  // Resolve Existing Account (D2): another firm's request or record is never reached. With no
+  // checks recorded and no phone match in the fixtures, the firm's own call answers 409
+  // (CHECKS_REQUIRED, NOT_A_CANDIDATE): reached, and refused for the right reason.
+  'POST /api/v1/client-sign-ups/:clientAccountId/checks': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: {
+      contactRef: 'CLIENT_EMAIL',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope: 'BOTH',
+    },
+    bodyIds: { candidateClientId: 'linkableClient' },
+  },
+  'POST /api/v1/client-sign-ups/:clientAccountId/link': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ version: 1, idempotencyKey: randomUUID() }),
+    bodyIds: { candidateClientId: 'linkableClient' },
+    expect: 409,
+  },
+  'POST /api/v1/client-sign-ups/:clientAccountId/restore-access': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ version: 1, idempotencyKey: randomUUID() }),
+    bodyIds: { candidateClientId: 'linkableClient' },
+    expect: 409,
+  },
+  'POST /api/v1/client-sign-ups/:clientAccountId/not-a-match': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ version: 1, idempotencyKey: randomUUID(), reason: 'Fake reason' }),
+    expect: 409,
+  },
+  'POST /api/v1/client-sign-ups/:clientAccountId/keep-pending': {
+    params: { clientAccountId: 'pendingClientAccount' },
+    body: () => ({ idempotencyKey: randomUUID() }),
+  },
 };

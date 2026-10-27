@@ -47,6 +47,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
+import { registerServiceEngagement } from './service-engagements';
 
 /**
  * Mock data for `api.bookkeeping` (R38 contract, Bookkeeping). Synthetic firms only, dated around
@@ -386,6 +387,12 @@ export function createBookkeepingMock({
             },
           ]
         : [];
+      registerServiceEngagement({
+        id: uid('b400', i + 1),
+        clientId: ref.id,
+        title: 'Bookkeeping',
+        status: 'ACTIVE',
+      });
       const ws: Ws = {
         id: cid,
         client: { ...ref, email: `owner${i + 1}@example.test`, phone: `(555) 010-0${i + 1}00` },

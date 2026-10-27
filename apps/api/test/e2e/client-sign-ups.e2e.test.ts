@@ -63,11 +63,26 @@ const signUps = {} as Record<
   | 'retry'
   | 'auto'
   | 'autoMatch'
-  | 'manual',
+  | 'manual'
+  | 'linkB'
+  | 'restoreB'
+  | 'notMatchB'
+  | 'emailB'
+  | 'keepB',
   SignUp
 >;
 const records = {} as Record<
-  'jane' | 'johnLinked' | 'other' | 'ofY' | 'archived' | 'phoned' | 'autoMatch',
+  | 'jane'
+  | 'johnLinked'
+  | 'other'
+  | 'ofY'
+  | 'archived'
+  | 'phoned'
+  | 'autoMatch'
+  | 'linkB'
+  | 'restoreB'
+  | 'notMatchB'
+  | 'emailB',
   string
 >;
 /** When true, the client notices fail (a mail outage). */
@@ -429,6 +444,10 @@ describe('the queue', () => {
         clientNumber: expect.stringMatching(/^CL-\d+$/) as string,
         displayName: 'Record jane',
         matchedOn: ['email'],
+        resolution: 'OPEN',
+        hasPortalLogin: false,
+        checks: null,
+        actions: [],
       },
     ]);
     expect(jane.history.map((h) => [h.kind, h.actorName])).toEqual([
@@ -881,5 +900,224 @@ describe('versions, retries and the approval mode (D3, D4)', () => {
     await signUp('manual', firmX, 23);
     expect(await decide(signUps.manual)).toEqual({ approved: false });
     expect(await account(signUps.manual)).toMatchObject({ status: 'PENDING_APPROVAL' });
+  });
+});
+
+describe('Resolve Existing Account (D2, Rasel of Oct 26)', () => {
+  const detail = async (s: SignUp) =>
+    (await as(staff.ownerX, 'get', `/${s.accountId}`)).body as ClientSignUpDetail;
+  const checks = (s: SignUp, candidateClientId: string, permissionScope: string | null) =>
+    as(staff.ownerX, 'post', `/${s.accountId}/checks`, {
+      candidateClientId,
+      contactRef: 'CLIENT_PHONE',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope,
+    });
+  const onRecord = async (s: SignUp, path: string, candidateClientId: string, key = randomUUID()) =>
+    as(staff.ownerX, 'post', `/${s.accountId}/${path}`, {
+      candidateClientId,
+      version: (await account(s)).version,
+      idempotencyKey: key,
+    });
+  /** Moves a request's checks back, as if they were recorded 25 hours ago. */
+  const age = (s: SignUp) =>
+    asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientSignupVerification.updateMany({
+        where: { clientAccountId: s.accountId },
+        data: { createdAt: new Date(Date.now() - 25 * 3_600_000) },
+      }),
+    );
+  const ops = (s: SignUp) =>
+    asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientSignupOperation.findMany({
+        where: { clientAccountId: s.accountId },
+        select: { kind: true },
+      }),
+    );
+
+  beforeAll(async () => {
+    await signUp('linkB', firmX, 30);
+    await signUp('restoreB', firmX, 31);
+    await signUp('notMatchB', firmX, 32);
+    await signUp('emailB', firmX, 33);
+    await signUp('keepB', firmX, 34);
+    // Each record has the sign-up's phone written another way and another email.
+    await record('linkB', firmX, `r3-q-link-record-${tag}@example.com`, '(770) 555-0130');
+    await record('restoreB', firmX, `r3-q-restore-record-${tag}@example.com`, '770.555.0131');
+    await record('notMatchB', firmX, `r3-q-other-person-${tag}@example.com`, '7705550132');
+    await record('emailB', firmX, signUps.emailB.email);
+    // The person behind restoreB already has a login on that record.
+    const owner = person('restoreOwner');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: owner.id, cognitoSub: owner.id, pool: 'CLIENT', email: owner.email, name: 'R' },
+      }),
+    );
+    await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.clientAccount.create({
+        data: {
+          businessId: firmX.id,
+          userId: owner.id,
+          email: owner.email,
+          status: 'ACTIVE',
+          clientId: records.restoreB,
+          portalRole: 'PRIMARY',
+        },
+      }),
+    );
+  });
+
+  it('F08 to F10: Link Existing Record waits for the three checks with permission to link, then keeps the Client ID', async () => {
+    const before = await detail(signUps.linkB);
+    expect(before.allowedActions).toEqual(['DECLINE', 'KEEP_PENDING', 'NOT_A_MATCH']);
+    expect(before.candidates).toMatchObject([
+      {
+        clientId: records.linkB,
+        matchedOn: ['phone'],
+        resolution: 'OPEN',
+        hasPortalLogin: false,
+        checks: null,
+        actions: [],
+      },
+    ]);
+    const none = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect([none.status, codeOf(none)]).toEqual([409, 'CHECKS_REQUIRED']);
+    // Only a record the request may belong to, and only a contact the record has.
+    const other = await checks(signUps.linkB, records.other, 'LINK_RECORD');
+    expect([other.status, codeOf(other)]).toEqual([409, 'NOT_A_CANDIDATE']);
+    // Permission for another action does not count.
+    expect((await checks(signUps.linkB, records.linkB, 'RESTORE_ACCESS')).status).toBe(200);
+    const wrong = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect([wrong.status, codeOf(wrong)]).toEqual([409, 'CHECKS_REQUIRED']);
+
+    const recorded = await checks(signUps.linkB, records.linkB, 'LINK_RECORD');
+    expect(recorded.status).toBe(200);
+    const c = (recorded.body as ClientSignUpDetail).candidates[0]!;
+    expect(c).toMatchObject({ actions: ['LINK'], checks: { permissionScope: 'LINK_RECORD' } });
+    const hours = (Date.parse(c.checks!.expiresAt) - Date.parse(c.checks!.recordedAt)) / 3_600_000;
+    expect(hours).toBe(24);
+
+    const sent = outbox.length;
+    const linked = await onRecord(signUps.linkB, 'link', records.linkB);
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({ clientId: records.linkB, status: 'ACTIVE' });
+    expect(await account(signUps.linkB)).toMatchObject({
+      status: 'ACTIVE',
+      clientId: records.linkB,
+      matchStatus: 'LINKED',
+    });
+    // The record keeps its own email, and no second record was made.
+    const kept = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.client.findUniqueOrThrow({ where: { id: records.linkB }, select: { email: true } }),
+    );
+    expect(kept.email).toBe(`r3-q-link-record-${tag}@example.com`);
+    expect(outbox.slice(sent)).toEqual([
+      expect.objectContaining({ kind: 'approved', to: signUps.linkB.email }),
+    ]);
+    expect(await ops(signUps.linkB)).toEqual([{ kind: 'LINK_EXISTING' }]);
+    const after = await detail(signUps.linkB);
+    expect(after.history.map((h) => h.kind)).toEqual(
+      expect.arrayContaining(['CHECKS_RECORDED', 'LINKED', 'APPROVED']),
+    );
+  });
+
+  it('S02, S03: Restore Access closes the request, makes no client and sends the existing login its recovery email', async () => {
+    expect((await detail(signUps.restoreB)).candidates[0]).toMatchObject({
+      hasPortalLogin: true,
+      actions: [],
+    });
+    expect((await checks(signUps.restoreB, records.restoreB, 'BOTH')).status).toBe(200);
+    // Checks older than 24 hours count no more.
+    await age(signUps.restoreB);
+    const old = await onRecord(signUps.restoreB, 'restore-access', records.restoreB);
+    expect([old.status, codeOf(old)]).toEqual([409, 'CHECKS_REQUIRED']);
+    const fresh = await checks(signUps.restoreB, records.restoreB, 'BOTH');
+    expect((fresh.body as ClientSignUpDetail).candidates[0]!.actions).toEqual(['RESTORE_ACCESS']);
+    // A record with a login is never linked a second login.
+    const link = await onRecord(signUps.restoreB, 'link', records.restoreB);
+    expect([link.status, codeOf(link)]).toEqual([409, 'CLIENT_NOT_LINKABLE']);
+    expect((await account(signUps.restoreB)).status).toBe('PENDING_APPROVAL');
+
+    const sent = outbox.length;
+    const key = randomUUID();
+    const restored = await onRecord(signUps.restoreB, 'restore-access', records.restoreB, key);
+    expect(restored.status).toBe(200);
+    expect(restored.body).toMatchObject({ status: 'DECLINED', clientId: records.restoreB });
+    const again = await as(staff.ownerX, 'post', `/${signUps.restoreB.accountId}/restore-access`, {
+      candidateClientId: records.restoreB,
+      version: (restored.body as { version: number }).version - 1,
+      idempotencyKey: key,
+    });
+    expect([again.status, again.body]).toEqual([200, restored.body]);
+    expect(await account(signUps.restoreB)).toMatchObject({
+      status: 'DECLINED',
+      clientId: null,
+      declineReason: 'access restored',
+    });
+    // No decline notice to the sign-up's address; the recovery goes to the login on file.
+    expect(outbox.slice(sent)).toEqual([]);
+    const clients = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.client.count({ where: { email: signUps.restoreB.email } }),
+    );
+    expect(clients).toBe(0);
+    expect(await ops(signUps.restoreB)).toEqual([{ kind: 'RESTORE_ACCESS' }]);
+  });
+
+  it('F12: Not a Match by Owner or Admin, with a reason, for phone matches; an email match stays blocked', async () => {
+    const held = await approve(signUps.notMatchB);
+    expect([held.status, codeOf(held)]).toEqual([409, 'POTENTIAL_MATCH']);
+    const body = async () => ({ ...(await write(signUps.notMatchB)), reason: 'Another person' });
+    const byStaff = await as(
+      staff.staffX,
+      'post',
+      `/${signUps.notMatchB.accountId}/not-a-match`,
+      await body(),
+    );
+    expect(byStaff.status).toBe(403);
+    const noReason = await as(staff.ownerX, 'post', `/${signUps.notMatchB.accountId}/not-a-match`, {
+      ...(await write(signUps.notMatchB)),
+    });
+    expect(noReason.status).toBe(400);
+    const resolved = await as(
+      staff.adminX,
+      'post',
+      `/${signUps.notMatchB.accountId}/not-a-match`,
+      await body(),
+    );
+    expect(resolved.status).toBe(200);
+    expect(resolved.body).toMatchObject({ resolved: 1, version: 2 });
+    const now = await detail(signUps.notMatchB);
+    expect(now).toMatchObject({ match: 'NO_MATCH', version: 2 });
+    expect(now.candidates[0]).toMatchObject({ resolution: 'NOT_A_MATCH' });
+    expect(now.allowedActions).toEqual(['APPROVE', 'DECLINE', 'KEEP_PENDING']);
+    expect(now.history.find((h) => h.kind === 'NOT_A_MATCH')).toMatchObject({
+      note: 'Another person',
+    });
+    // Approving checks again and now makes the new client.
+    const approved = await approve(signUps.notMatchB);
+    expect(approved.status).toBe(200);
+    expect(approved.body.clientId).not.toBe(records.notMatchB);
+
+    expect((await detail(signUps.emailB)).allowedActions).toEqual(['DECLINE', 'KEEP_PENDING']);
+    const email = await as(staff.ownerX, 'post', `/${signUps.emailB.accountId}/not-a-match`, {
+      ...(await write(signUps.emailB)),
+      reason: 'Not her',
+    });
+    expect([email.status, codeOf(email)]).toEqual([409, 'DUPLICATE_EMAIL']);
+  });
+
+  it('F11: Keep Pending changes nothing and keeps the note in the history', async () => {
+    const kept = await as(staff.ownerX, 'post', `/${signUps.keepB.accountId}/keep-pending`, {
+      note: 'Waiting for the client to call back',
+      idempotencyKey: randomUUID(),
+    });
+    expect(kept.status).toBe(200);
+    expect(await account(signUps.keepB)).toMatchObject({ status: 'PENDING_APPROVAL', version: 1 });
+    const d = await detail(signUps.keepB);
+    expect(d.history.find((h) => h.kind === 'KEPT_PENDING')).toMatchObject({
+      note: 'Waiting for the client to call back',
+      actorName: expect.any(String),
+    });
   });
 });

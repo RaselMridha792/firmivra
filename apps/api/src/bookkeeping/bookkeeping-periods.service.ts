@@ -602,7 +602,6 @@ export class BookkeepingPeriodsService {
       });
       if (!account) throw errors.notThisClients('account');
       await this.checkStatement(tx, businessId, found.engagementId, body.statementDocumentId);
-      const settings = await readSettings(tx, businessId);
       const cleared = body.clearedBalanceCents ?? 0;
       let created;
       try {
@@ -618,7 +617,8 @@ export class BookkeepingPeriodsService {
             clearedBalanceCents: cleared,
             clearedCount: body.clearedCount ?? 0,
             differenceCents: body.endingBalanceCents - cleared,
-            toleranceCents: settings.reconToleranceCents,
+            // Zero tolerance (Octavia, Oct 26): the firm's tolerance setting no longer applies.
+            toleranceCents: 0,
             exceptionsCount: body.exceptionsCount ?? 0,
             statementDocumentId: body.statementDocumentId ?? null,
           },
@@ -757,7 +757,7 @@ export class BookkeepingPeriodsService {
         if (r.status !== 'READY_FOR_REVIEW') {
           throw errors.reconState('The reconciliation is not waiting for review');
         }
-        if (Math.abs(r.differenceCents) > r.toleranceCents) throw errors.reconDifference();
+        if (r.differenceCents !== 0) throw errors.reconDifference();
         if (r.exceptionsCount > 0) throw errors.reconState('Resolve the open exceptions first');
         return { status: 'APPROVED', approvedAt: new Date(), approvedBy: actor.userId };
       },

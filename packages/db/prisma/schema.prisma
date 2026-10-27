@@ -3081,6 +3081,12 @@ model ClientProfile {
   // R37 (Clients module): the profile's county. Email and SMS consent live in communication_consents (R39).
   /// The client's county (the list's optional "City or County" filter).
   county                 String?
+  /// Clients E5 (R60's column request 14, Oct 26): a BUSINESS client's responsible party, the
+  /// person linked to the business, not replacing it: full name, lower-case email and E.164
+  /// phone, set together. The API requires them for a Business client.
+  responsiblePartyName   String?        @map("responsible_party_name")
+  responsiblePartyEmail  String?        @map("responsible_party_email")
+  responsiblePartyPhone  String?        @map("responsible_party_phone")
   createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -10285,8 +10291,8 @@ model BookkeepingCloseItem {
 
 /// The reconciliation of one account for one period: the statement's beginning and ending
 /// balances, what has been cleared, the difference (ending minus cleared, which the database
-/// checks) and the open exceptions. It can be approved only when the difference is within the
-/// tolerance; a reopen needs a reason. Saving progress is just updating the row. The statement is
+/// checks) and the open exceptions. It can be approved only when the difference is zero (zero
+/// tolerance, Oct 26; tolerance_cents no longer decides); a reopen needs a reason. Saving progress is just updating the row. The statement is
 /// a document of the same client, kept as a record: it cannot be deleted while a reconciliation
 /// uses it. Locked while the period is CLOSED.
 model BookkeepingReconciliation {
@@ -13624,7 +13630,8 @@ model BookkeepingTransactionSplit {
 }
 
 /// A refund received or issued, or a chargeback: its own event, linked to the original transaction
-/// and, when known, to its own transaction and the settlement that carried it.
+/// and, when known, to its own transaction and the settlement that carried it. Locked while the
+/// period of its date is CLOSED, except a chargeback's dispute outcome.
 model BookkeepingRefund {
   id                    String                    @id @default(uuid(7)) @db.Uuid
   businessId            String                    @map("business_id") @db.Uuid
@@ -13665,7 +13672,8 @@ model BookkeepingRefund {
 }
 
 /// A processor's settlement or payout batch: gross, refunds, chargebacks, fees and adjustments kept
-/// apart, the net, and the bank deposit it was matched to.
+/// apart, the net, and the bank deposit it was matched to. Locked, with its items, while the period
+/// of its payout date is CLOSED.
 model BookkeepingSettlement {
   id                   String                      @id @default(uuid(7)) @db.Uuid
   businessId           String                      @map("business_id") @db.Uuid
