@@ -33,6 +33,7 @@ import {
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
   createIntakeFormsClient,
+  createIntakesClient,
   createInvoicesClient,
   createLeadPipelineClient,
   createLeadsClient,
@@ -58,6 +59,7 @@ import {
   createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
+  createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
   createPortalTabsClient,
@@ -131,7 +133,7 @@ import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
-import { createIntakeFormsMock } from '../mocks/intake-forms';
+import { createIntakeFormsMock, createIntakesMock } from '../mocks/intake-forms';
 import { createServicesPricingMock } from '../mocks/services-pricing';
 import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
@@ -144,6 +146,7 @@ import {
   myNotesMock,
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
+import { createStaffPhoneMock } from '../mocks/staff-phone';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
@@ -308,6 +311,8 @@ export const api = {
     dev && mocked('intakeForms')
       ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
       : createIntakeFormsClient(request),
+  /** A client's intakes (R11's GET /business/clients/{id}/intakes): the return's Intake Form card. */
+  intakes: dev && mocked('intakes') ? createIntakesMock() : createIntakesClient(request),
   /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
   servicesPricing:
     dev && mocked('servicesPricing')
@@ -532,6 +537,9 @@ export const api = {
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
+  /** The signed-in member's mobile number and its verification by text (R60). */
+  staffPhone:
+    dev && mocked('staffPhone') ? createStaffPhoneMock() : createStaffPhoneClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
   /** Announcements published to the signed-in client from Communications (portal). */
   myAnnouncements: (firmSlug: string) =>
