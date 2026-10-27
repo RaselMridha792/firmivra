@@ -1,24 +1,47 @@
 'use client';
 
 import type { MessageThread } from '@firmivra/types';
-import { Avatar, Button, Input, Modal, Textarea, Toast } from '@firmivra/ui';
+import {
+  Avatar,
+  Button,
+  FilterChip,
+  FilterGroup,
+  Input,
+  Modal,
+  Textarea,
+  Toast,
+} from '@firmivra/ui';
 import {
   CalendarBlank,
   ChatCircleDots,
   Envelope,
+  FileText,
+  Funnel,
   Gear,
   MagnifyingGlass,
   PaperPlaneRight,
+  PaperPlaneTilt,
   Phone,
   Plus,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import {
+  activeFilters,
+  addressOf,
+  inView,
+  type MessagesView,
+  readView,
+  REPLIES,
+  SINCE,
+  STARTED,
+  TABS,
+  type TabId,
+} from './messages-view';
 
 const KEY = ['messages'] as const;
 const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -33,72 +56,91 @@ const gold =
   'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-gold px-5 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50';
 const subtle =
   'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
+/** MSG-F04: the blue secondary actions beside the gold New Message. */
+const blue =
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-semibold text-action hover:bg-accent-soft';
+const select =
+  'h-10 w-full rounded-lg border border-divider bg-surface px-3 text-sm font-normal text-text';
+const tag = 'rounded-md bg-canvas px-2 py-0.5 text-xs font-medium text-muted';
 
-const TABS = [
-  { id: 'all', label: 'All Messages' },
-  { id: 'unread', label: 'Unread' },
-  { id: 'appointment', label: 'Appointments' },
-  { id: 'invoice', label: 'Invoices' },
-  { id: 'document_request', label: 'Documents' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
 const relatedLabel = (t: MessageThread) =>
   t.related ? t.related.type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Client';
+const EMPTY: Partial<Record<TabId, string>> = {
+  leads: 'No conversations with leads yet.',
+  automations: 'No conversations opened by an automation.',
+  archived: 'No archived conversations.',
+};
+
+/** The search text, a moment after typing stops: the API searches it (MSG-F01). */
+function useSettled(value: string, ms = 250) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setSettled(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 
 /** /messages: the firm's inbox, the open conversation and the client beside it. */
 export function MessagesScreen({
   initialComposing = false,
-  initialClientId,
-  service,
+  initialView = readView({}),
 }: {
   /** Open New Message at once (the dashboard's shortcuts). */
   initialComposing?: boolean;
-  /** SH5: a service workspace's client: their conversations, and New Message for them. */
-  initialClientId?: string;
-  /** "Payroll", "Bookkeeping": the subject New Message starts with. */
-  service?: string;
+  /** The view from the address: tab, search, open thread, filters (MSG-F08), client (SH5). */
+  initialView?: MessagesView;
 } = {}) {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<TabId>('all');
-  const [search, setSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState(initialClientId ?? '');
-  const scoped = useApiQuery([...KEY, 'scoped-client', clientFilter], async () =>
-    clientFilter ? api.clients.get(clientFilter) : null,
+  const [view, setView] = useState(initialView);
+  const update = (patch: Partial<MessagesView>) => setView((v) => ({ ...v, ...patch }));
+  const scoped = useApiQuery([...KEY, 'scoped-client', view.clientId], async () =>
+    view.clientId ? api.clients.get(view.clientId) : null,
   );
-  const [openId, setOpenId] = useState<string>();
   const [composing, setComposing] = useState(initialComposing);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const inbox = useApiQuery([...KEY, 'inbox'], () => api.messages.inbox({ limit: 100 }));
+  const term = useSettled(view.q.trim());
+  const search = term ? { search: term } : {};
+  const inbox = useApiQuery([...KEY, 'inbox', term], () =>
+    api.messages.inbox({ ...search, limit: 100 }),
+  );
+  const archive = useApiQuery([...KEY, 'inbox', 'archived', term], () =>
+    api.messages.inbox({ ...search, archived: 'true', limit: 100 }),
+  );
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());
   const all = inbox.data?.items ?? [];
-  const term = search.trim().toLowerCase();
+  const archived = archive.data?.items ?? [];
+  const source = view.tab === 'archived' ? archive : inbox;
+  const pool = view.tab === 'archived' ? archived : all;
   // The client filter (SH5): the threads' clients, and the one a workspace opened with.
   const clientChoices = [
     ...new Map([
       ...(scoped.data ? [[scoped.data.id, scoped.data.displayName] as const] : []),
-      ...all.map((t) => [t.client.id, t.client.displayName] as const),
+      ...[...all, ...archived].map((t) => [t.client.id, t.client.displayName] as const),
     ]).entries(),
   ].sort((a, b) => a[1].localeCompare(b[1]));
-  const rows = all
-    .filter((t) => !clientFilter || t.client.id === clientFilter)
-    .filter((t) =>
-      tab === 'all' ? true : tab === 'unread' ? t.unreadCount > 0 : t.related?.type === tab,
-    )
-    .filter(
-      (t) =>
-        !term ||
-        `${t.client.displayName} ${t.subject} ${t.lastMessage?.excerpt ?? ''}`
-          .toLowerCase()
-          .includes(term),
-    );
-  const current = all.find((t) => t.id === (openId ?? rows[0]?.id));
+  const rows = pool.filter((t) => inView(t, view));
+  // The chosen thread, or the list's first when a new search no longer has it.
+  const chosen = [...all, ...archived].find((t) => t.id === view.thread);
+  const current = chosen ?? rows[0];
+  const loaded = !inbox.isPending && !archive.isPending;
+  // The address follows the view, so Back to Messages returns to this thread, list and search;
+  // a thread the loaded lists no longer have is left out of it.
+  const address = addressOf(loaded && !chosen ? { ...view, thread: '' } : view);
+  useEffect(() => {
+    if (address !== `${window.location.pathname}${window.location.search}`)
+      window.history.replaceState(null, '', address);
+  }, [address]);
   const refresh = () => qc.invalidateQueries({ queryKey: [...KEY] });
+  const unfiltered = { clientId: '', since: '', replies: '', started: '' } as const;
   const count = (id: TabId) =>
-    id === 'all'
-      ? all.length
-      : id === 'unread'
-        ? (unread.data?.total ?? 0)
-        : all.filter((t) => t.related?.type === id).length;
+    id === 'unread'
+      ? (unread.data?.total ?? 0)
+      : id === 'archived'
+        ? archived.length
+        : all.filter((t) => inView(t, { ...view, ...unfiltered, tab: id })).length;
+  const filters = activeFilters(view);
+  const filtered = filters.length > 0 || view.clientId !== '';
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="messages-page">
@@ -122,18 +164,25 @@ export function MessagesScreen({
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={gold} onClick={() => setComposing(true)}>
-            <Plus aria-hidden weight="bold" className="size-5" /> New Message
-          </button>
-          <Link href="/communications" className={subtle}>
-            Send Bulk Message
-          </Link>
-          <Link href="/templates" className={subtle}>
-            Message Templates
-          </Link>
-          {/* MSG-F02: message-specific settings, with Back to Messages. */}
-          <OriginLink href="/messages/settings" className={subtle} data-testid="messages-settings">
+        <div className="flex flex-col items-start gap-2 xl:items-end">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={gold} onClick={() => setComposing(true)}>
+              <Plus aria-hidden weight="bold" className="size-5" /> New Message
+            </button>
+            <OriginLink href="/communications" className={blue} data-testid="messages-bulk">
+              <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Bulk Message
+            </OriginLink>
+            {/* MSG-F07: the shared Templates library, on its message templates. */}
+            <OriginLink
+              href="/templates/library/portal-message"
+              className={blue}
+              data-testid="messages-templates"
+            >
+              <FileText aria-hidden weight="fill" className="size-5" /> Message Templates
+            </OriginLink>
+          </div>
+          {/* MSG-F02: message-specific settings, with Back to Messages (Frame 1: under the actions). */}
+          <OriginLink href="/messages/settings" className={blue} data-testid="messages-settings">
             <Gear aria-hidden weight="fill" className="size-5" /> Settings
           </OriginLink>
         </div>
@@ -146,19 +195,16 @@ export function MessagesScreen({
         <div
           role="tablist"
           aria-label="Message views"
-          className="relative flex overflow-x-auto border-b border-divider"
+          className="relative flex max-w-full overflow-x-auto border-b border-divider"
         >
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
               role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => {
-                setTab(t.id);
-                setOpenId(undefined);
-              }}
-              className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
+              aria-selected={view.tab === t.id}
+              onClick={() => update({ tab: t.id, thread: '' })}
+              className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${view.tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
             >
               {t.label}
               {t.id === 'all' || t.id === 'unread' || count(t.id) > 0 ? (
@@ -169,40 +215,54 @@ export function MessagesScreen({
             </button>
           ))}
         </div>
-        <label className="flex h-10 min-w-0 items-center gap-2 text-sm text-heading">
-          <span className="sr-only">Client</span>
-          <select
-            aria-label="Client"
-            data-testid="messages-client"
-            value={clientFilter}
-            onChange={(e) => {
-              setClientFilter(e.target.value);
-              setOpenId(undefined);
-            }}
-            className="h-10 max-w-60 rounded-lg border border-divider bg-surface px-3 text-sm text-text"
-          >
-            <option value="">All clients</option>
-            {clientChoices.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus sm:w-64">
-          <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
-          <span className="sr-only">Search messages</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search messages..."
-            className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
-          />
-        </label>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
+          <label className="flex h-10 min-w-0 items-center gap-2 text-sm text-heading">
+            <span className="sr-only">Client</span>
+            <select
+              aria-label="Client"
+              data-testid="messages-client"
+              value={view.clientId}
+              onChange={(e) => update({ clientId: e.target.value, thread: '' })}
+              className="h-10 max-w-60 rounded-lg border border-divider bg-surface px-3 text-sm text-text"
+            >
+              <option value="">All clients</option>
+              {clientChoices.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="order-first flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus sm:order-none sm:w-64">
+            <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
+            <span className="sr-only">Search messages</span>
+            <input
+              type="search"
+              value={view.q}
+              onChange={(e) => update({ q: e.target.value })}
+              placeholder="Search messages..."
+              className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
+            />
+          </label>
+          <FilterButton view={view} onChange={update} />
+        </div>
       </div>
+      {filters.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2" data-testid="messages-filters">
+          {filters.map((f) => (
+            <FilterChip key={f.key} label={f.label} onRemove={() => update({ [f.key]: '' })} />
+          ))}
+          <button
+            type="button"
+            className="text-sm font-medium text-link underline"
+            onClick={() => update({ since: '', replies: '', started: '' })}
+          >
+            Clear Filters
+          </button>
+        </div>
+      ) : null}
 
-      {inbox.isError ? (
+      {source.isError ? (
         <p role="alert" className={quiet} data-testid="messages-error">
           Messages are not available right now. We could not load them. Try again in a moment.
         </p>
@@ -214,14 +274,16 @@ export function MessagesScreen({
           aria-label="Conversations"
           data-testid="thread-list"
         >
-          {inbox.isPending ? <p className={quiet}>Loading…</p> : null}
-          {!inbox.isPending && rows.length === 0 ? (
+          {source.isPending ? <p className={quiet}>Loading…</p> : null}
+          {!source.isPending && rows.length === 0 ? (
             <p className={quiet}>
-              {clientFilter && !term && tab === 'all'
+              {view.clientId && !term && view.tab === 'all' && filters.length === 0
                 ? `No conversations with ${scoped.data?.displayName ?? 'this client'} yet. Start one with New Message.`
-                : all.length === 0
-                  ? 'No conversations yet. Start one with New Message.'
-                  : 'No conversations match.'}
+                : !term && !filtered && EMPTY[view.tab]
+                  ? EMPTY[view.tab]
+                  : pool.length === 0 && !term
+                    ? 'No conversations yet. Start one with New Message.'
+                    : 'No conversations match.'}
             </p>
           ) : null}
           <ul className="flex max-h-176 flex-col gap-2 overflow-auto">
@@ -231,7 +293,7 @@ export function MessagesScreen({
                   type="button"
                   data-testid="thread-row"
                   aria-current={current?.id === t.id}
-                  onClick={() => setOpenId(t.id)}
+                  onClick={() => update({ thread: t.id })}
                   className={`flex w-full gap-3 rounded-lg border p-3 text-left hover:bg-canvas ${current?.id === t.id ? 'border-action bg-info-soft' : 'border-divider'}`}
                 >
                   <Avatar name={t.client.displayName} size="lg" />
@@ -250,8 +312,12 @@ export function MessagesScreen({
                       {t.lastMessage?.excerpt ?? t.subject}
                     </span>
                     <span className="mt-1 flex items-center justify-between gap-2">
-                      <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
-                        {relatedLabel(t)}
+                      <span className="flex flex-wrap gap-1">
+                        <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
+                          {relatedLabel(t)}
+                        </span>
+                        {t.automated ? <span className={tag}>Automation</span> : null}
+                        {t.archivedAt ? <span className={tag}>Archived</span> : null}
                       </span>
                       {t.unreadCount ? (
                         <span className="rounded-pill bg-action px-2 text-xs font-semibold text-on-action">
@@ -265,7 +331,7 @@ export function MessagesScreen({
             ))}
           </ul>
           <p className="text-xs text-muted">
-            Showing {rows.length} of {all.length} conversations
+            Showing {rows.length} of {pool.length} conversations
           </p>
         </section>
 
@@ -294,17 +360,97 @@ export function MessagesScreen({
 
       {composing ? (
         <NewMessageDialog
-          clientId={clientFilter || undefined}
+          clientId={view.clientId || undefined}
           clientName={scoped.data?.displayName}
-          subject={service}
+          subject={view.service || undefined}
           onClose={() => setComposing(false)}
           onSent={(t) => {
             setComposing(false);
-            setOpenId(t.id);
+            update({ thread: t.id, tab: 'all' });
             setMessage({ text: 'Message sent.', tone: 'success' });
             void refresh();
           }}
         />
+      ) : null}
+    </div>
+  );
+}
+
+/** MSG-F05: Filter beside Search: when the last message was, replies open or closed, who began. */
+function FilterButton({
+  view,
+  onChange,
+}: {
+  view: MessagesView;
+  onChange: (patch: Partial<MessagesView>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const applied = activeFilters(view).length;
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) =>
+      rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  const choice = <K extends 'since' | 'replies' | 'started'>(
+    key: K,
+    title: string,
+    options: readonly { id: MessagesView[K]; label: string }[],
+  ) => (
+    <FilterGroup title={title}>
+      <select
+        aria-label={title}
+        className={select}
+        value={view[key]}
+        onChange={(e) => onChange({ [key]: e.target.value } as Partial<MessagesView>)}
+      >
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </FilterGroup>
+  );
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen(!open)}
+        className="inline-flex h-10 items-center gap-2 rounded-lg border border-divider bg-surface px-4 text-sm font-semibold text-action hover:bg-canvas"
+      >
+        <Funnel aria-hidden weight="fill" className="size-4.5" />
+        Filter
+        {applied > 0 ? (
+          <span className="rounded-pill bg-action px-1.5 text-xs text-on-action">{applied}</span>
+        ) : null}
+      </button>
+      {open ? (
+        <div
+          id={panelId}
+          role="region"
+          aria-label="Filter conversations"
+          onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
+          className="absolute top-full right-0 z-20 mt-2 flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-4 rounded-xl border border-divider bg-surface p-4 shadow-lg"
+        >
+          {choice('since', 'Last message', SINCE)}
+          {choice('replies', 'Replies', REPLIES)}
+          {choice('started', 'Started by', STARTED)}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => onChange({ since: '', replies: '', started: '' })}
+            >
+              Clear Filters
+            </Button>
+            <Button onClick={() => setOpen(false)}>Done</Button>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -459,9 +605,10 @@ function ContactPanel({ clientId, name }: { clientId: string; name: string }) {
         <Avatar name={name} size="xl" />
         <div className="min-w-0">
           <p className="truncate font-display text-xl font-bold text-heading">{name}</p>
-          <Link href={`/clients/${clientId}`} className="text-sm font-medium text-link">
-            Open client
-          </Link>
+          {/* D7: Open Client is the way to edit; Back returns to this thread (MSG-F08). */}
+          <OriginLink href={`/clients/${clientId}`} className="text-sm font-medium text-link">
+            Open Client
+          </OriginLink>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-heading">

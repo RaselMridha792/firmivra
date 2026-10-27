@@ -89,6 +89,7 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/Search' }
         - { $ref: '#/components/parameters/Unread' }
+        - { $ref: '#/components/parameters/Archived' }
         - { $ref: '#/components/parameters/Cursor' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -110,6 +111,7 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/Search' }
         - { $ref: '#/components/parameters/Unread' }
+        - { $ref: '#/components/parameters/Archived' }
         - { $ref: '#/components/parameters/Cursor' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -364,8 +366,16 @@ components:
     Search:
       name: search
       in: query
-      description: Matches the subject and the messages' text. At most 100 characters.
+      description: >-
+        Matches the subject and the messages' text; on the firm's lists also the client's name and
+        email, and a phone number by its digits in any format (the last ten when there are ten or
+        more). At most 100 characters.
       schema: { type: string, maxLength: 100 }
+    Archived:
+      name: archived
+      in: query
+      description: '`true` lists only archived threads; otherwise only active ones (firm lists).'
+      schema: { type: string, enum: ['true', 'false'] }
     Unread:
       name: unread
       in: query

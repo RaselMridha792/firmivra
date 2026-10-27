@@ -127,7 +127,7 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/tax-returns/:id/filings/:filingId/paper-filed': {
     params: { id: 'taxReturn', filingId: 'taxPaperFiling' },
-    body: { paperFiledOn: '2026-01-02' },
+    body: { paperFiledOn: '2026-01-02', mailTrackingNumber: 'FAKE-TRACK-0001' },
   },
   'GET /api/v1/business/tax-returns/:id/checklist': { params: ret },
   'POST /api/v1/business/tax-returns/:id/checklist': {
