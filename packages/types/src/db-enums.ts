@@ -1729,6 +1729,10 @@ export type TaxJurisdictionStatus = z.infer<typeof TaxJurisdictionStatus>;
 export const TaxAmountStatus = z.enum(['ESTIMATED', 'FINAL']);
 export type TaxAmountStatus = z.infer<typeof TaxAmountStatus>;
 
+/** Where a jurisdiction's refund or amount due came from. Every amount is entered by staff; this says what they copied it from. */
+export const TaxAmountSource = z.enum(['TAX_SOFTWARE', 'AGENCY_NOTICE', 'STAFF_ESTIMATE']);
+export type TaxAmountSource = z.infer<typeof TaxAmountSource>;
+
 export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
 export type TaxAckStatus = z.infer<typeof TaxAckStatus>;
 
@@ -1756,6 +1760,10 @@ export const TaxReturnDocumentKind = z.enum([
   'EXTENSION',
 ]);
 export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
+
+/** ERROR blocks Ready to File and transmission; a MANUAL_WARNING needs review but never blocks (Octavia, Oct 25); INFO never blocks. */
+export const TaxIssueSeverity = z.enum(['ERROR', 'MANUAL_WARNING', 'INFO']);
+export type TaxIssueSeverity = z.infer<typeof TaxIssueSeverity>;
 
 /** Calendar colours: token names the screens map to packages/ui (no hex values here). */
 export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);

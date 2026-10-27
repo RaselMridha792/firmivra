@@ -1179,44 +1179,47 @@ model Membership {
   rolePermissionsChanged RolePermission[]
 
   // R37 back-relations (no columns on memberships).
-  intakesAssigned           Intake[]                  @relation("IntakeAssignedTo")
-  intakesCompleted          Intake[]                  @relation("IntakeCompletedBy")
-  intakeSettingsOwner       IntakeSettings[]          @relation("IntakeSettingsOwner")
-  intakeSettingsFollowUp    IntakeSettings[]          @relation("IntakeSettingsFollowUp")
-  intakeTemplatesCreated    IntakeTemplate[]          @relation("IntakeTemplateCreatedBy")
-  intakeTemplatesAssigned   IntakeTemplate[]          @relation("IntakeTemplateAssignedTo")
-  documentsReviewer         Document[]                @relation("DocumentReviewer")
-  documentsReviewedBy       Document[]                @relation("DocumentReviewedBy")
-  requestPacketsAssigned    DocumentRequestPacket[]   @relation("PacketAssignedTo")
-  requestPacketsRequested   DocumentRequestPacket[]   @relation("PacketRequestedBy")
-  requestPacketsForMember   DocumentRequestPacket[]   @relation("PacketRecipientMember")
-  requestTemplatesOwned     DocumentRequestTemplate[] @relation("RequestTemplateOwner")
-  documentSharesToMember    DocumentShare[]           @relation("ShareToMember")
-  documentSharesGranted     DocumentShare[]           @relation("ShareGrantedBy")
-  documentSharesRevoked     DocumentShare[]           @relation("ShareRevokedBy")
-  documentSettingsReviewer  DocumentSettings[]        @relation("DocumentSettingsReviewer")
-  taxReturnsPrepared        TaxReturn[]               @relation("TaxReturnPreparer")
-  taxReturnsReviewed        TaxReturn[]               @relation("TaxReturnReviewer")
-  taxReturnsValidated       TaxReturn[]               @relation("TaxReturnValidator")
-  taxReturnsUpdated         TaxReturn[]               @relation("TaxReturnUpdatedBy")
-  taxFilingAttemptsRecorded TaxReturnFilingAttempt[]  @relation("TaxAttemptRecordedBy")
-  taxApprovalsAssigned      TaxReturnApproval[]       @relation("TaxApprovalAssignedTo")
-  taxApprovalsDecided       TaxReturnApproval[]       @relation("TaxApprovalDecidedBy")
-  taxChecklistAcknowledged  TaxReturnChecklistItem[]  @relation("TaxChecklistAcknowledgedBy")
-  taxChecklistUpdated       TaxReturnChecklistItem[]  @relation("TaxChecklistUpdatedBy")
-  taxDocumentsAdded         TaxReturnDocument[]       @relation("TaxDocumentAddedBy")
-  clientsUpdated            Client[]                  @relation("ClientUpdatedBy")
-  tagsCreated               Tag[]                     @relation("TagCreatedBy")
-  clientTagsAdded           ClientTag[]               @relation("ClientTagAddedBy")
-  leadsAssigned             Lead[]                    @relation("LeadAssignedTo")
-  leadsArchived             Lead[]                    @relation("LeadArchivedBy")
-  leadsUpdated              Lead[]                    @relation("LeadUpdatedBy")
-  leadTagsAdded             LeadTag[]                 @relation("LeadTagAddedBy")
-  leadActivities            LeadActivity[]            @relation("LeadActivityActor")
-  availabilityOverrides     AvailabilityOverride[]    @relation("OverrideStaff")
-  appointmentSeriesCreated  AppointmentSeries[]       @relation("SeriesCreatedBy")
+  intakesAssigned           Intake[]                   @relation("IntakeAssignedTo")
+  intakesCompleted          Intake[]                   @relation("IntakeCompletedBy")
+  intakeSettingsOwner       IntakeSettings[]           @relation("IntakeSettingsOwner")
+  intakeSettingsFollowUp    IntakeSettings[]           @relation("IntakeSettingsFollowUp")
+  intakeTemplatesCreated    IntakeTemplate[]           @relation("IntakeTemplateCreatedBy")
+  intakeTemplatesAssigned   IntakeTemplate[]           @relation("IntakeTemplateAssignedTo")
+  documentsReviewer         Document[]                 @relation("DocumentReviewer")
+  documentsReviewedBy       Document[]                 @relation("DocumentReviewedBy")
+  requestPacketsAssigned    DocumentRequestPacket[]    @relation("PacketAssignedTo")
+  requestPacketsRequested   DocumentRequestPacket[]    @relation("PacketRequestedBy")
+  requestPacketsForMember   DocumentRequestPacket[]    @relation("PacketRecipientMember")
+  requestTemplatesOwned     DocumentRequestTemplate[]  @relation("RequestTemplateOwner")
+  documentSharesToMember    DocumentShare[]            @relation("ShareToMember")
+  documentSharesGranted     DocumentShare[]            @relation("ShareGrantedBy")
+  documentSharesRevoked     DocumentShare[]            @relation("ShareRevokedBy")
+  documentSettingsReviewer  DocumentSettings[]         @relation("DocumentSettingsReviewer")
+  taxReturnsPrepared        TaxReturn[]                @relation("TaxReturnPreparer")
+  taxReturnsReviewed        TaxReturn[]                @relation("TaxReturnReviewer")
+  taxReturnsValidated       TaxReturn[]                @relation("TaxReturnValidator")
+  taxReturnsUpdated         TaxReturn[]                @relation("TaxReturnUpdatedBy")
+  taxFilingAttemptsRecorded TaxReturnFilingAttempt[]   @relation("TaxAttemptRecordedBy")
+  taxApprovalsAssigned      TaxReturnApproval[]        @relation("TaxApprovalAssignedTo")
+  taxApprovalsDecided       TaxReturnApproval[]        @relation("TaxApprovalDecidedBy")
+  taxChecklistAcknowledged  TaxReturnChecklistItem[]   @relation("TaxChecklistAcknowledgedBy")
+  taxChecklistUpdated       TaxReturnChecklistItem[]   @relation("TaxChecklistUpdatedBy")
+  taxDocumentsAdded         TaxReturnDocument[]        @relation("TaxDocumentAddedBy")
+  taxIssuesResponsible      TaxReturnValidationIssue[] @relation("TaxIssueResponsible")
+  taxIssuesRaised           TaxReturnValidationIssue[] @relation("TaxIssueRaisedBy")
+  taxIssuesResolved         TaxReturnValidationIssue[] @relation("TaxIssueResolvedBy")
+  clientsUpdated            Client[]                   @relation("ClientUpdatedBy")
+  tagsCreated               Tag[]                      @relation("TagCreatedBy")
+  clientTagsAdded           ClientTag[]                @relation("ClientTagAddedBy")
+  leadsAssigned             Lead[]                     @relation("LeadAssignedTo")
+  leadsArchived             Lead[]                     @relation("LeadArchivedBy")
+  leadsUpdated              Lead[]                     @relation("LeadUpdatedBy")
+  leadTagsAdded             LeadTag[]                  @relation("LeadTagAddedBy")
+  leadActivities            LeadActivity[]             @relation("LeadActivityActor")
+  availabilityOverrides     AvailabilityOverride[]     @relation("OverrideStaff")
+  appointmentSeriesCreated  AppointmentSeries[]        @relation("SeriesCreatedBy")
   /// R0 stage B2: support tickets about this member.
-  supportTickets            SupportTicket[]           @relation("SupportTicketContact")
+  supportTickets            SupportTicket[]            @relation("SupportTicketContact")
 
   // R1 (Oct 21): the locations this member is assigned to.
   officesAssigned           FirmOfficeMember[]
@@ -3078,6 +3081,12 @@ model ClientProfile {
   // R37 (Clients module): the profile's county. Email and SMS consent live in communication_consents (R39).
   /// The client's county (the list's optional "City or County" filter).
   county                 String?
+  /// Clients E5 (R60's column request 14, Oct 26): a BUSINESS client's responsible party, the
+  /// person linked to the business, not replacing it: full name, lower-case email and E.164
+  /// phone, set together. The API requires them for a Business client.
+  responsiblePartyName   String?        @map("responsible_party_name")
+  responsiblePartyEmail  String?        @map("responsible_party_email")
+  responsiblePartyPhone  String?        @map("responsible_party_phone")
   createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -4717,19 +4726,33 @@ model TaxReturn {
   archivedAt             DateTime?               @map("archived_at") @db.Timestamptz(3)
   /// Who made the last change; the history row's author.
   updatedByUserId        String?                 @map("updated_by_user_id") @db.Uuid
+  /// TX-F31/F32 (Oct 26): a BUSINESS return's business identity, copied by the database at
+  /// creation from the client's own profile (never matched by name); later edits to the profile
+  /// don't change it. Correctable until the return is first filed, then frozen. Empty on an
+  /// INDIVIDUAL return.
+  businessName           String?                 @map("business_name")
+  /// The EIN sealed with the firm's key and its last 4 digits, set together; shown masked.
+  businessEinEnc         Bytes?                  @map("business_ein_enc")
+  businessEinLast4       String?                 @map("business_ein_last4")
+  businessAddressLine1   String?                 @map("business_address_line1")
+  businessAddressLine2   String?                 @map("business_address_line2")
+  businessCity           String?                 @map("business_city")
+  businessState          String?                 @map("business_state")
+  businessPostalCode     String?                 @map("business_postal_code")
 
-  preparer       Membership?              @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
-  reviewer       Membership?              @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
-  finalValidator Membership?              @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  updatedBy      Membership?              @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  amends         TaxReturn?               @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
-  amendedBy      TaxReturn[]              @relation("TaxReturnAmends")
+  preparer       Membership?                @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewer       Membership?                @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  finalValidator Membership?                @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?                @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  amends         TaxReturn?                 @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
+  amendedBy      TaxReturn[]                @relation("TaxReturnAmends")
   history        TaxReturnHistory[]
   filings        TaxReturnFiling[]
   approvals      TaxReturnApproval[]
   checklist      TaxReturnChecklistItem[]
   authorizations TaxReturnAuthorization[]
   documents      TaxReturnDocument[]
+  issues         TaxReturnValidationIssue[]
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -10268,8 +10291,8 @@ model BookkeepingCloseItem {
 
 /// The reconciliation of one account for one period: the statement's beginning and ending
 /// balances, what has been cleared, the difference (ending minus cleared, which the database
-/// checks) and the open exceptions. It can be approved only when the difference is within the
-/// tolerance; a reopen needs a reason. Saving progress is just updating the row. The statement is
+/// checks) and the open exceptions. It can be approved only when the difference is zero (zero
+/// tolerance, Oct 26; tolerance_cents no longer decides); a reopen needs a reason. Saving progress is just updating the row. The statement is
 /// a document of the same client, kept as a record: it cannot be deleted while a reconciliation
 /// uses it. Locked while the period is CLOSED.
 model BookkeepingReconciliation {
@@ -11119,6 +11142,17 @@ enum TaxAmountStatus {
   FINAL
 }
 
+/// Where a jurisdiction's refund or amount due came from. Every amount is entered by staff; this
+/// says what they copied it from.
+enum TaxAmountSource {
+  /// The result in the firm's own tax software.
+  TAX_SOFTWARE
+  /// An agency's notice or acknowledgment.
+  AGENCY_NOTICE
+  /// The preparer's own estimate, before the software or the agency has a figure.
+  STAFF_ESTIMATE
+}
+
 enum TaxAckStatus {
   PENDING
   ACCEPTED
@@ -11129,22 +11163,29 @@ enum TaxAckStatus {
 /// filed, where it stands, the refund or amount due the firm expects. Extensions are the compliance deadline's (R38). Status
 /// tracking only: the firm records what its tax software did.
 model TaxReturnFiling {
-  id             String                @id @default(uuid(7)) @db.Uuid
-  businessId     String                @map("business_id") @db.Uuid
-  taxReturnId    String                @map("tax_return_id") @db.Uuid
+  id                 String                @id @default(uuid(7)) @db.Uuid
+  businessId         String                @map("business_id") @db.Uuid
+  taxReturnId        String                @map("tax_return_id") @db.Uuid
   /// "US" for federal, or a two-letter state code.
-  jurisdiction   String
-  filingMethod   TaxFilingMethod       @default(EFILE) @map("filing_method")
+  jurisdiction       String
+  filingMethod       TaxFilingMethod       @default(EFILE) @map("filing_method")
   /// Closing the return waits for the required jurisdictions only.
-  required       Boolean               @default(true)
-  status         TaxJurisdictionStatus @default(NOT_FILED)
-  paperFiledOn   DateTime?             @map("paper_filed_on") @db.Date
+  required           Boolean               @default(true)
+  status             TaxJurisdictionStatus @default(NOT_FILED)
+  paperFiledOn       DateTime?             @map("paper_filed_on") @db.Date
   /// In cents. At most one of the two is above zero; the amount's status says estimate or final.
-  refundCents    Int?                  @map("refund_cents")
-  amountDueCents Int?                  @map("amount_due_cents")
-  amountStatus   TaxAmountStatus?      @map("amount_status")
-  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  refundCents        Int?                  @map("refund_cents")
+  amountDueCents     Int?                  @map("amount_due_cents")
+  amountStatus       TaxAmountStatus?      @map("amount_status")
+  /// Where the amount came from, and its version (1 for the first amount, then up by one on each
+  /// change); set together, only with an amount. Rows from before have neither.
+  amountSource       TaxAmountSource?      @map("amount_source")
+  amountVersion      Int?                  @map("amount_version")
+  /// The paper filing's mail tracking number ("Mail Tracking Number", never a submission id); only
+  /// on a PAPER filing. Tracking proves neither delivery nor acceptance.
+  mailTrackingNumber String?               @map("mail_tracking_number")
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   taxReturn TaxReturn                @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
   attempts  TaxReturnFilingAttempt[]
@@ -11170,6 +11211,9 @@ model TaxReturnFilingAttempt {
   rejectCode        String?      @map("reject_code")
   rejectDescription String?      @map("reject_description")
   correctiveAction  String?      @map("corrective_action")
+  /// The agency that rejected it ("IRS", "Georgia DOR"), as the acknowledgment names it; only on a
+  /// rejection, and kept once recorded.
+  rejectingAgency   String?      @map("rejecting_agency")
   recordedByUserId  String       @map("recorded_by_user_id") @db.Uuid
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -11260,10 +11304,13 @@ model TaxReturnChecklistItem {
   createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  taxReturn      TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
-  acknowledgedBy Membership? @relation("TaxChecklistAcknowledgedBy", fields: [businessId, acknowledgedByUserId], references: [businessId, userId], onDelete: Restrict)
-  updatedBy      Membership? @relation("TaxChecklistUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  taxReturn      TaxReturn                  @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  acknowledgedBy Membership?                @relation("TaxChecklistAcknowledgedBy", fields: [businessId, acknowledgedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy      Membership?                @relation("TaxChecklistUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  issues         TaxReturnValidationIssue[]
 
+  /// Target of a validation issue's review step (the same return's).
+  @@unique([businessId, taxReturnId, id])
   @@index([businessId, taxReturnId, section, sortOrder])
   @@map("tax_return_checklist_items")
 }
@@ -11332,14 +11379,59 @@ model TaxReturnDocument {
   createdByUserId String?               @map("created_by_user_id") @db.Uuid
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  taxReturn TaxReturn   @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
-  document  Document    @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
-  createdBy Membership? @relation("TaxDocumentAddedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  taxReturn TaxReturn                  @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  document  Document                   @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership?                @relation("TaxDocumentAddedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  issues    TaxReturnValidationIssue[]
 
   @@unique([businessId, taxReturnId, documentId])
   @@index([businessId, taxReturnId, kind, createdAt])
   @@index([businessId, documentId])
   @@map("tax_return_documents")
+}
+
+/// ERROR blocks Ready to File and transmission; a MANUAL_WARNING needs review but never blocks
+/// (Octavia, Oct 25); INFO never blocks.
+enum TaxIssueSeverity {
+  ERROR
+  MANUAL_WARNING
+  INFO
+}
+
+/// A problem a reviewer found in a return and handed to someone (TX-F19): the note, its severity,
+/// who must resolve it, the draft it was found in and the review step it belongs to. Resolved,
+/// never deleted (no DELETE grant).
+model TaxReturnValidationIssue {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  taxReturnId       String           @map("tax_return_id") @db.Uuid
+  severity          TaxIssueSeverity
+  /// Up to 2,000 characters.
+  note              String
+  /// Who must resolve it (a member of the firm); empty until someone is assigned.
+  responsibleUserId String?          @map("responsible_user_id") @db.Uuid
+  /// The return's version it was found in: the draft, one of this return's files.
+  draftDocumentId   String?          @map("draft_document_id") @db.Uuid
+  /// The review step it belongs to, one of this return's checklist items.
+  checklistItemId   String?          @map("checklist_item_id") @db.Uuid
+  createdByUserId   String           @map("created_by_user_id") @db.Uuid
+  /// Set together when it is resolved.
+  resolvedAt        DateTime?        @map("resolved_at") @db.Timestamptz(3)
+  resolvedByUserId  String?          @map("resolved_by_user_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  taxReturn   TaxReturn               @relation(fields: [businessId, taxReturnId], references: [businessId, id], onDelete: Cascade)
+  responsible Membership?             @relation("TaxIssueResponsible", fields: [businessId, responsibleUserId], references: [businessId, userId], onDelete: Restrict)
+  draft       TaxReturnDocument?      @relation(fields: [businessId, taxReturnId, draftDocumentId], references: [businessId, taxReturnId, documentId], onDelete: NoAction)
+  step        TaxReturnChecklistItem? @relation(fields: [businessId, taxReturnId, checklistItemId], references: [businessId, taxReturnId, id], onDelete: NoAction)
+  createdBy   Membership              @relation("TaxIssueRaisedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  resolvedBy  Membership?             @relation("TaxIssueResolvedBy", fields: [businessId, resolvedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, taxReturnId, resolvedAt])
+  @@index([businessId, responsibleUserId, resolvedAt])
+  @@index([businessId, checklistItemId])
+  @@map("tax_return_validation_issues")
 }
 
 /// Calendar colours: token names the screens map to packages/ui (no hex values here).
@@ -13538,7 +13630,8 @@ model BookkeepingTransactionSplit {
 }
 
 /// A refund received or issued, or a chargeback: its own event, linked to the original transaction
-/// and, when known, to its own transaction and the settlement that carried it.
+/// and, when known, to its own transaction and the settlement that carried it. Locked while the
+/// period of its date is CLOSED, except a chargeback's dispute outcome.
 model BookkeepingRefund {
   id                    String                    @id @default(uuid(7)) @db.Uuid
   businessId            String                    @map("business_id") @db.Uuid
@@ -13579,7 +13672,8 @@ model BookkeepingRefund {
 }
 
 /// A processor's settlement or payout batch: gross, refunds, chargebacks, fees and adjustments kept
-/// apart, the net, and the bank deposit it was matched to.
+/// apart, the net, and the bank deposit it was matched to. Locked, with its items, while the period
+/// of its payout date is CLOSED.
 model BookkeepingSettlement {
   id                   String                      @id @default(uuid(7)) @db.Uuid
   businessId           String                      @map("business_id") @db.Uuid

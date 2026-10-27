@@ -19,6 +19,183 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 26 (eighth session, end): start here
+
+The next R60 reads `CLAUDE.md`, `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules)
+and this file, then `git fetch origin`.
+
+**Rasel's word (Oct 26), his answers to the seventh session (defaults, reversible):**
+- **E2 Last Activity:** the list computes it (no schema change, no write by other modules), as the
+  client's latest of: a message sent or received, a document uploaded or requested, a task
+  completed, an appointment held, an invoice sent or paid, an e-sign completed, a note added. Keep
+  the day boundaries already built.
+- **Column request 14 (responsible party):** three columns on `client_profiles` (name, email,
+  phone); R1 builds the migration (block 10). E5's responsible party waits for R1's PR; E4 and the
+  rest of E5 do not.
+- **D5** stays closed for now. **D4's Settings card templates screen** goes to a free session, not
+  R60.
+- **Sign-ups flow B (D2):**
+  - Restore Access closes the sign-up as declined with reason "access restored", creates no
+    client, sends the applicant the existing recovery email, one operation id.
+  - Link Existing Record may link to a record whose email differs from the sign-up's, but only
+    after all three checks are recorded (a call to a contact already on the record, identity
+    verified, permission with scope). It keeps the existing Client ID.
+  - Not a Match: Owner or Admin, with a short reason, when the candidates are phone or other
+    matches. An email match stays blocked (`DUPLICATE_EMAIL`).
+  - Verifications expire after 24 hours and must be recorded again.
+- **Order:** flow A PR, TX-F01, then Tax Returns block 3 (F34 and F35, F22, F31, F11, F04, F28),
+  reusing R56's OriginLink, OriginBar (#1168) and row menus (#1167); then the staff phone PR and
+  flow B. Tables go to R1 through Rasel.
+
+**Merged:** #1166 (Client Sign-ups screen, squash `d8c79cb`).
+
+**Open (two, the limit), both green in CI:**
+- **#1171** Sign-ups flow A (D3, D4), `rasel/R60-signups-flow`, `main` merged in at `5ed7388`. The
+  merge's conflicts were only #1166's squash: this branch's side was taken (the files equal
+  `b44684a`).
+- **#1175** TX-F01, `rasel/R60-tax-returns-f01` (head `6739d13`). Client Details stacks each label
+  above its value in a narrow card (container query below 20rem), the value column shrinks
+  (`minmax(0,1fr)`, `wrap-anywhere`) and an email wraps at its @. The "details are not available"
+  of the seventh session was local state: on `main` with the local API the card loads. Real-API
+  spec `apps/web/e2e/r60-tax-return-client-details.spec.ts` fails on `main`, passes here.
+
+**Built and pushed, no PR yet (open each when a slot frees; bodies in this session's scratchpad):**
+1. **TX-F34, TX-F35** archived returns, `rasel/R60-tax-returns-archived` (head `ecf11ae`, from
+   `main`), body `pr-f34.md` (sheet pinned). Show (Active, Archived) is the first filter, Quick
+   Actions has Archived Returns, Clear keeps the view, an archived row's menu is read-only plus
+   Restore (and Delete as before), bulk Restore, and the return's page says it is archived with
+   Restore Return. Web only. Mock spec `r60-tax-returns-archived` 3 of 3.
+2. **TX-F22** Record Rejection, `rasel/R60-tax-returns-rejection` (stacked on the archived branch),
+   body `pr-f22.md` (sheet pinned), head `c1b730b`. API: Rejected is 409
+   `REJECTION_NOT_RECORDED` until a newest transmission is answered REJECTED; a rejection needs
+   `rejectingAgency` (R1's #1169 column) and `correctiveAction`. Web: every Rejected choice opens
+   Record Rejection (record the waiting transmission's answer, name a recorded one, or say to
+   record the transmission first). Types test 6 of 6, API e2e `tax-return-review` 8 of 8.
+3. **TX-F31** business identity, `rasel/R60-tax-returns-business` (head `9ade1d3`, from `main`),
+   body `pr-f31.md` (sheet pinned). Create New Return for a business return shows Business Name,
+   the masked EIN and the address from the chosen client's record (read-only, link to the
+   client). Web only. The snapshot on the return waits for R1's `rasel/R1-tax-business-identity`
+   (queued, item 4): then show it on the return's page.
+4. **TX-F28** amounts, `rasel/R60-tax-returns-amounts` (stacked on the rejection branch, head
+   `0a3325a`), body `pr-f28.md` (sheet pinned). `amountSource` on the filing PATCH (400 without
+   one for an amount), `amountVersion` raised on each amount change, cleared with the amount, the
+   amount in the audit entry; Add/Edit Amount per jurisdiction with Source. API e2e 8 of 8, every
+   Tax Returns mock spec 17 of 17. Amounts with cents now show two digits ($1,250.50) in every
+   Tax Returns view.
+5. **Sign-ups flow B (D2)**, `rasel/R60-signups-flow-b` (stacked on flow A, #1171; head
+   `ce625ad`), body `pr-flowb.md` (sheet pinned). On Rasel's rules of Oct 26 (above):
+   - `POST .../checks` records the three checks per candidate record, valid 24 hours
+     (`SIGN_UP_CHECKS_HOURS`); another firm's record is 404, a non-candidate of the firm 409
+     `NOT_A_CANDIDATE`, a contact the record lacks 409 `NO_SUCH_CONTACT`.
+   - `.../link` (Link Existing Record, any email, Client ID kept, 409 `CHECKS_REQUIRED` or
+     `CLIENT_NOT_LINKABLE`).
+   - `.../restore-access` (declined "access restored", no client, `forgotPassword` on the record's
+     own login, 409 `NO_PORTAL_LOGIN`).
+   - `.../not-a-match` (phone matches only, reason; email 409 `DUPLICATE_EMAIL`).
+   - `.../keep-pending` (note in the history).
+   - Candidates carry their resolution (`holdsBack`): a resolved phone match stops holding a
+     request back everywhere, the automatic rule too.
+   - Screen: live checkboxes, Record Checks, confirmations, Not a Match and Keep Pending dialogs.
+   - Tests: types 19 of 19, API e2e 21 of 21, mock 14 of 14. The isolation suite passes for the
+     five routes (cases with `expect: 409`); the 10 known local file and export routes fail as on
+     `main`.
+6. **TX-F26** Mail Tracking Number, `rasel/R60-tax-returns-mail` (stacked on the amounts branch,
+   head `eaf590a`), body `pr-f26.md` (sheet pinned). `mailTrackingNumber` required on
+   `paper-filed` (R1's column), returned on the filing; Record Paper Filing asks for it; a paper
+   filing shows Mailed On and Mail Tracking Number. F25 needed nothing (method per jurisdiction
+   exists). The body proposes F27's Mailing Report columns for Octavia. API e2e 8 of 8, mock 6 of 6.
+7. (c) Staff phone, `rasel/R60-staff-phone` (head `a654e22`), unchanged: body in the sixth
+   session's scratchpad `pr-phone.md`.
+
+Open the PRs in this order as slots free: F34 (archived), then F22 (stacked on it), F31, F28
+(stacked on F22), F26 (stacked on F28), flow B (after #1171), the staff phone. Merge `origin/main` into each before
+opening; a stacked one also merges its base branch after that base merges.
+
+**Next, in this order (Rasel's block 3):**
+1. F11 (Intake Form card in Intake & Documents): web only. `api.intakes.listForClient(clientId)`
+   gives each intake's `engagement.taxYear`; match the return's engagement or year, open
+   `/intake-forms/{id}`, Request Correction through `requestRevision` (Owner and Admin). Build it
+   with R56's OriginLink once #1168 merges, so Back restores the return.
+2. F04 (Client Portal from a return): the firm-side Client Portal is still the placeholder module
+   (`lib/firm-modules.ts`). It depends on that module; say so in the reply, build nothing twice.
+3. Then SH1 to SH6 in Tax Returns once R56's shared pieces land (#1168, #1173, #1174), F27 (the
+   Mailing Report, once Octavia confirms the columns proposed in F26's PR), F19 and F20
+   (validation issues: R1's queued `tax_return_validation_issues`), and TX-F18 after Rasel's
+   word on role checks.
+
+**Local state:** `firmivra_r60` has the synthetic client Jordan Wrapcheck (fake) with a 2025
+return `01a17879-3c4d-74eb-8162-9e85cddde8bd` (restored, not archived). `packages/db` was rebuilt
+(`pnpm --filter @firmivra/db build`): the API reads `@firmivra/db` from `dist`, so a stale build
+hides new columns from the typecheck. This session's scratchpad is
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/8d8ff437-5c87-4a0b-a0bb-898ab8ccc0b7/scratchpad/`:
+`shots-tx-f01.cjs`, `shots-tx-f34.cjs`, `shots-tx-f31.cjs` (local API), `shots-tx-f22.cjs`,
+`shots-tx-f28.cjs` and `shots-flowb.cjs` (mock mode, port 3601), `compose.cjs`, `spec-*.json`,
+`probe-return.cjs` and `pr-*.md`. Local synthetic business clients for F31: Sample Supplies LLC
+(fake) and Example Holdings (fake).
+
+### Oct 26 (seventh session, end): start here
+
+The next R60 reads `CLAUDE.md`, `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules)
+and this file, then `git fetch origin`. Rasel's order of Oct 26: Clients PR, Client Sign-ups (screen,
+D5, flow), then Tax Returns (`docs/specs/review-2026-10-26/CHANGE-LIST.md` section B).
+
+**Merged:** #1164 (Clients E1, E3, E6, E7, squash `619c954`), with a late fix: the browser's Back
+from a client page came back to a fresh list. `history.replaceState` now passes a null state (Next's
+history docs), and the screen reads its place from `useSearchParams`. Sign-ups uses the same
+pattern.
+
+**Open:**
+- **#1166** Client Sign-ups screen (D1), `rasel/R60-signups-screen`, `main` merged in at `b44684a`.
+  It has the tabs with the firm's counts, search, sort, filters, the match check (email, or the
+  phone's last 10 digits), the request panel, the activity, the client view preview, Back keeping
+  its place, and the Clients group in the sidebar (Overview, Sign-ups, Documents).
+
+**Built and pushed, no PR yet:**
+1. **Sign-ups flow A (D3, D4)**, `rasel/R60-signups-flow`, head `fb61109`, stacked on #1166.
+   `gh pr create` was refused by the session's permission check on Oct 26, so it waits for Rasel
+   to open it (or to allow it). The body is this session's scratchpad `pr-flow.md`. It covers:
+   - Manage settings and its confirmation;
+   - `PATCH /client-sign-ups/settings`;
+   - Automatic Approval at sign-up completion (`sign-up-decisions.ts`, no match only, under a share
+     lock on the policy row);
+   - `SignUpState.approved` and the portal's "Account Created" copy;
+   - the version and idempotency key on approve, decline and settings, recorded in
+     `client_signup_operations`;
+   - Decline's "Email {name}" choice, and `allowedActions` on the detail.
+   Tests: API e2e 17 of 17 plus 42 of 42, mock specs 15 of 15.
+2. **(c) Staff phone verification**, `rasel/R60-staff-phone`, head `a654e22`. Still no PR. The
+   body is the sixth session's `pr-phone.md` (copied to this session's scratchpad).
+
+**Next, in this order:**
+1. When Rasel answers the Sign-ups questions (Needs from others): flow B (D2) on top of flow A. It
+   covers recording the three checks (`client_signup_verifications`), Link Existing Record after
+   them, Not a Match (`client_signup_match_candidates`; the live match check then leaves out a
+   candidate resolved as not a match), Keep Pending with a note, and Restore Access through
+   `identity.forgotPassword` on the existing login.
+2. **D5:** nothing to build until D4's Settings exists (Needs).
+3. **Tax Returns** (Oct 26 review, section B). **TX-F01 is fixed but not verified**, on
+   `rasel/R60-tax-returns-f01` (head `3ff1b5a`, from `main`, no PR). The details grids use
+   `minmax(0,1fr)` with `wrap-anywhere`, in Client Details and in the review page's Return Details.
+   Verifying it was blocked: Client Details says "The client's details are not available right now"
+   for LVP's seeded return `lvp2023` (local real API) and in mock mode. Find out why
+   `api.clients.get` fails on that page first: local data, or a regression on `main` since her
+   Oct 25 screenshot. Then run the scratchpad's `r60-tax-return-client-details.spec.ts` (a
+   real-API spec: a long email and address inside the card at 1440, 1024 and 375 px) and open the
+   PR with a sheet. Then, in Rasel's order: TX-F01 is done,
+   F34 and F35 (archived filter and restore), F22 (rejection dialog), F31 (business identity on a
+   business return), F11 (Intake Form card), F04 (Client Portal route), F28 (manual amounts). Then
+   SH1 to SH6 once R56's shared components land (no second copy). F25 to F28 (amounts and
+   tracking), F22's details and F19 (validation issues) need tables: write the exact request here
+   for Rasel. TX-F18 touches role checks: Rasel's word first.
+
+**Local state:** `firmivra_r60` has synthetic LVP sign-ups for the sheets: Pat Fake (no match),
+Morgan Fake (the phone of the record "Morgan Fake (record)"), Lou Sample (the email of Locked Sample
+Client), Robin Example (approved), Casey Test (declined) and Sky Auto (approved automatically).
+LVP stays in Manual Review. This session's scratchpad is
+`C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R60/25528e9d-86f0-4b83-9785-ad30e9359231/scratchpad/`:
+`shots-clients.cjs`, `shots-signups.cjs`, `shots-flow.cjs`, `compose.cjs`, `spec-*.json`,
+`signups-seed.sql` and `pr-*.md`.
+
 ### Oct 25 (sixth session, end): start here
 
 The sixth R60 stopped here (Rasel needed the laptop). The next R60 reads `CLAUDE.md`,
@@ -630,6 +807,27 @@ None of the reminders or the alert is sent yet: there is no intake reminder job 
   number than the default would serve Begin Online. It should read the service default's live
   version.
 
+- **From Rasel (Oct 26), Client Sign-ups flow B (D2): four questions, none guessed.**
+  - **Restore Access, the request afterwards:** Restore sends the existing login's own reset
+    (`identity.forgotPassword`, to its verified address). What becomes of the new sign-up? Proposed:
+    it closes in the Declined tab, labelled "Access restored to the existing account"; no decline
+    email; the new login is disabled; `match_status` RESTORED.
+  - **Link Existing Record with another email:** a phone match's record has a different email than
+    the sign-up's verified one. Today's link rule (#37) needs the same email. Proposed: after the
+    three checks, allow the link if the record has no portal login. The login keeps its own email
+    and the record keeps its contacts. Or keep the same-email rule.
+  - **Not a Match on an email match:** the firm can't have two client records with one email, so a
+    new client can't follow. Proposed: refuse Not a Match there with the plain reason, leaving Link
+    or Decline.
+  - **Verification expiry and evidence** (her "owner decision pending"). Proposed: no expiry; the
+    latest verification for that candidate counts; only the recorded fields (contact on file,
+    outcome, identity result, permission scope), no evidence stored.
+- **From Rasel (Oct 26), Dashboard D5:** her D5 (Accepted Returns as the tax card, Total Clients,
+  New Leads and Outstanding Invoices fixed) already holds since K5 (#1147). Nothing on the
+  Dashboard can be configured yet. What's left is checking those rules under D4's Settings
+  service-card templates. R1's table is merged (#1159), but no Settings page or API exists. Should
+  R60 build D4 (it was R55's), or does D5 close as is?
+
 ## Questions for Rasel (waiting for his word)
 
 1. **Ownership transfer** (Settings checks, check 3): where it lives (the firm's Settings or
@@ -1015,3 +1213,33 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   opens Add New Client with Back to Dashboard, and `/leads?new=1&stage=SUBMITTED&back=dashboard`
   opens Add New Lead with it. Web `tsc` 0, ESLint clean, mock specs 17 of 17 (r60 quick and KPI
   cards, r31 dashboard, r23 clients).
+- Oct 26 (seventh session): Client Sign-ups screen (D1, Rasel's order of Oct 26; R55 had not
+  started it), `rasel/R60-signups-screen` from `main` at `d2afe38`. Paths it owns:
+  `apps/web/src/app/firm/(workspace)/sign-ups/`, `apps/api/src/client-auth/client-sign-ups.*`, the
+  firm-side Sign-ups part of `packages/types/src/client-auth/`, the sign-ups mock in
+  `apps/web/src/mocks/client-auth.ts`, the Clients group in `components/app-shell/` and the
+  workspace layout, and their tests. List: three tabs with the firm's counts, search, sort, the
+  firm's days, the potential-match flag (a record with the email or the phone's last 10 digits,
+  archived ones too), numbered pages; detail with history and candidates (audited); settings
+  read; approve refuses a phone match (409 POTENTIAL_MATCH). Screen to her image. D3 (Manage
+  settings, automatic approval) and D2/D4 (the checks, Restore Access, Link Existing Record,
+  versions and idempotency) are the Sign-ups flow PR, next. API e2e 15 of 15, mock specs 19 of
+  19, types tests 17 of 17.
+- Oct 26 (seventh session, later): #1164 merged, with the Back fix. Sign-ups flow A (D3, D4) built
+  on `rasel/R60-signups-flow` (stacked on #1166). `gh pr create` was refused by the permission
+  check, so it waits for Rasel. The flow B and D5 questions are under Needs from others.
+- Oct 26 (eighth session): #1166 merged (`d8c79cb`). Flow A opened as #1171 after merging
+  `main` (the conflicts were #1166's squash; this branch's side). TX-F01 checked: the card loads on
+  `main` with the local API (the seventh session's error was local state); finished with a
+  container query (labels above values in a narrow card) and the email wrapping at its @, real-API
+  spec failing on `main` and passing on the branch; opened as #1175. Then Tax Returns block 3,
+  each pushed without a PR (two open): F34 and F35 (`rasel/R60-tax-returns-archived`, archived view
+  under Show and Quick Actions, read-only menu with Restore, bulk Restore, the return page's
+  Restore Return; mock 3 of 3), F22 (`rasel/R60-tax-returns-rejection`, 409
+  REJECTION_NOT_RECORDED, agency and corrective action required, Record Rejection from every
+  Rejected choice; types 6 of 6, API e2e 8 of 8, mock 12 of 12), F31
+  (`rasel/R60-tax-returns-business`, business identity from the client record in Create New
+  Return; mock 6 of 6), F28 (`rasel/R60-tax-returns-amounts`, amount source and version, Add/Edit
+  Amount; API e2e 8 of 8, mock 17 of 17). Then Sign-ups flow B (`rasel/R60-signups-flow-b`, D2
+  on Rasel's rules; types 19 of 19, API e2e 21 of 21, mock 14 of 14, isolation clean for its
+  routes), and TX-F26 (`rasel/R60-tax-returns-mail`, API e2e 8 of 8, mock 6 of 6).

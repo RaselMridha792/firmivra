@@ -46,6 +46,11 @@ export interface TableProps<T> {
   emptyTitle?: string;
   emptyText?: string;
   emptyAction?: ReactNode;
+  /**
+   * Keep the column headings when there are no rows, with the empty state as one row under them
+   * (a list whose structure should show before its first record: Payroll Runs, PY-F09).
+   */
+  keepHeaderWhenEmpty?: boolean;
   selection?: TableSelection;
   /** The last "Actions" column: icon buttons and the row's menu. */
   rowActions?: (row: T) => ReactNode;
@@ -70,6 +75,7 @@ export function Table<T>({
   emptyTitle = 'No records yet',
   emptyText = 'Records will appear here when available.',
   emptyAction,
+  keepHeaderWhenEmpty = false,
   selection,
   rowActions,
   noun = 'records',
@@ -120,7 +126,8 @@ export function Table<T>({
     else if (server.onPage) server.onPage(next);
     else (next > server.page ? server.onNext : server.onPrevious)();
   }
-  if (!loading && !rows.length)
+  const empty = !loading && !rows.length;
+  if (empty && !keepHeaderWhenEmpty)
     return <EmptyState title={emptyTitle} description={emptyText} action={emptyAction} />;
   const check = 'size-4 cursor-pointer rounded-sm';
   const head = dense ? 'py-2 font-medium' : 'py-3 font-semibold';
@@ -184,6 +191,16 @@ export function Table<T>({
           </tr>
         </thead>
         <tbody>
+          {empty ? (
+            <tr>
+              <td
+                colSpan={columns.length + (selection ? 1 : 0) + (rowActions ? 1 : 0)}
+                className="p-0"
+              >
+                <EmptyState title={emptyTitle} description={emptyText} action={emptyAction} />
+              </td>
+            </tr>
+          ) : null}
           {loading
             ? ['a', 'b', 'c', 'd', 'e'].map((row) => (
                 <tr key={row} className="border-b border-divider">
@@ -243,7 +260,7 @@ export function Table<T>({
       ) : (
         table
       )}
-      {showPagination && !loading ? (
+      {showPagination && !loading && !empty ? (
         <Pagination
           page={current + 1}
           pageCount={total === undefined ? undefined : pages}

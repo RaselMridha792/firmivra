@@ -312,7 +312,7 @@ export function PeriodScreen({ id }: { id: string }) {
       id: 'diff',
       label: 'Difference',
       cell: (r) => (
-        <span className={r.withinTolerance ? 'text-success' : 'font-medium text-danger'}>
+        <span className={r.differenceCents === 0 ? 'text-success' : 'font-medium text-danger'}>
           {money(r.differenceCents)}
         </span>
       ),

@@ -161,14 +161,29 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   const go = (href: string) => () => router.push(href);
   const client = `/clients/${row.client.id}`;
   const filedOnce = row.status !== 'IN_PROGRESS';
+  const open: ActionMenuItem = {
+    label: 'Open / View Return',
+    icon: Eye,
+    onSelect: go(`/tax-returns/${row.id}`),
+  };
+  const profile: ActionMenuItem = {
+    label: 'View Client Profile',
+    icon: UserCircle,
+    onSelect: go(client),
+  };
+  const activity: ActionMenuItem = {
+    label: 'Activity / Audit History',
+    icon: ClockCounterClockwise,
+    onSelect: () => setDialog('activity'),
+  };
   const items: ActionMenuItem[] = [
-    { label: 'Open / View Return', icon: Eye, onSelect: go(`/tax-returns/${row.id}`) },
+    open,
     { label: 'Edit Return Details', icon: PencilSimpleLine, onSelect: () => setDialog('details') },
     { label: 'Change Status', icon: Swap, onSelect: () => setDialog('status') },
     { label: 'Assign / Reassign Staff', icon: UserSwitch, onSelect: () => setDialog('assign') },
   ];
   const client_: ActionMenuItem[] = [
-    { label: 'View Client Profile', icon: UserCircle, onSelect: go(client) },
+    profile,
     { label: 'Documents', icon: FolderOpen, onSelect: go(`${client}/documents`) },
     { label: 'Request Client Information', icon: FileArrowUp, onSelect: go(`${client}/documents`) },
     { label: 'Send Message', icon: ChatCircleDots, onSelect: go(`${client}/messages`) },
@@ -189,11 +204,7 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       ? [{ label: 'Amend Return', icon: NotePencil, onSelect: () => setDialog('amend') }]
       : []),
     { label: 'Duplicate / Carry Forward', icon: Copy, onSelect: () => setDialog('carry') },
-    {
-      label: 'Activity / Audit History',
-      icon: ClockCounterClockwise,
-      onSelect: () => setDialog('activity'),
-    },
+    activity,
   ];
   const end: ActionMenuItem[] = [
     row.archivedAt
@@ -210,7 +221,12 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       <ActionMenu
         label={`Actions for ${row.client.name} ${row.taxYear}`}
         trigger={<DotsThree aria-hidden weight="bold" className="size-5" />}
-        sections={[{ items }, { items: client_ }, { items: filing }, { items: end }]}
+        sections={
+          row.archivedAt
+            ? // An archived return changes only by Restore (the API answers RETURN_LOCKED).
+              [{ items: [open, profile] }, { items: [activity] }, { items: end }]
+            : [{ items }, { items: client_ }, { items: filing }, { items: end }]
+        }
         align="right"
       />
       {dialog === 'details' ? <DetailsDialog {...props} /> : null}

@@ -48,6 +48,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { registerServiceEngagement } from './service-engagements';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.bookkeeping` (R38 contract, Bookkeeping). Synthetic firms only, dated around
@@ -69,6 +70,11 @@ const copy = <T>(v: T): T => structuredClone(v);
 const nowIso = () => new Date().toISOString();
 const MAYA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000011', name: 'Alex Rivera' };
 const SAM: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000012', name: 'Sam Staff' };
+/** A team mock member by user id (the Assign dialog lists the team), else the signed-in user. */
+const memberRef = (userId: string): MemberRef => {
+  const m = teamFixtures().find((t) => t.user.id === userId);
+  return m ? { userId, name: m.user.name } : { ...mockMe, userId };
+};
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const monthOf = (back: number) => {
   const t = new Date();
@@ -257,8 +263,9 @@ export function createBookkeepingMock({
       clearedBalanceCents: cleared,
       clearedCount: 48,
       differenceCents: diff,
-      toleranceCents: settings.reconToleranceCents,
-      withinTolerance: Math.abs(diff) <= settings.reconToleranceCents,
+      // Zero tolerance (Oct 26): only a zero difference is approved, as the API does.
+      toleranceCents: 0,
+      withinTolerance: diff === 0,
       exceptionsCount: diff === 0 ? 0 : 3,
       statementDocumentId: null,
       status,
@@ -1099,7 +1106,8 @@ export function createBookkeepingMock({
               ? SAM
               : input.assignedUserId === MAYA.userId
                 ? MAYA
-                : mockMe;
+                : // BK-D06: the chosen team member, as the API saves them (not the signed-in one).
+                  memberRef(input.assignedUserId);
         log(c, 'ASSIGNMENT', `Assigned to ${c.assignedTo?.name ?? 'no one'}`);
         return view(c);
       }),
@@ -1512,7 +1520,7 @@ export function createBookkeepingMock({
         if (input.clearedCount !== undefined) r.clearedCount = input.clearedCount;
         if (input.exceptionsCount !== undefined) r.exceptionsCount = input.exceptionsCount;
         r.differenceCents = r.endingBalanceCents - r.clearedBalanceCents;
-        r.withinTolerance = Math.abs(r.differenceCents) <= r.toleranceCents;
+        r.withinTolerance = r.differenceCents === 0;
         r.updatedAt = nowIso();
         return r;
       }),
@@ -1533,8 +1541,7 @@ export function createBookkeepingMock({
         if (!r) throw fail(404, 'NOT_FOUND', 'That reconciliation was not found.');
         if (r.status !== 'READY_FOR_REVIEW')
           throw fail(409, 'RECON_STATE', 'Only a reconciliation in review can be approved.');
-        if (!r.withinTolerance)
-          throw fail(409, 'RECON_DIFFERENCE', 'The difference is outside the tolerance.');
+        if (!r.withinTolerance) throw fail(409, 'RECON_DIFFERENCE', 'The difference must be zero.');
         r.status = 'APPROVED';
         r.approvedAt = nowIso();
         r.approvedBy = mockMe;
