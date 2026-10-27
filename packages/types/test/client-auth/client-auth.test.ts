@@ -11,6 +11,9 @@ import {
   portalCookies,
   SignUpRequest,
   SignUpState,
+  KeepSignUpPendingRequest,
+  RecordSignUpChecksRequest,
+  SignUpNotAMatchRequest,
 } from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
@@ -319,5 +322,45 @@ describe('createClientSignUpsClient', () => {
       notify: false,
       ...write,
     });
+  });
+});
+
+describe('Resolve Existing Account (D2)', () => {
+  const candidateClientId = '0190a000-0000-7000-8000-0000000000aa';
+  const key = '0190a000-0000-7000-8000-0000000000bb';
+
+  it('records the three checks with an explicit permission, and nothing else', () => {
+    const checks = {
+      candidateClientId,
+      contactRef: 'CLIENT_PHONE',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope: 'LINK_RECORD',
+    };
+    expect(RecordSignUpChecksRequest.safeParse(checks).success).toBe(true);
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, permissionScope: null }).success).toBe(
+      true,
+    );
+    const { permissionScope: _left, ...without } = checks;
+    expect(RecordSignUpChecksRequest.safeParse(without).success).toBe(false);
+    // The sign-up's own phone is never a contact to call.
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, phone: '+17705550101' }).success).toBe(
+      false,
+    );
+  });
+
+  it('Not a Match needs a short reason; Keep Pending a key and an optional note', () => {
+    const write = { version: 1, idempotencyKey: key };
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'Another person' }).success).toBe(
+      true,
+    );
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: '  ' }).success).toBe(false);
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'x'.repeat(301) }).success).toBe(
+      false,
+    );
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key }).success).toBe(true);
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key, version: 1 }).success).toBe(
+      false,
+    );
   });
 });

@@ -26,7 +26,15 @@ export interface SignUpCandidate {
   displayName: string;
   byEmail: boolean;
   byPhone: boolean;
+  /** OPEN until a member resolves it (client_signup_match_candidates). */
+  resolution: 'OPEN' | 'NOT_A_MATCH' | 'VERIFIED';
 }
+
+/**
+ * Whether a candidate still holds the request back: every email match does (one email, one
+ * client), and a phone match until a member resolved it as not this person (Octavia's D2, F12).
+ */
+export const holdsBack = (c: SignUpCandidate) => c.byEmail || c.resolution !== 'NOT_A_MATCH';
 
 /** A phone's last 10 digits: "+1 (770) 555-0123" and "7705550123" are the same number. */
 const tenDigits = (column: Prisma.Sql) =>
@@ -46,11 +54,14 @@ export function signUpCandidates(tx: TxClient, accountId?: string): Promise<Sign
   return tx.$queryRaw<SignUpCandidate[]>`
     SELECT a.id::text AS "accountId", c.id::text AS "clientId", c.client_number AS "clientNumber",
       c.display_name AS "displayName",
-      coalesce(lower(c.email) = lower(a.email), false) AS "byEmail", ${phone} AS "byPhone"
+      coalesce(lower(c.email) = lower(a.email), false) AS "byEmail", ${phone} AS "byPhone",
+      coalesce(m.resolution::text, 'OPEN') AS resolution
     FROM client_accounts a
     JOIN users u ON u.id = a.user_id
     JOIN clients c ON c.business_id = a.business_id
       AND (lower(c.email) = lower(a.email) OR ${phone})
+    LEFT JOIN client_signup_match_candidates m ON m.business_id = a.business_id
+      AND m.client_account_id = a.id AND m.candidate_client_id = c.id
     WHERE ${which}
     ORDER BY a.id, c.client_number`;
 }
@@ -146,7 +157,7 @@ export async function approveAutomatically(
   // A client created or changed at the same time waits, so the match check stays true.
   await lockClientEmails(tx, businessId);
   const now = new Date();
-  if ((await signUpCandidates(tx, account.id)).length > 0) {
+  if ((await signUpCandidates(tx, account.id)).some(holdsBack)) {
     await tx.clientAccount.update({
       where: { id: account.id },
       data: { matchStatus: 'POTENTIAL_MATCH', matchCheckedAt: now },

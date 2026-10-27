@@ -9,7 +9,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { Dialog, useMembers } from './return-actions';
-import { FILING_STATUS_LABEL, FORM_TYPES, TR_ERRORS, TR_KEY, quiet } from './tr-shared';
+import { FILING_STATUS_LABEL, FORM_TYPES, TR_ERRORS, TR_KEY, linkText, quiet } from './tr-shared';
 
 const TAX_TYPES: { value: Exclude<TaxReturnTab, 'all'>; label: string }[] = [
   { value: 'personal', label: 'Personal Tax' },
@@ -171,6 +171,7 @@ export function CreateReturnDialog({ onClose }: { onClose: () => void }) {
           {...(badYear ? { error: 'Enter a four-digit year' } : {})}
         />
       </div>
+      {filingType === 'BUSINESS' && clientId ? <BusinessIdentity clientId={clientId} /> : null}
       {amended ? (
         <>
           <Select
@@ -294,5 +295,77 @@ export function ImportDialog({ bulk, onClose }: { bulk?: boolean; onClose: () =>
         client&apos;s Documents.
       </p>
     </Dialog>
+  );
+}
+
+/**
+ * A business return's identity (Octavia's TX-F31): Business Name, the masked EIN and the business
+ * address from the chosen client's own record, never matched by name. Read-only here: they are
+ * changed on the client, so the return and the client never disagree.
+ */
+function BusinessIdentity({ clientId }: { clientId: string }) {
+  const q = useApiQuery([...TR_KEY, 'client', clientId], () => api.clients.get(clientId));
+  const c = q.data;
+  const p = c?.profile;
+  const a = p?.address;
+  const missing = 'Not on the client record';
+  const rows: [string, string][] = c
+    ? [
+        ['Business Name', p?.businessName ?? missing],
+        ['Business EIN', p?.einLast4 ? `••-•••${p.einLast4}` : missing],
+        [
+          'Business Address',
+          a?.line1
+            ? [
+                [a.line1, a.line2].filter(Boolean).join(', '),
+                [[a.city, a.state].filter(Boolean).join(', '), a.postalCode]
+                  .filter(Boolean)
+                  .join(' '),
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : missing,
+        ],
+      ]
+    : [];
+  return (
+    <section
+      aria-label="Business identity"
+      className="flex flex-col gap-2 rounded-lg border border-divider p-3"
+      data-testid="business-identity"
+    >
+      <h3 className="text-sm font-semibold text-heading">Business identity</h3>
+      {q.isError ? (
+        <p role="alert" className={quiet}>
+          The client&apos;s business details are not available right now.
+        </p>
+      ) : !c ? (
+        <p className={quiet}>Loading…</p>
+      ) : (
+        <>
+          {c.accountType !== 'BUSINESS' ? (
+            <p className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-text">
+              This client is an individual. A business return belongs on the business&apos;s own
+              client record.
+            </p>
+          ) : null}
+          <dl className="grid grid-cols-[8.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+            {rows.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="text-heading">{k}</dt>
+                <dd
+                  className={`min-w-0 whitespace-pre-line wrap-anywhere ${v === missing ? 'text-muted' : 'text-text'}`}
+                >
+                  {v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <Link href={`/clients/${clientId}`} className={`text-sm ${linkText}`}>
+            Change these on the client record
+          </Link>
+        </>
+      )}
+    </section>
   );
 }

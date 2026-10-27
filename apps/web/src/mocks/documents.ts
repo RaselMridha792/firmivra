@@ -31,6 +31,7 @@ import { mockDelay } from '../lib/mock';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
 import { mockUploadTicket } from './upload-ticket';
+import { serviceEngagement, serviceMockClient } from './service-engagements';
 
 /**
  * Mock data for `api.documents` (firm) and `api.myDocuments(slug)` (portal), R5. Synthetic data
@@ -300,7 +301,8 @@ function store() {
     scanOf,
     view,
     engagement: (clientId: string, serviceId: string): Engagement | undefined =>
-      engagementFixtures().find((e) => e.id === serviceId && e.clientId === clientId),
+      engagementFixtures().find((e) => e.id === serviceId && e.clientId === clientId) ??
+      (serviceEngagement(clientId, serviceId) as Engagement | undefined),
     /**
      * The service, category and request an upload or a request names: every 404 (not this
      * client's or firm's) before any 409, as in the API.
@@ -309,7 +311,10 @@ function store() {
       clientId: string,
       ids: { serviceId: string; categoryId?: string | null; requestId?: string | null },
     ) => {
-      const e = engagementFixtures().find((x) => x.id === ids.serviceId && x.clientId === clientId);
+      // SH3: or a Payroll or Bookkeeping mock client's engagement (mocks/service-engagements.ts).
+      const e =
+        engagementFixtures().find((x) => x.id === ids.serviceId && x.clientId === clientId) ??
+        (serviceEngagement(clientId, ids.serviceId) as Engagement | undefined);
       const c = ids.categoryId ? categories.find((x) => x.id === ids.categoryId) : null;
       const r = ids.requestId
         ? requests.find((x) => x.id === ids.requestId && x.clientId === clientId)
@@ -411,6 +416,7 @@ function store() {
 export function createDocumentsMock(options: { role?: MockFirmRole } = {}): DocumentsClient {
   const s = store();
   const reachable = (clientId: string) => {
+    if (serviceMockClient(clientId)) return clientId;
     const c = clientFixtures().find((x) => x.id === clientId);
     if (!c || (options.role === 'STAFF' && c.assignedTo?.userId !== mockStaff.userId)) {
       throw notFound();

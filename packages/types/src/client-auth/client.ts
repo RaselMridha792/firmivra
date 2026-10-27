@@ -22,10 +22,18 @@ import {
   ClientSignUpsQuery,
   DeclineSignUpRequest,
   DeclineSignUpResponse,
+  KeepSignUpPendingRequest,
+  KeepSignUpPendingResponse,
   LegalDocument,
+  LinkSignUpRequest,
   type LegalKind,
   PortalInfo,
+  RecordSignUpChecksRequest,
   ResendCodeRequest,
+  RestoreSignUpAccessRequest,
+  RestoreSignUpAccessResponse,
+  SignUpNotAMatchRequest,
+  SignUpNotAMatchResponse,
   SignUpRequest,
   SignUpState,
   UpdateClientSignUpSettingsRequest,
@@ -138,6 +146,51 @@ export function createClientSignUpsClient(request: ApiRequest) {
       request(DeclineSignUpResponse, `${one(clientAccountId)}/decline`, {
         method: 'POST',
         body: parseInput(DeclineSignUpRequest, body),
+      }),
+    /** Records the three checks for one candidate record; answers the detail. */
+    recordChecks: async (
+      clientAccountId: string,
+      body: RecordSignUpChecksRequest,
+    ): Promise<ClientSignUpDetail> =>
+      request(ClientSignUpDetail, `${one(clientAccountId)}/checks`, {
+        method: 'POST',
+        body: parseInput(RecordSignUpChecksRequest, body),
+      }),
+    /** Link Existing Record after the checks. 409 CHECKS_REQUIRED or CLIENT_NOT_LINKABLE. */
+    link: async (
+      clientAccountId: string,
+      body: LinkSignUpRequest,
+    ): Promise<ApproveSignUpResponse> =>
+      request(ApproveSignUpResponse, `${one(clientAccountId)}/link`, {
+        method: 'POST',
+        body: parseInput(LinkSignUpRequest, body),
+      }),
+    /** Restore Access after the checks. 409 CHECKS_REQUIRED or NO_PORTAL_LOGIN. */
+    restoreAccess: async (
+      clientAccountId: string,
+      body: RestoreSignUpAccessRequest,
+    ): Promise<RestoreSignUpAccessResponse> =>
+      request(RestoreSignUpAccessResponse, `${one(clientAccountId)}/restore-access`, {
+        method: 'POST',
+        body: parseInput(RestoreSignUpAccessRequest, body),
+      }),
+    /** The open phone matches are not this person. 409 DUPLICATE_EMAIL for an email match. */
+    notAMatch: async (
+      clientAccountId: string,
+      body: SignUpNotAMatchRequest,
+    ): Promise<SignUpNotAMatchResponse> =>
+      request(SignUpNotAMatchResponse, `${one(clientAccountId)}/not-a-match`, {
+        method: 'POST',
+        body: parseInput(SignUpNotAMatchRequest, body),
+      }),
+    /** Keep Pending with an optional note; nothing changes. */
+    keepPending: async (
+      clientAccountId: string,
+      body: KeepSignUpPendingRequest,
+    ): Promise<KeepSignUpPendingResponse> =>
+      request(KeepSignUpPendingResponse, `${one(clientAccountId)}/keep-pending`, {
+        method: 'POST',
+        body: parseInput(KeepSignUpPendingRequest, body),
       }),
   };
 }
