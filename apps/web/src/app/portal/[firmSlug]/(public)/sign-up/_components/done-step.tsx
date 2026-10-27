@@ -27,13 +27,23 @@ export function DoneStep() {
   return (
     <PageState query={state}>
       {(s) =>
-        s.step === 'DONE' ? <Created /> : s.step === 'CONTACT_FIRM' ? <ContactFirm /> : <Waiting />
+        s.step === 'DONE' ? (
+          <Created approved={s.approved} />
+        ) : s.step === 'CONTACT_FIRM' ? (
+          <ContactFirm />
+        ) : (
+          <Waiting />
+        )
       }
     </PageState>
   );
 }
 
-function Created({ waiting = false }: { waiting?: boolean }) {
+/**
+ * `approved`: the firm approves sign-ups automatically and this one met its rule, so the portal is
+ * open now; otherwise the firm reviews it first.
+ */
+function Created({ waiting = false, approved = false }: { waiting?: boolean; approved?: boolean }) {
   const { business } = usePortal();
   return (
     <div
@@ -51,8 +61,9 @@ function Created({ waiting = false }: { waiting?: boolean }) {
           : 'Your email and phone number have been verified.'}
       </StepHeading>
       <p className="text-lg text-firm-text">
-        {business.name} reviews every new account. We&apos;ll email you when your client portal is
-        ready.
+        {approved
+          ? `${business.name} approved your account. Your client portal is ready: sign in to start.`
+          : `${business.name} reviews every new account. We’ll email you when your client portal is ready.`}
       </p>
       <ButtonLink className={PORTAL_BUTTON_CLASSES} href={`/${business.slug}/sign-in`}>
         Go to Client Portal

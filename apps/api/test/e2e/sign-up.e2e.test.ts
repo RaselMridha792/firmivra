@@ -25,7 +25,7 @@ let app: INestApplication;
 const slug = `r3-signup-${randomUUID().slice(0, 8)}`;
 let firmId = '';
 const docIds: string[] = [];
-type Sent = { kind: 'email' | 'sms' | 'registered'; to: string; code?: string };
+type Sent = { kind: 'email' | 'sms' | 'registered' | 'approved'; to: string; code?: string };
 const outbox: Sent[] = [];
 /** The portal's own origin: the browser sends it on every POST (cross-site check). */
 let portalOrigin = '';
@@ -167,6 +167,10 @@ beforeAll(async () => {
         outbox.push({ kind: 'registered', to: m.to });
         return Promise.resolve();
       },
+      signUpApproved: (m: { to: string }) => {
+        outbox.push({ kind: 'approved', to: m.to });
+        return Promise.resolve();
+      },
     })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
@@ -219,6 +223,8 @@ describe('client sign-up', () => {
     expect((await v.post('/verify-phone', { code: '000000' })).body).toMatchObject({
       step: 'DONE',
       resendAvailableAt: null,
+      // The firm is in Manual Review: it decides.
+      approved: false,
     });
 
     const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
@@ -1068,5 +1074,53 @@ describe('client sign-up', () => {
     expect(codeOf(await other.state())).toBe('SIGN_UP_EXPIRED');
     v.cookie = `${portalCookies(slug).signUp}=${sealed.slice(0, -4)}AAAA`;
     expect(codeOf(await v.state())).toBe('SIGN_UP_EXPIRED');
+  });
+});
+
+describe("the firm's Automatic Approval (Octavia's Client Sign-ups, D3 and F05)", () => {
+  it('approves a completed sign-up with no match at once, says so, and sends the sign-in email', async () => {
+    const mode = (clientSignupMode: 'MANUAL' | 'AUTOMATIC') =>
+      asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.businessSettings.upsert({
+          where: { businessId: firmId },
+          create: { businessId: firmId, clientSignupMode },
+          update: { clientSignupMode },
+        }),
+      );
+    await mode('AUTOMATIC');
+    try {
+      const email = emailFor('automatic');
+      const v = visitor();
+      expect((await v.signUp(form(email, { phone: '+1 (770) 555-0142' }))).status).toBe(200);
+      await v.post('/verify-email', { code: '000000' });
+      expect((await v.post('/verify-phone', { code: '000000' })).body).toMatchObject({
+        step: 'DONE',
+        approved: true,
+      });
+      expect((await v.state()).body).toMatchObject({ step: 'DONE', approved: true });
+      const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.clientAccount.findFirstOrThrow({ where: { email } }),
+      );
+      expect(account).toMatchObject({
+        status: 'ACTIVE',
+        approvedByUserId: null,
+        decidedAutomatically: true,
+        matchStatus: 'NO_MATCH',
+      });
+      expect(account.clientId).not.toBeNull();
+      expect(sentTo(email)).toContain('approved');
+      const approved = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.auditLog.findFirstOrThrow({
+          where: { entityId: account.id, action: 'client_account.approved' },
+          select: { actorUserId: true, metadata: true },
+        }),
+      );
+      expect(approved).toMatchObject({
+        actorUserId: null,
+        metadata: { automatic: true, clientId: account.clientId },
+      });
+    } finally {
+      await mode('MANUAL');
+    }
   });
 });

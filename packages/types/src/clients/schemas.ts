@@ -8,6 +8,7 @@ import {
   ContactMethod,
   ServiceKind,
 } from '../db-enums.js';
+import { US_STATES } from '../intake/options.js';
 import { ClientAccountStatus } from '../schemas.js';
 import { clearable, SearchText, text } from './text.js';
 
@@ -127,6 +128,12 @@ export const ListClientsQuery = z
     /** Last activity on or after / on or before these days (the firm's calendar days). */
     lastActivityFrom: CalendarDate.optional(),
     lastActivityTo: CalendarDate.optional(),
+    /**
+     * Clients who still owe something, as the Pending Documents and Balances Due cards count them
+     * (Octavia's E1): DOCUMENTS, at least one document request REQUESTED or REJECTED; BALANCE, an
+     * unpaid balance on an OPEN invoice, overdue or not.
+     */
+    owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */
@@ -328,6 +335,39 @@ export const CreateClientRequest = z.strictObject({
   profile: ProfileFields.optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
+
+/**
+ * The firm's new-client form (Octavia's D1, review of Oct 25): the name, email, phone and address
+ * are required for both types (a home address for an Individual, the business's for a Business),
+ * and a Business also gives its Business Name in `profile.businessName`. A US address takes a
+ * state code and a 5-digit ZIP. The API takes the looser CreateClientRequest, which the calendar's
+ * quick add uses with a name and a contact only.
+ */
+export const NewClientForm = CreateClientRequest.superRefine((body, ctx) => {
+  const need = (path: string[], value: unknown, message: string) => {
+    if (typeof value !== 'string' || !value.trim()) ctx.addIssue({ code: 'custom', path, message });
+  };
+  need(['email'], body.email, 'Enter an email address');
+  need(['phone'], body.phone, 'Enter a phone number');
+  const address = body.profile?.address;
+  const at = (key: string) => ['profile', 'address', key];
+  need(at('line1'), address?.line1, 'Enter the street address');
+  need(at('city'), address?.city, 'Enter the city');
+  need(at('state'), address?.state, 'Choose the state');
+  need(at('postalCode'), address?.postalCode, 'Enter the ZIP code');
+  if ((address?.country ?? 'US') === 'US') {
+    if (address?.state && !(address.state.toUpperCase() in US_STATES)) {
+      ctx.addIssue({ code: 'custom', path: at('state'), message: 'Choose the state' });
+    }
+    if (address?.postalCode && !/^\d{5}(-\d{4})?$/.test(address.postalCode)) {
+      ctx.addIssue({ code: 'custom', path: at('postalCode'), message: 'Enter a 5-digit ZIP code' });
+    }
+  }
+  if (body.accountType === 'BUSINESS') {
+    need(['profile', 'businessName'], body.profile?.businessName, 'Enter the business name');
+  }
+});
+export type NewClientForm = z.input<typeof NewClientForm>;
 
 /** PATCH /business/clients/{id}. `null` or `''` clears email or phone; the assignee is Owner/Admin. */
 export const UpdateClientRequest = z

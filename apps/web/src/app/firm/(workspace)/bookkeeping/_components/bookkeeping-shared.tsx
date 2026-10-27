@@ -156,7 +156,7 @@ export const BK_ERRORS: Record<string, string> = {
   PERIOD_LOCKED: 'This period is closed. Reopen it to change it.',
   CLOSE_ITEMS_OPEN: 'Finish the required checklist steps first.',
   RECON_STATE: 'The reconciliation is not in the right state for that.',
-  RECON_DIFFERENCE: 'The difference is outside the tolerance.',
+  RECON_DIFFERENCE: 'The difference must be zero.',
   REPORT_STATE: 'The report is not in the right state for that.',
   REPORT_NOT_PUBLISHED: 'Publish the report first.',
   NOT_THIS_CLIENTS: 'That belongs to another client.',

@@ -71,17 +71,26 @@ import {
   viewOf,
   ViewPill,
 } from './inv-shared';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** /invoices: the design's Invoices & Payments page, every number from the firm's invoices. */
-export function InvoicesOverview() {
+export function InvoicesOverview({
+  initialStatus = '',
+  fromDashboard = false,
+}: {
+  /** OUTSTANDING: every unpaid invoice (the dashboard's Outstanding Invoices, Octavia's K6). */
+  initialStatus?: string;
+  fromDashboard?: boolean;
+} = {}) {
   const all = useAllInvoices();
   const items = useMemo(() => all.data?.items ?? [], [all.data]);
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="invoices-page">
+      {fromDashboard ? <BackToDashboard /> : null}
       <Header />
       {notice ? (
         <Toast message={notice.text} tone={notice.tone} onDismiss={() => setNotice(undefined)} />
@@ -106,6 +115,7 @@ export function InvoicesOverview() {
           </div>
           <InvoiceTable
             items={items}
+            initialStatus={initialStatus}
             loading={all.isPending}
             failed={all.isError}
             onNotice={(text, tone) => setNotice({ text, tone })}
@@ -418,13 +428,18 @@ function MethodsChart() {
 
 type Tab = 'ALL' | InvoiceView;
 
+/** The views of an OPEN invoice: unpaid, whether due later, soon or overdue. */
+const OUTSTANDING_VIEWS: readonly string[] = ['SENT', 'PARTIALLY_PAID', 'DUE_SOON', 'OVERDUE'];
+
 function InvoiceTable({
   items,
+  initialStatus = '',
   loading,
   failed,
   onNotice,
 }: {
   items: InvoiceListItem[];
+  initialStatus?: string;
   loading: boolean;
   failed: boolean;
   onNotice: (text: string, tone: 'success' | 'error') => void;
@@ -436,7 +451,7 @@ function InvoiceTable({
   const [tab, setTab] = useState<Tab>('ALL');
   const [clientId, setClientId] = useState('');
   const [service, setService] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(initialStatus);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [search, setSearch] = useState('');
@@ -456,7 +471,10 @@ function InvoiceTable({
     return (
       (!clientId || i.client.id === clientId) &&
       (!service || (i.service?.title ?? i.title) === service) &&
-      (!status || viewOf(i) === status) &&
+      (!status ||
+        (status === 'OUTSTANDING'
+          ? OUTSTANDING_VIEWS.includes(viewOf(i))
+          : viewOf(i) === status)) &&
       (!from || day >= from) &&
       (!to || day <= to) &&
       (!term || `${i.number} ${i.client.displayName} ${i.title}`.toLowerCase().includes(term))
@@ -655,6 +673,7 @@ function InvoiceTable({
           }}
           options={[
             { value: '', label: 'All Statuses' },
+            { value: 'OUTSTANDING', label: 'Outstanding (unpaid)' },
             ...VIEW_ORDER.map((v) => ({ value: v, label: VIEW_LABEL[v] })),
           ]}
         />
@@ -730,6 +749,19 @@ function InvoiceTable({
         </p>
       ) : (
         <>
+          {status === 'OUTSTANDING' ? (
+            // The dashboard's Outstanding Invoices adds up the same balances (Octavia's K6).
+            <p className="mt-4 text-sm text-heading" data-testid="outstanding-total">
+              {rows.length} unpaid invoice{rows.length === 1 ? '' : 's'} Â·{' '}
+              <span className="font-semibold">
+                {money(
+                  rows.reduce((sum, i) => sum + i.balanceDueCents, 0),
+                  rows[0]?.currency,
+                )}
+              </span>{' '}
+              outstanding
+            </p>
+          ) : null}
           <div className="mt-4 hidden overflow-x-auto xl:block">
             <table
               className="w-full text-left text-xs 2xl:text-sm [&_td]:px-1.5 [&_th]:px-1.5"

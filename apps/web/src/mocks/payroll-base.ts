@@ -18,6 +18,7 @@ import {
 } from '@firmivra/types';
 import { mockMe } from './appointments';
 import { teamFixtures } from './team';
+import { registerServiceEngagement } from './service-engagements';
 
 /**
  * The data both halves of the Payroll mock share (mocks/payroll.ts). Synthetic businesses and
@@ -580,6 +581,14 @@ export function seedStore(empty: boolean): Store {
             ? 'PROCESSING'
             : 'ON_TRACK';
     const at = nowIso();
+    registerServiceEngagement({
+      id: uuid('1e00', n),
+      clientId: uuid('1d00', n),
+      clientName: s.name,
+      kind: 'PAYROLL',
+      title: 'Payroll',
+      status: 'ACTIVE',
+    });
     store.clients.push({
       id: recId,
       client: {

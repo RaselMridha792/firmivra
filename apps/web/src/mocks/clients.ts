@@ -24,6 +24,7 @@ import { mockedEmpty } from '../lib/mock';
 import { mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
+import { serviceMockEngagements } from './service-engagements';
 
 /**
  * Mock data for `api.clients` and `api.myProfile(slug)` (R10). Synthetic data only. Inputs are
@@ -381,9 +382,24 @@ export function createClientsMock(
   const visible = (r: ClientRecord) => !staffOnly || r.assignedTo?.userId === mockStaff.userId;
   /** The id is already checked; an unknown, other firm's or (Staff) unassigned client is 404. */
   const find = (id: string) => {
-    const row = rows.find((r) => r.id === id && visible(r));
+    const row = rows.find((r) => r.id === id && visible(r)) ?? serviceClient(id);
     if (!row) throw fail(404, 'NOT_FOUND', 'Not found');
     return row;
+  };
+  /** SH4: a Payroll or Bookkeeping mock client, as a record (mocks/service-engagements.ts). */
+  const serviceClient = (id: string): ClientRecord | undefined => {
+    const e = serviceMockEngagements(id)[0];
+    const base = rows[0];
+    return e && base
+      ? {
+          ...structuredClone(base),
+          id,
+          displayName: e.clientName,
+          email: null,
+          phone: null,
+          portalLogins: [],
+        }
+      : undefined;
   };
   const save = (row: ClientRecord) => {
     rows = rows.map((r) => (r.id === row.id ? row : r));
@@ -437,6 +453,9 @@ export function createClientsMock(
         )
         .filter((r) => !q.clientStatus || workOf(r.id).status === q.clientStatus)
         .filter((r) => !q.serviceId || workOf(r.id).services.some((x) => x.id === q.serviceId))
+        // The Pending Documents and Balances Due cards' clients, as the API (E1).
+        .filter((r) => q.owes !== 'DOCUMENTS' || workOf(r.id).missingDocuments > 0)
+        .filter((r) => q.owes !== 'BALANCE' || workOf(r.id).balanceDueCents > 0)
         .filter((r) => {
           if (!q.lastActivityFrom && !q.lastActivityTo) return true;
           const last = workOf(r.id).lastActivityAt?.slice(0, 10);

@@ -34,6 +34,7 @@ import { StaffPhoneModule } from './staff-phone/staff-phone.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
+import { PortalInvitationsModule } from './client-invitations/portal-invitations.controller.js';
 import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
 import { LeadsModule } from './leads/leads.controller.js';
@@ -138,6 +139,7 @@ export class AppModule {
         AdminIntegrationsModule,
         TaxStatusesModule,
         ClientsModule,
+        PortalInvitationsModule,
         TaxReturnsModule,
         EngagementsModule,
         LeadsModule,

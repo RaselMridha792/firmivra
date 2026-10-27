@@ -10,8 +10,10 @@ import {
   ShieldCheck,
   Users,
 } from '@phosphor-icons/react';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { clientsPlaceFrom } from '../../../../../lib/clients-place';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -29,6 +31,9 @@ import {
   PAGE_SIZES,
   tabFor,
 } from './list-parts';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
+import type { ClientsPlace } from '../../../../../lib/clients-place';
+import { useListPlace } from './list-place';
 
 /** Waits until typing pauses, so each key press doesn't send a request. */
 function useSettled(value: string, ms = 300) {
@@ -51,6 +56,7 @@ function listQuery(filters: ClientFilters, search: string, manager: boolean) {
     ...(manager && filters.assignedUserId ? { assignedUserId: filters.assignedUserId } : {}),
     ...(range?.from ? { lastActivityFrom: range.from } : {}),
     ...(range?.to ? { lastActivityTo: range.to } : {}),
+    ...(filters.owes ? { owes: filters.owes } : {}),
   } satisfies ListClientsQuery;
 }
 
@@ -61,14 +67,41 @@ type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] 
  * Client, Bulk Actions, the table and numbered pages. Owner and Admin see every client; Staff see
  * the clients assigned to them (the API decides) and no assignee filter, bulk or archive controls.
  */
-export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }) {
+export function ClientsScreen({
+  initialSearch = '',
+  initialPlace,
+  initialAdding = false,
+  fromDashboard = false,
+}: {
+  initialSearch?: string;
+  /** The list's place from its address (Octavia's E7: Back and Return to Clients restore it). */
+  initialPlace?: ClientsPlace;
+  /** Open Add Client at once (the dashboard's shortcuts). */
+  initialAdding?: boolean;
+  /** Opened from the dashboard (Total Clients, Add Client): Back to Dashboard (Octavia's K2). */
+  fromDashboard?: boolean;
+}) {
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
-  const [filters, setFilters] = useState<ClientFilters>({ ...NO_FILTERS, search: initialSearch });
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(PAGE_SIZES[0] ?? 8);
+  // On the browser's Back, Next shows this page as it was first drawn: the place comes from the
+  // address as it is now, not from the first render's props.
+  const params = useSearchParams();
+  const [start] = useState(() =>
+    initialPlace ? clientsPlaceFrom(Object.fromEntries(params)) : undefined,
+  );
+  const [filters, setFilters] = useState<ClientFilters>(() => {
+    if (!start) return { ...NO_FILTERS, search: initialSearch };
+    const { page: _page, limit: _limit, ...place } = start;
+    return {
+      ...NO_FILTERS,
+      ...place,
+      clientStatus: place.clientStatus as ClientFilters['clientStatus'],
+    };
+  });
+  const [page, setPage] = useState(start?.page ?? 1);
+  const [limit, setLimit] = useState(start?.limit ?? PAGE_SIZES[0] ?? 8);
   const [selected, setSelected] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
 
@@ -80,6 +113,7 @@ export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }
   );
   const summary = useApiQuery(CLIENTS_SUMMARY, () => api.clients.summary());
   const list = useApiQuery(clientsListKey(query), () => api.clients.list(query));
+  useListPlace({ ...filters, search, page, limit }, fromDashboard, Boolean(list.data));
   // The firm's people for the staff filter and Assign: Owner and Admin only (403 for Staff).
   const team = useApiQuery(
     manager ? TEAM : [...TEAM, 'not-a-manager'],
@@ -134,6 +168,7 @@ export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header>
         <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
           Clients
@@ -144,7 +179,12 @@ export function ClientsScreen({ initialSearch = '' }: { initialSearch?: string }
         </p>
       </header>
 
-      <ClientsKpis summary={summary} onTab={selectTab} />
+      <ClientsKpis
+        summary={summary}
+        onTab={selectTab}
+        owes={filters.owes}
+        onOwes={(owes) => change({ owes })}
+      />
 
       <section aria-label="Client list" className="min-w-0">
         <div className="min-w-0 [&_[role=tab]]:min-h-10 [&_[role=tab]]:!text-xs [&_[role=tab]]:flex-1 [&_[role=tab]]:whitespace-nowrap [&_[role=tab]]:justify-center [&_[role=tab]]:rounded-b-none [&_[role=tab]]:px-3 [&_[role=tab][aria-selected=false]]:font-normal [&_[role=tab][aria-selected=true]]:font-semibold">

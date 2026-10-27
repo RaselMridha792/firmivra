@@ -19,7 +19,7 @@ test('every widget of the design, with trends only where the API gives the perio
     [0, 'Total Clients', 'Up 12%, favourablevs last month to date'],
     [1, 'New Leads', 'Up 41%, favourablevs last month to date'],
     [2, 'Returns In Progress', 'No changevs last month to date'],
-    [3, 'Completed Returns', 'Up 27%, favourablevs last month to date'],
+    [3, 'Accepted Returns', 'Up 27%, favourablevs last month to date'],
   ] as const) {
     await expect(cards.nth(i)).toContainText(label);
     await expect(cards.nth(i)).toContainText(trend);
@@ -30,7 +30,7 @@ test('every widget of the design, with trends only where the API gives the perio
   );
   await expect(cards.nth(5).getByRole('link', { name: 'View Calendar' })).toHaveAttribute(
     'href',
-    '/calendar',
+    '/calendar/today?back=dashboard',
   );
 
   const stages = page.getByTestId('pipeline-stage');
@@ -39,7 +39,7 @@ test('every widget of the design, with trends only where the API gives the perio
     'Consultation—',
     'Intake15',
     'In Progress38',
-    'Completed52',
+    'Accepted52',
   ]);
   const revenue = page.getByRole('region', { name: 'Revenue Overview' });
   await expect(revenue.getByRole('img', { name: /^Revenue from / })).toBeVisible();
@@ -56,11 +56,12 @@ test('every widget of the design, with trends only where the API gives the perio
   const actions = page.getByTestId('quick-action');
   await expect(actions).toHaveCount(5);
   for (const [i, name, href] of [
-    [0, 'Add Client', '/clients'],
-    [1, 'Send Message', '/messages'],
-    [2, 'Go to Communications', '/communications'],
-    [3, 'Create Invoice', '/invoices'],
-    [4, 'Upload Now', '/documents'],
+    // Each opens its creation workflow (Octavia's Q1 to Q5).
+    [0, 'Add Client', '/clients?new=1'],
+    [1, 'Send Message', '/messages?new=1'],
+    [2, 'Create Bulk Email', '/communications/new?channel=EMAIL'],
+    [3, 'Create Invoice', '/invoices/new'],
+    [4, 'Upload Now', '/documents/upload'],
   ] as const) {
     await expect(actions.nth(i).getByRole('link', { name })).toHaveAttribute('href', href);
   }

@@ -13,6 +13,8 @@ import {
   type IntakeFormDetail,
   type IntakeFormKey,
   type IntakeFormsClient,
+  type IntakesClient,
+  type IntakeSummary,
   IntakeFormsQuery,
   type IntakeSettings,
   type IntakeStatus,
@@ -389,6 +391,7 @@ const TAB_STATUS: Record<string, readonly IntakeStatus[]> = {
   submitted: ['SUBMITTED', 'UNDER_REVIEW'],
   completed: ['COMPLETED'],
   expired: ['EXPIRED'],
+  open: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION', 'SUBMITTED', 'UNDER_REVIEW'],
 };
 
 const toRow = (r: AssignedFormRecord): AssignedFormRow => ({
@@ -1052,5 +1055,47 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       await mockDelay();
       return copy(s.changes);
     },
+  };
+}
+
+/**
+ * `api.intakes` in mock mode: a client's intakes as R11's GET /business/clients/{id}/intakes
+ * answers them, for the Tax Returns Intake Form card (TX-F11). Every client gets last season's
+ * submitted intake and the season before's completed one; their ids are records of the intake
+ * forms mock, so Open shows that form's page and Request Correction goes through `api.intakeForms`.
+ */
+export function createIntakesMock(): IntakesClient {
+  const season = new Date().getFullYear() - 1;
+  // The same store as `api.intakeForms` in mock mode, so a correction requested there shows here.
+  const s = storeFor({});
+  const intake = (n: number, taxYear: number, fallback: IntakeStatus): IntakeSummary => {
+    const record = s.assigned.find((r) => r.id === uuid('0a00', n));
+    return {
+      id: uuid('0a00', n),
+      status: record?.status ?? fallback,
+      service: { id: uuid('5e00', 1), name: 'Individual Tax Return', kind: 'ANNUAL_TAX' },
+      engagement: { id: uuid('e900', taxYear), title: `Individual Tax Return ${taxYear}`, taxYear },
+      formVersion: 1,
+      version: 1,
+      dueOn: null,
+      correctionNote: record?.status === 'NEEDS_CORRECTION' ? (record.revisionNote ?? null) : null,
+      correctionRequestedAt: null,
+      submittedAt: ago(60),
+      createdAt: ago(120),
+      updatedAt: ago(40),
+    };
+  };
+  const notHere = () => Promise.reject(fail(501, 'NOT_MOCKED', 'Not in the intakes mock'));
+  return {
+    listForClient: async () => {
+      await mockDelay();
+      return [intake(3, season, 'SUBMITTED'), intake(6, season - 1, 'COMPLETED')];
+    },
+    send: notHere,
+    get: notHere,
+    startReview: notHere,
+    complete: notHere,
+    requestCorrection: notHere,
+    unlock: notHere,
   };
 }

@@ -16,6 +16,7 @@ import {
   TaxReturnHistoryList,
   TaxReturnPage,
   TaxReturnSummary,
+  TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -442,5 +443,48 @@ describe('another firm', () => {
     expect(ok(await call('get', '/tax-returns', ownerB, undefined, 'b'), TaxReturnPage).total).toBe(
       0,
     );
+  });
+});
+
+describe("the dashboard's drill-downs (Octavia's K4 and K5)", () => {
+  it('filters to the in-progress statuses, and to Accepted by the day it was accepted', async () => {
+    const list = async (query: string) =>
+      ok(await call('get', `/tax-returns?${query}`, ownerA), TaxReturnPage).items;
+    const idsOf = async (query: string) => (await list(query)).map((r) => r.id).sort();
+    const inProgress: readonly string[] = TAX_RETURN_IN_PROGRESS_STATUSES;
+    const want = (await list('pageSize=100'))
+      .filter((r) => inProgress.includes(r.workflowStatus))
+      .map((r) => r.id)
+      .sort();
+    expect(want.length).toBeGreaterThan(0);
+    expect(await idsOf('workflowGroup=IN_PROGRESS&pageSize=100')).toEqual(want);
+    expect((await call('get', '/tax-returns?workflowGroup=DONE', ownerA)).status).toBe(400);
+
+    // Accepted today: the status history dates it.
+    const accepted = await inFirm('a', async (tx) => {
+      const r = await tx.taxReturn.create({
+        data: {
+          businessId: firms.a,
+          clientId: ids.c2!,
+          taxYear: 2023,
+          filingType: 'INDIVIDUAL',
+          formType: '1040',
+        },
+      });
+      await tx.taxReturn.update({
+        where: { id: r.id },
+        data: { workflowStatus: 'ACCEPTED', filedOn: new Date('2024-04-10T00:00:00Z') },
+      });
+      return r.id;
+    });
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
+    expect(
+      await idsOf(`workflowStatus=ACCEPTED&acceptedFrom=${today}&acceptedTo=${today}`),
+    ).toEqual([accepted]);
+    expect(await idsOf('workflowStatus=ACCEPTED&acceptedTo=2020-01-01')).toEqual([]);
+    expect(await idsOf('workflowGroup=IN_PROGRESS&pageSize=100')).not.toContain(accepted);
+    expect((await call('get', '/tax-returns?acceptedFrom=today', ownerA)).status).toBe(400);
   });
 });

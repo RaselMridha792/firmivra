@@ -3,6 +3,7 @@
 import type { RequestItem, RequestPacketDetail } from '@firmivra/types';
 import { Button, Toggle } from '@firmivra/ui';
 import { DownloadSimple, Plus } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { RowMenu } from '../../../../team/_components/row-menu';
 import { type DraftItem } from '../../new/_components/request-draft';
@@ -101,9 +102,12 @@ export function RequestChecklist({
                         key={d.id}
                         className="flex flex-wrap items-center gap-3 rounded-control bg-canvas px-3 py-2 text-sm"
                       >
-                        <span className="min-w-0 flex-1 truncate font-medium text-heading">
+                        <Link
+                          href={`/documents/${d.id}`}
+                          className="min-w-0 flex-1 truncate font-medium text-heading hover:text-action hover:underline"
+                        >
                           {d.fileName}
-                        </span>
+                        </Link>
                         <span className="text-xs text-muted">{formatTime(d.createdAt)}</span>
                         {d.scanStatus === 'CLEAN' ? (
                           <button

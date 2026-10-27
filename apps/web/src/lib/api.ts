@@ -33,6 +33,7 @@ import {
   createAdminCommunicationsClient,
   createAdminBroadcastsClient,
   createIntakeFormsClient,
+  createIntakesClient,
   createInvoicesClient,
   createLeadPipelineClient,
   createLeadsClient,
@@ -63,6 +64,7 @@ import {
   createFirmBillingClient,
   createPortalTabsClient,
   createProfileChangesClient,
+  createSupportMessagesClient,
   createPublicAgreementsClient,
   createRequest,
   createRolesClient,
@@ -89,6 +91,8 @@ import {
   createTaxReturnWorkspaceClient,
   createTaxStatusesClient,
   createTeamClient,
+  createPortalInvitationClient,
+  createPortalInvitationsClient,
   createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
@@ -129,7 +133,7 @@ import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
-import { createIntakeFormsMock } from '../mocks/intake-forms';
+import { createIntakeFormsMock, createIntakesMock } from '../mocks/intake-forms';
 import { createServicesPricingMock } from '../mocks/services-pricing';
 import { createDashboardMock } from '../mocks/dashboard';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
@@ -146,6 +150,7 @@ import { createStaffPhoneMock } from '../mocks/staff-phone';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
+import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
@@ -171,6 +176,7 @@ import { createTemplatesMock } from '../mocks/templates';
 import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
+import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
@@ -246,6 +252,11 @@ export const api = {
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
   /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
+  /** Help & Support's in-app message to the Firmivra team (D2): any member. */
+  supportMessages:
+    dev && mocked('supportMessages')
+      ? createSupportMessagesMock()
+      : createSupportMessagesClient(request),
   profileChanges:
     dev && mocked('profileChanges')
       ? createProfileChangesMock({ role: MOCK_ROLE, empty: mockedEmpty('profileChanges') })
@@ -266,6 +277,11 @@ export const api = {
     dev && mocked('clients')
       ? createClientsMock({ role: MOCK_ROLE })
       : createClientsClient(request),
+  /** A client's portal access and the firm's invitation (Business Advisory B3). */
+  portalInvitations:
+    dev && mocked('portalInvitations')
+      ? createPortalInvitationsMock()
+      : createPortalInvitationsClient(request),
   /** The firm's one tag list for Leads and Clients (L5, L6). */
   tags: dev && mocked('tags') ? createTagsMock({ role: MOCK_ROLE }) : createTagsClient(request),
   engagements:
@@ -294,6 +310,8 @@ export const api = {
     dev && mocked('intakeForms')
       ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
       : createIntakeFormsClient(request),
+  /** A client's intakes (R11's GET /business/clients/{id}/intakes): the return's Intake Form card. */
+  intakes: dev && mocked('intakes') ? createIntakesMock() : createIntakesClient(request),
   /** Services & Pricing (R43 contract): services, categories, packages, promotions. */
   servicesPricing:
     dev && mocked('servicesPricing')
@@ -586,6 +604,11 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** The signed-out invitation page at /{slug}/invitation (Business Advisory B3). */
+  portalInvitation: (firmSlug: string) =>
+    dev && mocked('portalInvitation')
+      ? portalInvitationMock(firmSlug)
+      : createPortalInvitationClient(request, firmSlug),
   /** Begin Online (R11): the public intake on a firm's portal site, without an account. */
   beginOnline: (firmSlug: string) =>
     dev && mocked('beginOnline')

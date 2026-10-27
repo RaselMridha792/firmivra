@@ -1,7 +1,11 @@
 import type { ClientListItem, RequestTemplate } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
+import type { RequestPacketDetail } from '@firmivra/types';
 import {
   CUSTOM,
+  draftFromPacket,
+  itemPlan,
+  setupBody,
   check,
   defaultMessage,
   EMPTY_DRAFT,
@@ -112,4 +116,77 @@ it('fills the message with the recipient, due date, sender and firm', () => {
   expect(text).toContain('Hi Fake Client,');
   expect(text).toContain('by Nov 20, 2026.');
   expect(text.endsWith('Fake Sender\nFake Firm')).toBe(true);
+});
+
+describe('Edit Draft', () => {
+  const item = (n: number, title: string, required = true) => ({
+    id: uuid(500 + n),
+    title,
+    instructions: null,
+    required,
+    category: null,
+    status: 'REQUESTED' as const,
+    statusNote: null,
+    sortOrder: n,
+    documents: [],
+    resolvedAt: null,
+  });
+  const saved = {
+    client: { id: uuid(900), name: 'Fake Client' },
+    recipient: { kind: 'CLIENT', userId: null, name: 'Fake Client' },
+    service: { id: uuid(800), title: 'Fake service' },
+    title: 'Fake draft',
+    templateId: null,
+    dueOn: '2026-11-20',
+    checklist: [
+      item(1, 'W-2'),
+      item(2, 'Photo ID'),
+      { ...item(3, 'Old'), status: 'CANCELLED' as const },
+    ],
+    messageSubject: 'Fake subject',
+    messageBody: null,
+    notifyEmail: true,
+    notifyPortal: false,
+    notifySms: false,
+    reminderDaysBefore: null,
+    allowMultipleFiles: true,
+    allowClientComments: false,
+    expiresAt: null,
+  } as unknown as RequestPacketDetail;
+
+  it('opens a saved draft as the form, the message as typed', () => {
+    const d = draftFromPacket(saved, EMPTY_DRAFT);
+    expect(d.items.map((i) => [i.title, i.itemId])).toEqual([
+      ['W-2', uuid(501)],
+      ['Photo ID', uuid(502)],
+    ]);
+    expect(d).toMatchObject({
+      typeId: CUSTOM,
+      subjectEdited: true,
+      messageEdited: false,
+      reminder: false,
+    });
+    expect(d.client).toMatchObject({ id: uuid(900), displayName: 'Fake Client' });
+    expect(setupBody(d)).toMatchObject({
+      title: 'Fake draft',
+      messageSubject: 'Fake subject',
+      notifyPortal: false,
+    });
+  });
+
+  it('plans the checklist: remove, change, add, then the order', () => {
+    const d = draftFromPacket(saved, EMPTY_DRAFT);
+    const [w2, id] = d.items;
+    d.items = [
+      { ...id!, required: false },
+      { ...w2!, selected: false },
+      { ...id!, key: 'new', itemId: undefined, title: 'Fake lease', required: true },
+    ];
+    expect(itemPlan(saved.checklist, d)).toEqual({
+      remove: [uuid(501)],
+      update: [{ id: uuid(502), body: { required: false } }],
+      add: [{ title: 'Fake lease', instructions: null, required: true, categoryId: null }],
+      order: [uuid(502), null],
+    });
+  });
 });

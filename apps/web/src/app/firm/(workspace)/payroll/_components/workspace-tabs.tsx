@@ -34,6 +34,10 @@ import {
   subtle,
 } from './payroll-shared';
 import { WorkerDialog } from './worker-dialog';
+import { OriginLink } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
+import { ServiceTasks } from '../../tasks/_components/service-tasks';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 type Notice = (text: string, tone: 'success' | 'error') => void;
 const empty = (pending: boolean, failed: boolean, none: string, error: string) =>
@@ -570,6 +574,8 @@ function AddReportDialog({ id, onClose }: { id: string; onClose: () => void }) {
 
 /** Documents: the client's payroll documents, from the shared Documents module. */
 export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
+  // SH3: Request and Upload open here, for this client's payroll service.
+  const { open } = useServiceDocuments();
   const docs = useApiQuery([...PAYROLL_KEY, 'documents', clientId ?? ''], async () =>
     clientId ? api.documents.list(clientId) : { items: [] },
   );
@@ -579,13 +585,13 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Documents</h2>
         <div className="flex gap-2">
-          <Link href="/documents/requests" className={outlined}>
+          <button type="button" className={outlined} onClick={() => open('request')}>
             Request Documents
-          </Link>
+          </button>
           {clientId ? (
-            <Link href={`/clients/${clientId}/documents`} className={outlined}>
+            <button type="button" className={outlined} onClick={() => open('upload')}>
               Upload Document
-            </Link>
+            </button>
           ) : null}
         </div>
       </div>
@@ -618,49 +624,32 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
 }
 
 /** Tasks: the shared Tasks module, filtered to this client. */
-export function TasksTab({ clientId }: { clientId: string | undefined }) {
-  const tasks = useApiQuery([...PAYROLL_KEY, 'tasks-tab', clientId ?? ''], async () =>
-    clientId
-      ? api.taskWork.overview({ view: 'all', status: 'OPEN', clientId, pageSize: 20 })
-      : { items: [] },
-  );
-  const rows = tasks.data?.items ?? [];
+export function TasksTab({
+  clientId,
+  engagementId,
+}: {
+  clientId: string | undefined;
+  engagementId: string | undefined;
+}) {
   return (
     <section className={card} aria-label="Tasks" data-testid="tab-tasks">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Tasks</h2>
-        <Link href="/tasks/new" className={outlined}>
-          <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-        </Link>
+        {clientId ? (
+          <OriginLink href={newTaskHref({ clientId, engagementId })} className={outlined}>
+            <Plus aria-hidden weight="bold" className="size-4" /> Add Task
+          </OriginLink>
+        ) : null}
       </div>
-      {rows.length === 0 ? (
-        <p className={quiet}>
-          {empty(
-            tasks.isPending,
-            tasks.isError,
-            'No open tasks for this client.',
-            'Tasks are not available right now.',
-          )}
-        </p>
+      {clientId ? (
+        <ServiceTasks
+          clientId={clientId}
+          engagementId={engagementId}
+          pageSize={20}
+          caption="Payroll tasks"
+        />
       ) : (
-        <ul className="flex flex-col">
-          {rows.map((t) => (
-            <li
-              key={t.id}
-              className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
-            >
-              <Link
-                href={`/tasks/${t.id}`}
-                className="min-w-0 truncate font-medium text-link hover:underline"
-              >
-                {t.title}
-              </Link>
-              <span className="shrink-0 text-xs text-muted">
-                {t.dueOn ? dayText(t.dueOn) : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <p className={quiet}>Loading…</p>
       )}
     </section>
   );
@@ -755,17 +744,20 @@ export function NotesTab({ id, notice }: { id: string; notice: Notice }) {
   );
 }
 
-/** Communications: opens the shared Messages module. */
-export function CommunicationsTab() {
+/** Communications: opens the shared Messages module on this client's conversations (SH5). */
+export function CommunicationsTab({ clientId }: { clientId: string | undefined }) {
   return (
     <section className={card} aria-label="Communications" data-testid="tab-communications">
       <h2 className="mb-2 font-display text-lg font-bold text-heading">Communications</h2>
       <p className="mb-3 text-sm text-text">
         Messages with this client are kept in Messages, with their full history.
       </p>
-      <Link href="/messages" className={outlined}>
+      <OriginLink
+        href={clientId ? `/messages?clientId=${clientId}&service=Payroll` : '/messages'}
+        className={outlined}
+      >
         <ChatCircleDots aria-hidden weight="fill" className="size-4" /> Open Messages
-      </Link>
+      </OriginLink>
     </section>
   );
 }

@@ -2,6 +2,7 @@
 
 import type {
   TaxEstimateStatus,
+  TaxReturnFiling,
   TaxReturnRow,
   TaxReturnWorkflowStatus,
   TaxpayerFilingStatus,
@@ -38,6 +39,7 @@ import {
   UserSwitch,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
@@ -53,7 +55,11 @@ import {
   TR_ERRORS,
   TR_KEY,
   dateTimeText,
+  jurisdiction,
+  linkText,
+  nowLocal,
   quiet,
+  toIso,
 } from './tr-shared';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
@@ -161,14 +167,29 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   const go = (href: string) => () => router.push(href);
   const client = `/clients/${row.client.id}`;
   const filedOnce = row.status !== 'IN_PROGRESS';
+  const open: ActionMenuItem = {
+    label: 'Open / View Return',
+    icon: Eye,
+    onSelect: go(`/tax-returns/${row.id}`),
+  };
+  const profile: ActionMenuItem = {
+    label: 'View Client Profile',
+    icon: UserCircle,
+    onSelect: go(client),
+  };
+  const activity: ActionMenuItem = {
+    label: 'Activity / Audit History',
+    icon: ClockCounterClockwise,
+    onSelect: () => setDialog('activity'),
+  };
   const items: ActionMenuItem[] = [
-    { label: 'Open / View Return', icon: Eye, onSelect: go(`/tax-returns/${row.id}`) },
+    open,
     { label: 'Edit Return Details', icon: PencilSimpleLine, onSelect: () => setDialog('details') },
     { label: 'Change Status', icon: Swap, onSelect: () => setDialog('status') },
     { label: 'Assign / Reassign Staff', icon: UserSwitch, onSelect: () => setDialog('assign') },
   ];
   const client_: ActionMenuItem[] = [
-    { label: 'View Client Profile', icon: UserCircle, onSelect: go(client) },
+    profile,
     { label: 'Documents', icon: FolderOpen, onSelect: go(`${client}/documents`) },
     { label: 'Request Client Information', icon: FileArrowUp, onSelect: go(`${client}/documents`) },
     { label: 'Send Message', icon: ChatCircleDots, onSelect: go(`${client}/messages`) },
@@ -189,11 +210,7 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       ? [{ label: 'Amend Return', icon: NotePencil, onSelect: () => setDialog('amend') }]
       : []),
     { label: 'Duplicate / Carry Forward', icon: Copy, onSelect: () => setDialog('carry') },
-    {
-      label: 'Activity / Audit History',
-      icon: ClockCounterClockwise,
-      onSelect: () => setDialog('activity'),
-    },
+    activity,
   ];
   const end: ActionMenuItem[] = [
     row.archivedAt
@@ -210,7 +227,12 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       <ActionMenu
         label={`Actions for ${row.client.name} ${row.taxYear}`}
         trigger={<DotsThree aria-hidden weight="bold" className="size-5" />}
-        sections={[{ items }, { items: client_ }, { items: filing }, { items: end }]}
+        sections={
+          row.archivedAt
+            ? // An archived return changes only by Restore (the API answers RETURN_LOCKED).
+              [{ items: [open, profile] }, { items: [activity] }, { items: end }]
+            : [{ items }, { items: client_ }, { items: filing }, { items: end }]
+        }
         align="right"
       />
       {dialog === 'details' ? <DetailsDialog {...props} /> : null}
@@ -350,6 +372,184 @@ export function DetailsDialog({ row, onClose, onNotice }: DialogProps) {
   );
 }
 
+/** An agency's rejection of a transmission (Octavia's TX-F22), for Record Acknowledgment too. */
+export function useRejection(filing: Pick<TaxReturnFiling, 'jurisdiction'> | undefined) {
+  // The IRS for a federal filing until staff type another (undefined: the filing's default).
+  const [typed, setTyped] = useState<string>();
+  const agency = typed ?? (filing?.jurisdiction === 'US' ? 'IRS' : '');
+  const [code, setCode] = useState('');
+  const [description, setDescription] = useState('');
+  const [action, setAction] = useState('');
+  return {
+    agency,
+    setAgency: setTyped,
+    code,
+    setCode,
+    description,
+    setDescription,
+    action,
+    setAction,
+    complete: !!agency.trim() && !!(code.trim() || description.trim()) && !!action.trim(),
+    body: (acknowledgedAt: string) => ({
+      ackStatus: 'REJECTED' as const,
+      acknowledgedAt,
+      rejectingAgency: agency.trim(),
+      ...(code.trim() ? { rejectCode: code.trim() } : {}),
+      ...(description.trim() ? { rejectDescription: description.trim() } : {}),
+      correctiveAction: action.trim(),
+    }),
+  };
+}
+
+export function RejectionFields(r: ReturnType<typeof useRejection>) {
+  return (
+    <>
+      <Input
+        label="Rejecting agency"
+        value={r.agency}
+        maxLength={100}
+        onChange={(e) => r.setAgency(e.target.value)}
+      />
+      <Input
+        label="Reject code"
+        value={r.code}
+        maxLength={50}
+        onChange={(e) => r.setCode(e.target.value)}
+      />
+      <Textarea
+        label="Description"
+        value={r.description}
+        maxLength={2000}
+        onChange={(e) => r.setDescription(e.target.value)}
+      />
+      <p className="-mt-2 text-xs text-muted">Enter the reject code, the description, or both.</p>
+      <Textarea
+        label="Corrective action"
+        value={r.action}
+        maxLength={2000}
+        onChange={(e) => r.setAction(e.target.value)}
+      />
+    </>
+  );
+}
+
+/**
+ * Move to Rejected (Octavia's TX-F22): the agency's answer comes first. With a transmission
+ * waiting for its answer, this records the rejection on it and then moves the return; with a
+ * rejection already recorded, it names it and moves the return; with neither, it says to record
+ * the transmission on the E-File page. The API refuses Rejected otherwise (REJECTION_NOT_RECORDED).
+ */
+export function RejectDialog({ row, onClose, onNotice }: DialogProps) {
+  const act = useAct(onNotice);
+  const filings = useApiQuery([...TR_KEY, 'filings', row.id], () =>
+    api.taxReturnWorkspace.filings(row.id),
+  );
+  const newest = (filings.data ?? []).flatMap((f) =>
+    f.attempts[0] ? [{ filing: f, attempt: f.attempts[0] }] : [],
+  );
+  const waiting = newest.filter(
+    (x) => x.filing.filingMethod === 'EFILE' && x.attempt.ackStatus === 'PENDING',
+  );
+  const recorded = newest.filter((x) => x.attempt.ackStatus === 'REJECTED');
+  const [attemptId, setAttemptId] = useState<string>();
+  const chosen = waiting.find((x) => x.attempt.id === attemptId) ?? waiting[0];
+  const rejection = useRejection(chosen?.filing);
+  const [at, setAt] = useState(nowLocal);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    const done = await act(
+      async () => {
+        if (chosen) {
+          await api.taxReturnWorkspace.updateAttempt(
+            row.id,
+            chosen.attempt.id,
+            rejection.body(toIso(at)),
+          );
+        }
+        return api.taxReturnWorkspace.changeStatus(row.id, { workflowStatus: 'REJECTED' });
+      },
+      chosen ? 'Rejection recorded. Moved to Rejected.' : 'Moved to Rejected.',
+    );
+    setBusy(false);
+    if (done) onClose();
+  };
+  return (
+    <Dialog
+      title={chosen ? 'Record Rejection' : 'Move to Rejected'}
+      subtitle={label(row)}
+      confirm={chosen ? 'Record Rejection' : 'Move to Rejected'}
+      busy={busy}
+      disabled={chosen ? !at || !rejection.complete : !recorded.length}
+      onConfirm={() => void save()}
+      onClose={onClose}
+      testId="reject-dialog"
+    >
+      {filings.isError ? (
+        <p role="alert" className={quiet}>
+          We could not load this return&apos;s filings. Try again in a moment.
+        </p>
+      ) : filings.isPending ? (
+        <p className={quiet}>Loading…</p>
+      ) : chosen ? (
+        <>
+          <p className="text-sm text-text">
+            A return is rejected by the agency&apos;s answer to a transmission. Record that answer
+            here. The rejected transmission and its history are kept, and the corrected return is
+            transmitted again as a new attempt.
+          </p>
+          {waiting.length > 1 ? (
+            <Select
+              label="Transmission"
+              value={chosen.attempt.id}
+              onChange={(e) => {
+                setAttemptId(e.target.value);
+                rejection.setAgency(undefined);
+              }}
+              options={waiting.map((x) => ({
+                value: x.attempt.id,
+                label: `${jurisdiction(x.filing.jurisdiction)} · ${x.attempt.submissionId}`,
+              }))}
+            />
+          ) : (
+            <p className="text-sm text-heading">
+              {jurisdiction(chosen.filing.jurisdiction)} · {chosen.attempt.submissionId},
+              transmitted {dateTimeText(chosen.attempt.transmittedAt)}
+            </p>
+          )}
+          <Input
+            label="Rejected at"
+            type="datetime-local"
+            value={at}
+            onChange={(e) => setAt(e.target.value)}
+          />
+          <RejectionFields {...rejection} />
+        </>
+      ) : recorded.length ? (
+        <ul className="flex flex-col gap-2 text-sm text-text" aria-label="Recorded rejections">
+          {recorded.map(({ filing, attempt }) => (
+            <li key={attempt.id} className={quiet}>
+              {jurisdiction(filing.jurisdiction)} · {attempt.submissionId}: rejected
+              {attempt.rejectingAgency ? ` by ${attempt.rejectingAgency}` : ''}
+              {attempt.acknowledgedAt ? ` on ${dateTimeText(attempt.acknowledgedAt)}` : ''}
+              {attempt.rejectCode ? ` (${attempt.rejectCode})` : ''}
+              {attempt.correctiveAction ? `. Fix: ${attempt.correctiveAction}` : ''}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={quiet} data-testid="no-transmission">
+          No transmission is waiting for an answer, so there is no rejection to record.{' '}
+          <Link href={`/tax-returns/${row.id}/review#efile`} className={linkText}>
+            Record the transmission on the E-File page
+          </Link>{' '}
+          first.
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
 /** Change Status: only the moves the workflow allows now; going back needs a reason. */
 export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
   const act = useAct(onNotice);
@@ -359,6 +559,7 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
   const [to, setTo] = useState<TaxReturnWorkflowStatus>();
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const options = STATUS_ORDER.filter((s) => detail.data?.canMoveTo.includes(s));
   const back = !!to && isBackward(row.workflowStatus, to);
   const blockers = detail.data?.blockers ?? [];
@@ -376,14 +577,15 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
     setBusy(false);
     if (done) onClose();
   };
+  if (rejecting) return <RejectDialog row={row} onClose={onClose} onNotice={onNotice} />;
   return (
     <Dialog
       title="Change Status"
       subtitle={`${label(row)}: now ${STATUS_LABEL[row.workflowStatus]}`}
-      confirm="Change Status"
+      confirm={to === 'REJECTED' ? 'Continue' : 'Change Status'}
       busy={busy}
       disabled={!to || (back && !reason.trim())}
-      onConfirm={() => void save()}
+      onConfirm={() => (to === 'REJECTED' ? setRejecting(true) : void save())}
       onClose={onClose}
       testId="status-dialog"
     >

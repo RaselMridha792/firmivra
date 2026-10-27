@@ -49,6 +49,9 @@ import {
   quiet,
   stamp,
 } from './payroll-shared';
+import { useOriginNavigate } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 type Kind =
   | 'sync'
@@ -65,7 +68,7 @@ type Kind =
 
 export type ActionClient = Pick<
   PayrollClientRow,
-  'id' | 'client' | 'provider' | 'status' | 'frequency'
+  'id' | 'client' | 'engagementId' | 'provider' | 'status' | 'frequency'
 > & {
   assignedTo?: PayrollClientRow['assignedTo'];
 };
@@ -85,10 +88,16 @@ export function ClientActionMenu({
   align?: 'left' | 'right';
 }) {
   const router = useRouter();
+  const toOrigin = useOriginNavigate();
+  const docs = useServiceDocuments();
   const [dialog, setDialog] = useState<Kind>();
   const options = { invalidate: [...PAYROLL_KEY] };
   const sync = useApiMutation(() => api.payroll.sync(client.id), options);
-  const go = (path: string) => () => router.push(path);
+  // SH1: a page outside the workspace gets Back to this exact place.
+  const go = (path: string) => () =>
+    path.startsWith('/payroll') || path.startsWith('/bookkeeping')
+      ? router.push(path)
+      : toOrigin(path);
   const item = (
     text: string,
     icon: Icon,
@@ -113,12 +122,29 @@ export function ClientActionMenu({
     item('View Payroll Runs', CalendarBlank, go(`${base}?tab=runs`)),
     item('View Payroll Reports', ChartBar, go(`${base}?tab=reports`), { submenu: true }),
     item('View Tax Filings', Receipt, go(`${base}?tab=filings`)),
-    item('Request Payroll Documents', FileText, go('/documents/requests')),
+    // SH3: the request opens here, for this client's payroll service.
+    item('Request Payroll Documents', FileText, () =>
+      docs.open('request', {
+        clientId: client.client.id,
+        clientName: client.client.displayName,
+        engagementId: client.engagementId,
+        service: 'Payroll',
+      }),
+    ),
     item('View Documents', Folder, go(`/clients/${client.client.id}/documents`)),
-    item('Create Task', ListChecks, go('/tasks/new')),
+    item(
+      'Create Task',
+      ListChecks,
+      go(newTaskHref({ clientId: client.client.id, engagementId: client.engagementId })),
+    ),
     item('Add Note', NotePencil, () => setDialog('note')),
     item('Log Activity', Phone, () => setDialog('activity')),
-    item('Send Message', ChatCircleDots, go('/messages')),
+    // SH5: this client's conversations, with New Message for them.
+    item(
+      'Send Message',
+      ChatCircleDots,
+      go(`/messages?clientId=${client.client.id}&service=Payroll`),
+    ),
     item('Schedule Appointment', CalendarBlank, go('/calendar/new')),
     item('Update Payroll Status', Bell, () => setDialog('status'), { submenu: true }),
     item('Assign/Reassign Staff', UserSwitch, () => setDialog('assign')),

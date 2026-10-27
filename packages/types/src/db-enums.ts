@@ -36,6 +36,57 @@ export const ClientAccountStatus = z.enum([
 ]);
 export type ClientAccountStatus = z.infer<typeof ClientAccountStatus>;
 
+/** R55's Client Sign-ups (Oct 25): how a firm decides its portal sign-ups. */
+export const ClientSignupMode = z.enum(['MANUAL', 'AUTOMATIC']);
+export type ClientSignupMode = z.infer<typeof ClientSignupMode>;
+
+/** R55's Client Sign-ups: a sign-up's check against the firm's client records, apart from its status. */
+export const SignupMatchStatus = z.enum([
+  'UNCHECKED',
+  'NO_MATCH',
+  'POTENTIAL_MATCH',
+  'NOT_A_MATCH',
+  'LINKED',
+  'RESTORED',
+]);
+export type SignupMatchStatus = z.infer<typeof SignupMatchStatus>;
+
+export const SignupCandidateResolution = z.enum(['OPEN', 'NOT_A_MATCH', 'VERIFIED']);
+export type SignupCandidateResolution = z.infer<typeof SignupCandidateResolution>;
+
+/** Which contact on the firm's own client record was called: never the value, never a sign-up's. */
+export const SignupContactRef = z.enum(['CLIENT_PHONE', 'CLIENT_EMAIL', 'CLIENT_CONTACT']);
+export type SignupContactRef = z.infer<typeof SignupContactRef>;
+
+export const SignupCallOutcome = z.enum(['REACHED', 'NOT_REACHED']);
+export type SignupCallOutcome = z.infer<typeof SignupCallOutcome>;
+
+export const SignupIdentityResult = z.enum(['VERIFIED', 'NOT_VERIFIED']);
+export type SignupIdentityResult = z.infer<typeof SignupIdentityResult>;
+
+export const SignupPermissionScope = z.enum(['RESTORE_ACCESS', 'LINK_RECORD', 'BOTH']);
+export type SignupPermissionScope = z.infer<typeof SignupPermissionScope>;
+
+export const SignupOperationKind = z.enum([
+  'APPROVE',
+  'DECLINE',
+  'LINK_EXISTING',
+  'RESTORE_ACCESS',
+  'NOT_A_MATCH',
+  'KEEP_PENDING',
+  'INVITE_DELIVERY',
+  'RECOVERY_DELIVERY',
+  'POLICY_CHANGE',
+]);
+export type SignupOperationKind = z.infer<typeof SignupOperationKind>;
+
+export const SignupOperationStatus = z.enum(['COMMITTED', 'PENDING', 'SUCCEEDED', 'FAILED']);
+export type SignupOperationStatus = z.infer<typeof SignupOperationStatus>;
+
+/** R56's B15 (Oct 25): a business client's EIN status. */
+export const EinStatus = z.enum(['HAS_EIN', 'NOT_APPLICABLE', 'TO_BE_APPLIED_FOR']);
+export type EinStatus = z.infer<typeof EinStatus>;
+
 export const ClientAccountType = z.enum(['INDIVIDUAL', 'BUSINESS']);
 export type ClientAccountType = z.infer<typeof ClientAccountType>;
 
@@ -1527,6 +1578,14 @@ export const StaffPayFrequency = z.enum([
 ]);
 export type StaffPayFrequency = z.infer<typeof StaffPayFrequency>;
 
+/** R55's D4 (Oct 25): what a Dashboard service card counts. */
+export const DashboardCardMetric = z.enum([
+  'ACTIVE_ENGAGEMENTS',
+  'ENGAGEMENTS_IN_STATUS',
+  'COMPLETED_IN_PERIOD',
+]);
+export type DashboardCardMetric = z.infer<typeof DashboardCardMetric>;
+
 export const StaffDocumentType = z.enum([
   'EMPLOYMENT_AGREEMENT',
   'CONTRACTOR_AGREEMENT',
@@ -1670,6 +1729,10 @@ export type TaxJurisdictionStatus = z.infer<typeof TaxJurisdictionStatus>;
 export const TaxAmountStatus = z.enum(['ESTIMATED', 'FINAL']);
 export type TaxAmountStatus = z.infer<typeof TaxAmountStatus>;
 
+/** Where a jurisdiction's refund or amount due came from. Every amount is entered by staff; this says what they copied it from. */
+export const TaxAmountSource = z.enum(['TAX_SOFTWARE', 'AGENCY_NOTICE', 'STAFF_ESTIMATE']);
+export type TaxAmountSource = z.infer<typeof TaxAmountSource>;
+
 export const TaxAckStatus = z.enum(['PENDING', 'ACCEPTED', 'REJECTED']);
 export type TaxAckStatus = z.infer<typeof TaxAckStatus>;
 
@@ -1697,6 +1760,10 @@ export const TaxReturnDocumentKind = z.enum([
   'EXTENSION',
 ]);
 export type TaxReturnDocumentKind = z.infer<typeof TaxReturnDocumentKind>;
+
+/** ERROR blocks Ready to File and transmission; a MANUAL_WARNING needs review but never blocks (Octavia, Oct 25); INFO never blocks. */
+export const TaxIssueSeverity = z.enum(['ERROR', 'MANUAL_WARNING', 'INFO']);
+export type TaxIssueSeverity = z.infer<typeof TaxIssueSeverity>;
 
 /** Calendar colours: token names the screens map to packages/ui (no hex values here). */
 export const CalendarColor = z.enum(['BLUE', 'GREEN', 'AMBER', 'RED', 'PURPLE', 'GRAY']);

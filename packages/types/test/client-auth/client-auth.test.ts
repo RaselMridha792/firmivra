@@ -11,6 +11,9 @@ import {
   portalCookies,
   SignUpRequest,
   SignUpState,
+  KeepSignUpPendingRequest,
+  RecordSignUpChecksRequest,
+  SignUpNotAMatchRequest,
 } from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
@@ -64,9 +67,19 @@ describe('#72 review: one-line names, strict queue requests', () => {
     for (const name of ['Jane\nClient', 'Jane\u0007', 'Jane\u001b[31m']) {
       expect([name, SignUpRequest.safeParse({ ...base, name }).success]).toEqual([name, false]);
     }
-    expect(DeclineSignUpRequest.safeParse({ reason: 'Two\nlines are fine' }).success).toBe(true);
-    expect(DeclineSignUpRequest.safeParse({ reason: 'nul\u0000' }).success).toBe(false);
-    expect(DeclineSignUpRequest.safeParse({ reason: 'ok', extra: 1 }).success).toBe(false);
+    const write = { version: 1, idempotencyKey: '0190a000-0000-7000-8000-0000000000cc' };
+    expect(
+      DeclineSignUpRequest.safeParse({ reason: 'Two\nlines are fine', ...write }).success,
+    ).toBe(true);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'nul\u0000', ...write }).success).toBe(false);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'ok', extra: 1, ...write }).success).toBe(
+      false,
+    );
+    // Every write names the version it read and its own key; decline tells the client by default.
+    expect(DeclineSignUpRequest.safeParse({ reason: 'ok' }).success).toBe(false);
+    expect(DeclineSignUpRequest.parse(write)).toEqual({ ...write, notify: true });
+    expect(DeclineSignUpRequest.safeParse({ ...write, version: 0 }).success).toBe(false);
+    expect(DeclineSignUpRequest.safeParse({ ...write, idempotencyKey: 'k1' }).success).toBe(false);
     expect(ClientSignUpsQuery.safeParse({ debug: '1' }).success).toBe(false);
   });
 });
@@ -95,9 +108,25 @@ describe('client-auth schemas', () => {
     expect(SignUpRequest.safeParse({ ...body, accountType: 'BOTH' }).success).toBe(false);
   });
 
-  it('defaults the sign-ups query to the pending queue, 25 at a time, at most 100', () => {
-    expect(ClientSignUpsQuery.parse({})).toEqual({ status: 'PENDING_APPROVAL', limit: 25 });
+  it('defaults the sign-ups query to the waiting tab, newest first, 10 a page, at most 100', () => {
+    expect(ClientSignUpsQuery.parse({})).toEqual({
+      status: 'PENDING_APPROVAL',
+      sort: 'newest',
+      page: 1,
+      limit: 10,
+    });
     expect(ClientSignUpsQuery.safeParse({ limit: 101 }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ status: 'ACTIVE' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ match: 'MAYBE' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-10-24', to: '2026-10-24' }).success).toBe(
+      true,
+    );
+    // The start after the end, a day that isn't a date, and the old cursor are refused.
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-10-25', to: '2026-10-24' }).success).toBe(
+      false,
+    );
+    expect(ClientSignUpsQuery.safeParse({ from: '2026-13-01' }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ cursor: 'c2' }).success).toBe(false);
   });
 
   it('gives each firm its own portal cookies, scoped to its own API routes', () => {
@@ -232,13 +261,19 @@ describe('Phone: international E.164 for every other phone field (Rasel, Oct 8)'
 
 describe('createClientSignUpsClient', () => {
   it('lists, approves and declines in the selected firm', async () => {
-    const { fn, calls } = fakeFetch(200, { items: [], nextCursor: null });
+    const { fn, calls } = fakeFetch(200, {
+      items: [],
+      total: 0,
+      page: 2,
+      limit: 10,
+      counts: { PENDING_APPROVAL: 0, APPROVED: 0, DECLINED: 0 },
+    });
     const signUps = createClientSignUpsClient(
       createRequest({ baseUrl: '/api/v1', businessId: 'b1', fetch: fn }),
     );
-    await signUps.list({ cursor: 'c2' });
+    await signUps.list({ page: 2, search: 'Fake', match: 'POTENTIAL_MATCH', from: '2026-10-01' });
     expect(calls[0]?.url).toBe(
-      '/api/v1/client-sign-ups?status=PENDING_APPROVAL&limit=25&cursor=c2',
+      '/api/v1/client-sign-ups?status=PENDING_APPROVAL&sort=newest&page=2&limit=10&search=Fake&from=2026-10-01&match=POTENTIAL_MATCH',
     );
     expect((calls[0]?.init.headers as Record<string, string>)['x-business-id']).toBe('b1');
 
@@ -249,18 +284,22 @@ describe('createClientSignUpsClient', () => {
       clientId: existing,
       status: 'ACTIVE',
       approvedAt: '2026-10-07T12:00:00.000Z',
+      version: 2,
+      correlationId: '0190a000-0000-7000-8000-0000000000dd',
     });
+    const write = { version: 1, idempotencyKey: '0190a000-0000-7000-8000-0000000000cc' };
     await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: approve.fn })).approve(id, {
       clientId: existing,
+      ...write,
     });
     expect(approve.calls[0]?.url).toBe(`/client-sign-ups/${id}/approve`);
-    expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing });
+    expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing, ...write });
 
     // Strict: an unknown field is refused before anything is sent.
     const strict = fakeFetch(200, {});
     const sent = createClientSignUpsClient(createRequest({ baseUrl: '', fetch: strict.fn }));
     await expect(
-      sent.approve(id, { clientId: existing, force: true } as ApproveSignUpRequest),
+      sent.approve(id, { clientId: existing, force: true, ...write } as ApproveSignUpRequest),
     ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(strict.calls).toHaveLength(0);
 
@@ -268,11 +307,60 @@ describe('createClientSignUpsClient', () => {
       clientAccountId: id,
       status: 'DECLINED',
       declinedAt: '2026-10-07T12:00:00.000Z',
+      version: 2,
+      correlationId: '0190a000-0000-7000-8000-0000000000dd',
+      notified: false,
     });
     await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: decline.fn })).decline(id, {
       reason: 'Not a client of ours',
+      notify: false,
+      ...write,
     });
     expect(decline.calls[0]?.url).toBe(`/client-sign-ups/${id}/decline`);
-    expect(bodyOf(decline.calls[0]?.init)).toEqual({ reason: 'Not a client of ours' });
+    expect(bodyOf(decline.calls[0]?.init)).toEqual({
+      reason: 'Not a client of ours',
+      notify: false,
+      ...write,
+    });
+  });
+});
+
+describe('Resolve Existing Account (D2)', () => {
+  const candidateClientId = '0190a000-0000-7000-8000-0000000000aa';
+  const key = '0190a000-0000-7000-8000-0000000000bb';
+
+  it('records the three checks with an explicit permission, and nothing else', () => {
+    const checks = {
+      candidateClientId,
+      contactRef: 'CLIENT_PHONE',
+      callOutcome: 'REACHED',
+      identityResult: 'VERIFIED',
+      permissionScope: 'LINK_RECORD',
+    };
+    expect(RecordSignUpChecksRequest.safeParse(checks).success).toBe(true);
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, permissionScope: null }).success).toBe(
+      true,
+    );
+    const { permissionScope: _left, ...without } = checks;
+    expect(RecordSignUpChecksRequest.safeParse(without).success).toBe(false);
+    // The sign-up's own phone is never a contact to call.
+    expect(RecordSignUpChecksRequest.safeParse({ ...checks, phone: '+17705550101' }).success).toBe(
+      false,
+    );
+  });
+
+  it('Not a Match needs a short reason; Keep Pending a key and an optional note', () => {
+    const write = { version: 1, idempotencyKey: key };
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'Another person' }).success).toBe(
+      true,
+    );
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: '  ' }).success).toBe(false);
+    expect(SignUpNotAMatchRequest.safeParse({ ...write, reason: 'x'.repeat(301) }).success).toBe(
+      false,
+    );
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key }).success).toBe(true);
+    expect(KeepSignUpPendingRequest.safeParse({ idempotencyKey: key, version: 1 }).success).toBe(
+      false,
+    );
   });
 });

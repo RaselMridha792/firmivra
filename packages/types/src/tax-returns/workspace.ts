@@ -99,10 +99,24 @@ export const TaxReturnRow = z.object({
 });
 export type TaxReturnRow = z.infer<typeof TaxReturnRow>;
 
+/**
+ * The workflow statuses that count as in progress (Octavia's K4: In Preparation, Waiting on Client
+ * and Ready for Review/Signature/File); `workflowGroup: 'IN_PROGRESS'` filters to them.
+ */
+export const TAX_RETURN_IN_PROGRESS_STATUSES = [
+  'IN_PREPARATION',
+  'WAITING_ON_CLIENT',
+  'READY_FOR_REVIEW',
+  'READY_FOR_SIGNATURE',
+  'READY_TO_FILE',
+] as const satisfies readonly z.infer<typeof TaxReturnWorkflowStatus>[];
+
 /** GET /business/tax-returns. Search: client name, business name, SSN/EIN last 4, form, id. */
 export const TaxReturnsQuery = z.strictObject({
   tab: TaxReturnTab.optional().default('all'),
   workflowStatus: TaxReturnWorkflowStatus.optional(),
+  /** A group of statuses: IN_PROGRESS = TAX_RETURN_IN_PROGRESS_STATUSES. */
+  workflowGroup: z.enum(['IN_PROGRESS']).optional(),
   taxYear: z.coerce.number().int().min(2000).max(2100).optional(),
   formType: text(20).optional(),
   clientType: ClientAccountType.optional(),
@@ -110,6 +124,12 @@ export const TaxReturnsQuery = z.strictObject({
   assignedUserId: z.uuid().optional(),
   updatedFrom: CalendarDate.optional(),
   updatedTo: CalendarDate.optional(),
+  /**
+   * Accepted between these days, both inclusive, in the firm's time zone (the status history): with
+   * workflowStatus ACCEPTED, the dashboard's Accepted Returns.
+   */
+  acceptedFrom: CalendarDate.optional(),
+  acceptedTo: CalendarDate.optional(),
   archived: z.union([z.boolean(), z.stringbool()]).optional().default(false),
   search: SearchText.optional(),
   sort: z.enum(['updated', 'client', 'due', 'year', 'status']).optional().default('updated'),
@@ -257,7 +277,8 @@ export type UpdateTaxReturnDetailsRequest = z.input<typeof UpdateTaxReturnDetail
 /**
  * POST /business/tax-returns/{id}/status (Change Status, Ready for Review, Mark Ready to File,
  * Close). Going back a step needs a reason; Ready to File and Close need APPROVE or the
- * reviewer. 409 STATUS_BLOCKED with the blockers when the database refuses it.
+ * reviewer. 409 STATUS_BLOCKED with the blockers when the database refuses it. Rejected needs an
+ * agency's rejection recorded on a transmission first: 409 REJECTION_NOT_RECORDED (TX-F22).
  */
 export const ChangeTaxReturnStatusRequest = z.strictObject({
   workflowStatus: TaxReturnWorkflowStatus,
@@ -332,6 +353,8 @@ export const TaxFilingAttempt = z.object({
   acknowledgedAt: DateTime.nullable(),
   rejectCode: z.string().nullable(),
   rejectDescription: z.string().nullable(),
+  /** The agency that rejected it; null on an answer recorded before Oct 26. */
+  rejectingAgency: z.string().nullable(),
   correctiveAction: z.string().nullable(),
   recordedBy: MemberRef.nullable(),
   createdAt: DateTime,
@@ -397,15 +420,20 @@ export const RecordTaxFilingAttemptRequest = z.strictObject({
 });
 export type RecordTaxFilingAttemptRequest = z.input<typeof RecordTaxFilingAttemptRequest>;
 
-/** PATCH /business/tax-returns/{id}/attempts/{attemptId}: the acknowledgment, or the fix note. */
+/**
+ * PATCH /business/tax-returns/{id}/attempts/{attemptId}: the acknowledgment, or the fix note. A
+ * rejection names the agency, its code or description, and the corrective action (Octavia's
+ * TX-F22); the API answers 400 when both the code and the description are missing.
+ */
 export const UpdateTaxFilingAttemptRequest = z.discriminatedUnion('ackStatus', [
   z.strictObject({ ackStatus: z.literal('ACCEPTED'), acknowledgedAt: DateTime }),
   z.strictObject({
     ackStatus: z.literal('REJECTED'),
     acknowledgedAt: DateTime,
+    rejectingAgency: text(100, 'one', 'Enter the agency that rejected it'),
     rejectCode: clearable(text(50)),
     rejectDescription: clearable(text(2000, 'many')),
-    correctiveAction: clearable(text(2000, 'many')),
+    correctiveAction: text(2000, 'many', 'Say what the firm will do about it'),
   }),
   /** After the answer, only the corrective action changes. */
   z.strictObject({ ackStatus: z.literal('NOTE'), correctiveAction: clearable(text(2000, 'many')) }),
@@ -628,6 +656,8 @@ export const TaxReturnWorkspaceErrorCode = z.enum([
   'STATUS_BLOCKED',
   /** 400: going back a step needs a reason. */
   'REASON_REQUIRED',
+  /** 409: Rejected needs the agency's rejection recorded on a transmission first. */
+  'REJECTION_NOT_RECORDED',
   /** 409: a filed return, a transmission or a decided approval does not change. */
   'RETURN_LOCKED',
   /** 409: a new transmission only after the last one was rejected; one waiting at a time. */

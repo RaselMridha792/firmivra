@@ -36,6 +36,7 @@ import {
   type TaxReturnRow,
   type TaxReturnWorkflowStatus,
   type TaxReturnWorkspaceClient,
+  TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -251,7 +252,8 @@ function blockersFor(r: Stored, to: TaxReturnWorkflowStatus, all: Stored[]): Tax
   const required = r.filings.filter((f) => f.required);
   const done = (s: string) => s === 'ACCEPTED' || s === 'PAPER_FILED';
   const out: TaxReturnBlocker[] = [];
-  if (at >= 4) out.push(...now);
+  // The pre-filing checks hold when a return first reaches Ready to File, not on later moves.
+  if (at >= 4 && (STEP[r.workflowStatus] ?? 0) < 4) out.push(...now);
   if (
     at === 5 &&
     required.length &&
@@ -395,6 +397,8 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
             rejectCode: ack === 'REJECTED' ? 'IND-031-04' : null,
             rejectDescription:
               ack === 'REJECTED' ? 'The prior-year AGI does not match the agency record.' : null,
+            rejectingAgency:
+              ack === 'REJECTED' ? (jurisdiction === 'US' ? 'IRS' : jurisdiction) : null,
             correctiveAction: null,
             recordedBy: r.preparer,
             createdAt: ago(5),
@@ -665,6 +669,14 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     }
     const blockers = blockersFor(r, to, rows);
     if (blockers.length) throw fail(409, 'STATUS_BLOCKED', 'Blocked');
+    // As the API (TX-F22): Rejected only with a rejection recorded on a newest transmission.
+    if (to === 'REJECTED' && !r.filings.some((f) => f.attempts[0]?.ackStatus === 'REJECTED')) {
+      throw fail(
+        409,
+        'REJECTION_NOT_RECORDED',
+        "Record the agency's rejection of a transmission first",
+      );
+    }
     r.workflowStatus = to;
     r.statusReason = reason;
     if (filed(to) && !r.firstFiledAt) {
@@ -714,6 +726,11 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
           (q.archived ? r.archivedAt !== null : r.archivedAt === null) &&
           tabOf(r, q.tab) &&
           (!q.workflowStatus || r.workflowStatus === q.workflowStatus) &&
+          (q.workflowGroup !== 'IN_PROGRESS' ||
+            (TAX_RETURN_IN_PROGRESS_STATUSES as readonly string[]).includes(r.workflowStatus)) &&
+          // The mock keeps no status history: Accepted dates use the last update.
+          (!q.acceptedFrom || r.updatedAt.slice(0, 10) >= q.acceptedFrom) &&
+          (!q.acceptedTo || r.updatedAt.slice(0, 10) <= q.acceptedTo) &&
           (!q.taxYear || r.taxYear === q.taxYear) &&
           (!q.formType || r.formType?.toLowerCase() === q.formType.toLowerCase()) &&
           (!q.clientType || c.accountType === q.clientType) &&
@@ -1084,6 +1101,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         acknowledgedAt: null,
         rejectCode: null,
         rejectDescription: null,
+        rejectingAgency: null,
         correctiveAction: null,
         recordedBy: me,
         createdAt: nowIso(),
@@ -1105,9 +1123,13 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         a.ackStatus = b.ackStatus;
         a.acknowledgedAt = b.acknowledgedAt;
         if (b.ackStatus === 'REJECTED') {
+          if (!b.rejectCode && !b.rejectDescription) {
+            throw fail(400, 'VALIDATION_FAILED', 'Enter the reject code or what was rejected');
+          }
+          a.rejectingAgency = b.rejectingAgency;
           a.rejectCode = b.rejectCode ?? null;
           a.rejectDescription = b.rejectDescription ?? null;
-          a.correctiveAction = b.correctiveAction ?? null;
+          a.correctiveAction = b.correctiveAction;
         }
       }
       syncFilingStatus(f);

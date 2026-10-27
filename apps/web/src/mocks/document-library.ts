@@ -9,6 +9,8 @@ import {
   type DocumentShare,
   type LibraryDocument,
   UpdateDocumentShareRequest,
+  ReviewDocumentRequest,
+  UpdateLibraryDocumentRequest,
   type DocumentCategory,
   type DocumentSettings,
   ReorderDocumentFoldersRequest,
@@ -32,6 +34,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
+import { SAMPLE_PDF_URL } from './esign-common';
 
 // Synthetic folders and the upload step of the firm's document library (R55 contract,
 // `api.documentLibrary`) for mock mode. Uploads go through the documents mock (`api.documents`),
@@ -474,10 +477,21 @@ export function createDocumentLibraryMock(options: {
       },
     ]);
   }
+  // Frame 2's changes to a file (details, review, archive, trash), over the documents mock's.
+  const edits = new Map<string, Partial<LibraryDocument>>();
+  const edit = (id: string, next: Partial<LibraryDocument>) =>
+    edits.set(id, { ...edits.get(id), ...next, updatedAt: new Date().toISOString() });
   /** The documents mock's file, as the library reads it. */
   const libraryDoc = async (id: string): Promise<LibraryDocument> => {
     const d = await options.documents.get(id);
     const client = clientFixtures().find((c) => c.id === d.clientId);
+    return { ...(await baseDoc(d, client?.displayName)), ...edits.get(id) };
+  };
+  const baseDoc = async (
+    d: Awaited<ReturnType<DocumentsClient['get']>>,
+    clientName: string | undefined,
+  ): Promise<LibraryDocument> => {
+    const client = { displayName: clientName };
     return {
       id: d.id,
       fileName: d.fileName,
@@ -501,6 +515,7 @@ export function createDocumentLibraryMock(options: {
       replacesId: null,
       superseded: false,
       requestId: d.requestId,
+      request: null,
       visibleToClient: d.direction !== 'INTERNAL',
       uploadedBy: d.uploadedBy,
       createdAt: d.createdAt,
@@ -645,17 +660,116 @@ export function createDocumentLibraryMock(options: {
         sizeBytes: body.sizeBytes,
         sha256: body.sha256,
       }),
-    update: notInMock,
-    review: notInMock,
-    archive: notInMock,
-    restore: notInMock,
-    trash: notInMock,
-    untrash: notInMock,
-    versions: notInMock,
-    activity: notInMock,
+    update: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateLibraryDocumentRequest, body);
+      const folder =
+        input.folderId === undefined
+          ? undefined
+          : input.folderId
+            ? folders.find((f) => f.id === input.folderId)
+            : null;
+      const categories = await options.documents.categories();
+      const category =
+        input.categoryId === undefined
+          ? undefined
+          : (categories.find((c) => c.id === input.categoryId) ?? null);
+      edit(id, {
+        ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(input.taxYear !== undefined ? { taxYear: input.taxYear } : {}),
+        ...(input.expiresOn !== undefined ? { expiresOn: input.expiresOn } : {}),
+        ...(folder !== undefined
+          ? { folder: folder ? { id: folder.id, name: folder.name, color: folder.color } : null }
+          : {}),
+        ...(category !== undefined
+          ? { category: category ? { id: category.id, name: category.name } : null }
+          : {}),
+        ...(input.reviewerUserId !== undefined
+          ? { reviewer: MEMBERS.find((m) => m.userId === input.reviewerUserId) ?? null }
+          : {}),
+      });
+      record(id, 'UPDATED', 'Details edited');
+      return libraryDoc(id);
+    },
+    review: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(ReviewDocumentRequest, body);
+      if ((await libraryDoc(id)).trashedAt)
+        throw new ApiRequestError(409, 'INVALID_STATUS', 'In Trash');
+      const reviewStatus = (
+        {
+          START: 'IN_REVIEW',
+          VERIFY: 'VERIFIED',
+          COMPLETE: 'COMPLETED',
+          REQUEST_REPLACEMENT: 'REPLACEMENT_REQUESTED',
+        } as const
+      )[input.action];
+      edit(id, { reviewStatus });
+      record(id, 'REVIEW', `Document marked as ${reviewStatus.replace('_', ' ').toLowerCase()}`);
+      return libraryDoc(id);
+    },
+    archive: async (id) => {
+      await mockDelay();
+      edit(id, { archivedAt: new Date().toISOString() });
+      record(id, 'ARCHIVED', 'Document archived');
+      return libraryDoc(id);
+    },
+    restore: async (id) => {
+      await mockDelay();
+      edit(id, { archivedAt: null });
+      record(id, 'RESTORED', 'Document restored');
+      return libraryDoc(id);
+    },
+    trash: async (id) => {
+      await mockDelay();
+      edit(id, { trashedAt: new Date().toISOString() });
+      record(id, 'TRASHED', 'Document moved to Trash');
+      return libraryDoc(id);
+    },
+    untrash: async (id) => {
+      await mockDelay();
+      edit(id, { trashedAt: null });
+      record(id, 'RESTORED', 'Document restored from Trash');
+      return libraryDoc(id);
+    },
+    versions: async (id) => {
+      await mockDelay();
+      const d = await libraryDoc(id);
+      return [
+        {
+          id: d.id,
+          versionNo: d.versionNo,
+          fileName: d.fileName,
+          sizeBytes: d.sizeBytes,
+          scanStatus: d.scanStatus,
+          uploadedBy: d.uploadedBy,
+          createdAt: d.createdAt,
+          current: true,
+        },
+      ];
+    },
+    activity: async (id) => {
+      await mockDelay();
+      const d = await libraryDoc(id);
+      return [
+        ...(accessLog.get(id) ?? []),
+        {
+          id: shareId(),
+          at: d.createdAt,
+          kind: 'UPLOADED' as const,
+          label: 'Document uploaded',
+          by: d.uploadedBy?.name ?? null,
+        },
+      ];
+    },
     preview: async (id) => {
       const d = await libraryDoc(id);
       if (d.scanStatus !== 'CLEAN') throw new ApiRequestError(409, 'FILE_NOT_CLEAN', 'Not clean');
+      // A PDF previews as the bundled synthetic sample, so the viewer draws real pages.
+      if (d.contentType === 'application/pdf')
+        return { url: SAMPLE_PDF_URL, expiresAt: new Date(Date.now() + 300_000).toISOString() };
       return options.documents.download(id);
     },
     bulk: notInMock,
@@ -886,10 +1000,7 @@ export function createDocumentLibraryMock(options: {
       if (!client) throw fail(404, 'NOT_FOUND', 'Not found');
       const template = templates.find((t) => t.id === input.templateId);
       const items = [
-        ...(input.copyTemplateItems ? (template?.items ?? []) : []).map((i) => ({
-          ...i,
-          instructions: i.description,
-        })),
+        ...(template?.items ?? []).map((i) => ({ ...i, instructions: i.description })),
         ...(input.items ?? []).map((i) => ({ ...i, instructions: i.instructions ?? null })),
       ];
       if (
@@ -1078,7 +1189,19 @@ export function createDocumentLibraryMock(options: {
       recount(p);
       return detail(p);
     },
-    reorderItems: notInMock,
+    reorderItems: async (id, body) => {
+      await mockDelay();
+      const p = find(id);
+      draftOnly(p);
+      const ids = body.ids;
+      for (const item of checklistOf(p)) {
+        const at = ids.indexOf(item.id);
+        if (at >= 0) item.sortOrder = at;
+      }
+      checklistOf(p).sort((a, b) => a.sortOrder - b.sortOrder);
+      touch(p);
+      return detail(p);
+    },
     templates: async () => {
       await mockDelay();
       return structuredClone(templates);

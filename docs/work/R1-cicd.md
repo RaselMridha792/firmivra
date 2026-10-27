@@ -110,6 +110,140 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 27)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session (4624afb5) stopped on Rasel's word of Oct 27, after it opened the SH9 PR.
+
+- **Open:** **#1188**, SH9: `engagements.catalog_service_id` (R56's plan link to Services & Pricing). It's the only migration PR open, and the last item in Rasel's queue. 8 of 8 green at head `d08a9448a8c9c7606eed21914ab58a791e85d213`, with `main` merged in at `e754668da`.
+  - The FK is `(business_id, catalog_service_id)` to `services (business_id, id)`, `ON DELETE SET NULL ("catalog_service_id")`. Rasel approved this on Oct 27.
+  - The column list keeps `business_id`. A plain `SET NULL` on the composite key would try to null it, so the delete would fail.
+  - Prisma's schema says `SetNull` and prints a "referenced field is required" warning, which doesn't apply here. `prisma migrate diff` from the migrated database to the schema is empty.
+  - After it merges, R56's plan endpoints set the id. Nothing else needs it.
+- **Merged this session, each applied on dev with its Deploy dev run checked:**
+  - #1165, Stop Future Billing;
+  - #1169, Tax Returns filing details;
+  - #1170, handoff;
+  - #1172, Tax Returns validation issues;
+  - #1176, business identity snapshot on the return;
+  - #1177, Bookkeeping close lock and zero tolerance;
+  - #1181, a Business client's responsible party: three columns on `client_profiles`, per Rasel's tap of Oct 26, 13:30 UTC.
+  - Runs 798 to 800 are green. Runs 801 (#1174) and 802 (#1184) carry no migration and were still running at handoff.
+- **Rasel's decisions (Oct 26):**
+  - the amount sources `TAX_SOFTWARE`, `AGENCY_NOTICE`, `STAFF_ESTIMATE`;
+  - the API, not the database, requires the mail tracking number and the rejecting agency;
+  - an issue's version is the draft document;
+  - the business identity snapshot is filled at creation and fixed after the first filing;
+  - a chargeback's dispute outcome stays editable in a closed period.
+- **Bookkeeping, still waiting for a card from Rasel:**
+  - reopen history (a reopen overwrites the last one);
+  - reviewer routing.
+  - Reported and not carded: one deposit per payout, no customer on refunds, no note on refunds, no dispute dates.
+- **Web:** #1184 (R56) removed the tolerance field and made the text and the mock zero. Nothing is left from R1's list.
+- **The prod one-offs still wait on Rasel** (unchanged, see "Prod (v1.0.0 is live)" below):
+  - the alarm email subscription;
+  - the bootstrap, which needs 2 Cognito subs and LVP's legal name;
+  - LVP's key check;
+  - `set-module`;
+  - the smoke test.
+
+### Lessons (Oct 27)
+- **Composite FKs:** `ON DELETE SET NULL` needs the column list, `SET NULL ("col")` (PostgreSQL 15+; we run 16 locally and on RDS).
+- **Renaming a migration already applied locally:** roll it back in both `firmivra_r1c` and `firmivra_r1c_test` (drop the column, delete its `_prisma_migrations` row), or the test setup stops with P3009.
+- **Prisma 7 `db execute` has no `--url`:** set `DATABASE_URL=` in front of the command.
+- **API typecheck fails with "no exported member" from `@firmivra/types`:** the build is stale. Run `pnpm --filter @firmivra/types build` first.
+- **Vitest filters on Windows:** use the name (`engagement-catalog-service`), not `test/...`.
+- **Untracked local files:** `apps/web/e2e/mock/zz-r1-shots.spec.ts` and `apps/web/playwright.r1e.config.ts` / `r1u.config.ts`. They were there before this session; left alone, never committed.
+
+## Handoff (R1 session, Oct 25)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped on Rasel's word (a long context), after the three schema items were built.
+
+**Update (Oct 26, evening).** This wins over the "Update (Oct 26)" below. The session (4624afb5) stopped after Rasel's two From-me blocks of Oct 26.
+- **Merged:** #1160 (EIN status), #1162 (handoff), #1165 (Stop Future Billing). Deploy dev run 40317941280 applied `r1_stop_future_billing` on dev; the runs after it are green too.
+- **Open:** **#1169**, Tax Returns filing details (item 2 of 4). It's the only migration PR open.
+- **Rasel accepted all four decisions (Oct 26):**
+  - the amount sources `TAX_SOFTWARE`, `AGENCY_NOTICE`, `STAFF_ESTIMATE`;
+  - the API, not the database, requires the tracking number and the rejecting agency;
+  - an issue's version is the draft document;
+  - the business identity snapshot is filled at creation and fixed after the first filing.
+- **The queue: one migration PR at a time, each opened after the one before merges.** All are pushed and stacked, with no PR yet. The PR texts are ready in `C:/Users/RASEL/AppData/Local/Temp/claude/f--firmivra-R1/4624afb5-713d-4b9b-b179-fb33e7bd6a1d/scratchpad/`:
+  1. `rasel/R1-tax-validation-issues` (`ea2b9f033`, text `pr-issues.md`): item 3, the new table `tax_return_validation_issues`.
+  2. `rasel/R1-tax-business-identity` (`4429195c5`, text `pr-identity.md`): item 4, the snapshot columns on `tax_returns` and a trigger.
+  3. `rasel/R1-bookkeeping-lock-zero` (`ab53a31d2`, text `pr-bookkeeping.md`): Rasel's Bookkeeping tap of Oct 26, gaps 1 and 3 only.
+     - The close lock now covers refunds, chargebacks, settlements (by payout date) and settlement items. A chargeback's dispute outcome stays editable; this is flagged in the PR for Rasel.
+     - Zero tolerance: the check `difference_cents = 0` on approval, added `NOT VALID`.
+     - It includes the minimum API change in R56's bookkeeping files (approve, mapper, one e2e test).
+     - Reopen history and reviewer routing wait for a later card.
+- **Before opening each:**
+  - merge `origin/main` (`R0-schema.md` conflicts on the queue line: keep both lines);
+  - run `pnpm --filter @firmivra/db gen:enums` and `generate`;
+  - run its tests with `seed`, `rls-coverage` and `enums` (`--no-file-parallelism`);
+  - change the PR text's last line to say the earlier PR merged.
+- **Needs from others (web, Bookkeeping screens):** remove the Settings tolerance field, which now does nothing. Change the `RECON_DIFFERENCE` text in `bookkeeping-shared.tsx` ("outside the tolerance") to say the difference must be zero. Make the mock in `apps/web/src/mocks/bookkeeping.ts` use zero.
+- **The prod one-offs still wait on Rasel** (see below).
+
+**Update (Oct 26).** This wins over the rest of this section. The session stopped at a long context, on Rasel's word.
+- **Merged since:** #1152 (sign-ups), #1159 (card templates), #1137 (smoke-test logging), #1158 (handoff).
+- **Open:** **#1160**, EIN status: green, with `main` merged in at `e57fe55aa`. It's the only migration PR open.
+- **Rasel's tap of Oct 26, for Octavia's Oct 25 reviews:** four `packages/db` items, each its own migration PR, one at a time, in this order:
+  1. **Stop Future Billing:** `rasel/R1-stop-future-billing` (pushed at `c036e7e53`, stacked on #1160, **no PR yet**).
+     - `engagements.stop_future_billing` (default false) and `billing_stops_on`, set together.
+     - The test `packages/db/test/stop-future-billing.test.ts` is written but **not yet run**: Docker Desktop had stopped, so the local Postgres was down.
+     - When Docker is back: run the test with `--no-file-parallelism`, plus `seed`, `rls-coverage` and `enums`. Then open the PR after #1160 merges, with `main` merged in.
+  2. **Tax Returns filing details:**
+     - on `tax_return_filings`: a mail tracking number, the amount source and the amount version;
+     - on `tax_return_filing_attempts`: the rejecting agency;
+     - one migration per table, in one PR.
+  3. **Tax Returns validation issues:** a new table with severity (`ERROR`, `MANUAL_WARNING`, `INFO`), a responsible person (a member), the return's version and a link to a review step (`tax_return_checklist_items`). Forced RLS per firm, an isolation test, and `gen:enums`.
+  4. **Business identity on a business return:**
+     - a snapshot copied onto the return at creation from the client's business record: business name, EIN and address;
+     - the EIN follows the existing rules (sealed with `sealed_value_ok`, last four only, masked on read);
+     - the client's own record stays the source for new returns.
+- **Then, read-only:** the Bookkeeping gap check against `docs/specs/review-2026-10-26/bookkeeping--developer-review.md` (chargebacks, payouts, close lock details). Report the gaps and build nothing until Rasel sends a card.
+  - Already in place: transactions with splits, transfer pairs and refunds; settlements and their items; reconciliations with a statement, cleared count, difference and approval; periods with `close_version`; close items; report versions; terms and terms events; activity.
+- **TX-F18** (who may assign) is a role check, not part of this.
+- **The prod one-offs still wait on Rasel:** the alarm email subscription, the two Cognito subs and LVP's legal name.
+- **If Docker Desktop is down:** Rasel starts it. Then run `docker start firmivra-postgres-1 firmivra-s3-1 firmivra-mailpit-1`, never compose from this worktree.
+
+### Prod (v1.0.0 is live)
+- **Release:** `v1.0.0` on `564c8cfaf` is live (prod log 8a to 8d).
+  - The 3 sites and `/api/v1/health` answer 200.
+  - api and web run 2 tasks each, with auto scaling from 2 to 6.
+  - All 162 migrations ran once.
+- **Stripe:** `firmivra/prod/stripe` holds empty values, so payments are off. The live-key swap steps and the key format rule are in "Update (Oct 25)" above.
+- **Left, each on Rasel's word, with the command shown first:**
+  1. The alarm email subscription: Rasel runs `aws sns subscribe … --protocol email` with his address, then confirms the email.
+  2. The bootstrap one-off (`scripts/bootstrap-prod.mjs`) needs the 2 Cognito subs (a Super Admin in `firmivra-prod-admins`, LVP's Owner in `firmivra-prod-staff`) and `FIRM_LEGAL_NAME`. The overrides shape and the `run-task` command are in R1's reply of Oct 25. The network values come from `firmivra-prod-app`'s outputs.
+  3. **LVP's KMS key:** `create-firm-key` refuses outside `APP_ENV=dev`. The prod API's firm-key sweep makes LVP's key after the bootstrap; check its alias read-only.
+  4. `set-module` for LVP (which modules and why: Rasel). The database URL is built inside the container from `DB_*`.
+  5. The smoke test.
+- **#1137** (open, `chore:`): the smoke step logs curl's exit code and error. v1.0.0's smoke step printed empty codes, cause unknown. Rasel merges.
+
+### Schema queue (Rasel's tap of Oct 25 12:48 UTC, "Approve all three": one PR at a time)
+1. **#1152** (open): R55's Client Sign-ups, as three migrations, one busy table each. CI went red once on `packages/types/src/db-enums.ts`; the regenerated file is pushed.
+2. `rasel/R1-dashboard-card-templates` (pushed, no PR, stacked on #1152): R55's D4 `dashboard_card_templates`. Opens after #1152 merges.
+3. `rasel/R1-client-ein-status` (pushed, no PR, stacked on 2): R56's B15 `client_profiles.ein_status`. Opens after 2 merges.
+- **Before opening each:**
+  - merge `origin/main`, and if another migration landed meanwhile, regenerate the folder so it sorts last;
+  - `pnpm --filter @firmivra/db gen:enums` and `generate`;
+  - with #1152 merged, keep `main`'s side where it equals the merged head.
+- Rasel's answers (POLICY_CHANGE without a sign-up, no backfill, the database rules, no DELETE on cards, `ein_status` on `client_profiles`) are in each PR's text.
+
+### Dev
+- **Octavia's LVP client login:**
+  - a new password is set; it's only on line 3 of `F:/firmivra-octavia-logins.txt`;
+  - her account `ad3c1e7a-…` was linked to a new client record `01a17353-1464-7af4-a696-3eaff05ca878` by a one-transaction fix (two audit rows, `from: dev_link_fix`).
+  - She was the only `ACTIVE` account without a client record in any of the 15 dev firms.
+  - The Oct 11 cause was an ad-hoc one-off (#442's "one-off client-account scripts"), not a script in the repo. No code change.
+- **R60's request 13:** `staff_phone_codes` merged (#1145).
+
+### Lessons
+- **New enum:** run `pnpm --filter @firmivra/db gen:enums`, or `test/enums.test.ts` fails in CI.
+- **New table:** add a `knownEmpty` line in `seed.test.ts`, with a reason.
+- **Local db suite:** run it with `--no-file-parallelism`. In parallel, the local Postgres runs "out of shared memory".
+- **Local `platform-sales` failure:** a stale `null` stage in the reused test database. It passes in CI.
+- **Commits and PRs carry no attribution lines** (CLAUDE.md, Rasel).
+
 ## Handoff (R1 session, Oct 24 evening)
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped at about 95% context, on Rasel's word, before the prod stacks.

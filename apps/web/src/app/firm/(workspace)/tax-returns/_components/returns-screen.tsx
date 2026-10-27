@@ -12,6 +12,7 @@ import {
   BulkBar,
   DateRangePicker,
   DonutChart,
+  Button,
   type KpiTrend,
   Modal,
   SearchField,
@@ -24,6 +25,7 @@ import {
   tileTones,
 } from '@firmivra/ui';
 import {
+  ArrowCounterClockwise,
   ArrowDown,
   ArrowSquareOut,
   ArrowUp,
@@ -67,6 +69,7 @@ import {
   TR_ERRORS,
   TR_KEY,
   card,
+  dayText,
   linkText,
   numericDay,
   outlined,
@@ -74,6 +77,7 @@ import {
   quiet,
   shortName,
 } from './tr-shared';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
 const TAB_ICON: Record<TaxReturnTab, Icon> = {
   all: FileText,
@@ -158,14 +162,25 @@ function trendOf(
  * /tax-returns (Frame 1, Tax Returns Overview): one return dataset with tax-type tabs, KPI cards
  * that filter, the filters and table, Tax Season Progress, Quick Actions and Helpful Links.
  */
-export function ReturnsScreen() {
+export function ReturnsScreen({
+  initialStatus = '',
+  accepted: acceptedFromUrl = { from: '', to: '' },
+  fromDashboard = false,
+}: {
+  /** A workflow status, or IN_PROGRESS for the five in-progress ones (the dashboard's K4). */
+  initialStatus?: string;
+  /** Accepted between these days (the dashboard's Accepted Returns, K5). */
+  accepted?: { from: string; to: string };
+  fromDashboard?: boolean;
+} = {}) {
   const manager = useManager();
   const members = useMembers();
   const [tab, setTab] = useState<TaxReturnTab>('all');
   const [year, setYear] = useState('');
   const [formType, setFormType] = useState('');
   const [clientType, setClientType] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(initialStatus);
+  const [accepted, setAccepted] = useState(acceptedFromUrl);
   const [assigned, setAssigned] = useState('');
   const [search, setSearch] = useState('');
   const [more, setMore] = useState(false);
@@ -186,7 +201,13 @@ export function ReturnsScreen() {
     ...(year ? { taxYear: Number(year) } : {}),
     ...(formType ? { formType } : {}),
     ...(clientType ? { clientType: clientType as ClientAccountType } : {}),
-    ...(status ? { workflowStatus: status as TaxReturnWorkflowStatus } : {}),
+    ...(status === 'IN_PROGRESS'
+      ? { workflowGroup: 'IN_PROGRESS' as const }
+      : status
+        ? { workflowStatus: status as TaxReturnWorkflowStatus }
+        : {}),
+    ...(accepted.from ? { acceptedFrom: accepted.from } : {}),
+    ...(accepted.to ? { acceptedTo: accepted.to } : {}),
     ...(assigned ? { assignedUserId: assigned } : {}),
     ...(range.from ? { updatedFrom: range.from } : {}),
     ...(range.to ? { updatedTo: range.to } : {}),
@@ -212,8 +233,7 @@ export function ReturnsScreen() {
     assigned ||
     search ||
     range.from ||
-    range.to ||
-    archived
+    range.to
   );
   const reset = () => {
     setYear('');
@@ -223,7 +243,6 @@ export function ReturnsScreen() {
     setAssigned('');
     setSearch('');
     setRange({ from: '', to: '' });
-    setArchived(false);
     setPage(1);
   };
   const filter =
@@ -246,6 +265,14 @@ export function ReturnsScreen() {
     const done = await act(
       () => Promise.all(ids.map((id) => api.taxReturnWorkspace.archive(id))),
       `${ids.length} ${ids.length === 1 ? 'return' : 'returns'} archived.`,
+    );
+    if (done) setSelected([]);
+  };
+  const bulkRestore = async () => {
+    const ids = selected;
+    const done = await act(
+      () => Promise.all(ids.map((id) => api.taxReturnWorkspace.restore(id))),
+      `${ids.length} ${ids.length === 1 ? 'return' : 'returns'} restored, with ${ids.length === 1 ? 'its' : 'their'} history.`,
     );
     if (done) setSelected([]);
   };
@@ -322,6 +349,7 @@ export function ReturnsScreen() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="tax-returns-page">
+      {fromDashboard ? <BackToDashboard /> : null}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span
@@ -348,6 +376,24 @@ export function ReturnsScreen() {
           </button>
         </div>
       </header>
+      {accepted.from || accepted.to ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="accepted-filter">
+          <span className="text-muted">Accepted</span>
+          <span className="font-semibold text-heading">
+            {[accepted.from, accepted.to].filter(Boolean).map(dayText).join(' to ')}
+          </span>
+          <Button
+            variant="ghost"
+            aria-label="Clear the accepted dates"
+            onClick={() => {
+              setAccepted({ from: '', to: '' });
+              setPage(1);
+            }}
+          >
+            Clear
+          </Button>
+        </div>
+      ) : null}
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
@@ -421,6 +467,17 @@ export function ReturnsScreen() {
           <div className="flex flex-wrap items-end gap-2" data-testid="tr-filters">
             <div className="w-32">
               <Select
+                label="Show"
+                value={archived ? 'archived' : 'active'}
+                onChange={(e) => filter(setArchived)(e.target.value === 'archived')}
+                options={[
+                  { value: 'active', label: 'Active' },
+                  { value: 'archived', label: 'Archived' },
+                ]}
+              />
+            </div>
+            <div className="w-32">
+              <Select
                 label="Tax Year"
                 value={year}
                 onChange={(e) => filter(setYear)(e.target.value)}
@@ -460,6 +517,7 @@ export function ReturnsScreen() {
                 onChange={(e) => filter(setStatus)(e.target.value)}
                 options={[
                   { value: '', label: 'All Statuses' },
+                  { value: 'IN_PROGRESS', label: 'In Progress (all)' },
                   ...STATUS_ORDER.map((v) => ({ value: v, label: STATUS_LABEL[v] })),
                 ]}
               />
@@ -508,29 +566,38 @@ export function ReturnsScreen() {
                 value={range}
                 onChange={(v) => filter(setRange)(v)}
               />
-              <label className="flex min-h-10 items-center gap-2 text-sm text-text">
-                <input
-                  type="checkbox"
-                  className="size-4"
-                  checked={archived}
-                  onChange={(e) => filter(setArchived)(e.target.checked)}
-                />
-                Show archived returns only
-              </label>
             </div>
+          ) : null}
+          {archived ? (
+            // Octavia's TX-F34: archived returns are found here and restored from their row menu
+            // or the bulk bar. They stay out of the cards and Tax Season Progress.
+            <p className={quiet} data-testid="archived-view">
+              Archived returns keep their history, documents and filings, and are not counted in the
+              cards above. Restore a return to bring it back to the active lists.
+            </p>
           ) : null}
           {selected.length ? (
             <BulkBar
               count={selected.length}
               noun="returns"
-              actions={[
-                {
-                  label: 'Assign Staff',
-                  icon: UserSwitch,
-                  onClick: () => setDialog('bulk-assign'),
-                },
-                { label: 'Archive', icon: Archive, onClick: () => void bulkArchive() },
-              ]}
+              actions={
+                archived
+                  ? [
+                      {
+                        label: 'Restore',
+                        icon: ArrowCounterClockwise,
+                        onClick: () => void bulkRestore(),
+                      },
+                    ]
+                  : [
+                      {
+                        label: 'Assign Staff',
+                        icon: UserSwitch,
+                        onClick: () => setDialog('bulk-assign'),
+                      },
+                      { label: 'Archive', icon: Archive, onClick: () => void bulkArchive() },
+                    ]
+              }
             />
           ) : null}
           {list.isError ? (
@@ -568,14 +635,30 @@ export function ReturnsScreen() {
                   setPage(1);
                 },
               }}
-              emptyTitle={filtered || tab !== 'all' ? 'No returns match' : 'No tax returns yet'}
+              emptyTitle={
+                filtered || tab !== 'all'
+                  ? 'No returns match'
+                  : archived
+                    ? 'No archived returns'
+                    : 'No tax returns yet'
+              }
               emptyText={
                 filtered || tab !== 'all'
                   ? 'Try another tab, or clear the filters.'
-                  : 'Create a client’s first return to start tracking it here.'
+                  : archived
+                    ? 'A return you archive is listed here until you restore it.'
+                    : 'Create a client’s first return to start tracking it here.'
               }
               emptyAction={
-                filtered ? (
+                archived && !filtered ? (
+                  <button
+                    type="button"
+                    className={outlined}
+                    onClick={() => filter(setArchived)(false)}
+                  >
+                    Show Active Returns
+                  </button>
+                ) : filtered ? (
                   <button type="button" className={outlined} onClick={reset}>
                     Clear Filters
                   </button>
@@ -651,6 +734,7 @@ export function ReturnsScreen() {
                 { label: 'Import Return', icon: UploadSimple, on: () => setDialog('import') },
                 { label: 'Bulk Upload Returns', icon: FileArrowUp, on: () => setDialog('bulk') },
                 { label: 'Generate E-File Reports', icon: FileText, on: () => setDialog('efile') },
+                { label: 'Archived Returns', icon: Archive, on: () => filter(setArchived)(true) },
                 ...(manager
                   ? [{ label: 'Print / Export List', icon: Printer, on: () => void exportList() }]
                   : []),
