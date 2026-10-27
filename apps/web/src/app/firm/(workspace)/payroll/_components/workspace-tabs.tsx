@@ -34,6 +34,8 @@ import {
   subtle,
 } from './payroll-shared';
 import { WorkerDialog } from './worker-dialog';
+import { OriginLink } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
 
 type Notice = (text: string, tone: 'success' | 'error') => void;
 const empty = (pending: boolean, failed: boolean, none: string, error: string) =>
@@ -570,6 +572,8 @@ function AddReportDialog({ id, onClose }: { id: string; onClose: () => void }) {
 
 /** Documents: the client's payroll documents, from the shared Documents module. */
 export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
+  // SH3: Request and Upload open here, for this client's payroll service.
+  const { open } = useServiceDocuments();
   const docs = useApiQuery([...PAYROLL_KEY, 'documents', clientId ?? ''], async () =>
     clientId ? api.documents.list(clientId) : { items: [] },
   );
@@ -579,13 +583,13 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Documents</h2>
         <div className="flex gap-2">
-          <Link href="/documents/requests" className={outlined}>
+          <button type="button" className={outlined} onClick={() => open('request')}>
             Request Documents
-          </Link>
+          </button>
           {clientId ? (
-            <Link href={`/clients/${clientId}/documents`} className={outlined}>
+            <button type="button" className={outlined} onClick={() => open('upload')}>
               Upload Document
-            </Link>
+            </button>
           ) : null}
         </div>
       </div>
@@ -629,9 +633,9 @@ export function TasksTab({ clientId }: { clientId: string | undefined }) {
     <section className={card} aria-label="Tasks" data-testid="tab-tasks">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Tasks</h2>
-        <Link href="/tasks/new" className={outlined}>
+        <OriginLink href="/tasks/new" className={outlined}>
           <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-        </Link>
+        </OriginLink>
       </div>
       {rows.length === 0 ? (
         <p className={quiet}>
@@ -649,12 +653,12 @@ export function TasksTab({ clientId }: { clientId: string | undefined }) {
               key={t.id}
               className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
             >
-              <Link
+              <OriginLink
                 href={`/tasks/${t.id}`}
                 className="min-w-0 truncate font-medium text-link hover:underline"
               >
                 {t.title}
-              </Link>
+              </OriginLink>
               <span className="shrink-0 text-xs text-muted">
                 {t.dueOn ? dayText(t.dueOn) : '—'}
               </span>
@@ -763,9 +767,9 @@ export function CommunicationsTab() {
       <p className="mb-3 text-sm text-text">
         Messages with this client are kept in Messages, with their full history.
       </p>
-      <Link href="/messages" className={outlined}>
+      <OriginLink href="/messages" className={outlined}>
         <ChatCircleDots aria-hidden weight="fill" className="size-4" /> Open Messages
-      </Link>
+      </OriginLink>
     </section>
   );
 }

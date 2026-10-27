@@ -276,7 +276,7 @@ describe('reconciliations', () => {
     ).resolves.toBeTruthy();
   });
 
-  it('are approved only within the tolerance and with no open exceptions', async () => {
+  it('are approved only with a zero difference and no open exceptions', async () => {
     const p = await period();
     const r = await recon(p.id, account1, {
       clearedBalanceCents: 149000,
@@ -301,7 +301,11 @@ describe('reconciliations', () => {
     expect(await failure(approve({ toleranceCents: 1000, approvedAt: null }))).toMatch(
       /check constraint/i,
     );
-    await expect(approve({ toleranceCents: 1000 })).resolves.toMatchObject({ status: 'APPROVED' });
+    // Zero tolerance (Oct 26): within the tolerance is no longer enough.
+    expect(await failure(approve({ toleranceCents: 1000 }))).toMatch(/zero_difference/);
+    await expect(
+      approve({ toleranceCents: 1000, clearedBalanceCents: 150000, differenceCents: 0 }),
+    ).resolves.toMatchObject({ status: 'APPROVED' });
     // Reopen with a reason; the reason is required.
     const reopen = (data: Record<string, unknown>) =>
       A().bookkeepingReconciliation.update({

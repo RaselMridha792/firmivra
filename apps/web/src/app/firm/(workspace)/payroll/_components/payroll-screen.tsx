@@ -1,7 +1,7 @@
 'use client';
 
-import type {
-  PayrollClientRow,
+import {
+  type PayrollClientRow,
   PayrollClientsQuery,
   PayrollClientTab,
   PayrollOverviewPeriod,
@@ -36,7 +36,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -64,6 +64,10 @@ import {
   outlined,
   quiet,
 } from './payroll-shared';
+import { OriginLink } from '../../../../../components/origin-link';
+import { pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { PAYROLL_VIEW, type PayrollView } from './list-view';
+import { ServiceDocumentsProvider } from '../../../../../components/service-documents';
 
 const TABS: { id: PayrollClientTab; label: string }[] = [
   { id: 'ALL', label: 'All Clients' },
@@ -89,19 +93,53 @@ const BLANK = {
   syncStatus: '',
 };
 
+/** The filters of a view from the address; a value the API would refuse is left out. */
+function viewFilters(view: PayrollView): typeof BLANK {
+  const shape = PayrollClientsQuery.shape;
+  const keep = (key: keyof typeof BLANK) =>
+    view[key] && shape[key].safeParse(view[key]).success ? view[key] : '';
+  return {
+    clientType: keep('clientType'),
+    providerKey: keep('providerKey'),
+    frequency: keep('frequency'),
+    status: keep('status'),
+    assignedUserId: keep('assignedUserId'),
+    syncStatus: keep('syncStatus'),
+  };
+}
+
 /** /payroll: the overview. KPI cards, charts, the client table with its seven views, and the side widgets. */
-export function PayrollScreen() {
+export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollView }) {
   const router = useRouter();
-  const [period, setPeriod] = useState<PayrollOverviewPeriod>('THIS_MONTH');
-  const [tab, setTab] = useState<PayrollClientTab>('ALL');
-  const [filters, setFilters] = useState(BLANK);
-  const [more, setMore] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [period, setPeriod] = useState<PayrollOverviewPeriod>(
+    PayrollOverviewPeriod.safeParse(initial.period).data ?? 'THIS_MONTH',
+  );
+  const [tab, setTab] = useState<PayrollClientTab>(
+    PayrollClientTab.safeParse(initial.tab).data ?? 'ALL',
+  );
+  const [filters, setFilters] = useState(() => viewFilters(initial));
+  const [more, setMore] = useState(Object.values(viewFilters(initial)).some(Boolean));
+  const [search, setSearch] = useState(initial.q);
+  const [page, setPage] = useState(pageOf(initial.page));
   const [sort, setSort] = useState<Pick<PayrollClientsQuery, 'sort' | 'direction'>>({
-    sort: 'clientName',
-    direction: 'asc',
+    sort: PayrollClientsQuery.shape.sort.safeParse(initial.sort).data ?? 'clientName',
+    direction: PayrollClientsQuery.shape.direction.safeParse(initial.dir).data ?? 'asc',
   });
+  // SH1: the list's view stays in the address, so Back from a page it opens restores it.
+  useEffect(() => {
+    writeListQuery(
+      {
+        period,
+        tab,
+        q: search,
+        page: String(page),
+        sort: sort.sort ?? 'clientName',
+        dir: sort.direction ?? 'asc',
+        ...filters,
+      },
+      PAYROLL_VIEW,
+    );
+  }, [period, tab, search, page, sort, filters]);
   const [selected, setSelected] = useState<string[]>([]);
   const [dialog, setDialog] = useState<
     'settings' | 'add' | 'connect' | 'reports' | 'assign' | undefined
@@ -243,401 +281,411 @@ export function PayrollScreen() {
   const sortState = { id: query.sort ?? 'clientName', descending: query.direction === 'desc' };
 
   return (
-    <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-page">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-        <Link href="/" aria-label="Home" className="text-link">
-          <ArrowLeft aria-hidden weight="bold" className="size-4" />
-        </Link>
-        <Link href="/" className="text-link">
-          Home
-        </Link>
-        <span aria-hidden className="text-muted">
-          ›
-        </span>
-        <span className="font-semibold text-heading">Payroll</span>
-      </nav>
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <span className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-action text-on-action">
-            <Calendar aria-hidden weight="fill" className="size-10" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">Payroll</h1>
-            <p className="text-base text-muted">
-              Manage client payroll, stay compliant, and keep teams paid on time.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="button" className={outlined} onClick={() => setDialog('connect')}>
-            <Plugs aria-hidden weight="fill" className="size-4" /> Connect Payroll Provider
-          </button>
-          <button type="button" className={outlined} onClick={() => setDialog('reports')}>
-            <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
-          </button>
-          <Link href="/documents/requests" className={outlined}>
-            <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
+    <ServiceDocumentsProvider onDone={(text) => notice(text, 'success')}>
+      <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-page">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+          <Link href="/" aria-label="Home" className="text-link">
+            <ArrowLeft aria-hidden weight="bold" className="size-4" />
           </Link>
-          <button type="button" className={outlined} onClick={() => setDialog('settings')}>
-            <Gear aria-hidden weight="fill" className="size-4" /> Payroll Settings
-          </button>
-        </div>
-      </header>
-      {message ? (
-        <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <div className="w-44">
-          <Select
-            label="Period"
-            value={period}
-            onChange={(e) => setPeriod(e.target.value as PayrollOverviewPeriod)}
-            options={PERIODS}
+          <Link href="/" className="text-link">
+            Home
+          </Link>
+          <span aria-hidden className="text-muted">
+            ›
+          </span>
+          <span className="font-semibold text-heading">Payroll</span>
+        </nav>
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <span className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-action text-on-action">
+              <Calendar aria-hidden weight="fill" className="size-10" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="font-display text-4xl font-bold text-heading">Payroll</h1>
+              <p className="text-base text-muted">
+                Manage client payroll, stay compliant, and keep teams paid on time.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" className={outlined} onClick={() => setDialog('connect')}>
+              <Plugs aria-hidden weight="fill" className="size-4" /> Connect Payroll Provider
+            </button>
+            <button type="button" className={outlined} onClick={() => setDialog('reports')}>
+              <ChartBar aria-hidden weight="fill" className="size-4" /> View Reports
+            </button>
+            <OriginLink href="/documents/requests" className={outlined}>
+              <FileText aria-hidden weight="fill" className="size-4" /> Request Documents
+            </OriginLink>
+            <button type="button" className={outlined} onClick={() => setDialog('settings')}>
+              <Gear aria-hidden weight="fill" className="size-4" /> Payroll Settings
+            </button>
+          </div>
+        </header>
+        {message ? (
+          <Toast
+            message={message.text}
+            tone={message.tone}
+            onDismiss={() => setMessage(undefined)}
           />
-        </div>
-      </div>
-      <ul
-        data-testid="payroll-kpis"
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"
-      >
-        {kpi(
-          'clients',
-          UsersThree,
-          'blue',
-          'Active Payroll Clients',
-          k?.activeClients.value,
-          k?.activeClients.changePercent,
-        )}
-        {kpi(
-          'processed',
-          CurrencyDollar,
-          'amber',
-          'Total Payroll Processed',
-          k ? moneyShort(k.totalProcessedCents.value) : undefined,
-          k?.totalProcessedCents.changePercent,
-        )}
-        {kpi(
-          'employees',
-          FileText,
-          'amber',
-          'Total Employees',
-          k?.totalEmployees.value,
-          k?.totalEmployees.changePercent,
-        )}
-        {kpi('runs', Calendar, 'blue', 'Payroll Runs', k?.runs.value, k?.runs.changePercent)}
-        {kpi(
-          'attention',
-          Warning,
-          'red',
-          'Items Need Attention',
-          k?.needAttention.value,
-          k?.needAttention.changePercent,
-          true,
-        )}
-      </ul>
+        ) : null}
 
-      <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatusCard
-              data={overview.data}
-              loading={overview.isPending}
-              failed={overview.isError}
-            />
-            <VolumeCard
-              data={overview.data}
-              loading={overview.isPending}
-              failed={overview.isError}
-            />
-            <ByProviderCard
-              data={overview.data}
-              loading={overview.isPending}
-              failed={overview.isError}
-            />
-            <ProvidersCard
-              data={overview.data}
-              loading={overview.isPending}
-              failed={overview.isError}
-              onConnect={() => setDialog('connect')}
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="w-44">
+            <Select
+              label="Period"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as PayrollOverviewPeriod)}
+              options={PERIODS}
             />
           </div>
-          <nav
-            aria-label="Payroll views"
-            role="tablist"
-            className="flex overflow-x-auto border-b border-divider"
-          >
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.id}
-                onClick={() => choose(t.id)}
-                className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
-              >
-                {t.label}
-                {list.data && tab === t.id ? (
-                  <span className="sr-only"> ({list.data.tabCounts[t.id]})</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-          <section className={card} aria-label="Payroll clients">
-            <form
-              aria-label="Payroll filters"
-              className="mb-3 flex flex-col gap-3"
-              onSubmit={(e) => e.preventDefault()}
-            >
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="w-36">
-                  <Select
-                    label="Client Type"
-                    value={filters.clientType}
-                    onChange={(e) => set({ clientType: e.target.value })}
-                    options={[
-                      { value: '', label: 'All Types' },
-                      { value: 'BUSINESS', label: 'Business' },
-                      { value: 'INDIVIDUAL', label: 'Individual' },
-                    ]}
-                  />
-                </div>
-                <div className="w-44">
-                  <Select
-                    label="Payroll Provider"
-                    value={filters.providerKey}
-                    onChange={(e) => set({ providerKey: e.target.value })}
-                    options={[{ value: '', label: 'All Providers' }, ...PROVIDER_OPTIONS]}
-                  />
-                </div>
-                <div className="w-44">
-                  <Select
-                    label="Payroll Frequency"
-                    value={filters.frequency}
-                    onChange={(e) => set({ frequency: e.target.value })}
-                    options={[{ value: '', label: 'All Frequencies' }, ...FREQUENCY_OPTIONS]}
-                  />
-                </div>
-                <div className="w-40">
-                  <Select
-                    label="Status"
-                    value={filters.status}
-                    onChange={(e) => set({ status: e.target.value })}
-                    options={[
-                      { value: '', label: 'All Statuses' },
-                      { value: 'ON_TRACK', label: 'On Track' },
-                      { value: 'PROCESSING', label: 'Processing' },
-                      { value: 'ACTION_REQUIRED', label: 'Action Required' },
-                      { value: 'PAST_DUE', label: 'Past Due' },
-                      { value: 'NOT_STARTED', label: 'Not Started' },
-                      { value: 'ON_HOLD', label: 'On Hold' },
-                    ]}
-                  />
-                </div>
-                <label className="flex h-10 min-w-48 flex-1 items-center gap-2 rounded-lg border border-divider bg-canvas px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
-                  <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
-                  <span className="sr-only">Search clients</span>
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setPage(1);
-                    }}
-                    placeholder="Search clients, business name, or EIN..."
-                    className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
-                  />
-                </label>
-                <button
-                  type="button"
-                  aria-expanded={more}
-                  onClick={() => setMore(!more)}
-                  className={outlined}
-                >
-                  <Funnel aria-hidden weight="fill" className="size-4" /> Filters
-                </button>
-                <button
-                  type="button"
-                  className="text-sm font-medium text-link"
-                  onClick={() => {
-                    setFilters(BLANK);
-                    setSearch('');
-                    setPage(1);
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-              {more ? (
-                <div className="flex flex-wrap items-end gap-3" data-testid="more-filters">
-                  <div className="w-48">
-                    <Select
-                      label="Assigned Staff"
-                      value={filters.assignedUserId}
-                      onChange={(e) => set({ assignedUserId: e.target.value })}
-                      options={[
-                        { value: '', label: 'All Staff' },
-                        ...members.map((m) => ({ value: m.user.id, label: m.user.name })),
-                      ]}
-                    />
-                  </div>
-                  <div className="w-48">
-                    <Select
-                      label="Sync Status"
-                      value={filters.syncStatus}
-                      onChange={(e) => set({ syncStatus: e.target.value })}
-                      options={[
-                        { value: '', label: 'All Sync States' },
-                        { value: 'SYNCED', label: 'Synced' },
-                        { value: 'STALE', label: 'Stale' },
-                        { value: 'NEVER', label: 'Never synced' },
-                        { value: 'NOT_CONNECTED', label: 'Not connected' },
-                      ]}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </form>
-            {selected.length > 0 ? (
-              <div className="mb-3">
-                <BulkBar
-                  count={selected.length}
-                  noun="clients"
-                  actions={[
-                    { label: 'Assign Staff', icon: UserSwitch, onClick: () => setDialog('assign') },
-                    {
-                      label: 'Sync Now',
-                      icon: ArrowsClockwise,
-                      onClick: () =>
-                        sync.mutate(selected, {
-                          onSuccess: (n) => {
-                            setSelected([]);
-                            notice(`Sync queued for ${n} client(s).`, 'success');
-                          },
-                          onError: (e) => notice(errorMessage(e, PAYROLL_ERRORS), 'error'),
-                        }),
-                    },
-                  ]}
-                />
-              </div>
-            ) : null}
-            <div data-testid="client-table" className="relative">
-              <Table
-                rows={rows}
-                columns={columns}
-                rowKey={(r) => r.id}
-                caption={TABS.find((t) => t.id === tab)?.label ?? 'Payroll clients'}
-                dense
-                noun="clients"
-                pageSize={10}
-                loading={list.isPending}
-                emptyTitle={
-                  list.isError ? 'Payroll clients are not available' : 'No payroll clients'
-                }
-                emptyText={
-                  list.isError
-                    ? 'We could not load the payroll clients. Try again in a moment.'
-                    : 'Add a client with a payroll service to get started.'
-                }
-                emptyAction={
-                  <button
-                    type="button"
-                    onClick={() => setDialog('add')}
-                    className="inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-medium text-on-action"
-                  >
-                    Add Payroll Client
-                  </button>
-                }
-                selection={{ selected, onChange: setSelected }}
-                rowActions={(r) => (
-                  <ClientActionMenu
-                    client={r}
-                    label={`Actions for ${r.client.displayName}`}
-                    onNotice={notice}
-                    trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
-                  />
-                )}
-                server={{
-                  page: list.data?.page ?? 1,
-                  total: list.data?.total ?? 0,
-                  hasNext: (list.data?.page ?? 1) * 10 < (list.data?.total ?? 0),
-                  hasPrevious: (list.data?.page ?? 1) > 1,
-                  onNext: () => setPage(page + 1),
-                  onPrevious: () => setPage(Math.max(1, page - 1)),
-                  onPage: (next: number) => setPage(next),
-                  sort: sortState,
-                  onSort: (next: { id: string; descending: boolean }) => {
-                    setSort({
-                      sort: next.id as PayrollClientsQuery['sort'],
-                      direction: next.descending ? 'desc' : 'asc',
-                    });
-                    setPage(1);
-                  },
-                }}
+        </div>
+        <ul
+          data-testid="payroll-kpis"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"
+        >
+          {kpi(
+            'clients',
+            UsersThree,
+            'blue',
+            'Active Payroll Clients',
+            k?.activeClients.value,
+            k?.activeClients.changePercent,
+          )}
+          {kpi(
+            'processed',
+            CurrencyDollar,
+            'amber',
+            'Total Payroll Processed',
+            k ? moneyShort(k.totalProcessedCents.value) : undefined,
+            k?.totalProcessedCents.changePercent,
+          )}
+          {kpi(
+            'employees',
+            FileText,
+            'amber',
+            'Total Employees',
+            k?.totalEmployees.value,
+            k?.totalEmployees.changePercent,
+          )}
+          {kpi('runs', Calendar, 'blue', 'Payroll Runs', k?.runs.value, k?.runs.changePercent)}
+          {kpi(
+            'attention',
+            Warning,
+            'red',
+            'Items Need Attention',
+            k?.needAttention.value,
+            k?.needAttention.changePercent,
+            true,
+          )}
+        </ul>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatusCard
+                data={overview.data}
+                loading={overview.isPending}
+                failed={overview.isError}
+              />
+              <VolumeCard
+                data={overview.data}
+                loading={overview.isPending}
+                failed={overview.isError}
+              />
+              <ByProviderCard
+                data={overview.data}
+                loading={overview.isPending}
+                failed={overview.isError}
+              />
+              <ProvidersCard
+                data={overview.data}
+                loading={overview.isPending}
+                failed={overview.isError}
+                onConnect={() => setDialog('connect')}
               />
             </div>
-            <p className="mt-3 text-sm">
-              <button
-                type="button"
-                className="font-medium text-link"
-                onClick={() => setDialog('add')}
+            <nav
+              aria-label="Payroll views"
+              role="tablist"
+              className="flex overflow-x-auto border-b border-divider"
+            >
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.id}
+                  onClick={() => choose(t.id)}
+                  className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
+                >
+                  {t.label}
+                  {list.data && tab === t.id ? (
+                    <span className="sr-only"> ({list.data.tabCounts[t.id]})</span>
+                  ) : null}
+                </button>
+              ))}
+            </nav>
+            <section className={card} aria-label="Payroll clients">
+              <form
+                aria-label="Payroll filters"
+                className="mb-3 flex flex-col gap-3"
+                onSubmit={(e) => e.preventDefault()}
               >
-                <Plus aria-hidden weight="bold" className="mr-1 inline size-4" />
-                Add Payroll Client
-              </button>
-            </p>
-          </section>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="w-36">
+                    <Select
+                      label="Client Type"
+                      value={filters.clientType}
+                      onChange={(e) => set({ clientType: e.target.value })}
+                      options={[
+                        { value: '', label: 'All Types' },
+                        { value: 'BUSINESS', label: 'Business' },
+                        { value: 'INDIVIDUAL', label: 'Individual' },
+                      ]}
+                    />
+                  </div>
+                  <div className="w-44">
+                    <Select
+                      label="Payroll Provider"
+                      value={filters.providerKey}
+                      onChange={(e) => set({ providerKey: e.target.value })}
+                      options={[{ value: '', label: 'All Providers' }, ...PROVIDER_OPTIONS]}
+                    />
+                  </div>
+                  <div className="w-44">
+                    <Select
+                      label="Payroll Frequency"
+                      value={filters.frequency}
+                      onChange={(e) => set({ frequency: e.target.value })}
+                      options={[{ value: '', label: 'All Frequencies' }, ...FREQUENCY_OPTIONS]}
+                    />
+                  </div>
+                  <div className="w-40">
+                    <Select
+                      label="Status"
+                      value={filters.status}
+                      onChange={(e) => set({ status: e.target.value })}
+                      options={[
+                        { value: '', label: 'All Statuses' },
+                        { value: 'ON_TRACK', label: 'On Track' },
+                        { value: 'PROCESSING', label: 'Processing' },
+                        { value: 'ACTION_REQUIRED', label: 'Action Required' },
+                        { value: 'PAST_DUE', label: 'Past Due' },
+                        { value: 'NOT_STARTED', label: 'Not Started' },
+                        { value: 'ON_HOLD', label: 'On Hold' },
+                      ]}
+                    />
+                  </div>
+                  <label className="flex h-10 min-w-48 flex-1 items-center gap-2 rounded-lg border border-divider bg-canvas px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
+                    <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
+                    <span className="sr-only">Search clients</span>
+                    <input
+                      type="search"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setPage(1);
+                      }}
+                      placeholder="Search clients, business name, or EIN..."
+                      className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    aria-expanded={more}
+                    onClick={() => setMore(!more)}
+                    className={outlined}
+                  >
+                    <Funnel aria-hidden weight="fill" className="size-4" /> Filters
+                  </button>
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-link"
+                    onClick={() => {
+                      setFilters(BLANK);
+                      setSearch('');
+                      setPage(1);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                {more ? (
+                  <div className="flex flex-wrap items-end gap-3" data-testid="more-filters">
+                    <div className="w-48">
+                      <Select
+                        label="Assigned Staff"
+                        value={filters.assignedUserId}
+                        onChange={(e) => set({ assignedUserId: e.target.value })}
+                        options={[
+                          { value: '', label: 'All Staff' },
+                          ...members.map((m) => ({ value: m.user.id, label: m.user.name })),
+                        ]}
+                      />
+                    </div>
+                    <div className="w-48">
+                      <Select
+                        label="Sync Status"
+                        value={filters.syncStatus}
+                        onChange={(e) => set({ syncStatus: e.target.value })}
+                        options={[
+                          { value: '', label: 'All Sync States' },
+                          { value: 'SYNCED', label: 'Synced' },
+                          { value: 'STALE', label: 'Stale' },
+                          { value: 'NEVER', label: 'Never synced' },
+                          { value: 'NOT_CONNECTED', label: 'Not connected' },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </form>
+              {selected.length > 0 ? (
+                <div className="mb-3">
+                  <BulkBar
+                    count={selected.length}
+                    noun="clients"
+                    actions={[
+                      {
+                        label: 'Assign Staff',
+                        icon: UserSwitch,
+                        onClick: () => setDialog('assign'),
+                      },
+                      {
+                        label: 'Sync Now',
+                        icon: ArrowsClockwise,
+                        onClick: () =>
+                          sync.mutate(selected, {
+                            onSuccess: (n) => {
+                              setSelected([]);
+                              notice(`Sync queued for ${n} client(s).`, 'success');
+                            },
+                            onError: (e) => notice(errorMessage(e, PAYROLL_ERRORS), 'error'),
+                          }),
+                      },
+                    ]}
+                  />
+                </div>
+              ) : null}
+              <div data-testid="client-table" className="relative">
+                <Table
+                  rows={rows}
+                  columns={columns}
+                  rowKey={(r) => r.id}
+                  caption={TABS.find((t) => t.id === tab)?.label ?? 'Payroll clients'}
+                  dense
+                  noun="clients"
+                  pageSize={10}
+                  loading={list.isPending}
+                  emptyTitle={
+                    list.isError ? 'Payroll clients are not available' : 'No payroll clients'
+                  }
+                  emptyText={
+                    list.isError
+                      ? 'We could not load the payroll clients. Try again in a moment.'
+                      : 'Add a client with a payroll service to get started.'
+                  }
+                  emptyAction={
+                    <button
+                      type="button"
+                      onClick={() => setDialog('add')}
+                      className="inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-medium text-on-action"
+                    >
+                      Add Payroll Client
+                    </button>
+                  }
+                  selection={{ selected, onChange: setSelected }}
+                  rowActions={(r) => (
+                    <ClientActionMenu
+                      client={r}
+                      label={`Actions for ${r.client.displayName}`}
+                      onNotice={notice}
+                      trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
+                    />
+                  )}
+                  server={{
+                    page: list.data?.page ?? 1,
+                    total: list.data?.total ?? 0,
+                    hasNext: (list.data?.page ?? 1) * 10 < (list.data?.total ?? 0),
+                    hasPrevious: (list.data?.page ?? 1) > 1,
+                    onNext: () => setPage(page + 1),
+                    onPrevious: () => setPage(Math.max(1, page - 1)),
+                    onPage: (next: number) => setPage(next),
+                    sort: sortState,
+                    onSort: (next: { id: string; descending: boolean }) => {
+                      setSort({
+                        sort: next.id as PayrollClientsQuery['sort'],
+                        direction: next.descending ? 'desc' : 'asc',
+                      });
+                      setPage(1);
+                    },
+                  }}
+                />
+              </div>
+              <p className="mt-3 text-sm">
+                <button
+                  type="button"
+                  className="font-medium text-link"
+                  onClick={() => setDialog('add')}
+                >
+                  <Plus aria-hidden weight="bold" className="mr-1 inline size-4" />
+                  Add Payroll Client
+                </button>
+              </p>
+            </section>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <UpcomingCard
+              data={overview.data}
+              loading={overview.isPending}
+              failed={overview.isError}
+              onAll={() => choose('UPCOMING')}
+            />
+            <ResourcesCard />
+          </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <UpcomingCard
-            data={overview.data}
-            loading={overview.isPending}
-            failed={overview.isError}
-            onAll={() => choose('UPCOMING')}
+        {dialog === 'settings' ? (
+          <SettingsDialog
+            onClose={() => setDialog(undefined)}
+            onDone={() => {
+              setDialog(undefined);
+              notice('Settings saved.', 'success');
+            }}
           />
-          <ResourcesCard />
-        </div>
+        ) : null}
+        {dialog === 'add' ? (
+          <AddClientDialog
+            onClose={() => setDialog(undefined)}
+            onDone={(id) => {
+              setDialog(undefined);
+              router.push(`/payroll/clients/${id}`);
+            }}
+          />
+        ) : null}
+        {dialog === 'connect' || dialog === 'reports' ? (
+          <PickClientDialog
+            mode={dialog}
+            onClose={() => setDialog(undefined)}
+            onDone={(text) => {
+              setDialog(undefined);
+              notice(text, 'success');
+            }}
+          />
+        ) : null}
+        {dialog === 'assign' ? (
+          <BulkAssignDialog
+            ids={selected}
+            onClose={() => setDialog(undefined)}
+            onDone={(text) => {
+              setDialog(undefined);
+              setSelected([]);
+              notice(text, 'success');
+            }}
+          />
+        ) : null}
       </div>
-      {dialog === 'settings' ? (
-        <SettingsDialog
-          onClose={() => setDialog(undefined)}
-          onDone={() => {
-            setDialog(undefined);
-            notice('Settings saved.', 'success');
-          }}
-        />
-      ) : null}
-      {dialog === 'add' ? (
-        <AddClientDialog
-          onClose={() => setDialog(undefined)}
-          onDone={(id) => {
-            setDialog(undefined);
-            router.push(`/payroll/clients/${id}`);
-          }}
-        />
-      ) : null}
-      {dialog === 'connect' || dialog === 'reports' ? (
-        <PickClientDialog
-          mode={dialog}
-          onClose={() => setDialog(undefined)}
-          onDone={(text) => {
-            setDialog(undefined);
-            notice(text, 'success');
-          }}
-        />
-      ) : null}
-      {dialog === 'assign' ? (
-        <BulkAssignDialog
-          ids={selected}
-          onClose={() => setDialog(undefined)}
-          onDone={(text) => {
-            setDialog(undefined);
-            setSelected([]);
-            notice(text, 'success');
-          }}
-        />
-      ) : null}
-    </div>
+    </ServiceDocumentsProvider>
   );
 }
 

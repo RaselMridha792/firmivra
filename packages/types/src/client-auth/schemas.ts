@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { SearchText, text } from '../clients/text.js';
 import { Email, OneTimeCode, Password } from '../auth/schemas.js';
-import { ClientSignupMode } from '../db-enums.js';
+import {
+  ClientSignupMode,
+  SignupCallOutcome,
+  SignupCandidateResolution,
+  SignupContactRef,
+  SignupIdentityResult,
+  SignupPermissionScope,
+} from '../db-enums.js';
 import { ClientAccountStatus } from '../schemas.js';
 
 // Client portal sign-up and sign-in, and the firm's pending sign-ups (docs/api/client-auth.yaml).
@@ -286,6 +293,11 @@ export const SignUpState = z.object({
   phoneMasked: z.string(),
   /** When "Resend Code" works again (the 45 s countdown); null at DONE and CONTACT_FIRM. */
   resendAvailableAt: z.iso.datetime({ offset: true }).nullable(),
+  /**
+   * At DONE: the firm approves sign-ups automatically and this one met its rule, so the portal is
+   * open now ("Account Created" says so). False while the firm still has to approve it.
+   */
+  approved: z.boolean().default(false),
 });
 export type SignUpState = z.infer<typeof SignUpState>;
 
@@ -369,6 +381,8 @@ export const ClientSignUp = z.object({
   match: SignUpMatch.nullable(),
   /** Approved requests: the client record the login belongs to. */
   client: SignUpClientRef.nullable(),
+  /** Raised by each decision; every write sends the version it read (a newer one is 409). */
+  version: z.number().int().min(1),
 });
 export type ClientSignUp = z.infer<typeof ClientSignUp>;
 
@@ -389,12 +403,61 @@ export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
 /** One step of a request's history: who (a member of the firm, or the applicant) and when. */
 export const SignUpEvent = z.object({
-  kind: z.enum(['SUBMITTED', 'EMAIL_VERIFIED', 'PHONE_VERIFIED', 'APPROVED', 'DECLINED']),
+  kind: z.enum([
+    'SUBMITTED',
+    'EMAIL_VERIFIED',
+    'PHONE_VERIFIED',
+    'CHECKS_RECORDED',
+    'NOT_A_MATCH',
+    'KEPT_PENDING',
+    'LINKED',
+    'ACCESS_RESTORED',
+    'APPROVED',
+    'DECLINED',
+  ]),
   at: z.iso.datetime({ offset: true }),
   /** The firm member who decided; null for the applicant's own steps. */
   actorName: z.string().nullable(),
+  /** Keep Pending's note or Not a Match's reason, for the firm only; null otherwise. */
+  note: z.string().nullable().default(null),
 });
 export type SignUpEvent = z.infer<typeof SignUpEvent>;
+
+/** How long recorded checks count (Rasel, Oct 26): after 24 hours they are recorded again. */
+export const SIGN_UP_CHECKS_HOURS = 24;
+
+/**
+ * The three checks a member recorded for one of the firm's records (Octavia's D2): a call to a
+ * contact already on that record (never the sign-up's own contact), the identity result and the
+ * client's permission with its scope. Who and when; never the evidence itself.
+ */
+export const SignUpChecks = z.object({
+  id: z.uuid(),
+  candidateClientId: z.uuid(),
+  contactRef: SignupContactRef,
+  callOutcome: SignupCallOutcome,
+  identityResult: SignupIdentityResult,
+  permissionScope: SignupPermissionScope.nullable(),
+  recordedAt: z.iso.datetime({ offset: true }),
+  /** `recordedAt` plus 24 hours: Restore Access and Link Existing Record need them before then. */
+  expiresAt: z.iso.datetime({ offset: true }),
+  actorName: z.string().nullable(),
+});
+export type SignUpChecks = z.infer<typeof SignUpChecks>;
+
+/** One of the firm's records a waiting request may belong to, and what may be done with it. */
+export const SignUpCandidate = SignUpClientRef.extend({
+  matchedOn: z.array(z.enum(['email', 'phone'])),
+  /** NOT_A_MATCH once a member resolved it; it then no longer holds the request back. */
+  resolution: SignupCandidateResolution,
+  /** The record already has a primary portal login: Restore Access instead of a link. */
+  hasPortalLogin: z.boolean(),
+  /** The newest checks recorded for this record in the last 24 hours, or null. */
+  checks: SignUpChecks.nullable(),
+  /** Checked on the server: what the newest checks allow with this record now. */
+  actions: z.array(z.enum(['RESTORE_ACCESS', 'LINK'])),
+});
+export type SignUpCandidate = z.infer<typeof SignUpCandidate>;
 
 /**
  * GET /client-sign-ups/{clientAccountId}: the request, its history (oldest first) and, while it
@@ -403,7 +466,15 @@ export type SignUpEvent = z.infer<typeof SignUpEvent>;
  */
 export const ClientSignUpDetail = ClientSignUp.extend({
   history: z.array(SignUpEvent),
-  candidates: z.array(SignUpClientRef.extend({ matchedOn: z.array(z.enum(['email', 'phone'])) })),
+  candidates: z.array(SignUpCandidate),
+  /** Approved by the firm's Automatic Approval rule (no member decided). */
+  automatic: z.boolean(),
+  /**
+   * What may be done now, checked on the server: a waiting request may be declined or kept
+   * pending; approved as a new client only once no candidate holds it back; Not a Match only for
+   * phone matches (an email match never). Empty once decided.
+   */
+  allowedActions: z.array(z.enum(['APPROVE', 'DECLINE', 'KEEP_PENDING', 'NOT_A_MATCH'])),
 });
 export type ClientSignUpDetail = z.infer<typeof ClientSignUpDetail>;
 
@@ -419,6 +490,28 @@ export const ClientSignUpSettings = z.object({
 export type ClientSignUpSettings = z.infer<typeof ClientSignUpSettings>;
 
 /**
+ * Every Sign-ups write (Octavia's spec, sections 7 and 8): the version it read, refused with 409
+ * STALE_VERSION once another change raised it, and one key per attempt. A retry with the same key
+ * and data returns the first outcome and does nothing again; the key with other data is 409
+ * IDEMPOTENCY_KEY_REUSED.
+ */
+const SignUpWrite = {
+  version: z.number().int().min(1),
+  idempotencyKey: z.uuid(),
+};
+
+/**
+ * PATCH /client-sign-ups/settings (Owner and Admin): the approval mode. It applies to sign-ups
+ * completed from then on: requests already waiting stay waiting. Audited with the old and new
+ * mode and the new policy version.
+ */
+export const UpdateClientSignUpSettingsRequest = z.strictObject({
+  mode: ClientSignupMode,
+  ...SignUpWrite,
+});
+export type UpdateClientSignUpSettingsRequest = z.input<typeof UpdateClientSignUpSettingsRequest>;
+
+/**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
  * record from the sign-up, unless it may belong to a client the firm already has: 409
  * DUPLICATE_EMAIL when a record has its email, 409 POTENTIAL_MATCH when one has its phone number
@@ -427,7 +520,10 @@ export type ClientSignUpSettings = z.infer<typeof ClientSignUpSettings>;
  * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
  * client). Any other field is refused (400), so a typo never approves the wrong way.
  */
-export const ApproveSignUpRequest = z.strictObject({ clientId: z.uuid().optional() });
+export const ApproveSignUpRequest = z.strictObject({
+  clientId: z.uuid().optional(),
+  ...SignUpWrite,
+});
 export type ApproveSignUpRequest = z.input<typeof ApproveSignUpRequest>;
 
 /** The client can use the portal. */
@@ -437,13 +533,22 @@ export const ApproveSignUpResponse = z.object({
   clientId: z.uuid(),
   status: ClientAccountStatus.extract(['ACTIVE']),
   approvedAt: z.iso.datetime({ offset: true }),
+  /** The request's version after the approval. */
+  version: z.number().int().min(1),
+  /** The operation's id in the audit log, the same on a retry. */
+  correlationId: z.uuid(),
 });
 export type ApproveSignUpResponse = z.infer<typeof ApproveSignUpResponse>;
 
-/** POST /client-sign-ups/{clientAccountId}/decline. The client gets an email. */
+/**
+ * POST /client-sign-ups/{clientAccountId}/decline. The client gets one email in the firm's neutral
+ * words, unless `notify` is false.
+ */
 export const DeclineSignUpRequest = z.strictObject({
   /** For the firm only; never sent to the client. */
   reason: text(500, 'many').optional(),
+  notify: z.boolean().default(true),
+  ...SignUpWrite,
 });
 export type DeclineSignUpRequest = z.input<typeof DeclineSignUpRequest>;
 
@@ -451,8 +556,102 @@ export const DeclineSignUpResponse = z.object({
   clientAccountId: z.uuid(),
   status: ClientAccountStatus.extract(['DECLINED']),
   declinedAt: z.iso.datetime({ offset: true }),
+  version: z.number().int().min(1),
+  correlationId: z.uuid(),
+  /** Whether the applicant is told (`notify`). */
+  notified: z.boolean(),
 });
 export type DeclineSignUpResponse = z.infer<typeof DeclineSignUpResponse>;
+
+/**
+ * POST /client-sign-ups/{clientAccountId}/checks: records the three checks for one candidate
+ * record of a waiting request (409 NOT_A_CANDIDATE for any other record, 409 NOT_PENDING once
+ * decided). A call to a contact the record has: CLIENT_PHONE or CLIENT_EMAIL need that value on
+ * the record (409 NO_SUCH_CONTACT). Answers the request's detail. Audited without the evidence.
+ */
+export const RecordSignUpChecksRequest = z.strictObject({
+  candidateClientId: z.uuid(),
+  contactRef: SignupContactRef,
+  callOutcome: SignupCallOutcome,
+  identityResult: SignupIdentityResult,
+  /** The client's permission and what it covers; null when not given. */
+  permissionScope: SignupPermissionScope.nullable(),
+});
+export type RecordSignUpChecksRequest = z.input<typeof RecordSignUpChecksRequest>;
+
+/**
+ * POST /client-sign-ups/{clientAccountId}/link: Link Existing Record. The login joins that record
+ * (its Client ID kept, its contacts unchanged), even with another email than the sign-up's, once
+ * the three checks for it are recorded in the last 24 hours with permission to link (409
+ * CHECKS_REQUIRED). The record has no primary portal login yet (409 CLIENT_NOT_LINKABLE: restore
+ * access instead). Answers as an approval.
+ */
+export const LinkSignUpRequest = z.strictObject({
+  candidateClientId: z.uuid(),
+  ...SignUpWrite,
+});
+export type LinkSignUpRequest = z.input<typeof LinkSignUpRequest>;
+
+/**
+ * POST /client-sign-ups/{clientAccountId}/restore-access: the person already has a login on that
+ * record. With the three checks recorded in the last 24 hours with permission to restore access
+ * (409 CHECKS_REQUIRED), the request closes as declined with the reason "access restored", no new
+ * client is made, and the record's own login gets the portal's usual recovery email (409
+ * NO_PORTAL_LOGIN when the record has none). One operation id.
+ */
+export const RestoreSignUpAccessRequest = z.strictObject({
+  candidateClientId: z.uuid(),
+  ...SignUpWrite,
+});
+export type RestoreSignUpAccessRequest = z.input<typeof RestoreSignUpAccessRequest>;
+
+export const RestoreSignUpAccessResponse = z.object({
+  clientAccountId: z.uuid(),
+  status: ClientAccountStatus.extract(['DECLINED']),
+  declinedAt: z.iso.datetime({ offset: true }),
+  /** The existing record whose login gets the recovery email. */
+  clientId: z.uuid(),
+  version: z.number().int().min(1),
+  correlationId: z.uuid(),
+});
+export type RestoreSignUpAccessResponse = z.infer<typeof RestoreSignUpAccessResponse>;
+
+/**
+ * POST /client-sign-ups/{clientAccountId}/not-a-match (Owner and Admin): the open phone matches
+ * are not this person. Each is recorded with who, when and the reason, and stops holding the
+ * request back; approving then checks again for new matches. An email match is never resolved
+ * this way (409 DUPLICATE_EMAIL): one email, one client.
+ */
+export const SignUpNotAMatchRequest = z.strictObject({
+  reason: text(300, 'many', 'Say why these records are not this person'),
+  ...SignUpWrite,
+});
+export type SignUpNotAMatchRequest = z.input<typeof SignUpNotAMatchRequest>;
+
+export const SignUpNotAMatchResponse = z.object({
+  clientAccountId: z.uuid(),
+  /** How many records were resolved as not a match. */
+  resolved: z.number().int().min(1),
+  version: z.number().int().min(1),
+  correlationId: z.uuid(),
+});
+export type SignUpNotAMatchResponse = z.infer<typeof SignUpNotAMatchResponse>;
+
+/**
+ * POST /client-sign-ups/{clientAccountId}/keep-pending: nothing changes; the note (firm only) and
+ * who kept it are in the history.
+ */
+export const KeepSignUpPendingRequest = z.strictObject({
+  note: text(500, 'many').optional(),
+  idempotencyKey: z.uuid(),
+});
+export type KeepSignUpPendingRequest = z.input<typeof KeepSignUpPendingRequest>;
+
+export const KeepSignUpPendingResponse = z.object({
+  clientAccountId: z.uuid(),
+  correlationId: z.uuid(),
+});
+export type KeepSignUpPendingResponse = z.infer<typeof KeepSignUpPendingResponse>;
 
 // ---------- Errors ----------
 /** Stable `error.code` values of these routes, besides the auth codes and ApiError's generic ones. */
@@ -486,5 +685,20 @@ export const ClientAuthErrorCode = z.enum([
    * number: the request may be an existing client's, so it stays waiting (Octavia's Sign-ups, 4).
    */
   'POTENTIAL_MATCH',
+  /** 409: the request or setting changed since it was read. Nothing changed; read it again. */
+  'STALE_VERSION',
+  /** 409: an idempotency key already used with other data. The earlier operation stands. */
+  'IDEMPOTENCY_KEY_REUSED',
+  /** 409: that record is not one this request may belong to. */
+  'NOT_A_CANDIDATE',
+  /** 409: the call went to a contact the record does not have. */
+  'NO_SUCH_CONTACT',
+  /**
+   * 409: Restore Access or Link Existing Record without the three checks for that record, with
+   * the matching permission, recorded in the last 24 hours. Record them again.
+   */
+  'CHECKS_REQUIRED',
+  /** 409: Restore Access to a record with no portal login. Link the record instead. */
+  'NO_PORTAL_LOGIN',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;
