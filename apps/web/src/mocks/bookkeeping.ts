@@ -325,8 +325,9 @@ export function createBookkeepingMock({
       clearedBalanceCents: cleared,
       clearedCount: 48,
       differenceCents: diff,
-      toleranceCents: settings.reconToleranceCents,
-      withinTolerance: Math.abs(diff) <= settings.reconToleranceCents,
+      // Zero tolerance (Oct 26): only a zero difference is approved, as the API does.
+      toleranceCents: 0,
+      withinTolerance: diff === 0,
       exceptionsCount: diff === 0 ? 0 : 3,
       statementDocumentId: null,
       status,
@@ -1626,7 +1627,7 @@ export function createBookkeepingMock({
         if (input.clearedCount !== undefined) r.clearedCount = input.clearedCount;
         if (input.exceptionsCount !== undefined) r.exceptionsCount = input.exceptionsCount;
         r.differenceCents = r.endingBalanceCents - r.clearedBalanceCents;
-        r.withinTolerance = Math.abs(r.differenceCents) <= r.toleranceCents;
+        r.withinTolerance = r.differenceCents === 0;
         r.updatedAt = nowIso();
         return r;
       }),
@@ -1647,8 +1648,7 @@ export function createBookkeepingMock({
         if (!r) throw fail(404, 'NOT_FOUND', 'That reconciliation was not found.');
         if (r.status !== 'READY_FOR_REVIEW')
           throw fail(409, 'RECON_STATE', 'Only a reconciliation in review can be approved.');
-        if (!r.withinTolerance)
-          throw fail(409, 'RECON_DIFFERENCE', 'The difference is outside the tolerance.');
+        if (!r.withinTolerance) throw fail(409, 'RECON_DIFFERENCE', 'The difference must be zero.');
         r.status = 'APPROVED';
         r.approvedAt = nowIso();
         r.approvedBy = mockMe;
