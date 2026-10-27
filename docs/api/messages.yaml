@@ -212,6 +212,30 @@ paths:
         '200': { description: '`{ ok: true }`.' }
         default: { $ref: '#/components/responses/Error' }
 
+  /business/message-settings:
+    get:
+      tags: [firm]
+      operationId: getMessageSettings
+      summary: Messages Settings (R60, MSG-F02); every member; the defaults before the first save
+      responses:
+        '200':
+          description: >-
+            `MessageSettings` (packages/types/src/messages/settings.ts): channels, `smsReady`,
+            sender name and firm signature, notification types, default assignee, read receipts,
+            retention, attachment size and types, quiet hours with the firm's `timezone`, bulk
+            limits, `updatedAt` (null before the first save) and `updatedBy`.
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [firm]
+      operationId: updateMessageSettings
+      summary: >-
+        Owner and Admin. The fields sent change; `version` (the `updatedAt` read) guards a
+        concurrent save (`409 STALE_VERSION`). A default assignee of another firm is `404`
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '200': { description: '`MessageSettings`. Audited with the changed field names only.' }
+        default: { $ref: '#/components/responses/Error' }
+
   /portal/{firmSlug}/me/messages:
     parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
     get:

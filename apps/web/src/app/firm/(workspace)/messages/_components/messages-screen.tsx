@@ -6,6 +6,7 @@ import {
   CalendarBlank,
   ChatCircleDots,
   Envelope,
+  Gear,
   MagnifyingGlass,
   PaperPlaneRight,
   Phone,
@@ -14,6 +15,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -130,6 +132,10 @@ export function MessagesScreen({
           <Link href="/templates" className={subtle}>
             Message Templates
           </Link>
+          {/* MSG-F02: message-specific settings, with Back to Messages. */}
+          <OriginLink href="/messages/settings" className={subtle} data-testid="messages-settings">
+            <Gear aria-hidden weight="fill" className="size-5" /> Settings
+          </OriginLink>
         </div>
       </header>
       {message ? (
