@@ -1,5 +1,16 @@
 import {
   ApiRequestError,
+  CancelOutboundRequest,
+  CheckOutboundRequest,
+  ListOutboundQuery,
+  type OutboundCheck,
+  type OutboundExclusion,
+  type OutboundMessage,
+  type OutboundMessageList,
+  SaveOutboundRequest,
+  ScheduleOutboundRequest,
+  SendOutboundRequest,
+  UpdateOutboundRequest,
   ClientId,
   type ClientNotesClient,
   CreateInternalNoteRequest,
@@ -32,7 +43,8 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
-import { firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { createClientsMock, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { createLeadPipelineMock } from './leads-pipeline';
 import { BOOKKEEPING_ENGAGEMENT } from './tasks';
 
 /**
@@ -266,6 +278,307 @@ function firmThread(t: ThreadRow): MessageThread {
   };
 }
 
+// ----- New Message (R60, MSG-F09, F10, F14): drafts, schedules and sends -----
+
+interface OutboundRow {
+  id: string;
+  status: OutboundMessage['status'];
+  channel: OutboundMessage['channel'];
+  subject: string | null;
+  body: string;
+  scheduledFor: string | null;
+  clientIds: string[];
+  leadIds: string[];
+  /** After the send: what happened to each person. */
+  results: Map<
+    string,
+    { status: 'SENT' | 'SKIPPED'; reason: OutboundExclusion | null; threadId: string | null }
+  >;
+  createdBy: { userId: string; name: string };
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  canceledAt: string | null;
+}
+const outboundRows: OutboundRow[] = [];
+/** A version that always moves forward, even within the same millisecond. */
+let lastStamp = 0;
+const stamp = () => {
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return new Date(lastStamp).toISOString();
+};
+
+interface MockPerson {
+  kind: 'CLIENT' | 'LEAD';
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  archived: boolean;
+  portal: boolean;
+}
+
+/** The API's rules: portal needs a login; email an address and (for a client) the portal; texts reach leads only and are off by default. */
+function mockExclusion(
+  p: MockPerson,
+  channel: OutboundMessage['channel'],
+): OutboundExclusion | null {
+  if (p.archived) return 'NOT_PERMITTED';
+  if (channel === 'PORTAL') return p.portal ? null : 'NO_PORTAL_ACCESS';
+  if (channel === 'EMAIL') {
+    if (!p.email) return 'NO_CONTACT';
+    return p.kind === 'CLIENT' && !p.portal ? 'NO_PORTAL_ACCESS' : null;
+  }
+  return 'PROVIDER_UNAVAILABLE';
+}
+
+/** An in-memory `api.messages.outbound`; nothing is sent anywhere. */
+function createOutboundMock(role: MockFirmRole, me: { userId: string; name: string }) {
+  const leadsMock = createLeadPipelineMock({ role });
+  const clientsMock = createClientsMock({ role });
+  const people = async (clientIds: string[], leadIds: string[]): Promise<MockPerson[]> => {
+    const cids = [...new Set(clientIds)];
+    const lids = [...new Set(leadIds)];
+    const clients = await Promise.all(
+      cids.map(async (id) => {
+        const c = await clientsMock.get(id).catch(() => {
+          throw notFound();
+        });
+        return {
+          kind: 'CLIENT' as const,
+          id,
+          name: c.displayName,
+          email: c.email,
+          phone: c.phone,
+          archived: c.archivedAt !== null,
+          portal: c.portalLogins.some((l) => l.status === 'ACTIVE'),
+        };
+      }),
+    );
+    const rows = lids.length ? (await leadsMock.list({ pageSize: 100 })).items : [];
+    const leads = lids.map((id) => {
+      const l = rows.find((x) => x.id === id);
+      if (!l) throw notFound();
+      return {
+        kind: 'LEAD' as const,
+        id,
+        name: `${l.firstName} ${l.lastName}`.trim(),
+        email: l.email,
+        phone: l.phone,
+        archived: false,
+        portal: false,
+      };
+    });
+    return [...clients, ...leads];
+  };
+  const shape = async (r: OutboundRow): Promise<OutboundMessage> => {
+    const editable = r.status === 'DRAFT' || r.status === 'SCHEDULED';
+    const found = await people(r.clientIds, r.leadIds);
+    const recipients = found.map((p) => {
+      const result = r.results.get(p.id);
+      const reason = result ? result.reason : mockExclusion(p, r.channel);
+      return {
+        kind: p.kind,
+        id: p.id,
+        name: p.name,
+        canReceive: result ? result.status === 'SENT' : !reason,
+        reason,
+        status: result?.status ?? ('QUEUED' as const),
+        threadId: result?.threadId ?? null,
+      };
+    });
+    const can = recipients.filter((x) => x.canReceive).length;
+    return {
+      id: r.id,
+      status: r.status,
+      channel: r.channel,
+      subject: r.subject,
+      body: r.body,
+      scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
+      timezone: 'America/New_York',
+      recipients,
+      counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
+      createdBy: { ...r.createdBy },
+      editable,
+      completedAt: r.completedAt,
+      canceledAt: r.canceledAt,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  };
+  const find = (id: string) => {
+    const r = outboundRows.find(
+      (x) => x.id === id && (role !== 'STAFF' || x.createdBy.userId === me.userId),
+    );
+    if (!r) throw notFound();
+    return r;
+  };
+  const editable = (r: OutboundRow, version: string) => {
+    if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+      throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+    if (r.updatedAt !== version)
+      throw fail(409, 'STALE_VERSION', 'This message changed since you opened it.');
+  };
+  const ready = async (r: OutboundRow) => {
+    if (r.channel === 'EMAIL' && !r.subject?.trim())
+      throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
+    if ((await shape(r)).counts.canReceive === 0)
+      throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+  };
+  const insert = async (b: {
+    channel: OutboundMessage['channel'];
+    subject?: string | null;
+    body: string;
+    clientIds: string[];
+    leadIds: string[];
+  }): Promise<OutboundRow> => {
+    await people(b.clientIds, b.leadIds);
+    const at = stamp();
+    const r: OutboundRow = {
+      id: id('0199b6e4', next()),
+      status: 'DRAFT',
+      channel: b.channel,
+      subject: b.subject ?? null,
+      body: b.body,
+      scheduledFor: null,
+      clientIds: [...new Set(b.clientIds)],
+      leadIds: [...new Set(b.leadIds)],
+      results: new Map(),
+      createdBy: { ...me },
+      createdAt: at,
+      updatedAt: at,
+      completedAt: null,
+      canceledAt: null,
+    };
+    outboundRows.push(r);
+    return r;
+  };
+  return {
+    check: async (body: CheckOutboundRequest): Promise<OutboundCheck> => {
+      await mockDelay();
+      const b = parseInput(CheckOutboundRequest, body);
+      return {
+        recipients: (await people(b.clientIds, b.leadIds)).map((p) => {
+          const reason = mockExclusion(p, b.channel);
+          return {
+            kind: p.kind,
+            id: p.id,
+            name: p.name,
+            canReceive: !reason,
+            reason,
+            status: null,
+            threadId: null,
+          };
+        }),
+        channels: [
+          { channel: 'PORTAL', unavailable: null },
+          { channel: 'EMAIL', unavailable: null },
+          { channel: 'SMS', unavailable: 'TURNED_OFF' },
+        ],
+      };
+    },
+    list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> => {
+      await mockDelay();
+      const q = parseInput(ListOutboundQuery, query);
+      const rows = outboundRows
+        .filter((r) =>
+          q.status ? r.status === q.status : r.status === 'DRAFT' || r.status === 'SCHEDULED',
+        )
+        .filter((r) => role !== 'STAFF' || r.createdBy.userId === me.userId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      return { items: await Promise.all(rows.map(shape)) };
+    },
+    get: async (outboundId: string) => (await mockDelay(), shape(find(outboundId))),
+    create: async (body: SaveOutboundRequest) => {
+      await mockDelay();
+      return shape(await insert(parseInput(SaveOutboundRequest, body)));
+    },
+    update: async (outboundId: string, body: UpdateOutboundRequest) => {
+      await mockDelay();
+      const { version, ...b } = parseInput(UpdateOutboundRequest, body);
+      const r = find(outboundId);
+      await people(b.clientIds, b.leadIds);
+      editable(r, version);
+      const key = (cs: string[], ls: string[]) =>
+        [...cs.map((c) => `c${c}`), ...ls.map((l) => `l${l}`)].sort().join();
+      if (
+        b.channel === r.channel &&
+        key(r.clientIds, r.leadIds) === key([...new Set(b.clientIds)], [...new Set(b.leadIds)])
+      ) {
+        r.subject = b.subject ?? null;
+        r.body = b.body;
+        r.updatedAt = stamp();
+        return shape(r);
+      }
+      const next = await insert(b);
+      r.status = 'CANCELED';
+      r.canceledAt = now();
+      r.updatedAt = stamp();
+      return shape(next);
+    },
+    send: async (outboundId: string, body: SendOutboundRequest) => {
+      await mockDelay();
+      const { version } = parseInput(SendOutboundRequest, body);
+      const r = find(outboundId);
+      if (r.status === 'CANCELED') throw fail(409, 'CANCELED', 'This message was canceled.');
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') return shape(r);
+      editable(r, version);
+      await ready(r);
+      for (const p of await people(r.clientIds, r.leadIds)) {
+        const reason = mockExclusion(p, r.channel);
+        if (reason) {
+          r.results.set(p.id, { status: 'SKIPPED', reason, threadId: null });
+          continue;
+        }
+        let threadId: string | null = null;
+        if (p.kind === 'CLIENT') {
+          const t: ThreadRow = {
+            id: id('0199b6e1', next()),
+            clientId: p.id,
+            engagementId: null,
+            subject: r.subject?.trim() || 'A message from your firm',
+            related: null,
+            repliesEnabled: true,
+            createdAt: now(),
+          };
+          s().threads.push(t);
+          addMessage(t, staff(me), r.body);
+          threadId = t.id;
+        }
+        r.results.set(p.id, { status: 'SENT', reason: null, threadId });
+      }
+      r.status = 'SENT';
+      r.completedAt = now();
+      r.updatedAt = stamp();
+      return shape(r);
+    },
+    schedule: async (outboundId: string, body: ScheduleOutboundRequest) => {
+      await mockDelay();
+      const b = parseInput(ScheduleOutboundRequest, body);
+      if (new Date(b.scheduledFor).getTime() < Date.now() + 60_000)
+        throw fail(400, 'SCHEDULE_IN_PAST', 'Choose a time at least a minute from now');
+      const r = find(outboundId);
+      editable(r, b.version);
+      await ready(r);
+      r.status = 'SCHEDULED';
+      r.scheduledFor = new Date(b.scheduledFor).toISOString();
+      r.updatedAt = stamp();
+      return shape(r);
+    },
+    cancel: async (outboundId: string, body: CancelOutboundRequest) => {
+      await mockDelay();
+      const { version } = parseInput(CancelOutboundRequest, body);
+      const r = find(outboundId);
+      if (r.status === 'CANCELED') return shape(r);
+      editable(r, version);
+      r.status = 'CANCELED';
+      r.canceledAt = now();
+      r.updatedAt = stamp();
+      return shape(r);
+    },
+  };
+}
+
 /** An in-memory `api.messages`. */
 export function createMessagesMock(options: { role?: MockFirmRole } = {}): MessagesClient {
   const role = options.role ?? 'OWNER';
@@ -361,6 +674,7 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
       const items = [...byClient].map(([clientId, count]) => ({ clientId, count }));
       return { total: items.reduce((sum, x) => sum + x.count, 0), byClient: items };
     },
+    outbound: createOutboundMock(role, me),
   };
 }
 

@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -45,12 +46,9 @@ const relatedLabel = (t: MessageThread) =>
 
 /** /messages: the firm's inbox, the open conversation and the client beside it. */
 export function MessagesScreen({
-  initialComposing = false,
   initialClientId,
   service,
 }: {
-  /** Open New Message at once (the dashboard's shortcuts). */
-  initialComposing?: boolean;
   /** SH5: a service workspace's client: their conversations, and New Message for them. */
   initialClientId?: string;
   /** "Payroll", "Bookkeeping": the subject New Message starts with. */
@@ -64,7 +62,6 @@ export function MessagesScreen({
     clientFilter ? api.clients.get(clientFilter) : null,
   );
   const [openId, setOpenId] = useState<string>();
-  const [composing, setComposing] = useState(initialComposing);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const inbox = useApiQuery([...KEY, 'inbox'], () => api.messages.inbox({ limit: 100 }));
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());
@@ -121,9 +118,14 @@ export function MessagesScreen({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={gold} onClick={() => setComposing(true)}>
+          {/* MSG-F09: New Message is its own page (Frame 2), for this client when one is chosen. */}
+          <OriginLink
+            href={`/messages/new${clientFilter ? `?${new URLSearchParams({ clientId: clientFilter, ...(service ? { subject: service } : {}) }).toString()}` : ''}`}
+            className={gold}
+            data-testid="messages-new"
+          >
             <Plus aria-hidden weight="bold" className="size-5" /> New Message
-          </button>
+          </OriginLink>
           <Link href="/communications" className={subtle}>
             Send Bulk Message
           </Link>
@@ -285,21 +287,6 @@ export function MessagesScreen({
           <aside className={card} aria-label="Client" />
         )}
       </div>
-
-      {composing ? (
-        <NewMessageDialog
-          clientId={clientFilter || undefined}
-          clientName={scoped.data?.displayName}
-          subject={service}
-          onClose={() => setComposing(false)}
-          onSent={(t) => {
-            setComposing(false);
-            setOpenId(t.id);
-            setMessage({ text: 'Message sent.', tone: 'success' });
-            void refresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -399,6 +386,9 @@ function Conversation({
               </p>
               <span className="mt-0.5 text-xs text-muted">
                 {m.sender.name} · {day(m.createdAt)}
+                {/* MSG-F10: every conversation message is a portal message. */}
+                {' · '}
+                <span data-testid="message-channel">Portal</span>
                 {mine && m.readAt ? ' · Read' : ''}
               </span>
             </li>
