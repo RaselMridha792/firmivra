@@ -2838,6 +2838,76 @@ describe('reconciliation from the ledger (BK-R01)', () => {
       ]),
     );
   });
+  it("clears an outstanding line from a closed month in the next month's reconciliation (Rasel, Oct 27)", async () => {
+    const bk = await bkFor(clients.ledger);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const bank = await mkAccount(bk, { name: 'Fake outstanding checking', type: 'BANK' });
+    const first = await mkPeriod(bk);
+    const next = await mkPeriod(bk);
+    const cheque = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.create({
+        data: {
+          ...A,
+          accountId: bank.id,
+          transactionDate: new Date(`${first.periodEnd}T00:00:00.000Z`),
+          description: 'Fake outstanding cheque',
+          amountCents: 8_000,
+          direction: 'DEBIT',
+          source: 'MANUAL',
+        },
+        select: { id: true },
+      }),
+    );
+    // The first month closes with the cheque outstanding.
+    await asOwner(ids.firmA, async (tx) => {
+      const stamp = new Date();
+      await tx.bookkeepingCloseItem.updateMany({
+        where: { periodId: first.id },
+        data: { completedAt: stamp, completedByUserId: people.ownerA.id },
+      });
+      const set = (data: object) => tx.bookkeepingPeriod.update({ where: { id: first.id }, data });
+      await set({ status: 'IN_PROGRESS' });
+      await set({ status: 'READY_FOR_REVIEW', readyForReviewAt: stamp });
+      await set({ status: 'APPROVED', approvedAt: stamp });
+      await set({ status: 'CLOSED', closedAt: stamp });
+    });
+    await call('post', `/periods/${next.id}/start`, people.staffA, {});
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', `/periods/${next.id}/reconciliations`, people.staffA, {
+        accountId: bank.id,
+        statementStart: next.periodStart,
+        statementEnd: next.periodEnd,
+        beginningBalanceCents: 50_000,
+        endingBalanceCents: 42_000,
+      }),
+      201,
+    );
+    const listed = exact(
+      BookkeepingReconciliationItems,
+      await call('get', `/reconciliations/${r.id}/items`, people.staffA),
+    );
+    expect(listed.items.map((i) => i.id)).toEqual([cheque.id]);
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/items`, people.staffA, {
+          transactionIds: [cheque.id],
+          cleared: true,
+        }),
+      ),
+    ).toMatchObject({ clearedCount: 1, clearedBalanceCents: 42_000, differenceCents: 0 });
+    // Nothing else on the closed month's line changes.
+    await expect(
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.update({ where: { id: cheque.id }, data: { amountCents: 1 } }),
+      ),
+    ).rejects.toThrow(/closed and locked/);
+  });
 });
 
 describe("firm B never reaches firm A's books", () => {
