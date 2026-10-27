@@ -526,7 +526,12 @@ export function ClientMenu({
       icon: ChatCircleDots,
       onSelect: go(`/messages?clientId=${row.client.id}&service=Bookkeeping`),
     },
-    { label: 'Schedule Appointment', icon: CalendarPlus, onSelect: go('/calendar') },
+    {
+      // SH6: the form opens on this client and their bookkeeping service.
+      label: 'Schedule Appointment',
+      icon: CalendarPlus,
+      onSelect: go(`/calendar/new?clientId=${row.client.id}&engagementId=${row.engagementId}`),
+    },
   ];
   const manage: ActionMenuItem[] = canManage
     ? [

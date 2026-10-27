@@ -40,6 +40,7 @@ import {
   UpdateTaxChecklistItemRequest,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
+  CorrectTaxReturnBusinessIdentityRequest,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
 } from './workspace.js';
@@ -84,6 +85,15 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
       request(TaxReturnDetail, `${ret(id)}/details`, {
         method: 'PATCH',
         body: parseInput(UpdateTaxReturnDetailsRequest, body),
+      }),
+    /** A business return's own identity, until its first filing. 409 RETURN_LOCKED after. */
+    correctBusinessIdentity: async (
+      id: string,
+      body: CorrectTaxReturnBusinessIdentityRequest,
+    ): Promise<TaxReturnDetail> =>
+      request(TaxReturnDetail, `${ret(id)}/business-identity`, {
+        method: 'PUT',
+        body: parseInput(CorrectTaxReturnBusinessIdentityRequest, body),
       }),
     /**
      * 409 STATUS_BLOCKED (with `details.blockers`), 400 REASON_REQUIRED going back, 409

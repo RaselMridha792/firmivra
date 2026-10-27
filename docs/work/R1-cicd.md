@@ -114,6 +114,12 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session (4624afb5) stopped on Rasel's word of Oct 27, after it opened the SH9 PR.
 
+**Update (Oct 27, end).** This wins over the rest of this section. The session stopped on Rasel's From-me block of Oct 27, which replaces it with R61.
+- **#1188 (SH9) merged** at `3d333bd13`. Its own Deploy dev run (803) was cancelled when run 804 started. Run 804, on `237de7393` (which contains it), applied `20261027120033_r1_engagement_catalog_service` on dev and is green. Runs 801 and 802 are green too.
+- **No R1 PR is open, and Rasel's schema queue is done.**
+- **Next for R1's replacement:** schema cards only on Rasel's word. R61 (Invoices & Payments) and R60 (Messages) put their schema needs under "Needs from others" in their own R files, and Rasel turns them into cards.
+- **The prod one-offs stay untouched** until Rasel says otherwise.
+
 - **Open:** **#1188**, SH9: `engagements.catalog_service_id` (R56's plan link to Services & Pricing). It's the only migration PR open, and the last item in Rasel's queue. 8 of 8 green at head `d08a9448a8c9c7606eed21914ab58a791e85d213`, with `main` merged in at `e754668da`.
   - The FK is `(business_id, catalog_service_id)` to `services (business_id, id)`, `ON DELETE SET NULL ("catalog_service_id")`. Rasel approved this on Oct 27.
   - The column list keeps `business_id`. A plain `SET NULL` on the composite key would try to null it, so the delete would fail.
