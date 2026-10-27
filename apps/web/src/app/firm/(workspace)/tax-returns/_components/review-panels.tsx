@@ -970,7 +970,9 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                     <Badge tone={s.tone}>{s.label}</Badge>
                   </p>
                   <p>
-                    <span className="block font-semibold text-heading">Date Transmitted</span>
+                    <span className="block font-semibold text-heading">
+                      {f.filingMethod === 'PAPER' ? 'Mailed On' : 'Date Transmitted'}
+                    </span>
                     {last
                       ? dateTimeText(last.transmittedAt)
                       : f.paperFiledOn
@@ -978,8 +980,14 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                         : '—'}
                   </p>
                   <p>
-                    <span className="block font-semibold text-heading">Submission ID</span>
-                    {last?.submissionId ?? '—'}
+                    <span className="block font-semibold text-heading">
+                      {f.filingMethod === 'PAPER' ? 'Mail Tracking Number' : 'Submission ID'}
+                    </span>
+                    <span className="wrap-anywhere">
+                      {f.filingMethod === 'PAPER'
+                        ? (f.mailTrackingNumber ?? '—')
+                        : (last?.submissionId ?? '—')}
+                    </span>
                   </p>
                   <p>
                     <span className="block font-semibold text-heading">Acknowledgment</span>
@@ -1214,15 +1222,20 @@ function PaperDialog({
 }) {
   const act = useAct(onNotice);
   const [on, setOn] = useState(today);
+  const [tracking, setTracking] = useState('');
   return (
     <Dialog
       title="Record Paper Filing"
       subtitle={`${jurisdiction(filing.jurisdiction)} return (never shown as e-filed)`}
       confirm="Record"
-      disabled={!on}
+      disabled={!on || !tracking.trim()}
       onConfirm={() =>
         void act(
-          () => api.taxReturnWorkspace.paperFiled(detail.id, filing.id, { paperFiledOn: on }),
+          () =>
+            api.taxReturnWorkspace.paperFiled(detail.id, filing.id, {
+              paperFiledOn: on,
+              mailTrackingNumber: tracking.trim(),
+            }),
           'Paper filing recorded.',
         ).then((r) => r && onClose())
       }
@@ -1236,6 +1249,16 @@ function PaperDialog({
         value={on}
         onChange={(e) => setOn(e.target.value)}
       />
+      <Input
+        label="Mail Tracking Number"
+        value={tracking}
+        maxLength={100}
+        onChange={(e) => setTracking(e.target.value)}
+      />
+      <p className="-mt-2 text-xs text-muted">
+        Required for a mailed return. Tracking shows it was sent; it does not prove delivery or the
+        agency&apos;s acceptance.
+      </p>
     </Dialog>
   );
 }

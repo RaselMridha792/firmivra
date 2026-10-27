@@ -51,6 +51,35 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 27 (eighth session, end): start here
+
+This wins over the entries below. R60's context was full, and Rasel stopped it here (Oct 27) with
+Messages not started.
+
+**Merged:** #1171 (Sign-ups flow A), #1175 (TX-F01), #1178 (F34, F35), #1179 (F31), #1180
+(Sign-ups flow B), #1185 (F22), #1186 (F11), #1187 (F28), #1194 (staff phone), #1195 (F31, F32
+follow-up: Business on This Return, correctable until the first filing).
+
+**Open (one):** **#1198** TX-F26, `rasel/R60-tax-returns-mail`: the Mail Tracking Number on Record
+Paper Filing and the E-File panel. `main` was merged in after #1187; the only conflicts were F26's
+own added lines (`mailTrackingNumber`), kept. Its body carries the F27 Mailing Report proposal for
+Octavia. If Rasel asks for changes, they go on that branch.
+
+**Next: Messages**, once #1198 has merged (Rasel: after the Tax Returns queue). The change list is
+on `main` (#1183 merged): `docs/specs/review-2026-10-27/CHANGE-LIST.md` section B, in the order
+MSG-F01 to F08, then F09 to F16, then F18 to F22. Nothing is built yet: no branch, no code. Before
+editing, add the Messages paths to the owned paths at the top of this file, and ask Rasel if
+another R file owns them.
+
+**Still waiting:** F04 (the firm-side Client Portal module), F27 (Octavia's columns; the proposal
+is in #1198's body), F19 and F20 (R1's validation issues table is on `main`, #1172), TX-F18
+(Rasel's word on role checks), and SH2 to SH6 in Tax Returns as R56's pieces land.
+
+**Local state:** worktree `F:\firmivra-R60`, database `firmivra_r60`, web 3600, API 4600, mock
+3601. After a merge or a branch switch, rebuild `@firmivra/types` and `@firmivra/db` (`generate`,
+`build`) before a typecheck. Delete `apps/web/.next` after a mock server is killed mid-build. The
+isolation suite's 10 file and export routes fail locally as on `main`.
+
 ### Oct 27 (eighth session, latest): start here
 
 This wins over the entries below.
@@ -1366,3 +1395,6 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session): #1178, #1179, #1180 merged; opened #1185 (F22), #1186 (F11), #1187 (F28)
   with `main` merged in, all green. Built the F31 follow-up (`rasel/R60-tax-returns-identity`:
   the return's own business identity, correctable until the first filing).
+- Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
+  TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
+  before Messages.
