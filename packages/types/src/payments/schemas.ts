@@ -119,6 +119,29 @@ export function myInvoiceStatus(invoice: InvoiceState, today: string): MyInvoice
 export const isInvoiceOverdue = (invoice: InvoiceState, today: string): boolean =>
   invoice.status === 'OPEN' && invoice.dueOn !== null && invoice.dueOn < today;
 
+// ---------- IP-F06: the firm's due rules (Octavia, Oct 27) ----------
+/**
+ * How near an open invoice with a balance is to its due date, on the firm's calendar: Due Soon
+ * 7 to 2 days before, Due Tomorrow the day before, Due Today on the day, Overdue from the next
+ * midnight. Earlier than 7 days, and a paid, canceled, draft or scheduled invoice, have none.
+ */
+export const InvoiceDueState = z.enum(['DUE_SOON', 'DUE_TOMORROW', 'DUE_TODAY', 'OVERDUE']);
+export type InvoiceDueState = z.infer<typeof InvoiceDueState>;
+
+export function invoiceDueState(
+  invoice: { status: InvoiceStatus; dueOn: string | null; balanceDueCents: number },
+  today: string,
+): InvoiceDueState | null {
+  if (invoice.status !== 'OPEN' || invoice.balanceDueCents <= 0 || !invoice.dueOn) return null;
+  const days = Math.round(
+    (Date.parse(`${invoice.dueOn}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000,
+  );
+  if (days < 0) return 'OVERDUE';
+  if (days === 0) return 'DUE_TODAY';
+  if (days === 1) return 'DUE_TOMORROW';
+  return days <= DUE_SOON_DAYS ? 'DUE_SOON' : null;
+}
+
 // ---------- Amounts (computed by the database; these only preview them) ----------
 /** One line's amount: quantity x unit amount, rounded to cents half up, as the database does. */
 export function lineAmountCents(quantity: number, unitAmountCents: number): number {
@@ -302,6 +325,8 @@ export const InvoiceListItem = z.object({
   dueOn: CalendarDate.nullable(),
   /** Open and past its due date (the firm's calendar). */
   overdue: z.boolean(),
+  /** IP-F06: Due Soon, Due Tomorrow, Due Today or Overdue on the firm's calendar, or null. */
+  dueState: InvoiceDueState.nullable(),
   /** When it opened (sent, or its scheduled day came). */
   issuedAt: DateTime.nullable(),
   paidAt: DateTime.nullable(),
@@ -383,6 +408,8 @@ export const InvoiceList = z.object({
    * portal hides Pay Now); say so on the Invoices page. Invoices can still be created and sent.
    */
   paymentsEnabled: z.boolean(),
+  /** IP-F06: the firm's calendar date now: every date rule on the screens counts from it. */
+  today: CalendarDate,
 });
 export type InvoiceList = z.infer<typeof InvoiceList>;
 

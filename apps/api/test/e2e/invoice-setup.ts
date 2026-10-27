@@ -50,6 +50,7 @@ export const InvoiceList = z.strictObject({
   items: z.array(Item),
   nextCursor: z.string().nullable(),
   paymentsEnabled: z.boolean(),
+  today: z.iso.date(),
 });
 
 export const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
@@ -248,7 +249,12 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
    */
   const draft = async (
     clientId: string,
-    extra: { lines?: { description: string; unitAmountCents: number }[]; status?: 'OPEN' } = {},
+    extra: {
+      lines?: { description: string; unitAmountCents: number }[];
+      status?: 'OPEN';
+      /** The due day (the firm's calendar); 30 days on by default. */
+      dueOn?: string;
+    } = {},
   ) => {
     const id = await inScope(ids.firmA, async (tx) => {
       const invoice = await tx.invoice.create({
@@ -256,7 +262,7 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
           businessId: ids.firmA,
           clientId,
           number: `INV-${run}-${String(++seq).padStart(4, '0')}`,
-          dueOn: new Date(`${nyDay(30)}T00:00:00.000Z`),
+          dueOn: new Date(`${extra.dueOn ?? nyDay(30)}T00:00:00.000Z`),
           createdByUserId: people.ownerA.id,
         },
       });

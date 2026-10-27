@@ -5,6 +5,7 @@ import {
   type Invoice,
   type InvoiceListItem,
   type InvoicePayment,
+  invoiceDueState,
   isInvoiceOverdue,
   MY_INVOICE_SECTIONS,
   type MyInvoice,
@@ -251,6 +252,10 @@ export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
     scheduledFor: state.scheduledFor,
     dueOn: state.dueOn,
     overdue: isInvoiceOverdue(state, today),
+    dueState: invoiceDueState(
+      { status: row.status, dueOn: state.dueOn, balanceDueCents: money(row).balanceDueCents },
+      today,
+    ),
     issuedAt: state.issuedAt,
     paidAt: iso(row.paidAt),
     canceledAt: iso(row.canceledAt),

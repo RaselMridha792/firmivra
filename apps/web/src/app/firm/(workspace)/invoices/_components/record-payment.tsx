@@ -48,7 +48,10 @@ export function RecordPayment() {
   );
   const inv = detail.data ?? null;
   const [amount, setAmount] = useState('');
-  const [receivedOn, setReceivedOn] = useState(localToday);
+  // IP-F06: the firm's calendar date: a payment received "today" is today where the firm is.
+  const today = all.data?.today ?? localToday();
+  const [chosenDay, setReceivedOn] = useState('');
+  const receivedOn = chosenDay || today;
   const [method, setMethod] = useState<OfflinePaymentMethod>('CHECK');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
@@ -78,7 +81,7 @@ export function RecordPayment() {
     if (!inv) next['invoice'] = 'Choose an invoice';
     if (!amount || Number.isNaN(cents)) next['amountCents'] = 'Enter an amount like 125.50';
     else if (inv && cents > due) next['amountCents'] = `Enter at most ${money(due, inv.currency)}`;
-    if (receivedOn > localToday()) next['receivedOn'] = 'The day cannot be in the future';
+    if (receivedOn > today) next['receivedOn'] = 'The day cannot be in the future';
     const body = {
       method,
       amountCents: received,
@@ -223,7 +226,7 @@ export function RecordPayment() {
             <Input
               label="Payment Date *"
               type="date"
-              max={localToday()}
+              max={today}
               value={receivedOn}
               error={errors['receivedOn']}
               onChange={(e) => setReceivedOn(e.target.value)}

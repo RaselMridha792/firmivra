@@ -20,20 +20,32 @@ export function useAllInvoices() {
     const items: InvoiceListItem[] = [];
     let cursor: string | undefined;
     let paymentsEnabled = false;
+    // IP-F06: the firm's calendar date, which every date rule on these screens counts from.
+    let today = localToday();
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const res = await api.invoices.list({ limit: 100, cursor });
       items.push(...res.items);
       paymentsEnabled = res.paymentsEnabled;
-      if (!res.nextCursor) return { items, paymentsEnabled, capped: false };
+      today = res.today;
+      if (!res.nextCursor) return { items, paymentsEnabled, today, capped: false };
       cursor = res.nextCursor;
     }
-    return { items, paymentsEnabled, capped: true };
+    return { items, paymentsEnabled, today, capped: true };
   });
 }
 
 /** What the table, tabs and the status chart show: the stored status, split as the firm reads it. */
 export type InvoiceView =
-  'DRAFT' | 'SCHEDULED' | 'SENT' | 'PARTIALLY_PAID' | 'DUE_SOON' | 'OVERDUE' | 'PAID' | 'CANCELED';
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'SENT'
+  | 'PARTIALLY_PAID'
+  | 'DUE_SOON'
+  | 'DUE_TOMORROW'
+  | 'DUE_TODAY'
+  | 'OVERDUE'
+  | 'PAID'
+  | 'CANCELED';
 
 export const VIEW_LABEL: Record<InvoiceView, string> = {
   DRAFT: 'Draft',
@@ -41,6 +53,8 @@ export const VIEW_LABEL: Record<InvoiceView, string> = {
   SENT: 'Sent',
   PARTIALLY_PAID: 'Partially Paid',
   DUE_SOON: 'Due Soon',
+  DUE_TOMORROW: 'Due Tomorrow',
+  DUE_TODAY: 'Due Today',
   OVERDUE: 'Overdue',
   PAID: 'Paid',
   CANCELED: 'Canceled',
@@ -52,6 +66,8 @@ export const VIEW_ORDER: InvoiceView[] = [
   'PARTIALLY_PAID',
   'PAID',
   'DUE_SOON',
+  'DUE_TOMORROW',
+  'DUE_TODAY',
   'OVERDUE',
   'CANCELED',
 ];
@@ -61,6 +77,8 @@ const VIEW_TONE: Record<InvoiceView, 'success' | 'info' | 'warning' | 'danger' |
   SENT: 'info',
   PARTIALLY_PAID: 'warning',
   DUE_SOON: 'warning',
+  DUE_TOMORROW: 'warning',
+  DUE_TODAY: 'warning',
   OVERDUE: 'danger',
   PAID: 'success',
   CANCELED: 'neutral',
@@ -74,6 +92,9 @@ export const VIEW_CHART: Record<
   PARTIALLY_PAID: 'purple',
   OVERDUE: 'red',
   DUE_SOON: 'yellow',
+  // The kit has seven chart colours: the legend tells these apart from Due Soon and Overdue.
+  DUE_TOMORROW: 'yellow',
+  DUE_TODAY: 'red',
   SENT: 'blue',
   SCHEDULED: 'navy',
   DRAFT: 'grey',
@@ -88,11 +109,16 @@ export const paidCents = (i: InvoiceListItem) =>
       ? Math.max(0, i.totalCents - i.balanceDueCents)
       : 0;
 
+/**
+ * IP-F06: the firm's due rules (`dueState`, on the firm's calendar) first when the day is near:
+ * Overdue, Due Today, Due Tomorrow; then Partially Paid, Due Soon (7 to 2 days), else Sent.
+ */
 export function viewOf(i: InvoiceListItem): InvoiceView {
   if (i.status !== 'OPEN') return i.status;
-  if (i.overdue) return 'OVERDUE';
+  if (i.dueState === 'OVERDUE' || i.dueState === 'DUE_TODAY' || i.dueState === 'DUE_TOMORROW')
+    return i.dueState;
   if (paidCents(i) > 0) return 'PARTIALLY_PAID';
-  if (i.clientStatus === 'DUE_SOON') return 'DUE_SOON';
+  if (i.dueState === 'DUE_SOON') return 'DUE_SOON';
   return 'SENT';
 }
 
