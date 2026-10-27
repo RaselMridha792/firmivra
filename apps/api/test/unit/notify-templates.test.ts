@@ -46,6 +46,11 @@ describe('templates', () => {
       if (t === 'client.signup-sms-code') {
         expect(out.text).toBe(`482913 is your ${FIRM_NAME} verification code. Never share it.`);
       }
+      if (t === 'staff.phone-code') {
+        expect(out.text).toBe(
+          `482913 is your ${FIRM_NAME} code to verify your mobile number. Never share it.`,
+        );
+      }
       return;
     }
     expect(out.subject).not.toMatch(/[\r\n]/);

@@ -294,12 +294,18 @@ export class NotificationsService {
    * q27 (Rasel, Oct 8): the SMS switch shows for a client with a phone number on their login; it
    * only stores the choice, and no text goes out until SMS is switched on in config. Not while
    * the client's texts are stopped at this firm (a STOP reply, an unsubscribe: Client Portal guide
-   * 7.5). The firm's staff need a verified mobile number (Rasel, Oct 24), which no staff login
-   * records yet (the R60 file's column request), so they are offered email only.
+   * 7.5). The firm's staff need a verified mobile number (Rasel, Oct 24): a code by text on My
+   * Settings (staff-phone/), which the database clears when the number changes.
    */
   private async texts(me: Me): Promise<{ offered: boolean; stopped: boolean }> {
-    if (me.side === 'staff') return { offered: false, stopped: false };
     const scope = this.database.forBusiness(me.businessId);
+    if (me.side === 'staff') {
+      const login = await this.database.forUser(me.userId).user.findFirst({
+        where: { id: me.userId },
+        select: { phone: true, phoneVerifiedAt: true },
+      });
+      return { offered: Boolean(login?.phone && login.phoneVerifiedAt), stopped: false };
+    }
     const [user, account] = await Promise.all([
       scope.user.findFirst({ where: { id: me.userId }, select: { phone: true } }),
       scope.clientAccount.findFirst({
