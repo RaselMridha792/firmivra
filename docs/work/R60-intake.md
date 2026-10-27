@@ -26,12 +26,20 @@ assigned staff and archive (`message_threads`), mutes and tags per thread, `mess
 record, Add to Timeline, delivery state per recipient) and files. Nothing used them but a few
 reads of `message_settings`. Bulk sends stay on the Communications engine (R39): one engine.
 
-- [x] PR A: MSG-F01 (search by email and phone), F03 (Clients, Leads, Automations, Archived), F04
-  (blue Bulk and Templates), F05 (Filter), F07 (Templates on the message templates), F08 (Back to
-  the same thread). Branch `rasel/R60-messages`.
-- [ ] PR B: MSG-F02, Messages Settings (API on `message_settings`, `/settings/messages`).
-- [ ] PR C: MSG-F06, the bulk builder at `/messages/bulk` on the Communications API.
+- [x] **#1202** (PR A): MSG-F01 (search by email and phone), F03 (Clients, Leads, Automations,
+  Archived), F04 (blue Bulk and Templates), F05 (Filter), F07 (Templates on the message
+  templates), F08 (Back to the same thread). Branch `rasel/R60-messages`.
+- [x] **#1203** (PR B): MSG-F02, Messages Settings: `GET`/`PATCH /business/message-settings` on
+  `message_settings`, the page `/messages/settings`. Branch `rasel/R60-messages-settings`, cut from
+  `main` (not stacked): it adds Settings to `main`'s header; after #1202 merges, merge `main` and
+  keep Settings on the new header's second row.
+- [x] **#1204** (PR C): MSG-F06, the bulk builder at `/messages/bulk` on the Communications API
+  (web only). Branch `rasel/R60-messages-bulk`, cut from `main`; the same header merge applies.
 - [ ] Then F09 to F16 (compose on `outbound_messages`), then F18 to F22.
+
+Seen while testing: two of R56's `r56-communications` mock tests wait for `/communications/new`
+to open the editor by itself; since #1150 (Q3, Oct 25) it waits for Start, so they fail on `main`
+too. One click in R56's spec fixes them (said in #1204).
 
 Needs from others (Rasel):
 - **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
@@ -44,6 +52,8 @@ Needs from others (Rasel):
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
   mock specs `r60-messages-inbox` 6 of 6 and every Messages spec green.
+- Oct 28: opened #1202, #1203 (API e2e `message-settings` 5 of 5, isolation case green, mock 4 of
+  4) and #1204 (mock 4 of 4); #1198 and #1199 merged. `main` merged into #1202.
 
 ## Handoff (Oct 23): start here
 
