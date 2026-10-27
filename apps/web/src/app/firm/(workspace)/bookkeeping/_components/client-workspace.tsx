@@ -1,7 +1,7 @@
 'use client';
 
 import type { BookkeepingClientWorkspace } from '@firmivra/types';
-import { KpiCard, Table, Toast, type Column } from '@firmivra/ui';
+import { Badge, KpiCard, Table, Toast, type Column } from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -47,6 +47,7 @@ import {
 } from '../../../../../components/service-documents';
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { describeConnection } from '../../../../../lib/connection-state';
 
 const TABS = [
   'Overview',
@@ -102,6 +103,15 @@ export function ClientWorkspace({ id }: { id: string }) {
   const prev = at > 0 ? list[at - 1] : undefined;
   const nextC = at >= 0 && at < list.length - 1 ? list[at + 1] : undefined;
   const sw = w.connections.find((k) => k.status !== 'DISCONNECTED');
+  const swState = sw
+    ? describeConnection({
+        provider: sw.label,
+        status: sw.status,
+        lastSuccessAt: sw.lastSuccessfulSyncAt,
+        lastAttemptAt: sw.lastSyncAt,
+        errorCode: sw.lastErrorCode,
+      })
+    : undefined;
   const cur = w.currentPeriod;
   // SH4: Create Task opens on this client, its bookkeeping and the current period.
   const taskHref = newTaskHref({
@@ -277,18 +287,23 @@ export function ClientWorkspace({ id }: { id: string }) {
                       <SoftwareTile provider={sw.provider} label={sw.label} size="md" />
                       <span className="min-w-0">
                         <span className="block font-semibold text-heading">{sw.label}</span>
-                        <span
-                          className={`text-xs font-medium ${sw.status === 'CONNECTED' ? 'text-success' : 'text-danger'}`}
-                        >
-                          {sw.status === 'CONNECTED'
-                            ? 'Connected'
-                            : (sw.lastErrorCode ?? 'Needs attention')}
+                        <span className="block">
+                          <Badge tone={swState!.tone}>{swState!.label}</Badge>
                         </span>
                       </span>
                     </span>
-                    <p className="text-xs text-muted">
-                      Last Sync:{' '}
-                      {sw.lastSuccessfulSyncAt ? dateTimeText(sw.lastSuccessfulSyncAt) : 'never'}
+                    {/* SH7: the connection apart from the sync; the last good data stays. */}
+                    <p className="text-xs text-muted" data-testid="software-state">
+                      {swState!.detail}
+                    </p>
+                    <p
+                      className={`text-xs ${swState!.failedAt ? 'font-medium text-danger' : 'text-muted'}`}
+                      data-testid="software-sync"
+                    >
+                      {swState!.sync.label}
+                      {swState!.failedAt && sw.lastSuccessfulSyncAt
+                        ? `. Last good data: ${dateTimeText(sw.lastSuccessfulSyncAt)}`
+                        : ''}
                     </p>
                     <button
                       type="button"

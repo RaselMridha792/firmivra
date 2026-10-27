@@ -125,6 +125,19 @@ export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollVie
     sort: PayrollClientsQuery.shape.sort.safeParse(initial.sort).data ?? 'clientName',
     direction: PayrollClientsQuery.shape.direction.safeParse(initial.dir).data ?? 'asc',
   });
+  // SH8: a Payroll Status row filters the same list: a view tab, or On Hold through the status
+  // filter; the period stays.
+  const cohort =
+    tab !== 'ALL' && tab !== 'UPCOMING' ? tab : filters.status ? filters.status : undefined;
+  const pickStatus = (status: string) => {
+    const view = PayrollClientTab.safeParse(status).data;
+    setTab(view ?? 'ALL');
+    setFilters((f) => ({ ...f, status: view ? '' : status === 'ALL' ? '' : status }));
+    if (!view && status !== 'ALL') setMore(true);
+    setPage(1);
+    if (status !== 'ALL')
+      document.getElementById('payroll-list')?.scrollIntoView({ block: 'start' });
+  };
   // SH1: the list's view stays in the address, so Back from a page it opens restores it.
   useEffect(() => {
     writeListQuery(
@@ -387,6 +400,9 @@ export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollVie
                 data={overview.data}
                 loading={overview.isPending}
                 failed={overview.isError}
+                selected={cohort}
+                onPick={pickStatus}
+                onClear={() => pickStatus('ALL')}
               />
               <VolumeCard
                 data={overview.data}
@@ -406,6 +422,7 @@ export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollVie
               />
             </div>
             <nav
+              id="payroll-list"
               aria-label="Payroll views"
               role="tablist"
               className="flex overflow-x-auto border-b border-divider"
@@ -919,7 +936,12 @@ function PickClientDialog({
             onClick={() =>
               mode === 'reports'
                 ? router.push(`/payroll/clients/${clientId}?tab=reports`)
-                : send.mutate(undefined, { onSuccess: () => onDone('Provider connected.') })
+                : send.mutate(undefined, {
+                    onSuccess: () =>
+                      onDone(
+                        'Provider saved for this client. It shows as connected after its first successful sync.',
+                      ),
+                  })
             }
           >
             {mode === 'connect' ? 'Connect' : 'Open Reports'}

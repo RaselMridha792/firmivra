@@ -17,7 +17,7 @@ test('Payroll list: Back from Send Message restores the period, search and list'
   );
   await page.getByRole('button', { name: /^Actions for Green Leaf/ }).click();
   await page.getByRole('menuitem', { name: 'Send Message' }).click();
-  await expect(page).toHaveURL(/\/messages\?from=/);
+  await expect(page).toHaveURL(/\/messages\?clientId=.*&from=/);
   const back = page.getByTestId('back-to-origin');
   await expect(back).toHaveText('Back to Payroll');
   await back.click();

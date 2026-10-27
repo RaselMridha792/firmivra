@@ -23,6 +23,7 @@ import {
   CardHead,
 } from './payroll-shared';
 import { OriginLink } from '../../../../../components/origin-link';
+import { CohortLegend } from '../../../../../components/cohort-legend';
 
 const DOT: Record<string, string> = {
   green: 'bg-chart-green',
@@ -68,8 +69,14 @@ interface Props {
 const note = (p: Props, empty: string, error: string) =>
   p.failed ? error : p.loading ? 'Loading…' : empty;
 
-/** Payroll Status: the ring of payroll clients by workflow status. */
-export function StatusCard(p: Props) {
+/** Payroll Status: the ring of payroll clients by workflow status; a status filters the list (SH8). */
+export function StatusCard(
+  p: Props & {
+    selected?: string;
+    onPick: (status: string) => void;
+    onClear: () => void;
+  },
+) {
   const items = p.data?.statusBreakdown.items ?? [];
   const segments: DonutSegment[] = items.map((i) => ({
     label: CLIENT_STATUS_LABEL[i.status],
@@ -92,11 +99,16 @@ export function StatusCard(p: Props) {
             emptyText="No payroll clients yet."
             label="Payroll clients by status"
           />
-          <Legend
+          <CohortLegend
+            label="Filter the client list by payroll status"
+            selected={p.selected}
+            onPick={p.onPick}
+            onClear={p.onClear}
             rows={items.map((i) => ({
+              key: i.status,
               label: CLIENT_STATUS_LABEL[i.status],
               tone: STATUS_TONE[i.status],
-              count: String(i.count),
+              count: i.count,
               percent: p.data?.statusBreakdown.total
                 ? Math.round((i.count / p.data.statusBreakdown.total) * 100)
                 : 0,
