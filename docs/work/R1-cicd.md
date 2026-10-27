@@ -110,6 +110,56 @@ R1, Oct 18, from a read-only `cdk diff --all -c env=prod --method=template` on a
 15. Prod data: the Super Admin (step 9), LVP and its KMS key (`create-firm-key`, then `--check`), set-module for LVP with reasons.
 16. Smoke test: the three sites answer 200, staff sign-in with MFA, a password reset email arrives, a portal sign-in, a document upload turns CLEAN.
 
+## Handoff (R1 session, Oct 27)
+
+This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session (4624afb5) stopped on Rasel's word of Oct 27, after it opened the SH9 PR.
+
+**Update (Oct 27, end).** This wins over the rest of this section. The session stopped on Rasel's From-me block of Oct 27, which replaces it with R61.
+- **#1188 (SH9) merged** at `3d333bd13`. Its own Deploy dev run (803) was cancelled when run 804 started. Run 804, on `237de7393` (which contains it), applied `20261027120033_r1_engagement_catalog_service` on dev and is green. Runs 801 and 802 are green too.
+- **No R1 PR is open, and Rasel's schema queue is done.**
+- **Next for R1's replacement:** schema cards only on Rasel's word. R61 (Invoices & Payments) and R60 (Messages) put their schema needs under "Needs from others" in their own R files, and Rasel turns them into cards.
+- **The prod one-offs stay untouched** until Rasel says otherwise.
+
+- **Open:** **#1188**, SH9: `engagements.catalog_service_id` (R56's plan link to Services & Pricing). It's the only migration PR open, and the last item in Rasel's queue. 8 of 8 green at head `d08a9448a8c9c7606eed21914ab58a791e85d213`, with `main` merged in at `e754668da`.
+  - The FK is `(business_id, catalog_service_id)` to `services (business_id, id)`, `ON DELETE SET NULL ("catalog_service_id")`. Rasel approved this on Oct 27.
+  - The column list keeps `business_id`. A plain `SET NULL` on the composite key would try to null it, so the delete would fail.
+  - Prisma's schema says `SetNull` and prints a "referenced field is required" warning, which doesn't apply here. `prisma migrate diff` from the migrated database to the schema is empty.
+  - After it merges, R56's plan endpoints set the id. Nothing else needs it.
+- **Merged this session, each applied on dev with its Deploy dev run checked:**
+  - #1165, Stop Future Billing;
+  - #1169, Tax Returns filing details;
+  - #1170, handoff;
+  - #1172, Tax Returns validation issues;
+  - #1176, business identity snapshot on the return;
+  - #1177, Bookkeeping close lock and zero tolerance;
+  - #1181, a Business client's responsible party: three columns on `client_profiles`, per Rasel's tap of Oct 26, 13:30 UTC.
+  - Runs 798 to 800 are green. Runs 801 (#1174) and 802 (#1184) carry no migration and were still running at handoff.
+- **Rasel's decisions (Oct 26):**
+  - the amount sources `TAX_SOFTWARE`, `AGENCY_NOTICE`, `STAFF_ESTIMATE`;
+  - the API, not the database, requires the mail tracking number and the rejecting agency;
+  - an issue's version is the draft document;
+  - the business identity snapshot is filled at creation and fixed after the first filing;
+  - a chargeback's dispute outcome stays editable in a closed period.
+- **Bookkeeping, still waiting for a card from Rasel:**
+  - reopen history (a reopen overwrites the last one);
+  - reviewer routing.
+  - Reported and not carded: one deposit per payout, no customer on refunds, no note on refunds, no dispute dates.
+- **Web:** #1184 (R56) removed the tolerance field and made the text and the mock zero. Nothing is left from R1's list.
+- **The prod one-offs still wait on Rasel** (unchanged, see "Prod (v1.0.0 is live)" below):
+  - the alarm email subscription;
+  - the bootstrap, which needs 2 Cognito subs and LVP's legal name;
+  - LVP's key check;
+  - `set-module`;
+  - the smoke test.
+
+### Lessons (Oct 27)
+- **Composite FKs:** `ON DELETE SET NULL` needs the column list, `SET NULL ("col")` (PostgreSQL 15+; we run 16 locally and on RDS).
+- **Renaming a migration already applied locally:** roll it back in both `firmivra_r1c` and `firmivra_r1c_test` (drop the column, delete its `_prisma_migrations` row), or the test setup stops with P3009.
+- **Prisma 7 `db execute` has no `--url`:** set `DATABASE_URL=` in front of the command.
+- **API typecheck fails with "no exported member" from `@firmivra/types`:** the build is stale. Run `pnpm --filter @firmivra/types build` first.
+- **Vitest filters on Windows:** use the name (`engagement-catalog-service`), not `test/...`.
+- **Untracked local files:** `apps/web/e2e/mock/zz-r1-shots.spec.ts` and `apps/web/playwright.r1e.config.ts` / `r1u.config.ts`. They were there before this session; left alone, never committed.
+
 ## Handoff (R1 session, Oct 25)
 
 This is newer than every handoff below, so a fresh R1 starts here. Where they differ, this one wins. The session stopped on Rasel's word (a long context), after the three schema items were built.

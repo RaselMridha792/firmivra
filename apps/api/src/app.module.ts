@@ -30,6 +30,7 @@ import { AdminCommunicationsModule } from './admin-communications/admin-communic
 import { AdminIntegrationsModule } from './admin-integrations/admin-integrations.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { NotificationsModule } from './notifications/notifications.controller.js';
+import { StaffPhoneModule } from './staff-phone/staff-phone.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
@@ -127,6 +128,7 @@ export class AppModule {
         AuditModule,
         NotifyModule,
         NotificationsModule,
+        StaffPhoneModule,
         HealthModule,
         SystemStatusModule,
         MeModule,
