@@ -483,21 +483,24 @@ function TermsTabView({
                 maxLength={120}
                 onChange={(e) => setF({ ...f, packageName: e.target.value || null })}
               />
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  label="Start Date"
-                  type="date"
-                  value={f.startDate}
-                  disabled={!editable}
-                  onChange={(e) => setF({ ...f, startDate: e.target.value })}
-                />
-                <Input
-                  label="Agreement End Date"
-                  type="date"
-                  value={f.endDate ?? ''}
-                  disabled={!editable}
-                  onChange={(e) => setF({ ...f, endDate: e.target.value || null })}
-                />
+              {/* Two dates fit side by side only when the card is wide enough. */}
+              <div className="@container">
+                <div className="grid gap-2 @[18rem]:grid-cols-2">
+                  <Input
+                    label="Start Date"
+                    type="date"
+                    value={f.startDate}
+                    disabled={!editable}
+                    onChange={(e) => setF({ ...f, startDate: e.target.value })}
+                  />
+                  <Input
+                    label="Agreement End Date"
+                    type="date"
+                    value={f.endDate ?? ''}
+                    disabled={!editable}
+                    onChange={(e) => setF({ ...f, endDate: e.target.value || null })}
+                  />
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm font-medium text-heading">
                 <Toggle
@@ -574,7 +577,7 @@ function TermsTabView({
           </Section>
           <Section title="Pricing" icon={CurrencyDollar} testId="terms-pricing">
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 items-end gap-2">
                 <Input
                   label="Monthly Fee ($)"
                   type="number"
@@ -606,7 +609,7 @@ function TermsTabView({
                 Apply Late Fee
               </label>
               {f.lateFeeRule ? (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 items-end gap-2">
                   <Input
                     label="Late Fee Amount ($)"
                     type="number"
@@ -1195,7 +1198,10 @@ function RenewalTab({ t, act, manager }: { t: BookkeepingTerms; act: Act; manage
   const [confirm, setConfirm] = useState(false);
   const active = t.status === 'ACTIVE';
   return (
-    <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2" data-testid="terms-renewal">
+    <div
+      className="grid min-w-0 items-start gap-4 lg:grid-cols-2 lg:grid-rows-[auto_1fr]"
+      data-testid="terms-renewal"
+    >
       <Section title="Term and Renewal" icon={ClockCounterClockwise}>
         <dl className="grid grid-cols-[10rem_minmax(0,1fr)] gap-y-1.5 text-sm">
           <dt className="text-muted">Start</dt>
@@ -1212,76 +1218,79 @@ function RenewalTab({ t, act, manager }: { t: BookkeepingTerms; act: Act; manage
           </dd>
         </dl>
       </Section>
-      <Section title="Record a Notice" icon={PaperPlaneTilt}>
-        {!active ? (
-          <p className="text-sm text-muted">Notices are recorded on terms in force.</p>
-        ) : !manager ? (
-          <p className="text-sm text-muted">An Owner or Admin records notices.</p>
-        ) : (
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void act(
-                () =>
-                  api.bookkeepingTerms.recordNotice(t.id, {
-                    kind,
-                    ...(effective ? { effectiveDate: effective } : {}),
-                    ...(reason.trim() ? { reason: reason.trim() } : {}),
-                    ...(kind === 'PRICE_CHANGE_NOTICE' && fee
-                      ? { newMonthlyFeeCents: cents(fee) }
-                      : {}),
-                  }),
-                'Notice recorded.',
-              ).then((ok) => {
-                if (ok) {
-                  setReason('');
-                  setFee('');
-                }
-              });
-            }}
-          >
-            <Select
-              label="Notice"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as BookkeepingTermsNoticeRequest['kind'])}
-              options={[
-                { value: 'PRICE_CHANGE_NOTICE', label: 'Price change notice' },
-                { value: 'TERMINATION_NOTICE', label: 'Termination notice' },
-                { value: 'RENEWED', label: 'Renewed' },
-                { value: 'NOTE', label: 'Note' },
-              ]}
-            />
-            <Input
-              label="Effective date"
-              type="date"
-              value={effective}
-              onChange={(e) => setEffective(e.target.value)}
-            />
-            {kind === 'PRICE_CHANGE_NOTICE' ? (
-              <Input
-                label="New monthly fee ($)"
-                type="number"
-                min={0}
-                step="0.01"
-                value={fee}
-                onChange={(e) => setFee(e.target.value)}
+      {/* On wide screens the notice form takes the right column, so Terminate sits under the term. */}
+      <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <Section title="Record a Notice" icon={PaperPlaneTilt}>
+          {!active ? (
+            <p className="text-sm text-muted">Notices are recorded on terms in force.</p>
+          ) : !manager ? (
+            <p className="text-sm text-muted">An Owner or Admin records notices.</p>
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void act(
+                  () =>
+                    api.bookkeepingTerms.recordNotice(t.id, {
+                      kind,
+                      ...(effective ? { effectiveDate: effective } : {}),
+                      ...(reason.trim() ? { reason: reason.trim() } : {}),
+                      ...(kind === 'PRICE_CHANGE_NOTICE' && fee
+                        ? { newMonthlyFeeCents: cents(fee) }
+                        : {}),
+                    }),
+                  'Notice recorded.',
+                ).then((ok) => {
+                  if (ok) {
+                    setReason('');
+                    setFee('');
+                  }
+                });
+              }}
+            >
+              <Select
+                label="Notice"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as BookkeepingTermsNoticeRequest['kind'])}
+                options={[
+                  { value: 'PRICE_CHANGE_NOTICE', label: 'Price change notice' },
+                  { value: 'TERMINATION_NOTICE', label: 'Termination notice' },
+                  { value: 'RENEWED', label: 'Renewed' },
+                  { value: 'NOTE', label: 'Note' },
+                ]}
               />
-            ) : null}
-            <Textarea
-              label="Reason or note"
-              rows={2}
-              maxLength={1000}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-            <p className="text-xs text-muted">
-              A notice is recorded in History; the terms change only through a new version.
-            </p>
-            <Button type="submit">Record Notice</Button>
-          </form>
-        )}
-      </Section>
+              <Input
+                label="Effective date"
+                type="date"
+                value={effective}
+                onChange={(e) => setEffective(e.target.value)}
+              />
+              {kind === 'PRICE_CHANGE_NOTICE' ? (
+                <Input
+                  label="New monthly fee ($)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={fee}
+                  onChange={(e) => setFee(e.target.value)}
+                />
+              ) : null}
+              <Textarea
+                label="Reason or note"
+                rows={2}
+                maxLength={1000}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <p className="text-xs text-muted">
+                A notice is recorded in History; the terms change only through a new version.
+              </p>
+              <Button type="submit">Record Notice</Button>
+            </form>
+          )}
+        </Section>
+      </div>
       {active && manager ? (
         <Section title="Terminate" icon={Prohibit}>
           {!ending ? (
