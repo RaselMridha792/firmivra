@@ -191,6 +191,8 @@ export const TR_ERRORS: Record<string, string> = {
   DUPLICATE_RETURN: 'This client already has this return for that year.',
   STATUS_BLOCKED: 'This return cannot move there yet. Check its next steps.',
   REASON_REQUIRED: 'Say why the return goes back a step.',
+  REJECTION_NOT_RECORDED:
+    "Record the agency's rejection of a transmission first, on the E-File page.",
   RETURN_LOCKED: 'A filed return, a transmission or a decided approval does not change.',
   ATTEMPT_PENDING: 'Record the answer to the last transmission first.',
   FILING_IN_USE: 'A jurisdiction with transmissions stays on the return.',
@@ -229,6 +231,15 @@ export const money = (cents: number | null | undefined) =>
     ? '—'
     : `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 export const today = () => new Date().toISOString().slice(0, 10);
+/** Now as a `datetime-local` value in the browser's time zone, and back to an instant. */
+export const nowLocal = () => {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
+export const toIso = (local: string) => new Date(local).toISOString();
+/** A filing's jurisdiction as staff say it: "Federal" for US, else the state's code. */
+export const jurisdiction = (j: string | null) => (!j || j === 'US' ? 'Federal' : j);
 
 export const card = 'rounded-xl bg-surface p-5 shadow-md';
 export const primary =

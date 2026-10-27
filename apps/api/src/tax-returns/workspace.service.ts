@@ -633,6 +633,26 @@ export class TaxReturnWorkspaceService {
             message: 'Say why it goes back a step',
           });
         }
+        // Octavia's TX-F22: Rejected only once an agency's rejection is recorded on the newest
+        // transmission of one of its filings (agency, code, time and corrective action).
+        if (to === 'REJECTED') {
+          const filings = await tx.taxReturnFiling.findMany({
+            where: { businessId, taxReturnId: id },
+            select: {
+              attempts: {
+                orderBy: { transmittedAt: 'desc' },
+                take: 1,
+                select: { ackStatus: true },
+              },
+            },
+          });
+          if (!filings.some((f) => f.attempts[0]?.ackStatus === 'REJECTED')) {
+            throw conflict(
+              'REJECTION_NOT_RECORDED',
+              "Record the agency's rejection of a transmission first",
+            );
+          }
+        }
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
           if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
             throw new ForbiddenException({

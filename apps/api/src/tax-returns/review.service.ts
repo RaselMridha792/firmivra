@@ -166,6 +166,7 @@ export class TaxReturnReviewService {
         acknowledgedAt: iso(a.acknowledgedAt),
         rejectCode: a.rejectCode,
         rejectDescription: a.rejectDescription,
+        rejectingAgency: a.rejectingAgency,
         correctiveAction: a.correctiveAction,
         recordedBy: memberRef(names, a.recordedByUserId),
         createdAt: a.createdAt.toISOString(),
@@ -352,9 +353,10 @@ export class TaxReturnReviewService {
             acknowledgedAt: new Date(body.acknowledgedAt),
             ...(body.ackStatus === 'REJECTED'
               ? {
+                  rejectingAgency: body.rejectingAgency,
                   rejectCode: body.rejectCode ?? null,
                   rejectDescription: body.rejectDescription ?? null,
-                  correctiveAction: body.correctiveAction ?? null,
+                  correctiveAction: body.correctiveAction,
                 }
               : {}),
           },

@@ -86,13 +86,23 @@ describe('tax return workspace schemas', () => {
     expect(
       SetTaxReturnFilingsRequest.safeParse({ filings: [{ jurisdiction: 'USA' }] }).success,
     ).toBe(false);
+    // TX-F22: a rejection names the agency and the corrective action.
+    const rejection = {
+      ackStatus: 'REJECTED',
+      acknowledgedAt: AT,
+      rejectingAgency: 'IRS',
+      rejectCode: 'IND-031',
+      correctiveAction: 'Fix the prior-year AGI and transmit again',
+    };
+    expect(UpdateTaxFilingAttemptRequest.safeParse(rejection).success).toBe(true);
+    for (const key of ['rejectingAgency', 'correctiveAction'] as const) {
+      const { [key]: _gone, ...rest } = rejection;
+      expect(UpdateTaxFilingAttemptRequest.safeParse(rest).success).toBe(false);
+    }
     expect(
-      UpdateTaxFilingAttemptRequest.safeParse({
-        ackStatus: 'REJECTED',
-        acknowledgedAt: AT,
-        rejectCode: 'IND-031',
-      }).success,
-    ).toBe(true);
+      UpdateTaxFilingAttemptRequest.safeParse({ ...rejection, rejectingAgency: 'IRS\nGA DOR' })
+        .success,
+    ).toBe(false);
     expect(UpdateTaxFilingAttemptRequest.safeParse({ ackStatus: 'PENDING' }).success).toBe(false);
     expect(
       SetTaxAuthorizationsRequest.safeParse({ items: [{ kind: 'STATE_EFILE' }] }).success,
