@@ -137,11 +137,10 @@ test('Close: checklist, figures, reconciliation and the review steps', async ({ 
   await page.getByRole('button', { name: 'Reconcile an Account' }).click();
   await page.getByRole('dialog').getByLabel('Beginning balance ($)').fill('1000');
   await page.getByRole('dialog').getByLabel('Ending balance ($)').fill('1500');
-  await page.getByRole('dialog').getByLabel('Cleared balance ($)').fill('1500');
-  await expect(page.getByTestId('recon-diff')).toContainText('$0.00');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save Progress' }).click();
-  await expect(page.getByText('Reconciliation saved.')).toBeVisible();
-  await expect(page.getByTestId('reconciliations')).toContainText('In Progress');
+  // BK-R01: the reconciliation opens on its own page to clear its lines.
+  await page.getByRole('dialog').getByRole('button', { name: 'Start Reconciling' }).click();
+  await expect(page).toHaveURL(/\/bookkeeping\/reconciliations\//);
+  await expect(page.getByTestId('recon-page')).toContainText('In Progress');
 });
 
 test('Reports: the firm list, the upcoming tab and the review steps', async ({ page }) => {

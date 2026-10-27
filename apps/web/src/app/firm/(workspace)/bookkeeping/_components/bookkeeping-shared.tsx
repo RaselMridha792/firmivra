@@ -50,6 +50,22 @@ export function PeriodPill({ status }: { status: keyof typeof PERIOD_LABEL }) {
   return <Badge tone={tone[status]}>{PERIOD_LABEL[status]}</Badge>;
 }
 
+export const RECON_LABEL = {
+  IN_PROGRESS: 'In Progress',
+  READY_FOR_REVIEW: 'Ready for Review',
+  APPROVED: 'Approved',
+  REOPENED: 'Reopened',
+} as const;
+export function ReconPill({ status }: { status: keyof typeof RECON_LABEL }) {
+  const tone = {
+    IN_PROGRESS: 'info',
+    READY_FOR_REVIEW: 'warning',
+    APPROVED: 'success',
+    REOPENED: 'warning',
+  } as const;
+  return <Badge tone={tone[status]}>{RECON_LABEL[status]}</Badge>;
+}
+
 export const REPORT_LABEL = {
   NOT_STARTED: 'Not Started',
   IN_PROGRESS: 'In Progress',
