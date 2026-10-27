@@ -32,6 +32,7 @@ import {
   toCents,
   ViewPill,
 } from './inv-shared';
+import { InvoiceHistoryCard } from './invoice-history';
 
 const PAYMENT_STATUS: Record<string, string> = {
   PENDING: 'Pending',
@@ -282,6 +283,9 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
               </ul>
             )}
           </section>
+
+          {/* IP-F09: the firm's notes and logged activity. */}
+          {i ? <InvoiceHistoryCard invoiceId={i.id} /> : null}
         </div>
 
         <aside

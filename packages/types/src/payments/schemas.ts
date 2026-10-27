@@ -525,6 +525,36 @@ export const CorrectInvoiceRequest = z
   })
   .refine((b) => b.dueOn !== undefined || b.scheduledFor !== undefined, 'Change a date');
 export type CorrectInvoiceRequest = z.input<typeof CorrectInvoiceRequest>;
+
+// ---------- IP-F09: an invoice's history and its PDF ----------
+/** What the firm writes in an invoice's history by hand: a note, or an activity it logged. */
+export const InvoiceHistoryKind = z.enum(['NOTE', 'ACTIVITY_LOGGED']);
+export type InvoiceHistoryKind = z.infer<typeof InvoiceHistoryKind>;
+
+/** One entry of an invoice's history (firm only; never on the PDF, the email or the portal). */
+export const InvoiceHistoryItem = z.object({
+  id: z.uuid(),
+  type: z.string(),
+  body: z.string().nullable(),
+  actor: MemberRef.nullable(),
+  createdAt: DateTime,
+});
+export type InvoiceHistoryItem = z.infer<typeof InvoiceHistoryItem>;
+
+/** GET /business/invoices/{id}/history: newest first, at most 100. */
+export const InvoiceHistory = z.object({ items: z.array(InvoiceHistoryItem) });
+export type InvoiceHistory = z.infer<typeof InvoiceHistory>;
+
+/** POST /business/invoices/{id}/history: Add Note or Log Activity. */
+export const AddInvoiceHistoryRequest = z.strictObject({
+  type: InvoiceHistoryKind,
+  body: text(2000, 'many', 'Write the note'),
+});
+export type AddInvoiceHistoryRequest = z.input<typeof AddInvoiceHistoryRequest>;
+
+/** GET /business/invoices/{id}/pdf: a 5-minute link to the invoice as a PDF. */
+export const InvoicePdfLink = z.object({ url: z.string(), expiresAt: DateTime });
+export type InvoicePdfLink = z.infer<typeof InvoicePdfLink>;
 export type UpdateInvoiceRequest = z.input<typeof UpdateInvoiceRequest>;
 
 /** POST /business/invoices/{id}/cancel (Owner and Admin). The reason stays with the firm. */

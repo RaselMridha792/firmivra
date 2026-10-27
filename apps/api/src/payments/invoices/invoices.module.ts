@@ -1,12 +1,16 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  AddInvoiceHistoryRequest,
   CancelInvoiceRequest,
   CorrectInvoiceRequest,
   CreateInvoiceRequest,
   type Invoice,
   InvoiceId,
+  type InvoiceHistory,
+  type InvoiceHistoryItem,
   type InvoiceList,
+  type InvoicePdfLink,
   ListInvoicesQuery,
   PaymentMethodsQuery,
   type PaymentMethodsSummary,
@@ -34,6 +38,7 @@ import { InvoicesService } from './invoices.service.js';
 import { MyInvoicesController } from './my-invoices.controller.js';
 import { MyInvoicesService } from './my-invoices.service.js';
 import { PortalTabsModule } from '../../client-portal/portal-tabs.js';
+import { ReportsModule } from '../../reports/reports.module.js';
 
 const idPipe = new ZodValidationPipe(InvoiceId);
 /** send takes no fields at all. */
@@ -117,6 +122,39 @@ export class InvoicesController {
     return this.invoices.cancel(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
+  /** IP-F09: the invoice's history (notes and logged activity). */
+  @Get(':id/history')
+  history(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<InvoiceHistory> {
+    return this.invoices.history(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** IP-F09: Add Note, Log Activity. */
+  @Post(':id/history')
+  @Roles(...FIRM_MANAGERS)
+  addHistory(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(AddInvoiceHistoryRequest))
+    body: z.output<typeof AddInvoiceHistoryRequest>,
+  ): Promise<InvoiceHistoryItem> {
+    return this.invoices.addHistory(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** IP-F09: the invoice as a PDF, behind a short-lived link. */
+  @Get(':id/pdf')
+  pdf(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<InvoicePdfLink> {
+    return this.invoices.pdf(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   /** IP-F08: the dates of a scheduled or unpaid open invoice, with a reason once sent. */
   @Post(':id/correct')
   @HttpCode(200)
@@ -144,7 +182,8 @@ export class InvoicesController {
 }
 
 @Module({
-  imports: [NotificationsModule, PortalTabsModule],
+  // ReportsModule: its file store keeps the invoice PDFs under the firm's reports prefix.
+  imports: [NotificationsModule, PortalTabsModule, ReportsModule],
   controllers: [InvoicesController, MyInvoicesController],
   providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
   exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
