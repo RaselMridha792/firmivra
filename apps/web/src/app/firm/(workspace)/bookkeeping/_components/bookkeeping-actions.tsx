@@ -36,6 +36,8 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { BK_ERRORS, BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
+import { useOriginNavigate } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 
@@ -55,7 +57,7 @@ export function useAct(onNotice: Notice) {
   };
 }
 
-type Row = Pick<BookkeepingClientRow, 'id' | 'status' | 'paused' | 'software'> & {
+type Row = Pick<BookkeepingClientRow, 'id' | 'engagementId' | 'status' | 'paused' | 'software'> & {
   client: { id: string; displayName: string };
 };
 type DialogName = 'status' | 'assign' | 'pause' | 'archive' | 'connection' | 'log' | 'sync';
@@ -464,9 +466,15 @@ export function ClientMenu({
   triggerLabel?: string;
 }) {
   const router = useRouter();
+  const toOrigin = useOriginNavigate();
+  const docs = useServiceDocuments();
   const act = useAct(onNotice);
   const [dialog, setDialog] = useState<DialogName>();
-  const go = (href: string) => () => router.push(href);
+  // SH1: a page outside the workspace gets Back to this exact place.
+  const go = (href: string) => () =>
+    href.startsWith('/payroll') || href.startsWith('/bookkeeping')
+      ? router.push(href)
+      : toOrigin(href);
   const connected = !!row.software;
   const items: ActionMenuItem[] = [
     {
@@ -490,9 +498,16 @@ export function ClientMenu({
         ]
       : []),
     {
+      // SH3: the request opens here, for this client's bookkeeping.
       label: 'Request Documents',
       icon: FileText,
-      onSelect: go(`/documents?clientId=${row.client.id}`),
+      onSelect: () =>
+        docs.open('request', {
+          clientId: row.client.id,
+          clientName: row.client.displayName,
+          engagementId: row.engagementId,
+          service: 'Bookkeeping',
+        }),
     },
     {
       label: 'View Documents',

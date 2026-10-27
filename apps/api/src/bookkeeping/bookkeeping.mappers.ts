@@ -287,7 +287,8 @@ export const toReconciliation = (
   clearedCount: r.clearedCount,
   differenceCents: r.differenceCents,
   toleranceCents: r.toleranceCents,
-  withinTolerance: Math.abs(r.differenceCents) <= r.toleranceCents,
+  // Zero tolerance (Oct 26): only a zero difference can be approved.
+  withinTolerance: r.differenceCents === 0,
   exceptionsCount: r.exceptionsCount,
   statementDocumentId: r.statementDocumentId,
   status: r.status,
