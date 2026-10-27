@@ -70,6 +70,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
   const [chartType, setChartType] = useState('AUTO');
+  // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
+  const [groupBy, setGroupBy] = useState('');
   const [labels, setLabels] = useState(false);
   const [tax, setTax] = useState(false);
   const [search, setSearch] = useState('');
@@ -108,6 +110,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       : {}),
     ...(term ? { search: term } : {}),
     ...(sort ? { sort: { field: sort.id, descending: sort.descending } } : {}),
+    ...(groupBy ? { breakdownBy: groupBy } : {}),
     chartType: chartType as never,
     showDataLabels: labels,
     includeTaxRevenue: tax,
@@ -167,6 +170,17 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     }));
   const totals = r?.table.totals;
   const src = r ? sources.data?.find((s) => s.key === r.definition.dataSource) : undefined;
+  // Octavia's D2: a Financial report's breakdown groups by Service, Client or Payment Method.
+  const groupOptions =
+    r?.category === 'FINANCIAL'
+      ? (src?.fields ?? []).filter(
+          (f) => ['service', 'client', 'method'].includes(f.key) && f.groupable,
+        )
+      : [];
+  const shownGroup =
+    groupOptions.find((f) => f.label === r?.breakdown?.series[0]?.label)?.key ??
+    groupOptions[0]?.key ??
+    '';
   const title = r ? `${r.title}` : 'Report';
   const compareValue =
     compare ??
@@ -349,9 +363,22 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               )}
             </section>
             <section className={card} aria-label="Breakdown" data-testid="report-breakdown">
-              <h2 className="mb-3 font-display text-lg font-bold text-heading">
-                By {src?.fields.find((f) => f.key === r?.definition.groupBy)?.label ?? 'Group'}
-              </h2>
+              {groupOptions.length > 0 ? (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-display text-lg font-bold text-heading">Group By</h2>
+                  <Select
+                    label="Group by"
+                    hideLabel
+                    value={groupBy || shownGroup}
+                    onChange={(e) => setGroupBy(e.target.value)}
+                    options={groupOptions.map((f) => ({ value: f.key, label: f.label }))}
+                  />
+                </div>
+              ) : (
+                <h2 className="mb-3 font-display text-lg font-bold text-heading">
+                  By {src?.fields.find((f) => f.key === r?.definition.groupBy)?.label ?? 'Group'}
+                </h2>
+              )}
               {r?.breakdown ? (
                 <DonutChart
                   size="md"

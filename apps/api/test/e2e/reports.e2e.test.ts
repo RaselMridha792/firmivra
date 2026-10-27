@@ -1476,3 +1476,77 @@ describe('settings and lookups', () => {
     );
   });
 });
+
+// Last, so the payment recorded here (voided again at the end) and its runs touch no other test.
+describe('payments recorded by hand (IP-F22, Octavia Oct 27)', () => {
+  it('count in Revenue Summary by method; Group By changes the breakdown; a voided one does not count', async () => {
+    const invoiceId = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.invoice.findFirstOrThrow({
+            where: { number: `INV-A-${run}-1` },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
+    const recorded = ok(
+      await call('post', `/invoices/${invoiceId}/offline-payments`, people.ownerA, {
+        method: 'CHECK',
+        amountCents: 2_500,
+        reference: 'CHK-1001',
+        receivedOn: today,
+        idempotencyKey: randomUUID(),
+      }),
+    ) as { offlinePayments: { id: string; amountCents: number }[] };
+    const paymentId = recorded.offlinePayments.find((p) => p.amountCents === 2_500)!.id;
+    try {
+      const r = await quick('revenue_summary');
+      expect(r.table.total).toBe(2);
+      expect(r.kpis.find((k) => k.key === 'amount')?.value).toBe(7_500);
+      expect(r.table.rows.find((x) => x.cells.amount === 2_500)?.cells).toMatchObject({
+        method: 'Check',
+        client: 'Jamie Sample (fake)',
+        paidOn: today,
+      });
+      // The breakdown is by payment method unless Group By says otherwise, this run only.
+      expect(r.breakdown?.labels.slice().sort()).toEqual(['Check', 'Other']);
+      expect(r.breakdown?.money).toBe(true);
+      const byClient = await quick('revenue_summary', { breakdownBy: 'client' });
+      expect(byClient.breakdown?.labels.slice().sort()).toEqual([
+        'Jamie Sample (fake)',
+        'Riley Example (fake)',
+      ]);
+      expect(byClient.breakdown?.series[0]?.values.reduce<number>((a, b) => a + (b ?? 0), 0)).toBe(
+        7_500,
+      );
+      expect(byClient.definition.groupBy).toBeNull();
+      // Lines that came from no catalog service are custom items.
+      const byService = await quick('revenue_summary', { breakdownBy: 'service' });
+      expect(byService.breakdown?.labels).toEqual(['Custom items']);
+      expectError(
+        await runReport({
+          target: { kind: 'SYSTEM', key: 'revenue_summary' },
+          breakdownBy: 'paidOn',
+        }),
+        400,
+        'INVALID_DEFINITION',
+      );
+    } finally {
+      ok(
+        await call(
+          'post',
+          `/invoices/${invoiceId}/offline-payments/${paymentId}/void`,
+          people.ownerA,
+          { reason: 'Fake: the test is over' },
+        ),
+      );
+    }
+    const after = await quick('revenue_summary');
+    expect(after.table.total).toBe(1);
+    expect(after.kpis.find((k) => k.key === 'amount')?.value).toBe(5_000);
+  });
+});
