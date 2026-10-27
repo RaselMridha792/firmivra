@@ -61,14 +61,17 @@ describe('the plan from Services & Pricing', () => {
     });
   });
 
-  it('a linked catalog service is not deleted', async () => {
-    expect(
-      await failure(
-        runInScope(owner, { kind: 'business', businessId: f.firmA }, (tx) =>
-          tx.service.delete({ where: { id: ids.planA } }),
-        ),
-      ),
-    ).toMatch(/foreign key/i);
+  it('deleting the catalog service clears only the link; the plan and its saved name stay', async () => {
+    await runInScope(owner, { kind: 'business', businessId: f.firmA }, (tx) =>
+      tx.service.delete({ where: { id: ids.planA } }),
+    );
+    await expect(
+      A().engagement.findUniqueOrThrow({ where: { id: ids.engagementA } }),
+    ).resolves.toMatchObject({
+      businessId: f.firmA,
+      catalogServiceId: null,
+      package: 'Payroll Basic',
+    });
   });
 });
 
