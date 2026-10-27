@@ -19,6 +19,83 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 27 (eighth session, latest): start here
+
+This wins over the entries below.
+Rasel's order of Oct 27: at most three PRs open; F22, F11, F28, then F26 (mail), then the staff
+phone; then F31's next PR; after the Tax Returns queue is merged, **Messages**:
+`docs/specs/review-2026-10-27/CHANGE-LIST.md` section B (PR #1183, branch
+`rasel/scrum-review-oct27`), in the order MSG-F01 to F08, then F09 to F16, then F18 to F22. The
+Sign-ups defaults stand.
+
+**Merged:** #1178 (F34, F35), #1179 (F31), #1180 (Sign-ups flow B), #1185 (F22), #1186 (F11),
+on top of #1171 and #1175.
+
+**Open (three), each with `main` merged in:**
+- **#1187** TX-F28, `rasel/R60-tax-returns-amounts` (head `6e57d65`, 8 of 8).
+- **#1194** staff phone, `rasel/R60-staff-phone` (head `5be0ccc`). The merge took `main`'s notes and
+  kept the sixth session's progress line.
+- The TX-F31, F32 follow-up, `rasel/R60-tax-returns-identity`, `pr-identity.md`:
+  `businessIdentity` on the return's detail, `PUT .../business-identity` (correct until the first
+  filing; the EIN sealed with the profile's context `client_profiles`/client/`ein` before the
+  write; 400 individual, 409 `RETURN_LOCKED` filed or archived), Business on This Return card.
+
+**Pushed, no PR yet:** TX-F26 `rasel/R60-tax-returns-mail` (on F28, head `dcd0633`, `pr-f26.md`):
+open it once #1187 merges, after merging `origin/main` into it.
+
+**Then Messages** (when the Tax Returns queue is merged): section B of
+`docs/specs/review-2026-10-27/CHANGE-LIST.md`, MSG-F01 to F08, F09 to F16, F18 to F22.
+
+**Still waiting:** F04 (the firm-side Client Portal module), F27 (Octavia's columns; the proposal
+is in F26's body), F19 and F20 (R1's validation issues table is on `main`, #1172), TX-F18 (Rasel's
+word on role checks), and SH2 to SH6 in Tax Returns as R56's pieces land.
+### Oct 26 (eighth session, later): start here
+
+Rasel (Oct 26, evening): R60 may have **three** PRs open. His order: archived (F34), business
+(F31), rejection (F22, after F34 merges), then amounts (F28), mail (F26), Sign-ups flow B (after
+#1171), staff phone. The four Sign-ups defaults stand. F31's snapshot waited for R1's identity
+migration (merged since as #1176). Octavia's F27 Mailing Report columns stay as the proposal in
+F26's PR body; Rasel routes them to her change list.
+
+**Merged:** #1171 (flow A), #1175 (TX-F01), and R56's #1168 (SH1, OriginLink).
+
+**Open (three, the limit), each with `main` merged in, 8 of 8 green:**
+- **#1178** TX-F34, F35, `rasel/R60-tax-returns-archived` (head `08ec7f6`).
+- **#1179** TX-F31, `rasel/R60-tax-returns-business` (head `ad4f4f1`). R1's #1176 copies the
+  profile into the return at creation, which is what the dialog shows.
+- **#1180** Sign-ups flow B (D2), `rasel/R60-signups-flow-b` (head `1908ab6`). The third slot went
+  to it because F22 waits for F34 and F28 and F26 are stacked on F22.
+
+**Pushed, no PR yet, in the order to open them (bodies in this session's scratchpad):**
+1. F22 `rasel/R60-tax-returns-rejection` once #1178 merges: merge `origin/main` (it then carries
+   only F22), `pr-f22.md`.
+2. F28 `rasel/R60-tax-returns-amounts` (on F22): merge the rejection branch and `origin/main`,
+   `pr-f28.md`.
+3. F26 `rasel/R60-tax-returns-mail` (on F28), `pr-f26.md` (F27's proposal inside).
+4. F11 `rasel/R60-tax-returns-intake` (from `main`, head after this note), `pr-f11.md`: the
+   Intake Form card with OriginLink, `api.intakes` registered in `lib/api.ts` with
+   `createIntakesMock` in `mocks/intake-forms.ts`. Mock 7 of 7.
+5. Staff phone `rasel/R60-staff-phone` (sixth session's `pr-phone.md`).
+
+When a stacked branch's base merges, merge `origin/main` into it: the squash makes the base's
+files conflict; take the branch's side only after checking that `main`'s version of each file
+equals the base's head (`git diff <base head> origin/main -- <files>` empty), as done for flow B.
+
+**Next:**
+- F31 follow-up: return the snapshot (`business_name`, `business_ein_last4`, the address columns
+  of #1176) in the return's detail, show it on the return's page, and correct it before the first
+  filing (Rasel: correctable until first filed, then frozen).
+- F04 still waits for the firm-side Client Portal module.
+- Then SH2 to SH6 in Tax Returns as R56's pieces land (#1173, #1174 and SH5 are R56's; Rasel's
+  message about them was for R56), F19 and F20 on R1's `tax_return_validation_issues` (#1172,
+  merged), TX-F18 after Rasel's word on role checks.
+
+**Local state:** scratchpad as above, plus `shots-tx-f11.cjs`, `shots-tx-f26.cjs`,
+`pr-f11.md`, `pr-f26.md`. `apps/web/.next` was deleted after the mock server stopped (a server
+killed mid-build leaves a broken `.next/mock/dev/types/routes.d.ts` that fails `tsc`). After
+switching branches, rebuild `@firmivra/types` before a typecheck: a build from another branch gives
+false errors.
+
 ### Oct 26 (eighth session, end): start here
 
 The next R60 reads `CLAUDE.md`, `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules)
@@ -1213,6 +1290,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   opens Add New Client with Back to Dashboard, and `/leads?new=1&stage=SUBMITTED&back=dashboard`
   opens Add New Lead with it. Web `tsc` 0, ESLint clean, mock specs 17 of 17 (r60 quick and KPI
   cards, r31 dashboard, r23 clients).
+- Oct 25 (sixth session): (c) staff phone verification (`rasel/R60-staff-phone`), on R1's
+  `staff_phone_codes` (#1145): `GET /business/me/phone`, `POST .../code` (one a minute, 10 a day,
+  the firm's SMS cap over staff and client codes), `POST .../verify` (HMAC, five tries, the code
+  used up in the firm's scope, then `phone_verified_at` in the member's own scope while the number
+  is unchanged); template `staff.phone-code`; SMS offered to verified staff (the switch stores the
+  choice: no staff notice has a text copy yet, for Rasel). Mobile Number card on My Settings,
+  Notifications. API unit 1730 of 1730, staff phone e2e 9 of 9, notify 149 of 149, mock specs 7 of 7.
+  Local: `owner@lvp.test` has the fake number +17705550123 in `firmivra_r60` (verified by the sheet).
 - Oct 26 (seventh session): Client Sign-ups screen (D1, Rasel's order of Oct 26; R55 had not
   started it), `rasel/R60-signups-screen` from `main` at `d2afe38`. Paths it owns:
   `apps/web/src/app/firm/(workspace)/sign-ups/`, `apps/api/src/client-auth/client-sign-ups.*`, the
@@ -1243,3 +1328,9 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Amount; API e2e 8 of 8, mock 17 of 17). Then Sign-ups flow B (`rasel/R60-signups-flow-b`, D2
   on Rasel's rules; types 19 of 19, API e2e 21 of 21, mock 14 of 14, isolation clean for its
   routes), and TX-F26 (`rasel/R60-tax-returns-mail`, API e2e 8 of 8, mock 6 of 6).
+- Oct 26 (eighth session, later): three PRs allowed. Opened #1178 (F34, F35), #1179 (F31) and
+  #1180 (flow B), each with `main` merged in and green. Built TX-F11 (`rasel/R60-tax-returns-intake`,
+  the Intake Form card on R56's OriginLink; mock 7 of 7).
+- Oct 27 (eighth session): #1178, #1179, #1180 merged; opened #1185 (F22), #1186 (F11), #1187 (F28)
+  with `main` merged in, all green. Built the F31 follow-up (`rasel/R60-tax-returns-identity`:
+  the return's own business identity, correctable until the first filing).

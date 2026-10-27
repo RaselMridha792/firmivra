@@ -52,7 +52,7 @@ const inFirm = <T>(firm: 'a' | 'b', work: Parameters<typeof runInScope<T>>[2]) =
   asOwner({ kind: 'business', businessId: firms[firm] }, work);
 
 async function call(
-  method: 'get' | 'post' | 'patch',
+  method: 'get' | 'post' | 'patch' | 'put',
   path: string,
   who: Who | undefined,
   body?: object,
@@ -486,5 +486,110 @@ describe("the dashboard's drill-downs (Octavia's K4 and K5)", () => {
     expect(await idsOf('workflowStatus=ACCEPTED&acceptedTo=2020-01-01')).toEqual([]);
     expect(await idsOf('workflowGroup=IN_PROGRESS&pageSize=100')).not.toContain(accepted);
     expect((await call('get', '/tax-returns?acceptedFrom=today', ownerA)).status).toBe(400);
+  });
+});
+
+describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)", () => {
+  it('is copied at creation, shown on the return, correctable until the first filing', async () => {
+    await inFirm('a', (tx) =>
+      tx.clientProfile.create({
+        data: {
+          businessId: firms.a,
+          clientId: ids.c2!,
+          businessName: 'Bayside Bakery LLC (fake)',
+          addressLine1: '12 Fake Harbor Way',
+          city: 'Savannah',
+          state: 'GA',
+          postalCode: '31401',
+        },
+      }),
+    );
+    const created = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c2,
+        taxYear: 2024,
+        filingType: 'BUSINESS',
+        formType: '1120',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    expect(created.businessIdentity).toEqual({
+      name: 'Bayside Bakery LLC (fake)',
+      einLast4: null,
+      addressLine1: '12 Fake Harbor Way',
+      addressLine2: null,
+      city: 'Savannah',
+      state: 'GA',
+      postalCode: '31401',
+      correctable: true,
+    });
+    // An individual return has none, and none to correct.
+    const individual = ok(await call('get', `/tax-returns/${ids.r}`, ownerA), TaxReturnDetail);
+    expect(individual.businessIdentity).toBeNull();
+    expectError(
+      await call('put', `/tax-returns/${ids.r}/business-identity`, ownerA, { name: 'X' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(
+      (await call('put', `/tax-returns/${created.id}/business-identity`, ownerA, {})).status,
+    ).toBe(400);
+
+    const corrected = ok(
+      await call('put', `/tax-returns/${created.id}/business-identity`, ownerA, {
+        name: 'Bayside Bakery Holdings (fake)',
+        ein: '00-0006789',
+        addressLine2: 'Suite 4',
+      }),
+      TaxReturnDetail,
+    );
+    expect(corrected.businessIdentity).toMatchObject({
+      name: 'Bayside Bakery Holdings (fake)',
+      einLast4: '6789',
+      addressLine1: '12 Fake Harbor Way',
+      addressLine2: 'Suite 4',
+    });
+    // Sealed, never returned whole; the client's own profile stays as it was.
+    const rows = await inFirm('a', async (tx) => ({
+      ret: await tx.taxReturn.findUniqueOrThrow({
+        where: { id: created.id },
+        select: { businessEinEnc: true },
+      }),
+      profile: await tx.clientProfile.findUniqueOrThrow({
+        where: { clientId: ids.c2! },
+        select: { businessName: true, einLast4: true },
+      }),
+    }));
+    expect(rows.ret.businessEinEnc).not.toBeNull();
+    expect(JSON.stringify(corrected)).not.toContain('000006789');
+    expect(rows.profile).toEqual({ businessName: 'Bayside Bakery LLC (fake)', einLast4: null });
+
+    // Filed (R10's way: status FILED with its date): the copy is the filed return's for good.
+    const filedId = (
+      await inFirm('a', (tx) =>
+        tx.taxReturn.create({
+          data: {
+            businessId: firms.a,
+            clientId: ids.c2!,
+            taxYear: 2023,
+            filingType: 'BUSINESS',
+            formType: '1120',
+            status: 'FILED',
+            filedOn: new Date('2024-04-10T00:00:00Z'),
+          },
+        }),
+      )
+    ).id;
+    const filed = ok(await call('get', `/tax-returns/${filedId}`, ownerA), TaxReturnDetail);
+    expect(filed.businessIdentity).toMatchObject({
+      name: 'Bayside Bakery LLC (fake)',
+      correctable: false,
+    });
+    expectError(
+      await call('put', `/tax-returns/${filedId}/business-identity`, ownerA, { name: 'Y' }),
+      409,
+      'RETURN_LOCKED',
+    );
   });
 });

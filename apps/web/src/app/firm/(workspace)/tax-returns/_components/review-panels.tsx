@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  TaxAmountSource,
   TaxApproval,
   TaxAuthorization,
   TaxCheckResult,
@@ -22,7 +23,14 @@ import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { Dialog, useAct, useMembers, type Notice } from './return-actions';
+import {
+  Dialog,
+  RejectionFields,
+  useAct,
+  useMembers,
+  useRejection,
+  type Notice,
+} from './return-actions';
 import {
   BLOCKER_LABEL,
   TR_KEY,
@@ -32,6 +40,9 @@ import {
   money,
   quiet,
   today,
+  jurisdiction,
+  nowLocal,
+  toIso,
 } from './tr-shared';
 
 /** A panel of Frame 2's tabs and Frame 3: a white card with its title row. */
@@ -72,7 +83,6 @@ export function Panel({
 export const smallButton =
   'inline-flex min-h-9 items-center gap-1.5 rounded-control border border-action bg-surface px-3 text-sm font-medium text-action hover:bg-accent-soft disabled:border-divider disabled:text-muted';
 export const textButton = 'text-sm font-medium text-link hover:underline disabled:text-muted';
-const jurisdiction = (j: string | null) => (!j || j === 'US' ? 'Federal' : j);
 
 /** Loads one part of the return (each refreshes with the module's key). */
 export function usePart<T>(returnId: string, part: string, fn: () => Promise<T>) {
@@ -982,6 +992,7 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                 </div>
                 {last?.ackStatus === 'REJECTED' ? (
                   <p className="mt-2 rounded bg-danger-soft px-2 py-1 text-danger">
+                    {last.rejectingAgency ? `${last.rejectingAgency} · ` : ''}
                     {last.rejectCode ? `${last.rejectCode}: ` : ''}
                     {last.rejectDescription ?? 'No description recorded.'}
                     {last.correctiveAction ? (
@@ -1022,6 +1033,7 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                         <li key={a.id} className="text-muted">
                           {a.submissionId} · {dateTimeText(a.transmittedAt)} ·{' '}
                           {a.ackStatus.toLowerCase()}
+                          {a.rejectingAgency ? ` by ${a.rejectingAgency}` : ''}
                           {a.rejectCode ? ` (${a.rejectCode})` : ''}
                         </li>
                       ))}
@@ -1075,13 +1087,6 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
     </Panel>
   );
 }
-
-const nowLocal = () => {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 16);
-};
-const toIso = (local: string) => new Date(local).toISOString();
 
 function AttemptDialog({
   detail,
@@ -1153,15 +1158,13 @@ function AckDialog({
   const act = useAct(onNotice);
   const [result, setResult] = useState<'ACCEPTED' | 'REJECTED'>('ACCEPTED');
   const [at, setAt] = useState(nowLocal);
-  const [code, setCode] = useState('');
-  const [description, setDescription] = useState('');
-  const [action, setAction] = useState('');
+  const rejection = useRejection(filing);
   return (
     <Dialog
       title="Record Acknowledgment"
       subtitle={`${jurisdiction(filing.jurisdiction)} · ${attempt.submissionId}`}
       confirm="Record"
-      disabled={!at}
+      disabled={!at || (result === 'REJECTED' && !rejection.complete)}
       onConfirm={() =>
         void act(
           () =>
@@ -1170,13 +1173,7 @@ function AckDialog({
               attempt.id,
               result === 'ACCEPTED'
                 ? { ackStatus: 'ACCEPTED', acknowledgedAt: toIso(at) }
-                : {
-                    ackStatus: 'REJECTED',
-                    acknowledgedAt: toIso(at),
-                    ...(code.trim() ? { rejectCode: code.trim() } : {}),
-                    ...(description.trim() ? { rejectDescription: description.trim() } : {}),
-                    ...(action.trim() ? { correctiveAction: action.trim() } : {}),
-                  },
+                : rejection.body(toIso(at)),
             ),
           'Acknowledgment recorded.',
         ).then((r) => r && onClose())
@@ -1199,28 +1196,7 @@ function AckDialog({
         value={at}
         onChange={(e) => setAt(e.target.value)}
       />
-      {result === 'REJECTED' ? (
-        <>
-          <Input
-            label="Reject code"
-            value={code}
-            maxLength={50}
-            onChange={(e) => setCode(e.target.value)}
-          />
-          <Textarea
-            label="Description"
-            value={description}
-            maxLength={2000}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-          <Textarea
-            label="Corrective action"
-            value={action}
-            maxLength={2000}
-            onChange={(e) => setAction(e.target.value)}
-          />
-        </>
-      ) : null}
+      {result === 'REJECTED' ? <RejectionFields {...rejection} /> : null}
     </Dialog>
   );
 }
@@ -1399,6 +1375,9 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
                   {h}
                 </th>
               ))}
+              <th scope="col" className="px-2 py-1.5">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1407,13 +1386,7 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
               return (
                 <tr key={f.id} className="border-b border-divider">
                   <th scope="row" className="px-2 py-1.5 font-normal">
-                    <button
-                      type="button"
-                      className="text-left hover:text-link hover:underline"
-                      onClick={() => setEdit(f)}
-                    >
-                      {jurisdiction(f.jurisdiction)} {due ? 'Amount Due' : 'Refund'}
-                    </button>
+                    {jurisdiction(f.jurisdiction)} {due ? 'Amount Due' : 'Refund'}
                   </th>
                   <td className="px-2 py-1.5 font-bold text-heading">
                     {money(due ? f.amountDueCents : f.refundCents)}
@@ -1429,6 +1402,22 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
                     ) : (
                       '—'
                     )}
+                    {f.amountSource ? (
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {AMOUNT_SOURCE_LABEL[f.amountSource]}
+                        {f.amountVersion ? ` · v${f.amountVersion}` : ''}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    <button
+                      type="button"
+                      className={textButton}
+                      aria-label={`${f.amountStatus ? 'Edit' : 'Add'} the ${jurisdiction(f.jurisdiction)} amount`}
+                      onClick={() => setEdit(f)}
+                    >
+                      {f.amountStatus ? 'Edit' : 'Add Amount'}
+                    </button>
                   </td>
                 </tr>
               );
@@ -1437,7 +1426,8 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
         </table>
       )}
       <p className="text-xs text-muted">
-        Refund amounts are estimates and not guaranteed. Amounts update after e-file acceptance.
+        Amounts are recorded by staff from the tax software or the agency&apos;s notice; Firmivra
+        does not calculate them. An estimate is not guaranteed.
       </p>
       {edit ? (
         <AmountDialog
@@ -1451,6 +1441,17 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
   );
 }
 
+const AMOUNT_SOURCE_LABEL: Record<TaxAmountSource, string> = {
+  TAX_SOFTWARE: 'Tax software',
+  AGENCY_NOTICE: 'Agency notice',
+  STAFF_ESTIMATE: 'Staff estimate',
+};
+
+/**
+ * Add or Edit Amount (Octavia's TX-F28, F29): a refund or an amount due, never a signed number,
+ * estimated or final, and where it came from. Each change is a new version; clearing the amount
+ * clears it all. The audit log keeps every version.
+ */
 function AmountDialog({
   detail,
   filing,
@@ -1467,13 +1468,15 @@ function AmountDialog({
   const start = (filing.amountDueCents ?? 0) > 0 ? filing.amountDueCents : filing.refundCents;
   const [amount, setAmount] = useState(start === null ? '' : String(start / 100));
   const [status, setStatus] = useState(filing.amountStatus ?? 'ESTIMATED');
+  const [source, setSource] = useState<TaxAmountSource | ''>(filing.amountSource ?? '');
   const cents = amount.trim() === '' ? null : Math.round(Number(amount) * 100);
   const bad = cents !== null && (!Number.isFinite(cents) || cents < 0);
   return (
     <Dialog
-      title={`${jurisdiction(filing.jurisdiction)} Refund or Amount Due`}
+      title={`${filing.amountStatus ? 'Edit' : 'Add'} ${jurisdiction(filing.jurisdiction)} Amount`}
+      {...(filing.amountVersion ? { subtitle: `Now version ${filing.amountVersion}` } : {})}
       confirm="Save"
-      disabled={bad}
+      disabled={bad || (cents !== null && !source)}
       onConfirm={() =>
         void act(
           () =>
@@ -1481,6 +1484,7 @@ function AmountDialog({
               refundCents: kind === 'refund' ? cents : null,
               amountDueCents: kind === 'due' ? cents : null,
               amountStatus: cents === null ? null : status,
+              amountSource: cents === null || !source ? null : source,
             }),
           'Amount saved.',
         ).then((r) => r && onClose())
@@ -1489,7 +1493,7 @@ function AmountDialog({
       testId="amount-dialog"
     >
       <Select
-        label="Type"
+        label="Refund or amount due"
         value={kind}
         onChange={(e) => setKind(e.target.value)}
         options={[
@@ -1513,6 +1517,16 @@ function AmountDialog({
           { value: 'FINAL', label: 'Final' },
         ]}
       />
+      <Select
+        label="Source"
+        value={source}
+        onChange={(e) => setSource(e.target.value as TaxAmountSource | '')}
+        options={[
+          { value: '', label: 'Where the amount came from' },
+          ...Object.entries(AMOUNT_SOURCE_LABEL).map(([value, label]) => ({ value, label })),
+        ]}
+      />
+      <p className="-mt-2 text-xs text-muted">Leave the amount empty to clear it.</p>
     </Dialog>
   );
 }
