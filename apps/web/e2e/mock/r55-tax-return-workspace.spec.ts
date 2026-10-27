@@ -85,8 +85,15 @@ test('E-File: record a transmission and its rejection, then retransmit', async (
     .click();
   await page.getByTestId('ack-dialog').getByLabel('Answer').selectOption('REJECTED');
   await page.getByTestId('ack-dialog').getByLabel('Reject code').fill('R0000-504-02');
+  // TX-F22: a rejection names its agency (the IRS for the federal filing) and the fix.
+  await expect(page.getByTestId('ack-dialog').getByLabel('Rejecting agency')).toHaveValue('IRS');
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Record' })).toBeDisabled();
+  await page
+    .getByTestId('ack-dialog')
+    .getByLabel('Corrective action')
+    .fill('Correct the dependent and transmit again');
   await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
-  await expect(efile.getByTestId('filing-US')).toContainText('R0000-504-02');
+  await expect(efile.getByTestId('filing-US')).toContainText('IRS · R0000-504-02');
   await efile
     .getByTestId('filing-US')
     .getByRole('button', { name: 'Record Retransmission' })

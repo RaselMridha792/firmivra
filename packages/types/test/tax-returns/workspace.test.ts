@@ -11,6 +11,7 @@ import {
   TaxReturnsQuery,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
+  CorrectTaxReturnBusinessIdentityRequest,
 } from '../../src/index.js';
 
 const ID = '0199b6a0-0000-7000-8000-000000000001';
@@ -86,13 +87,23 @@ describe('tax return workspace schemas', () => {
     expect(
       SetTaxReturnFilingsRequest.safeParse({ filings: [{ jurisdiction: 'USA' }] }).success,
     ).toBe(false);
+    // TX-F22: a rejection names the agency and the corrective action.
+    const rejection = {
+      ackStatus: 'REJECTED',
+      acknowledgedAt: AT,
+      rejectingAgency: 'IRS',
+      rejectCode: 'IND-031',
+      correctiveAction: 'Fix the prior-year AGI and transmit again',
+    };
+    expect(UpdateTaxFilingAttemptRequest.safeParse(rejection).success).toBe(true);
+    for (const key of ['rejectingAgency', 'correctiveAction'] as const) {
+      const { [key]: _gone, ...rest } = rejection;
+      expect(UpdateTaxFilingAttemptRequest.safeParse(rest).success).toBe(false);
+    }
     expect(
-      UpdateTaxFilingAttemptRequest.safeParse({
-        ackStatus: 'REJECTED',
-        acknowledgedAt: AT,
-        rejectCode: 'IND-031',
-      }).success,
-    ).toBe(true);
+      UpdateTaxFilingAttemptRequest.safeParse({ ...rejection, rejectingAgency: 'IRS\nGA DOR' })
+        .success,
+    ).toBe(false);
     expect(UpdateTaxFilingAttemptRequest.safeParse({ ackStatus: 'PENDING' }).success).toBe(false);
     expect(
       SetTaxAuthorizationsRequest.safeParse({ items: [{ kind: 'STATE_EFILE' }] }).success,
@@ -124,5 +135,19 @@ describe('api.taxReturnWorkspace', () => {
     await expect(client(fn).get('nope')).rejects.toBeInstanceOf(ApiRequestError);
     await expect(client(fn).updateDetails(ID, {})).rejects.toBeInstanceOf(ApiRequestError);
     expect(calls).toHaveLength(0);
+  });
+
+  it("corrects a business return's own identity: a 9-digit EIN, something changed", () => {
+    expect(
+      CorrectTaxReturnBusinessIdentityRequest.parse({ ein: '00-0004321', name: ' Fake LLC ' }),
+    ).toEqual({ ein: '000004321', name: 'Fake LLC' });
+    expect(CorrectTaxReturnBusinessIdentityRequest.parse({ addressLine2: '' })).toEqual({
+      addressLine2: null,
+    });
+    expect(CorrectTaxReturnBusinessIdentityRequest.safeParse({ ein: '1234' }).success).toBe(false);
+    expect(CorrectTaxReturnBusinessIdentityRequest.safeParse({}).success).toBe(false);
+    expect(CorrectTaxReturnBusinessIdentityRequest.safeParse({ einLast4: '1234' }).success).toBe(
+      false,
+    );
   });
 });

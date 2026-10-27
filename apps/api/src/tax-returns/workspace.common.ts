@@ -99,6 +99,14 @@ export const detailSelect = {
   filedOn: true,
   firstFiledAt: true,
   createdAt: true,
+  // A business return's own copy of the business (#1176); the sealed EIN is never read here.
+  businessName: true,
+  businessEinLast4: true,
+  businessAddressLine1: true,
+  businessAddressLine2: true,
+  businessCity: true,
+  businessState: true,
+  businessPostalCode: true,
   engagement: { select: { id: true, title: true } },
   document: { select: { id: true, fileName: true } },
   amends: { select: { id: true, taxYear: true, formType: true, firstFiledAt: true } },
@@ -212,6 +220,19 @@ export function toDetail(r: DetailSource, names: Map<string, string>): TaxReturn
     document: r.document,
     canMoveTo: canMoveTo(r.workflowStatus),
     blockers: blockersOf(r),
+    businessIdentity:
+      r.filingType === 'BUSINESS'
+        ? {
+            name: r.businessName,
+            einLast4: r.businessEinLast4,
+            addressLine1: r.businessAddressLine1,
+            addressLine2: r.businessAddressLine2,
+            city: r.businessCity,
+            state: r.businessState,
+            postalCode: r.businessPostalCode,
+            correctable: r.firstFiledAt === null,
+          }
+        : null,
     createdAt: r.createdAt.toISOString(),
   };
 }

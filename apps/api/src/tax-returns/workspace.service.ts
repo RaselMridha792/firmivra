@@ -14,12 +14,14 @@ import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { zonedInstant } from '../reports/schedule-math.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { lockClient, memberNames, memberRef, notAMember } from '../workspaces/common.js';
 import { notFound } from './tax-return-rules.js';
 import type {
   AmendBody,
+  BusinessIdentityBody,
   CarryForwardBody,
   CreateReturnBody,
   ReturnsQ,
@@ -68,6 +70,7 @@ export class TaxReturnWorkspaceService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly grants: PermissionGrantsService,
+    private readonly fields: FieldEncryption,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -536,6 +539,78 @@ export class TaxReturnWorkspaceService {
     return out;
   }
 
+  /**
+   * Corrects a business return's own copy of the business until its first filing (Octavia's
+   * TX-F31, F32; Rasel: correctable until first filed, then frozen; the database refuses it
+   * after, 409 RETURN_LOCKED). An individual return has none (400). The EIN is sealed before the
+   * write, in the same context as the profile EIN the database copied at creation (client_profiles,
+   * the client, ein), so every snapshot EIN opens the same way; only its last 4 are kept beside
+   * it. The client's profile is not changed. Audited with the fields, never their values.
+   */
+  async correctBusinessIdentity(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof BusinessIdentityBody>,
+  ): Promise<TaxReturnDetail> {
+    const businessId = tenant.businessId;
+    const before = await this.inFirm(tenant, (tx) => this.find(tx, tenant, userId, id));
+    if (before.filingType !== 'BUSINESS') {
+      throw invalid('Only a business return has a business identity', 'name');
+    }
+    // No KMS call inside a transaction (the house rule since #92): seal first.
+    const ein =
+      body.ein === undefined
+        ? undefined
+        : body.ein === null
+          ? null
+          : {
+              enc: await this.fields.encrypt(
+                {
+                  businessId,
+                  table: 'client_profiles',
+                  recordId: before.client.id,
+                  field: 'ein',
+                },
+                body.ein,
+              ),
+              last4: body.ein.slice(-4),
+            };
+    const changed = Object.keys(body)
+      .filter((k) => (body as Record<string, unknown>)[k] !== undefined)
+      .sort();
+    await this.write(tenant, async (tx) => {
+      const r = await this.find(tx, tenant, userId, id, true);
+      if (r.archivedAt) throw conflict('RETURN_LOCKED', 'Restore the return first');
+      if (r.firstFiledAt) {
+        throw conflict('RETURN_LOCKED', 'A filed return keeps its business identity');
+      }
+      await tx.taxReturn.update({
+        where: { id },
+        data: {
+          ...(body.name !== undefined ? { businessName: body.name } : {}),
+          ...(ein !== undefined
+            ? { businessEinEnc: ein?.enc ?? null, businessEinLast4: ein?.last4 ?? null }
+            : {}),
+          ...(body.addressLine1 !== undefined ? { businessAddressLine1: body.addressLine1 } : {}),
+          ...(body.addressLine2 !== undefined ? { businessAddressLine2: body.addressLine2 } : {}),
+          ...(body.city !== undefined ? { businessCity: body.city } : {}),
+          ...(body.state !== undefined ? { businessState: body.state } : {}),
+          ...(body.postalCode !== undefined ? { businessPostalCode: body.postalCode } : {}),
+          updatedByUserId: userId,
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_return.business_identity_corrected',
+        { type: 'tax_return', id },
+        { fields: changed },
+        { businessId },
+      );
+    });
+    return this.get(tenant, userId, id, false);
+  }
+
   async updateDetails(
     tenant: TenantContext,
     userId: string,
@@ -632,6 +707,26 @@ export class TaxReturnWorkspaceService {
             code: 'REASON_REQUIRED',
             message: 'Say why it goes back a step',
           });
+        }
+        // Octavia's TX-F22: Rejected only once an agency's rejection is recorded on the newest
+        // transmission of one of its filings (agency, code, time and corrective action).
+        if (to === 'REJECTED') {
+          const filings = await tx.taxReturnFiling.findMany({
+            where: { businessId, taxReturnId: id },
+            select: {
+              attempts: {
+                orderBy: { transmittedAt: 'desc' },
+                take: 1,
+                select: { ackStatus: true },
+              },
+            },
+          });
+          if (!filings.some((f) => f.attempts[0]?.ackStatus === 'REJECTED')) {
+            throw conflict(
+              'REJECTION_NOT_RECORDED',
+              "Record the agency's rejection of a transmission first",
+            );
+          }
         }
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
           if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
