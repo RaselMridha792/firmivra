@@ -2592,6 +2592,24 @@ describe('the plan from Services & Pricing (SH9)', () => {
       404,
       'NOT_FOUND',
     );
+    const serviceB = await asOwner(ids.firmB, (tx) =>
+      tx.service.create({
+        data: {
+          businessId: ids.firmB,
+          kind: 'BOOKKEEPING',
+          name: `Fake B bookkeeping ${run}`,
+          status: 'ACTIVE',
+        },
+      }),
+    );
+    expectError(
+      await call('post', '/clients', people.ownerA, {
+        clientId: other.id,
+        catalogServiceId: serviceB.id,
+      }),
+      404,
+      'NOT_FOUND',
+    );
   });
 });
 

@@ -996,6 +996,30 @@ describe('the workspace and its service actions', () => {
       404,
       'NOT_FOUND',
     );
+    ids.serviceB = (
+      await asOwner(ids.firmB, (tx) =>
+        tx.service.create({
+          data: {
+            businessId: ids.firmB,
+            kind: 'PAYROLL',
+            name: `Fake B payroll ${run}`,
+            status: 'ACTIVE',
+          },
+        }),
+      )
+    ).id;
+    try {
+      expectError(
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: ids.serviceB,
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    } finally {
+      // Firm B has no Payroll service elsewhere in this file.
+      await asOwner(ids.firmB, (tx) => tx.service.delete({ where: { id: ids.serviceB } }));
+    }
     expect(
       exact(
         PayrollClientWorkspace,
