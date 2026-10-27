@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  TaxAmountSource,
   TaxApproval,
   TaxAuthorization,
   TaxCheckResult,
@@ -1374,6 +1375,9 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
                   {h}
                 </th>
               ))}
+              <th scope="col" className="px-2 py-1.5">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1382,13 +1386,7 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
               return (
                 <tr key={f.id} className="border-b border-divider">
                   <th scope="row" className="px-2 py-1.5 font-normal">
-                    <button
-                      type="button"
-                      className="text-left hover:text-link hover:underline"
-                      onClick={() => setEdit(f)}
-                    >
-                      {jurisdiction(f.jurisdiction)} {due ? 'Amount Due' : 'Refund'}
-                    </button>
+                    {jurisdiction(f.jurisdiction)} {due ? 'Amount Due' : 'Refund'}
                   </th>
                   <td className="px-2 py-1.5 font-bold text-heading">
                     {money(due ? f.amountDueCents : f.refundCents)}
@@ -1404,6 +1402,22 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
                     ) : (
                       '—'
                     )}
+                    {f.amountSource ? (
+                      <span className="mt-0.5 block text-xs text-muted">
+                        {AMOUNT_SOURCE_LABEL[f.amountSource]}
+                        {f.amountVersion ? ` · v${f.amountVersion}` : ''}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    <button
+                      type="button"
+                      className={textButton}
+                      aria-label={`${f.amountStatus ? 'Edit' : 'Add'} the ${jurisdiction(f.jurisdiction)} amount`}
+                      onClick={() => setEdit(f)}
+                    >
+                      {f.amountStatus ? 'Edit' : 'Add Amount'}
+                    </button>
                   </td>
                 </tr>
               );
@@ -1412,7 +1426,8 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
         </table>
       )}
       <p className="text-xs text-muted">
-        Refund amounts are estimates and not guaranteed. Amounts update after e-file acceptance.
+        Amounts are recorded by staff from the tax software or the agency&apos;s notice; Firmivra
+        does not calculate them. An estimate is not guaranteed.
       </p>
       {edit ? (
         <AmountDialog
@@ -1426,6 +1441,17 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
   );
 }
 
+const AMOUNT_SOURCE_LABEL: Record<TaxAmountSource, string> = {
+  TAX_SOFTWARE: 'Tax software',
+  AGENCY_NOTICE: 'Agency notice',
+  STAFF_ESTIMATE: 'Staff estimate',
+};
+
+/**
+ * Add or Edit Amount (Octavia's TX-F28, F29): a refund or an amount due, never a signed number,
+ * estimated or final, and where it came from. Each change is a new version; clearing the amount
+ * clears it all. The audit log keeps every version.
+ */
 function AmountDialog({
   detail,
   filing,
@@ -1442,13 +1468,15 @@ function AmountDialog({
   const start = (filing.amountDueCents ?? 0) > 0 ? filing.amountDueCents : filing.refundCents;
   const [amount, setAmount] = useState(start === null ? '' : String(start / 100));
   const [status, setStatus] = useState(filing.amountStatus ?? 'ESTIMATED');
+  const [source, setSource] = useState<TaxAmountSource | ''>(filing.amountSource ?? '');
   const cents = amount.trim() === '' ? null : Math.round(Number(amount) * 100);
   const bad = cents !== null && (!Number.isFinite(cents) || cents < 0);
   return (
     <Dialog
-      title={`${jurisdiction(filing.jurisdiction)} Refund or Amount Due`}
+      title={`${filing.amountStatus ? 'Edit' : 'Add'} ${jurisdiction(filing.jurisdiction)} Amount`}
+      {...(filing.amountVersion ? { subtitle: `Now version ${filing.amountVersion}` } : {})}
       confirm="Save"
-      disabled={bad}
+      disabled={bad || (cents !== null && !source)}
       onConfirm={() =>
         void act(
           () =>
@@ -1456,6 +1484,7 @@ function AmountDialog({
               refundCents: kind === 'refund' ? cents : null,
               amountDueCents: kind === 'due' ? cents : null,
               amountStatus: cents === null ? null : status,
+              amountSource: cents === null || !source ? null : source,
             }),
           'Amount saved.',
         ).then((r) => r && onClose())
@@ -1464,7 +1493,7 @@ function AmountDialog({
       testId="amount-dialog"
     >
       <Select
-        label="Type"
+        label="Refund or amount due"
         value={kind}
         onChange={(e) => setKind(e.target.value)}
         options={[
@@ -1488,6 +1517,16 @@ function AmountDialog({
           { value: 'FINAL', label: 'Final' },
         ]}
       />
+      <Select
+        label="Source"
+        value={source}
+        onChange={(e) => setSource(e.target.value as TaxAmountSource | '')}
+        options={[
+          { value: '', label: 'Where the amount came from' },
+          ...Object.entries(AMOUNT_SOURCE_LABEL).map(([value, label]) => ({ value, label })),
+        ]}
+      />
+      <p className="-mt-2 text-xs text-muted">Leave the amount empty to clear it.</p>
     </Dialog>
   );
 }

@@ -5,6 +5,7 @@ import {
   ClientAccountType,
   EsignRequestStatus,
   TaxAckStatus,
+  TaxAmountSource,
   TaxAmountStatus,
   TaxApprovalStatus,
   TaxAuthorizationKind,
@@ -374,6 +375,10 @@ export const TaxReturnFiling = z.object({
   amountDueCents: z.number().int().nullable(),
   /** ESTIMATED until the return is final. */
   amountStatus: TaxAmountStatus.nullable(),
+  /** What staff copied the amount from (Octavia's TX-F28); null without an amount. */
+  amountSource: TaxAmountSource.nullable(),
+  /** 1 for the first amount, one more for each change; null without an amount. */
+  amountVersion: z.number().int().nullable(),
   attempts: z.array(TaxFilingAttempt),
 });
 export type TaxReturnFiling = z.infer<typeof TaxReturnFiling>;
@@ -398,7 +403,11 @@ export const SetTaxReturnFilingsRequest = z.strictObject({
 });
 export type SetTaxReturnFilingsRequest = z.input<typeof SetTaxReturnFilingsRequest>;
 
-/** PATCH /business/tax-returns/{id}/filings/{filingId}: refund or amount due, method, required. */
+/**
+ * PATCH /business/tax-returns/{id}/filings/{filingId}: refund or amount due, method, required. An
+ * amount says where it came from (`amountSource`, 400 without one); each change of the amount
+ * raises its version, and clearing it clears both (TX-F28).
+ */
 export const UpdateTaxReturnFilingRequest = z
   .strictObject({
     required: z.boolean(),
@@ -407,6 +416,7 @@ export const UpdateTaxReturnFilingRequest = z
     refundCents: Cents.nullable(),
     amountDueCents: Cents.nullable(),
     amountStatus: TaxAmountStatus.nullable(),
+    amountSource: TaxAmountSource.nullable(),
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Change something first');

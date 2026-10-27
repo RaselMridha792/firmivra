@@ -386,6 +386,8 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
     refundCents: jurisdiction === 'US' ? 284_200 : 31_600,
     amountDueCents: null,
     amountStatus: sent ? 'FINAL' : 'ESTIMATED',
+    amountSource: sent ? 'TAX_SOFTWARE' : 'STAFF_ESTIMATE',
+    amountVersion: 1,
     attempts: sent
       ? [
           {
@@ -854,6 +856,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               refundCents: null,
               amountDueCents: null,
               amountStatus: null,
+              amountSource: null,
+              amountVersion: null,
               attempts: [],
             })),
         checklist: [],
@@ -1062,6 +1066,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               refundCents: null,
               amountDueCents: null,
               amountStatus: null,
+              amountSource: null,
+              amountVersion: null,
               attempts: [],
             };
       });
@@ -1081,7 +1087,21 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const f = filingOf(r, filingId);
       if (b.filingMethod && f.attempts.length)
         throw fail(409, 'RETURN_LOCKED', 'Already transmitted');
+      // As the API (TX-F28): an amount names its source, and each change is a new version.
+      const amountSent = (
+        ['refundCents', 'amountDueCents', 'amountStatus', 'amountSource'] as const
+      ).some((k) => b[k] !== undefined);
+      const status = b.amountStatus !== undefined ? b.amountStatus : f.amountStatus;
+      const source =
+        status === null ? null : b.amountSource !== undefined ? b.amountSource : f.amountSource;
+      if (amountSent && status !== null && !source) {
+        throw fail(400, 'VALIDATION_FAILED', 'Say where the amount came from');
+      }
       Object.assign(f, b);
+      if (amountSent) {
+        f.amountSource = source;
+        f.amountVersion = status === null ? null : (f.amountVersion ?? 0) + 1;
+      }
       touch(r, 'FILING', `${f.jurisdiction} filing updated`);
       return copy(r.filings);
     },
