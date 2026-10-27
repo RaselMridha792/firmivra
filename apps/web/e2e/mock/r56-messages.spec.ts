@@ -48,7 +48,8 @@ test('New Message: choose a client, write it and see it in the list', async ({ p
   await recipients.getByRole('checkbox', { name: 'Jamie Sample', exact: true }).check();
   await page.getByLabel('Subject (optional)').fill('Welcome aboard');
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Glad to have you.');
-  await page.getByRole('button', { name: 'Send Message' }).click();
+  await page.getByRole('button', { name: 'Review and Send' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Message' }).click();
   await expect(page.getByTestId('compose-outcome')).toContainText('Message sent');
   await page.getByRole('link', { name: 'Open conversation' }).click();
   await expect(page.getByTestId('conversation')).toContainText('Glad to have you.');

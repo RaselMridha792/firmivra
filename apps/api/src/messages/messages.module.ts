@@ -13,13 +13,14 @@ import { OutboundMessagesController } from './outbound.controller.js';
 import { OutboundMessagesJob } from './outbound.job.js';
 import { OutboundMessagesService } from './outbound.service.js';
 import { PortalTabsModule } from '../client-portal/portal-tabs.js';
+import { TemplatesModule } from '../templates/templates.module.js';
 
 /**
  * Messages and notes (R20): firm threads, the portal's messages, read state and counts; New
  * Message's drafts, schedules and sends (R60).
  */
 @Module({
-  imports: [NotificationsModule, PortalTabsModule],
+  imports: [NotificationsModule, PortalTabsModule, TemplatesModule],
   controllers: [
     ClientMessageThreadsController,
     MessageThreadsController,
