@@ -21,6 +21,7 @@ import {
   UpdateTaxReturnDetailsRequest,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
+  CorrectTaxReturnBusinessIdentityRequest,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { badTextPaths } from '../workspaces/input.js';
@@ -40,6 +41,7 @@ export const ReturnsQ = clean(TaxReturnsQuery);
 export const SummaryQ = clean(TaxReturnSummaryQuery);
 export const CreateReturnBody = clean(CreateWorkspaceTaxReturnRequest);
 export const UpdateDetailsBody = clean(UpdateTaxReturnDetailsRequest);
+export const BusinessIdentityBody = clean(CorrectTaxReturnBusinessIdentityRequest);
 export const StatusBody = clean(ChangeTaxReturnStatusRequest);
 export const AmendBody = clean(AmendTaxReturnRequest);
 export const CarryForwardBody = clean(CarryForwardTaxReturnRequest);

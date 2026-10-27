@@ -230,14 +230,69 @@ describe('filings', () => {
       ['CA', true, 'PAPER'],
     ]);
     const us = set.items[0]!.id;
-    const amounts = ok(
+    // TX-F28: an amount names its source, and each change of it is a new version.
+    expectError(
       await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
         refundCents: 150000,
         amountStatus: 'ESTIMATED',
       }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const amounts = ok(
+      await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
+        refundCents: 150000,
+        amountStatus: 'ESTIMATED',
+        amountSource: 'STAFF_ESTIMATE',
+      }),
       TaxReturnFilingList,
     );
-    expect(amounts.items[0]).toMatchObject({ refundCents: 150000, amountStatus: 'ESTIMATED' });
+    expect(amounts.items[0]).toMatchObject({
+      refundCents: 150000,
+      amountStatus: 'ESTIMATED',
+      amountSource: 'STAFF_ESTIMATE',
+      amountVersion: 1,
+    });
+    const final = ok(
+      await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
+        refundCents: 148250,
+        amountStatus: 'FINAL',
+        amountSource: 'TAX_SOFTWARE',
+      }),
+      TaxReturnFilingList,
+    );
+    expect(final.items[0]).toMatchObject({
+      refundCents: 148250,
+      amountStatus: 'FINAL',
+      amountSource: 'TAX_SOFTWARE',
+      amountVersion: 2,
+    });
+    const required = ok(
+      await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, { required: true }),
+      TaxReturnFilingList,
+    );
+    expect(required.items[0]).toMatchObject({ amountSource: 'TAX_SOFTWARE', amountVersion: 2 });
+    const cleared = ok(
+      await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
+        refundCents: null,
+        amountStatus: null,
+      }),
+      TaxReturnFilingList,
+    );
+    expect(cleared.items[0]).toMatchObject({
+      refundCents: null,
+      amountStatus: null,
+      amountSource: null,
+      amountVersion: null,
+    });
+    ok(
+      await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
+        refundCents: 150000,
+        amountStatus: 'ESTIMATED',
+        amountSource: 'STAFF_ESTIMATE',
+      }),
+      TaxReturnFilingList,
+    );
     expectError(
       await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, { amountDueCents: 100 }),
       400,
@@ -300,15 +355,41 @@ describe('filings', () => {
       TaxReturnDetail,
     );
     const attempt = t1.items[0]!.attempts[0]!.id;
-    const rejected = ok(
+    // TX-F22: Rejected waits for a recorded rejection, which names its agency and the fix.
+    expectError(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'REJECTED' }),
+      409,
+      'REJECTION_NOT_RECORDED',
+    );
+    expectError(
       await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
         ackStatus: 'REJECTED',
         acknowledgedAt: ago(10),
         rejectCode: 'IND-031',
+        correctiveAction: 'Fix the prior-year AGI',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const rejected = ok(
+      await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
+        ackStatus: 'REJECTED',
+        acknowledgedAt: ago(10),
+        rejectingAgency: 'IRS',
+        rejectCode: 'IND-031',
+        correctiveAction: 'Fix the prior-year AGI',
       }),
       TaxReturnFilingList,
     );
-    expect(rejected.items[0]).toMatchObject({ status: 'REJECTED' });
+    expect(rejected.items[0]).toMatchObject({
+      status: 'REJECTED',
+      attempts: [{ ackStatus: 'REJECTED', rejectingAgency: 'IRS', rejectCode: 'IND-031' }],
+    });
+    const moved = ok(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'REJECTED' }),
+      TaxReturnDetail,
+    );
+    expect(moved.workflowStatus).toBe('REJECTED');
     expectError(
       await call('patch', `/tax-returns/${id}/attempts/${attempt}`, staffA, {
         ackStatus: 'ACCEPTED',
@@ -346,7 +427,15 @@ describe('filings', () => {
       TaxReturnFilingList,
     );
     expect(accepted.items[0]).toMatchObject({ status: 'ACCEPTED' });
+    // TX-F24: the retransmission is a new attempt; the rejected one stays with its answer.
     expect(accepted.items[0]!.attempts).toHaveLength(2);
+    expect(accepted.items[0]!.attempts[1]).toMatchObject({
+      id: attempt,
+      submissionId: 'SUB-001',
+      ackStatus: 'REJECTED',
+      rejectingAgency: 'IRS',
+      correctiveAction: 'Fixed the prior-year AGI',
+    });
     const done = ok(
       await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'ACCEPTED' }),
       TaxReturnDetail,

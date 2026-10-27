@@ -235,6 +235,7 @@ describe('SendingNotifyService', () => {
       'document.requested-sms',
       'lead.message-sms',
       'platform.message-sms',
+      'staff.phone-code',
     ]);
     for (const t of ALWAYS_SENT) expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
     expect(Object.keys(TEMPLATE_CATEGORY).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());

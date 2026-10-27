@@ -20,6 +20,7 @@ import { TaxReturnReviewService } from './review.service.js';
 import { TaxReturnWorkspaceController } from './workspace.controller.js';
 import { TaxReturnWorkspaceService } from './workspace.service.js';
 import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
+import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 
 const clientIdPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(TaxReturnId);
@@ -113,7 +114,8 @@ export class MyTaxReturnsController {
 
 @Module({
   // The export writes under the firm's reports prefix (ReportsModule's file store).
-  imports: [ReportsModule, PortalTabsModule],
+  // FieldEncryption seals a business return's corrected EIN.
+  imports: [ReportsModule, PortalTabsModule, FieldEncryptionModule],
   // The workspace (R55) first: its static routes (summary) before any ':id'.
   controllers: [
     TaxReturnWorkspaceController,
