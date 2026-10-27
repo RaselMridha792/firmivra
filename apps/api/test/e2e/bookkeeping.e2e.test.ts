@@ -28,6 +28,7 @@ import {
   BookkeepingPeriod,
   BookkeepingPeriodList,
   BookkeepingReconciliation,
+  BookkeepingReconciliationItems,
   BookkeepingReconciliationList,
   BookkeepingReportPage,
   BookkeepingReportRow,
@@ -66,6 +67,7 @@ const clients = {
   recon: '',
   reports: '',
   rules: '',
+  ledger: '',
 };
 
 let app: INestApplication;
@@ -299,7 +301,7 @@ beforeAll(async () => {
     });
     clients.other = await mk('Fake Walker Properties', { assignedUserId: people.staffA.id });
     clients.bare = await mk('Fake Bare Client');
-    for (const key of ['conn', 'close', 'recon', 'reports', 'rules'] as const) {
+    for (const key of ['conn', 'close', 'recon', 'reports', 'rules', 'ledger'] as const) {
       clients[key] = await mk(`Fake ${key} client`, { assignedUserId: people.staffA.id });
     }
   });
@@ -2655,6 +2657,185 @@ describe('transactions and categories (BK-T01, read side)', () => {
     ]);
     expect(await auditActions(bk)).toEqual(
       expect.arrayContaining(['bookkeeping.transactions.listed', 'bookkeeping.categories.listed']),
+    );
+  });
+});
+
+describe('reconciliation from the ledger (BK-R01)', () => {
+  it('clears ledger lines, works out the cleared balance, difference and exceptions, and approves only at zero', async () => {
+    const bk = await bkFor(clients.ledger);
+    const p = await mkPeriod(bk);
+    await call('post', `/periods/${p.id}/start`, people.staffA, {});
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const bank = await mkAccount(bk, { name: 'Fake ledger checking', type: 'BANK' });
+    const card = await mkAccount(bk, { name: 'Fake ledger card', type: 'CREDIT_CARD' });
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const at = (offset: number) =>
+      new Date(Date.parse(`${p.periodStart}T00:00:00.000Z`) + offset * 86_400_000);
+    const line = (
+      accountId: string,
+      offset: number,
+      cents: number,
+      direction: 'DEBIT' | 'CREDIT',
+      extra: object = {},
+    ) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId,
+            transactionDate: at(offset),
+            description: `Fake line ${offset}`,
+            amountCents: cents,
+            direction,
+            source: 'MANUAL',
+            ...extra,
+          },
+          select: { id: true },
+        }),
+      );
+    const deposit = await line(bank.id, 0, 50_000, 'CREDIT');
+    const rent = await line(bank.id, 4, 20_000, 'DEBIT');
+    const unsure = await line(bank.id, 9, 5_000, 'DEBIT', {
+      status: 'NEEDS_REVIEW',
+      duplicateOfId: rent.id,
+    });
+    const excluded = await line(bank.id, 11, 1_000, 'DEBIT', {
+      status: 'EXCLUDED',
+      excludedReason: 'Fake personal charge',
+    });
+    const later = await line(bank.id, 60, 3_000, 'DEBIT');
+    const onCard = await line(card.id, 2, 700, 'DEBIT');
+
+    const recons = `/periods/${p.id}/reconciliations`;
+    const start = {
+      accountId: bank.id,
+      statementStart: p.periodStart,
+      statementEnd: p.periodEnd,
+      beginningBalanceCents: 100_000,
+      endingBalanceCents: 125_000,
+    };
+    // Typed cleared figures are refused once the account has ledger lines.
+    expectError(
+      await call('post', recons, people.staffA, { ...start, clearedBalanceCents: 125_000 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', recons, people.staffA, start),
+      201,
+    );
+    expect(r).toMatchObject({
+      clearedCount: 0,
+      clearedBalanceCents: 100_000,
+      differenceCents: 25_000,
+      exceptionsCount: 1,
+    });
+    const items = `/reconciliations/${r.id}/items`;
+    const listed = exact(BookkeepingReconciliationItems, await call('get', items, people.staffA));
+    // Oldest first; the excluded line and the line after the statement end are not offered.
+    expect(listed.items.map((i) => i.id)).toEqual([deposit.id, rent.id, unsure.id]);
+    expect(listed.items.map((i) => i.effectCents)).toEqual([50_000, -20_000, -5_000]);
+    // A probable duplicate is an exception; a line still to categorize is not.
+    expect(listed.items.map((i) => i.exception)).toEqual([null, null, 'DUPLICATE']);
+    expect(listed).toMatchObject({ fromLedger: true, truncated: false, differenceCents: 25_000 });
+
+    const clear = (transactionIds: string[], cleared = true, who: Who = people.staffA) =>
+      call('post', items, who, { transactionIds, cleared });
+    expect(exact(BookkeepingReconciliation, await clear([deposit.id, rent.id]))).toMatchObject({
+      clearedCount: 2,
+      clearedBalanceCents: 130_000,
+      differenceCents: -5_000,
+    });
+    expectError(await clear([excluded.id]), 409, 'RECON_STATE');
+    expectError(await clear([later.id]), 409, 'RECON_STATE');
+    expectError(await clear([onCard.id]), 409, 'NOT_THIS_CLIENTS');
+    expectError(await clear([randomUUID()]), 409, 'NOT_THIS_CLIENTS');
+    expectError(await clear([rent.id, rent.id]), 400, 'VALIDATION_FAILED');
+    expectError(await clear([deposit.id], true, people.staff2A), 404, 'NOT_FOUND');
+    expectError(
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, { clearedCount: 9 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    // A difference blocks approval, and a reconciliation in review cannot change.
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_DIFFERENCE',
+    );
+    expectError(await clear([unsure.id]), 409, 'RECON_STATE');
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: the rent cheque is outstanding',
+    });
+
+    expect(exact(BookkeepingReconciliation, await clear([unsure.id]))).toMatchObject({
+      clearedCount: 3,
+      differenceCents: 0,
+    });
+    // Cleared lines cannot fall after a new statement end.
+    expectError(
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, {
+        statementEnd: at(5).toISOString().slice(0, 10),
+      }),
+      409,
+      'RECON_STATE',
+    );
+    // An open exception blocks approval at zero; once resolved, the zero difference approves.
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_STATE',
+    );
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.update({
+        where: { id: unsure.id },
+        data: { duplicateOfId: null },
+      }),
+    );
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      ),
+    ).toMatchObject({ status: 'APPROVED', differenceCents: 0, exceptionsCount: 0 });
+
+    // Unclearing works the figures back out (after a reopen).
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: recheck the deposit',
+    });
+    expect(exact(BookkeepingReconciliation, await clear([deposit.id], false))).toMatchObject({
+      clearedCount: 2,
+      clearedBalanceCents: 75_000,
+      differenceCents: 50_000,
+    });
+
+    // Firm B cannot see or change firm A's reconciliation.
+    expectError(await call('get', items, people.ownerB, undefined, ids.firmB), 404, 'NOT_FOUND');
+    expectError(
+      await call(
+        'post',
+        items,
+        people.ownerB,
+        { transactionIds: [deposit.id], cleared: true },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expect(await auditActions(r.id)).toEqual(
+      expect.arrayContaining([
+        'bookkeeping.reconciliation.items_listed',
+        'bookkeeping.reconciliation.items_cleared',
+        'bookkeeping.reconciliation.items_uncleared',
+      ]),
     );
   });
 });

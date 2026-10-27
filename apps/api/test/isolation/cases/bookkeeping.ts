@@ -209,6 +209,31 @@ export const records: CaseModule['records'] = {
   },
   bookkeepingReconciliation: reconciliation('IN_PROGRESS'),
   bookkeepingReconciliationReady: reconciliation('READY_FOR_REVIEW'),
+  /** BK-R01: a reconciliation whose account has ledger lines, and one of its lines. */
+  bookkeepingLedgerReconciliation: reconciliation('IN_PROGRESS'),
+  bookkeepingReconLine: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const recon = await tx.bookkeepingReconciliation.findFirstOrThrow({
+        where: { businessId, id: await get('bookkeepingLedgerReconciliation') },
+        select: { accountId: true },
+      });
+      return (
+        await tx.bookkeepingTransaction.create({
+          data: {
+            businessId,
+            engagementId: await get('workspace'),
+            accountId: recon.accountId,
+            transactionDate: new Date('2030-01-15T00:00:00.000Z'),
+            description: 'Fake reconciliation line',
+            amountCents: 4000,
+            direction: 'CREDIT',
+            source: 'MANUAL',
+          },
+        })
+      ).id;
+    },
+  },
   bookkeepingReport: report('NOT_STARTED'),
   bookkeepingReportStarted: report('IN_PROGRESS'),
   bookkeepingReportReview: report('IN_REVIEW'),
@@ -342,6 +367,13 @@ export const cases: CaseModule['cases'] = {
     params: recon,
     bodyIds: { statementDocumentId: 'workspaceDocument' },
     body: { clearedBalanceCents: 4_000 },
+  },
+  // BK-R01: the lines a reconciliation clears.
+  [`GET ${BASE}/reconciliations/:id/items`]: { params: recon },
+  [`POST ${BASE}/reconciliations/:id/items`]: {
+    params: { id: 'bookkeepingLedgerReconciliation' },
+    bodyIds: { transactionIds: 'bookkeepingReconLine' },
+    body: { cleared: true },
   },
   [`POST ${BASE}/reconciliations/:id/ready`]: { params: recon },
   [`POST ${BASE}/reconciliations/:id/approve`]: {

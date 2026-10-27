@@ -19,6 +19,7 @@ import {
   BookkeepingStatusRequest,
   ConnectBookkeepingRequest,
   CreateBookkeepingPeriodRequest,
+  ClearBookkeepingReconciliationItemsRequest,
   CreateBookkeepingReconciliationRequest,
   DEFAULT_CLOSE_CHECKLIST,
   DeliverBookkeepingReportRequest,
@@ -338,6 +339,67 @@ export function createBookkeepingMock({
       reopenReason: null,
       updatedAt: nowIso(),
     };
+  };
+  // BK-R01: which reconciliation each ledger line was cleared in, and the figures it gives.
+  const clearedIn = new Map<string, string>();
+  const reconAt = (rid: string) => {
+    const p = [...periods.values()].find((x) => x.reconciliations.some((r) => r.id === rid));
+    const r = p?.reconciliations.find((x) => x.id === rid);
+    if (!p || !r) throw fail(404, 'NOT_FOUND', 'That reconciliation was not found.');
+    return { p, r };
+  };
+  const accountType = (p: BookkeepingPeriod, r: BookkeepingReconciliation) =>
+    findClient(p.bookkeepingClientId).accounts.find((a) => a.id === r.account.id)?.type ??
+    r.account.type;
+  const effect = (type: BookkeepingAccount['type'], direction: string, cents: number) =>
+    (type === 'CREDIT_CARD' || type === 'LOAN') === (direction === 'DEBIT') ? cents : -cents;
+  const reconLines = (p: BookkeepingPeriod, r: BookkeepingReconciliation) => {
+    const all = ledgerOf(findClient(p.bookkeepingClientId)).filter(
+      (t) => t.account.id === r.account.id,
+    );
+    // A matched feed item is the same money as the line it matched.
+    const scope = all.filter(
+      (t) =>
+        t.transactionDate <= r.statementEnd &&
+        t.status !== 'EXCLUDED' &&
+        t.status !== 'MATCHED' &&
+        (clearedIn.get(t.id) ?? r.id) === r.id,
+    );
+    return { all, scope };
+  };
+  const figuresOf = (p: BookkeepingPeriod, r: BookkeepingReconciliation) => {
+    const { all, scope } = reconLines(p, r);
+    if (!all.length) return null;
+    const type = accountType(p, r);
+    const cleared = scope.filter((t) => clearedIn.get(t.id) === r.id);
+    const clearedBalanceCents =
+      r.beginningBalanceCents +
+      cleared.reduce((sum, t) => sum + effect(type, t.direction, t.amountCents), 0);
+    return {
+      clearedCount: cleared.length,
+      clearedBalanceCents,
+      differenceCents: r.endingBalanceCents - clearedBalanceCents,
+      exceptionsCount: 0,
+    };
+  };
+  const applyFigures = (p: BookkeepingPeriod, r: BookkeepingReconciliation) => {
+    const f = figuresOf(p, r);
+    if (!f) return;
+    Object.assign(r, f);
+    r.withinTolerance = f.differenceCents === 0;
+  };
+  const typedRefused = (input: {
+    clearedBalanceCents?: number | undefined;
+    clearedCount?: number | undefined;
+    exceptionsCount?: number | undefined;
+  }) => {
+    for (const key of ['clearedBalanceCents', 'clearedCount', 'exceptionsCount'] as const)
+      if (input[key] !== undefined)
+        throw fail(
+          400,
+          'VALIDATION_FAILED',
+          'This account has ledger lines: the figure comes from the lines cleared.',
+        );
   };
   const reportRow = (
     c: Ws,
@@ -1573,6 +1635,60 @@ export function createBookkeepingMock({
       }),
 
     reconciliations: (pid) => run(() => ({ items: findPeriod(pid).reconciliations })),
+    // BK-R01: the ledger lines a reconciliation clears, as the API lists them.
+    reconciliationItems: (rid) =>
+      run(() => {
+        const { p, r } = reconAt(rid);
+        const { all, scope } = reconLines(p, r);
+        const type = accountType(p, r);
+        const f = figuresOf(p, r);
+        return {
+          items: [...scope]
+            .sort((a, b) => (a.transactionDate < b.transactionDate ? -1 : 1))
+            .map((t) => ({
+              id: t.id,
+              transactionDate: t.transactionDate,
+              description: t.description,
+              payee: t.payee,
+              amountCents: t.amountCents,
+              direction: t.direction,
+              kind: t.kind,
+              status: t.status,
+              effectCents: effect(type, t.direction, t.amountCents),
+              cleared: clearedIn.get(t.id) === r.id,
+              exception: null,
+            })),
+          truncated: false,
+          fromLedger: all.length > 0,
+          ...(f ?? {
+            clearedCount: r.clearedCount,
+            clearedBalanceCents: r.clearedBalanceCents,
+            differenceCents: r.differenceCents,
+            exceptionsCount: r.exceptionsCount,
+          }),
+        };
+      }),
+    clearReconciliationItems: (rid, body) =>
+      run(() => {
+        const input = parseInput(ClearBookkeepingReconciliationItemsRequest, body);
+        const { p, r } = reconAt(rid);
+        locked(p);
+        if (r.status !== 'IN_PROGRESS' && r.status !== 'REOPENED')
+          throw fail(409, 'RECON_STATE', 'Reopen this reconciliation to change it.');
+        const { all, scope } = reconLines(p, r);
+        if (!input.transactionIds.every((t) => all.some((x) => x.id === t)))
+          throw fail(409, 'NOT_THIS_CLIENTS', 'That belongs to another client.');
+        if (!input.transactionIds.every((t) => scope.some((x) => x.id === t)))
+          throw fail(409, 'RECON_STATE', 'That line cannot be cleared here.');
+        for (const t of scope.filter((x) => input.transactionIds.includes(x.id))) {
+          if (input.cleared) clearedIn.set(t.id, r.id);
+          else clearedIn.delete(t.id);
+          t.cleared = input.cleared;
+        }
+        applyFigures(p, r);
+        r.updatedAt = nowIso();
+        return r;
+      }),
     createReconciliation: (pid, body) =>
       run(() => {
         const input = parseInput(CreateBookkeepingReconciliationRequest, body);
@@ -1595,6 +1711,8 @@ export function createBookkeepingMock({
         );
         r.clearedCount = input.clearedCount ?? 0;
         r.exceptionsCount = input.exceptionsCount ?? 0;
+        if (reconLines(p, r).all.length) typedRefused(input);
+        applyFigures(p, r);
         p.reconciliations.push(r);
         p.accountsWithoutReconciliation = p.accountsWithoutReconciliation.filter(
           (x) => x.id !== a.id,
@@ -1628,6 +1746,17 @@ export function createBookkeepingMock({
         if (input.exceptionsCount !== undefined) r.exceptionsCount = input.exceptionsCount;
         r.differenceCents = r.endingBalanceCents - r.clearedBalanceCents;
         r.withinTolerance = r.differenceCents === 0;
+        if (reconLines(p, r).all.length) {
+          typedRefused(input);
+          const end = r.statementEnd;
+          if (
+            ledgerOf(findClient(p.bookkeepingClientId)).some(
+              (t) => clearedIn.get(t.id) === r.id && t.transactionDate > end,
+            )
+          )
+            throw fail(409, 'RECON_STATE', 'Lines after the new statement end are cleared.');
+          applyFigures(p, r);
+        }
         r.updatedAt = nowIso();
         return r;
       }),
@@ -1648,7 +1777,11 @@ export function createBookkeepingMock({
         if (!r) throw fail(404, 'NOT_FOUND', 'That reconciliation was not found.');
         if (r.status !== 'READY_FOR_REVIEW')
           throw fail(409, 'RECON_STATE', 'Only a reconciliation in review can be approved.');
+        const { p } = reconAt(rid);
+        applyFigures(p, r);
         if (!r.withinTolerance) throw fail(409, 'RECON_DIFFERENCE', 'The difference must be zero.');
+        if (r.exceptionsCount > 0)
+          throw fail(409, 'RECON_STATE', 'Resolve the open exceptions first.');
         r.status = 'APPROVED';
         r.approvedAt = nowIso();
         r.approvedBy = mockMe;
@@ -1662,9 +1795,14 @@ export function createBookkeepingMock({
         const r = p?.reconciliations.find((x) => x.id === rid);
         if (!p || !r) throw fail(404, 'NOT_FOUND', 'That reconciliation was not found.');
         locked(p);
-        if (r.status !== 'APPROVED')
-          throw fail(409, 'RECON_STATE', 'Only an approved reconciliation can be reopened.');
+        if (r.status !== 'APPROVED' && r.status !== 'READY_FOR_REVIEW')
+          throw fail(
+            409,
+            'RECON_STATE',
+            'Only a reconciliation in review or approved can be reopened.',
+          );
         r.status = 'REOPENED';
+        r.readyForReviewAt = null;
         r.reopenedAt = nowIso();
         r.reopenReason = input.reason;
         r.approvedAt = null;

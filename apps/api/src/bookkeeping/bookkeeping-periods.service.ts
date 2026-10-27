@@ -5,7 +5,9 @@ import type {
   BookkeepingPeriodList,
   BookkeepingPeriodsQuery,
   BookkeepingReconciliation,
+  BookkeepingReconciliationItems,
   BookkeepingReconciliationList,
+  ClearBookkeepingReconciliationItemsRequest,
   CreateBookkeepingPeriodRequest,
   CreateBookkeepingReconciliationRequest,
   UpdateBookkeepingCloseItemRequest,
@@ -46,6 +48,14 @@ import {
   toDay,
 } from './bookkeeping.shared.js';
 import {
+  effectOf,
+  exceptionOf,
+  hasLedger,
+  type LedgerFigures,
+  ledgerFigures,
+  reconScope,
+} from './bookkeeping-reconciliation-ledger.js';
+import {
   BookkeepingStatusService,
   closeChecklistOf,
   readSettings,
@@ -75,6 +85,25 @@ type PeriodRow = Prisma.BookkeepingPeriodGetPayload<{ select: typeof detailSelec
  * locks a closed period and everything in it; the services check the same rules first so the
  * answer is a clear 409 and never a database error.
  */
+/** At most this many lines in a reconciliation's list. */
+const ITEMS_LIMIT = 500;
+
+/** With ledger lines, the cleared figures and exceptions are worked out, never typed. */
+function typedFiguresRefused(body: {
+  clearedBalanceCents?: number | undefined;
+  clearedCount?: number | undefined;
+  exceptionsCount?: number | undefined;
+}) {
+  for (const key of ['clearedBalanceCents', 'clearedCount', 'exceptionsCount'] as const) {
+    if (body[key] !== undefined) {
+      throw errors.invalid(
+        key,
+        'This account has ledger lines: the figure comes from the lines cleared',
+      );
+    }
+  }
+}
+
 @Injectable()
 export class BookkeepingPeriodsService {
   constructor(
@@ -598,10 +627,13 @@ export class BookkeepingPeriodsService {
           engagementId: found.engagementId,
           archivedAt: null,
         },
-        select: { id: true },
+        select: { id: true, type: true },
       });
       if (!account) throw errors.notThisClients('account');
       await this.checkStatement(tx, businessId, found.engagementId, body.statementDocumentId);
+      // BK-R01: an account with ledger lines takes its figures from the lines cleared.
+      const ledger = await hasLedger(tx, businessId, found.engagementId, account.id);
+      if (ledger) typedFiguresRefused(body);
       const cleared = body.clearedBalanceCents ?? 0;
       let created;
       try {
@@ -628,6 +660,16 @@ export class BookkeepingPeriodsService {
         if (isUniqueViolation(e))
           throw errors.duplicate('This account already has a reconciliation for the period');
         return mapBookkeepingDbError(e);
+      }
+      if (ledger) {
+        const figures = await ledgerFigures(tx, businessId, found.engagementId, {
+          id: created.id,
+          statementEnd: toDay(body.statementEnd),
+          beginningBalanceCents: body.beginningBalanceCents,
+          endingBalanceCents: body.endingBalanceCents,
+          account,
+        });
+        await tx.bookkeepingReconciliation.update({ where: { id: created.id }, data: figures });
       }
       await addActivity(
         tx,
@@ -662,6 +704,7 @@ export class BookkeepingPeriodsService {
       engagementId: string,
     ) => Promise<Prisma.BookkeepingReconciliationUncheckedUpdateInput>,
     summary?: (periodLabel: string) => string,
+    metadata: Record<string, string | number | boolean> = {},
   ): Promise<BookkeepingReconciliation> {
     await inFirm(this.database, businessId, async (tx) => {
       const found = await this.findRecon(tx, businessId, actor, id);
@@ -691,7 +734,7 @@ export class BookkeepingPeriodsService {
         tx,
         `bookkeeping.reconciliation.${action}`,
         { type: 'bookkeeping_reconciliation', id },
-        { clientId: profile.engagement.clientId },
+        { clientId: profile.engagement.clientId, ...metadata },
       );
     });
     return this.getReconciliation(businessId, actor, id);
@@ -727,6 +770,29 @@ export class BookkeepingPeriodsService {
       if (body.exceptionsCount !== undefined) data.exceptionsCount = body.exceptionsCount;
       if (body.statementDocumentId !== undefined)
         data.statementDocumentId = body.statementDocumentId;
+      // BK-R01: with ledger lines, the figures come from the lines cleared; none may fall after
+      // a new statement end.
+      if (await hasLedger(tx, businessId, engagementId, r.account.id)) {
+        typedFiguresRefused(body);
+        const later = await tx.bookkeepingTransaction.count({
+          where: { businessId, clearedReconciliationId: r.id, transactionDate: { gt: toDay(end) } },
+        });
+        if (later > 0) {
+          throw errors.reconState(
+            'Lines after the new statement end are cleared. Unclear them first',
+          );
+        }
+        Object.assign(
+          data,
+          await ledgerFigures(tx, businessId, engagementId, {
+            id: r.id,
+            statementEnd: toDay(end),
+            beginningBalanceCents: body.beginningBalanceCents ?? r.beginningBalanceCents,
+            endingBalanceCents: ending,
+            account: r.account,
+          }),
+        );
+      }
       return data;
     });
   }
@@ -753,13 +819,24 @@ export class BookkeepingPeriodsService {
       actor,
       id,
       'approved',
-      async (_tx, r) => {
+      async (tx, r, engagementId) => {
         if (r.status !== 'READY_FOR_REVIEW') {
           throw errors.reconState('The reconciliation is not waiting for review');
         }
-        if (r.differenceCents !== 0) throw errors.reconDifference();
-        if (r.exceptionsCount > 0) throw errors.reconState('Resolve the open exceptions first');
-        return { status: 'APPROVED', approvedAt: new Date(), approvedBy: actor.userId };
+        // BK-R01: the ledger may have changed since the last save; approve on today's figures.
+        const figures: Partial<LedgerFigures> = (await hasLedger(
+          tx,
+          businessId,
+          engagementId,
+          r.account.id,
+        ))
+          ? await ledgerFigures(tx, businessId, engagementId, r)
+          : {};
+        if ((figures.differenceCents ?? r.differenceCents) !== 0) throw errors.reconDifference();
+        if ((figures.exceptionsCount ?? r.exceptionsCount) > 0) {
+          throw errors.reconState('Resolve the open exceptions first');
+        }
+        return { ...figures, status: 'APPROVED', approvedAt: new Date(), approvedBy: actor.userId };
       },
       (l) => `Reconciliation for ${l} approved`,
     );
@@ -788,6 +865,114 @@ export class BookkeepingPeriodsService {
         };
       },
       (l) => `Reconciliation for ${l} reopened`,
+    );
+  }
+
+  // ---------- BK-R01: the lines a reconciliation clears ----------
+
+  async reconciliationItems(
+    businessId: string,
+    actor: BookkeepingActor,
+    id: string,
+  ): Promise<BookkeepingReconciliationItems> {
+    const result = await inFirm(this.database, businessId, async (tx) => {
+      const r = await this.findRecon(tx, businessId, actor, id);
+      const engagementId = r.period.engagementId;
+      const fromLedger = await hasLedger(tx, businessId, engagementId, r.account.id);
+      const rows = await tx.bookkeepingTransaction.findMany({
+        where: reconScope(businessId, engagementId, r),
+        select: {
+          id: true,
+          transactionDate: true,
+          description: true,
+          payee: true,
+          amountCents: true,
+          direction: true,
+          kind: true,
+          status: true,
+          duplicateOfId: true,
+          clearedReconciliationId: true,
+        },
+        orderBy: [{ transactionDate: 'asc' }, { id: 'asc' }],
+        take: ITEMS_LIMIT + 1,
+      });
+      const figures: LedgerFigures = fromLedger
+        ? await ledgerFigures(tx, businessId, engagementId, r)
+        : {
+            clearedCount: r.clearedCount,
+            clearedBalanceCents: r.clearedBalanceCents,
+            differenceCents: r.differenceCents,
+            exceptionsCount: r.exceptionsCount,
+          };
+      return {
+        items: rows.slice(0, ITEMS_LIMIT).map((t) => ({
+          id: t.id,
+          transactionDate: isoDay(t.transactionDate),
+          description: t.description,
+          payee: t.payee,
+          amountCents: t.amountCents,
+          direction: t.direction,
+          kind: t.kind,
+          status: t.status,
+          effectCents: effectOf(r.account.type, t.direction, t.amountCents),
+          cleared: t.clearedReconciliationId === r.id,
+          exception: exceptionOf(t),
+        })),
+        truncated: rows.length > ITEMS_LIMIT,
+        fromLedger,
+        ...figures,
+      };
+    });
+    await this.audit.log(
+      'bookkeeping.reconciliation.items_listed',
+      { type: 'bookkeeping_reconciliation', id },
+      { count: result.items.length },
+    );
+    return result;
+  }
+
+  clearReconciliationItems(
+    businessId: string,
+    actor: BookkeepingActor,
+    id: string,
+    body: z.output<typeof ClearBookkeepingReconciliationItemsRequest>,
+  ) {
+    return this.reconAct(
+      businessId,
+      actor,
+      id,
+      body.cleared ? 'items_cleared' : 'items_uncleared',
+      async (tx, r, engagementId) => {
+        if (r.status !== 'IN_PROGRESS' && r.status !== 'REOPENED') {
+          throw errors.reconState('Reopen the reconciliation to change it');
+        }
+        const ids = body.transactionIds;
+        const own = await tx.bookkeepingTransaction.count({
+          where: { businessId, engagementId, accountId: r.account.id, id: { in: ids } },
+        });
+        if (own !== ids.length) throw errors.notThisClients('transaction');
+        const inScope = await tx.bookkeepingTransaction.count({
+          where: { AND: [reconScope(businessId, engagementId, r), { id: { in: ids } }] },
+        });
+        if (inScope !== ids.length) {
+          throw errors.reconState(
+            'A line is excluded, after the statement end, matched to another line or cleared in another reconciliation',
+          );
+        }
+        try {
+          await tx.bookkeepingTransaction.updateMany({
+            where: body.cleared
+              ? { businessId, id: { in: ids }, clearedReconciliationId: null }
+              : { businessId, id: { in: ids }, clearedReconciliationId: r.id },
+            data: { clearedReconciliationId: body.cleared ? r.id : null },
+          });
+        } catch (e) {
+          return mapBookkeepingDbError(e);
+        }
+        return ledgerFigures(tx, businessId, engagementId, r);
+      },
+      undefined,
+      { lines: body.transactionIds.length },
     );
   }
 }
