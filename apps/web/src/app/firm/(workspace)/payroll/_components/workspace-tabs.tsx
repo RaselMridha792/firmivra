@@ -36,6 +36,8 @@ import {
 import { WorkerDialog } from './worker-dialog';
 import { OriginLink } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
+import { ServiceTasks } from '../../tasks/_components/service-tasks';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 type Notice = (text: string, tone: 'success' | 'error') => void;
 const empty = (pending: boolean, failed: boolean, none: string, error: string) =>
@@ -622,49 +624,32 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
 }
 
 /** Tasks: the shared Tasks module, filtered to this client. */
-export function TasksTab({ clientId }: { clientId: string | undefined }) {
-  const tasks = useApiQuery([...PAYROLL_KEY, 'tasks-tab', clientId ?? ''], async () =>
-    clientId
-      ? api.taskWork.overview({ view: 'all', status: 'OPEN', clientId, pageSize: 20 })
-      : { items: [] },
-  );
-  const rows = tasks.data?.items ?? [];
+export function TasksTab({
+  clientId,
+  engagementId,
+}: {
+  clientId: string | undefined;
+  engagementId: string | undefined;
+}) {
   return (
     <section className={card} aria-label="Tasks" data-testid="tab-tasks">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Payroll Tasks</h2>
-        <OriginLink href="/tasks/new" className={outlined}>
-          <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-        </OriginLink>
+        {clientId ? (
+          <OriginLink href={newTaskHref({ clientId, engagementId })} className={outlined}>
+            <Plus aria-hidden weight="bold" className="size-4" /> Add Task
+          </OriginLink>
+        ) : null}
       </div>
-      {rows.length === 0 ? (
-        <p className={quiet}>
-          {empty(
-            tasks.isPending,
-            tasks.isError,
-            'No open tasks for this client.',
-            'Tasks are not available right now.',
-          )}
-        </p>
+      {clientId ? (
+        <ServiceTasks
+          clientId={clientId}
+          engagementId={engagementId}
+          pageSize={20}
+          caption="Payroll tasks"
+        />
       ) : (
-        <ul className="flex flex-col">
-          {rows.map((t) => (
-            <li
-              key={t.id}
-              className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
-            >
-              <OriginLink
-                href={`/tasks/${t.id}`}
-                className="min-w-0 truncate font-medium text-link hover:underline"
-              >
-                {t.title}
-              </OriginLink>
-              <span className="shrink-0 text-xs text-muted">
-                {t.dueOn ? dayText(t.dueOn) : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <p className={quiet}>Loading…</p>
       )}
     </section>
   );

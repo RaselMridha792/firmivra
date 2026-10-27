@@ -38,6 +38,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { BK_ERRORS, BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 
@@ -514,7 +515,11 @@ export function ClientMenu({
       icon: FolderOpen,
       onSelect: go(`/documents?clientId=${row.client.id}`),
     },
-    { label: 'Create Task', icon: CheckCircle, onSelect: go(`/tasks?clientId=${row.client.id}`) },
+    {
+      label: 'Create Task',
+      icon: CheckCircle,
+      onSelect: go(newTaskHref({ clientId: row.client.id, engagementId: row.engagementId })),
+    },
     { label: 'Log Activity', icon: Phone, onSelect: () => setDialog('log') },
     {
       label: 'Send Message',

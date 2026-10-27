@@ -46,16 +46,40 @@ import {
   dayText,
   timeText,
 } from './task-shared';
+import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 
 /** /tasks/new and /tasks/[id]/edit: Create Task and Edit Task, one form. */
-export function TaskFormScreen({ id, templateId }: { id?: string; templateId?: string }) {
+/** What a service workspace's Create Task fills in (SH4); the member can still change it. */
+export interface TaskPrefill {
+  clientId?: string;
+  engagementId?: string;
+  /** "October 2026": the details start with it. */
+  period?: string;
+}
+
+export function TaskFormScreen({
+  id,
+  templateId,
+  prefill,
+}: {
+  id?: string;
+  templateId?: string;
+  prefill?: TaskPrefill;
+}) {
+  const prefillClient = useApiQuery(
+    [...TASKS_KEY, 'prefill-client', prefill?.clientId ?? 'none'],
+    async () => (prefill?.clientId ? api.clients.get(prefill.clientId) : null),
+  );
   const task = useApiQuery([...TASKS_KEY, 'task', id ?? 'new'], async () =>
     id ? api.taskWork.task(id) : null,
   );
   const template = useApiQuery([...TASKS_KEY, 'template', templateId ?? 'none'], async () =>
     templateId ? api.taskWork.getTemplate(templateId) : null,
   );
-  const waiting = (id !== undefined && task.isPending) || (!!templateId && template.isPending);
+  const waiting =
+    (id !== undefined && task.isPending) ||
+    (!!templateId && template.isPending) ||
+    (!!prefill?.clientId && prefillClient.isPending);
   if (waiting)
     return (
       <p role="status" className="rounded-xl bg-surface p-6 text-sm text-muted shadow-md">
@@ -67,8 +91,21 @@ export function TaskFormScreen({ id, templateId }: { id?: string; templateId?: s
       key={task.data?.id ?? template.data?.id ?? 'blank'}
       task={task.data ?? undefined}
       template={template.data ?? undefined}
+      prefill={
+        id === undefined && prefillClient.data
+          ? {
+              ...prefill,
+              clientId: prefillClient.data.id,
+              clientName: prefillClient.data.displayName,
+            }
+          : undefined
+      }
       loadNote={
-        id !== undefined && task.isError ? errorMessage(task.error, TASK_ERRORS) : undefined
+        id !== undefined && task.isError
+          ? errorMessage(task.error, TASK_ERRORS)
+          : prefill?.clientId && prefillClient.isError
+            ? 'The client could not be loaded. Choose the client below.'
+            : undefined
       }
     />
   );
@@ -77,10 +114,12 @@ export function TaskFormScreen({ id, templateId }: { id?: string; templateId?: s
 function Form({
   task,
   template,
+  prefill,
   loadNote,
 }: {
   task: TaskDetail | undefined;
   template: TaskTemplate | undefined;
+  prefill: (TaskPrefill & { clientId: string; clientName: string }) | undefined;
   loadNote: string | undefined;
 }) {
   const router = useRouter();
@@ -88,8 +127,10 @@ function Form({
   const { members } = useMembers();
   const [title, setTitle] = useState(task?.title ?? '');
   const [typeId, setTypeId] = useState(task?.type?.id ?? template?.type?.id ?? '');
-  const [details, setDetails] = useState(task?.details ?? template?.description ?? '');
-  const [clientId, setClientId] = useState(task?.client.id ?? '');
+  const [details, setDetails] = useState(
+    task?.details ?? template?.description ?? (prefill?.period ? `For ${prefill.period}.` : ''),
+  );
+  const [clientId, setClientId] = useState(task?.client.id ?? prefill?.clientId ?? '');
   // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only
   // their assigned ones, so a restricted client is never listed or counted.
   const [clientSearch, setClientSearch] = useState('');
@@ -106,8 +147,12 @@ function Form({
     displayName: c.displayName,
   }));
   // The names of clients chosen from earlier searches, so the choice keeps its label.
-  const [clientNames, setClientNames] = useState<Record<string, string>>({});
-  const [engagementId, setEngagementId] = useState(task?.engagementId ?? '');
+  const [clientNames, setClientNames] = useState<Record<string, string>>(
+    prefill ? { [prefill.clientId]: prefill.clientName } : {},
+  );
+  const [engagementId, setEngagementId] = useState(
+    task?.engagementId ?? prefill?.engagementId ?? '',
+  );
   const [serviceId, setServiceId] = useState(task?.service?.id ?? template?.service?.id ?? '');
   const [assignee, setAssignee] = useState(
     task?.assignedUserId ??
@@ -405,7 +450,9 @@ function Form({
           guard.rebase();
         } else {
           guard.allow();
-          router.push(`/tasks/${saved.id}`);
+          // Opened from a service workspace (SH1): the new task's page keeps Back to it.
+          const from = safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM));
+          router.push(from ? withOrigin(`/tasks/${saved.id}`, from) : `/tasks/${saved.id}`);
         }
       },
       onError: (e) =>
