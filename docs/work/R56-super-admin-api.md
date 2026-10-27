@@ -457,6 +457,26 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs, or open a tab by its address when no state is needed. Wait for selects that load their options (`toBeEnabled`). A label substring also matches buttons and sections ("Remove document", "Service Package"): use `getByRole('textbox', { name, exact: true })`. Playwright's dev server rewrites `apps/web/.next/mock/dev/types`: delete it before `tsc`. After merging main: rebuild `packages/types`, `pnpm --filter @firmivra/db build`, `prisma generate`, `prisma migrate deploy` on `firmivra_r56`.
 
+## Handoff for a fresh R56 (Oct 27, evening)
+
+Rasel (Oct 27): at most THREE PRs open at once; open the next as soon as one merges. Before opening each, merge current `origin/main` (never rebase, never force-push) and target `main`; tell Rasel each PR number and full head sha at 8 of 8 green. After each merge, merge `origin/main` into the next waiting branch. Run only the specs of changed files. No ultracode or workflows. No Co-Authored-By lines. SH10 is Owner and Admin only (approved).
+
+**Merged since Oct 26:** #1168 (SH1), #1173 (SH3), #1174 (SH4), #1182 (SH5), #1184 (zero tolerance). R1's #1177 (zero reconciliation tolerance) and #1188 (`engagements.catalog_service_id`) are on main.
+
+**Open (three, the limit), CI 8 of 8, waiting for review:** **#1189** SH6 `rasel/R56-shared-appointment` (8c7789bbc), **#1190** SH7 `rasel/R56-shared-connection` (98442cf01), **#1192** SH8 `rasel/R56-shared-cohorts` (c029a241d). Each shows the lower ones' commits until they squash.
+
+**Waiting, open in this order** (each body: IDs, what and why, what R60 reuses, screenshots for new screens, tests, How to test, Checklist; "Builds on #N" while the lower one is open):
+1. `rasel/R56-module-fixes`: `fix: Bookkeeping checklist typing, Assign, custom Report Due period, Missing Documents wording and client activity; Payroll Runs columns (BK-D03 to D06, A01, PY-F09) (R56)`.
+2. `rasel/R56-shared-plans` (SH9, on the module fixes and main; head 4a6c0f3b3): `feat: Payroll and Bookkeeping plans are chosen from Services & Pricing and saved by id (SH9) (R56)`. The plan endpoint takes `{ catalogServiceId }`; Add Client takes `catalogServiceId`; another firm's service is 404 (e2e).
+3. `rasel/R56-billing-stop` (SH10, on the module fixes; da27d4046): `feat: Stop Future Billing on a client's Payroll or Bookkeeping service, separate from Pause (SH10) (R56)`.
+4. `rasel/R56-bookkeeping-terms` (BK-E01; 2b7da6d3d): `feat: Bookkeeping Terms page with its six areas, on the Terms API: versions, pricing, scope, agreement, notices and history (BK-E01) (R56)`. Screenshots in `apps/web/e2e/screenshots/r56-bookkeeping-terms/`.
+5. `rasel/R56-bookkeeping-transactions` (BK-T01 read side, on Terms; aae0ce332): `feat: Bookkeeping Transactions: the ledger's read API and the tab's grid, views, search and filters (BK-T01 structure) (R56)`. Screenshots in `.../r56-bookkeeping-transactions/`.
+6. `rasel/R56-bookkeeping-reconciliation` (BK-R01 structure, on Transactions; 22d6b4dce): `feat: Bookkeeping reconciliation clears ledger lines, works out the difference and approves only at zero (BK-R01 structure) (R56)`. Its request for Rasel (clearing a line dated in a closed period) is under Needs in `R56-bookkeeping.md`.
+
+**Next:** BK-T01's engines on the read API (categorize, one or bulk; split, parts adding up to the total; transfer match; exclude with a reason; attach a receipt; refunds, chargebacks and settlements as their own events on `bookkeeping_refunds`, `bookkeeping_settlements`, `bookkeeping_settlement_items`; each write audited, e2e and isolation cases); reconciliation exceptions for unmatched, refund and settlement lines come with them. Then Advisory B4 to B12 (B4 can use `/calendar/new?clientId=&engagementId=`), and B15 (R1's #1160 is merged).
+
+**Gotchas from Oct 27:** a role name matches by substring ("Unclear All" matches "Clear All"): pass `exact: true`. A controlled checkbox that saves on change does not flip until the refetch: show the wanted state at once (the reconciliation page keeps a `pending` map). `Date.UTC` months start at 0. A select that loads its options: wait for `toBeEnabled` before counting them. Locally the isolation suite fails only file-download and export cases (scanner, S3); CI runs it.
+
 ## Handoff for a fresh R56 (Oct 25, Business Advisory)
 
 Rasel (Oct 25): open the waiting branches one at a time (two open at most), then Octavia's Business Advisory review: B1 to B5 first (reproduce each on main), then B6 to B12; columns (B15) to the R file and Rasel. Read `docs/specs/review-2026-10-25/CHANGE-LIST.md` (section B) and `business-advisory--developer-feedback.md` (897 lines: grep its numbered sections, do not read it whole).
