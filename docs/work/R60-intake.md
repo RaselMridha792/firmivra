@@ -13,6 +13,38 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 `apps/api/src/intake-workspace/`, their tests (`apps/api/test/e2e/intake-workspace.e2e.test.ts`,
 `apps/web/e2e/mock/*intake*`), and this file.
 
+Messages (from Oct 28, Rasel's order of Oct 27; R20, which built the API, closed on Oct 9):
+`apps/web/src/app/firm/(workspace)/messages/`, `apps/web/src/mocks/messages.ts`,
+`apps/api/src/messages/`, `packages/types/src/messages/`, `docs/api/messages.yaml`, their tests
+(`apps/api/test/e2e/messages*.e2e.test.ts`, `apps/web/e2e/mock/r60-messages*`).
+
+### Messages (section B of `docs/specs/review-2026-10-27/CHANGE-LIST.md`)
+
+R36's `r36_message_workspace` already holds most of what section C lists for Messages: a thread's
+assigned staff and archive (`message_threads`), mutes and tags per thread, `message_settings`,
+`message_signatures`, and `outbound_messages` with recipients (drafts, schedules, channel, related
+record, Add to Timeline, delivery state per recipient) and files. Nothing used them but a few
+reads of `message_settings`. Bulk sends stay on the Communications engine (R39): one engine.
+
+- [x] PR A: MSG-F01 (search by email and phone), F03 (Clients, Leads, Automations, Archived), F04
+  (blue Bulk and Templates), F05 (Filter), F07 (Templates on the message templates), F08 (Back to
+  the same thread). Branch `rasel/R60-messages`.
+- [ ] PR B: MSG-F02, Messages Settings (API on `message_settings`, `/settings/messages`).
+- [ ] PR C: MSG-F06, the bulk builder at `/messages/bulk` on the Communications API.
+- [ ] Then F09 to F16 (compose on `outbound_messages`), then F18 to F22.
+
+Needs from others (Rasel):
+- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
+  today a lead's email or text from Leads is one-way and no thread holds it, so the Leads view is
+  empty. Not built: no column invented.
+- **Message Templates (F07)** opens the Portal Message library (`/templates/library/portal-message`)
+  with Back to Messages; Email and SMS are one click away there. One library page for the three
+  message kinds would need a change in Templates (not R60's paths).
+
+Progress (Messages):
+- Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
+  mock specs `r60-messages-inbox` 6 of 6 and every Messages spec green.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
