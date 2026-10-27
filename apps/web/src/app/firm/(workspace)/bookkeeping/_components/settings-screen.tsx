@@ -89,14 +89,6 @@ function SettingsForm({ initial }: { initial: BookkeepingSettings }) {
               value={String(s.staleSyncHours)}
               onChange={(e) => setS({ ...s, staleSyncHours: num(e.target.value, 48) })}
             />
-            <Input
-              label="Reconciliation tolerance ($)"
-              type="number"
-              value={String(s.reconToleranceCents / 100)}
-              onChange={(e) =>
-                setS({ ...s, reconToleranceCents: Math.round(num(e.target.value, 0) * 100) })
-              }
-            />
           </div>
           <h3 className="text-sm font-semibold text-heading">Status rules</h3>
           <div className="grid gap-3 sm:grid-cols-2">
