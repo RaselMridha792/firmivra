@@ -48,7 +48,6 @@ import {
   outlined,
   periodText,
   quiet,
-  stamp,
   subtle,
 } from './payroll-shared';
 import { WorkerDialog } from './worker-dialog';
@@ -70,6 +69,7 @@ import {
 } from '../../../../../components/service-documents';
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { describeConnection } from '../../../../../lib/connection-state';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -425,15 +425,11 @@ function Overview({
             <>
               <p className="flex items-center gap-2 font-display text-xl font-bold text-heading">
                 {w.provider?.label ?? 'Not connected'}
-                {w.provider ? (
-                  <Badge tone="success">Connected</Badge>
-                ) : (
-                  <Badge tone="neutral">Not Connected</Badge>
-                )}
+                <Badge tone={providerState(w).tone}>{providerState(w).label}</Badge>
               </p>
-              <p className="text-xs text-muted">
-                {w.lastSyncedAt ? `Last Sync: ${stamp(w.lastSyncedAt)}` : 'Not synced yet'}
-                {w.syncStatus === 'STALE' ? ' (stale)' : ''}
+              <p className="text-xs text-muted" data-testid="provider-sync">
+                {providerState(w).sync.label}
+                {w.syncStatus === 'STALE' && !providerState(w).failedAt ? ' (stale)' : ''}
               </p>
               {w.provider ? (
                 <button
@@ -914,4 +910,14 @@ function OverviewNotes({ id, onAll }: { id: string | undefined; onAll: () => voi
       </button>
     </section>
   );
+}
+
+/** SH7: the provider's connection apart from its sync, from the client's real sync times. */
+function providerState(w: PayrollClientWorkspace) {
+  return describeConnection({
+    provider: w.provider?.label ?? null,
+    status: w.provider ? (w.provider.connected ? 'CONNECTED' : 'NOT_AUTHORIZED') : null,
+    lastSuccessAt: w.lastSyncedAt,
+    lastAttemptAt: w.lastSyncAttemptAt,
+  });
 }

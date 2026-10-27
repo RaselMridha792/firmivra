@@ -52,6 +52,7 @@ import {
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { describeConnection } from '../../../../../lib/connection-state';
 
 type Kind =
   | 'sync'
@@ -289,6 +290,14 @@ function ClientDialog({
   };
   const needsText = kind === 'note' || kind === 'activity' || kind === 'remove';
   const d = detail.data;
+  const conn = d
+    ? describeConnection({
+        provider: d.provider?.label ?? null,
+        status: d.provider ? (d.provider.connected ? 'CONNECTED' : 'NOT_AUTHORIZED') : null,
+        lastSuccessAt: d.lastSyncedAt,
+        lastAttemptAt: d.lastSyncAttemptAt,
+      })
+    : undefined;
   return (
     <Modal
       open
@@ -330,12 +339,10 @@ function ClientDialog({
             >
               {(
                 [
-                  ['Provider', d.provider ? d.provider.label : 'Not connected'],
-                  ['Connection', d.provider ? 'Connected' : 'Not connected'],
-                  [
-                    'Sync status',
-                    d.syncStatus.charAt(0) + d.syncStatus.slice(1).toLowerCase().replace('_', ' '),
-                  ],
+                  // SH7: the connection apart from the sync; times only from real syncs.
+                  ['Provider', d.provider ? d.provider.label : 'None chosen'],
+                  ['Connection', `${conn!.label}. ${conn!.detail}`],
+                  ['Sync', conn!.sync.label],
                   ['Last successful sync', d.lastSyncedAt ? stamp(d.lastSyncedAt) : 'Never'],
                   ['Last attempt', d.lastSyncAttemptAt ? stamp(d.lastSyncAttemptAt) : 'Never'],
                   ['Employees found', d.employeeCount === null ? '—' : String(d.employeeCount)],

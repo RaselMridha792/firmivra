@@ -919,7 +919,12 @@ function PickClientDialog({
             onClick={() =>
               mode === 'reports'
                 ? router.push(`/payroll/clients/${clientId}?tab=reports`)
-                : send.mutate(undefined, { onSuccess: () => onDone('Provider connected.') })
+                : send.mutate(undefined, {
+                    onSuccess: () =>
+                      onDone(
+                        'Provider saved for this client. It shows as connected after its first successful sync.',
+                      ),
+                  })
             }
           >
             {mode === 'connect' ? 'Connect' : 'Open Reports'}
