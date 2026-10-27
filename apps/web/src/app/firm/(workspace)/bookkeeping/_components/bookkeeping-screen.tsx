@@ -4,6 +4,7 @@ import { type BookkeepingClientRow, BookkeepingOverviewPeriod } from '@firmivra/
 import {
   Button,
   DonutChart,
+  Input,
   KpiCard,
   Modal,
   Select,
@@ -50,7 +51,7 @@ import {
 } from './bookkeeping-shared';
 import { OriginLink } from '../../../../../components/origin-link';
 import { pageOf, writeListQuery } from '../../../../../lib/list-query';
-import { BOOKKEEPING_VIEW, type BookkeepingView } from './list-view';
+import { BOOKKEEPING_VIEW, type BookkeepingView, dueRange } from './list-view';
 import {
   ServiceDocumentsProvider,
   useServiceDocuments,
@@ -90,14 +91,6 @@ const SORT_KEY: Record<string, 'clientName' | 'plan' | 'status' | 'nextReportDue
   status: 'status',
   due: 'nextReportDueOn',
 };
-const dueRange = (v: string) => {
-  const today = new Date().toISOString().slice(0, 10);
-  const add = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
-  if (v === 'WEEK') return { reportDueFrom: today, reportDueTo: add(7) };
-  if (v === 'MONTH') return { reportDueFrom: today, reportDueTo: add(31) };
-  if (v === 'OVERDUE') return { reportDueTo: add(-1) };
-  return {};
-};
 
 /** /bookkeeping: the module home: KPIs, status and monthly charts, software, and the client list. */
 export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: BookkeepingView }) {
@@ -110,6 +103,9 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
   const [software, setSoftware] = useState(initial.software);
   const [status, setStatus] = useState(initial.status);
   const [due, setDue] = useState(initial.due);
+  const [dueFrom, setDueFrom] = useState(initial.dueFrom);
+  const [dueTo, setDueTo] = useState(initial.dueTo);
+  const custom = dueRange(due, dueFrom, dueTo);
   const [search, setSearch] = useState(initial.q);
   const [filters, setFilters] = useState(true);
   const [page, setPage] = useState(pageOf(initial.page));
@@ -135,6 +131,8 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
         software,
         status,
         due,
+        dueFrom: due === 'CUSTOM' ? dueFrom : '',
+        dueTo: due === 'CUSTOM' ? dueTo : '',
         q: search,
         page: String(page),
         size: String(pageSize),
@@ -143,7 +141,21 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
       },
       BOOKKEEPING_VIEW,
     );
-  }, [period, tab, type, plan, software, status, due, search, page, pageSize, sort]);
+  }, [
+    period,
+    tab,
+    type,
+    plan,
+    software,
+    status,
+    due,
+    dueFrom,
+    dueTo,
+    search,
+    page,
+    pageSize,
+    sort,
+  ]);
   const [dialog, setDialog] = useState<'connect' | 'add'>();
   const [connectFor, setConnectFor] = useState<{ id: string; name: string }>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -176,7 +188,7 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
         ...(plan ? { plan } : {}),
         ...(software ? { software } : {}),
         ...(status ? { status: status as BookkeepingClientRow['status'] } : {}),
-        ...dueRange(due),
+        ...(custom ?? {}),
         ...(term ? { search: term } : {}),
         sort: SORT_KEY[sort.id] ?? 'clientName',
         direction: sort.descending ? 'desc' : 'asc',
@@ -206,6 +218,8 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
     setSoftware('');
     setStatus('');
     setDue('');
+    setDueFrom('');
+    setDueTo('');
     setSearch('');
     setPage(1);
   };
@@ -690,8 +704,40 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
                   { value: 'WEEK', label: 'Next 7 days' },
                   { value: 'MONTH', label: 'Next 31 days' },
                   { value: 'OVERDUE', label: 'Past due' },
+                  { value: 'CUSTOM', label: 'Custom date period' },
                 ]}
               />
+              {due === 'CUSTOM' ? (
+                <div className="flex flex-col gap-1" data-testid="due-custom">
+                  <div className="flex gap-2">
+                    <Input
+                      label="Due from"
+                      type="date"
+                      value={dueFrom}
+                      onChange={(e) => {
+                        setDueFrom(e.target.value);
+                        setPage(1);
+                      }}
+                    />
+                    <Input
+                      label="Due to"
+                      type="date"
+                      value={dueTo}
+                      min={dueFrom || undefined}
+                      onChange={(e) => {
+                        setDueTo(e.target.value);
+                        setPage(1);
+                      }}
+                    />
+                  </div>
+                  <p
+                    className={`text-xs ${custom ? 'text-muted' : 'text-danger'}`}
+                    role={custom ? undefined : 'alert'}
+                  >
+                    {custom ? 'Both dates are included.' : 'The start date is after the end date.'}
+                  </p>
+                </div>
+              ) : null}
               <button
                 type="button"
                 disabled={!anyFilter}

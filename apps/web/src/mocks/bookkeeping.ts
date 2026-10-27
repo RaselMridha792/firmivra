@@ -48,6 +48,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { registerServiceEngagement } from './service-engagements';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.bookkeeping` (R38 contract, Bookkeeping). Synthetic firms only, dated around
@@ -69,6 +70,11 @@ const copy = <T>(v: T): T => structuredClone(v);
 const nowIso = () => new Date().toISOString();
 const MAYA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000011', name: 'Alex Rivera' };
 const SAM: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000012', name: 'Sam Staff' };
+/** A team mock member by user id (the Assign dialog lists the team), else the signed-in user. */
+const memberRef = (userId: string): MemberRef => {
+  const m = teamFixtures().find((t) => t.user.id === userId);
+  return m ? { userId, name: m.user.name } : { ...mockMe, userId };
+};
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const monthOf = (back: number) => {
   const t = new Date();
@@ -1100,7 +1106,8 @@ export function createBookkeepingMock({
               ? SAM
               : input.assignedUserId === MAYA.userId
                 ? MAYA
-                : mockMe;
+                : // BK-D06: the chosen team member, as the API saves them (not the signed-in one).
+                  memberRef(input.assignedUserId);
         log(c, 'ASSIGNMENT', `Assigned to ${c.assignedTo?.name ?? 'no one'}`);
         return view(c);
       }),

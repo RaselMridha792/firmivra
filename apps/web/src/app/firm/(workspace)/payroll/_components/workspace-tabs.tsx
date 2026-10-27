@@ -224,19 +224,23 @@ export function RunsTab({ id }: { id: string }) {
   const columns: Column<PayrollRunRow>[] = [
     {
       id: 'period',
-      label: 'Pay Period',
+      label: 'Run and Pay Period',
       cell: (r) => (
-        <Link href={`/payroll/runs/${r.id}`} className="font-medium text-link hover:underline">
-          {periodText(r.periodStart, r.periodEnd)}
-        </Link>
+        <span className="flex flex-col">
+          <Link href={`/payroll/runs/${r.id}`} className="font-medium text-link hover:underline">
+            {periodText(r.periodStart, r.periodEnd)}
+          </Link>
+          <span className="text-muted">Run {r.id.slice(0, 8)}</span>
+        </span>
       ),
     },
     { id: 'pay', label: 'Pay Date', cell: (r) => dayText(r.payDate) },
     { id: 'freq', label: 'Frequency', cell: (r) => FREQUENCY_LABEL[r.frequency] },
-    { id: 'emp', label: 'Employees', cell: (r) => r.employeeCount ?? '—' },
-    { id: 'gross', label: 'Gross', cell: (r) => money(r.grossCents) },
-    { id: 'cost', label: 'Total Cost', cell: (r) => money(r.totalCostCents) },
-    { id: 'status', label: 'Status', cell: (r) => <RunStatusPill status={r.status} /> },
+    { id: 'emp', label: 'Workers', cell: (r) => r.employeeCount ?? '—' },
+    // PY-F09: totals only as confirmed; an unknown total is a dash, never a zero.
+    { id: 'gross', label: 'Gross (confirmed)', cell: (r) => money(r.grossCents) },
+    { id: 'cost', label: 'Total Cost (confirmed)', cell: (r) => money(r.totalCostCents) },
+    { id: 'status', label: 'Firmivra Status', cell: (r) => <RunStatusPill status={r.status} /> },
     { id: 'prov', label: 'Provider Status', cell: (r) => r.providerStatus ?? '—' },
   ];
   return (
@@ -251,11 +255,12 @@ export function RunsTab({ id }: { id: string }) {
           noun="runs"
           pageSize={10}
           loading={list.isPending}
-          emptyTitle={list.isError ? 'Runs are not available' : 'No payroll runs'}
+          keepHeaderWhenEmpty
+          emptyTitle={list.isError ? 'Runs are not available' : 'No payroll runs yet'}
           emptyText={
             list.isError
               ? 'We could not load the runs. Try again in a moment.'
-              : 'Runs appear once a provider is connected and a frequency is set.'
+              : 'A run starts from Run Payroll once the client has a provider and a pay frequency. Completed runs stay here as they were.'
           }
           rowActions={(r) => (
             <Link
