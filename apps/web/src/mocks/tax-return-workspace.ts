@@ -20,6 +20,8 @@ import {
   UpdateTaxChecklistItemRequest,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
+  CorrectTaxReturnBusinessIdentityRequest,
+  type TaxReturnBusinessIdentity,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
   parseInput,
@@ -135,6 +137,8 @@ const maskedOf = (c: MockClient) =>
   c.last4 ? (c.accountType === 'BUSINESS' ? `**-***${c.last4}` : `***-**-${c.last4}`) : null;
 
 interface Stored {
+  /** A business return's own copy of the business, once corrected (as the API, #1176). */
+  identity?: Omit<TaxReturnBusinessIdentity, 'correctable'>;
   id: string;
   clientId: string;
   taxYear: number;
@@ -645,6 +649,22 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       document: null,
       canMoveTo: canMoveTo(r.workflowStatus),
       blockers: blockersOf(r, rows),
+      // As the API: copied from the client at creation, correctable until the first filing.
+      businessIdentity:
+        r.filingType === 'BUSINESS'
+          ? {
+              ...(r.identity ?? {
+                name: c.name,
+                einLast4: maskedOf(c)?.slice(-4) ?? null,
+                addressLine1: null,
+                addressLine2: null,
+                city: null,
+                state: null,
+                postalCode: null,
+              }),
+              correctable: r.firstFiledAt === null,
+            }
+          : null,
       createdAt: r.createdAt,
     };
   };
@@ -918,6 +938,32 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     get: async (id) => {
       await mockDelay();
       return toDetail(find(id));
+    },
+    correctBusinessIdentity: async (id, body) => {
+      await mockDelay();
+      const b = parseInput(CorrectTaxReturnBusinessIdentityRequest, body);
+      const r = find(id);
+      if (r.filingType !== 'BUSINESS') {
+        throw fail(400, 'VALIDATION_FAILED', 'Only a business return has a business identity');
+      }
+      if (r.archivedAt) throw fail(409, 'RETURN_LOCKED', 'Restore the return first');
+      if (r.firstFiledAt) {
+        throw fail(409, 'RETURN_LOCKED', 'A filed return keeps its business identity');
+      }
+      const now = toDetail(r).businessIdentity!;
+      const { correctable: _c, ...current } = now;
+      r.identity = {
+        ...current,
+        ...(b.name !== undefined ? { name: b.name } : {}),
+        ...(b.ein !== undefined ? { einLast4: b.ein === null ? null : b.ein.slice(-4) } : {}),
+        ...(b.addressLine1 !== undefined ? { addressLine1: b.addressLine1 } : {}),
+        ...(b.addressLine2 !== undefined ? { addressLine2: b.addressLine2 } : {}),
+        ...(b.city !== undefined ? { city: b.city } : {}),
+        ...(b.state !== undefined ? { state: b.state } : {}),
+        ...(b.postalCode !== undefined ? { postalCode: b.postalCode } : {}),
+      };
+      touch(r, 'UPDATED', 'Business identity corrected');
+      return toDetail(r);
     },
     updateDetails: async (id, body) => {
       await mockDelay();

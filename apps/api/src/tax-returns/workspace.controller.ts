@@ -54,6 +54,7 @@ import {
   StatusBody,
   SummaryQ,
   UpdateDetailsBody,
+  BusinessIdentityBody,
 } from './workspace.input.js';
 import { TaxReturnWorkspaceService } from './workspace.service.js';
 
@@ -137,6 +138,18 @@ export class TaxReturnWorkspaceController {
     @Body(new ZodValidationPipe(UpdateDetailsBody)) body: Out<typeof UpdateDetailsBody>,
   ): Promise<TaxReturnDetail> {
     return this.returns.updateDetails(tenant, auth.userId, id, body);
+  }
+
+  /** A business return's own identity, until its first filing (TX-F31, F32). */
+  @Put(':id/business-identity')
+  @Access('TAX_RETURNS', 'EDIT')
+  correctBusinessIdentity(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(BusinessIdentityBody)) body: Out<typeof BusinessIdentityBody>,
+  ): Promise<TaxReturnDetail> {
+    return this.returns.correctBusinessIdentity(tenant, auth.userId, id, body);
   }
 
   @Post(':id/status')

@@ -21,6 +21,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { BusinessIdentityCard } from './business-identity-card';
 import {
   AssignDialog,
   DetailsDialog,
@@ -574,6 +575,7 @@ function Overview({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Not
           <ClientDetails detail={detail} onNotice={onNotice} />
           <DocumentChecklist detail={detail} limit={10} />
         </div>
+        <BusinessIdentityCard detail={detail} onNotice={onNotice} />
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         <UpcomingTasks detail={detail} onNotice={onNotice} />
