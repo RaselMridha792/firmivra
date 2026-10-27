@@ -236,7 +236,11 @@ export const amountDetail = (row: InvoiceRow) => ({
   refundedCents: money(row).refundedCents,
 });
 
-export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
+export function toListItem(
+  row: InvoiceRow,
+  today: string,
+  sentAt: string | null = null,
+): InvoiceListItem {
   const state = stateOf(row);
   return {
     id: row.id,
@@ -256,6 +260,7 @@ export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
       { status: row.status, dueOn: state.dueOn, balanceDueCents: money(row).balanceDueCents },
       today,
     ),
+    sentAt,
     issuedAt: state.issuedAt,
     paidAt: iso(row.paidAt),
     canceledAt: iso(row.canceledAt),
@@ -264,9 +269,9 @@ export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
   };
 }
 
-export function toInvoice(row: InvoiceRow, today: string): Invoice {
+export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null = null): Invoice {
   return {
-    ...toListItem(row, today),
+    ...toListItem(row, today, sentAt),
     ...amountDetail(row),
     payments: shownPayments(row).map(toFirmPayment),
     offlinePayments: row.offlinePayments.map(toOffline),
@@ -324,4 +329,44 @@ export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDe
       receivedOn: day(o.receivedOn) ?? '',
     })),
   };
+}
+
+/**
+ * IP-F07: when each invoice was actually dispatched: the first time its `invoice.sent` email to
+ * the client was sent (the outbox's sent time). Invoices never dispatched are left out.
+ */
+export async function dispatchTimes(
+  tx: TxClient,
+  businessId: string,
+  invoiceIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (invoiceIds.length === 0) return out;
+  const sent = await tx.notificationDelivery.findMany({
+    where: {
+      businessId,
+      channel: 'EMAIL',
+      status: 'SENT',
+      sentAt: { not: null },
+      notification: { type: 'invoice.sent', entityType: 'invoice', entityId: { in: invoiceIds } },
+    },
+    select: { sentAt: true, notification: { select: { entityId: true } } },
+  });
+  for (const d of sent) {
+    const at = d.sentAt!.toISOString();
+    const known = out.get(d.notification.entityId);
+    if (!known || at < known) out.set(d.notification.entityId, at);
+  }
+  return out;
+}
+
+/** The invoice as the firm sees it, with its dispatch time. */
+export async function invoiceOf(
+  tx: TxClient,
+  businessId: string,
+  row: InvoiceRow,
+  today: string,
+): Promise<Invoice> {
+  const sentAt = (await dispatchTimes(tx, businessId, [row.id])).get(row.id) ?? null;
+  return toInvoice(row, today, sentAt);
 }

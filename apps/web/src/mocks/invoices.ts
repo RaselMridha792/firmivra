@@ -441,6 +441,8 @@ function toListItem(r: Row, day: string): InvoiceListItem {
       { status: r.status, dueOn: r.dueOn, balanceDueCents: f.balanceDueCents },
       day,
     ),
+    // IP-F07: the mock has no email outbox; an invoice that opened was emailed then.
+    sentAt: r.issuedAt,
     issuedAt: r.issuedAt,
     paidAt: r.paidAt,
     canceledAt: r.canceledAt,

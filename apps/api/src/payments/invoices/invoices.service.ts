@@ -44,7 +44,8 @@ import {
   paymentsEnabled,
   processing,
   toDate,
-  toInvoice,
+  dispatchTimes,
+  invoiceOf,
   toListItem,
 } from './invoice-view.js';
 
@@ -159,8 +160,13 @@ export class InvoicesService {
       const page = rows.slice(0, q.limit);
       const last = page.at(-1);
       const { today } = await firmToday(tx, businessId);
+      const sent = await dispatchTimes(
+        tx,
+        businessId,
+        page.map((row) => row.id),
+      );
       return {
-        items: page.map((row) => toListItem(row, today)),
+        items: page.map((row) => toListItem(row, today, sent.get(row.id) ?? null)),
         nextCursor: rows.length > q.limit && last ? encodeCursor(last) : null,
         paymentsEnabled: await paymentsEnabled(tx, businessId),
         today,
@@ -252,7 +258,7 @@ export class InvoicesService {
   async get(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
     const invoice = await this.inFirm(businessId, async (tx) => {
       const row = await this.load(tx, businessId, actor, id);
-      return toInvoice(row, (await firmToday(tx, businessId)).today);
+      return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     });
     await this.audit.log(
       'invoice.viewed',
@@ -366,7 +372,7 @@ export class InvoicesService {
             lines: row.lines.length,
           },
         );
-        return toInvoice(row, (await firmToday(tx, businessId)).today);
+        return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
       });
     // A number someone else took anyway (a create outside this service) is tried once more.
     return attempt().catch((e: unknown) => {
@@ -394,7 +400,7 @@ export class InvoicesService {
         { type: 'invoice', id },
         { clientId: row.clientId, totalCents: row.totalCents, lines: row.lines.length },
       );
-      return toInvoice(row, (await firmToday(tx, businessId)).today);
+      return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     });
   }
 
@@ -430,7 +436,7 @@ export class InvoicesService {
         { type: 'invoice', id },
         { clientId: row.clientId, number: row.number, totalCents: row.totalCents },
       );
-      return { invoice: toInvoice(row, today), opened: !later };
+      return { invoice: await invoiceOf(tx, businessId, row, today), opened: !later };
     });
     if (opened) await this.notices.send('invoice.sent', businessId, id, actor.userId);
     return invoice;
@@ -494,7 +500,7 @@ export class InvoicesService {
           { type: 'invoice', id },
           { clientId: row.clientId, fromStatus: current.status, totalCents: row.totalCents },
         );
-        return toInvoice(row, (await firmToday(tx, businessId)).today);
+        return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
       },
       CHECKOUT_LIMITS,
     );
