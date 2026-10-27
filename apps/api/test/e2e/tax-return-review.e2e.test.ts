@@ -307,16 +307,30 @@ describe('filings', () => {
       400,
       'VALIDATION_FAILED',
     );
-    const paper = ok(
+    // TX-F26: a paper filing is logged as mailed only with its Mail Tracking Number.
+    expectError(
       await call('post', `/tax-returns/${ids.r}/filings/${ca}/paper-filed`, ownerA, {
         paperFiledOn: '2026-03-01',
       }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const paper = ok(
+      await call('post', `/tax-returns/${ids.r}/filings/${ca}/paper-filed`, ownerA, {
+        paperFiledOn: '2026-03-01',
+        mailTrackingNumber: '9400 1000 0000 0000 0000 01',
+      }),
       TaxReturnFilingList,
     );
-    expect(paper.items[2]).toMatchObject({ status: 'PAPER_FILED', paperFiledOn: '2026-03-01' });
+    expect(paper.items[2]).toMatchObject({
+      status: 'PAPER_FILED',
+      paperFiledOn: '2026-03-01',
+      mailTrackingNumber: '9400 1000 0000 0000 0000 01',
+    });
     expectError(
       await call('post', `/tax-returns/${ids.r}/filings/${us}/paper-filed`, ownerA, {
         paperFiledOn: '2026-03-01',
+        mailTrackingNumber: '9400 1000 0000 0000 0000 02',
       }),
       400,
       'VALIDATION_FAILED',

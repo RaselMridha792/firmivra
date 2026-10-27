@@ -392,6 +392,7 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
     amountStatus: sent ? 'FINAL' : 'ESTIMATED',
     amountSource: sent ? 'TAX_SOFTWARE' : 'STAFF_ESTIMATE',
     amountVersion: 1,
+    mailTrackingNumber: null,
     attempts: sent
       ? [
           {
@@ -878,6 +879,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               amountStatus: null,
               amountSource: null,
               amountVersion: null,
+              mailTrackingNumber: null,
               attempts: [],
             })),
         checklist: [],
@@ -1114,6 +1116,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               amountStatus: null,
               amountSource: null,
               amountVersion: null,
+              mailTrackingNumber: null,
               attempts: [],
             };
       });
@@ -1209,6 +1212,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const f = filingOf(r, filingId);
       if (f.filingMethod !== 'PAPER') throw fail(409, 'RETURN_LOCKED', 'Only a paper filing');
       f.paperFiledOn = b.paperFiledOn;
+      f.mailTrackingNumber = b.mailTrackingNumber;
       f.status = 'PAPER_FILED';
       touch(r, 'FILING', `${f.jurisdiction} paper filing recorded`);
       return copy(r.filings);
