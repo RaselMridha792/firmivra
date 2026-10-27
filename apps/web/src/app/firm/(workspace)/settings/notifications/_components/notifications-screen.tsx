@@ -7,12 +7,12 @@ import {
 } from '@firmivra/types';
 import { Badge, Button, Callout, Checkbox, Skeleton, Table } from '@firmivra/ui';
 import { Bell, Info, LockSimple } from '@phosphor-icons/react';
-import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsCard, SettingsHeader } from '../../_components/settings-parts';
+import { MobileNumberCard } from './mobile-number';
 
 const PREFERENCES = ['notifications', 'preferences'];
 
@@ -25,7 +25,8 @@ const NOTICE_ERRORS: Record<string, string> = {
  * Settings > Notifications (guide §11; Octavia's review of Oct 18): which notices reach you by text
  * message, per category (`api.notifications` preferences, R6). In-app notices (the bell) always
  * arrive, and staff email is always on (each row `emailLocked`, enforced by the API). Text
- * messages wait for a verified mobile number. Each person sets their own.
+ * messages wait for a verified mobile number (Mobile Number, a code by text). Each person sets
+ * their own.
  */
 export function NotificationsScreen() {
   const prefs = useApiQuery(PREFERENCES, () => api.notifications.preferences());
@@ -37,6 +38,7 @@ export function NotificationsScreen() {
         title="Notifications"
         subtitle="Choose which notices also reach you by text message. Email and in-app notices always arrive."
       />
+      <MobileNumberCard />
       <SettingsCard
         title="My Notification Preferences"
         subtitle="Email and in-app notices in the bell always arrive. These choices are yours alone."
@@ -167,12 +169,8 @@ function PreferencesTable({
       />
       {sms ? null : (
         <p data-testid="sms-unavailable" className="text-xs text-muted">
-          Text messages need a verified mobile number, and staff numbers cannot be verified yet, so
-          their boxes stay off. You can add your number on{' '}
-          <Link href="/profile" className="font-semibold text-action underline">
-            My Profile
-          </Link>
-          .
+          Text messages need a verified mobile number, so their boxes stay off until you verify
+          yours under Mobile Number above.
         </p>
       )}
       {save.error ? (

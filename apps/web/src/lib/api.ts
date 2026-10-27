@@ -59,6 +59,7 @@ import {
   createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
+  createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
   createPortalTabsClient,
@@ -145,6 +146,7 @@ import {
   myNotesMock,
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
+import { createStaffPhoneMock } from '../mocks/staff-phone';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createProfileChangesMock } from '../mocks/profile-changes';
@@ -531,6 +533,9 @@ export const api = {
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
+  /** The signed-in member's mobile number and its verification by text (R60). */
+  staffPhone:
+    dev && mocked('staffPhone') ? createStaffPhoneMock() : createStaffPhoneClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
   /** Announcements published to the signed-in client from Communications (portal). */
   myAnnouncements: (firmSlug: string) =>

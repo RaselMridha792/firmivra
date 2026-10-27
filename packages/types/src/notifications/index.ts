@@ -6,3 +6,4 @@ export {
   type MyNotificationsClient,
   type NotificationsClient,
 } from './client.js';
+export * from './staff-phone.js';
