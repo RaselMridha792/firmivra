@@ -49,6 +49,7 @@ import {
   quiet,
   stamp,
 } from './payroll-shared';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 
 type Kind =
   | 'sync'
@@ -85,10 +86,15 @@ export function ClientActionMenu({
   align?: 'left' | 'right';
 }) {
   const router = useRouter();
+  const toOrigin = useOriginNavigate();
   const [dialog, setDialog] = useState<Kind>();
   const options = { invalidate: [...PAYROLL_KEY] };
   const sync = useApiMutation(() => api.payroll.sync(client.id), options);
-  const go = (path: string) => () => router.push(path);
+  // SH1: a page outside the workspace gets Back to this exact place.
+  const go = (path: string) => () =>
+    path.startsWith('/payroll') || path.startsWith('/bookkeeping')
+      ? router.push(path)
+      : toOrigin(path);
   const item = (
     text: string,
     icon: Icon,
