@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { INVOICE_ERRORS, PaymentMethodKey } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CancelInvoiceRequest,
+  CorrectInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
   InvoiceList,
@@ -40,6 +41,7 @@ import {
   holdsMoney,
   type InvoiceRow,
   invoiceSelect,
+  money,
   notFound,
   paymentsEnabled,
   processing,
@@ -114,6 +116,24 @@ export class InvoicesService {
     await lockInvoice(tx, businessId, id);
     const current = await this.load(tx, businessId, actor, id);
     if (current.status !== 'DRAFT') throw notDraft();
+    return current;
+  }
+
+  /** IP-F08: what the editor may change: a draft, or a scheduled invoice not yet sent. */
+  private async loadEditable(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    engagementId?: string | null,
+  ): Promise<InvoiceRow> {
+    const editable = (s: string) => s === 'DRAFT' || s === 'SCHEDULED';
+    const first = await this.load(tx, businessId, actor, id);
+    await this.checkEngagement(tx, businessId, first.clientId, engagementId);
+    if (!editable(first.status)) throw notDraft();
+    await lockInvoice(tx, businessId, id);
+    const current = await this.load(tx, businessId, actor, id);
+    if (!editable(current.status)) throw notDraft();
     return current;
   }
 
@@ -388,9 +408,16 @@ export class InvoicesService {
     body: DraftBody,
   ): Promise<Invoice> {
     return this.inFirm(businessId, async (tx) => {
-      const current = await this.loadDraft(tx, businessId, actor, id, body.engagementId);
+      const current = await this.loadEditable(tx, businessId, actor, id, body.engagementId);
       if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
         throw archived();
+      }
+      // IP-F08: a scheduled invoice stays scheduled, so its send day stays after today.
+      if (current.status === 'SCHEDULED') {
+        const { today } = await firmToday(tx, businessId);
+        if (!body.scheduledFor || body.scheduledFor <= today) {
+          throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
+        }
       }
       await this.writeDraft(tx, businessId, id, body);
       const row = await this.load(tx, businessId, actor, id);
@@ -401,6 +428,91 @@ export class InvoicesService {
         { clientId: row.clientId, totalCents: row.totalCents, lines: row.lines.length },
       );
       return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
+    });
+  }
+
+  /**
+   * IP-F08 (Octavia, Oct 27): the dates of an invoice on its way, same number. Scheduled: its
+   * send day (after today) and due date. Open with something to pay: its due date (today or
+   * later). Once dispatched (IP-F07) a reason is required; the change and the reason are audited.
+   */
+  async correct(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof CorrectInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.inFirm(businessId, async (tx) => {
+      await this.load(tx, businessId, actor, id);
+      await lockInvoice(tx, businessId, id);
+      const current = await this.load(tx, businessId, actor, id);
+      const open = current.status === 'OPEN' && money(current).balanceDueCents > 0;
+      if (current.status !== 'SCHEDULED' && !open) {
+        throw conflict(
+          'NOT_CORRECTABLE',
+          'Only a scheduled invoice, or an open one with something to pay, can be corrected',
+        );
+      }
+      if (current.status === 'OPEN' && body.scheduledFor !== undefined) {
+        throw conflict('NOT_CORRECTABLE', 'An invoice already sent has no send day to change');
+      }
+      const sentAt = (await dispatchTimes(tx, businessId, [id])).get(id) ?? null;
+      if (sentAt && !body.reason) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'The request is not valid',
+          details: [{ path: 'reason', message: 'Say why the sent invoice changes' }],
+        });
+      }
+      const { today } = await firmToday(tx, businessId);
+      const was = { dueOn: day(current.dueOn), scheduledFor: day(current.scheduledFor) };
+      const next = {
+        dueOn: body.dueOn ?? was.dueOn,
+        scheduledFor: body.scheduledFor ?? was.scheduledFor,
+      };
+      if (body.scheduledFor !== undefined && body.scheduledFor <= today) {
+        throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
+      }
+      if (body.dueOn !== undefined && body.dueOn < today) {
+        throw conflict('DUE_DATE_PASSED', 'Choose today or a later due date');
+      }
+      if (
+        current.status === 'SCHEDULED' &&
+        next.dueOn !== null &&
+        next.scheduledFor !== null &&
+        next.dueOn < next.scheduledFor
+      ) {
+        throw conflict('DUE_BEFORE_SEND', 'The due date cannot come before the send day');
+      }
+      const changed = {
+        ...(next.dueOn !== was.dueOn ? { dueOn: { from: was.dueOn, to: next.dueOn } } : {}),
+        ...(next.scheduledFor !== was.scheduledFor
+          ? { scheduledFor: { from: was.scheduledFor, to: next.scheduledFor } }
+          : {}),
+      };
+      if (Object.keys(changed).length > 0) {
+        await tx.invoice.update({
+          where: { businessId_id: { businessId, id } },
+          data: {
+            ...(changed.dueOn ? { dueOn: next.dueOn ? toDate(next.dueOn) : null } : {}),
+            ...(changed.scheduledFor
+              ? { scheduledFor: next.scheduledFor ? toDate(next.scheduledFor) : null }
+              : {}),
+          },
+        });
+        await this.audit.logIn(
+          tx,
+          'invoice.corrected',
+          { type: 'invoice', id },
+          {
+            clientId: current.clientId,
+            ...changed,
+            sent: sentAt !== null,
+            ...(body.reason ? { reason: body.reason } : {}),
+          },
+        );
+      }
+      return await invoiceOf(tx, businessId, await this.load(tx, businessId, actor, id), today);
     });
   }
 
