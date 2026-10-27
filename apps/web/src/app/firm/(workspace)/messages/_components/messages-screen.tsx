@@ -14,6 +14,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -124,9 +125,10 @@ export function MessagesScreen({
           <button type="button" className={gold} onClick={() => setComposing(true)}>
             <Plus aria-hidden weight="bold" className="size-5" /> New Message
           </button>
-          <Link href="/communications" className={subtle}>
+          {/* MSG-F06: the Messages bulk builder, with Back to Messages. */}
+          <OriginLink href="/messages/bulk" className={subtle} data-testid="messages-bulk">
             Send Bulk Message
-          </Link>
+          </OriginLink>
           <Link href="/templates" className={subtle}>
             Message Templates
           </Link>
