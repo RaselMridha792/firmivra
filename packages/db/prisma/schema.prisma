@@ -3081,6 +3081,12 @@ model ClientProfile {
   // R37 (Clients module): the profile's county. Email and SMS consent live in communication_consents (R39).
   /// The client's county (the list's optional "City or County" filter).
   county                 String?
+  /// Clients E5 (R60's column request 14, Oct 26): a BUSINESS client's responsible party, the
+  /// person linked to the business, not replacing it: full name, lower-case email and E.164
+  /// phone, set together. The API requires them for a Business client.
+  responsiblePartyName   String?        @map("responsible_party_name")
+  responsiblePartyEmail  String?        @map("responsible_party_email")
+  responsiblePartyPhone  String?        @map("responsible_party_phone")
   createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
