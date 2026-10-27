@@ -908,7 +908,7 @@ function AddClientDialog({ onClose, onNotice }: { onClose: () => void; onNotice:
               try {
                 await api.bookkeeping.addClient({
                   clientId,
-                  ...(plan.trim() ? { plan: plan.trim() } : {}),
+                  ...(plan ? { catalogServiceId: plan } : {}),
                 });
                 await act(async () => undefined, 'Bookkeeping client added.');
                 onClose();

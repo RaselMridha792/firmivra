@@ -454,7 +454,7 @@ Each PR body: the IDs it closes, what and why, the shared pieces for R60, tests 
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs. `pnpm exec playwright test` under load sometimes times out one Payroll test; it passes alone. Python edits with regex escapes go in a script file; when a replacement misses, use Edit.
 
-**Needs for Rasel (Oct 26, SH9):** the plan a Payroll or Bookkeeping client is on is kept as text (`engagements.package`); the screens now choose it from Services & Pricing by id but save the name. A stable link needs `engagements.catalog_service_id uuid NULL` (FK `(business_id, catalog_service_id)` to `services (business_id, id)`), set by the plan endpoints; until then a renamed catalog service no longer matches the saved name (the select shows it as "not in Services & Pricing").
+**Needs for Rasel (Oct 26, SH9):** done: R1's #1188 added `engagements.catalog_service_id`; SH9 now saves the plan by id.
 ## Handoff for a fresh R56 (Oct 25, Business Advisory)
 
 Rasel (Oct 25): open the waiting branches one at a time (two open at most), then Octavia's Business Advisory review: B1 to B5 first (reproduce each on main), then B6 to B12; columns (B15) to the R file and Rasel. Read `docs/specs/review-2026-10-25/CHANGE-LIST.md` (section B) and `business-advisory--developer-feedback.md` (897 lines: grep its numbered sections, do not read it whole).

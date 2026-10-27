@@ -980,6 +980,33 @@ describe('the workspace and its service actions', () => {
       403,
       'FORBIDDEN',
     );
+    // SH9: a Services & Pricing payroll service by id: the link and its name; another firm's is 404.
+    expect(
+      exact(
+        PayrollClientWorkspace,
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: ids.serviceA,
+        }),
+      ),
+    ).toMatchObject({ plan: `Fake payroll ${run}`, catalogServiceId: ids.serviceA });
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, {
+        catalogServiceId: randomUUID(),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(
+      exact(
+        PayrollClientWorkspace,
+        await call('post', `/clients/${pcId}/plan`, people.adminA, { catalogServiceId: null }),
+      ),
+    ).toMatchObject({ plan: null, catalogServiceId: null });
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
     const history = exact(
       PayrollChangeList,
       await call('get', `/clients/${pcId}/changes?pageSize=100`, people.ownerA),

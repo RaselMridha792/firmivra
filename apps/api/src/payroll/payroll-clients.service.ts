@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { NotFoundException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AddPayrollClientRequest,
@@ -603,7 +603,7 @@ export class PayrollClientsService {
         include: {
           client: { select: clientRefSelect },
           connection: { select: { status: true } },
-          engagement: { select: { package: true } },
+          engagement: { select: { package: true, catalogServiceId: true } },
         },
       });
       if (!pc) throw errors.notFound();
@@ -673,6 +673,7 @@ export class PayrollClientsService {
       client: toClientRef(pc.client),
       engagementId: pc.engagementId,
       plan: pc.engagement.package,
+      catalogServiceId: pc.engagement.catalogServiceId,
       status: pc.status,
       frequency: pc.frequency,
       industry: pc.industry,
@@ -1027,11 +1028,32 @@ export class PayrollClientsService {
         where: { businessId, id: pc.engagementId },
         select: { package: true },
       });
+      // SH9: a Services & Pricing payroll service by id saves the link and its name; the older
+      // text form clears the link.
+      let plan = body.plan ?? null;
+      let catalogServiceId: string | null = null;
+      if (body.catalogServiceId) {
+        const service = await tx.service.findFirst({
+          where: {
+            businessId,
+            id: body.catalogServiceId,
+            kind: 'PAYROLL',
+            status: 'ACTIVE',
+            archivedAt: null,
+          },
+          select: { id: true, name: true },
+        });
+        if (!service) {
+          throw new NotFoundException({ code: 'NOT_FOUND', message: 'No such plan' });
+        }
+        plan = service.name;
+        catalogServiceId = service.id;
+      }
       await tx.engagement.update({
         where: { id: pc.engagementId },
-        data: { package: body.plan, updatedByUserId: actor.userId },
+        data: { package: plan, catalogServiceId, updatedByUserId: actor.userId },
       });
-      await this.change(tx, businessId, actor, id, 'plan', engagement.package, body.plan);
+      await this.change(tx, businessId, actor, id, 'plan', engagement.package, plan);
       await this.audit.logIn(
         tx,
         'payroll.client.plan_changed',

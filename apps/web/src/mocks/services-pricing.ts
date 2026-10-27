@@ -1126,3 +1126,11 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     },
   };
 }
+
+/** SH9 (mock mode): an active catalog service of `kind` by id, as the plan endpoints read it. */
+export function catalogPlanRef(id: string, kind: CatalogService['kind']) {
+  const sv = storeFor({}).services.find(
+    (x) => x.id === id && x.kind === kind && x.status === 'ACTIVE',
+  );
+  return sv ? { id: sv.id, name: sv.name } : undefined;
+}

@@ -27,6 +27,11 @@ test('Payroll settings: Plan or service lists the payroll services of Services &
       .textContent()) ?? '';
   await plan.selectOption({ index: count - 1 });
   await expect(plan.locator('option:checked')).toHaveText(last);
+  // Saved by id: the plan now is that service, and the old name is gone from the list.
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
+  await expect(page.getByTestId('change-history')).toContainText(last);
+  await expect(plan.locator('option', { hasText: 'not in Services & Pricing' })).toHaveCount(0);
 });
 
 test('Bookkeeping: Add Client and the Plan Type filter offer the bookkeeping services', async ({

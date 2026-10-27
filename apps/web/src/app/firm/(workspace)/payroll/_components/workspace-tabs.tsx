@@ -780,7 +780,7 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
     assignee: w.assignedTo?.userId ?? '',
     industry: w.industry ?? '',
     next: '',
-    plan: w.plan ?? '',
+    plan: w.catalogServiceId ?? '',
   });
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
   const save = useApiMutation(
@@ -792,8 +792,9 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
         industry: f.industry.trim() || null,
         ...(f.next ? { nextPayrollOn: f.next } : {}),
       });
-      if ((w.plan ?? '') !== f.plan.trim())
-        await api.payroll.setPlan(w.id, { plan: f.plan.trim() || null });
+      // SH9: the plan is saved by its Services & Pricing id.
+      if ((w.catalogServiceId ?? '') !== f.plan)
+        await api.payroll.setPlan(w.id, { catalogServiceId: f.plan || null });
     },
     { invalidate: [...PAYROLL_KEY] },
   );
@@ -835,6 +836,7 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
           />
           <CatalogPlanSelect
             kind="PAYROLL"
+            savedName={w.plan}
             value={f.plan}
             onChange={(plan) => setF({ ...f, plan })}
           />

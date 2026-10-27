@@ -255,7 +255,7 @@ function ClientDialog({
         case 'frequency':
           return api.payroll.setFrequency(id, { frequency: choice as 'MONTHLY' });
         case 'plan':
-          return api.payroll.setPlan(id, { plan: text.trim() || null });
+          return api.payroll.setPlan(id, { catalogServiceId: text || null });
         case 'pause':
           return api.payroll.pause(id, text.trim() ? { reason: text.trim() } : {});
         case 'archive':
