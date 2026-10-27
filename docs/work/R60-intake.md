@@ -26,34 +26,55 @@ assigned staff and archive (`message_threads`), mutes and tags per thread, `mess
 record, Add to Timeline, delivery state per recipient) and files. Nothing used them but a few
 reads of `message_settings`. Bulk sends stay on the Communications engine (R39): one engine.
 
-- [x] **#1202** (PR A): MSG-F01 (search by email and phone), F03 (Clients, Leads, Automations,
-  Archived), F04 (blue Bulk and Templates), F05 (Filter), F07 (Templates on the message
-  templates), F08 (Back to the same thread). Branch `rasel/R60-messages`.
+- [x] **#1202** (PR A, merged as `ccb9fa35`): MSG-F01 (search by email and phone), F03 (Clients,
+  Leads, Automations, Archived), F04 (blue Bulk and Templates), F05 (Filter), F07 (Templates on
+  the message templates), F08 (Back to the same thread).
 - [x] **#1203** (PR B): MSG-F02, Messages Settings: `GET`/`PATCH /business/message-settings` on
-  `message_settings`, the page `/messages/settings`. Branch `rasel/R60-messages-settings`, cut from
-  `main` (not stacked): it adds Settings to `main`'s header; after #1202 merges, merge `main` and
-  keep Settings on the new header's second row.
+  `message_settings`, the page `/messages/settings`. Rasel allowed the role check (Oct 28). `main`
+  merged in (Settings on the second row under #1202's actions), head `0aae1281`, 8 of 8.
 - [x] **#1204** (PR C): MSG-F06, the bulk builder at `/messages/bulk` on the Communications API
-  (web only). Branch `rasel/R60-messages-bulk`, cut from `main`; the same header merge applies.
-- [ ] Then F09 to F16 (compose on `outbound_messages`), then F18 to F22.
+  (web only). `main` merged in (Send Bulk Message points to it), head `eea64eed`, 8 of 8.
+  #1203 and #1204 each change one line of the same header block: the second to merge needs
+  `main` merged again (keep both: Settings on the second row, Bulk to `/messages/bulk`).
+- [x] **D** (MSG-F09, F10, F14): New Message as its own page on `outbound_messages`, branch
+  `rasel/R60-messages-compose`, `main` merged in (#1202's header; the inbox keeps the previous
+  results while a search loads, which fixed `r56-messages`' note test). Body: the PR.
+- [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
+  `rasel/R60-messages-compose-review` (stacked on D): open after D merges, `main` merged first.
+- [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
+  `outbound_messages` has the columns), then F18 to F22 (contact panel and thread menu on R36's
+  `assigned_user_id`, `archived_at`, `message_thread_mutes`, `message_thread_tags`).
+- [ ] After Messages (Rasel, Oct 28): Invoices & Payments IP-F01 to F05, F12, F13 (Create Invoice
+  and the template library). Touch only the Create Invoice page and its components; R56 owns the
+  rest, so any other path goes under "Needs from others" first.
 
 Seen while testing: two of R56's `r56-communications` mock tests wait for `/communications/new`
 to open the editor by itself; since #1150 (Q3, Oct 25) it waits for Start, so they fail on `main`
-too. One click in R56's spec fixes them (said in #1204).
+too. Rasel sends the fix to R56 (not R60's).
+
+Decisions (Rasel, Oct 28): the Leads tab stays a tidy empty state (no numbers invented); a
+client's Email is the existing `message.received` notice with the portal link, never the text
+(no notify change was needed); a lead's email or text carries it, as Send Email on Leads does.
 
 Needs from others (Rasel):
-- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
-  today a lead's email or text from Leads is one-way and no thread holds it, so the Leads view is
-  empty. Not built: no column invented.
-- **Message Templates (F07)** opens the Portal Message library (`/templates/library/portal-message`)
-  with Back to Messages; Email and SMS are one click away there. One library page for the three
-  message kinds would need a change in Templates (not R60's paths).
+- **Column request, a conversation with a lead** (`message_threads.lead_id`, a client or a lead,
+  never both): Rasel brings the card later. Until then a lead's messages are one-way and the
+  Leads view is empty. No column invented.
+- **Leads** (`apps/api/src/leads/leads.controller.ts`, LeadsModule): export `LeadMessagesService`
+  so a message to a lead from Messages goes through it and shows in the lead's activity. Today
+  Messages sends with the same Leads templates and no activity row.
+- **A client's text notice** (notify): texts to clients are not set up, and New Message says so.
+- **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
+  One library page for the three message kinds would need a change in Templates (not R60's).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
   mock specs `r60-messages-inbox` 6 of 6 and every Messages spec green.
 - Oct 28: opened #1202, #1203 (API e2e `message-settings` 5 of 5, isolation case green, mock 4 of
   4) and #1204 (mock 4 of 4); #1198 and #1199 merged. `main` merged into #1202.
+- Oct 28: #1202 merged. `main` merged into #1203 and #1204 (`pnpm lint` and `pnpm typecheck`
+  clean, API e2e 27 of 27, mock green), both 8 of 8. D: `main` merged in; API e2e 30 of 30, mock
+  21 of 21. **Next step:** open D, then E once D merges; then F12, F13 and F16.
 
 ## Handoff (Oct 23): start here
 
