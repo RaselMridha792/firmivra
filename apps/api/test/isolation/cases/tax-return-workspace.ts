@@ -49,6 +49,12 @@ export const cases: CaseModule['cases'] = {
     },
   },
   'GET /api/v1/business/tax-returns/:id': { params: ret },
+  // The fixture's return is an individual one: the firm's own call is 400 (no business identity).
+  'PUT /api/v1/business/tax-returns/:id/business-identity': {
+    params: ret,
+    body: { name: 'Fake Business LLC' },
+    expect: 400,
+  },
   'PATCH /api/v1/business/tax-returns/:id/details': {
     params: ret,
     bodyIds: {

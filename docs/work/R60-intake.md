@@ -19,6 +19,36 @@ R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
 
+### Oct 27 (eighth session, latest): start here
+
+This wins over the entries below.
+Rasel's order of Oct 27: at most three PRs open; F22, F11, F28, then F26 (mail), then the staff
+phone; then F31's next PR; after the Tax Returns queue is merged, **Messages**:
+`docs/specs/review-2026-10-27/CHANGE-LIST.md` section B (PR #1183, branch
+`rasel/scrum-review-oct27`), in the order MSG-F01 to F08, then F09 to F16, then F18 to F22. The
+Sign-ups defaults stand.
+
+**Merged:** #1178 (F34, F35), #1179 (F31), #1180 (Sign-ups flow B), #1185 (F22), #1186 (F11),
+on top of #1171 and #1175.
+
+**Open (three), each with `main` merged in:**
+- **#1187** TX-F28, `rasel/R60-tax-returns-amounts` (head `6e57d65`, 8 of 8).
+- **#1194** staff phone, `rasel/R60-staff-phone` (head `5be0ccc`). The merge took `main`'s notes and
+  kept the sixth session's progress line.
+- The TX-F31, F32 follow-up, `rasel/R60-tax-returns-identity`, `pr-identity.md`:
+  `businessIdentity` on the return's detail, `PUT .../business-identity` (correct until the first
+  filing; the EIN sealed with the profile's context `client_profiles`/client/`ein` before the
+  write; 400 individual, 409 `RETURN_LOCKED` filed or archived), Business on This Return card.
+
+**Pushed, no PR yet:** TX-F26 `rasel/R60-tax-returns-mail` (on F28, head `dcd0633`, `pr-f26.md`):
+open it once #1187 merges, after merging `origin/main` into it.
+
+**Then Messages** (when the Tax Returns queue is merged): section B of
+`docs/specs/review-2026-10-27/CHANGE-LIST.md`, MSG-F01 to F08, F09 to F16, F18 to F22.
+
+**Still waiting:** F04 (the firm-side Client Portal module), F27 (Octavia's columns; the proposal
+is in F26's body), F19 and F20 (R1's validation issues table is on `main`, #1172), TX-F18 (Rasel's
+word on role checks), and SH2 to SH6 in Tax Returns as R56's pieces land.
 ### Oct 26 (eighth session, later): start here
 
 Rasel (Oct 26, evening): R60 may have **three** PRs open. His order: archived (F34), business
@@ -1293,3 +1323,6 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 26 (eighth session, later): three PRs allowed. Opened #1178 (F34, F35), #1179 (F31) and
   #1180 (flow B), each with `main` merged in and green. Built TX-F11 (`rasel/R60-tax-returns-intake`,
   the Intake Form card on R56's OriginLink; mock 7 of 7).
+- Oct 27 (eighth session): #1178, #1179, #1180 merged; opened #1185 (F22), #1186 (F11), #1187 (F28)
+  with `main` merged in, all green. Built the F31 follow-up (`rasel/R60-tax-returns-identity`:
+  the return's own business identity, correctable until the first filing).

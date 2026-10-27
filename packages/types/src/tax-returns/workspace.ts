@@ -194,6 +194,24 @@ export const TaxReturnBlocker = z.enum([
 export type TaxReturnBlocker = z.infer<typeof TaxReturnBlocker>;
 
 /** GET /business/tax-returns/{id}: the workspace header, people, dates and Next Steps. */
+/**
+ * A business return's own copy of the business (Octavia's TX-F31, F32; R1's #1176): name, EIN and
+ * address, copied from the client's profile when the return was created, so later profile edits
+ * never rewrite it. The EIN stays sealed; only its last 4 come back.
+ */
+export const TaxReturnBusinessIdentity = z.object({
+  name: z.string().nullable(),
+  einLast4: z.string().nullable(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  /** Until the return is first filed; after that the database keeps it as filed. */
+  correctable: z.boolean(),
+});
+export type TaxReturnBusinessIdentity = z.infer<typeof TaxReturnBusinessIdentity>;
+
 export const TaxReturnDetail = TaxReturnRow.extend({
   client: ClientCell.extend({ email: z.string().nullable(), phone: z.string().nullable() }),
   engagement: z.object({ id: z.uuid(), title: z.string() }).nullable(),
@@ -217,9 +235,37 @@ export const TaxReturnDetail = TaxReturnRow.extend({
   canMoveTo: z.array(TaxReturnWorkflowStatus),
   /** Why it cannot move on to Ready to File, Transmitted or Accepted yet. */
   blockers: z.array(TaxReturnBlocker),
+  /** Business returns only (null for an individual return). */
+  businessIdentity: TaxReturnBusinessIdentity.nullable(),
   createdAt: DateTime,
 });
 export type TaxReturnDetail = z.infer<typeof TaxReturnDetail>;
+
+/**
+ * PUT /business/tax-returns/{id}/business-identity: corrects a business return's own copy until
+ * its first filing (409 RETURN_LOCKED after; 400 for an individual return). A field left out
+ * stays as it is and an empty one clears. The EIN is 9 digits (dashes allowed), sealed with the
+ * firm's key; only its last 4 ever come back. The client's profile is not changed.
+ */
+export const CorrectTaxReturnBusinessIdentityRequest = z
+  .strictObject({
+    name: clearable(text(200)),
+    ein: clearable(
+      z
+        .string()
+        .transform((v) => v.replace(/[\s-]/g, ''))
+        .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN')),
+    ),
+    addressLine1: clearable(text(200)),
+    addressLine2: clearable(text(200)),
+    city: clearable(text(100)),
+    state: clearable(text(50)),
+    postalCode: clearable(z.string().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code')),
+  })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), 'Change something first');
+export type CorrectTaxReturnBusinessIdentityRequest = z.input<
+  typeof CorrectTaxReturnBusinessIdentityRequest
+>;
 
 /**
  * POST /business/tax-returns (Create New Return). Quarterly needs `quarter`; Amended needs
