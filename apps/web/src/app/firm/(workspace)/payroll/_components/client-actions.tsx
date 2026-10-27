@@ -50,6 +50,7 @@ import {
   stamp,
 } from './payroll-shared';
 import { useOriginNavigate } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
 
 type Kind =
   | 'sync'
@@ -66,7 +67,7 @@ type Kind =
 
 export type ActionClient = Pick<
   PayrollClientRow,
-  'id' | 'client' | 'provider' | 'status' | 'frequency'
+  'id' | 'client' | 'engagementId' | 'provider' | 'status' | 'frequency'
 > & {
   assignedTo?: PayrollClientRow['assignedTo'];
 };
@@ -87,6 +88,7 @@ export function ClientActionMenu({
 }) {
   const router = useRouter();
   const toOrigin = useOriginNavigate();
+  const docs = useServiceDocuments();
   const [dialog, setDialog] = useState<Kind>();
   const options = { invalidate: [...PAYROLL_KEY] };
   const sync = useApiMutation(() => api.payroll.sync(client.id), options);
@@ -119,7 +121,15 @@ export function ClientActionMenu({
     item('View Payroll Runs', CalendarBlank, go(`${base}?tab=runs`)),
     item('View Payroll Reports', ChartBar, go(`${base}?tab=reports`), { submenu: true }),
     item('View Tax Filings', Receipt, go(`${base}?tab=filings`)),
-    item('Request Payroll Documents', FileText, go('/documents/requests')),
+    // SH3: the request opens here, for this client's payroll service.
+    item('Request Payroll Documents', FileText, () =>
+      docs.open('request', {
+        clientId: client.client.id,
+        clientName: client.client.displayName,
+        engagementId: client.engagementId,
+        service: 'Payroll',
+      }),
+    ),
     item('View Documents', Folder, go(`/clients/${client.client.id}/documents`)),
     item('Create Task', ListChecks, go('/tasks/new')),
     item('Add Note', NotePencil, () => setDialog('note')),
