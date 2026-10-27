@@ -42,7 +42,7 @@ test('Payroll list: a filter typed on the page is in the address, and Back keeps
   expect(y).toBeGreaterThan(0);
   await page.getByRole('button', { name: /^Actions for Green Leaf/ }).click();
   await page.getByRole('menuitem', { name: 'Create Task' }).click();
-  await expect(page).toHaveURL(/\/tasks\/new\?from=/);
+  await expect(page).toHaveURL(/\/tasks\/new\?clientId=.*&from=/);
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(/\/payroll\?q=Green$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(y - 40);

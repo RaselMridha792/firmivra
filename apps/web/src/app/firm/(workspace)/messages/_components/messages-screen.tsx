@@ -46,13 +46,23 @@ const relatedLabel = (t: MessageThread) =>
 /** /messages: the firm's inbox, the open conversation and the client beside it. */
 export function MessagesScreen({
   initialComposing = false,
+  initialClientId,
+  service,
 }: {
   /** Open New Message at once (the dashboard's shortcuts). */
   initialComposing?: boolean;
+  /** SH5: a service workspace's client: their conversations, and New Message for them. */
+  initialClientId?: string;
+  /** "Payroll", "Bookkeeping": the subject New Message starts with. */
+  service?: string;
 } = {}) {
   const qc = useQueryClient();
   const [tab, setTab] = useState<TabId>('all');
   const [search, setSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState(initialClientId ?? '');
+  const scoped = useApiQuery([...KEY, 'scoped-client', clientFilter], async () =>
+    clientFilter ? api.clients.get(clientFilter) : null,
+  );
   const [openId, setOpenId] = useState<string>();
   const [composing, setComposing] = useState(initialComposing);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -60,7 +70,15 @@ export function MessagesScreen({
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());
   const all = inbox.data?.items ?? [];
   const term = search.trim().toLowerCase();
+  // The client filter (SH5): the threads' clients, and the one a workspace opened with.
+  const clientChoices = [
+    ...new Map([
+      ...(scoped.data ? [[scoped.data.id, scoped.data.displayName] as const] : []),
+      ...all.map((t) => [t.client.id, t.client.displayName] as const),
+    ]).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
   const rows = all
+    .filter((t) => !clientFilter || t.client.id === clientFilter)
     .filter((t) =>
       tab === 'all' ? true : tab === 'unread' ? t.unreadCount > 0 : t.related?.type === tab,
     )
@@ -145,6 +163,26 @@ export function MessagesScreen({
             </button>
           ))}
         </div>
+        <label className="flex h-10 min-w-0 items-center gap-2 text-sm text-heading">
+          <span className="sr-only">Client</span>
+          <select
+            aria-label="Client"
+            data-testid="messages-client"
+            value={clientFilter}
+            onChange={(e) => {
+              setClientFilter(e.target.value);
+              setOpenId(undefined);
+            }}
+            className="h-10 max-w-60 rounded-lg border border-divider bg-surface px-3 text-sm text-text"
+          >
+            <option value="">All clients</option>
+            {clientChoices.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus sm:w-64">
           <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
           <span className="sr-only">Search messages</span>
@@ -173,9 +211,11 @@ export function MessagesScreen({
           {inbox.isPending ? <p className={quiet}>Loading…</p> : null}
           {!inbox.isPending && rows.length === 0 ? (
             <p className={quiet}>
-              {all.length === 0
-                ? 'No conversations yet. Start one with New Message.'
-                : 'No conversations match.'}
+              {clientFilter && !term && tab === 'all'
+                ? `No conversations with ${scoped.data?.displayName ?? 'this client'} yet. Start one with New Message.`
+                : all.length === 0
+                  ? 'No conversations yet. Start one with New Message.'
+                  : 'No conversations match.'}
             </p>
           ) : null}
           <ul className="flex max-h-176 flex-col gap-2 overflow-auto">
@@ -248,6 +288,9 @@ export function MessagesScreen({
 
       {composing ? (
         <NewMessageDialog
+          clientId={clientFilter || undefined}
+          clientName={scoped.data?.displayName}
+          subject={service}
           onClose={() => setComposing(false)}
           onSent={(t) => {
             setComposing(false);
@@ -524,16 +567,34 @@ function ContactPanel({ clientId, name }: { clientId: string; name: string }) {
   );
 }
 
-function NewMessageDialog({
+/**
+ * New Message (SH5): to a client chosen here, or the client a workspace opened Messages for, with
+ * the service as the subject to start from. Nothing is sent until Send Message. Tax Returns can
+ * open it in place from a return (TX-F05).
+ */
+export function NewMessageDialog({
+  clientId: initialClientId,
+  clientName,
+  subject: initialSubject,
   onClose,
   onSent,
 }: {
+  clientId?: string;
+  clientName?: string;
+  subject?: string;
   onClose: () => void;
   onSent: (t: MessageThread) => void;
 }) {
   const clients = useApiQuery([...KEY, 'clients'], () => api.clients.list({ limit: 100 }));
-  const [clientId, setClientId] = useState('');
-  const [subject, setSubject] = useState('');
+  const [clientId, setClientId] = useState(initialClientId ?? '');
+  const [subject, setSubject] = useState(initialSubject ?? '');
+  const listed = clients.data?.items ?? [];
+  const options = [
+    ...(initialClientId && clientName && !listed.some((c) => c.id === initialClientId)
+      ? [{ id: initialClientId, displayName: clientName }]
+      : []),
+    ...listed,
+  ];
   const [body, setBody] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -573,6 +634,7 @@ function NewMessageDialog({
         <label className="flex flex-col gap-1 text-sm font-medium text-heading">
           To
           <select
+            aria-label="To"
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
             className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
@@ -580,7 +642,7 @@ function NewMessageDialog({
             <option value="">
               {clients.isError ? 'Clients are not available' : 'Choose a client…'}
             </option>
-            {(clients.data?.items ?? []).map((c) => (
+            {options.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.displayName}
               </option>

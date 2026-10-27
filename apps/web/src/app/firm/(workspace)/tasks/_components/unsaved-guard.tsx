@@ -3,6 +3,7 @@
 import { Button, Modal } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 
 /**
  * Octavia's C10: before unsaved changes are lost, ask Save, Discard or Keep Editing. `values` is
@@ -22,6 +23,8 @@ export function useUnsavedGuard(values: unknown) {
     setBaseline(snapshot);
   }
   const dirty = snapshot !== baseline;
+  // The workspace's Back to {place} (SH1) asks first too.
+  useUnsavedChanges(dirty);
   const [pending, setPending] = useState<string | null>(null);
   const leavingRef = useRef(false);
 
