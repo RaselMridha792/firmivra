@@ -12,6 +12,9 @@ import {
   InvoiceId,
   InvoiceList,
   InvoicePdfLink,
+  ListPaymentsQuery,
+  PaymentPage,
+  RecurringInvoiceList,
   ListInvoicesQuery,
   ListMyInvoicesQuery,
   MyInvoiceDetail,
@@ -58,6 +61,12 @@ export function createInvoicesClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CorrectInvoiceRequest, body),
       }),
+    /** IP-F17: every payment of every invoice in the range (View All Payments), newest first. */
+    payments: async (query: ListPaymentsQuery = {}): Promise<PaymentPage> =>
+      request(PaymentPage, `${BASE}/payments${toQuery(parseInput(ListPaymentsQuery, query))}`),
+    /** IP-F17: the firm's recurring invoice schedules (read only). */
+    recurring: async (): Promise<RecurringInvoiceList> =>
+      request(RecurringInvoiceList, `${BASE}/recurring`),
     /** IP-F09: the invoice's history (notes and logged activity), newest first. Firm only. */
     history: async (id: string): Promise<InvoiceHistory> =>
       request(InvoiceHistory, `${one(id)}/history`),

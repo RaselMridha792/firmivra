@@ -22,6 +22,9 @@ import {
 } from '@firmivra/ui';
 import {
   ArrowSquareOut,
+  ArrowsClockwise,
+  LinkSimple,
+  Scroll,
   BellRinging,
   CalendarBlank,
   CalendarPlus,
@@ -1102,6 +1105,21 @@ function Side({ paymentsEnabled, loaded }: { paymentsEnabled?: boolean; loaded: 
     { href: '/templates', label: 'Invoice Templates', icon: Copy, change: false },
     { href: '/services-pricing', label: 'Services & Pricing', icon: ListBullets, change: false },
     { href: '/reports', label: 'Payment Reports', icon: ChartBar, change: false },
+    // IP-F17: the routes the review found missing.
+    { href: '/invoices/payments', label: 'View All Payments', icon: ListBullets, change: false },
+    {
+      href: '/invoices/recurring',
+      label: 'Recurring Invoices',
+      icon: ArrowsClockwise,
+      change: false,
+    },
+    { href: '/invoices/statement', label: 'Client Statement', icon: Scroll, change: false },
+    {
+      href: '/invoices/payment-links',
+      label: 'Payment Link Generator',
+      icon: LinkSimple,
+      change: true,
+    },
   ];
   return (
     <aside

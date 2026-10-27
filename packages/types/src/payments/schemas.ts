@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
-import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.js';
+import {
+  BillingFrequency,
+  InvoiceStatus,
+  PaymentRefundStatus,
+  PaymentStatus,
+  RecurringInvoiceStatus,
+} from '../db-enums.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
 // Invoices, and the firm's Invoices page); the client pays it by card on Stripe's hosted checkout
@@ -551,6 +557,70 @@ export const AddInvoiceHistoryRequest = z.strictObject({
   body: text(2000, 'many', 'Write the note'),
 });
 export type AddInvoiceHistoryRequest = z.input<typeof AddInvoiceHistoryRequest>;
+
+// ---------- IP-F17: View All Payments and Recurring Invoices ----------
+/** GET /business/invoices/payments: both days included, the firm's calendar; this year by default. */
+export const ListPaymentsQuery = z
+  .strictObject({
+    from: CalendarDate.optional(),
+    to: CalendarDate.optional(),
+    search: SearchText.optional(),
+    page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, {
+    message: 'The start date is after the end date',
+    path: ['to'],
+  });
+export type ListPaymentsQuery = z.input<typeof ListPaymentsQuery>;
+
+/**
+ * One payment of any invoice: Stripe's (once its webhook confirmed it; less confirmed refunds) or
+ * one the firm recorded by hand (a voided one stays listed as Voided).
+ */
+export const PaymentRow = z.object({
+  id: z.uuid(),
+  source: z.enum(['STRIPE', 'RECORDED']),
+  invoice: z.object({ id: z.uuid(), number: z.string() }),
+  client: z.object({ id: z.uuid(), displayName: z.string() }),
+  method: PaymentMethodKey,
+  amountCents: z.number().int(),
+  /** The day the money came in, on the firm's calendar. */
+  receivedOn: CalendarDate,
+  status: z.enum(['RECEIVED', 'REFUNDED', 'VOIDED']),
+});
+export type PaymentRow = z.infer<typeof PaymentRow>;
+
+export const PaymentPage = z.object({
+  items: z.array(PaymentRow),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  from: CalendarDate,
+  to: CalendarDate,
+  /** Money received in the range (not refunded, not voided). */
+  receivedCents: z.number().int(),
+});
+export type PaymentPage = z.infer<typeof PaymentPage>;
+
+/**
+ * GET /business/invoices/recurring: the firm's recurring invoice schedules (read only: they are
+ * made with IP-F18). `amountCents`: each invoice's lines before discount and tax.
+ */
+export const RecurringInvoiceRow = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  client: z.object({ id: z.uuid(), displayName: z.string() }),
+  frequency: BillingFrequency,
+  nextSendOn: CalendarDate.nullable(),
+  status: RecurringInvoiceStatus,
+  amountCents: z.number().int(),
+  autoSend: z.boolean(),
+  autopay: z.boolean(),
+});
+export type RecurringInvoiceRow = z.infer<typeof RecurringInvoiceRow>;
+export const RecurringInvoiceList = z.object({ items: z.array(RecurringInvoiceRow) });
+export type RecurringInvoiceList = z.infer<typeof RecurringInvoiceList>;
 
 /** GET /business/invoices/{id}/pdf: a 5-minute link to the invoice as a PDF. */
 export const InvoicePdfLink = z.object({ url: z.string(), expiresAt: DateTime });
