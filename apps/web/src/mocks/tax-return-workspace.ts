@@ -20,6 +20,8 @@ import {
   UpdateTaxChecklistItemRequest,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
+  CorrectTaxReturnBusinessIdentityRequest,
+  type TaxReturnBusinessIdentity,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
   parseInput,
@@ -135,6 +137,8 @@ const maskedOf = (c: MockClient) =>
   c.last4 ? (c.accountType === 'BUSINESS' ? `**-***${c.last4}` : `***-**-${c.last4}`) : null;
 
 interface Stored {
+  /** A business return's own copy of the business, once corrected (as the API, #1176). */
+  identity?: Omit<TaxReturnBusinessIdentity, 'correctable'>;
   id: string;
   clientId: string;
   taxYear: number;
@@ -252,7 +256,8 @@ function blockersFor(r: Stored, to: TaxReturnWorkflowStatus, all: Stored[]): Tax
   const required = r.filings.filter((f) => f.required);
   const done = (s: string) => s === 'ACCEPTED' || s === 'PAPER_FILED';
   const out: TaxReturnBlocker[] = [];
-  if (at >= 4) out.push(...now);
+  // The pre-filing checks hold when a return first reaches Ready to File, not on later moves.
+  if (at >= 4 && (STEP[r.workflowStatus] ?? 0) < 4) out.push(...now);
   if (
     at === 5 &&
     required.length &&
@@ -385,6 +390,8 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
     refundCents: jurisdiction === 'US' ? 284_200 : 31_600,
     amountDueCents: null,
     amountStatus: sent ? 'FINAL' : 'ESTIMATED',
+    amountSource: sent ? 'TAX_SOFTWARE' : 'STAFF_ESTIMATE',
+    amountVersion: 1,
     attempts: sent
       ? [
           {
@@ -396,6 +403,8 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
             rejectCode: ack === 'REJECTED' ? 'IND-031-04' : null,
             rejectDescription:
               ack === 'REJECTED' ? 'The prior-year AGI does not match the agency record.' : null,
+            rejectingAgency:
+              ack === 'REJECTED' ? (jurisdiction === 'US' ? 'IRS' : jurisdiction) : null,
             correctiveAction: null,
             recordedBy: r.preparer,
             createdAt: ago(5),
@@ -645,6 +654,22 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       document: null,
       canMoveTo: canMoveTo(r.workflowStatus),
       blockers: blockersOf(r, rows),
+      // As the API: copied from the client at creation, correctable until the first filing.
+      businessIdentity:
+        r.filingType === 'BUSINESS'
+          ? {
+              ...(r.identity ?? {
+                name: c.name,
+                einLast4: maskedOf(c)?.slice(-4) ?? null,
+                addressLine1: null,
+                addressLine2: null,
+                city: null,
+                state: null,
+                postalCode: null,
+              }),
+              correctable: r.firstFiledAt === null,
+            }
+          : null,
       createdAt: r.createdAt,
     };
   };
@@ -666,6 +691,14 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     }
     const blockers = blockersFor(r, to, rows);
     if (blockers.length) throw fail(409, 'STATUS_BLOCKED', 'Blocked');
+    // As the API (TX-F22): Rejected only with a rejection recorded on a newest transmission.
+    if (to === 'REJECTED' && !r.filings.some((f) => f.attempts[0]?.ackStatus === 'REJECTED')) {
+      throw fail(
+        409,
+        'REJECTION_NOT_RECORDED',
+        "Record the agency's rejection of a transmission first",
+      );
+    }
     r.workflowStatus = to;
     r.statusReason = reason;
     if (filed(to) && !r.firstFiledAt) {
@@ -843,6 +876,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               refundCents: null,
               amountDueCents: null,
               amountStatus: null,
+              amountSource: null,
+              amountVersion: null,
               attempts: [],
             })),
         checklist: [],
@@ -918,6 +953,32 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     get: async (id) => {
       await mockDelay();
       return toDetail(find(id));
+    },
+    correctBusinessIdentity: async (id, body) => {
+      await mockDelay();
+      const b = parseInput(CorrectTaxReturnBusinessIdentityRequest, body);
+      const r = find(id);
+      if (r.filingType !== 'BUSINESS') {
+        throw fail(400, 'VALIDATION_FAILED', 'Only a business return has a business identity');
+      }
+      if (r.archivedAt) throw fail(409, 'RETURN_LOCKED', 'Restore the return first');
+      if (r.firstFiledAt) {
+        throw fail(409, 'RETURN_LOCKED', 'A filed return keeps its business identity');
+      }
+      const now = toDetail(r).businessIdentity!;
+      const { correctable: _c, ...current } = now;
+      r.identity = {
+        ...current,
+        ...(b.name !== undefined ? { name: b.name } : {}),
+        ...(b.ein !== undefined ? { einLast4: b.ein === null ? null : b.ein.slice(-4) } : {}),
+        ...(b.addressLine1 !== undefined ? { addressLine1: b.addressLine1 } : {}),
+        ...(b.addressLine2 !== undefined ? { addressLine2: b.addressLine2 } : {}),
+        ...(b.city !== undefined ? { city: b.city } : {}),
+        ...(b.state !== undefined ? { state: b.state } : {}),
+        ...(b.postalCode !== undefined ? { postalCode: b.postalCode } : {}),
+      };
+      touch(r, 'UPDATED', 'Business identity corrected');
+      return toDetail(r);
     },
     updateDetails: async (id, body) => {
       await mockDelay();
@@ -1051,6 +1112,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
               refundCents: null,
               amountDueCents: null,
               amountStatus: null,
+              amountSource: null,
+              amountVersion: null,
               attempts: [],
             };
       });
@@ -1070,7 +1133,21 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const f = filingOf(r, filingId);
       if (b.filingMethod && f.attempts.length)
         throw fail(409, 'RETURN_LOCKED', 'Already transmitted');
+      // As the API (TX-F28): an amount names its source, and each change is a new version.
+      const amountSent = (
+        ['refundCents', 'amountDueCents', 'amountStatus', 'amountSource'] as const
+      ).some((k) => b[k] !== undefined);
+      const status = b.amountStatus !== undefined ? b.amountStatus : f.amountStatus;
+      const source =
+        status === null ? null : b.amountSource !== undefined ? b.amountSource : f.amountSource;
+      if (amountSent && status !== null && !source) {
+        throw fail(400, 'VALIDATION_FAILED', 'Say where the amount came from');
+      }
       Object.assign(f, b);
+      if (amountSent) {
+        f.amountSource = source;
+        f.amountVersion = status === null ? null : (f.amountVersion ?? 0) + 1;
+      }
       touch(r, 'FILING', `${f.jurisdiction} filing updated`);
       return copy(r.filings);
     },
@@ -1090,6 +1167,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         acknowledgedAt: null,
         rejectCode: null,
         rejectDescription: null,
+        rejectingAgency: null,
         correctiveAction: null,
         recordedBy: me,
         createdAt: nowIso(),
@@ -1111,9 +1189,13 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         a.ackStatus = b.ackStatus;
         a.acknowledgedAt = b.acknowledgedAt;
         if (b.ackStatus === 'REJECTED') {
+          if (!b.rejectCode && !b.rejectDescription) {
+            throw fail(400, 'VALIDATION_FAILED', 'Enter the reject code or what was rejected');
+          }
+          a.rejectingAgency = b.rejectingAgency;
           a.rejectCode = b.rejectCode ?? null;
           a.rejectDescription = b.rejectDescription ?? null;
-          a.correctiveAction = b.correctiveAction ?? null;
+          a.correctiveAction = b.correctiveAction;
         }
       }
       syncFilingStatus(f);

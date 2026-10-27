@@ -210,7 +210,7 @@ export const NotificationPreferences = z.object({
    * The channels that can reach this person now, in display order: show a switch only for these.
    * EMAIL always. SMS for a client with a phone number (q27: the switch only stores the choice
    * until SMS is switched on in config); for the firm's staff only with a verified mobile number
-   * (Rasel, Oct 24), which no staff login records yet, so staff get EMAIL only for now.
+   * (Rasel, Oct 24: a code by text, StaffPhoneState), and the switch likewise only stores the choice.
    * While SMS is not listed, every item answers `sms: false` and an update with `sms: true` is
    * refused (400). Turning SMS off is always allowed. A change of phone number clears every SMS
    * choice: the person opts in again for the new number.
