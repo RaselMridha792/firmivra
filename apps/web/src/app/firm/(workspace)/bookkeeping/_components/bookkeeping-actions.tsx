@@ -524,7 +524,7 @@ export function ClientMenu({
     {
       label: 'Send Message',
       icon: ChatCircleDots,
-      onSelect: go(`/messages?clientId=${row.client.id}`),
+      onSelect: go(`/messages?clientId=${row.client.id}&service=Bookkeeping`),
     },
     { label: 'Schedule Appointment', icon: CalendarPlus, onSelect: go('/calendar') },
   ];
