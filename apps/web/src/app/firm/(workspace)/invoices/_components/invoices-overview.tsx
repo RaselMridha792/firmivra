@@ -477,7 +477,7 @@ function MethodsChart() {
           tone: METHOD_TONE[i.method],
         }))}
         centerValue={q.data ? moneyWhole(total) : '—'}
-        centerLabel="Collected This Year"
+        centerLabel="Collected"
         legend
         emptyText={
           q.isError
