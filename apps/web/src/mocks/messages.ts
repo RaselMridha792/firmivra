@@ -8,6 +8,8 @@ import {
   InternalNote,
   InternalNoteId,
   ListInternalNotesQuery,
+  MESSAGE_SETTINGS_DEFAULTS,
+  type MessageSettings,
   ListMessageThreadsQuery,
   ListMyMessagesQuery,
   type Message,
@@ -28,12 +30,14 @@ import {
   SendMessageRequest,
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
+  UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { BOOKKEEPING_ENGAGEMENT } from './tasks';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.messages`, `api.clientNotes`, `api.myMessages(slug)` and `api.myNotes(slug)`
@@ -73,6 +77,7 @@ interface ThreadRow {
   createdAt: string;
 }
 interface Store {
+  settings?: MessageSettings;
   threads: ThreadRow[];
   messages: Message[];
   notes: InternalNote[];
@@ -309,6 +314,18 @@ function firmThread(t: ThreadRow): MessageThread {
   };
 }
 
+/** Messages Settings: the defaults until the first save; texts not set up in mock mode. */
+const settingsOf = (): MessageSettings =>
+  (s().settings ??= {
+    ...MESSAGE_SETTINGS_DEFAULTS,
+    allowedAttachmentTypes: [...MESSAGE_SETTINGS_DEFAULTS.allowedAttachmentTypes],
+    smsReady: false,
+    defaultAssignee: null,
+    timezone: 'America/New_York',
+    updatedAt: null,
+    updatedBy: null,
+  });
+
 /** An in-memory `api.messages`. */
 export function createMessagesMock(options: { role?: MockFirmRole } = {}): MessagesClient {
   const role = options.role ?? 'OWNER';
@@ -406,6 +423,36 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
       }
       const items = [...byClient].map(([clientId, count]) => ({ clientId, count }));
       return { total: items.reduce((sum, x) => sum + x.count, 0), byClient: items };
+    },
+    settings: async () => (await mockDelay(), structuredClone(settingsOf())),
+    updateSettings: async (body) => {
+      await mockDelay();
+      const { version, defaultAssigneeUserId, ...change } = parseInput(
+        UpdateMessageSettingsRequest,
+        body,
+      );
+      if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'Forbidden');
+      const current = settingsOf();
+      const assignee =
+        defaultAssigneeUserId === undefined
+          ? current.defaultAssignee
+          : defaultAssigneeUserId === null
+            ? null
+            : teamFixtures()
+                .filter((m) => m.status === 'ACTIVE' && m.user.id === defaultAssigneeUserId)
+                .map((m) => ({ userId: m.user.id, name: m.user.name }))[0];
+      if (assignee === undefined) throw notFound();
+      if (version !== undefined && version !== current.updatedAt)
+        throw fail(409, 'STALE_VERSION', 'Someone saved these settings since you opened them.');
+      const set = Object.fromEntries(Object.entries(change).filter(([, v]) => v !== undefined));
+      s().settings = {
+        ...current,
+        ...set,
+        defaultAssignee: assignee ? { ...assignee } : null,
+        updatedAt: now(),
+        updatedBy: { ...me },
+      };
+      return structuredClone(settingsOf());
     },
   };
 }
