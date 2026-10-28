@@ -51,6 +51,29 @@ export const records: CaseModule['records'] = {
       return thread.id;
     },
   },
+  /** A lead's own thread (Messages' Leads tab), with the firm's email to the lead. */
+  leadMessageThread: {
+    async create({ tx, businessId, owner, get }) {
+      const thread = await tx.messageThread.create({
+        data: {
+          businessId,
+          leadId: await get('leadFollowUp'),
+          subject: 'Fake subject',
+          createdByUserId: owner.id,
+        },
+      });
+      await tx.message.create({
+        data: {
+          businessId,
+          threadId: thread.id,
+          senderUserId: owner.id,
+          direction: 'FIRM_TO_CLIENT',
+          body: 'Fake message',
+        },
+      });
+      return thread.id;
+    },
+  },
 };
 
 const thread = { params: { id: 'messageThread' } };
@@ -117,6 +140,12 @@ export const cases: CaseModule['cases'] = {
     ...outbound,
     body: { version: VERSION },
     expect: 409,
+  },
+  // The Leads tab: a lead's own threads.
+  'GET /api/v1/business/lead-message-threads/:id': { params: { id: 'leadMessageThread' } },
+  'POST /api/v1/business/lead-message-threads/:id/messages': {
+    params: { id: 'leadMessageThread' },
+    body: { body: 'Fake', channel: 'EMAIL' },
   },
   'GET /api/v1/business/message-threads/:id': thread,
   'PATCH /api/v1/business/message-threads/:id': { ...thread, body: { repliesEnabled: false } },

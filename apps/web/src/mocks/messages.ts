@@ -47,6 +47,12 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
+  type LeadMessage,
+  type LeadMessageThread,
+  type LeadMessageThreadDetail,
+  type LeadThreadContact,
+  ListLeadMessageThreadsQuery,
+  SendLeadMessageRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -98,10 +104,21 @@ interface ThreadRow {
   archivedAt: string | null;
   createdAt: string;
 }
+/** A lead's own thread (MSG-F03's Leads tab): the firm's emails and texts to the lead. */
+interface LeadThreadRow {
+  id: string;
+  lead: LeadThreadContact;
+  subject: string;
+  startedBy: MessageSender;
+  archivedAt: string | null;
+  createdAt: string;
+}
 interface Store {
   settings?: MessageSettings;
   threads: ThreadRow[];
   messages: Message[];
+  leadThreads: LeadThreadRow[];
+  leadMessages: LeadMessage[];
   notes: InternalNote[];
   myNotes: Map<string, MyNote>;
   seq: number;
@@ -242,7 +259,8 @@ function seed(): Store {
       },
     ],
   ]);
-  return { threads, messages, notes, myNotes, seq: 1000 };
+  // No lead conversation until New Message emails or texts a lead (the Leads tab).
+  return { threads, messages, leadThreads: [], leadMessages: [], notes, myNotes, seq: 1000 };
 }
 
 const s = () => (store ??= seed());
@@ -396,6 +414,41 @@ function mockExclusion(
     return p.kind === 'CLIENT' && !p.portal ? 'NO_PORTAL_ACCESS' : null;
   }
   return 'PROVIDER_UNAVAILABLE';
+}
+
+/** The lead's active thread with this subject, or a new one, with the message; its id. */
+function leadCopy(
+  p: MockPerson,
+  subject: string | null,
+  body: string,
+  channel: 'EMAIL' | 'SMS',
+  sender: MessageSender,
+): string {
+  const title = subject?.trim() || 'A message from your firm';
+  let t = s().leadThreads.find(
+    (x) => x.lead.id === p.id && x.subject === title && x.archivedAt === null,
+  );
+  if (!t) {
+    t = {
+      id: id('0199b6e7', next()),
+      lead: { id: p.id, displayName: p.name, email: p.email, phone: p.phone },
+      subject: title,
+      startedBy: sender,
+      archivedAt: null,
+      createdAt: now(),
+    };
+    s().leadThreads.push(t);
+  }
+  s().leadMessages.push({
+    id: id('0199b6e8', next()),
+    threadId: t.id,
+    sender,
+    body,
+    channel,
+    status: 'SENT',
+    createdAt: now(),
+  });
+  return t.id;
 }
 
 /** An in-memory `api.messages.outbound`; nothing is sent anywhere. */
@@ -708,6 +761,9 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           s().threads.push(t);
           addMessage(t, staff(me), fillFor(p, r.body).text);
           threadId = t.id;
+        } else if (r.channel !== 'PORTAL') {
+          // A lead's email or text is kept in the lead's own thread (the Leads tab).
+          threadId = leadCopy(p, r.subject, fillFor(p, r.body).text, r.channel, staff(me));
         }
         r.results.set(p.id, { status: 'SENT', reason: null, threadId });
       }
@@ -793,6 +849,59 @@ export function createMessagesMock(
       ),
     );
     return page(kept, q.cursor, q.limit);
+  };
+  const outbound = createOutboundMock(role, me);
+  // Conversations with leads: the leads the role reaches in mocks/leads-pipeline.ts.
+  const leadsMock = createLeadPipelineMock({ role });
+  const leadReach = async () =>
+    new Set((await leadsMock.list({ pageSize: 100 })).items.map((l) => l.id));
+  const leadMessagesOf = (threadId: string) =>
+    s().leadMessages.filter((m) => m.threadId === threadId);
+  const leadThread = (t: LeadThreadRow): LeadMessageThread => {
+    const last = leadMessagesOf(t.id).at(-1);
+    return {
+      id: t.id,
+      lead: { ...t.lead },
+      subject: t.subject,
+      startedBy: { ...t.startedBy },
+      lastMessage: last
+        ? {
+            direction: 'FIRM_TO_CLIENT',
+            senderName: last.sender.name,
+            excerpt: last.body.replace(/\s+/g, ' ').trim().slice(0, 140),
+            createdAt: last.createdAt,
+          }
+        : null,
+      archivedAt: t.archivedAt,
+      createdAt: t.createdAt,
+    };
+  };
+  const findLead = async (threadId: string) => {
+    const reach = await leadReach();
+    const t = s().leadThreads.find(
+      (x) => x.id === parseInput(MessageThreadId, threadId) && reach.has(x.lead.id),
+    );
+    if (!t) throw notFound();
+    return t;
+  };
+  const leadDetail = (t: LeadThreadRow): LeadMessageThreadDetail => ({
+    ...leadThread(t),
+    messages: leadMessagesOf(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
+  });
+  /** The subject, the text, the lead's name and email, and a phone number by its digits. */
+  const leadMatches = (t: LeadThreadRow, search?: string) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const digits = phoneDigits(search);
+    return (
+      t.subject.toLowerCase().includes(q) ||
+      leadMessagesOf(t.id).some((m) => m.body.toLowerCase().includes(q)) ||
+      t.lead.displayName.toLowerCase().includes(q) ||
+      (t.lead.email ?? '').toLowerCase().includes(q) ||
+      (digits !== null &&
+        t.lead.phone !== null &&
+        digitsOf(t.lead.phone).slice(-10).endsWith(digits.slice(-10)))
+    );
   };
   return {
     inbox: async (query = {}) => (await mockDelay(), list(visible(), query)),
@@ -884,7 +993,38 @@ export function createMessagesMock(
       const items = [...byClient].map(([clientId, count]) => ({ clientId, count }));
       return { total: items.reduce((sum, x) => sum + x.count, 0), byClient: items };
     },
-    outbound: createOutboundMock(role, me),
+    leads: {
+      list: async (query = {}) => {
+        await mockDelay();
+        const q = parseInput(ListLeadMessageThreadsQuery, query);
+        const reach = await leadReach();
+        const kept = s()
+          .leadThreads.filter((t) => reach.has(t.lead.id))
+          .filter((t) => (q.archived ? t.archivedAt !== null : t.archivedAt === null))
+          .filter((t) => leadMatches(t, q.search))
+          .map(leadThread);
+        kept.sort((a, b) =>
+          (b.lastMessage?.createdAt ?? b.createdAt).localeCompare(
+            a.lastMessage?.createdAt ?? a.createdAt,
+          ),
+        );
+        return page(kept, q.cursor, q.limit);
+      },
+      get: async (threadId) => (await mockDelay(), leadDetail(await findLead(threadId))),
+      // As the API: through New Message, the copy lands in this thread.
+      send: async (threadId, body) => {
+        const t = await findLead(threadId);
+        const b = parseInput(SendLeadMessageRequest, body);
+        const who = { channel: b.channel, clientIds: [], leadIds: [t.lead.id] };
+        const reason = (await outbound.check(who)).recipients[0]?.reason;
+        if (reason) throw fail(409, reason, 'This lead cannot get messages on this channel.');
+        const d = await outbound.create({ ...who, subject: t.subject, body: b.body });
+        await outbound.send(d.id, { version: d.updatedAt, confirmUnresolved: true });
+        const sent = leadMessagesOf(t.id).at(-1)!;
+        return { ...sent, sender: { ...sent.sender } };
+      },
+    },
+    outbound,
     settings: async () => (await mockDelay(), structuredClone(settingsOf())),
     updateSettings: async (body) => {
       await mockDelay();

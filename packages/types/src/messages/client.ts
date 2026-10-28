@@ -44,9 +44,18 @@ import {
   UpdateOutboundRequest,
 } from './outbound.js';
 import { MessageSettings, UpdateMessageSettingsRequest } from './settings.js';
+import {
+  LeadMessage,
+  LeadMessageThreadDetail,
+  LeadMessageThreadList,
+  ListLeadMessageThreadsQuery,
+  SendLeadMessageRequest,
+} from './lead-threads.js';
 
 const THREADS = '/business/message-threads';
 const thread = (id: string) => `${THREADS}/${parseInput(MessageThreadId, id)}`;
+const LEAD_THREADS = '/business/lead-message-threads';
+const leadThread = (id: string) => `${LEAD_THREADS}/${parseInput(MessageThreadId, id)}`;
 const OUTBOUND = '/business/outbound-messages';
 const outbound = (id: string) => `${OUTBOUND}/${parseInput(MessageThreadId, id)}`;
 const note = (id: string) => `/business/notes/${parseInput(InternalNoteId, id)}`;
@@ -111,6 +120,31 @@ export function createMessagesClient(request: ApiRequest) {
     /** Unread client messages, in total and per client. Poll at most once a minute. */
     unreadCount: async (): Promise<FirmUnreadCount> =>
       request(FirmUnreadCount, `${THREADS}/unread-count`),
+    /**
+     * Conversations with leads (MSG-F03's Leads tab): the firm's emails and texts to a lead. Staff
+     * reach only their assigned leads' threads (others are 404).
+     */
+    leads: {
+      /** Newest activity first. */
+      list: async (query: ListLeadMessageThreadsQuery = {}): Promise<LeadMessageThreadList> =>
+        request(
+          LeadMessageThreadList,
+          `${LEAD_THREADS}${toQuery(parseInput(ListLeadMessageThreadsQuery, query))}`,
+        ),
+      /** The thread and its messages, oldest first, each with its channel and delivery. */
+      get: async (id: string): Promise<LeadMessageThreadDetail> =>
+        request(LeadMessageThreadDetail, leadThread(id)),
+      /**
+       * The next email or text, sent now. 409 with the reason (NO_CONTACT, NO_CONSENT,
+       * SUPPRESSED, PROVIDER_UNAVAILABLE, NOT_PERMITTED) when the channel cannot reach the lead,
+       * 409 SEND_FAILED when it did not go out.
+       */
+      send: async (id: string, body: SendLeadMessageRequest): Promise<LeadMessage> =>
+        request(LeadMessage, `${leadThread(id)}/messages`, {
+          method: 'POST',
+          body: parseInput(SendLeadMessageRequest, body),
+        }),
+    },
     /** New Message (MSG-F09, F10, F14): drafts, schedules and sends. Nothing sends but `send`. */
     outbound: {
       /** Who the channel reaches; nothing is saved. */

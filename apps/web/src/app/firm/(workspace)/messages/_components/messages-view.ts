@@ -1,4 +1,4 @@
-import type { MessageThread } from '@firmivra/types';
+import type { LeadMessageThread, MessageThread } from '@firmivra/types';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 
 // The Messages page's view (MSG-F03, F05, F08): the tab, the search, the open thread and the
@@ -118,30 +118,45 @@ export function activeFilters(
 
 const DAY = 86_400_000;
 
+/** A conversation in the inbox: with a client, or with a lead (the Leads tab). */
+export type InboxThread = MessageThread | LeadMessageThread;
+export const isLead = (t: InboxThread): t is LeadMessageThread => 'lead' in t;
+/** Who the conversation is with. */
+export const contactOf = (t: InboxThread) => (isLead(t) ? t.lead : t.client);
+const activity = (t: InboxThread) => t.lastMessage?.createdAt ?? t.createdAt;
+/** Newest activity first, clients' and leads' together. */
+export const byActivity = (a: InboxThread, b: InboxThread) =>
+  activity(b).localeCompare(activity(a));
+
 /**
- * Whether a thread belongs in the tab and passes the filters (the search is the API's). Every
- * conversation today is with a client: Leads stays empty until there are conversations with
- * leads, never filled with anything else.
+ * Whether a thread belongs in the tab and passes the filters (the search is the API's). A lead's
+ * thread is in All Messages and Leads only: it has no unread client messages, no related record,
+ * no client and no client replies.
  */
-export function inView(t: MessageThread, view: MessagesView, now = new Date()): boolean {
+export function inView(t: InboxThread, view: MessagesView, now = new Date()): boolean {
   const tab = view.tab;
-  const inTab =
-    tab === 'all' || tab === 'clients' || tab === 'archived'
-      ? true
-      : tab === 'unread'
-        ? t.unreadCount > 0
-        : tab === 'leads'
-          ? false
-          : tab === 'automations'
-            ? t.automated
-            : t.related?.type === tab;
-  if (!inTab) return false;
-  if (view.clientId && t.client.id !== view.clientId) return false;
-  if (view.replies && t.repliesEnabled !== (view.replies === 'open')) return false;
+  if (isLead(t)) {
+    if (tab !== 'all' && tab !== 'leads' && tab !== 'archived') return false;
+    if (view.clientId || view.replies || view.started === 'client') return false;
+  } else {
+    const inTab =
+      tab === 'all' || tab === 'clients' || tab === 'archived'
+        ? true
+        : tab === 'unread'
+          ? t.unreadCount > 0
+          : tab === 'leads'
+            ? false
+            : tab === 'automations'
+              ? t.automated
+              : t.related?.type === tab;
+    if (!inTab) return false;
+    if (view.clientId && t.client.id !== view.clientId) return false;
+    if (view.replies && t.repliesEnabled !== (view.replies === 'open')) return false;
+  }
   if (view.started === 'firm' && t.startedBy?.kind !== 'STAFF') return false;
   if (view.started === 'client' && t.startedBy?.kind !== 'CLIENT') return false;
   if (view.since) {
-    const at = new Date(t.lastMessage?.createdAt ?? t.createdAt);
+    const at = new Date(activity(t));
     if (view.since === 'today') return at.toDateString() === now.toDateString();
     const days = view.since === '7d' ? 7 : 30;
     return now.getTime() - at.getTime() <= days * DAY;
