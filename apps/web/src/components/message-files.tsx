@@ -13,16 +13,21 @@ export function fileSize(bytes: number): string {
 }
 
 /**
- * A message's files (MSG-F12), in the firm's conversation and the portal's. Each opens through
- * Documents' own short download link, and only once its security check passed.
+ * A message's files (MSG-F12), in the firm's conversation and the portal's: the client's
+ * documents (a reply's) and New Message's own files. Each opens through its side's short download
+ * link, and only once its security check passed.
  */
 export function MessageFiles({
   files,
   open,
 }: {
   files: MessageAttachment[];
-  /** The side's own download link: `api.documents.download` or `api.myDocuments(slug).download`. */
-  open: (documentId: string) => Promise<{ url: string }>;
+  /**
+   * The side's own download link: a DOCUMENT through Documents (`api.documents.download`,
+   * `api.myDocuments(slug).download`), a FILE through Messages (`api.messages.fileDownload`,
+   * `api.myMessages(slug).fileDownload`).
+   */
+  open: (file: MessageAttachment) => Promise<{ url: string }>;
 }) {
   const [busy, setBusy] = useState<string>();
   const [problem, setProblem] = useState<string>();
@@ -30,14 +35,14 @@ export function MessageFiles({
   return (
     <ul aria-label="Files" className="flex max-w-full flex-wrap gap-2" data-testid="message-files">
       {files.map((f) => (
-        <li key={f.documentId} className="max-w-full min-w-0">
+        <li key={`${f.kind}${f.id}`} className="max-w-full min-w-0">
           <button
             type="button"
-            disabled={f.status !== 'READY' || busy === f.documentId}
+            disabled={f.status !== 'READY' || busy === f.id}
             onClick={() => {
-              setBusy(f.documentId);
+              setBusy(f.id);
               setProblem(undefined);
-              open(f.documentId)
+              open(f)
                 .then((link) => window.location.assign(link.url))
                 .catch((e: unknown) => setProblem(errorMessage(e)))
                 .finally(() => setBusy(undefined));

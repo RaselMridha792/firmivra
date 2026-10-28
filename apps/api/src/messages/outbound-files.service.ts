@@ -291,21 +291,23 @@ export class OutboundFilesService implements ScanResultHandler, OnModuleInit {
     id: string,
     uploadToken: string,
   ): Promise<OutboundFile> {
-    const claim = (await this.tokens.open(uploadToken, 'STAFF'))?.value;
-    if (
-      claim?.businessId !== businessId ||
-      claim.userId !== actor.userId ||
-      claim.outboundMessageId !== id
-    )
-      throw expired();
-    const known = await this.inFirm(businessId, async (tx) => {
+    // The message first: another firm's or out of reach is 404 whatever the token holds.
+    const claim = await this.inFirm(businessId, async (tx) => {
       await this.editable(tx, businessId, actor, id);
-      return tx.outboundMessageFile.findFirst({
-        where: { businessId, s3Key: claim.key },
+      const opened = (await this.tokens.open(uploadToken, 'STAFF'))?.value;
+      if (
+        opened?.businessId !== businessId ||
+        opened.userId !== actor.userId ||
+        opened.outboundMessageId !== id
+      )
+        throw expired();
+      const known = await tx.outboundMessageFile.findFirst({
+        where: { businessId, s3Key: opened.key },
         select: { id: true },
       });
+      if (known) throw expired();
+      return opened;
     });
-    if (known) throw expired();
     const why = await this.checkStored(claim);
     if (why) {
       if (claim.uploadId)
