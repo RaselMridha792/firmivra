@@ -220,6 +220,35 @@ paths:
       responses:
         '201': { description: '`LeadMessage`.' }
         default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/related-options:
+    get:
+      tags: [firm]
+      operationId: outboundRelatedOptions
+      summary: "MSG-F13: one client's records a New Message can be about (`?clientId=`)"
+      description: |
+        `OutboundRelatedOptions`: appointments, invoices, tax returns, document requests, tasks and
+        services (engagements), newest first, at most 20 of each, each with its `label`. A client
+        out of reach (Staff: not theirs) or another firm's is `404`. A message saved with
+        `related: { type, id }` (exactly one client, else `400 RELATED_NEEDS_ONE_CLIENT`; another
+        client's or firm's record `404`) opens a conversation filed under that record (a service
+        also as its engagement), so it shows under Appointments, Invoices or Documents.
+      parameters:
+        - { name: clientId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '`OutboundRelatedOptions`: `{ items: [{ type, id, label }] }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/assignees:
+    get:
+      tags: [firm]
+      operationId: outboundAssignees
+      summary: "MSG-F16: the firm's active members who can own the conversations"
+      description: |
+        `OutboundAssigneeList`. A message saved with `assignedUserId` (an active member, else
+        `404`; a member with the Staff role only for their own clients and leads, else `400
+        ASSIGNEE_CANNOT_REACH`) opens conversations owned by that member, for clients and leads.
+      responses:
+        '200': { description: '`OutboundAssigneeList`: `{ items: [{ userId, name, role }] }`.' }
+        default: { $ref: '#/components/responses/Error' }
   /business/outbound-messages/{id}/files/uploads:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
