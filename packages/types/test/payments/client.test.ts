@@ -348,6 +348,7 @@ describe('api.invoices (firm)', () => {
       dueOn: '2026-01-25',
       overdue: false,
       dueState: null,
+      sentAt: at,
       issuedAt: at,
       paidAt: at,
       canceledAt: null,
