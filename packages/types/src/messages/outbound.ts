@@ -47,6 +47,8 @@ export const OutboundMessage = z.object({
   channel: OutboundChannel,
   subject: z.string().nullable(),
   body: z.string(),
+  /** The template it started from (MSG-F11); the text stays editable. */
+  templateId: z.uuid().nullable(),
   /** Only while SCHEDULED. */
   scheduledFor: DateTime.nullable(),
   /** The firm's time zone: a schedule is picked and shown in it. */
@@ -101,6 +103,8 @@ const SaveShape = {
   channel: OutboundChannel,
   subject: clearable(text(200)),
   body: Body,
+  /** An active template of the firm (404 otherwise), or none. */
+  templateId: z.uuid().nullable().optional(),
   ...People,
 };
 const saveRules = <
@@ -122,13 +126,21 @@ export type SaveOutboundRequest = z.input<typeof SaveOutboundRequest>;
 export const UpdateOutboundRequest = saveRules(z.strictObject({ ...SaveShape, version: DateTime }));
 export type UpdateOutboundRequest = z.input<typeof UpdateOutboundRequest>;
 
-/** POST .../{id}/send: now. Sending a message already sent answers it as it is (idempotent). */
-export const SendOutboundRequest = z.strictObject({ version: DateTime });
+/**
+ * POST .../{id}/send: now. Sending a message already sent answers it as it is (idempotent). A
+ * merge field that cannot be filled for someone who receives it is 409 UNRESOLVED_FIELDS unless
+ * `confirmUnresolved` (the Review step's "send them as they are").
+ */
+export const SendOutboundRequest = z.strictObject({
+  version: DateTime,
+  confirmUnresolved: z.boolean().optional(),
+});
 export type SendOutboundRequest = z.input<typeof SendOutboundRequest>;
 /** POST .../{id}/schedule: at a future time (at least a minute ahead). */
 export const ScheduleOutboundRequest = z.strictObject({
   version: DateTime,
   scheduledFor: DateTime,
+  confirmUnresolved: z.boolean().optional(),
 });
 export type ScheduleOutboundRequest = z.input<typeof ScheduleOutboundRequest>;
 /** POST .../{id}/cancel: a draft or a scheduled message, before it is sent. */
@@ -142,3 +154,45 @@ export const ListOutboundQuery = z.strictObject({
 export type ListOutboundQuery = z.input<typeof ListOutboundQuery>;
 export const OutboundMessageList = z.object({ items: z.array(OutboundMessage) });
 export type OutboundMessageList = z.infer<typeof OutboundMessageList>;
+
+/**
+ * GET .../{id}/review (MSG-F15): what each person would get, merge fields filled from their own
+ * record, the fields that cannot be filled, the timing and the checks. Nothing is sent.
+ */
+export const OutboundReview = z.object({
+  channel: OutboundChannel,
+  timing: z.object({
+    mode: z.enum(['NOW', 'SCHEDULED']),
+    scheduledFor: DateTime.nullable(),
+    timezone: z.string(),
+  }),
+  recipients: z.array(
+    OutboundRecipient.pick({
+      kind: true,
+      id: true,
+      name: true,
+      canReceive: true,
+      reason: true,
+    }).extend({
+      subject: z.string().nullable(),
+      body: z.string(),
+      unresolved: z.array(z.string()),
+    }),
+  ),
+  /** Fields left unfilled for someone who receives it: Send needs `confirmUnresolved`. */
+  unresolved: z.array(z.string()),
+  checks: z.array(
+    z.object({
+      code: z.enum([
+        'NO_RECIPIENTS',
+        'SUBJECT_REQUIRED',
+        'UNRESOLVED_FIELDS',
+        'SOME_SKIPPED',
+        'READY',
+      ]),
+      severity: z.enum(['BLOCK', 'WARN', 'OK']),
+      message: z.string(),
+    }),
+  ),
+});
+export type OutboundReview = z.infer<typeof OutboundReview>;

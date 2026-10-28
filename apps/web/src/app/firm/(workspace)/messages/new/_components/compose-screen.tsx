@@ -1,7 +1,7 @@
 'use client';
 
 import type { OutboundExclusion, OutboundMessage } from '@firmivra/types';
-import { Button, Checkbox, Input, Stepper, Textarea, Toast, Toggle } from '@firmivra/ui';
+import { Button, Checkbox, Input, Modal, Stepper, Textarea, Toast, Toggle } from '@firmivra/ui';
 import {
   CaretRight,
   ChatCircleDots,
@@ -20,6 +20,12 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 import { addDays, localParts, todayIn, toInstant } from '../../../calendar/_components/time';
+import {
+  EmojiPicker,
+  MergeFieldPicker,
+  TEMPLATE_KIND,
+  TemplatePicker,
+} from '../../_components/compose-tools';
 
 type Channel = OutboundMessage['channel'];
 type Who = 'clients' | 'leads' | 'both';
@@ -63,6 +69,8 @@ type Form = {
   channel: Channel;
   subject: string;
   body: string;
+  /** The template it started from (MSG-F11). */
+  templateId: string | null;
   clients: Map<string, string>;
   leads: Map<string, string>;
   later: boolean;
@@ -73,6 +81,7 @@ const emptyForm = (subject = ''): Form => ({
   channel: 'PORTAL',
   subject,
   body: '',
+  templateId: null,
   clients: new Map(),
   leads: new Map(),
   later: false,
@@ -85,6 +94,7 @@ const formOf = (m: OutboundMessage, timeZone: string): Form => {
     channel: m.channel,
     subject: m.subject ?? '',
     body: m.body,
+    templateId: m.templateId,
     clients: new Map(m.recipients.filter((r) => r.kind === 'CLIENT').map((r) => [r.id, r.name])),
     leads: new Map(m.recipients.filter((r) => r.kind === 'LEAD').map((r) => [r.id, r.name])),
     later: at !== null,
@@ -115,6 +125,7 @@ export function ComposeScreen({
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [reviewing, setReviewing] = useState(false);
   useUnsavedChanges(dirty);
   const options = useApiQuery(['scheduling', 'options'], () => api.scheduling.options());
   const timeZone = saved?.timezone ?? options.data?.timezone ?? 'America/New_York';
@@ -171,16 +182,19 @@ export function ComposeScreen({
   const finished = saved && !saved.editable;
   const step = finished
     ? 'send'
-    : chosen === 0
-      ? 'recipients'
-      : !form.body.trim()
-        ? 'details'
-        : 'review';
+    : reviewing
+      ? 'review'
+      : chosen === 0
+        ? 'recipients'
+        : !form.body.trim()
+          ? 'details'
+          : 'review';
 
   const payload = () => ({
     channel: form.channel,
     subject: form.subject.trim() || null,
     body: form.body.trim(),
+    templateId: form.templateId,
     ...ids,
   });
   /** Saves the draft (a new one when its people or channel changed) and answers it. */
@@ -192,24 +206,31 @@ export function ComposeScreen({
     setDirty(false);
     return next;
   };
-  const run = async (what: 'draft' | 'send' | 'schedule') => {
+  /** The saved draft, saved now if it changed (Review reads the server's copy). */
+  const prepare = async () => (!saved || dirty ? save() : saved);
+  const run = async (what: 'draft' | 'send' | 'schedule', confirmUnresolved = false) => {
     setBusy(true);
     setNotice(undefined);
     try {
-      const draft = !saved || dirty ? await save() : saved;
+      const draft = await prepare();
       if (what === 'draft') setNotice({ text: 'Draft saved.', tone: 'success' });
       if (what === 'send') {
-        const sent = await api.messages.outbound.send(draft.id, { version: draft.updatedAt });
+        const sent = await api.messages.outbound.send(draft.id, {
+          version: draft.updatedAt,
+          confirmUnresolved,
+        });
         setSaved(sent);
       }
       if (what === 'schedule' && when) {
         const scheduled = await api.messages.outbound.schedule(draft.id, {
           version: draft.updatedAt,
           scheduledFor: when,
+          confirmUnresolved,
         });
         setSaved(scheduled);
         setNotice({ text: 'Message scheduled.', tone: 'success' });
       }
+      setReviewing(false);
       await qc.invalidateQueries({ queryKey: ['messages'] });
     } catch (e) {
       setNotice({ text: errorMessage(e), tone: 'error' });
@@ -327,6 +348,17 @@ export function ComposeScreen({
                 {NOTE[form.channel]}
               </p>
             </fieldset>
+            <TemplatePicker
+              key={form.channel}
+              kind={TEMPLATE_KIND[form.channel]}
+              onUse={(t) =>
+                set({
+                  templateId: t.id,
+                  body: t.body,
+                  ...(form.channel !== 'SMS' && t.subject ? { subject: t.subject } : {}),
+                })
+              }
+            />
             {form.channel !== 'SMS' ? (
               <Input
                 label={
@@ -337,6 +369,19 @@ export function ComposeScreen({
                 onChange={(e) => set({ subject: e.target.value })}
               />
             ) : null}
+            <div
+              className="flex flex-wrap items-center justify-end gap-2"
+              aria-label="Message tools"
+            >
+              <MergeFieldPicker
+                onInsert={(token) =>
+                  set({
+                    body: `${form.body}${form.body && !/\s$/.test(form.body) ? ' ' : ''}${token}`,
+                  })
+                }
+              />
+              <EmojiPicker onPick={(e) => set({ body: `${form.body}${e}` })} />
+            </div>
             <Textarea
               label="Message"
               rows={9}
@@ -443,18 +488,19 @@ export function ComposeScreen({
                     type="button"
                     className={gold}
                     disabled={sendDisabled || !when}
-                    onClick={() => void run('schedule')}
+                    onClick={() => setReviewing(true)}
                   >
-                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Schedule Message
+                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Review and
+                    Schedule
                   </button>
                 ) : (
                   <button
                     type="button"
                     className={gold}
                     disabled={sendDisabled}
-                    onClick={() => void run('send')}
+                    onClick={() => setReviewing(true)}
                   >
-                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Message
+                    <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Review and Send
                   </button>
                 )}
               </div>
@@ -471,6 +517,15 @@ export function ComposeScreen({
               ) : null}
             </section>
             <Drafts currentId={saved?.id} />
+            {reviewing ? (
+              <ReviewDialog
+                prepare={prepare}
+                later={form.later}
+                busy={busy}
+                onBack={() => setReviewing(false)}
+                onConfirm={(confirm) => void run(form.later ? 'schedule' : 'send', confirm)}
+              />
+            ) : null}
           </div>
         </div>
       )}
@@ -679,5 +734,100 @@ function Outcome({ message, timeZone }: { message: OutboundMessage; timeZone: st
         </Link>
       </div>
     </section>
+  );
+}
+
+/**
+ * Review (MSG-F15): each person's message with the merge fields filled from their record, who is
+ * skipped and why, the timing, and the checks. Fields nobody can fill block until "send them as
+ * written" is ticked. Nothing is sent until Send Message or Schedule Message here.
+ */
+function ReviewDialog({
+  prepare,
+  later,
+  busy,
+  onBack,
+  onConfirm,
+}: {
+  prepare: () => Promise<OutboundMessage>;
+  later: boolean;
+  busy: boolean;
+  onBack: () => void;
+  onConfirm: (confirmUnresolved: boolean) => void;
+}) {
+  const review = useApiQuery([...KEY, 'review', later], async () =>
+    api.messages.outbound.review((await prepare()).id),
+  );
+  const [confirm, setConfirm] = useState(false);
+  const r = review.data;
+  const blocked = r?.checks.some((c) => c.severity === 'BLOCK') ?? true;
+  const needsConfirm = (r?.unresolved.length ?? 0) > 0;
+  const tone = { BLOCK: 'text-danger', WARN: 'text-warning', OK: 'text-success' } as const;
+  return (
+    <Modal
+      open
+      title="Review Your Message"
+      subtitle={
+        r?.timing.mode === 'SCHEDULED' || later
+          ? `Scheduled, in your firm's time zone (${r?.timing.timezone ?? ''}).`
+          : 'Sends now.'
+      }
+      onClose={onBack}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onBack}>
+            Back to Editing
+          </Button>
+          <Button
+            disabled={busy || !r || blocked || (needsConfirm && !confirm)}
+            onClick={() => onConfirm(confirm)}
+          >
+            {later ? 'Schedule Message' : 'Send Message'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="compose-review">
+        {review.isPending ? <p className={quiet}>Checking…</p> : null}
+        {review.isError ? (
+          <p role="alert" className={quiet}>
+            {errorMessage(review.error)}
+          </p>
+        ) : null}
+        <ul className="flex flex-col gap-1 text-sm" aria-label="Checks">
+          {(r?.checks ?? []).map((c) => (
+            <li key={c.code} className={tone[c.severity]}>
+              {c.message}
+            </li>
+          ))}
+        </ul>
+        {needsConfirm ? (
+          <Checkbox
+            label="Send them as written where they cannot be filled"
+            checked={confirm}
+            onChange={(e) => setConfirm(e.target.checked)}
+          />
+        ) : null}
+        <ul
+          className="flex max-h-80 flex-col gap-2 overflow-auto"
+          aria-label="What each person gets"
+        >
+          {(r?.recipients ?? []).map((p) => (
+            <li key={`${p.kind}${p.id}`} className="rounded-lg border border-divider p-2 text-sm">
+              <p className="flex justify-between gap-2 font-semibold text-heading">
+                {p.name}
+                <span
+                  className={`text-xs font-normal ${p.canReceive ? 'text-success' : 'text-danger'}`}
+                >
+                  {p.canReceive ? 'Receives it' : p.reason ? REASON[p.reason] : 'Skipped'}
+                </span>
+              </p>
+              {p.subject ? <p className="text-xs text-muted">Subject: {p.subject}</p> : null}
+              <p className="mt-1 whitespace-pre-wrap text-text">{p.body}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Modal>
   );
 }
