@@ -120,6 +120,22 @@ test('Due rules on the firm’s calendar: the Due Today tab and the tags (IP-F06
   for (let i = 0; i < count; i += 1) await expect(rows.nth(i)).toContainText('Due Today');
 });
 
+test('Sent is its own tag: the Sent tab lists dispatched invoices, overdue too (IP-F07)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByLabel('Search invoices').fill('0098');
+  const tabs = page.getByRole('tablist', { name: 'Invoice views' });
+  await tabs.getByRole('tab', { name: /^Sent/ }).click();
+  const rows = page.getByTestId('invoice-row');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Overdue');
+  await expect(rows.first()).toContainText('Sent');
+  await tabs.getByRole('tab', { name: /^Not Sent/ }).click();
+  await expect(rows).toHaveCount(0);
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['/invoices', '/invoices/new', '/invoices/record-payment']) {

@@ -328,6 +328,12 @@ export const InvoiceListItem = z.object({
   overdue: z.boolean(),
   /** IP-F06: Due Soon, Due Tomorrow, Due Today or Overdue on the firm's calendar, or null. */
   dueState: InvoiceDueState.nullable(),
+  /**
+   * IP-F07: when the invoice was actually dispatched: its email went to the client (the email's
+   * sent time). Null until then: pressing Send, or a scheduled day, is not a dispatch. Kept once
+   * set, whatever the invoice becomes (paid, overdue).
+   */
+  sentAt: DateTime.nullable(),
   /** When it opened (sent, or its scheduled day came). */
   issuedAt: DateTime.nullable(),
   paidAt: DateTime.nullable(),

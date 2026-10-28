@@ -74,6 +74,7 @@ import {
   VIEW_CHART,
   VIEW_LABEL,
   VIEW_ORDER,
+  inView,
   type InvoiceView,
   viewOf,
   ViewPill,
@@ -494,6 +495,7 @@ type Tab = 'ALL' | InvoiceView;
 
 /** The views of an OPEN invoice: unpaid, whether due later, soon or overdue. */
 const OUTSTANDING_VIEWS: readonly string[] = [
+  'OPEN',
   'SENT',
   'PARTIALLY_PAID',
   'DUE_SOON',
@@ -545,13 +547,13 @@ function InvoiceTable({
       (!status ||
         (status === 'OUTSTANDING'
           ? OUTSTANDING_VIEWS.includes(viewOf(i))
-          : viewOf(i) === status)) &&
+          : inView(i, status as InvoiceView))) &&
       (!from || day >= from) &&
       (!to || day <= to) &&
       (!term || `${i.number} ${i.client.displayName} ${i.title}`.toLowerCase().includes(term))
     );
   });
-  const rows = tab === 'ALL' ? filtered : filtered.filter((i) => viewOf(i) === tab);
+  const rows = tab === 'ALL' ? filtered : filtered.filter((i) => inView(i, tab));
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages);
   const shown = rows.slice((current - 1) * size, current * size);
@@ -560,7 +562,7 @@ function InvoiceTable({
     ...VIEW_ORDER.map((v) => ({
       id: v,
       label: VIEW_LABEL[v],
-      count: filtered.filter((i) => viewOf(i) === v).length,
+      count: filtered.filter((i) => inView(i, v)).length,
     })),
   ];
   const clear = () => {

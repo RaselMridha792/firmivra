@@ -38,6 +38,7 @@ export function useAllInvoices() {
 export type InvoiceView =
   | 'DRAFT'
   | 'SCHEDULED'
+  | 'OPEN'
   | 'SENT'
   | 'PARTIALLY_PAID'
   | 'DUE_SOON'
@@ -50,6 +51,8 @@ export type InvoiceView =
 export const VIEW_LABEL: Record<InvoiceView, string> = {
   DRAFT: 'Draft',
   SCHEDULED: 'Scheduled',
+  // IP-F07: open but its email has not gone to the client (yet).
+  OPEN: 'Not Sent',
   SENT: 'Sent',
   PARTIALLY_PAID: 'Partially Paid',
   DUE_SOON: 'Due Soon',
@@ -62,6 +65,7 @@ export const VIEW_LABEL: Record<InvoiceView, string> = {
 export const VIEW_ORDER: InvoiceView[] = [
   'DRAFT',
   'SCHEDULED',
+  'OPEN',
   'SENT',
   'PARTIALLY_PAID',
   'PAID',
@@ -74,6 +78,7 @@ export const VIEW_ORDER: InvoiceView[] = [
 const VIEW_TONE: Record<InvoiceView, 'success' | 'info' | 'warning' | 'danger' | 'neutral'> = {
   DRAFT: 'neutral',
   SCHEDULED: 'info',
+  OPEN: 'neutral',
   SENT: 'info',
   PARTIALLY_PAID: 'warning',
   DUE_SOON: 'warning',
@@ -96,6 +101,7 @@ export const VIEW_CHART: Record<
   DUE_TOMORROW: 'yellow',
   DUE_TODAY: 'red',
   SENT: 'blue',
+  OPEN: 'grey',
   SCHEDULED: 'navy',
   DRAFT: 'grey',
   CANCELED: 'grey',
@@ -119,14 +125,25 @@ export function viewOf(i: InvoiceListItem): InvoiceView {
     return i.dueState;
   if (paidCents(i) > 0) return 'PARTIALLY_PAID';
   if (i.dueState === 'DUE_SOON') return 'DUE_SOON';
-  return 'SENT';
+  // IP-F07: Sent only once it was actually dispatched; until then it is open, not sent.
+  return i.sentAt ? 'SENT' : 'OPEN';
 }
+
+/**
+ * Whether a tab or the status filter takes this invoice. Sent (IP-F07) is its own tag: every
+ * invoice that was dispatched, paid or overdue too; the others are the invoice's view.
+ */
+export const inView = (i: InvoiceListItem, v: InvoiceView): boolean =>
+  v === 'SENT' ? i.sentAt !== null : viewOf(i) === v;
 
 export function ViewPill({ invoice }: { invoice: InvoiceListItem }) {
   const v = viewOf(invoice);
+  // IP-F07: the Sent tag beside the due or payment tag (Paid stands alone).
+  const sentToo = invoice.sentAt !== null && v !== 'SENT' && v !== 'PAID';
   return (
-    <span className="whitespace-nowrap">
+    <span className="inline-flex flex-wrap items-center gap-1 whitespace-nowrap">
       <Badge tone={VIEW_TONE[v]}>{VIEW_LABEL[v]}</Badge>
+      {sentToo ? <Badge tone="info">Sent</Badge> : null}
     </span>
   );
 }
