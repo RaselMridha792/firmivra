@@ -169,7 +169,8 @@ export function MessagesScreen({
             <button type="button" className={gold} onClick={() => setComposing(true)}>
               <Plus aria-hidden weight="bold" className="size-5" /> New Message
             </button>
-            <OriginLink href="/communications" className={blue} data-testid="messages-bulk">
+            {/* MSG-F06: the Messages bulk builder, with Back to Messages. */}
+            <OriginLink href="/messages/bulk" className={blue} data-testid="messages-bulk">
               <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Bulk Message
             </OriginLink>
             {/* MSG-F07: the shared Templates library, on its message templates. */}
