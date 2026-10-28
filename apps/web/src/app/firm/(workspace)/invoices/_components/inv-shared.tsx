@@ -86,7 +86,8 @@ const VIEW_TONE: Record<InvoiceView, 'success' | 'info' | 'warning' | 'danger' |
   DUE_TODAY: 'warning',
   OVERDUE: 'danger',
   PAID: 'success',
-  CANCELED: 'neutral',
+  // IP-F08: Canceled reads apart from Draft (red, with its own word).
+  CANCELED: 'danger',
 };
 /** The donut's colour for each view (the design: green paid, red overdue, amber due soon). */
 export const VIEW_CHART: Record<
