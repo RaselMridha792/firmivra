@@ -31,15 +31,13 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
   the message templates), F08 (Back to the same thread).
 - [x] **#1203** (PR B, merged as `692fbaa7`): MSG-F02, Messages Settings: `GET`/`PATCH
   /business/message-settings` on `message_settings`, the page `/messages/settings`.
-- [x] **#1204** (PR C): MSG-F06, the bulk builder at `/messages/bulk` on the Communications API
-  (web only). `main` merged in after #1203 (main's header with Settings; Send Bulk Message points
-  to `/messages/bulk`), head `870cfc4c`, 8 of 8.
+- [x] **#1204** (PR C, merged as `2b41a180`): MSG-F06, the bulk builder at `/messages/bulk` on the
+  Communications API (web only).
 - [x] **#1206** (PR D, MSG-F09, F10, F14): New Message as its own page on `outbound_messages`,
   branch `rasel/R60-messages-compose`. `main` merged in after #1203 (main's header with Settings;
   New Message opens `/messages/new`; the inbox keeps the previous results while a search loads,
-  which fixed `r56-messages`' note test). #1204 and #1206 change the same header block: the
-  second to merge needs `main` merged again (keep Bulk to `/messages/bulk` and New Message to
-  `/messages/new`).
+  which fixed `r56-messages`' note test). `main` merged in again after #1204 (Bulk to
+  `/messages/bulk`, New Message to `/messages/new`).
 - [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
   `rasel/R60-messages-compose-review` (stacked on D): open after D merges, `main` merged first.
 - [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
@@ -78,8 +76,10 @@ Progress (Messages):
   21 of 21. D opened as #1206, 8 of 8.
 - Oct 28: #1203 merged. `main` merged into #1204 (`pnpm lint` and `pnpm typecheck` clean, API e2e
   27 of 27, mock 22 of 22, 8 of 8) and #1206 (clean; API e2e 35 of 35, mock 28 of 28).
-  **Next step:** when #1204 or #1206 merges, merge `main` into the other again; open E once #1206
-  merges (`main` merged first); then F12, F13 and F16.
+- Oct 28: #1204 merged. `main` merged into #1206 again (`pnpm lint` and `pnpm typecheck` clean,
+  API e2e 35 of 35, mock 32 of 32: `r60-messages-bulk` timed out once on a cold dev server in the
+  full run and passed 4 of 4 alone). **Next step:** open E once #1206 merges (`main` merged
+  first); then F12, F13 and F16.
 
 ## Handoff (Oct 23): start here
 
