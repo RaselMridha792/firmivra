@@ -634,6 +634,55 @@ describe('portal: My Services', () => {
   });
 });
 
+describe('Stop Future Billing (SH10)', () => {
+  it('Owner and Admin stop it from the next billing date or a later one, and resume it; Staff cannot', async () => {
+    const books = await create(ids.one, {
+      serviceId: ids.books,
+      title: 'Fake billed books',
+      nextBillingOn: inDays(20),
+    });
+    const stop = (who: { email: string }, body: object, businessId = ids.firmA) =>
+      firm('post', `/engagements/${books.id}/billing-stop`, who, body, businessId);
+
+    expect((await stop(people.staffA, { stop: true })).status).toBe(403);
+    expect(codeOf(await stop(people.ownerA, { stop: true, stopsOn: inDays(-1) }))).toBe(
+      'DATE_IN_PAST',
+    );
+    const stopped = Engagement.parse(expectOk(await stop(people.ownerA, { stop: true })).body);
+    expect(stopped).toMatchObject({ stopFutureBilling: true, billingStopsOn: inDays(20) });
+    // Pausing nothing else: the service stays active with its billing date.
+    expect(stopped).toMatchObject({ status: 'ACTIVE', nextBillingOn: inDays(20) });
+    const later = Engagement.parse(
+      expectOk(await stop(people.ownerA, { stop: true, stopsOn: inDays(45) })).body,
+    );
+    expect(later.billingStopsOn).toBe(inDays(45));
+    const resumed = Engagement.parse(expectOk(await stop(people.ownerA, { stop: false })).body);
+    expect(resumed).toMatchObject({ stopFutureBilling: false, billingStopsOn: null });
+
+    const once = await create(ids.one, { serviceId: ids.tax, title: 'Fake one-time' });
+    expect(
+      codeOf(
+        await firm('post', `/engagements/${once.id}/billing-stop`, people.ownerA, { stop: true }),
+      ),
+    ).toBe('NOT_RECURRING');
+    expect((await stop(people.ownerB, { stop: true }, ids.firmB)).status).toBe(404);
+
+    const trail = await inFirm((tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: books.id, action: { startsWith: 'engagement.billing_' } },
+        orderBy: { createdAt: 'asc' },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(trail.map((r) => r.action)).toEqual([
+      'engagement.billing_stopped',
+      'engagement.billing_stopped',
+      'engagement.billing_resumed',
+    ]);
+    expect(trail[0]!.metadata).toEqual({ stopsOn: inDays(20) });
+  });
+});
+
 describe('audit', () => {
   it('logs reads and changes with ids and field names, never a reason', async () => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner);

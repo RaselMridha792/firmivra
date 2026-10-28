@@ -46,6 +46,13 @@ export const Engagement = z.object({
   /** True for anything but ONE_TIME (the "Recurring" tab). */
   recurring: z.boolean(),
   nextBillingOn: CalendarDate.nullable(),
+  /**
+   * Octavia's SH10: the firm stopped future billing of this service from `billingStopsOn`
+   * (separate from pausing the service). Firmivra has no automatic billing run yet: this is the
+   * firm's recorded decision; invoices already made are not changed.
+   */
+  stopFutureBilling: z.boolean(),
+  billingStopsOn: CalendarDate.nullable(),
   assignedTo: MemberRef.nullable(),
   completedAt: DateTime.nullable(),
   /** The client asked to cancel (portal), with their reason. */
@@ -111,6 +118,16 @@ export type UpdateEngagementRequest = z.input<typeof UpdateEngagementRequest>;
 /** POST /business/engagements/{id}/cancel. */
 export const CancelEngagementRequest = z.strictObject({ reason: text(500, 'many') });
 export type CancelEngagementRequest = z.input<typeof CancelEngagementRequest>;
+
+/**
+ * POST /business/engagements/{id}/billing-stop (SH10): `stop` true stops future billing from
+ * `stopsOn` (default: the next billing date; today or later); false resumes it. Owner and Admin.
+ */
+export const StopFutureBillingRequest = z.strictObject({
+  stop: z.boolean(),
+  stopsOn: CalendarDate.optional(),
+});
+export type StopFutureBillingRequest = z.input<typeof StopFutureBillingRequest>;
 
 /** GET /business/engagements/{id}/history: every status or stage change, newest first. */
 export const EngagementHistory = z.object({
