@@ -33,19 +33,18 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
   /business/message-settings` on `message_settings`, the page `/messages/settings`.
 - [x] **#1204** (PR C, merged as `2b41a180`): MSG-F06, the bulk builder at `/messages/bulk` on the
   Communications API (web only).
-- [x] **#1206** (PR D, MSG-F09, F10, F14): New Message as its own page on `outbound_messages`,
-  branch `rasel/R60-messages-compose`. `main` merged in after #1203 (main's header with Settings;
-  New Message opens `/messages/new`; the inbox keeps the previous results while a search loads,
-  which fixed `r56-messages`' note test). `main` merged in again after #1204 (Bulk to
-  `/messages/bulk`, New Message to `/messages/new`).
+- [x] **#1206** (PR D, merged as `1a0a467f`): MSG-F09, F10, F14, New Message as its own page on
+  `outbound_messages` (the inbox keeps the previous results while a search loads).
 - [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
-  `rasel/R60-messages-compose-review` (stacked on D): open after D merges, `main` merged first.
+  `rasel/R60-messages-compose-review`. It was stacked on D's first commit: D's final head merged
+  in, then #1206's squash recorded with `-s ours` (the same tree), then `main`; the diff against
+  `main` is E's own.
 - [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
   `outbound_messages` has the columns), then F18 to F22 (contact panel and thread menu on R36's
   `assigned_user_id`, `archived_at`, `message_thread_mutes`, `message_thread_tags`).
-- [ ] After Messages (Rasel, Oct 28): Invoices & Payments IP-F01 to F05, F12, F13 (Create Invoice
-  and the template library). Touch only the Create Invoice page and its components; R56 owns the
-  rest, so any other path goes under "Needs from others" first.
+- Invoices & Payments IP-F01 to F05, F12, F13 moved to R55 (Rasel, Oct 28); R60 is on Messages
+  only. The two schema questions (a custom recurring frequency, a firm's own payment terms list)
+  went to R55's side through Rasel.
 
 Seen while testing: two of R56's `r56-communications` mock tests wait for `/communications/new`
 to open the editor by itself; since #1150 (Q3, Oct 25) it waits for Start, so they fail on `main`
@@ -56,9 +55,9 @@ client's Email is the existing `message.received` notice with the portal link, n
 (no notify change was needed); a lead's email or text carries it, as Send Email on Leads does.
 
 Needs from others (Rasel):
-- **Column request, a conversation with a lead** (`message_threads.lead_id`, a client or a lead,
-  never both): Rasel brings the card later. Until then a lead's messages are one-way and the
-  Leads view is empty. No column invented.
+- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
+  Rasel allowed it (Oct 28) and R1 writes it. When it merges, the Leads tab uses it: ask Rasel for
+  the merge note first. Until then the Leads view stays a tidy empty state.
 - **Leads** (`apps/api/src/leads/leads.controller.ts`, LeadsModule): export `LeadMessagesService`
   so a message to a lead from Messages goes through it and shows in the lead's activity. Today
   Messages sends with the same Leads templates and no activity row.
@@ -78,8 +77,10 @@ Progress (Messages):
   27 of 27, mock 22 of 22, 8 of 8) and #1206 (clean; API e2e 35 of 35, mock 28 of 28).
 - Oct 28: #1204 merged. `main` merged into #1206 again (`pnpm lint` and `pnpm typecheck` clean,
   API e2e 35 of 35, mock 32 of 32: `r60-messages-bulk` timed out once on a cold dev server in the
-  full run and passed 4 of 4 alone). **Next step:** open E once #1206 merges (`main` merged
-  first); then F12, F13 and F16.
+  full run and passed 4 of 4 alone).
+- Oct 28: #1206 merged. E: `main` merged in (`pnpm lint` and `pnpm typecheck` clean, API e2e
+  37 of 37). **Next step:** open E; then F12 (attachments), then F13 and F16; the Leads tab on
+  `lead_id` once R1's column merges (merge note from Rasel).
 
 ## Handoff (Oct 23): start here
 

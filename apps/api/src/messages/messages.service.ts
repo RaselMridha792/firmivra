@@ -274,6 +274,8 @@ export class MessagesService {
       ...[...last.values()].map((m) => m.senderUserId),
     ]);
     return rows.map((t): MessageThread => {
+      // The firm's queries read client threads only; a lead's (r1_message_thread_lead) has no client.
+      if (!t.clientId || !t.client) throw new Error(`message thread ${t.id} has no client`);
       const m = last.get(t.id);
       const starter = t.createdByUserId ? people.get(t.createdByUserId) : undefined;
       return {
@@ -348,7 +350,7 @@ export class MessagesService {
         FOR UPDATE`;
     }
     const row = await tx.messageThread.findFirst({
-      where: { businessId, id, client: this.reach(actor) },
+      where: { businessId, id, clientId: { not: null }, client: this.reach(actor) },
       select: threadSelect,
     });
     if (!row) throw notFound();
@@ -372,7 +374,7 @@ export class MessagesService {
       const rows = await tx.messageThread.findMany({
         where: {
           AND: [
-            { businessId, client: this.reach(actor) },
+            { businessId, clientId: { not: null }, client: this.reach(actor) },
             clientId ? { clientId } : {},
             q.unread ? { messages: { some: { direction: 'CLIENT_TO_FIRM', readAt: null } } } : {},
             { archivedAt: q.archived ? { not: null } : null },
