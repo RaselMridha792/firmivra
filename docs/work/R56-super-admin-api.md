@@ -453,6 +453,8 @@ Each PR body: the IDs it closes, what and why, the shared pieces for R60, tests 
 **Next:** SH9 (Plan/Service dropdown from Services & Pricing by id), SH10 (Pause with a separate Stop Future Billing: needs a column, write the request for Rasel's tap first), then PY-F09, BK-D05, D06, D03, D04, E01, A01; then Advisory B4 to B12 (B4 can reuse SH6's `/calendar/new?clientId=&engagementId=`); B15 after R1's #1160 merges.
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs. `pnpm exec playwright test` under load sometimes times out one Payroll test; it passes alone. Python edits with regex escapes go in a script file; when a replacement misses, use Edit.
+
+**Needs for Rasel (Oct 26, SH9):** done: R1's #1188 added `engagements.catalog_service_id`; SH9 now saves the plan by id.
 ## Handoff for a fresh R56 (Oct 25, Business Advisory)
 
 Rasel (Oct 25): open the waiting branches one at a time (two open at most), then Octavia's Business Advisory review: B1 to B5 first (reproduce each on main), then B6 to B12; columns (B15) to the R file and Rasel. Read `docs/specs/review-2026-10-25/CHANGE-LIST.md` (section B) and `business-advisory--developer-feedback.md` (897 lines: grep its numbered sections, do not read it whole).
