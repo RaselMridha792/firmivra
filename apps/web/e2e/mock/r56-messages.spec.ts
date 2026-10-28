@@ -29,6 +29,8 @@ test('Conversation: reply, mark unread and add a note', async ({ page }) => {
   await expect(page.getByTestId('conversation')).toContainText('Thanks, we will be in touch soon.');
   // Only a client's message can be marked unread: Riley's thread has one.
   await page.getByLabel('Search messages').fill('riley');
+  // The search applies after a pause: wait for it, or the first row is another thread.
+  await expect(page.getByTestId('thread-row')).toHaveCount(1);
   await page.getByTestId('thread-row').first().click();
   await page.getByRole('button', { name: 'Mark read' }).click();
   await page.getByRole('button', { name: 'Mark unread' }).click();
