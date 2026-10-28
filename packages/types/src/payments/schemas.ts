@@ -39,6 +39,8 @@ const Cents = z.number().int().min(0);
 /** One invoice's limits. $999,999.99 is also Stripe's largest card payment. */
 export const INVOICE_LIMITS = {
   maxLines: 50,
+  /** IP-F03: files from the client's documents attached to one invoice. */
+  maxAttachments: 10,
   /** Hours or units on one line, with at most 2 decimals. */
   maxQuantity: 10_000,
   /** Any amount, and an invoice's subtotal. */
@@ -153,21 +155,62 @@ export function lineAmountCents(quantity: number, unitAmountCents: number): numb
 }
 
 /**
- * The amounts the database will keep for these lines and discount: the form's running total.
- * `totalCents` goes below 0 when the discount is too large (the request is then refused).
+ * IP-F03: the tax as the database keeps it: the rate on the taxable lines after the discount's
+ * share of them, `round(taxable x (subtotal - discount) x bps / (subtotal x 10000))`, half away
+ * from zero (in whole numbers, so large amounts never round wrongly).
+ */
+export function invoiceTaxCents(
+  taxableSubtotalCents: number,
+  subtotalCents: number,
+  discountCents: number,
+  rateBps: number,
+): number {
+  if (subtotalCents <= 0 || rateBps <= 0 || taxableSubtotalCents <= 0) return 0;
+  const num =
+    BigInt(taxableSubtotalCents) *
+    BigInt(Math.max(0, subtotalCents - discountCents)) *
+    BigInt(rateBps);
+  const den = BigInt(subtotalCents) * 10_000n;
+  return Number((2n * num + den) / (2n * den));
+}
+
+/**
+ * The amounts the database will keep for these lines, discount and tax rate: the form's running
+ * total. `totalCents` goes below 0 when the discount is too large (the request is then refused).
  */
 export function invoiceTotals(draft: {
-  lines: readonly { quantity?: number; unitAmountCents: number }[];
+  lines: readonly { quantity?: number; unitAmountCents: number; taxable?: boolean }[];
   discountCents?: number;
-}): { lineAmountsCents: number[]; subtotalCents: number; totalCents: number } {
+  /** IP-F03: the chosen tax rate in basis points (825 is 8.25%); none is 0. */
+  taxRateBps?: number;
+}): {
+  lineAmountsCents: number[];
+  subtotalCents: number;
+  taxableSubtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+} {
   const lineAmountsCents = draft.lines.map((l) =>
     lineAmountCents(l.quantity ?? 1, l.unitAmountCents),
   );
   const subtotalCents = lineAmountsCents.reduce((sum, cents) => sum + cents, 0);
+  const taxableSubtotalCents = lineAmountsCents.reduce(
+    (sum, cents, i) => sum + (draft.lines[i]?.taxable ? cents : 0),
+    0,
+  );
+  const discountCents = draft.discountCents ?? 0;
+  const taxCents = invoiceTaxCents(
+    taxableSubtotalCents,
+    subtotalCents,
+    discountCents,
+    draft.taxRateBps ?? 0,
+  );
   return {
     lineAmountsCents,
     subtotalCents,
-    totalCents: subtotalCents - (draft.discountCents ?? 0),
+    taxableSubtotalCents,
+    taxCents,
+    totalCents: subtotalCents - discountCents + taxCents,
   };
 }
 
@@ -185,8 +228,19 @@ export const InvoiceLine = z.object({
   quantity: z.number(),
   unitAmountCents: Cents,
   amountCents: Cents,
+  /** IP-F03: the invoice's tax rate applies to this line. */
+  taxable: z.boolean(),
 });
 export type InvoiceLine = z.infer<typeof InvoiceLine>;
+
+/** IP-F03: a file from the client's documents attached to the invoice. */
+export const InvoiceAttachment = z.object({
+  documentId: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+});
+export type InvoiceAttachment = z.infer<typeof InvoiceAttachment>;
 
 /**
  * One payment the client submitted on Stripe's checkout. Checkouts the client opened and left are
@@ -288,6 +342,21 @@ const AmountDetail = {
   subtotalCents: Cents,
   discountCents: Cents,
   /**
+   * IP-F03: the tax the database computed from the firm's rate (copied while the invoice is a
+   * draft or scheduled) on the taxable lines after the discount's share; null without a rate.
+   * The total is the subtotal less the discount plus this.
+   */
+  tax: z
+    .object({
+      name: z.string(),
+      rateBps: z.number().int().min(0).max(10_000),
+      taxableSubtotalCents: Cents,
+      cents: Cents,
+    })
+    .nullable(),
+  /** IP-F03: files from the client's documents (shared with the client, clean), oldest first. */
+  attachments: z.array(InvoiceAttachment).max(INVOICE_LIMITS.maxAttachments),
+  /**
    * Money received: Stripe payments that succeeded (refunded ones in full) plus live offline
    * payments. The balance due is the total less this.
    */
@@ -358,6 +427,12 @@ export const Invoice = InvoiceListItem.extend({
   notesToClient: z.string().nullable(),
   /** The firm's own note: only firm routes return it. */
   internalNote: z.string().nullable(),
+  /** IP-F03: Assigned Staff. */
+  assignedTo: MemberRef.nullable(),
+  /** IP-F03: the invoice template it uses. */
+  template: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** IP-F03: the chosen tax rate's id (the amounts are in `tax`). */
+  taxRateId: z.uuid().nullable(),
   /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
   recurring: InvoiceRecurrence.nullable(),
 });
@@ -445,6 +520,8 @@ const LineInput = z.strictObject({
     .optional()
     .default(1),
   unitAmountCents: Amount,
+  /** IP-F03: the invoice's tax rate applies to it; not taxable when left out. */
+  taxable: z.boolean().optional().default(false),
 });
 
 /** A note on an invoice: up to 1,000 characters; empty is none. */
@@ -476,6 +553,24 @@ const DraftFields = {
   notesToClient: InvoiceNote.optional(),
   /** IP-F02: the firm's own; never in the client's invoice, PDF, email or portal. */
   internalNote: InvoiceNote.optional(),
+  /**
+   * IP-F03: one of the firm's live tax rates (Settings > Payments; 404 otherwise, though a draft
+   * keeps a rate archived since); null or left out: no tax.
+   */
+  taxRateId: z.uuid().nullable().optional(),
+  /** IP-F03: Assigned Staff, an active member of the firm (404 otherwise). */
+  assignedUserId: z.uuid().nullable().optional(),
+  /** IP-F03: one of the firm's live invoice templates (404 otherwise; a draft keeps its own). */
+  templateId: z.uuid().nullable().optional(),
+  /**
+   * IP-F03: files from this client's documents, replacing the draft's: shared with the client
+   * and clean (409 ATTACHMENT_NOT_SHAREABLE otherwise), never trashed or archived (404).
+   */
+  documentIds: z
+    .array(z.uuid())
+    .max(INVOICE_LIMITS.maxAttachments, `Attach at most ${INVOICE_LIMITS.maxAttachments} files`)
+    .refine((ids) => new Set(ids).size === ids.length, 'Attach each file once')
+    .optional(),
   /**
    * IP-F05: repeat this invoice; null or left out keeps it one-time (and ends a schedule the
    * draft had). The schedule starts from the day the invoice opens, when it is sent.
@@ -803,6 +898,11 @@ export const InvoiceErrorCode = z.enum([
   /** 409 (refund): more than the payment's `refundableCents`. */
   'REFUND_TOO_LARGE',
   /**
+   * 409 (IP-F03, create or update): a file to attach is internal, still being checked for viruses,
+   * or blocked; share it with the client in Documents, or wait for its check.
+   */
+  'ATTACHMENT_NOT_SHAREABLE',
+  /**
    * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
    * then would never be made; choose a later end date or turn Recurring off.
    */
@@ -843,6 +943,8 @@ export const INVOICE_ERRORS = {
   PAYMENTS_NOT_SET_UP: 'Online payment is not available yet. Please contact the firm to pay.',
   NOT_REFUNDABLE: 'This payment cannot be refunded. Reload to see its status.',
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
+  ATTACHMENT_NOT_SHAREABLE:
+    'A file can be attached once it is shared with the client and has passed its virus check.',
   RECURRING_END_TOO_SOON:
     'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   TERMS_NOT_OFFERED:

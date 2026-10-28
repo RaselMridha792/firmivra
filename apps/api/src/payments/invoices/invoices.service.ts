@@ -32,6 +32,7 @@ import {
   withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
+import { checkDraftExtras, writeAttachments } from './invoice-extras.js';
 import { InvoiceNotices } from './invoice-notices.js';
 import { endDraftRecurrence, startRecurrence, syncDraftRecurrence } from './invoice-recurrence.js';
 import {
@@ -326,9 +327,20 @@ export class InvoicesService {
    * Writes a draft's fields and lines. The discount goes on last, after the lines made the
    * subtotal, so the database's `total = subtotal - discount >= 0` holds after every statement.
    */
-  private async writeDraft(tx: TxClient, businessId: string, id: string, body: DraftBody) {
+  private async writeDraft(
+    tx: TxClient,
+    businessId: string,
+    id: string,
+    body: DraftBody,
+    actorUserId: string,
+  ) {
     const where = { businessId_id: { businessId, id } };
     await this.checkTerms(tx, businessId, id, body.paymentTerms ?? null);
+    const current = await tx.invoice.findUniqueOrThrow({
+      where,
+      select: { clientId: true, taxRateId: true, templateId: true },
+    });
+    await checkDraftExtras(tx, businessId, current, body);
     await tx.invoice.update({ where, data: { discountCents: 0 } });
     await tx.invoiceLine.deleteMany({ where: { businessId, invoiceId: id } });
     await tx.invoiceLine.createMany({
@@ -338,6 +350,7 @@ export class InvoicesService {
         description: l.description,
         quantity: l.quantity,
         unitAmountCents: l.unitAmountCents,
+        taxable: l.taxable,
         sortOrder: i,
       })),
     });
@@ -345,6 +358,9 @@ export class InvoicesService {
       where,
       data: {
         engagementId: body.engagementId ?? null,
+        taxRateId: body.taxRateId ?? null,
+        assignedUserId: body.assignedUserId ?? null,
+        templateId: body.templateId ?? null,
         discountCents: body.discountCents,
         dueOn: toDate(body.dueOn),
         scheduledFor: body.scheduledFor ? toDate(body.scheduledFor) : null,
@@ -353,6 +369,7 @@ export class InvoicesService {
         internalNote: body.internalNote ?? null,
       },
     });
+    await writeAttachments(tx, businessId, id, body.documentIds, actorUserId);
   }
 
   /** IP-F05: the draft's schedule follows its Recurring settings (see invoice-recurrence.ts). */
@@ -417,7 +434,7 @@ export class InvoicesService {
           },
           select: { id: true },
         });
-        await this.writeDraft(tx, businessId, id, body);
+        await this.writeDraft(tx, businessId, id, body, actor.userId);
         await this.writeRecurrence(tx, businessId, actor, id, body);
         const row = await this.load(tx, businessId, actor, id);
         await this.audit.logIn(
@@ -458,7 +475,7 @@ export class InvoicesService {
           throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
         }
       }
-      await this.writeDraft(tx, businessId, id, body);
+      await this.writeDraft(tx, businessId, id, body, actor.userId);
       await this.writeRecurrence(tx, businessId, actor, id, body);
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
