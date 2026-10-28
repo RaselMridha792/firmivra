@@ -26,10 +26,12 @@ import {
 } from '@phosphor-icons/react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
+import { MessageFiles } from '../../../../../components/message-files';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
+import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmojiPicker, TemplatePicker } from './compose-tools';
 import {
   activeFilters,
@@ -462,6 +464,7 @@ function Conversation({
 }) {
   const detail = useApiQuery([...KEY, 'thread', thread.id], () => api.messages.get(thread.id));
   const [body, setBody] = useState('');
+  const [files, setFiles] = useState<ChosenFile[]>([]);
   const [busy, setBusy] = useState(false);
   const d = detail.data;
   // Only a client's message can be marked unread for the firm.
@@ -474,8 +477,12 @@ function Conversation({
     if (!body.trim()) return;
     setBusy(true);
     try {
-      await api.messages.send(thread.id, { body: body.trim() });
+      await api.messages.send(thread.id, {
+        body: body.trim(),
+        ...(files.length ? { documentIds: files.map((f) => f.documentId) } : {}),
+      });
       setBody('');
+      setFiles([]);
       await detail.refetch();
       onChanged();
     } catch (e) {
@@ -544,6 +551,8 @@ function Conversation({
               >
                 {m.body}
               </p>
+              {/* MSG-F12: the message's files, opened through Documents once checked. */}
+              <MessageFiles files={m.attachments} open={(id) => api.documents.download(id)} />
               <span className="mt-0.5 text-xs text-muted">
                 {m.sender.name} · {day(m.createdAt)}
                 {/* MSG-F10: every conversation message is a portal message. */}
@@ -559,6 +568,10 @@ function Conversation({
       <div className="border-t border-divider pt-3" data-testid="reply-tools">
         <TemplatePicker kind="PORTAL_MESSAGE" onUse={(t) => setBody(t.body)} />
       </div>
+      <ChosenFiles
+        files={files}
+        onRemove={(id) => setFiles((list) => list.filter((f) => f.documentId !== id))}
+      />
       <form
         className="flex items-end gap-2"
         onSubmit={(e) => {
@@ -567,6 +580,14 @@ function Conversation({
         }}
       >
         <EmojiPicker onPick={(emoji) => setBody((b) => `${b}${emoji}`)} />
+        {/* MSG-F12: the client's own documents, or a file uploaded into them. */}
+        <AttachFiles
+          clientId={thread.client.id}
+          clientName={thread.client.displayName}
+          engagementId={thread.engagementId}
+          chosen={files}
+          onChange={setFiles}
+        />
         <div className="min-w-0 flex-1">
           <Textarea
             label="Type a message"
