@@ -29,16 +29,17 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
 - [x] **#1202** (PR A, merged as `ccb9fa35`): MSG-F01 (search by email and phone), F03 (Clients,
   Leads, Automations, Archived), F04 (blue Bulk and Templates), F05 (Filter), F07 (Templates on
   the message templates), F08 (Back to the same thread).
-- [x] **#1203** (PR B): MSG-F02, Messages Settings: `GET`/`PATCH /business/message-settings` on
-  `message_settings`, the page `/messages/settings`. Rasel allowed the role check (Oct 28). `main`
-  merged in (Settings on the second row under #1202's actions), head `0aae1281`, 8 of 8.
+- [x] **#1203** (PR B, merged as `692fbaa7`): MSG-F02, Messages Settings: `GET`/`PATCH
+  /business/message-settings` on `message_settings`, the page `/messages/settings`.
 - [x] **#1204** (PR C): MSG-F06, the bulk builder at `/messages/bulk` on the Communications API
-  (web only). `main` merged in (Send Bulk Message points to it), head `eea64eed`, 8 of 8.
-  #1203 and #1204 each change one line of the same header block: the second to merge needs
-  `main` merged again (keep both: Settings on the second row, Bulk to `/messages/bulk`).
-- [x] **D** (MSG-F09, F10, F14): New Message as its own page on `outbound_messages`, branch
-  `rasel/R60-messages-compose`, `main` merged in (#1202's header; the inbox keeps the previous
-  results while a search loads, which fixed `r56-messages`' note test). Body: the PR.
+  (web only). `main` merged in after #1203 (main's header with Settings; Send Bulk Message points
+  to `/messages/bulk`), head `870cfc4c`, 8 of 8.
+- [x] **#1206** (PR D, MSG-F09, F10, F14): New Message as its own page on `outbound_messages`,
+  branch `rasel/R60-messages-compose`. `main` merged in after #1203 (main's header with Settings;
+  New Message opens `/messages/new`; the inbox keeps the previous results while a search loads,
+  which fixed `r56-messages`' note test). #1204 and #1206 change the same header block: the
+  second to merge needs `main` merged again (keep Bulk to `/messages/bulk` and New Message to
+  `/messages/new`).
 - [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
   `rasel/R60-messages-compose-review` (stacked on D): open after D merges, `main` merged first.
 - [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
@@ -74,7 +75,11 @@ Progress (Messages):
   4) and #1204 (mock 4 of 4); #1198 and #1199 merged. `main` merged into #1202.
 - Oct 28: #1202 merged. `main` merged into #1203 and #1204 (`pnpm lint` and `pnpm typecheck`
   clean, API e2e 27 of 27, mock green), both 8 of 8. D: `main` merged in; API e2e 30 of 30, mock
-  21 of 21. **Next step:** open D, then E once D merges; then F12, F13 and F16.
+  21 of 21. D opened as #1206, 8 of 8.
+- Oct 28: #1203 merged. `main` merged into #1204 (`pnpm lint` and `pnpm typecheck` clean, API e2e
+  27 of 27, mock 22 of 22, 8 of 8) and #1206 (clean; API e2e 35 of 35, mock 28 of 28).
+  **Next step:** when #1204 or #1206 merges, merge `main` into the other again; open E once #1206
+  merges (`main` merged first); then F12, F13 and F16.
 
 ## Handoff (Oct 23): start here
 
