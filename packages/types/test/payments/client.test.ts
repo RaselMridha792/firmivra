@@ -392,8 +392,11 @@ describe('api.invoices (firm)', () => {
       recurring: null,
     };
     expect(Invoice.parse({ ...invoice, stripeAccountId: 'acct_1' })).toEqual(invoice);
-    // IP-F02: only the four standard terms.
-    expect(Invoice.safeParse({ ...invoice, paymentTerms: 'net_99' }).success).toBe(false);
+    // IP-F02: the standard terms or a firm's own, Net 1 to Net 365.
+    expect(Invoice.parse({ ...invoice, paymentTerms: 'net_45' }).paymentTerms).toBe('net_45');
+    for (const paymentTerms of ['net_0', 'net_366', 'net_07', 'net_x', 'due_later']) {
+      expect(Invoice.safeParse({ ...invoice, paymentTerms }).success).toBe(false);
+    }
     // IP-F05: a schedule never repeats ONE_TIME.
     const schedule = {
       id,

@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { INVOICE_ERRORS, PaymentMethodKey } from '@firmivra/types';
+import { INVOICE_ERRORS, PaymentMethodKey, STANDARD_PAYMENT_TERMS } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CancelInvoiceRequest,
@@ -328,6 +328,7 @@ export class InvoicesService {
    */
   private async writeDraft(tx: TxClient, businessId: string, id: string, body: DraftBody) {
     const where = { businessId_id: { businessId, id } };
+    await this.checkTerms(tx, businessId, id, body.paymentTerms ?? null);
     await tx.invoice.update({ where, data: { discountCents: 0 } });
     await tx.invoiceLine.deleteMany({ where: { businessId, invoiceId: id } });
     await tx.invoiceLine.createMany({
@@ -365,6 +366,26 @@ export class InvoicesService {
     const row = await this.load(tx, businessId, actor, id);
     const { today } = await firmToday(tx, businessId);
     await syncDraftRecurrence(tx, this.audit, businessId, actor.userId, row, body.recurring, today);
+  }
+
+  /**
+   * Terms a firm's own list (`custom_term_days`) no longer has are 409 TERMS_NOT_OFFERED, except
+   * the ones the draft already carries.
+   */
+  private async checkTerms(tx: TxClient, businessId: string, id: string, terms: string | null) {
+    if (terms === null || (STANDARD_PAYMENT_TERMS as readonly string[]).includes(terms)) return;
+    const settings = await tx.paymentSettings.findUnique({
+      where: { businessId },
+      select: { customTermDays: true },
+    });
+    const draft = await tx.invoice.findUnique({
+      where: { businessId_id: { businessId, id } },
+      select: { paymentTerms: true },
+    });
+    const own = (settings?.customTermDays ?? []).map((d) => `net_${d}`);
+    if (!own.includes(terms) && draft?.paymentTerms !== terms) {
+      throw conflict('TERMS_NOT_OFFERED', INVOICE_ERRORS.TERMS_NOT_OFFERED);
+    }
   }
 
   /**

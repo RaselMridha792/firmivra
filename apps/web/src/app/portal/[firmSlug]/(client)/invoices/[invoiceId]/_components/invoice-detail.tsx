@@ -1,6 +1,6 @@
 'use client';
 
-import { type MyInvoiceDetail, PAYMENT_TERM_LABELS } from '@firmivra/types';
+import { type MyInvoiceDetail, paymentTermLabel } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft, Printer } from 'lucide-react';
 import Link from 'next/link';
@@ -76,7 +76,7 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
         {i.paymentTerms ? (
           <div>
             <dt className="text-muted">Payment Terms</dt>
-            <dd className="text-heading">{PAYMENT_TERM_LABELS[i.paymentTerms]}</dd>
+            <dd className="text-heading">{paymentTermLabel(i.paymentTerms)}</dd>
           </div>
         ) : null}
         {i.paidAt ? (
