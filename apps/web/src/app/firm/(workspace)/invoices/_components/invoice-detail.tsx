@@ -1,6 +1,6 @@
 'use client';
 
-import { INVOICE_ERRORS, type Invoice, PAYMENT_TERM_LABELS } from '@firmivra/types';
+import { INVOICE_ERRORS, type Invoice, paymentTermLabel } from '@firmivra/types';
 import { Button, Input, Modal } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -164,7 +164,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ['Invoice Date', dayText(i?.issuedAt ?? i?.createdAt)],
                 ['Due Date', dayText(i?.dueOn)],
                 ...(i?.paymentTerms
-                  ? [['Payment Terms', PAYMENT_TERM_LABELS[i.paymentTerms]] as const]
+                  ? [['Payment Terms', paymentTermLabel(i.paymentTerms)] as const]
                   : []),
                 ...(i?.scheduledFor ? [['Opens On', dayText(i.scheduledFor)] as const] : []),
                 ...(i?.paidAt ? [['Paid On', dayText(i.paidAt)] as const] : []),
