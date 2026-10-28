@@ -16,15 +16,27 @@ Rasel (Oct 28): R55 takes IP-F01 to F05, F12 and F13. R56 owns F06 to F09, F17 a
 
 Rasel's two approved additions are merged: Custom frequency (#1217, wired in F05) and `payment_settings.custom_term_days` (#1220, Oct 28; dev gets it with Deploy dev run 833).
 
+**Open (Oct 28, late):**
+- IP-F05 #1224 (`rasel/R55-ip-f05-recurring`): Recurring card, Custom every 1 to 52 weeks, months or years.
+- Firm's own terms #1225 (`rasel/R55-firm-payment-terms`, from main): `PaymentTerm` takes `net_<days>` (1 to 365); Settings > Payments' "Your payment terms" (up to 12; default terms must be offered); Create Invoice offers the standard four plus the firm's list; 409 TERMS_NOT_OFFERED for terms the firm doesn't offer (a draft keeps its own).
+- Both #1224 and #1225 add an `InvoiceErrorCode` and an `INVOICE_ERRORS` line in the same spot of `packages/types/src/payments/schemas.ts`, and both touch `invoice-editor.tsx`: whichever merges second needs `origin/main` merged (keep both codes).
+
 **Next, in order (one PR each; no further schema needed):**
-1. The firm's own terms (#1220): `net_<days>` codes beside the four standard ones in `PaymentTerm`; the list kept in Settings > Payments' Invoice Defaults (1 to 365 days, at most 12); Create Invoice's Payment Terms select and the default terms offer the standard four plus the firm's list. Browser tests on the mock until run 833 is green.
-2. IP-F03 and IP-F04:
-   - attachments (`invoice_attachments`: the client's clean, non-internal documents), Assigned Staff (`assigned_user_id`), the template (F13's list) and the tax line (`tax_rate_id`, `tax_rate_bps`, `tax_cents` from `invoice_tax_rates`, never a fixed rate);
-   - Email the client, Allow tip and Payment before due (`email_client`, `allow_tip`, `require_payment_before_due`), each shown only where F13 turned it on.
-3. IP-F12:
+1. **IP-F03** (this branch, `rasel/R55-ip-f03-f04`, stacked on F05; merge `origin/main` once #1224 and #1225 merge, before building):
+   - **Assigned Staff**: `invoices.assigned_user_id`, an ACTIVE member of the firm (another firm's user or a non-member is 404; add it to the isolation suite's body ids, `apps/api/test/isolation/body-ids.ts`). Picker from the firm's members.
+   - **Invoice Template**: `invoices.template_id`, one of F13's live templates (`api.paymentPreferences.templates()`); 404 otherwise. Empty state: "No templates yet" with a link to Settings > Payments.
+   - **Tax line**: `invoices.tax_rate_id` (a live rate from `api.paymentPreferences.taxRates()`, default from `isDefault`) and `invoice_lines.taxable` per line. The database computes it (R36 `r36_invoice_core`): it copies `tax_rate_bps` while DRAFT or SCHEDULED, taxes the taxable lines after the discount's share, and `total = subtotal - discount + tax`; an archived rate can't be chosen (check_violation). The contract's `invoiceTotals` and the editor's summary must show the same tax line ("Tax (8.25%)"); never a fixed rate. With no rates: the line reads "No tax" with a link to Settings > Payments.
+   - **Attachments** (`invoice_attachments`, up to 10): the client's documents a client can see, as R60's #1219 rules them (`messages.service.ts` attach): same client, not trashed or archived, `direction` not INTERNAL, and `scanStatus` CLEAN (stricter than messages, since files go with the invoice email). The web list is `api.documents.list(clientId, { limit: 100 })`. The mockup's drop zone uploads into the client's Documents (`api.documents.createUpload`/`confirmUpload` need a service: reuse the editor's Service). Do not import R60's `attach-files.tsx` (it applies Messages Settings' types and sizes); the mockup says PDF, PNG, JPG, DOC, 10 MB each. `include_attachments` is the "Include attached files with invoice" box.
+   - The portal and the email must never show an attachment that isn't the client's to see.
+2. **IP-F04**: waits on Rasel's answers (asked Oct 28):
+   - **Email notification** (`email_client`; the column defaults TRUE, and today every sent invoice emails the client): checked by default (the mockup, today's behavior) or unchecked ("nothing on by default")? Off means the invoice opens in the portal with no email (R56's IP-F07 then never marks it Sent).
+   - **Allow tip** (`allow_tip`, shown only when Taxes & Fees' Tipping is on): the portal's Pay Now would add the tip to the Stripe checkout over the invoice total. In scope now, or the flag only?
+   - **Require payment before due** (`require_payment_before_due`, shown only when that setting is on): what the client must do (pay in full by the due date, no partial payment?).
+3. **IP-F12**:
    - Record Payment's Deposit To: `deposit_accounts` and `offline_payments.deposit_account_id` already exist, with no schema change;
    - Send Receipt once, after success only (`RECEIPT_SENT` invoice events dedupe it), and manual Send/Resend;
    - Automatic Receipts is F13's `autoReceipts`.
+   - R56's open PRs touch `record-payment.tsx` and the offline payments service: merge `origin/main` first.
 
 **Schema for Rasel's card:** none needed. Optional: flip `payment_settings`' column defaults (`auto_receipts`, `send_reminders`, `notify_overdue`, `auto_apply_payments`) to false so the database agrees with "nothing on by default"; the API already writes every field.
 ## Handoff (Oct 25, late; for the next R55)
