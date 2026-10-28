@@ -61,6 +61,11 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/engagements/:id/complete': { params: { id: 'engagement' } },
   // Found, but only a cancelled engagement can be reactivated.
   'POST /api/v1/business/engagements/:id/reactivate': { params: { id: 'engagement' }, expect: 409 },
+  // SH10: resuming needs no date, so the recurring workspace engagement answers 200.
+  'POST /api/v1/business/engagements/:id/billing-stop': {
+    params: { id: 'workspace' },
+    body: { stop: false },
+  },
   'POST /api/v1/portal/:firmSlug/me/services/:id/cancel-request': {
     params: { id: 'workspace' },
     body: { reason: 'Fake reason' },
