@@ -316,6 +316,8 @@ export const PayrollClientWorkspace = z.object({
   engagementId: z.uuid(),
   /** The engagement's package, i.e. the payroll plan. */
   plan: z.string().nullable(),
+  /** SH9: the plan as a Services & Pricing service, by id; null when chosen by name only. */
+  catalogServiceId: z.uuid().nullable(),
   status: PayrollClientStatus,
   frequency: PayrollFrequency.nullable(),
   industry: z.string().nullable(),
@@ -401,7 +403,16 @@ export const PayrollFrequencyRequest = z.strictObject({ frequency: PayrollFreque
 export type PayrollFrequencyRequest = z.input<typeof PayrollFrequencyRequest>;
 
 /** The payroll plan is the engagement's package name. */
-export const PayrollPlanRequest = z.strictObject({ plan: text(100).nullable() });
+/**
+ * POST /clients/{id}/plan. SH9: `catalogServiceId` (a PAYROLL service of Services & Pricing, by id)
+ * saves the link and the service's name; null clears the plan. `plan` (text) is the older form.
+ */
+export const PayrollPlanRequest = z
+  .strictObject({
+    plan: text(100).nullable().optional(),
+    catalogServiceId: z.uuid().nullable().optional(),
+  })
+  .refine((b) => b.plan !== undefined || b.catalogServiceId !== undefined, 'Choose a plan');
 export type PayrollPlanRequest = z.input<typeof PayrollPlanRequest>;
 
 /** POST /clients/{id}/sync: queued, not run. 409 PROVIDER_NOT_CONNECTED without a connection. */

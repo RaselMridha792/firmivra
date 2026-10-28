@@ -42,6 +42,8 @@ test('Create New: an email draft opens the composer with the checklist', async (
 
 test('Composer: choose recipients, review and send, then see the results', async ({ page }) => {
   await page.goto(`${base}/new?channel=EMAIL`);
+  // Since #1150 the new page makes the draft only on Start.
+  await page.getByRole('button', { name: 'Start Bulk Email' }).click();
   await page.waitForURL(/\/edit$/);
   await page.getByLabel('Campaign Name').fill('Spring Check-In');
   await page.getByLabel('Subject Line').fill('A quick hello');
@@ -75,6 +77,8 @@ test('Composer: choose recipients, review and send, then see the results', async
 
 test('Composer: switching to a text message counts its parts', async ({ page }) => {
   await page.goto(`${base}/new?channel=EMAIL`);
+  // Since #1150 the new page makes the draft only on Start.
+  await page.getByRole('button', { name: 'Start Bulk Email' }).click();
   await page.waitForURL(/\/edit$/);
   await page
     .getByTestId('composer-form')
