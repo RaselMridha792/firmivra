@@ -5788,6 +5788,9 @@ model PaymentSettings {
   invoicePrefix           String       @default("INV-") @map("invoice_prefix")
   /// A terms code (`net_14`).
   defaultTerms            String       @default("net_14") @map("default_terms")
+  /// The firm's own payment terms (Oct 28): each a number of days, 1 to 365, at most 12; its code is
+  /// `net_<days>`, beside the standard ones.
+  customTermDays          Int[]        @default([]) @map("custom_term_days")
   defaultMemo             String?      @map("default_memo")
   /// "Due Soon": an open invoice due within this many days.
   dueSoonDays             Int          @default(14) @map("due_soon_days")
