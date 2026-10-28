@@ -1,6 +1,7 @@
 import {
   ApiRequestError,
   CancelInvoiceRequest,
+  CorrectInvoiceRequest,
   CreateInvoiceRequest,
   type FirmInvoicePayment,
   Invoice,
@@ -685,7 +686,10 @@ export function createInvoicesMock(
       const b = parseInput(UpdateInvoiceRequest, body);
       const r = find(key);
       const engagementId = engagementOf(r.clientId, b.engagementId);
-      if (r.status !== 'DRAFT') throw notDraft();
+      // IP-F08: a scheduled invoice is edited like a draft and stays scheduled.
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') throw notDraft();
+      if (r.status === 'SCHEDULED' && (!b.scheduledFor || b.scheduledFor <= today()))
+        throw fail(409, 'SCHEDULE_PASSED', 'Choose a send day after today');
       if (isArchived(r)) throw archived();
       const change: Partial<Row> = { ...s.draft(b), engagementId, updatedAt: now() };
       Object.assign(r, change);
@@ -711,6 +715,38 @@ export function createInvoicesMock(
         ? { status: 'SCHEDULED', updatedAt: at }
         : { status: 'OPEN', issuedAt: at, scheduledFor: null, updatedAt: at };
       Object.assign(r, change);
+      return toInvoice(r, day);
+    },
+    // IP-F08: the dates of a scheduled or unpaid open invoice, as the API corrects them.
+    correct: async (id, body) => {
+      await mockDelay();
+      manager();
+      const b = parseInput(CorrectInvoiceRequest, body);
+      const r = find(parseInput(InvoiceId, id));
+      const day = today();
+      const open = r.status === 'OPEN' && figures(r).balanceDueCents > 0;
+      if (r.status !== 'SCHEDULED' && !open)
+        throw fail(409, 'NOT_CORRECTABLE', 'Only a scheduled or unpaid open invoice is corrected');
+      if (r.status === 'OPEN' && b.scheduledFor !== undefined)
+        throw fail(409, 'NOT_CORRECTABLE', 'An invoice already sent has no send day to change');
+      if (r.issuedAt && !b.reason)
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'reason', message: 'Say why the sent invoice changes' }],
+        );
+      if (b.scheduledFor !== undefined && b.scheduledFor <= day)
+        throw fail(409, 'SCHEDULE_PASSED', 'Choose a send day after today');
+      if (b.dueOn !== undefined && b.dueOn < day)
+        throw fail(409, 'DUE_DATE_PASSED', 'Choose today or a later due date');
+      const dueOn = b.dueOn ?? r.dueOn;
+      const scheduledFor = b.scheduledFor ?? r.scheduledFor;
+      if (r.status === 'SCHEDULED' && dueOn && scheduledFor && dueOn < scheduledFor)
+        throw fail(409, 'DUE_BEFORE_SEND', 'The due date cannot come before the send day');
+      Object.assign(r, { dueOn, scheduledFor, updatedAt: now() });
       return toInvoice(r, day);
     },
     cancel: async (id, body) => {
