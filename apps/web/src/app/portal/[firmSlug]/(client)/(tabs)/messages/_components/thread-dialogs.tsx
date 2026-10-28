@@ -10,6 +10,7 @@ import { Button, Input, Modal } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import { MessageFiles } from '../../../../../../../components/message-files';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -66,7 +67,7 @@ function ThreadBody({
       {(t) => (
         <>
           <h3 className="font-display text-xl font-bold text-heading">{t.subject}</h3>
-          <Messages thread={t} />
+          <Messages thread={t} slug={slug} />
           {markUnread.isError ? (
             <p role="alert" className="text-sm text-danger">
               {errorMessage(markUnread.error, MESSAGE_ERRORS)}
@@ -93,8 +94,9 @@ function ThreadBody({
   );
 }
 
-function Messages({ thread }: { thread: MyMessageThreadDetail }) {
+function Messages({ thread, slug }: { thread: MyMessageThreadDetail; slug: string }) {
   const { business } = usePortal();
+  const files = api.myDocuments(slug);
   return (
     <ol aria-label="Conversation" className="grid max-h-96 gap-3 overflow-y-auto">
       {thread.messages.map((m) => (
@@ -107,6 +109,8 @@ function Messages({ thread }: { thread: MyMessageThreadDetail }) {
             {when.format(new Date(m.createdAt))}
           </span>
           <p className="text-sm whitespace-pre-wrap text-text">{m.body}</p>
+          {/* MSG-F12: the files this login may open, through My Documents' own link. */}
+          <MessageFiles files={m.attachments} open={(id) => files.download(id)} />
         </li>
       ))}
     </ol>
