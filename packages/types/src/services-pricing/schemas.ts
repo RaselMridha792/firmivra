@@ -89,6 +89,11 @@ export const CatalogServiceRow = z.object({
   category: CategoryRef.nullable(),
   price: PriceDisplay,
   status: CatalogStatus,
+  /**
+   * The existing service kind (Begin Online, engagements); OTHER for new kinds of work. On the row
+   * so a module's plan choice lists its own services (Payroll, Bookkeeping: SH9).
+   */
+  kind: ServiceKind,
   updatedAt: DateTime,
   updatedBy: z.string().nullable(),
 });
@@ -141,8 +146,6 @@ export type ServiceAddOn = z.infer<typeof ServiceAddOn>;
 
 /** GET /business/catalog/services/{id}. */
 export const CatalogService = CatalogServiceRow.extend({
-  /** The existing service kind (Begin Online, engagements); OTHER for new kinds of work. */
-  kind: ServiceKind,
   fullDescription: z.string().nullable(),
   basePriceCents: z.number().int().nullable(),
   billingFrequency: BillingFrequency.nullable(),

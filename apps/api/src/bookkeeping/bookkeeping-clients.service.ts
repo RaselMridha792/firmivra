@@ -612,13 +612,28 @@ export class BookkeepingClientsService {
           select: { id: true },
         });
         if (!service) throw errors.noBookkeepingService();
+        // SH9: a Services & Pricing bookkeeping service by id is the plan: its link and its name.
+        const chosen = body.catalogServiceId
+          ? await tx.service.findFirst({
+              where: {
+                businessId,
+                id: body.catalogServiceId,
+                kind: 'BOOKKEEPING',
+                status: 'ACTIVE',
+                archivedAt: null,
+              },
+              select: { id: true, name: true },
+            })
+          : null;
+        if (body.catalogServiceId && !chosen) throw errors.notFound();
         const created = await tx.engagement.create({
           data: {
             businessId,
             clientId: client.id,
             serviceId: service.id,
             title: 'Bookkeeping',
-            package: body.plan ?? null,
+            package: chosen?.name ?? body.plan ?? null,
+            catalogServiceId: chosen?.id ?? null,
             assignedUserId: body.assignedUserId ?? client.assignedUserId,
           },
           select: { id: true },
@@ -806,6 +821,7 @@ export class BookkeepingClientsService {
       engagementId: p.engagementId,
       engagementStatus: p.engagement.status,
       plan: p.engagement.package,
+      catalogServiceId: p.engagement.catalogServiceId,
       clientSince: p.engagement.createdAt.toISOString(),
       assignedTo: memberRefOf(data.names, p.engagement.assignedUserId),
       reviewer: memberRefOf(data.names, p.reviewerUserId),

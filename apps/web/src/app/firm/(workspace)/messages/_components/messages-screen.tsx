@@ -17,6 +17,7 @@ import {
   Envelope,
   FileText,
   Funnel,
+  Gear,
   MagnifyingGlass,
   PaperPlaneRight,
   PaperPlaneTilt,
@@ -163,21 +164,27 @@ export function MessagesScreen({
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={gold} onClick={() => setComposing(true)}>
-            <Plus aria-hidden weight="bold" className="size-5" /> New Message
-          </button>
-          {/* MSG-F06: the Messages bulk builder, with Back to Messages. */}
-          <OriginLink href="/messages/bulk" className={blue} data-testid="messages-bulk">
-            <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Bulk Message
-          </OriginLink>
-          {/* MSG-F07: the shared Templates library, on its message templates. */}
-          <OriginLink
-            href="/templates/library/portal-message"
-            className={blue}
-            data-testid="messages-templates"
-          >
-            <FileText aria-hidden weight="fill" className="size-5" /> Message Templates
+        <div className="flex flex-col items-start gap-2 xl:items-end">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={gold} onClick={() => setComposing(true)}>
+              <Plus aria-hidden weight="bold" className="size-5" /> New Message
+            </button>
+            {/* MSG-F06: the Messages bulk builder, with Back to Messages. */}
+            <OriginLink href="/messages/bulk" className={blue} data-testid="messages-bulk">
+              <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Bulk Message
+            </OriginLink>
+            {/* MSG-F07: the shared Templates library, on its message templates. */}
+            <OriginLink
+              href="/templates/library/portal-message"
+              className={blue}
+              data-testid="messages-templates"
+            >
+              <FileText aria-hidden weight="fill" className="size-5" /> Message Templates
+            </OriginLink>
+          </div>
+          {/* MSG-F02: message-specific settings, with Back to Messages (Frame 1: under the actions). */}
+          <OriginLink href="/messages/settings" className={blue} data-testid="messages-settings">
+            <Gear aria-hidden weight="fill" className="size-5" /> Settings
           </OriginLink>
         </div>
       </header>
