@@ -65,6 +65,8 @@ const select = {
   stage: true,
   billingInterval: true,
   nextBillingOn: true,
+  stopFutureBilling: true,
+  billingStopsOn: true,
   assignedUserId: true,
   completedAt: true,
   cancelRequestedAt: true,
@@ -93,6 +95,8 @@ function toEngagement(row: Row): Engagement {
     billingInterval: row.billingInterval,
     recurring: row.billingInterval !== 'ONE_TIME',
     nextBillingOn: day(row.nextBillingOn),
+    stopFutureBilling: row.stopFutureBilling,
+    billingStopsOn: day(row.billingStopsOn),
     assignedTo: row.assignedMember
       ? { userId: row.assignedMember.userId, name: row.assignedMember.user.name }
       : null,
@@ -379,6 +383,53 @@ export class EngagementsService {
       if (current.status === 'CANCELLED') throw invalidStatus('Already cancelled');
       return { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: reason };
     });
+  }
+
+  /**
+   * Stop Future Billing (Octavia's SH10), apart from pausing the service: Owner and Admin record
+   * that the service is billed no more from `stopsOn` (default: its next billing date). Invoices
+   * already made are not changed, and nothing is charged or refunded here.
+   */
+  async stopBilling(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: { stop: boolean; stopsOn?: string | undefined },
+  ): Promise<Engagement> {
+    if (actor.role === 'STAFF') throw forbidden();
+    const today = new Date().toISOString().slice(0, 10);
+    let stopsOn: string | null = null;
+    const row = await this.inFirm(businessId, async (tx) => {
+      const current = await this.engagement(tx, businessId, actor, id, true, true);
+      if (current.billingInterval === 'ONE_TIME') {
+        throw conflict('NOT_RECURRING', 'A one-time service has no future billing');
+      }
+      if (body.stop && current.status !== 'ACTIVE' && current.status !== 'PENDING') {
+        throw invalidStatus('Only an active or pending service is billed');
+      }
+      stopsOn = body.stop ? (body.stopsOn ?? day(current.nextBillingOn)) : null;
+      if (body.stop && !stopsOn) {
+        throw conflict('NO_BILLING_DATE', 'Choose the date billing stops');
+      }
+      if (stopsOn && stopsOn < today) {
+        throw conflict('DATE_IN_PAST', 'Billing can stop today or later');
+      }
+      await tx.engagement.update({
+        where: { businessId_id: { businessId, id } },
+        data: {
+          stopFutureBilling: body.stop,
+          billingStopsOn: toDate(stopsOn),
+          updatedByUserId: actor.userId,
+        },
+      });
+      return this.engagement(tx, businessId, actor, id);
+    });
+    await this.audit.log(
+      body.stop ? 'engagement.billing_stopped' : 'engagement.billing_resumed',
+      { type: 'engagement', id },
+      body.stop ? { stopsOn } : {},
+    );
+    return toEngagement(row);
   }
 
   /** Back to ACTIVE within 90 days of cancelling (409 REACTIVATION_WINDOW_PASSED after). */

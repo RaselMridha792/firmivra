@@ -418,11 +418,16 @@ export class MessagesService {
     return detail;
   }
 
+  /**
+   * A new thread with its first message. `emailNotice: false` (New Message's Email channel, which
+   * emails its own notice to the client's address) keeps the bell item and skips this email.
+   */
   async create(
     businessId: string,
     actor: ClientsActor,
     clientId: string,
     body: CreateBody,
+    options: { emailNotice?: boolean } = {},
   ): Promise<MessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
@@ -475,7 +480,14 @@ export class MessagesService {
       );
       return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
     });
-    await this.notify(businessId, detail.id, detail.messages[0]?.id, actor.userId, 'client', true);
+    await this.notify(
+      businessId,
+      detail.id,
+      detail.messages[0]?.id,
+      actor.userId,
+      'client',
+      options.emailNotice ?? true,
+    );
     return detail;
   }
 

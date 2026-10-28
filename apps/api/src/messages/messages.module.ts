@@ -11,11 +11,14 @@ import {
 import { MessagesService } from './messages.service.js';
 import { ClientNotesController, MyNotesController, NotesController } from './notes.controller.js';
 import { NotesService } from './notes.service.js';
+import { OutboundMessagesController } from './outbound.controller.js';
+import { OutboundMessagesJob } from './outbound.job.js';
+import { OutboundMessagesService } from './outbound.service.js';
 import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 
 /**
  * Messages and notes (R20): firm threads, the portal's messages, read state and counts; Messages
- * Settings (R60).
+ * Settings and New Message's drafts, schedules and sends (R60).
  */
 @Module({
   imports: [NotificationsModule, PortalTabsModule],
@@ -26,9 +29,17 @@ import { PortalTabsModule } from '../client-portal/portal-tabs.js';
     ClientNotesController,
     NotesController,
     MyNotesController,
+    OutboundMessagesController,
     MessageSettingsController,
   ],
-  providers: [MessagesService, NotesService, MessageNotices, MessageSettingsService],
+  providers: [
+    MessagesService,
+    NotesService,
+    MessageNotices,
+    MessageSettingsService,
+    OutboundMessagesService,
+    OutboundMessagesJob,
+  ],
   exports: [MessagesService],
 })
 export class MessagesModule {}
