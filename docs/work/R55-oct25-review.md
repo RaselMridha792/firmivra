@@ -2,6 +2,33 @@
 
 Source: `docs/specs/review-2026-10-25/CHANGE-LIST.md` (sections A, C, D, F), `dashboard--developer-feedback.md`, `client-signups--developer-instructions.md`, `screenshots/client-signups-expanded-sidebar.png`.
 
+## Invoices & Payments (Octavia's review of Oct 27, section A): IP-F01 to F05, F12, F13
+
+Rasel (Oct 28): R55 takes IP-F01 to F05, F12 and F13. R56 owns F06 to F09, F17 and F20 to F24 (do not touch those files); R60 is on Messages only.
+
+**Found:** the R36 migration already holds every Create Invoice field on `invoices` (`payment_terms`, `notes_to_client`, `internal_note`, `template_id`, `assigned_user_id`, `tax_rate_id`, `email_client`, `allow_tip`, `require_payment_before_due`, `recurring_invoice_id`), plus `payment_settings`, `invoice_tax_rates`, `invoice_templates`, `invoice_attachments` and `recurring_invoices`. The firm invoice API and screens used none of it. No schema change is needed for F02 to F05 or F13.
+
+**Done:** IP-F13 (Settings > Payments: Invoice Defaults, Reminders & Automations, Taxes & Fees; tax rates and templates). A firm that never saved has every option off; the table's own column defaults turn `auto_receipts`, `send_reminders`, `notify_overdue` and `auto_apply_payments` on, so the API writes every field explicitly. A migration flipping those defaults would make the database agree (Rasel's card, not needed for the feature).
+
+**Open:** IP-F13 #1209 (this file's branch), IP-F01 #1211 (Create Invoice lines from any active Services & Pricing offering).
+
+**Next, in order (one PR each; no schema change needed for any of them):**
+1. IP-F02:
+   - Preview Invoice (client-facing, no status change);
+   - payment terms (`PaymentTerm`, the default from F13; the due date follows `PAYMENT_TERM_DAYS` unless typed);
+   - Notes to Client and an Internal Note, which never reaches the client PDF, email or portal;
+   - `CreateInvoiceRequest` and `UpdateInvoiceRequest` gain `paymentTerms`, `notesToClient` and `internalNote` on the existing columns.
+   - R56's IP-F08 (Edit/Correct) changes the same editor and service: merge `origin/main` first.
+2. IP-F03 and IP-F04:
+   - attachments (`invoice_attachments`: the client's clean, non-internal documents), Assigned Staff (`assigned_user_id`), the template (F13's list) and the tax line (`tax_rate_id`, `tax_rate_bps`, `tax_cents` from `invoice_tax_rates`, never a fixed rate);
+   - Email the client, Allow tip and Payment before due (`email_client`, `allow_tip`, `require_payment_before_due`), each shown only where F13 turned it on.
+3. IP-F05: Recurring on `recurring_invoices` (weekly to annual, plus custom). Check R56's F17 and F18 routes first.
+4. IP-F12:
+   - Record Payment's Deposit To: `deposit_accounts` and `offline_payments.deposit_account_id` already exist, with no schema change;
+   - Send Receipt once, after success only (`RECEIPT_SENT` invoice events dedupe it), and manual Send/Resend;
+   - Automatic Receipts is F13's `autoReceipts`.
+
+**Schema for Rasel's card:** none needed. Optional: flip `payment_settings`' column defaults (`auto_receipts`, `send_reminders`, `notify_overdue`, `auto_apply_payments`) to false so the database agrees with "nothing on by default"; the API already writes every field.
 ## Handoff (Oct 25, late; for the next R55)
 
 Read first: `CLAUDE.md`, `docs/work/README.md`, this file, and Octavia's `docs/specs/review-2026-10-25/CHANGE-LIST.md` (A and D), `client-signups--developer-instructions.md` and `screenshots/client-signups-expanded-sidebar.png`.

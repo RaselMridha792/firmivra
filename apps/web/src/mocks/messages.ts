@@ -7,6 +7,7 @@ import {
   type OutboundExclusion,
   type OutboundMessage,
   type OutboundMessageList,
+  type OutboundReview,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   SendOutboundRequest,
@@ -340,6 +341,7 @@ interface OutboundRow {
   channel: OutboundMessage['channel'];
   subject: string | null;
   body: string;
+  templateId: string | null;
   scheduledFor: string | null;
   clientIds: string[];
   leadIds: string[];
@@ -448,6 +450,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       channel: r.channel,
       subject: r.subject,
       body: r.body,
+      templateId: r.templateId,
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
@@ -479,10 +482,42 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     if ((await shape(r)).counts.canReceive === 0)
       throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
   };
+  /** The merge fields each person gets, as the API fills them (MSG-F15). */
+  const fillFor = (p: MockPerson, text: string) => {
+    const [first = '', ...rest] = p.name.split(' ');
+    const values = new Map<string, string>([
+      ['client first name', first],
+      ['client last name', rest.join(' ')],
+      ['client full name', p.name],
+      ['business name', 'LVP Accounting & Taxes'],
+      ['staff name', me.name],
+      ...(p.email ? ([['email address', p.email]] as [string, string][]) : []),
+    ]);
+    const unresolved = new Set<string>();
+    const filled = text.replace(/\[([^\]]+)\]/g, (token, name: string) => {
+      const v = values.get(name.trim().toLowerCase());
+      if (!v) unresolved.add(name.trim());
+      return v ?? token;
+    });
+    return { text: filled, unresolved: [...unresolved] };
+  };
+  const unresolvedOf = async (r: OutboundRow) => {
+    const out = new Set<string>();
+    for (const p of await people(r.clientIds, r.leadIds)) {
+      if (mockExclusion(p, r.channel)) continue;
+      for (const u of fillFor(p, `${r.subject ?? ''} ${r.body}`).unresolved) out.add(u);
+    }
+    return [...out];
+  };
+  const confirmed = async (r: OutboundRow, confirm: boolean | undefined) => {
+    if (!confirm && (await unresolvedOf(r)).length > 0)
+      throw fail(409, 'UNRESOLVED_FIELDS', 'Some merge fields cannot be filled.');
+  };
   const insert = async (b: {
     channel: OutboundMessage['channel'];
     subject?: string | null;
     body: string;
+    templateId?: string | null;
     clientIds: string[];
     leadIds: string[];
   }): Promise<OutboundRow> => {
@@ -494,6 +529,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       channel: b.channel,
       subject: b.subject ?? null,
       body: b.body,
+      templateId: b.templateId ?? null,
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
       leadIds: [...new Set(b.leadIds)],
@@ -543,6 +579,66 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       return { items: await Promise.all(rows.map(shape)) };
     },
     get: async (outboundId: string) => (await mockDelay(), shape(find(outboundId))),
+    review: async (outboundId: string): Promise<OutboundReview> => {
+      await mockDelay();
+      const r = find(outboundId);
+      const m = await shape(r);
+      const found = await people(r.clientIds, r.leadIds);
+      const recipients = m.recipients.map((x) => {
+        const p = found.find((y) => y.id === x.id)!;
+        const subject = r.subject ? fillFor(p, r.subject) : null;
+        const body = fillFor(p, r.body);
+        return {
+          kind: x.kind,
+          id: x.id,
+          name: x.name,
+          canReceive: x.canReceive,
+          reason: x.reason,
+          subject: subject?.text ?? null,
+          body: body.text,
+          unresolved: [...new Set([...(subject?.unresolved ?? []), ...body.unresolved])],
+        };
+      });
+      const unresolved = await unresolvedOf(r);
+      const checks: OutboundReview['checks'] = [];
+      if (m.counts.canReceive === 0)
+        checks.push({
+          code: 'NO_RECIPIENTS',
+          severity: 'BLOCK',
+          message: 'Nobody you chose can receive it on this channel.',
+        });
+      if (m.channel === 'EMAIL' && !m.subject?.trim())
+        checks.push({
+          code: 'SUBJECT_REQUIRED',
+          severity: 'BLOCK',
+          message: 'An email needs a subject.',
+        });
+      if (unresolved.length > 0)
+        checks.push({
+          code: 'UNRESOLVED_FIELDS',
+          severity: 'WARN',
+          message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
+        });
+      if (m.counts.cannotReceive > 0)
+        checks.push({
+          code: 'SOME_SKIPPED',
+          severity: 'WARN',
+          message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
+        });
+      if (!checks.some((c) => c.severity === 'BLOCK'))
+        checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
+      return {
+        channel: m.channel,
+        timing: {
+          mode: m.status === 'SCHEDULED' ? 'SCHEDULED' : 'NOW',
+          scheduledFor: m.scheduledFor,
+          timezone: m.timezone,
+        },
+        recipients,
+        unresolved,
+        checks,
+      };
+    },
     create: async (body: SaveOutboundRequest) => {
       await mockDelay();
       return shape(await insert(parseInput(SaveOutboundRequest, body)));
@@ -561,6 +657,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       ) {
         r.subject = b.subject ?? null;
         r.body = b.body;
+        r.templateId = b.templateId ?? null;
         r.updatedAt = stamp();
         return shape(r);
       }
@@ -572,12 +669,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     },
     send: async (outboundId: string, body: SendOutboundRequest) => {
       await mockDelay();
-      const { version } = parseInput(SendOutboundRequest, body);
+      const { version, confirmUnresolved } = parseInput(SendOutboundRequest, body);
       const r = find(outboundId);
       if (r.status === 'CANCELED') throw fail(409, 'CANCELED', 'This message was canceled.');
       if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') return shape(r);
       editable(r, version);
       await ready(r);
+      await confirmed(r, confirmUnresolved);
       for (const p of await people(r.clientIds, r.leadIds)) {
         const reason = mockExclusion(p, r.channel);
         if (reason) {
@@ -598,7 +696,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             createdAt: now(),
           };
           s().threads.push(t);
-          addMessage(t, staff(me), r.body);
+          addMessage(t, staff(me), fillFor(p, r.body).text);
           threadId = t.id;
         }
         r.results.set(p.id, { status: 'SENT', reason: null, threadId });
@@ -616,6 +714,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       const r = find(outboundId);
       editable(r, b.version);
       await ready(r);
+      await confirmed(r, b.confirmUnresolved);
       r.status = 'SCHEDULED';
       r.scheduledFor = new Date(b.scheduledFor).toISOString();
       r.updatedAt = stamp();

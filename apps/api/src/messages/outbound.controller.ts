@@ -8,6 +8,7 @@ import {
   type OutboundCheck,
   type OutboundMessage,
   type OutboundMessageList,
+  type OutboundReview,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   SendOutboundRequest,
@@ -66,6 +67,15 @@ export class OutboundMessagesController {
     return this.outbound.get(tenant.businessId, actorOf(auth, tenant), id);
   }
 
+  @Get(':id/review')
+  review(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<OutboundReview> {
+    return this.outbound.review(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   @Put(':id')
   update(
     @CurrentAuth() auth: AuthContext,
@@ -85,7 +95,13 @@ export class OutboundMessagesController {
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(SendOutboundRequest)) body: z.output<typeof SendOutboundRequest>,
   ): Promise<OutboundMessage> {
-    return this.outbound.send(tenant.businessId, actorOf(auth, tenant), id, body.version);
+    return this.outbound.send(
+      tenant.businessId,
+      actorOf(auth, tenant),
+      id,
+      body.version,
+      body.confirmUnresolved === true,
+    );
   }
 
   @Post(':id/schedule')
