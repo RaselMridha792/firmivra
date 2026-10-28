@@ -9,6 +9,7 @@ import {
   type InvoiceRefund,
   type InvoicesClient,
   type InvoiceStatus,
+  invoiceDueState,
   isInvoiceOverdue,
   lineAmountCents,
   ListInvoicesQuery,
@@ -30,6 +31,7 @@ import {
   RefundPaymentRequest,
   UpdateInvoiceRequest,
   VoidOfflinePaymentRequest,
+  type PaymentTerm,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -83,6 +85,10 @@ interface Row {
   canceledAt: string | null;
   cancelReason: string | null;
   createdBy: MemberRef | null;
+  /** IP-F02; left out on the sample rows: none. */
+  paymentTerms?: PaymentTerm | null;
+  notesToClient?: string | null;
+  internalNote?: string | null;
   createdAt: string;
   updatedAt: string;
   /** Submitted payments, newest first (checkouts the client left are never kept). */
@@ -436,6 +442,10 @@ function toListItem(r: Row, day: string): InvoiceListItem {
     scheduledFor: r.scheduledFor,
     dueOn: r.dueOn,
     overdue: isInvoiceOverdue(r, day),
+    dueState: invoiceDueState(
+      { status: r.status, dueOn: r.dueOn, balanceDueCents: f.balanceDueCents },
+      day,
+    ),
     issuedAt: r.issuedAt,
     paidAt: r.paidAt,
     canceledAt: r.canceledAt,
@@ -453,6 +463,9 @@ function toInvoice(r: Row, day: string): Invoice {
     offlinePayments: r.offline,
     cancelReason: r.cancelReason,
     createdBy: r.createdBy,
+    paymentTerms: r.paymentTerms ?? null,
+    notesToClient: r.notesToClient ?? null,
+    internalNote: r.internalNote ?? null,
   });
 }
 
@@ -487,6 +500,9 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
   return copy({
     ...toMine(r, day, paymentsEnabled),
     ...f,
+    // The client's: never the firm's internal note.
+    paymentTerms: r.paymentTerms ?? null,
+    notesToClient: r.notesToClient ?? null,
     // No failure codes or refund rows for the client: the page says a payment failed and offers
     // Pay again, and shows what was refunded.
     payments: r.payments.map((p) => {
@@ -532,6 +548,9 @@ function store() {
       discountCents: b.discountCents,
       dueOn: b.dueOn,
       scheduledFor: b.scheduledFor ?? null,
+      paymentTerms: b.paymentTerms ?? null,
+      notesToClient: b.notesToClient ?? null,
+      internalNote: b.internalNote ?? null,
     }),
   };
 }
@@ -596,7 +615,7 @@ export function createInvoicesMock(
             i.client.displayName.toLowerCase().includes(search),
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number.localeCompare(a.number));
-      return copy({ ...page(found, q), paymentsEnabled });
+      return copy({ ...page(found, q), paymentsEnabled, today: day });
     },
     // IP-F20: the money collected by method, as the API sums it (mock Stripe payments are card).
     paymentMethods: async (query = {}) => {

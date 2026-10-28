@@ -632,7 +632,7 @@ export const api = {
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')
-      ? createMessagesMock({ role: MOCK_ROLE })
+      ? createMessagesMock({ role: MOCK_ROLE, documents: documentsMock ?? undefined })
       : createMessagesClient(request),
   /** Messages (R20): the firm's internal notes on a client. Never shown in the portal. */
   clientNotes:

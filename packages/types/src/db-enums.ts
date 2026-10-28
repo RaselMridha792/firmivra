@@ -1063,7 +1063,7 @@ export type InvoiceEventType = z.infer<typeof InvoiceEventType>;
 export const InvoiceActorKind = z.enum(['STAFF', 'CLIENT', 'SYSTEM']);
 export type InvoiceActorKind = z.infer<typeof InvoiceActorKind>;
 
-/** How often a recurring invoice, or a recurring service's billing, comes round. */
+/** How often a recurring invoice, or a recurring service's billing, comes round. CUSTOM (Oct 28): a recurring invoice's own every N weeks, months or years (`interval_count`, `interval_unit`); never a service's. */
 export const BillingFrequency = z.enum([
   'ONE_TIME',
   'WEEKLY',
@@ -1073,8 +1073,13 @@ export const BillingFrequency = z.enum([
   'QUARTERLY',
   'SEMIANNUAL',
   'ANNUAL',
+  'CUSTOM',
 ]);
 export type BillingFrequency = z.infer<typeof BillingFrequency>;
+
+/** The unit of a CUSTOM recurring invoice's interval. */
+export const RecurringIntervalUnit = z.enum(['WEEK', 'MONTH', 'YEAR']);
+export type RecurringIntervalUnit = z.infer<typeof RecurringIntervalUnit>;
 
 /** ACTIVE sends on its schedule (Upcoming when `start_on` is still ahead); PAUSED keeps its place and history; COMPLETED ran out its end rule; ENDED was stopped or archived by the firm. */
 export const RecurringInvoiceStatus = z.enum(['ACTIVE', 'PAUSED', 'COMPLETED', 'ENDED']);
