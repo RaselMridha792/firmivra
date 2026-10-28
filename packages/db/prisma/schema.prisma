@@ -5907,7 +5907,9 @@ model DepositAccount {
   @@map("deposit_accounts")
 }
 
-/// How often a recurring invoice, or a recurring service's billing, comes round.
+/// How often a recurring invoice, or a recurring service's billing, comes round. CUSTOM (Oct 28):
+/// a recurring invoice's own every N weeks, months or years (`interval_count`, `interval_unit`);
+/// never a service's.
 enum BillingFrequency {
   ONE_TIME
   WEEKLY
@@ -5917,6 +5919,14 @@ enum BillingFrequency {
   QUARTERLY
   SEMIANNUAL
   ANNUAL
+  CUSTOM
+}
+
+/// The unit of a CUSTOM recurring invoice's interval.
+enum RecurringIntervalUnit {
+  WEEK
+  MONTH
+  YEAR
 }
 
 /// ACTIVE sends on its schedule (Upcoming when `start_on` is still ahead); PAUSED keeps its place
@@ -5947,6 +5957,9 @@ model RecurringInvoice {
   name            String
   templateId      String?                @map("template_id") @db.Uuid
   frequency       BillingFrequency
+  /// CUSTOM only, both set: every `interval_count` (1 to 52) weeks, months or years.
+  intervalCount   Int?                   @map("interval_count") @db.SmallInt
+  intervalUnit    RecurringIntervalUnit? @map("interval_unit")
   startOn         DateTime               @map("start_on") @db.Date
   /// The next period to invoice; null once COMPLETED or ENDED.
   nextSendOn      DateTime?              @map("next_send_on") @db.Date

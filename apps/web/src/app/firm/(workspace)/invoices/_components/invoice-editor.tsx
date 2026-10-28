@@ -7,8 +7,11 @@ import {
   INVOICE_LIMITS,
   invoiceTotals,
   UpdateInvoiceRequest,
+  PAYMENT_TERM_DAYS,
+  PAYMENT_TERM_LABELS,
+  PaymentTerm,
 } from '@firmivra/types';
-import { Input, Select, Textarea } from '@firmivra/ui';
+import { Input, Modal, Select, Textarea } from '@firmivra/ui';
 import {
   Bank,
   Calculator,
@@ -122,6 +125,21 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [discount, setDiscount] = useState(() =>
     source?.discountCents ? centsText(source.discountCents) : '',
   );
+  // IP-F02: the terms (the due date follows them unless typed), the note to the client and the
+  // firm's internal note, which never reaches the client.
+  const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm | ''>(editing?.paymentTerms ?? '');
+  const terms = paymentTerms || prefs.data?.invoiceDefaults.defaultTerms || 'net_14';
+  const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
+  const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
+  const [previewing, setPreviewing] = useState(false);
+  const chooseTerms = (next: PaymentTerm) => {
+    setPaymentTerms(next);
+    const from = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
+    const due = new Date(`${from}T12:00:00Z`);
+    due.setUTCDate(due.getUTCDate() + PAYMENT_TERM_DAYS[next]);
+    setDueOn(due.toISOString().slice(0, 10));
+  };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
@@ -196,6 +214,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       discountCents,
       dueOn,
       scheduledFor: scheduledFor || null,
+      paymentTerms: terms,
+      notesToClient: notesToClient || null,
+      internalNote: internalNote || null,
     };
     const check = invoiceId
       ? UpdateInvoiceRequest.safeParse(body)
@@ -316,6 +337,15 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 min={localToday()}
                 error={errors['scheduledFor']}
                 onChange={(e) => setScheduledFor(e.target.value)}
+              />
+              <Select
+                label="Payment Terms"
+                value={terms}
+                onChange={(e) => chooseTerms(PaymentTerm.parse(e.target.value))}
+                options={PaymentTerm.options.map((t) => ({
+                  value: t,
+                  label: PAYMENT_TERM_LABELS[t],
+                }))}
               />
               <Input
                 label="Due Date *"
@@ -462,6 +492,36 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
             </div>
           </section>
 
+          <section className={card} aria-labelledby="inv-notes">
+            <h2 id="inv-notes" className="mb-3 font-display text-xl font-bold text-heading">
+              Notes
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Textarea
+                label="Notes to Client"
+                rows={3}
+                maxLength={1000}
+                value={notesToClient}
+                error={errors['notesToClient']}
+                onChange={(e) => setNotesToClient(e.target.value)}
+              />
+              <div>
+                <Textarea
+                  label="Internal Note"
+                  rows={3}
+                  maxLength={1000}
+                  value={internalNote}
+                  error={errors['internalNote']}
+                  onChange={(e) => setInternalNote(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Only your firm sees this. It never appears on the client&apos;s invoice, PDF,
+                  email or portal.
+                </p>
+              </div>
+            </div>
+          </section>
+
           <section className={card} aria-labelledby="inv-options">
             <h2 id="inv-options" className="mb-1 font-display text-xl font-bold text-heading">
               Payment Options
@@ -554,6 +614,13 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               <button
                 type="button"
                 className={`${outlined} w-full`}
+                onClick={() => setPreviewing(true)}
+              >
+                Preview Invoice
+              </button>
+              <button
+                type="button"
+                className={`${outlined} w-full`}
                 disabled={busy}
                 onClick={() => void save(false)}
               >
@@ -569,6 +636,83 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
           </section>
         </aside>
       </div>
+      <Modal
+        open={previewing}
+        title="Invoice preview"
+        subtitle="What your client sees. Nothing is saved or sent."
+        onClose={() => setPreviewing(false)}
+      >
+        <div data-testid="invoice-preview" className="flex flex-col gap-3 text-sm text-text">
+          <div className="flex flex-wrap justify-between gap-2">
+            <p>
+              <span className="block text-xs text-muted">Bill to</span>
+              <span className="font-semibold text-heading">
+                {clients.data?.items.find((c) => c.id === clientId)?.displayName ??
+                  source?.client.displayName ??
+                  'No client chosen yet'}
+              </span>
+            </p>
+            <p className="text-right">
+              <span className="block text-xs text-muted">Invoice</span>
+              <span className="font-semibold text-heading">
+                {editing ? editing.number : 'Numbered when saved'}
+              </span>
+            </p>
+          </div>
+          <dl className="grid grid-cols-3 gap-2">
+            <div>
+              <dt className="text-xs text-muted">Issued</dt>
+              <dd>{scheduledFor || localToday()}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Terms</dt>
+              <dd>{PAYMENT_TERM_LABELS[terms]}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Due</dt>
+              <dd>{dueOn || 'Not chosen yet'}</dd>
+            </div>
+          </dl>
+          <table className="w-full text-left">
+            <thead className="text-xs text-muted">
+              <tr>
+                <th className="py-1 font-medium">Description</th>
+                <th className="py-1 text-right font-medium">Qty</th>
+                <th className="py-1 text-right font-medium">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {parsed.map((l, i) => (
+                <tr key={lines[i]?.key ?? i} className="border-t border-divider">
+                  <td className="py-1">{l.description || 'No description yet'}</td>
+                  <td className="py-1 text-right">
+                    {Number.isFinite(l.quantity) ? l.quantity : ''}
+                  </td>
+                  <td className="py-1 text-right">{money(lineAmountsCents[i] ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <dl className="ml-auto grid w-56 grid-cols-2 gap-1">
+            <dt>Subtotal</dt>
+            <dd className="text-right">{money(subtotalCents)}</dd>
+            {discountCents > 0 ? (
+              <>
+                <dt>Discount</dt>
+                <dd className="text-right">-{money(discountCents)}</dd>
+              </>
+            ) : null}
+            <dt className="font-semibold text-heading">Total</dt>
+            <dd className="text-right font-semibold text-heading">{money(totalCents)}</dd>
+          </dl>
+          {notesToClient.trim() ? (
+            <p className="rounded-lg bg-canvas p-3">
+              <span className="block text-xs text-muted">Notes</span>
+              <span className="whitespace-pre-line">{notesToClient}</span>
+            </p>
+          ) : null}
+        </div>
+      </Modal>
     </div>
   );
 }
