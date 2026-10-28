@@ -35,13 +35,32 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
   Communications API (web only).
 - [x] **#1206** (PR D, merged as `1a0a467f`): MSG-F09, F10, F14, New Message as its own page on
   `outbound_messages` (the inbox keeps the previous results while a search loads).
-- [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
-  `rasel/R60-messages-compose-review`. It was stacked on D's first commit: D's final head merged
-  in, then #1206's squash recorded with `-s ours` (the same tree), then `main`; the diff against
-  `main` is E's own.
-- [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
-  `outbound_messages` has the columns), then F18 to F22 (contact panel and thread menu on R36's
-  `assigned_user_id`, `archived_at`, `message_thread_mutes`, `message_thread_tags`).
+- [x] **#1215** (PR E, merged): MSG-F11, F15, templates, merge fields, emoji and the Review.
+- [x] **#1219** (F12a, MSG-F12 for the reply): branch `rasel/R60-messages-attachments`. A reply's
+  files are the thread client's own vault documents (`message_attachments`): ones the client can
+  see (shared, or their uploads), or a file uploaded into the client's Documents (shared, filed
+  under the thread's service or a chosen open one). Settings decide types and size. The portal
+  shows each login what My Documents lets it open (`visible()` in storage/my-documents.service.ts).
+- [ ] **F12b** (MSG-F12 for New Message), next, on `outbound_message_files` (no schema change):
+  - Upload: ticket `POST /business/outbound-messages/{id}/files/uploads` and confirm, as
+    `TemplateAttachmentsService` / `SupportFilesService` do (key `tenant/{bid}/messages/{uuid}`,
+    the table's check); remove while DRAFT or SCHEDULED (the table's trigger allows it).
+  - Scan: `messages` is not in `SCAN_PREFIXES` (storage/scan-queue/scan-router.ts), so on dev the
+    file would stay PENDING. Add the prefix and a handler (`recordScan` in storage/scan-record.ts);
+    GuardDuty already scans all of `tenant/` (infra/src/nag.ts), so no infra change.
+  - Send: every file CLEAN (409 otherwise); files go only through the portal, so a lead or SMS
+    with files is refused (or the lead skipped with a reason; `OutboundExclusion` is a DB enum, so
+    no new value: refuse instead). Email to a client stays the notice with the portal link.
+  - Show and open: a recipient's portal message links its outbound message
+    (`outbound_message_recipients.message_id`), so both sides list that message's files and open
+    them through new download routes (firm: the author or a manager; portal: the recipient client).
+    `MessageAttachment` then needs a file kind beside `documentId`.
+- [ ] Then F13 and F16 (Related To, Assign Staff, Add to Client Timeline: `outbound_messages` has
+  `related_entity_type`/`id`, `assigned_user_id`, `add_to_timeline`), then F18 to F22 (contact
+  panel and thread menu on R36's `assigned_user_id`, `archived_at`, `message_thread_mutes`,
+  `message_thread_tags`).
+- [ ] The Leads tab on `message_threads.lead_id` (#1213, merged): only after Rasel's word that its
+  Deploy dev run is green.
 - Invoices & Payments IP-F01 to F05, F12, F13 moved to R55 (Rasel, Oct 28); R60 is on Messages
   only. The two schema questions (a custom recurring frequency, a firm's own payment terms list)
   went to R55's side through Rasel.
@@ -79,8 +98,11 @@ Progress (Messages):
   API e2e 35 of 35, mock 32 of 32: `r60-messages-bulk` timed out once on a cold dev server in the
   full run and passed 4 of 4 alone).
 - Oct 28: #1206 merged. E: `main` merged in (`pnpm lint` and `pnpm typecheck` clean, API e2e
-  37 of 37). **Next step:** open E; then F12 (attachments), then F13 and F16; the Leads tab on
-  `lead_id` once R1's column merges (merge note from Rasel).
+  37 of 37). E opened as #1215, 8 of 8; merged.
+- Oct 28: F12a built and opened as #1219 (`pnpm lint` and `pnpm typecheck` clean; API e2e
+  `message-attachments` 4 of 4 and the Messages suites 32 of 32; mock 24 of 24).
+  **Next step:** F12b (New Message files, notes above), then F13 and F16; the Leads tab only after
+  Rasel's word on #1213's Deploy dev run.
 
 ## Handoff (Oct 23): start here
 

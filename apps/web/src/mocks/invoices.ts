@@ -36,6 +36,7 @@ import {
   RefundPaymentRequest,
   UpdateInvoiceRequest,
   VoidOfflinePaymentRequest,
+  type PaymentTerm,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -89,6 +90,10 @@ interface Row {
   canceledAt: string | null;
   cancelReason: string | null;
   createdBy: MemberRef | null;
+  /** IP-F02; left out on the sample rows: none. */
+  paymentTerms?: PaymentTerm | null;
+  notesToClient?: string | null;
+  internalNote?: string | null;
   createdAt: string;
   updatedAt: string;
   /** Submitted payments, newest first (checkouts the client left are never kept). */
@@ -465,6 +470,9 @@ function toInvoice(r: Row, day: string): Invoice {
     offlinePayments: r.offline,
     cancelReason: r.cancelReason,
     createdBy: r.createdBy,
+    paymentTerms: r.paymentTerms ?? null,
+    notesToClient: r.notesToClient ?? null,
+    internalNote: r.internalNote ?? null,
   });
 }
 
@@ -499,6 +507,9 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
   return copy({
     ...toMine(r, day, paymentsEnabled),
     ...f,
+    // The client's: never the firm's internal note.
+    paymentTerms: r.paymentTerms ?? null,
+    notesToClient: r.notesToClient ?? null,
     // No failure codes or refund rows for the client: the page says a payment failed and offers
     // Pay again, and shows what was refunded.
     payments: r.payments.map((p) => {
@@ -544,6 +555,9 @@ function store() {
       discountCents: b.discountCents,
       dueOn: b.dueOn,
       scheduledFor: b.scheduledFor ?? null,
+      paymentTerms: b.paymentTerms ?? null,
+      notesToClient: b.notesToClient ?? null,
+      internalNote: b.internalNote ?? null,
     }),
   };
 }

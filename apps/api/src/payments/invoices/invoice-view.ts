@@ -3,6 +3,7 @@ import type { Prisma, TxClient } from '@firmivra/db';
 import {
   type FirmInvoicePayment,
   type Invoice,
+  PaymentTerm,
   type InvoiceListItem,
   type InvoicePayment,
   invoiceDueState,
@@ -100,6 +101,9 @@ export const invoiceSelect = {
   paidAt: true,
   canceledAt: true,
   cancelReason: true,
+  paymentTerms: true,
+  notesToClient: true,
+  internalNote: true,
   createdAt: true,
   updatedAt: true,
   client: { select: { id: true, displayName: true } },
@@ -279,8 +283,14 @@ export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null 
     createdBy: row.createdBy
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
       : null,
+    paymentTerms: termOf(row.paymentTerms),
+    notesToClient: row.notesToClient,
+    internalNote: row.internalNote,
   };
 }
+
+/** A stored terms code the contract knows, or null (an older or unknown one shows none). */
+const termOf = (code: string | null) => PaymentTerm.safeParse(code).data ?? null;
 
 /** The client's view of an invoice, or null when the portal never shows it (a draft). */
 export function toMyInvoice(
@@ -319,6 +329,9 @@ export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDe
   return {
     ...mine,
     ...amountDetail(row),
+    // The client's: the terms and the note to them. Never `internalNote`.
+    paymentTerms: termOf(row.paymentTerms),
+    notesToClient: row.notesToClient,
     payments: shownPayments(row).map(toPayment),
     // Live ones only, and only their method, amount and day.
     offlinePayments: live(row).map((o) => ({

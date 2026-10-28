@@ -6,8 +6,10 @@ import {
   InvoiceStatus,
   PaymentRefundStatus,
   PaymentStatus,
+  RecurringIntervalUnit,
   RecurringInvoiceStatus,
 } from '../db-enums.js';
+import { PaymentTerm } from './preferences.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
 // Invoices, and the firm's Invoices page); the client pays it by card on Stripe's hosted checkout
@@ -358,6 +360,10 @@ export const Invoice = InvoiceListItem.extend({
   /** The firm's reason; never shown to the client. */
   cancelReason: z.string().nullable(),
   createdBy: MemberRef.nullable(),
+  paymentTerms: PaymentTerm.nullable(),
+  notesToClient: z.string().nullable(),
+  /** The firm's own note: only firm routes return it. */
+  internalNote: z.string().nullable(),
 });
 export type Invoice = z.infer<typeof Invoice>;
 
@@ -445,6 +451,14 @@ const LineInput = z.strictObject({
   unitAmountCents: Amount,
 });
 
+/** A note on an invoice: up to 1,000 characters; empty is none. */
+const InvoiceNote = z
+  .string()
+  .trim()
+  .max(1000, 'Use 1,000 characters or fewer')
+  .transform((v) => v || null)
+  .nullable();
+
 /** A draft's fields: what create takes (with the client) and what update replaces. */
 const DraftFields = {
   /** One of this client's services (an engagement id from api.engagements); null or left out: none. */
@@ -457,6 +471,12 @@ const DraftFields = {
   dueOn: z.iso.date('Choose a due date'),
   /** A later day makes `send` schedule it (Upcoming) to open that day; left out, it opens when sent. */
   scheduledFor: CalendarDate.nullable().optional(),
+  /** IP-F02: the terms shown to the client (the due date stays the one sent). */
+  paymentTerms: PaymentTerm.nullable().optional(),
+  /** IP-F02: shown to the client on the invoice. */
+  notesToClient: InvoiceNote.optional(),
+  /** IP-F02: the firm's own; never in the client's invoice, PDF, email or portal. */
+  internalNote: InvoiceNote.optional(),
 };
 
 type DraftBody = {
@@ -612,6 +632,8 @@ export const RecurringInvoiceRow = z.object({
   name: z.string(),
   client: z.object({ id: z.uuid(), displayName: z.string() }),
   frequency: BillingFrequency,
+  /** CUSTOM only: every `count` weeks, months or years (R1, Oct 28); null for the others. */
+  interval: z.object({ count: z.number().int().min(1), unit: RecurringIntervalUnit }).nullable(),
   nextSendOn: CalendarDate.nullable(),
   status: RecurringInvoiceStatus,
   amountCents: z.number().int(),
@@ -741,6 +763,9 @@ export type MyInvoice = z.infer<typeof MyInvoice>;
 /** GET /portal/{firmSlug}/me/invoices/{id} ("View"): lines, totals and the payment history. */
 export const MyInvoiceDetail = MyInvoice.extend({
   ...AmountDetail,
+  /** The firm's terms and notes for the client (IP-F02); the firm's internal note never comes. */
+  paymentTerms: PaymentTerm.nullable(),
+  notesToClient: z.string().nullable(),
   /** Newest first. */
   payments: z.array(InvoicePayment),
   /** Check and cash payments the firm recorded, live ones only; newest first. */
