@@ -457,6 +457,28 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs, or open a tab by its address when no state is needed. Wait for selects that load their options (`toBeEnabled`). A label substring also matches buttons and sections ("Remove document", "Service Package"): use `getByRole('textbox', { name, exact: true })`. Playwright's dev server rewrites `apps/web/.next/mock/dev/types`: delete it before `tsc`. After merging main: rebuild `packages/types`, `pnpm --filter @firmivra/db build`, `prisma generate`, `prisma migrate deploy` on `firmivra_r56`.
 
+## Handoff for a fresh R56 (Oct 28)
+
+Rasel's rules are as on Oct 27 (below): at most three PRs open; `origin/main` merged in before each opens; target `main`; each PR number and full head sha at 8 of 8 green; after each merge, merge `origin/main` into the remaining open and waiting branches; only the changed files' specs; no Co-Authored-By or "Generated with" lines; never force-push.
+
+**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared; Rasel's "Allow clearing", Oct 27).
+
+**Open (three, the limit), 8 of 8, waiting for review:** **#1200** SH9 `rasel/R56-shared-plans` (4ede7867c), **#1201** SH10 `rasel/R56-billing-stop` (5ac36b187), **#1205** `rasel/R56-communications-start` (121b13475; r56-communications clicks Start).
+
+**Waiting, open in this order** (each PR title is its branch's own commit subject; the bodies follow the progress log in `R56-invoices-payments.md`, with "Builds on #N" while the lower one is open):
+1. `rasel/R56-ip-diagnosis` (IP-F20, F22).
+2. `rasel/R56-ip-report-export` (IP-F23, F24).
+3. `rasel/R56-ip-due-rules` (IP-F06).
+4. `rasel/R56-ip-sent-state` (IP-F07).
+5. `rasel/R56-ip-correct` (IP-F08).
+6. `rasel/R56-ip-row-actions` (IP-F09, F11's Send Message).
+7. `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`).
+8. `rasel/R56-bookkeeping-terms`, then `rasel/R56-bookkeeping-transactions`, then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
+
+Items 1 to 7 are stacked, each on the one before. Main's #1202 (R60, Messages) shares no files with them, and `NewMessageDialog`'s props are unchanged.
+
+**Next, after the queue:** BK-T01's engines, then Advisory B4 to B12 and B15 (as in the Oct 27 handoff). IP-F01 to F05, F12 and F13 are R60's (do not touch the Create Invoice page files). R60's one-line editor change for a scheduled invoice is under Needs in `R56-invoices-payments.md`.
+
 ## Handoff for a fresh R56 (Oct 27, evening)
 
 Rasel (Oct 27): at most THREE PRs open at once; open the next as soon as one merges. Before opening each, merge current `origin/main` (never rebase, never force-push) and target `main`; tell Rasel each PR number and full head sha at 8 of 8 green. After each merge, merge `origin/main` into the next waiting branch. Run only the specs of changed files. No ultracode or workflows. No Co-Authored-By lines. SH10 is Owner and Admin only (approved).
