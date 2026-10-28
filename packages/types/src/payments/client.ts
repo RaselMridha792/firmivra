@@ -3,6 +3,7 @@ import { portalMe } from '../clients/client.js';
 import {
   CancelInvoiceRequest,
   CheckoutLink,
+  CorrectInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
   InvoiceId,
@@ -44,6 +45,15 @@ export function createInvoicesClient(request: ApiRequest) {
       request(InvoiceList, `${BASE}${toQuery(parseInput(ListInvoicesQuery, query))}`),
     /** Lines, totals and payments. */
     get: async (id: string): Promise<Invoice> => request(Invoice, one(id)),
+    /**
+     * IP-F08: the dates of a scheduled or unpaid open invoice. 409 NOT_CORRECTABLE, SCHEDULE_PASSED,
+     * DUE_DATE_PASSED, DUE_BEFORE_SEND; a sent invoice without a reason is 400.
+     */
+    correct: async (id: string, body: CorrectInvoiceRequest): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/correct`, {
+        method: 'POST',
+        body: parseInput(CorrectInvoiceRequest, body),
+      }),
     /** IP-F20: the money collected in the range by method (the overview's Payment Methods). */
     paymentMethods: async (query: PaymentMethodsQuery = {}): Promise<PaymentMethodsSummary> =>
       request(
