@@ -980,6 +980,57 @@ describe('the workspace and its service actions', () => {
       403,
       'FORBIDDEN',
     );
+    // SH9: a Services & Pricing payroll service by id: the link and its name; another firm's is 404.
+    expect(
+      exact(
+        PayrollClientWorkspace,
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: ids.serviceA,
+        }),
+      ),
+    ).toMatchObject({ plan: `Fake payroll ${run}`, catalogServiceId: ids.serviceA });
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, {
+        catalogServiceId: randomUUID(),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    ids.serviceB = (
+      await asOwner(ids.firmB, (tx) =>
+        tx.service.create({
+          data: {
+            businessId: ids.firmB,
+            kind: 'PAYROLL',
+            name: `Fake B payroll ${run}`,
+            status: 'ACTIVE',
+          },
+        }),
+      )
+    ).id;
+    try {
+      expectError(
+        await call('post', `/clients/${pcId}/plan`, people.adminA, {
+          catalogServiceId: ids.serviceB,
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    } finally {
+      // Firm B has no Payroll service elsewhere in this file.
+      await asOwner(ids.firmB, (tx) => tx.service.delete({ where: { id: ids.serviceB } }));
+    }
+    expect(
+      exact(
+        PayrollClientWorkspace,
+        await call('post', `/clients/${pcId}/plan`, people.adminA, { catalogServiceId: null }),
+      ),
+    ).toMatchObject({ plan: null, catalogServiceId: null });
+    expectError(
+      await call('post', `/clients/${pcId}/plan`, people.adminA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
     const history = exact(
       PayrollChangeList,
       await call('get', `/clients/${pcId}/changes?pageSize=100`, people.ownerA),
