@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { codeOf, expectOk, Invoice, InvoiceList, startInvoiceApp } from './invoice-setup.js';
+import { codeOf, expectOk, Invoice, InvoiceList, nyDay, startInvoiceApp } from './invoice-setup.js';
 
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
 
@@ -58,7 +58,7 @@ describe('list and get', () => {
     const b = InvoiceList.parse(
       expectOk(await t.firm('get', '', t.people.ownerB, undefined, t.ids.firmB)).body,
     );
-    expect(b).toEqual({ items: [], nextCursor: null, paymentsEnabled: false });
+    expect(b).toEqual({ items: [], nextCursor: null, paymentsEnabled: false, today: nyDay(0) });
     const bad = await t.firm('get', '?cursor=nope', t.people.ownerA);
     expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
   });

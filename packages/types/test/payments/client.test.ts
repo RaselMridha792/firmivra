@@ -347,6 +347,8 @@ describe('api.invoices (firm)', () => {
       scheduledFor: null,
       dueOn: '2026-01-25',
       overdue: false,
+      dueState: null,
+      sentAt: at,
       issuedAt: at,
       paidAt: at,
       canceledAt: null,
@@ -384,11 +386,16 @@ describe('api.invoices (firm)', () => {
       ],
       cancelReason: null,
       createdBy: null,
+      paymentTerms: 'net_30',
+      notesToClient: 'Thank you (fake)',
+      internalNote: null,
     };
     expect(Invoice.parse({ ...invoice, stripeAccountId: 'acct_1' })).toEqual(invoice);
+    // IP-F02: only the four standard terms.
+    expect(Invoice.safeParse({ ...invoice, paymentTerms: 'net_99' }).success).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: 1.5 }).success).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: -1 }).success).toBe(false);
-    const list = { items: [], nextCursor: null };
+    const list = { items: [], nextCursor: null, today: '2026-01-20' };
     expect(InvoiceList.safeParse(list).success).toBe(false);
     expect(InvoiceList.parse({ ...list, paymentsEnabled: false })).toEqual({
       ...list,

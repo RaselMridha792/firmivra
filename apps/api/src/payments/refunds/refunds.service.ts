@@ -6,7 +6,7 @@ import { AuditService } from '../../audit/audit.service.js';
 import type { ClientsActor } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { CHECKOUT_LIMITS, providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
-import { conflict, firmToday, notFound, toInvoice } from '../invoices/invoice-view.js';
+import { conflict, firmToday, invoiceOf, notFound } from '../invoices/invoice-view.js';
 import { InvoicesService } from '../invoices/invoices.service.js';
 import {
   STRIPE_GATEWAY,
@@ -126,7 +126,7 @@ export class RefundsService {
           );
         }
         const row = await this.invoices.load(tx, businessId, actor, invoiceId);
-        return toInvoice(row, (await firmToday(tx, businessId)).today);
+        return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
       },
       CHECKOUT_LIMITS,
     );
