@@ -1,15 +1,7 @@
 'use client';
 
 import type { PayrollClientRow, PayrollStatusRequest } from '@firmivra/types';
-import {
-  ActionMenu,
-  type ActionMenuItem,
-  Button,
-  Input,
-  Modal,
-  Select,
-  Textarea,
-} from '@firmivra/ui';
+import { ActionMenu, type ActionMenuItem, Button, Modal, Select, Textarea } from '@firmivra/ui';
 import {
   Archive,
   Bell,
@@ -53,6 +45,7 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
+import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 
 type Kind =
   | 'sync'
@@ -262,7 +255,7 @@ function ClientDialog({
         case 'frequency':
           return api.payroll.setFrequency(id, { frequency: choice as 'MONTHLY' });
         case 'plan':
-          return api.payroll.setPlan(id, { plan: text.trim() || null });
+          return api.payroll.setPlan(id, { catalogServiceId: text || null });
         case 'pause':
           return api.payroll.pause(id, text.trim() ? { reason: text.trim() } : {});
         case 'archive':
@@ -447,12 +440,7 @@ function ClientDialog({
           </>
         ) : null}
         {kind === 'plan' ? (
-          <Input
-            label="Plan or service"
-            value={text}
-            maxLength={100}
-            onChange={(e) => setText(e.target.value)}
-          />
+          <CatalogPlanSelect kind="PAYROLL" value={text} onChange={setText} />
         ) : null}
         {kind === 'pause' ? (
           <>
