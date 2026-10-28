@@ -10,10 +10,15 @@ Rasel (Oct 28): R55 takes IP-F01 to F05, F12 and F13. R56 owns F06 to F09, F17 a
 
 **Done:** IP-F13 (Settings > Payments: Invoice Defaults, Reminders & Automations, Taxes & Fees; tax rates and templates). A firm that never saved has every option off; the table's own column defaults turn `auto_receipts`, `send_reminders`, `notify_overdue` and `auto_apply_payments` on, so the API writes every field explicitly. A migration flipping those defaults would make the database agree (Rasel's card, not needed for the feature).
 
-**Open:** IP-F13 #1209 (this file's branch), IP-F01 #1211 (Create Invoice lines from any active Services & Pricing offering).
+**Open:**
+- IP-F13 #1209 (this file's branch);
+- IP-F01 #1211 (Create Invoice lines from any active Services & Pricing offering);
+- IP-F02 on `rasel/R55-ip-f02-terms-notes`, built on #1209 for `PaymentTerm`: Payment Terms (the due date follows them), Notes to Client, an Internal Note that never reaches the client, and Preview Invoice.
+
+Rasel approved (Oct 28, 12:07Z) `recurring_invoices.interval_count` and `interval_unit` with BillingFrequency CUSTOM, and `payment_settings.custom_term_days`; R1 writes them. Until each merges, show the named frequencies and the four standard terms. Wire Custom and the firm's terms list when Rasel says each migration merged.
 
 **Next, in order (one PR each; no schema change needed for any of them):**
-1. IP-F02:
+1. IP-F02 (done, see Open):
    - Preview Invoice (client-facing, no status change);
    - payment terms (`PaymentTerm`, the default from F13; the due date follows `PAYMENT_TERM_DAYS` unless typed);
    - Notes to Client and an Internal Note, which never reaches the client PDF, email or portal;
