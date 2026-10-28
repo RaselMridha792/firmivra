@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Query } fr
 import type { z } from 'zod';
 import {
   CancelEngagementRequest,
+  StopFutureBillingRequest,
   ClientId,
   CreateEngagementRequest,
   type Engagement,
@@ -109,6 +110,19 @@ export class EngagementsController {
     body: z.output<typeof CancelEngagementRequest>,
   ): Promise<Engagement> {
     return this.engagements.cancel(tenant.businessId, actorOf(auth, tenant), id, body.reason);
+  }
+
+  /** SH10: Owner and Admin (the service checks; Staff get 403). */
+  @Post(':id/billing-stop')
+  @HttpCode(200)
+  stopBilling(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(StopFutureBillingRequest))
+    body: z.output<typeof StopFutureBillingRequest>,
+  ): Promise<Engagement> {
+    return this.engagements.stopBilling(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Post(':id/reactivate')
