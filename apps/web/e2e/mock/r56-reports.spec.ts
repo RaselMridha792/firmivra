@@ -82,6 +82,24 @@ test('Detail: More Filters, export, save and schedule', async ({ page }) => {
   await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
   await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('My Revenue View');
+  // IP-F24: a saved report is one step from Saved Reports, which lists it and opens it again.
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Saved Reports' })
+    .click();
+  await expect(page).toHaveURL(/\/reports\/library\?tab=saved$/);
+  await page.getByRole('link', { name: 'My Revenue View' }).click();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('My Revenue View');
+});
+
+test('Dashboard: Saved Reports is one click away (IP-F24)', async ({ page }) => {
+  await page.goto(base);
+  await page.getByTestId('saved-reports-link').click();
+  await expect(page).toHaveURL(/\/reports\/library\?tab=saved$/);
+  await expect(page.getByRole('tab', { name: 'Saved Reports' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
 });
 
 test('Builder: choose a source and columns, preview it, save it', async ({ page }) => {

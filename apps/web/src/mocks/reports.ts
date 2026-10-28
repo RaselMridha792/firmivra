@@ -1719,7 +1719,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         const v = runs.get(rid);
         if (!v) throw fail(404, 'NOT_FOUND', 'That run was not found.');
         return {
-          url: `mock:download/${v.fileName}`,
+          // A harmless file the browser can save (mock mode makes no real export).
+          url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock export: ${v.fileName}`)}`,
           expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         };
       }),
