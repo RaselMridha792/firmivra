@@ -117,3 +117,65 @@ Also tell R1 who provides the company email (Google Workspace, Microsoft 365, Go
 3. SMS decision (section 3): start without SMS, or register the toll-free number now.
 4. Super Admin and LVP one-off (section 4): your yes, then R1 builds it while the zone and SES settle.
 5. The prod PRs wait for your review: #1066 (prod config and auto scaling), then #1067 (`deploy-prod.yml`, stacked on #1066). Nothing deploys prod until a `v*` tag, which only you create.
+
+## 6. Prod bootstrap checklist (Oct 28)
+
+Prod (`v1.0.0`) is live and empty: no Super Admin, no LVP, no alarm subscriber, and empty Stripe keys. This is the order Rasel does the rest in. Each step needs his word; R1 runs nothing here on its own.
+
+**Placeholders only.** Addresses, subs, the legal name and keys never go in the repo, a PR or chat:
+- **Command lines:** typed by Rasel, or run by R1 from his word.
+- **Task overrides:** a file in `F:/firmivra-private/`.
+- **Keys:** only in Secrets Manager.
+
+All commands run in Git Bash with `--profile firmivra-dev` (prod shares the account) and `MSYS_NO_PATHCONV=1`.
+
+1. **Alarm email (first: it takes a minute and needs nothing else).**
+   - Subscribe:
+     `aws sns subscribe --topic-arn arn:aws:sns:us-east-1:778127141557:firmivra-prod-alarms --protocol email --notification-endpoint <ADDRESS>`
+   - Rasel confirms the email AWS sends.
+   - Check: `aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:778127141557:firmivra-prod-alarms` no longer shows `PendingConfirmation`.
+2. **The release tag** (`v1.1.0`, on the sha the Scrum thread gives once Deploy dev is green on it).
+   - Rasel runs:
+     ```
+     git fetch origin
+     git merge-base --is-ancestor <SHA> origin/main && echo "on main"
+     git tag -a v1.1.0 <SHA> -m "v1.1.0"
+     git push origin v1.1.0
+     ```
+   - Deploy prod waits for the `prod` environment's review: Actions → Deploy prod → the run → Review deployments → tick `prod` → Approve and deploy.
+   - R1 watches the run and checks the six URLs. The bootstrap comes after this, so it runs on the new migrations.
+3. **The two Cognito users** (console, as on dev):
+   - a Super Admin in `firmivra-prod-admins`;
+   - LVP's Owner in `firmivra-prod-staff`.
+   - Their subs, one per pool:
+     `aws cognito-idp admin-get-user --user-pool-id <POOL_ID> --username <EMAIL> --query "UserAttributes[?Name=='sub'].Value" --output text`
+   - The subs go only into the overrides file.
+4. **LVP's legal name and the bootstrap** (`packages/db/scripts/bootstrap-prod.mjs`; R1 runs it on Rasel's yes).
+   - **The overrides file:** `F:/firmivra-private/bootstrap-overrides.json`:
+     ```json
+     {"containerOverrides":[{"name":"migrate","command":["node","scripts/bootstrap-prod.mjs"],"environment":[
+       {"name":"CONFIRM_PROD_BOOTSTRAP","value":"yes"},
+       {"name":"SUPER_ADMIN_SUB","value":"<SUPER_ADMIN_SUB>"},
+       {"name":"OWNER_SUB","value":"<OWNER_SUB>"},
+       {"name":"FIRM_LEGAL_NAME","value":"<LEGAL_NAME>"}]}]}
+     ```
+     Add `FIRM_NAME` only if the app should show a different name.
+   - **The task:** `aws ecs run-task` with the values Deploy prod's "Run the migration task" step reads from `firmivra-prod-app`'s outputs: `ClusterName`, `MigrateTaskDefinition`, `TaskSubnets`, `MigrateSecurityGroup`, FARGATE, public IP.
+     - It also gets `--overrides file://F:/firmivra-private/bootstrap-overrides.json --started-by bootstrap-prod`.
+     - Then `aws ecs wait tasks-stopped`, exit code 0, and the log stream `migrate/migrate/<TASK_ID>` in `MigrateLogGroup`.
+   - **Then, each on Rasel's word:**
+     - check LVP's KMS key alias, read-only (the API's firm-key sweep makes it);
+     - `set-module` for the modules and reasons Rasel picks;
+     - a sign-in smoke test as each user.
+5. **Stripe test keys** (last: nothing else waits on them).
+   - Rasel creates the test-mode webhook endpoint:
+     - URL `https://app.firmivra.com/api/v1/webhooks/stripe`, events from Connected accounts;
+     - the 8 events in `docs/SETUP-LOG.md`, "Stripe keys on dev".
+   - Rasel puts `sk_test_<…>`, `pk_test_<…>` and that endpoint's `whsec_<…>` into `firmivra/prod/stripe`, in the console. The API's start-up check accepts test keys. A value of another shape stops new tasks, and the old ones keep running.
+   - On his yes, R1 runs:
+     - `aws ecs update-service --cluster firmivra-prod-cluster --service firmivra-prod-api --force-new-deployment`
+     - `aws ecs wait services-stable`
+   - Then R1 checks that `https://app.firmivra.com/api/v1/health` answers 200 and Super Admin health shows payments `CONFIGURED`.
+   - LVP's test-mode Stripe onboarding doesn't carry over to live: LVP onboards again when the live keys go in (steps in `docs/work/R1-cicd.md`).
+
+**Still open after these:** SMS (no origination number, section 3).

@@ -12,6 +12,8 @@ import {
   MyInvoiceDetail,
   MyInvoiceList,
   OfflinePaymentId,
+  PaymentMethodsQuery,
+  PaymentMethodsSummary,
   PayInvoiceRequest,
   RecordOfflinePaymentRequest,
   PaymentId,
@@ -42,6 +44,12 @@ export function createInvoicesClient(request: ApiRequest) {
       request(InvoiceList, `${BASE}${toQuery(parseInput(ListInvoicesQuery, query))}`),
     /** Lines, totals and payments. */
     get: async (id: string): Promise<Invoice> => request(Invoice, one(id)),
+    /** IP-F20: the money collected in the range by method (the overview's Payment Methods). */
+    paymentMethods: async (query: PaymentMethodsQuery = {}): Promise<PaymentMethodsSummary> =>
+      request(
+        PaymentMethodsSummary,
+        `${BASE}/payment-methods${toQuery(parseInput(PaymentMethodsQuery, query))}`,
+      ),
     /** A new DRAFT, numbered by the API. 409 CLIENT_ARCHIVED. */
     create: async (body: CreateInvoiceRequest): Promise<Invoice> =>
       request(Invoice, BASE, { method: 'POST', body: parseInput(CreateInvoiceRequest, body) }),

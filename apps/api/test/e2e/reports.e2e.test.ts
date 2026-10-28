@@ -5,9 +5,11 @@
 // dataset and reconcile. Staff see only their clients and no money or team data; firm B sees none
 // of firm A's. Nothing in a log or audit row holds report data.
 import { randomUUID } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import { PDFDocument } from 'pdf-lib';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
@@ -972,8 +974,6 @@ describe('exports', () => {
         ...body,
       });
     expectError(await exp({}, people.staffA), 403, 'EXPORT_NOT_ALLOWED');
-    expectError(await exp({ format: 'PDF' }), 400, 'VALIDATION_FAILED');
-    expectError(await exp({ format: 'XLSX' }), 400, 'VALIDATION_FAILED');
     expectError(
       await exp({ run: { target: { kind: 'DEFINITION', definition: def() } } }),
       400,
@@ -1063,6 +1063,92 @@ describe('exports', () => {
     // c3 (made 40 days ago) has a name that starts with "=".
     expect(csv).toContain(`"'=HYPERLINK(""http://evil.test"") (fake)"`);
     expect(csv).not.toMatch(/(^|,)"=HYPERLINK/m);
+  });
+});
+
+/** The entries of a zip (an XLSX), inflated: name to text. */
+function unzip(bytes: Buffer): Map<string, string> {
+  const out = new Map<string, string>();
+  let at = 0;
+  while (bytes.readUInt32LE(at) === 0x04034b50) {
+    const size = bytes.readUInt32LE(at + 18);
+    const nameLength = bytes.readUInt16LE(at + 26);
+    const extra = bytes.readUInt16LE(at + 28);
+    const name = bytes.subarray(at + 30, at + 30 + nameLength).toString('utf8');
+    const start = at + 30 + nameLength + extra;
+    out.set(name, inflateRawSync(bytes.subarray(start, start + size)).toString('utf8'));
+    at = start + size;
+  }
+  return out;
+}
+
+describe('Excel and PDF exports (IP-F23, Octavia Oct 27)', () => {
+  it('make an XLSX with the screen’s columns, rows and totals, and a PDF, empty or not', async () => {
+    const saved = await saveReport({
+      definition: def({
+        category: 'FINANCIAL',
+        dataSource: 'payments_received',
+        columns: ['invoice', 'client', 'amount', 'paidOn'],
+        showTotals: true,
+      }),
+    });
+    const exp = (format: string, run: object = {}) =>
+      call('post', '/reports/exports', people.ownerA, {
+        run: { target: { kind: 'SAVED', id: saved.id }, ...run },
+        format,
+      });
+    const stored = async (runId: string) => {
+      const row = await inFirm('a', (tx) =>
+        tx.reportRun.findFirstOrThrow({ where: { id: runId } }),
+      );
+      return { row, bytes: files.objects.get(row.s3Key!)! };
+    };
+
+    const xlsx = ReportRunStatusView.parse(ok(await exp('XLSX')));
+    expect(xlsx).toMatchObject({ status: 'SUCCEEDED', format: 'XLSX', ready: true, rowCount: 1 });
+    expect(xlsx.fileName).toMatch(/\.xlsx$/);
+    const book = await stored(xlsx.runId);
+    expect(book.row.s3Key).toMatch(/\.xlsx$/);
+    const parts = unzip(book.bytes);
+    expect([...parts.keys()]).toEqual(
+      expect.arrayContaining([
+        '[Content_Types].xml',
+        'xl/workbook.xml',
+        'xl/worksheets/sheet1.xml',
+      ]),
+    );
+    const sheet = parts.get('xl/worksheets/sheet1.xml')!;
+    for (const text of [
+      'Invoice',
+      'Client',
+      'Amount',
+      'Paid Date',
+      'Riley Example (fake)',
+      'Total',
+    ])
+      expect(sheet).toContain(text);
+    // Money is a number of dollars in a money format, never text; nothing is a formula.
+    expect(sheet).toMatch(/<c r="C2" s="1"><v>50<\/v><\/c>/);
+    expect(sheet).not.toContain('<f>');
+
+    const pdf = ReportRunStatusView.parse(ok(await exp('PDF')));
+    expect(pdf).toMatchObject({ status: 'SUCCEEDED', format: 'PDF', ready: true, rowCount: 1 });
+    expect(pdf.fileName).toMatch(/\.pdf$/);
+    const doc = await PDFDocument.load((await stored(pdf.runId)).bytes);
+    expect(doc.getPageCount()).toBe(1);
+    expect(doc.getTitle()).toBe(saved.name);
+
+    // A range with no data still makes a file that says so.
+    const empty = ReportRunStatusView.parse(
+      ok(await exp('PDF', { date: { rule: 'FIXED', from: '2001-01-01', to: '2001-01-31' } })),
+    );
+    expect(empty).toMatchObject({ status: 'SUCCEEDED', rowCount: 0 });
+    expect((await PDFDocument.load((await stored(empty.runId)).bytes)).getPageCount()).toBe(1);
+
+    const link = DownloadLink.parse(
+      ok(await call('get', `/reports/runs/${pdf.runId}/download`, people.ownerA)),
+    );
+    expect(link.url).toMatch(/\.pdf$/);
   });
 });
 
@@ -1259,7 +1345,7 @@ describe('scheduled reports', () => {
       'NOT_A_MEMBER',
     );
     expectError(
-      await call('post', '/reports/schedules', people.ownerA, base(target, { formats: ['PDF'] })),
+      await call('post', '/reports/schedules', people.ownerA, base(target, { formats: [] })),
       400,
       'VALIDATION_FAILED',
     );
@@ -1474,5 +1560,79 @@ describe('settings and lookups', () => {
       400,
       'VALIDATION_FAILED',
     );
+  });
+});
+
+// Last, so the payment recorded here (voided again at the end) and its runs touch no other test.
+describe('payments recorded by hand (IP-F22, Octavia Oct 27)', () => {
+  it('count in Revenue Summary by method; Group By changes the breakdown; a voided one does not count', async () => {
+    const invoiceId = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.invoice.findFirstOrThrow({
+            where: { number: `INV-A-${run}-1` },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+      new Date(),
+    );
+    const recorded = ok(
+      await call('post', `/invoices/${invoiceId}/offline-payments`, people.ownerA, {
+        method: 'CHECK',
+        amountCents: 2_500,
+        reference: 'CHK-1001',
+        receivedOn: today,
+        idempotencyKey: randomUUID(),
+      }),
+    ) as { offlinePayments: { id: string; amountCents: number }[] };
+    const paymentId = recorded.offlinePayments.find((p) => p.amountCents === 2_500)!.id;
+    try {
+      const r = await quick('revenue_summary');
+      expect(r.table.total).toBe(2);
+      expect(r.kpis.find((k) => k.key === 'amount')?.value).toBe(7_500);
+      expect(r.table.rows.find((x) => x.cells.amount === 2_500)?.cells).toMatchObject({
+        method: 'Check',
+        client: 'Jamie Sample (fake)',
+        paidOn: today,
+      });
+      // The breakdown is by payment method unless Group By says otherwise, this run only.
+      expect(r.breakdown?.labels.slice().sort()).toEqual(['Check', 'Other']);
+      expect(r.breakdown?.money).toBe(true);
+      const byClient = await quick('revenue_summary', { breakdownBy: 'client' });
+      expect(byClient.breakdown?.labels.slice().sort()).toEqual([
+        'Jamie Sample (fake)',
+        'Riley Example (fake)',
+      ]);
+      expect(byClient.breakdown?.series[0]?.values.reduce<number>((a, b) => a + (b ?? 0), 0)).toBe(
+        7_500,
+      );
+      expect(byClient.definition.groupBy).toBeNull();
+      // Lines that came from no catalog service are custom items.
+      const byService = await quick('revenue_summary', { breakdownBy: 'service' });
+      expect(byService.breakdown?.labels).toEqual(['Custom items']);
+      expectError(
+        await runReport({
+          target: { kind: 'SYSTEM', key: 'revenue_summary' },
+          breakdownBy: 'paidOn',
+        }),
+        400,
+        'INVALID_DEFINITION',
+      );
+    } finally {
+      ok(
+        await call(
+          'post',
+          `/invoices/${invoiceId}/offline-payments/${paymentId}/void`,
+          people.ownerA,
+          { reason: 'Fake: the test is over' },
+        ),
+      );
+    }
+    const after = await quick('revenue_summary');
+    expect(after.table.total).toBe(1);
+    expect(after.kpis.find((k) => k.key === 'amount')?.value).toBe(5_000);
   });
 });

@@ -321,6 +321,11 @@ export const RunReportRequest = z.strictObject({
   /** More conditions, joined to the definition's by AND (the "More Filters" panel). */
   extraFilters: ReportFilters.optional(),
   sort: z.strictObject({ field: ReportFieldKey, descending: z.boolean() }).optional(),
+  /**
+   * IP-F22 (Octavia's D2, "Group By"): the field the breakdown chart groups by, this run only; a
+   * groupable field of the source. The table keeps the definition's grouping.
+   */
+  breakdownBy: ReportFieldKey.optional(),
   search: SearchText.optional(),
   chartType: ReportChartType.optional(),
   showDataLabels: z.boolean().optional(),

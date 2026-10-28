@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReportResult } from '@firmivra/types';
+import { ApiRequestError, type ReportResult } from '@firmivra/types';
 import {
   ActionMenu,
   Button,
@@ -35,6 +35,7 @@ import {
   CATEGORY_META,
   CategoryTile,
   COMPARE,
+  EXPORT_ERRORS,
   PRESETS,
   RP_ERRORS,
   RP_KEY,
@@ -70,6 +71,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
   const [chartType, setChartType] = useState('AUTO');
+  // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
+  const [groupBy, setGroupBy] = useState('');
   const [labels, setLabels] = useState(false);
   const [tax, setTax] = useState(false);
   const [search, setSearch] = useState('');
@@ -108,6 +111,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       : {}),
     ...(term ? { search: term } : {}),
     ...(sort ? { sort: { field: sort.id, descending: sort.descending } } : {}),
+    ...(groupBy ? { breakdownBy: groupBy } : {}),
     chartType: chartType as never,
     showDataLabels: labels,
     includeTaxRevenue: tax,
@@ -139,14 +143,33 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     try {
       const { page: _p, pageSize: _s, ...rest } = req;
       void [_p, _s];
-      const v = await api.reports.exportReport({
+      let v = await api.reports.exportReport({
         run: { ...rest, target } as never,
         format,
         hiddenColumns: hidden,
       });
+      // IP-F23: the file is usually made at once; otherwise wait for it, then download it.
+      for (let i = 0; !v.ready && v.status !== 'FAILED' && i < 10; i += 1) {
+        await new Promise((done) => setTimeout(done, 1000));
+        v = await api.reports.runStatus(v.runId);
+      }
+      if (!v.ready) {
+        notice('The export could not be made. Try again in a moment.', 'error');
+        return;
+      }
+      const link = await api.reports.download(v.runId);
       notice(`Export ready: ${v.fileName ?? 'report'} (${v.rowCount ?? 0} rows).`, 'success');
+      // The link is an attachment: the browser saves the file and the page stays.
+      const save = document.createElement('a');
+      save.href = link.url;
+      save.download = v.fileName ?? '';
+      save.rel = 'noopener';
+      save.click();
     } catch (e) {
-      notice(errorMessage(e, RP_ERRORS), 'error');
+      // A refusal says what to change (the API's own words); an export error never blames the
+      // fields, as the screen has none to highlight here.
+      const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
+      notice(detail ?? errorMessage(e, { ...RP_ERRORS, ...EXPORT_ERRORS }), 'error');
     }
   };
   const columns: Column<{ cells: Record<string, string | number | boolean | null> }>[] = (
@@ -167,6 +190,17 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     }));
   const totals = r?.table.totals;
   const src = r ? sources.data?.find((s) => s.key === r.definition.dataSource) : undefined;
+  // Octavia's D2: a Financial report's breakdown groups by Service, Client or Payment Method.
+  const groupOptions =
+    r?.category === 'FINANCIAL'
+      ? (src?.fields ?? []).filter(
+          (f) => ['service', 'client', 'method'].includes(f.key) && f.groupable,
+        )
+      : [];
+  const shownGroup =
+    groupOptions.find((f) => f.label === r?.breakdown?.series[0]?.label)?.key ??
+    groupOptions[0]?.key ??
+    '';
   const title = r ? `${r.title}` : 'Report';
   const compareValue =
     compare ??
@@ -183,6 +217,15 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     <div className="flex min-w-0 flex-col gap-5" data-testid="report-detail">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-link">
         <Link href="/reports">Reports</Link>
+        {/* IP-F24: a saved report sits in Saved Reports, and that list is one step back. */}
+        {target.kind === 'SAVED' ? (
+          <>
+            <span aria-hidden className="text-muted">
+              ›
+            </span>
+            <Link href="/reports/library?tab=saved">Saved Reports</Link>
+          </>
+        ) : null}
         {meta ? (
           <>
             <span aria-hidden className="text-muted">
@@ -349,9 +392,22 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               )}
             </section>
             <section className={card} aria-label="Breakdown" data-testid="report-breakdown">
-              <h2 className="mb-3 font-display text-lg font-bold text-heading">
-                By {src?.fields.find((f) => f.key === r?.definition.groupBy)?.label ?? 'Group'}
-              </h2>
+              {groupOptions.length > 0 ? (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-display text-lg font-bold text-heading">Group By</h2>
+                  <Select
+                    label="Group by"
+                    hideLabel
+                    value={groupBy || shownGroup}
+                    onChange={(e) => setGroupBy(e.target.value)}
+                    options={groupOptions.map((f) => ({ value: f.key, label: f.label }))}
+                  />
+                </div>
+              ) : (
+                <h2 className="mb-3 font-display text-lg font-bold text-heading">
+                  By {src?.fields.find((f) => f.key === r?.definition.groupBy)?.label ?? 'Group'}
+                </h2>
+              )}
               {r?.breakdown ? (
                 <DonutChart
                   size="md"

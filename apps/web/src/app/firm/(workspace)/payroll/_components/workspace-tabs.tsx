@@ -38,6 +38,7 @@ import { OriginLink } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 
 type Notice = (text: string, tone: 'success' | 'error') => void;
 const empty = (pending: boolean, failed: boolean, none: string, error: string) =>
@@ -779,7 +780,7 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
     assignee: w.assignedTo?.userId ?? '',
     industry: w.industry ?? '',
     next: '',
-    plan: w.plan ?? '',
+    plan: w.catalogServiceId ?? '',
   });
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
   const save = useApiMutation(
@@ -791,8 +792,9 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
         industry: f.industry.trim() || null,
         ...(f.next ? { nextPayrollOn: f.next } : {}),
       });
-      if ((w.plan ?? '') !== f.plan.trim())
-        await api.payroll.setPlan(w.id, { plan: f.plan.trim() || null });
+      // SH9: the plan is saved by its Services & Pricing id.
+      if ((w.catalogServiceId ?? '') !== f.plan)
+        await api.payroll.setPlan(w.id, { catalogServiceId: f.plan || null });
     },
     { invalidate: [...PAYROLL_KEY] },
   );
@@ -832,11 +834,11 @@ export function SettingsTab({ w, notice }: { w: PayrollClientWorkspace; notice: 
             maxLength={100}
             onChange={(e) => setF({ ...f, industry: e.target.value })}
           />
-          <Input
-            label="Plan or service"
+          <CatalogPlanSelect
+            kind="PAYROLL"
+            savedName={w.plan}
             value={f.plan}
-            maxLength={100}
-            onChange={(e) => setF({ ...f, plan: e.target.value })}
+            onChange={(plan) => setF({ ...f, plan })}
           />
           <Input
             label="Next payroll date (override)"

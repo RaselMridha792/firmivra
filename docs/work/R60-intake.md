@@ -13,11 +13,109 @@ Owned paths: `apps/web/src/app/firm/(workspace)/intake-forms/`, `apps/web/src/mo
 `apps/api/src/intake-workspace/`, their tests (`apps/api/test/e2e/intake-workspace.e2e.test.ts`,
 `apps/web/e2e/mock/*intake*`), and this file.
 
+Messages (from Oct 28, Rasel's order of Oct 27; R20, which built the API, closed on Oct 9):
+`apps/web/src/app/firm/(workspace)/messages/`, `apps/web/src/mocks/messages.ts`,
+`apps/api/src/messages/`, `packages/types/src/messages/`, `docs/api/messages.yaml`, their tests
+(`apps/api/test/e2e/messages*.e2e.test.ts`, `apps/web/e2e/mock/r60-messages*`).
+
+### Messages (section B of `docs/specs/review-2026-10-27/CHANGE-LIST.md`)
+
+R36's `r36_message_workspace` already holds most of what section C lists for Messages: a thread's
+assigned staff and archive (`message_threads`), mutes and tags per thread, `message_settings`,
+`message_signatures`, and `outbound_messages` with recipients (drafts, schedules, channel, related
+record, Add to Timeline, delivery state per recipient) and files. Nothing used them but a few
+reads of `message_settings`. Bulk sends stay on the Communications engine (R39): one engine.
+
+- [x] **#1202** (PR A, merged as `ccb9fa35`): MSG-F01 (search by email and phone), F03 (Clients,
+  Leads, Automations, Archived), F04 (blue Bulk and Templates), F05 (Filter), F07 (Templates on
+  the message templates), F08 (Back to the same thread).
+- [x] **#1203** (PR B, merged as `692fbaa7`): MSG-F02, Messages Settings: `GET`/`PATCH
+  /business/message-settings` on `message_settings`, the page `/messages/settings`.
+- [x] **#1204** (PR C, merged as `2b41a180`): MSG-F06, the bulk builder at `/messages/bulk` on the
+  Communications API (web only).
+- [x] **#1206** (PR D, merged as `1a0a467f`): MSG-F09, F10, F14, New Message as its own page on
+  `outbound_messages` (the inbox keeps the previous results while a search loads).
+- [x] **E** (MSG-F11, F15): templates, merge fields, emoji and the Review, branch
+  `rasel/R60-messages-compose-review`. It was stacked on D's first commit: D's final head merged
+  in, then #1206's squash recorded with `-s ours` (the same tree), then `main`; the diff against
+  `main` is E's own.
+- [ ] Then F12 (attachments), F13 and F16 (Related To, Assign Staff, Add to Client Timeline:
+  `outbound_messages` has the columns), then F18 to F22 (contact panel and thread menu on R36's
+  `assigned_user_id`, `archived_at`, `message_thread_mutes`, `message_thread_tags`).
+- Invoices & Payments IP-F01 to F05, F12, F13 moved to R55 (Rasel, Oct 28); R60 is on Messages
+  only. The two schema questions (a custom recurring frequency, a firm's own payment terms list)
+  went to R55's side through Rasel.
+
+Seen while testing: two of R56's `r56-communications` mock tests wait for `/communications/new`
+to open the editor by itself; since #1150 (Q3, Oct 25) it waits for Start, so they fail on `main`
+too. Rasel sends the fix to R56 (not R60's).
+
+Decisions (Rasel, Oct 28): the Leads tab stays a tidy empty state (no numbers invented); a
+client's Email is the existing `message.received` notice with the portal link, never the text
+(no notify change was needed); a lead's email or text carries it, as Send Email on Leads does.
+
+Needs from others (Rasel):
+- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
+  Rasel allowed it (Oct 28) and R1 writes it. When it merges, the Leads tab uses it: ask Rasel for
+  the merge note first. Until then the Leads view stays a tidy empty state.
+- **Leads** (`apps/api/src/leads/leads.controller.ts`, LeadsModule): export `LeadMessagesService`
+  so a message to a lead from Messages goes through it and shows in the lead's activity. Today
+  Messages sends with the same Leads templates and no activity row.
+- **A client's text notice** (notify): texts to clients are not set up, and New Message says so.
+- **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
+  One library page for the three message kinds would need a change in Templates (not R60's).
+
+Progress (Messages):
+- Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
+  mock specs `r60-messages-inbox` 6 of 6 and every Messages spec green.
+- Oct 28: opened #1202, #1203 (API e2e `message-settings` 5 of 5, isolation case green, mock 4 of
+  4) and #1204 (mock 4 of 4); #1198 and #1199 merged. `main` merged into #1202.
+- Oct 28: #1202 merged. `main` merged into #1203 and #1204 (`pnpm lint` and `pnpm typecheck`
+  clean, API e2e 27 of 27, mock green), both 8 of 8. D: `main` merged in; API e2e 30 of 30, mock
+  21 of 21. D opened as #1206, 8 of 8.
+- Oct 28: #1203 merged. `main` merged into #1204 (`pnpm lint` and `pnpm typecheck` clean, API e2e
+  27 of 27, mock 22 of 22, 8 of 8) and #1206 (clean; API e2e 35 of 35, mock 28 of 28).
+- Oct 28: #1204 merged. `main` merged into #1206 again (`pnpm lint` and `pnpm typecheck` clean,
+  API e2e 35 of 35, mock 32 of 32: `r60-messages-bulk` timed out once on a cold dev server in the
+  full run and passed 4 of 4 alone).
+- Oct 28: #1206 merged. E: `main` merged in (`pnpm lint` and `pnpm typecheck` clean, API e2e
+  37 of 37). **Next step:** open E; then F12 (attachments), then F13 and F16; the Leads tab on
+  `lead_id` once R1's column merges (merge note from Rasel).
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
 `docs/work/README.md`, `docs/work/R60-settings.md` (the R60 rules and its own remaining items) and
 this file.
+
+### Oct 27 (eighth session, end): start here
+
+This wins over the entries below. R60's context was full, and Rasel stopped it here (Oct 27) with
+Messages not started.
+
+**Merged:** #1171 (Sign-ups flow A), #1175 (TX-F01), #1178 (F34, F35), #1179 (F31), #1180
+(Sign-ups flow B), #1185 (F22), #1186 (F11), #1187 (F28), #1194 (staff phone), #1195 (F31, F32
+follow-up: Business on This Return, correctable until the first filing).
+
+**Open (one):** **#1198** TX-F26, `rasel/R60-tax-returns-mail`: the Mail Tracking Number on Record
+Paper Filing and the E-File panel. `main` was merged in after #1187; the only conflicts were F26's
+own added lines (`mailTrackingNumber`), kept. Its body carries the F27 Mailing Report proposal for
+Octavia. If Rasel asks for changes, they go on that branch.
+
+**Next: Messages**, once #1198 has merged (Rasel: after the Tax Returns queue). The change list is
+on `main` (#1183 merged): `docs/specs/review-2026-10-27/CHANGE-LIST.md` section B, in the order
+MSG-F01 to F08, then F09 to F16, then F18 to F22. Nothing is built yet: no branch, no code. Before
+editing, add the Messages paths to the owned paths at the top of this file, and ask Rasel if
+another R file owns them.
+
+**Still waiting:** F04 (the firm-side Client Portal module), F27 (Octavia's columns; the proposal
+is in #1198's body), F19 and F20 (R1's validation issues table is on `main`, #1172), TX-F18
+(Rasel's word on role checks), and SH2 to SH6 in Tax Returns as R56's pieces land.
+
+**Local state:** worktree `F:\firmivra-R60`, database `firmivra_r60`, web 3600, API 4600, mock
+3601. After a merge or a branch switch, rebuild `@firmivra/types` and `@firmivra/db` (`generate`,
+`build`) before a typecheck. Delete `apps/web/.next` after a mock server is killed mid-build. The
+isolation suite's 10 file and export routes fail locally as on `main`.
 
 ### Oct 27 (eighth session, latest): start here
 
@@ -1334,3 +1432,6 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session): #1178, #1179, #1180 merged; opened #1185 (F22), #1186 (F11), #1187 (F28)
   with `main` merged in, all green. Built the F31 follow-up (`rasel/R60-tax-returns-identity`:
   the return's own business identity, correctable until the first filing).
+- Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
+  TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
+  before Messages.
