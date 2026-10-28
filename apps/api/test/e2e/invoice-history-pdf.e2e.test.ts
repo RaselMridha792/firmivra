@@ -83,8 +83,11 @@ describe('Download PDF (IP-F09)', () => {
       expectOk(await t.firm('get', `/${inv.id}/pdf`, t.people.ownerA)).body,
     );
     expect(new Date(link.expiresAt).getTime()).toBeGreaterThan(Date.now());
-    const bytes = new Uint8Array(await (await fetch(link.url)).arrayBuffer());
-    const doc = await PDFDocument.load(bytes);
+    // The file is under the firm's own reports prefix, saved under the invoice's number.
+    const [key, name] = link.url.replace(/^memory:/, '').split('?name=');
+    expect(key).toMatch(new RegExp(`^tenant/${t.ids.firmA}/reports/invoice-[0-9a-f-]+\\.pdf$`));
+    expect(decodeURIComponent(name!)).toBe(`${inv.number}.pdf`);
+    const doc = await PDFDocument.load(t.files.objects.get(key!)!);
     expect(doc.getTitle()).toBe(`Invoice ${inv.number}`);
     expect(doc.getPageCount()).toBe(1);
     // Staff: their client's invoice only.
