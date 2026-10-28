@@ -518,6 +518,7 @@ const toRow = (sv: CatalogService): CatalogServiceRow => ({
   category: sv.category,
   price: sv.price,
   status: sv.status,
+  kind: sv.kind,
   updatedAt: sv.updatedAt,
   updatedBy: sv.updatedBy,
 });
@@ -1124,4 +1125,12 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       return copy(p);
     },
   };
+}
+
+/** SH9 (mock mode): an active catalog service of `kind` by id, as the plan endpoints read it. */
+export function catalogPlanRef(id: string, kind: CatalogService['kind']) {
+  const sv = storeFor({}).services.find(
+    (x) => x.id === id && x.kind === kind && x.status === 'ACTIVE',
+  );
+  return sv ? { id: sv.id, name: sv.name } : undefined;
 }
