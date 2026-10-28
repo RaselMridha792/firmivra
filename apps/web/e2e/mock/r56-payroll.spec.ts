@@ -48,7 +48,7 @@ test('Views and filters: Past Due, search, more filters, Clear', async ({ page }
 test('Actions menu: the design list, a note and a status change', async ({ page }) => {
   await page.goto(base);
   await page.getByRole('button', { name: 'Actions for Green Leaf Café LLC' }).click();
-  await expect(page.getByRole('menuitem')).toHaveCount(21);
+  await expect(page.getByRole('menuitem')).toHaveCount(22);
   await expect(page.getByRole('menuitem', { name: 'Remove Payroll Service' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Add Note' }).click();
   await page
@@ -114,7 +114,11 @@ test('Client workspace: panels, tabs, notes and settings', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Note' }).click();
   await expect(page.getByText('Note added.')).toBeVisible();
   await tab('Settings').click();
-  await page.getByLabel('Plan or service').fill('Payroll Plus');
+  // SH9: the plan comes from Services & Pricing (the last payroll service listed).
+  const planSelect = page.getByLabel('Plan or service');
+  await expect(planSelect).toBeEnabled();
+  const plans = planSelect.locator('option');
+  await planSelect.selectOption({ index: (await plans.count()) - 1 });
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByText('Settings saved.')).toBeVisible();
   await expect(page.getByTestId('change-history')).toContainText('plan');

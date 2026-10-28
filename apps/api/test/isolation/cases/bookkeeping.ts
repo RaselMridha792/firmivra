@@ -138,6 +138,20 @@ export const records: CaseModule['records'] = {
     },
   },
   /** A client that is not on bookkeeping yet, for adding. */
+  /** SH9: a Bookkeeping service of Services & Pricing, chosen as a new client's plan. */
+  bookkeepingCatalogService: {
+    async create({ tx, businessId }) {
+      return (
+        await tx.service.create({
+          data: {
+            businessId,
+            kind: 'BOOKKEEPING',
+            name: `Fake bookkeeping plan ${randomUUID().slice(0, 8)}`,
+          },
+        })
+      ).id;
+    },
+  },
   bookkeepingNewClient: {
     async create({ tx, businessId }) {
       return (
@@ -271,6 +285,7 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: {
       clientId: 'bookkeepingNewClient',
+      catalogServiceId: 'bookkeepingCatalogService',
       assignedUserId: 'adminUser',
       reviewerUserId: 'adminUser',
     },

@@ -513,6 +513,8 @@ export const BookkeepingClientWorkspace = z.object({
   engagementId: z.uuid(),
   engagementStatus: z.enum(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED']),
   plan: z.string().nullable(),
+  /** SH9: the plan as a Services & Pricing service, by id; null when chosen by name only. */
+  catalogServiceId: z.uuid().nullable(),
   /** When the Bookkeeping engagement began. */
   clientSince: DateTime,
   assignedTo: MemberRef.nullable(),
@@ -579,6 +581,8 @@ export type BookkeepingClientWorkspace = z.infer<typeof BookkeepingClientWorkspa
 export const AddBookkeepingClientRequest = z.strictObject({
   clientId: z.uuid(),
   plan: optionalText(80),
+  /** SH9: a BOOKKEEPING service of Services & Pricing, by id; its name becomes the plan. */
+  catalogServiceId: z.uuid().optional(),
   cadence: ReportCadence.optional(),
   cadenceMonths: z.number().int().min(1).max(24).nullable().optional(),
   assignedUserId: z.uuid().nullable().optional(),

@@ -15,6 +15,7 @@ import {
   Archive,
   CalendarPlus,
   ChatCircleDots,
+  CurrencyCircleDollar,
   CheckCircle,
   Eye,
   FileText,
@@ -40,6 +41,7 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
+import { StopBillingDialog } from '../../../../../components/stop-billing-dialog';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 
@@ -497,6 +499,7 @@ export function ClientMenu({
   const docs = useServiceDocuments();
   const act = useAct(onNotice);
   const [dialog, setDialog] = useState<DialogName>();
+  const [billing, setBilling] = useState(false);
   // SH1: a page outside the workspace gets Back to this exact place.
   const go = (href: string) => () =>
     href.startsWith('/payroll') || href.startsWith('/bookkeeping')
@@ -576,6 +579,12 @@ export function ClientMenu({
               onSelect: () => void act(() => api.bookkeeping.resume(row.id), 'Resumed.'),
             }
           : { label: 'Pause Bookkeeping Service', icon: Pause, onSelect: () => setDialog('pause') },
+        // SH10: its own control; pausing never stops billing.
+        {
+          label: 'Stop Future Billing',
+          icon: CurrencyCircleDollar,
+          onSelect: () => setBilling(true),
+        },
         {
           label: 'Archive Bookkeeping Client',
           icon: Archive,
@@ -610,6 +619,18 @@ export function ClientMenu({
         />
       ) : null}
       {dialog === 'log' ? <LogDialog row={row} onClose={close} onNotice={onNotice} /> : null}
+      {billing ? (
+        <StopBillingDialog
+          engagementId={row.engagementId}
+          clientName={row.client.displayName}
+          service="Bookkeeping"
+          onClose={() => setBilling(false)}
+          onDone={(text) => {
+            setBilling(false);
+            onNotice(text, 'success');
+          }}
+        />
+      ) : null}
       {dialog === 'sync' ? <SyncDialog row={row} onClose={close} /> : null}
       {dialog === 'pause' ? (
         <ReasonDialog

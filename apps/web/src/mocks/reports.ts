@@ -141,6 +141,7 @@ const STAFF = ['Alex Rivera', 'Sam Staff', 'Mock User', 'Dana Cole'];
 function buildRows(empty: boolean) {
   const rows: Record<string, Row[]> = {
     invoices_payments: [],
+    payments_received: [],
     clients: [],
     returns: [],
     bookkeeping: [],
@@ -169,6 +170,21 @@ function buildRows(empty: boolean) {
       paymentStatus:
         paid === amount ? 'Paid' : paid === 0 ? (state === 6 ? 'Unpaid' : 'Overdue') : 'Partial',
     });
+    // IP-F22: the payment of that invoice, Stripe's (card, ACH) or recorded by hand (cash, check).
+    if (paid > 0) {
+      const method = (['Card', 'ACH', 'Cash', 'Check'] as const)[i % 4]!;
+      rows.payments_received!.push({
+        invoice: `INV-${1001 + i}`,
+        client: NAMES[i % NAMES.length]!,
+        service: SERVICES[i % SERVICES.length]!,
+        status: 'SUCCEEDED',
+        amount: paid,
+        tip: 0,
+        method,
+        processor: method === 'Card' || method === 'ACH' ? 'STRIPE' : 'MANUAL',
+        paidOn: at(Math.round(i * 4.1)),
+      });
+    }
   }
   for (let i = 0; i < 48; i += 1) {
     rows.clients!.push({
@@ -295,6 +311,41 @@ function sources(): Record<string, SourceDef> {
     definition = '',
   ): SourceDef['kpis'][number] => ({ key, label, type, of, definition });
   return {
+    // IP-F22: as the API's payments_received source (sources.ts).
+    payments_received: def(
+      'payments_received',
+      'FINANCIAL',
+      'Payments',
+      'Payments received, by day, method and client.',
+      [
+        fld('invoice', 'Invoice', 'TEXT', { locked: true, groupable: false }),
+        fld('client', 'Client', 'TEXT'),
+        fld('service', 'Service', 'TEXT'),
+        fld('status', 'Status', 'STATUS', {
+          options: opts('PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED'),
+        }),
+        fld('amount', 'Amount', 'MONEY'),
+        fld('tip', 'Tip', 'MONEY'),
+        fld('method', 'Payment Method', 'TEXT'),
+        fld('processor', 'Processor', 'TEXT'),
+        fld('paidOn', 'Paid Date', 'DATE', { groupable: false }),
+      ],
+      ['invoice', 'client', 'amount', 'method', 'paidOn'],
+      'paidOn',
+      'amount',
+      'method',
+      '# of Payments',
+      [
+        m(
+          'count',
+          'Total Payments',
+          (r) => r.length,
+          'NUMBER',
+          'Rows of Payments in the range that match the filters.',
+        ),
+        m('amount', 'Total Amount', (r) => sum(r, 'amount'), 'MONEY'),
+      ],
+    ),
     invoices_payments: def(
       'invoices_payments',
       'FINANCIAL',
@@ -602,15 +653,18 @@ const SYSTEM: {
   source: string;
   groupBy: string | null;
   columns?: string[];
+  /** A totals row without a grouping (the API's showTotals). */
+  showTotals?: boolean;
 }[] = [
   {
     key: 'revenue-summary',
     name: 'Revenue Summary',
-    description: 'Revenue, payments and outstanding by service.',
+    description: 'Payments received in the period, with totals.',
     category: 'FINANCIAL',
-    source: 'invoices_payments',
-    groupBy: 'serviceCategory',
-    columns: ['serviceCategory', 'amount', 'amountPaid', 'balanceDue'],
+    source: 'payments_received',
+    groupBy: null,
+    columns: ['invoice', 'client', 'amount', 'method', 'paidOn'],
+    showTotals: true,
   },
   {
     key: 'unpaid-invoices',
@@ -810,7 +864,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       groupBy: s.groupBy,
       sortBy: null,
       sortDescending: false,
-      showTotals: !!s.groupBy,
+      showTotals: !!s.groupBy || !!s.showTotals,
       showPercentage: !!s.groupBy,
       compareTo: 'NONE',
       date: { rule: 'ROLLING', preset: settings.defaultDatePreset },
@@ -940,19 +994,28 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         definition: k.definition || null,
       };
     });
-  const breakdownChart = (src: SourceDef, rs: Row[]): ReportChart | null => {
+  const breakdownChart = (src: SourceDef, rs: Row[], by?: string): ReportChart | null => {
     if (rs.length === 0) return null;
+    const field =
+      src.meta.fields.find((f) => f.key === by && f.groupable) ??
+      src.meta.fields.find((f) => f.key === src.breakdown);
+    const key = field?.key ?? src.breakdown;
     const groups = new Map<string, number>();
     for (const r of rs)
       groups.set(
-        String(r[src.breakdown]),
-        (groups.get(String(r[src.breakdown])) ?? 0) + (src.metric ? Number(r[src.metric] ?? 0) : 1),
+        String(r[key]),
+        (groups.get(String(r[key])) ?? 0) + (src.metric ? Number(r[src.metric] ?? 0) : 1),
       );
     return {
       type: 'DONUT',
       labels: [...groups.keys()],
       series: [
-        { key: 'value', label: src.meta.label, comparison: false, values: [...groups.values()] },
+        {
+          key: 'value',
+          label: field?.label ?? src.meta.label,
+          comparison: false,
+          values: [...groups.values()],
+        },
       ],
       money: src.meta.fields.find((f) => f.key === src.metric)?.type === 'MONEY',
     };
@@ -1005,6 +1068,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       compareTo?: ReportDefinitionView['compareTo'];
       search?: string;
       sort?: { field: string; descending: boolean };
+      breakdownBy?: string;
       page: number;
       pageSize: number;
       preview?: boolean;
@@ -1177,7 +1241,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           : [],
       kpis,
       chart,
-      breakdown: breakdownChart(src, cur),
+      breakdown: breakdownChart(src, cur, q.breakdownBy),
       chips,
       table: { columns, rows: pageRows, totals, total, page: q.page, pageSize: q.pageSize },
       insights: insightsOf(src, cur, kpis, range),
@@ -1489,6 +1553,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           ...(input.compareTo ? { compareTo: input.compareTo } : {}),
           ...(input.search ? { search: input.search } : {}),
           ...(input.sort ? { sort: input.sort } : {}),
+          ...(input.breakdownBy ? { breakdownBy: input.breakdownBy } : {}),
           page: input.page,
           pageSize: input.pageSize,
           preview: input.preview,
@@ -1654,7 +1719,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
         const v = runs.get(rid);
         if (!v) throw fail(404, 'NOT_FOUND', 'That run was not found.');
         return {
-          url: `mock:download/${v.fileName}`,
+          // A harmless file the browser can save (mock mode makes no real export).
+          url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock export: ${v.fileName}`)}`,
           expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         };
       }),

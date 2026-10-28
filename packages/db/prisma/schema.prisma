@@ -3844,6 +3844,7 @@ model Lead {
   signatures         IntakeSignature[]
   uploads            LeadUpload[]
   outboundRecipients OutboundMessageRecipient[]
+  messageThreads     MessageThread[]
 
   // R39
   segmentMembers CommunicationSegmentMember[]
@@ -4137,12 +4138,15 @@ model Appointment {
   @@map("appointments")
 }
 
-/// A subject thread between the firm and one client, optionally about one of that client's
-/// engagements and linked to a related record. Never deleted.
+/// A subject thread between the firm and one client or one lead (exactly one, fixed), optionally
+/// about one of that client's engagements and linked to a related record. Never deleted.
 model MessageThread {
   id              String    @id @default(uuid(7)) @db.Uuid
   businessId      String    @map("business_id") @db.Uuid
-  clientId        String    @map("client_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  /// r1_message_thread_lead (Oct 28): a lead's own thread (the Leads tab); it stays on the lead when
+  /// the lead converts. A lead thread has no engagement and no client-side messages.
+  leadId          String?   @map("lead_id") @db.Uuid
   engagementId    String?   @map("engagement_id") @db.Uuid
   subject         String
   /// The record the thread is about, e.g. "document_request" and its id.
@@ -4161,7 +4165,8 @@ model MessageThread {
   assignedUserId String?   @map("assigned_user_id") @db.Uuid
   archivedAt     DateTime? @map("archived_at") @db.Timestamptz(3)
 
-  client     Client              @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  client     Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  lead       Lead?               @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   messages   Message[]
   assignedTo Membership?         @relation("MessageThreadAssignedTo", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
@@ -4170,6 +4175,7 @@ model MessageThread {
 
   @@unique([businessId, id])
   @@index([businessId, clientId, lastMessageAt])
+  @@index([businessId, leadId, lastMessageAt])
   @@index([businessId, assignedUserId])
   @@index([businessId, archivedAt])
   @@map("message_threads")

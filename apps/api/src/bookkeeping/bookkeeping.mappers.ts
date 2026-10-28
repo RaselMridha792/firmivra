@@ -73,6 +73,7 @@ export async function findProfile(
           clientId: true,
           status: true,
           package: true,
+          catalogServiceId: true,
           assignedUserId: true,
           createdAt: true,
           client: { select: { ...clientRefSelect, email: true, phone: true } },

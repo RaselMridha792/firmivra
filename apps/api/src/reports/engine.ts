@@ -463,6 +463,8 @@ export interface ComputeInput {
   /** The caller's search (name-ish text columns) and sort override. */
   search: string | undefined;
   sort: { field: string; descending: boolean } | undefined;
+  /** The breakdown's Group By, this run only (checked by the caller). */
+  breakdownBy?: string | undefined;
   includeTax: boolean;
   page: number;
   pageSize: number;
@@ -670,9 +672,10 @@ export function compute(input: ComputeInput): Computed {
     money: measureField?.type === 'MONEY',
   };
 
-  // The breakdown: by the grouping, else the first status field.
+  // The breakdown: by the run's Group By, the grouping, the source's own, else the first status.
+  const breakdownKey = input.breakdownBy ?? def.groupBy ?? source.breakdownBy ?? null;
   const breakdownField =
-    (def.groupBy ? fields.get(def.groupBy) : null) ??
+    (breakdownKey ? fields.get(breakdownKey) : null) ??
     def.columns.map((k) => fields.get(k)).find((f) => f?.type === 'STATUS') ??
     source.fields.find((f) => f.type === 'STATUS') ??
     null;
@@ -685,7 +688,7 @@ export function compute(input: ComputeInput): Computed {
       counts.set(
         label,
         (counts.get(label) ?? 0) +
-          (measureField && breakdownField.key === def.groupBy
+          (measureField && breakdownField.key === breakdownKey
             ? typeof r.cells[measureField.key] === 'number'
               ? (r.cells[measureField.key] as number)
               : 0
@@ -704,7 +707,7 @@ export function compute(input: ComputeInput): Computed {
           values: entries.map(([, v]) => v),
         },
       ],
-      money: measureField?.type === 'MONEY' && breakdownField.key === def.groupBy,
+      money: measureField?.type === 'MONEY' && breakdownField.key === breakdownKey,
     };
   }
 

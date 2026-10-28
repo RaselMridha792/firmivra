@@ -499,6 +499,9 @@ Rasel (Oct 27): at most THREE PRs open at once; open the next as soon as one mer
 
 **Gotchas from Oct 27:** a role name matches by substring ("Unclear All" matches "Clear All"): pass `exact: true`. A controlled checkbox that saves on change does not flip until the refetch: show the wanted state at once (the reconciliation page keeps a `pending` map). `Date.UTC` months start at 0. A select that loads its options: wait for `toBeEnabled` before counting them. Locally the isolation suite fails only file-download and export cases (scanner, S3); CI runs it.
 
+**Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs. `pnpm exec playwright test` under load sometimes times out one Payroll test; it passes alone. Python edits with regex escapes go in a script file; when a replacement misses, use Edit.
+
+**Needs for Rasel (Oct 26, SH9):** done: R1's #1188 added `engagements.catalog_service_id`; SH9 now saves the plan by id.
 ## Handoff for a fresh R56 (Oct 25, Business Advisory)
 
 Rasel (Oct 25): open the waiting branches one at a time (two open at most), then Octavia's Business Advisory review: B1 to B5 first (reproduce each on main), then B6 to B12; columns (B15) to the R file and Rasel. Read `docs/specs/review-2026-10-25/CHANGE-LIST.md` (section B) and `business-advisory--developer-feedback.md` (897 lines: grep its numbered sections, do not read it whole).

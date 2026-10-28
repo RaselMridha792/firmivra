@@ -9,6 +9,7 @@ import { DATABASE } from '../database/database.module.js';
 import { notFound } from '../workspaces/common.js';
 import type { Computed } from './engine.js';
 import { REPORT_FILES, type ReportFiles } from './report-files.js';
+import { REPORT_FILE_TYPES, type ReportFileFormat, toPdf, toXlsx } from './report-formats.js';
 import { canExport, isAdmin, reportErrors, safeFileName } from './reports.common.js';
 import type { ExportBody } from './reports-input.js';
 import { type Ctx, ReportsService } from './reports.service.js';
@@ -51,8 +52,8 @@ export function toCsv(computed: Pick<Computed, 'columns' | 'all' | 'totals'>): B
 
 /**
  * Exports of a report: the same definition, filters and permissions as the screen, made into a
- * file under the firm's own prefix and reached by a short-lived link. CSV is the format built
- * (PDF and Excel answer 400 until they are). An export is a run (`report_runs`, kind EXPORT) that
+ * file under the firm's own prefix and reached by a short-lived link: CSV, Excel (XLSX) or PDF
+ * (IP-F23). An export is a run (`report_runs`, kind EXPORT) that
  * starts QUEUED and finishes once; only the person who asked (or an Owner or Admin) reads it. An
  * export of client or financial data is marked sensitive and audited. The file name is the report
  * name and range, never data.
@@ -79,14 +80,10 @@ export class ReportsExportService {
     body: Export,
   ): Promise<ReportRunStatusView> {
     if (!canExport(tenant)) throw reportErrors.exportNotAllowed();
-    if (body.format !== 'CSV')
-      throw reportErrors.invalid(
-        'format',
-        'Only CSV is available for now. PDF and Excel are coming.',
-      );
     return this.generate(businessId, tenant, userId, body.run, body.hiddenColumns, {
       kind: 'EXPORT',
       scheduleId: null,
+      format: body.format,
     });
   }
 
@@ -97,8 +94,9 @@ export class ReportsExportService {
     userId: string,
     run: Export['run'],
     hiddenColumns: string[] | undefined,
-    as: { kind: 'EXPORT' | 'SCHEDULED'; scheduleId: string | null },
+    as: { kind: 'EXPORT' | 'SCHEDULED'; scheduleId: string | null; format: ReportFileFormat },
   ): Promise<ReportRunStatusView> {
+    const type = REPORT_FILE_TYPES[as.format];
     const prepared = await this.inFirm(businessId, async (tx) => {
       const ctx: Ctx = await this.reports.ctx(tx, businessId, tenant, userId);
       const resolved = await this.reports.resolve(ctx, run.target);
@@ -121,7 +119,7 @@ export class ReportsExportService {
           kind: as.kind,
           status: 'QUEUED',
           requestedByUserId: userId,
-          format: 'CSV',
+          format: as.format,
           rangeFrom: new Date(`${out.range.from}T00:00:00.000Z`),
           rangeTo: new Date(`${out.range.to}T00:00:00.000Z`),
           definitionSnapshot: {
@@ -129,7 +127,7 @@ export class ReportsExportService {
             category: resolved.category,
             source: resolved.source.key,
             definition: out.result.definition,
-            fileName: safeFileName(resolved.title, out.range.from, out.range.to, 'csv'),
+            fileName: safeFileName(resolved.title, out.range.from, out.range.to, type.ext),
           } as never,
           // Client and financial data: every source here has some.
           sensitive: true,
@@ -146,9 +144,20 @@ export class ReportsExportService {
       };
     });
 
-    const key = `tenant/${businessId}/reports/${randomUUID()}.csv`;
+    const key = `tenant/${businessId}/reports/${randomUUID()}.${type.ext}`;
     try {
-      await this.files.put(key, toCsv(prepared.computed), 'text/csv; charset=utf-8');
+      const bytes =
+        as.format === 'XLSX'
+          ? toXlsx(prepared.computed, prepared.title)
+          : as.format === 'PDF'
+            ? await toPdf(prepared.computed, {
+                title: prepared.title,
+                range: prepared.range,
+                kpis: prepared.computed.kpis,
+                generatedAt: new Date(),
+              })
+            : toCsv(prepared.computed);
+      await this.files.put(key, bytes, type.contentType);
     } catch (error) {
       this.logger.warn(
         `Report file could not be stored for firm ${businessId}: ${(error as Error).name}`,
@@ -177,7 +186,7 @@ export class ReportsExportService {
         as.kind === 'EXPORT' ? 'report.exported' : 'report.scheduled_run',
         { type: 'report_run', id: prepared.runId },
         {
-          format: 'CSV',
+          format: as.format,
           source: prepared.source,
           category: prepared.category,
           rows: prepared.computed.total,
@@ -228,10 +237,11 @@ export class ReportsExportService {
     if (run.status !== 'SUCCEEDED' || !run.s3Key) throw reportErrors.runNotReady();
     if (!canExport(tenant) && run.kind === 'EXPORT') throw reportErrors.exportNotAllowed();
     const snap = (run.definitionSnapshot ?? {}) as { fileName?: string };
+    const type = REPORT_FILE_TYPES[run.format ?? 'CSV'];
     const url = await this.files.presignDownload({
       key: run.s3Key,
-      fileName: snap.fileName ?? 'report.csv',
-      contentType: 'text/csv',
+      fileName: snap.fileName ?? `report.${type.ext}`,
+      contentType: type.contentType,
     });
     await this.audit.log('report.download_link_issued', { type: 'report_run', id: run.id });
     return { url, expiresAt: new Date(Date.now() + GET_URL_SECONDS * 1000).toISOString() };

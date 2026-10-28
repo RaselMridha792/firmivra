@@ -19,6 +19,7 @@ import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsHeader } from '../../_components/settings-parts';
+import { BillingPreferences } from './billing-preferences';
 
 const PAYMENTS_SETUP = ['payments-setup'];
 
@@ -173,6 +174,7 @@ export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
               unavailable={unavailable}
             />
           </div>
+          <BillingPreferences />
           <p className="border-t border-divider pt-4 text-sm text-text">
             View transactions in{' '}
             <Link

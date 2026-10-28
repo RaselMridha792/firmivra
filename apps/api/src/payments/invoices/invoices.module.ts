@@ -7,6 +7,8 @@ import {
   InvoiceId,
   type InvoiceList,
   ListInvoicesQuery,
+  PaymentMethodsQuery,
+  type PaymentMethodsSummary,
   UpdateInvoiceRequest,
 } from '@firmivra/types';
 import {
@@ -58,6 +60,16 @@ export class InvoicesController {
     @Query(new ZodValidationPipe(ListInvoicesQuery)) q: z.output<typeof ListInvoicesQuery>,
   ): Promise<InvoiceList> {
     return this.invoices.list(tenant.businessId, actorOf(auth, tenant), q);
+  }
+
+  /** IP-F20: the money collected by method (declared before `:id`). */
+  @Get('payment-methods')
+  paymentMethods(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(PaymentMethodsQuery)) q: z.output<typeof PaymentMethodsQuery>,
+  ): Promise<PaymentMethodsSummary> {
+    return this.invoices.paymentMethods(tenant.businessId, actorOf(auth, tenant), q);
   }
 
   @Get(':id')
