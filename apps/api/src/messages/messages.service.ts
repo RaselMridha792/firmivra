@@ -58,6 +58,7 @@ const threadSelect = {
   repliesEnabled: true,
   lastMessageAt: true,
   createdByUserId: true,
+  archivedAt: true,
   createdAt: true,
   client: { select: { displayName: true } },
 } satisfies Prisma.MessageThreadSelect;
@@ -92,7 +93,8 @@ const pageWhere = (cursor?: string): Prisma.MessageThreadWhereInput => {
     ],
   };
 };
-const searchWhere = (search?: string): Prisma.MessageThreadWhereInput => {
+/** The subject and the messages' text (the portal's search). */
+const textWhere = (search?: string): Prisma.MessageThreadWhereInput => {
   if (!search) return {};
   const term = likeEscape(search);
   return {
@@ -102,6 +104,43 @@ const searchWhere = (search?: string): Prisma.MessageThreadWhereInput => {
     ],
   };
 };
+/** A search that is a full phone number in any format: its digits (7 to 15), else null. */
+export const phoneDigits = (search: string): string | null => {
+  if (!/^[+\d\s().-]+$/.test(search)) return null;
+  const digits = search.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15 ? digits : null;
+};
+/**
+ * MSG-F01: the subject, the messages' text, and the client's name and email; a phone number by
+ * its digits, so "(404) 555-0187", "404.555.0187" and "+1 404 555 0187" find the same client.
+ * Ten digits or more compare the last ten (the number without its country code).
+ */
+async function searchWhere(
+  tx: TxClient,
+  businessId: string,
+  search?: string,
+): Promise<Prisma.MessageThreadWhereInput> {
+  if (!search) return {};
+  const digits = phoneDigits(search);
+  const phoned = digits
+    ? await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM clients
+        WHERE business_id = ${businessId}::uuid AND phone IS NOT NULL AND (
+          CASE WHEN length(${digits}::text) >= 10
+            THEN right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = right(${digits}::text, 10)
+            ELSE regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || ${digits}::text || '%'
+          END)`
+    : [];
+  const term = likeEscape(search);
+  return {
+    OR: [
+      ...(textWhere(search).OR ?? []),
+      { client: { displayName: { contains: term, mode: 'insensitive' } } },
+      { client: { email: { contains: term, mode: 'insensitive' } } },
+      ...(phoned.length > 0 ? [{ clientId: { in: phoned.map((c) => c.id) } }] : []),
+    ],
+  };
+}
 const ORDER = [
   { lastMessageAt: 'desc' },
   { id: 'desc' },
@@ -213,17 +252,30 @@ export class MessagesService {
 
   // ----- Firm side -----
 
+  /** The threads an automation's Send client message opened (the Automations view). */
+  private async automated(tx: TxClient, businessId: string, threadIds: string[]) {
+    if (threadIds.length === 0) return new Set<string>();
+    const rows = await tx.automationActionExecution.findMany({
+      where: { businessId, resultKind: 'message_thread', resultId: { in: threadIds } },
+      select: { resultId: true },
+    });
+    return new Set(rows.flatMap((r) => (r.resultId ? [r.resultId] : [])));
+  }
+
   private async firmThreads(tx: TxClient, businessId: string, rows: ThreadRow[]) {
     const ids = rows.map((t) => t.id);
-    const [last, unread] = await Promise.all([
+    const [last, unread, automated] = await Promise.all([
       this.lastMessages(tx, businessId, ids),
       this.unreadByThread(tx, businessId, ids, 'firm'),
+      this.automated(tx, businessId, ids),
     ]);
     const people = await this.people(tx, businessId, [
       ...rows.flatMap((t) => (t.createdByUserId ? [t.createdByUserId] : [])),
       ...[...last.values()].map((m) => m.senderUserId),
     ]);
     return rows.map((t): MessageThread => {
+      // The firm's queries read client threads only; a lead's (r1_message_thread_lead) has no client.
+      if (!t.clientId || !t.client) throw new Error(`message thread ${t.id} has no client`);
       const m = last.get(t.id);
       const starter = t.createdByUserId ? people.get(t.createdByUserId) : undefined;
       return {
@@ -246,6 +298,8 @@ export class MessagesService {
             }
           : null,
         unreadCount: unread.get(t.id) ?? 0,
+        automated: automated.has(t.id),
+        archivedAt: t.archivedAt?.toISOString() ?? null,
         createdAt: t.createdAt.toISOString(),
       };
     });
@@ -296,7 +350,7 @@ export class MessagesService {
         FOR UPDATE`;
     }
     const row = await tx.messageThread.findFirst({
-      where: { businessId, id, client: this.reach(actor) },
+      where: { businessId, id, clientId: { not: null }, client: this.reach(actor) },
       select: threadSelect,
     });
     if (!row) throw notFound();
@@ -320,10 +374,11 @@ export class MessagesService {
       const rows = await tx.messageThread.findMany({
         where: {
           AND: [
-            { businessId, client: this.reach(actor) },
+            { businessId, clientId: { not: null }, client: this.reach(actor) },
             clientId ? { clientId } : {},
             q.unread ? { messages: { some: { direction: 'CLIENT_TO_FIRM', readAt: null } } } : {},
-            searchWhere(q.search),
+            { archivedAt: q.archived ? { not: null } : null },
+            await searchWhere(tx, businessId, q.search),
             pageWhere(q.cursor),
           ],
         },
@@ -365,11 +420,16 @@ export class MessagesService {
     return detail;
   }
 
+  /**
+   * A new thread with its first message. `emailNotice: false` (New Message's Email channel, which
+   * emails its own notice to the client's address) keeps the bell item and skips this email.
+   */
   async create(
     businessId: string,
     actor: ClientsActor,
     clientId: string,
     body: CreateBody,
+    options: { emailNotice?: boolean } = {},
   ): Promise<MessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
@@ -422,7 +482,14 @@ export class MessagesService {
       );
       return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
     });
-    await this.notify(businessId, detail.id, detail.messages[0]?.id, actor.userId, 'client', true);
+    await this.notify(
+      businessId,
+      detail.id,
+      detail.messages[0]?.id,
+      actor.userId,
+      'client',
+      options.emailNotice ?? true,
+    );
     return detail;
   }
 
@@ -680,7 +747,7 @@ export class MessagesService {
           AND: [
             { businessId, clientId: me.clientId },
             filter,
-            searchWhere(q.search),
+            textWhere(q.search),
             pageWhere(q.cursor),
           ],
         },

@@ -51,6 +51,7 @@ import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { registerServiceEngagement } from './service-engagements';
 import { teamFixtures } from './team';
+import { catalogPlanRef } from './services-pricing';
 
 /**
  * Mock data for `api.bookkeeping` (R38 contract, Bookkeeping). Synthetic firms only, dated around
@@ -470,6 +471,7 @@ export function createBookkeepingMock({
         engagementId: uid('b400', i + 1),
         engagementStatus: 'ACTIVE',
         plan: s.plan,
+        catalogServiceId: null,
         clientSince: '2024-01-15T10:00:00.000Z',
         assignedTo: i % 2 === 0 ? MAYA : SAM,
         reviewer: mockMe,
@@ -1025,6 +1027,10 @@ export function createBookkeepingMock({
         const input = parseInput(AddBookkeepingClientRequest, body);
         if (clients.some((c) => c.client.id === input.clientId))
           throw fail(409, 'ALREADY_BOOKKEEPING_CLIENT', 'This client already has bookkeeping.');
+        const chosen = input.catalogServiceId
+          ? catalogPlanRef(input.catalogServiceId, 'BOOKKEEPING')
+          : null;
+        if (input.catalogServiceId && !chosen) throw fail(404, 'NOT_FOUND', 'No such plan');
         const i = clients.length;
         const ws = copy(clients[0] ?? ({} as Ws));
         const base: Ws = {
@@ -1038,7 +1044,9 @@ export function createBookkeepingMock({
             email: null,
             phone: null,
           },
-          plan: input.plan ?? null,
+          // SH9: a catalog bookkeeping service by id is the plan: its link and its name.
+          plan: chosen?.name ?? input.plan ?? null,
+          catalogServiceId: chosen?.id ?? null,
           status: 'NOT_STARTED',
           statusReason: null,
           connections: [],

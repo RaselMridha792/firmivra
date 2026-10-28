@@ -193,6 +193,10 @@ export const RP_ERRORS: Record<string, string> = {
   RUN_NOT_READY: 'The file is not ready yet.',
   FORBIDDEN: 'Your role cannot do this.',
 };
+/** An export's own refusals (IP-F23): never "check the highlighted fields", as it has none. */
+export const EXPORT_ERRORS: Record<string, string> = {
+  VALIDATION_FAILED: 'The export could not be made with these settings. Change them and try again.',
+};
 
 export const gold =
   'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-gold px-5 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50';

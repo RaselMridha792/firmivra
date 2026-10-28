@@ -100,6 +100,8 @@ export interface Rec {
   client: PayrollClientRef;
   engagementId: string;
   plan: string | null;
+  /** SH9: the plan as a Services & Pricing service, by id. */
+  catalogServiceId?: string | null;
   status: PayrollClientStatus;
   frequency: PayrollFrequency | null;
   industry: string | null;

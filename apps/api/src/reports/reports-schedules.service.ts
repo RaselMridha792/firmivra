@@ -471,7 +471,8 @@ export class ReportsSchedulesService {
       userId,
       { target, date: { rule: 'ROLLING', preset: cur.datePreset as never } } as never,
       undefined,
-      { kind: 'SCHEDULED', scheduleId: id },
+      // The schedule's first format (IP-F23: CSV, Excel and PDF are all made now).
+      { kind: 'SCHEDULED', scheduleId: id, format: cur.formats[0] ?? 'CSV' },
     );
     await this.inFirm(businessId, (tx) =>
       tx.reportSchedule.update({
@@ -484,12 +485,9 @@ export class ReportsSchedulesService {
 
   // ---------- Helpers ----------
 
+  /** IP-F23: CSV, Excel (XLSX) and PDF are all made; the contract already limits the values. */
   private formats(formats: string[]) {
-    if (formats.some((f) => f !== 'CSV'))
-      throw reportErrors.invalid(
-        'formats',
-        'Only CSV is available for now. PDF and Excel are coming.',
-      );
+    if (formats.length === 0) throw reportErrors.invalid('formats', 'Choose at least one format');
   }
 
   private async sourceOfSchedule(tx: TxClient, businessId: string, s: ScheduleShape) {

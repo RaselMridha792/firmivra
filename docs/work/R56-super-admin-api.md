@@ -457,6 +457,9 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs, or open a tab by its address when no state is needed. Wait for selects that load their options (`toBeEnabled`). A label substring also matches buttons and sections ("Remove document", "Service Package"): use `getByRole('textbox', { name, exact: true })`. Playwright's dev server rewrites `apps/web/.next/mock/dev/types`: delete it before `tsc`. After merging main: rebuild `packages/types`, `pnpm --filter @firmivra/db build`, `prisma generate`, `prisma migrate deploy` on `firmivra_r56`.
 
+**Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs. `pnpm exec playwright test` under load sometimes times out one Payroll test; it passes alone. Python edits with regex escapes go in a script file; when a replacement misses, use Edit.
+
+**Needs for Rasel (Oct 26, SH9):** done: R1's #1188 added `engagements.catalog_service_id`; SH9 now saves the plan by id.
 ## Handoff for a fresh R56 (Oct 25, Business Advisory)
 
 Rasel (Oct 25): open the waiting branches one at a time (two open at most), then Octavia's Business Advisory review: B1 to B5 first (reproduce each on main), then B6 to B12; columns (B15) to the R file and Rasel. Read `docs/specs/review-2026-10-25/CHANGE-LIST.md` (section B) and `business-advisory--developer-feedback.md` (897 lines: grep its numbered sections, do not read it whole).

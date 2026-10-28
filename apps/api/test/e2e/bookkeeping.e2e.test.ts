@@ -2659,6 +2659,57 @@ describe('transactions and categories (BK-T01, read side)', () => {
   });
 });
 
+describe('the plan from Services & Pricing (SH9)', () => {
+  it('adding a client with a catalog service saves its id and name; another firm’s is 404', async () => {
+    const [clientId, service] = await asOwner(
+      ids.firmA,
+      async (tx) =>
+        [
+          (
+            await tx.client.create({
+              data: { businessId: ids.firmA, displayName: `Fake SH9 ${run}` },
+            })
+          ).id,
+          await tx.service.findUniqueOrThrow({
+            where: { id: ids.serviceA },
+            select: { id: true, name: true },
+          }),
+        ] as const,
+    );
+    const ws = await addClient(clientId, { catalogServiceId: service.id });
+    expect(ws).toMatchObject({ plan: service.name, catalogServiceId: service.id });
+    const other = await asOwner(ids.firmA, (tx) =>
+      tx.client.create({ data: { businessId: ids.firmA, displayName: `Fake SH9 other ${run}` } }),
+    );
+    expectError(
+      await call('post', '/clients', people.ownerA, {
+        clientId: other.id,
+        catalogServiceId: randomUUID(),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const serviceB = await asOwner(ids.firmB, (tx) =>
+      tx.service.create({
+        data: {
+          businessId: ids.firmB,
+          kind: 'BOOKKEEPING',
+          name: `Fake B bookkeeping ${run}`,
+          status: 'ACTIVE',
+        },
+      }),
+    );
+    expectError(
+      await call('post', '/clients', people.ownerA, {
+        clientId: other.id,
+        catalogServiceId: serviceB.id,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});
+
 describe("firm B never reaches firm A's books", () => {
   it('answers 404 for every record of firm A, read or change', async () => {
     const bk = await bkOf(clients.assigned);

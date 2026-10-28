@@ -160,6 +160,7 @@ export class TaxReturnReviewService {
       amountStatus: f.amountStatus,
       amountSource: f.amountSource,
       amountVersion: f.amountVersion,
+      mailTrackingNumber: f.mailTrackingNumber,
       attempts: f.attempts.map((a) => ({
         id: a.id,
         submissionId: a.submissionId,
@@ -417,9 +418,17 @@ export class TaxReturnReviewService {
         throw invalid('Only a paper filing is filed on paper', 'filingId');
       await tx.taxReturnFiling.update({
         where: { id: filingId },
-        data: { status: 'PAPER_FILED', paperFiledOn: toDay(body.paperFiledOn) },
+        data: {
+          status: 'PAPER_FILED',
+          paperFiledOn: toDay(body.paperFiledOn),
+          mailTrackingNumber: body.mailTrackingNumber,
+        },
       });
-      await this.log(tx, tenant, id, 'transmission', { filingId, action: 'paper_filed' });
+      await this.log(tx, tenant, id, 'transmission', {
+        filingId,
+        action: 'paper_filed',
+        tracked: true,
+      });
       return this.filingList(tx, businessId, id);
     });
   }

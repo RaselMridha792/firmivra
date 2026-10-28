@@ -4,6 +4,7 @@ import type { ReportCatalogItem, ReportInsight } from '@firmivra/types';
 import { DonutChart, KpiCard, Select, Toast, Toggle } from '@firmivra/ui';
 import {
   ArrowRight,
+  BookmarkSimple,
   CalendarBlank,
   CaretRight,
   ChartBar,
@@ -30,6 +31,7 @@ import {
   kpiMoney,
   kpiTrend,
   linkBtn,
+  outlined,
   primary,
   quiet,
   rangeText,
@@ -97,6 +99,14 @@ export function ReportsDashboard() {
               options={COMPARE.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
+          {/* IP-F24: the reports the firm saved, each opened from the list. */}
+          <Link
+            href="/reports/library?tab=saved"
+            className={outlined}
+            data-testid="saved-reports-link"
+          >
+            <BookmarkSimple aria-hidden weight="bold" className="size-4" /> Saved Reports
+          </Link>
         </div>
       </header>
       {d ? (

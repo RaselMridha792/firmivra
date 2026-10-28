@@ -6,3 +6,4 @@ export {
   type MyInvoicesClient,
 } from './client.js';
 export * from './setup.js';
+export * from './preferences.js';
