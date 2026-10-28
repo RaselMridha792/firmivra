@@ -24,12 +24,12 @@ import {
   Phone,
   Plus,
 } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { useApiQuery } from '../../../../../lib/query';
+import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import {
   activeFilters,
   addressOf,
@@ -83,11 +83,8 @@ function useSettled(value: string, ms = 250) {
 
 /** /messages: the firm's inbox, the open conversation and the client beside it. */
 export function MessagesScreen({
-  initialComposing = false,
   initialView = readView({}),
 }: {
-  /** Open New Message at once (the dashboard's shortcuts). */
-  initialComposing?: boolean;
   /** The view from the address: tab, search, open thread, filters (MSG-F08), client (SH5). */
   initialView?: MessagesView;
 } = {}) {
@@ -97,16 +94,22 @@ export function MessagesScreen({
   const scoped = useApiQuery([...KEY, 'scoped-client', view.clientId], async () =>
     view.clientId ? api.clients.get(view.clientId) : null,
   );
-  const [composing, setComposing] = useState(initialComposing);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useSettled(view.q.trim());
   const search = term ? { search: term } : {};
-  const inbox = useApiQuery([...KEY, 'inbox', term], () =>
-    api.messages.inbox({ ...search, limit: 100 }),
-  );
-  const archive = useApiQuery([...KEY, 'inbox', 'archived', term], () =>
-    api.messages.inbox({ ...search, archived: 'true', limit: 100 }),
-  );
+  // The previous results stay while a new search loads: the open thread and its panel stay.
+  const inbox = useQuery({
+    queryKey: [...KEY, 'inbox', term],
+    queryFn: () => api.messages.inbox({ ...search, limit: 100 }),
+    placeholderData: keepPreviousData,
+    retry: shouldRetry,
+  });
+  const archive = useQuery({
+    queryKey: [...KEY, 'inbox', 'archived', term],
+    queryFn: () => api.messages.inbox({ ...search, archived: 'true', limit: 100 }),
+    placeholderData: keepPreviousData,
+    retry: shouldRetry,
+  });
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());
   const all = inbox.data?.items ?? [];
   const archived = archive.data?.items ?? [];
@@ -166,9 +169,14 @@ export function MessagesScreen({
         </div>
         <div className="flex flex-col items-start gap-2 xl:items-end">
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={gold} onClick={() => setComposing(true)}>
+            {/* MSG-F09: New Message is its own page (Frame 2), for this client when one is chosen. */}
+            <OriginLink
+              href={`/messages/new${view.clientId ? `?${new URLSearchParams({ clientId: view.clientId, ...(view.service ? { subject: view.service } : {}) }).toString()}` : ''}`}
+              className={gold}
+              data-testid="messages-new"
+            >
               <Plus aria-hidden weight="bold" className="size-5" /> New Message
-            </button>
+            </OriginLink>
             {/* MSG-F06: the Messages bulk builder, with Back to Messages. */}
             <OriginLink href="/messages/bulk" className={blue} data-testid="messages-bulk">
               <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Bulk Message
@@ -358,21 +366,6 @@ export function MessagesScreen({
           <aside className={card} aria-label="Client" />
         )}
       </div>
-
-      {composing ? (
-        <NewMessageDialog
-          clientId={view.clientId || undefined}
-          clientName={scoped.data?.displayName}
-          subject={view.service || undefined}
-          onClose={() => setComposing(false)}
-          onSent={(t) => {
-            setComposing(false);
-            update({ thread: t.id, tab: 'all' });
-            setMessage({ text: 'Message sent.', tone: 'success' });
-            void refresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -552,6 +545,9 @@ function Conversation({
               </p>
               <span className="mt-0.5 text-xs text-muted">
                 {m.sender.name} · {day(m.createdAt)}
+                {/* MSG-F10: every conversation message is a portal message. */}
+                {' · '}
+                <span data-testid="message-channel">Portal</span>
                 {mine && m.readAt ? ' · Read' : ''}
               </span>
             </li>

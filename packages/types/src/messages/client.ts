@@ -29,10 +29,24 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageThreadRequest,
 } from './schemas.js';
+import {
+  CancelOutboundRequest,
+  CheckOutboundRequest,
+  ListOutboundQuery,
+  OutboundCheck,
+  OutboundMessage,
+  OutboundMessageList,
+  SaveOutboundRequest,
+  ScheduleOutboundRequest,
+  SendOutboundRequest,
+  UpdateOutboundRequest,
+} from './outbound.js';
 import { MessageSettings, UpdateMessageSettingsRequest } from './settings.js';
 
 const THREADS = '/business/message-threads';
 const thread = (id: string) => `${THREADS}/${parseInput(MessageThreadId, id)}`;
+const OUTBOUND = '/business/outbound-messages';
+const outbound = (id: string) => `${OUTBOUND}/${parseInput(MessageThreadId, id)}`;
 const note = (id: string) => `/business/notes/${parseInput(InternalNoteId, id)}`;
 
 /**
@@ -91,6 +105,46 @@ export function createMessagesClient(request: ApiRequest) {
     /** Unread client messages, in total and per client. Poll at most once a minute. */
     unreadCount: async (): Promise<FirmUnreadCount> =>
       request(FirmUnreadCount, `${THREADS}/unread-count`),
+    /** New Message (MSG-F09, F10, F14): drafts, schedules and sends. Nothing sends but `send`. */
+    outbound: {
+      /** Who the channel reaches; nothing is saved. */
+      check: async (body: CheckOutboundRequest): Promise<OutboundCheck> =>
+        request(OutboundCheck, `${OUTBOUND}/check`, {
+          method: 'POST',
+          body: parseInput(CheckOutboundRequest, body),
+        }),
+      /** Drafts and scheduled messages (Staff: their own). */
+      list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> =>
+        request(OutboundMessageList, `${OUTBOUND}${toQuery(parseInput(ListOutboundQuery, query))}`),
+      get: async (id: string): Promise<OutboundMessage> => request(OutboundMessage, outbound(id)),
+      /** Save Draft: a new draft. */
+      create: async (body: SaveOutboundRequest): Promise<OutboundMessage> =>
+        request(OutboundMessage, OUTBOUND, {
+          method: 'POST',
+          body: parseInput(SaveOutboundRequest, body),
+        }),
+      /** Changed recipients or channel answer a new draft (a new id). 409 STALE_VERSION. */
+      update: async (id: string, body: UpdateOutboundRequest): Promise<OutboundMessage> =>
+        request(OutboundMessage, outbound(id), {
+          method: 'PUT',
+          body: parseInput(UpdateOutboundRequest, body),
+        }),
+      send: async (id: string, body: SendOutboundRequest): Promise<OutboundMessage> =>
+        request(OutboundMessage, `${outbound(id)}/send`, {
+          method: 'POST',
+          body: parseInput(SendOutboundRequest, body),
+        }),
+      schedule: async (id: string, body: ScheduleOutboundRequest): Promise<OutboundMessage> =>
+        request(OutboundMessage, `${outbound(id)}/schedule`, {
+          method: 'POST',
+          body: parseInput(ScheduleOutboundRequest, body),
+        }),
+      cancel: async (id: string, body: CancelOutboundRequest): Promise<OutboundMessage> =>
+        request(OutboundMessage, `${outbound(id)}/cancel`, {
+          method: 'POST',
+          body: parseInput(CancelOutboundRequest, body),
+        }),
+    },
     /** Messages Settings (MSG-F02): the firm's, or the defaults before the first save. */
     settings: async (): Promise<MessageSettings> =>
       request(MessageSettings, '/business/message-settings'),
