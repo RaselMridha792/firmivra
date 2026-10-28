@@ -340,7 +340,16 @@ const FREQUENCY: Record<RecurringInvoiceRow['frequency'], string> = {
   QUARTERLY: 'Quarterly',
   SEMIANNUAL: 'Every six months',
   ANNUAL: 'Yearly',
+  CUSTOM: 'Custom',
 };
+const UNIT = { WEEK: 'week', MONTH: 'month', YEAR: 'year' } as const;
+/** "Monthly", or a custom schedule's "Every 3 weeks". */
+const frequencyText = (r: RecurringInvoiceRow) =>
+  r.interval
+    ? r.interval.count === 1
+      ? `Every ${UNIT[r.interval.unit]}`
+      : `Every ${r.interval.count} ${UNIT[r.interval.unit]}s`
+    : FREQUENCY[r.frequency];
 const RECURRING_TONE = {
   ACTIVE: 'success',
   PAUSED: 'warning',
@@ -360,7 +369,7 @@ export function RecurringInvoicesScreen() {
   const columns: Column<RecurringInvoiceRow>[] = [
     { id: 'name', label: 'Schedule', cell: (r) => <span className="font-medium">{r.name}</span> },
     { id: 'client', label: 'Client', cell: (r) => r.client.displayName },
-    { id: 'frequency', label: 'Frequency', cell: (r) => FREQUENCY[r.frequency] },
+    { id: 'frequency', label: 'Frequency', cell: frequencyText },
     { id: 'next', label: 'Next Invoice', cell: (r) => dayText(r.nextSendOn) },
     { id: 'amount', label: 'Amount', className: 'text-right', cell: (r) => money(r.amountCents) },
     { id: 'send', label: 'Sends', cell: (r) => (r.autoSend ? 'Automatically' : 'After review') },

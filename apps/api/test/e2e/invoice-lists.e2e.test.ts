@@ -94,14 +94,16 @@ describe('View All Payments (IP-F17)', () => {
 
 describe('Recurring Invoices (IP-F17)', () => {
   it('lists the schedules with their amount and next send day, in reach', async () => {
-    const make = (clientId: string, name: string, next: number) =>
+    const make = (clientId: string, name: string, next: number, everyThreeWeeks = false) =>
       t.inScope(t.ids.firmA, async (tx) => {
         const r = await tx.recurringInvoice.create({
           data: {
             businessId: t.ids.firmA,
             clientId,
             name,
-            frequency: 'MONTHLY',
+            ...(everyThreeWeeks
+              ? { frequency: 'CUSTOM', intervalCount: 3, intervalUnit: 'WEEK' }
+              : { frequency: 'MONTHLY' }),
             startOn: new Date(`${nyDay(next)}T00:00:00.000Z`),
             nextSendOn: new Date(`${nyDay(next)}T00:00:00.000Z`),
           },
@@ -117,7 +119,7 @@ describe('Recurring Invoices (IP-F17)', () => {
         });
         return r.id;
       });
-    const later = await make(t.ids.two, `Fake later ${t.run}`, 20);
+    const later = await make(t.ids.two, `Fake later ${t.run}`, 20, true);
     const sooner = await make(t.ids.one, `Fake sooner ${t.run}`, 5);
     const list = RecurringInvoiceList.parse(
       expectOk(await t.firm('get', '/recurring', t.people.ownerA)).body,
@@ -125,11 +127,17 @@ describe('Recurring Invoices (IP-F17)', () => {
     expect(list.items.map((r) => r.id)).toEqual([sooner, later]);
     expect(list.items[0]).toMatchObject({
       frequency: 'MONTHLY',
+      interval: null,
       status: 'ACTIVE',
       nextSendOn: nyDay(5),
       amountCents: 30_000,
       autoSend: true,
       autopay: false,
+    });
+    // R1's custom schedule (Oct 28): every 3 weeks.
+    expect(list.items[1]).toMatchObject({
+      frequency: 'CUSTOM',
+      interval: { count: 3, unit: 'WEEK' },
     });
     const staff = RecurringInvoiceList.parse(
       expectOk(await t.firm('get', '/recurring', t.people.staffA)).body,

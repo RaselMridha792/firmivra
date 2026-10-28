@@ -588,6 +588,8 @@ export class InvoicesService {
           id: true,
           name: true,
           frequency: true,
+          intervalCount: true,
+          intervalUnit: true,
           nextSendOn: true,
           status: true,
           autoSend: true,
@@ -601,6 +603,10 @@ export class InvoicesService {
         name: r.name,
         client: r.client,
         frequency: r.frequency,
+        interval:
+          r.frequency === 'CUSTOM' && r.intervalCount && r.intervalUnit
+            ? { count: r.intervalCount, unit: r.intervalUnit }
+            : null,
         nextSendOn: day(r.nextSendOn),
         status: r.status,
         amountCents: r.lines.reduce(
