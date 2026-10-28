@@ -143,9 +143,12 @@ export const cases: CaseModule['cases'] = {
   },
   // The Leads tab: a lead's own threads.
   'GET /api/v1/business/lead-message-threads/:id': { params: { id: 'leadMessageThread' } },
+  // A text: off until the firm turns texts on, so the found thread answers 409
+  // PROVIDER_UNAVAILABLE everywhere, and nothing is sent.
   'POST /api/v1/business/lead-message-threads/:id/messages': {
     params: { id: 'leadMessageThread' },
-    body: { body: 'Fake', channel: 'EMAIL' },
+    body: { body: 'Fake', channel: 'SMS' },
+    expect: 409,
   },
   'GET /api/v1/business/message-threads/:id': thread,
   'PATCH /api/v1/business/message-threads/:id': { ...thread, body: { repliesEnabled: false } },
