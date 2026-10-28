@@ -63,6 +63,7 @@ import {
   createPaymentsSetupClient,
   createFirmBillingClient,
   createPortalTabsClient,
+  createPaymentPreferencesClient,
   createProfileChangesClient,
   createSupportMessagesClient,
   createPublicAgreementsClient,
@@ -149,6 +150,7 @@ import { createNotificationsMock, myNotificationsMock } from '../mocks/notificat
 import { createStaffPhoneMock } from '../mocks/staff-phone';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
+import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
@@ -257,6 +259,11 @@ export const api = {
     dev && mocked('supportMessages')
       ? createSupportMessagesMock()
       : createSupportMessagesClient(request),
+  /** Settings > Payments' Invoice Defaults, Reminders & Automations, Taxes & Fees (IP-F13). */
+  paymentPreferences:
+    dev && mocked('paymentPreferences')
+      ? createPaymentPreferencesMock({ role: MOCK_ROLE })
+      : createPaymentPreferencesClient(request),
   profileChanges:
     dev && mocked('profileChanges')
       ? createProfileChangesMock({ role: MOCK_ROLE, empty: mockedEmpty('profileChanges') })
