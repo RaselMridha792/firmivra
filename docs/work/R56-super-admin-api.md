@@ -461,14 +461,11 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 Rasel's rules are as on Oct 27 (below): at most three PRs open; `origin/main` merged in before each opens; target `main`; each PR number, exact title and full head sha at 8 of 8 green; after each merge, merge `origin/main` into the remaining open and waiting branches; only the changed files' specs; no Co-Authored-By or "Generated with" lines; never force-push. Rasel (Oct 28): the Deploy dev run takes about 15 minutes after each merge; do not open a PR that needs a migration without his tap (none of the waiting branches has one). If usage runs low, stop at a safe point, commit, and log the next step in `R56-invoices-payments.md`.
 
-**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared), #1200 (SH9), #1201 (SH10), #1205 (r56-communications clicks Start), #1207 (IP-F20, F22), #1208 (IP-F23, F24).
+**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared), #1200 (SH9), #1201 (SH10), #1205 (r56-communications clicks Start), #1207 (IP-F20, F22), #1208 (IP-F23, F24), #1212 (IP-F06), #1214 (IP-F07).
 
-**Open (three, the limit), stacked in this order:** **#1212** `rasel/R56-ip-due-rules` (IP-F06), **#1214** `rasel/R56-ip-sent-state` (IP-F07), **#1218** `rasel/R56-ip-correct` (IP-F08). After the lowest squashes, the next one conflicts only in `R56-invoices-payments.md`: main's copy is the squashed branch's, so keep the branch's (`git checkout --ours`).
+**Open (three, the limit), stacked in this order:** **#1218** `rasel/R56-ip-correct` (IP-F08), **#1221** `rasel/R56-ip-row-actions` (IP-F09, F11's Send Message), **#1222** `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`; it also shows R1's custom recurring schedule, #1217). After the lowest squashes, the next ones conflict in the files it touched (on Oct 28: `invoices.service.ts`, `r56-invoices.spec.ts`, `R56-invoices-payments.md`). Where main's copy equals the squashed branch's tip (`git rev-parse origin/main:<file>` against the tip), keep the branch's (`git checkout --ours`); the merged tree then equals the branch's old one.
 
-**Waiting, open in this order** (each PR title is its branch's own commit subject; "Builds on #N" while the lower one is open):
-1. `rasel/R56-ip-row-actions` (IP-F09, F11's Send Message).
-2. `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`).
-3. `rasel/R56-bookkeeping-terms`, then `rasel/R56-bookkeeping-transactions`, then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before, with main merged in on Oct 28. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
+**Waiting, open in this order** (each PR title is its branch's own commit subject; "Builds on #N" while the lower one is open): `rasel/R56-bookkeeping-terms`, then `rasel/R56-bookkeeping-transactions`, then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before, with main merged in on Oct 28. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
 
 **Merging the Bookkeeping stack (Oct 28):**
 - The R files and `mocks/bookkeeping.ts` conflict with SH9 and SH10: keep main's lines plus the branch's own.
