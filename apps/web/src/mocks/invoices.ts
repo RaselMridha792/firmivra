@@ -9,6 +9,7 @@ import {
   type InvoiceRefund,
   type InvoicesClient,
   type InvoiceStatus,
+  invoiceDueState,
   isInvoiceOverdue,
   lineAmountCents,
   ListInvoicesQuery,
@@ -441,6 +442,10 @@ function toListItem(r: Row, day: string): InvoiceListItem {
     scheduledFor: r.scheduledFor,
     dueOn: r.dueOn,
     overdue: isInvoiceOverdue(r, day),
+    dueState: invoiceDueState(
+      { status: r.status, dueOn: r.dueOn, balanceDueCents: f.balanceDueCents },
+      day,
+    ),
     issuedAt: r.issuedAt,
     paidAt: r.paidAt,
     canceledAt: r.canceledAt,
@@ -610,7 +615,7 @@ export function createInvoicesMock(
             i.client.displayName.toLowerCase().includes(search),
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number.localeCompare(a.number));
-      return copy({ ...page(found, q), paymentsEnabled });
+      return copy({ ...page(found, q), paymentsEnabled, today: day });
     },
     // IP-F20: the money collected by method, as the API sums it (mock Stripe payments are card).
     paymentMethods: async (query = {}) => {

@@ -347,6 +347,7 @@ describe('api.invoices (firm)', () => {
       scheduledFor: null,
       dueOn: '2026-01-25',
       overdue: false,
+      dueState: null,
       issuedAt: at,
       paidAt: at,
       canceledAt: null,
@@ -393,7 +394,7 @@ describe('api.invoices (firm)', () => {
     expect(Invoice.safeParse({ ...invoice, paymentTerms: 'net_99' }).success).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: 1.5 }).success).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: -1 }).success).toBe(false);
-    const list = { items: [], nextCursor: null };
+    const list = { items: [], nextCursor: null, today: '2026-01-20' };
     expect(InvoiceList.safeParse(list).success).toBe(false);
     expect(InvoiceList.parse({ ...list, paymentsEnabled: false })).toEqual({
       ...list,

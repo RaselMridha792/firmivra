@@ -163,6 +163,7 @@ export class InvoicesService {
         items: page.map((row) => toListItem(row, today)),
         nextCursor: rows.length > q.limit && last ? encodeCursor(last) : null,
         paymentsEnabled: await paymentsEnabled(tx, businessId),
+        today,
       };
     });
     // Reads of client data are audited too (CLAUDE.md rule 8), as clients and engagements are.
