@@ -40,10 +40,14 @@ export function paymentTermDays(code: string): number | null {
 
 /** Payment terms: the due date counts from the invoice's issue. A standard code or `net_<days>`. */
 export type PaymentTerm = StandardPaymentTerm | `net_${number}`;
-export const PaymentTerm = z.custom<PaymentTerm>(
-  (v) => typeof v === 'string' && paymentTermDays(v) !== null,
-  'Choose payment terms',
-);
+// A plain string with a pattern (Net 1 to Net 365, no leading zero) rather than z.custom, so
+// every zod reader (the isolation suite's body sweep) can read it.
+export const PaymentTerm = z
+  .string()
+  .regex(
+    /^(due_on_receipt|net_([1-9]|[1-9][0-9]|[12][0-9]{2}|3[0-5][0-9]|36[0-5]))$/,
+    'Choose payment terms',
+  ) as unknown as z.ZodType<PaymentTerm, PaymentTerm>;
 
 /** "Due on Receipt", "Net 30", "Net 45". */
 export const paymentTermLabel = (code: PaymentTerm): string =>
