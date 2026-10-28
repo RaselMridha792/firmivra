@@ -1,6 +1,6 @@
 'use client';
 
-import { INVOICE_ERRORS, type Invoice } from '@firmivra/types';
+import { INVOICE_ERRORS, type Invoice, PAYMENT_TERM_LABELS } from '@firmivra/types';
 import { Button, Input, Modal } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -163,6 +163,9 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ['Service', i?.service?.title ?? '—'],
                 ['Invoice Date', dayText(i?.issuedAt ?? i?.createdAt)],
                 ['Due Date', dayText(i?.dueOn)],
+                ...(i?.paymentTerms
+                  ? [['Payment Terms', PAYMENT_TERM_LABELS[i.paymentTerms]] as const]
+                  : []),
                 ...(i?.scheduledFor ? [['Opens On', dayText(i.scheduledFor)] as const] : []),
                 ...(i?.paidAt ? [['Paid On', dayText(i.paidAt)] as const] : []),
                 ...(i?.canceledAt ? [['Canceled On', dayText(i.canceledAt)] as const] : []),
@@ -177,6 +180,20 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             {i?.cancelReason ? (
               <p className="mt-3 rounded-lg bg-canvas p-3 text-sm">
                 <span className="font-semibold">Why it was canceled:</span> {i.cancelReason}
+              </p>
+            ) : null}
+            {i?.notesToClient ? (
+              <p className="mt-3 rounded-lg bg-canvas p-3 text-sm whitespace-pre-line">
+                <span className="font-semibold">Notes to Client:</span> {i.notesToClient}
+              </p>
+            ) : null}
+            {i?.internalNote ? (
+              <p
+                data-testid="internal-note"
+                className="mt-3 rounded-lg border border-warning bg-warning-soft p-3 text-sm whitespace-pre-line"
+              >
+                <span className="font-semibold">Internal Note (your firm only):</span>{' '}
+                {i.internalNote}
               </p>
             ) : null}
           </section>
