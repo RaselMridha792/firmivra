@@ -63,6 +63,7 @@ import {
   uuid,
 } from './payroll-base';
 import { mockMe } from './appointments';
+import { catalogPlanRef } from './services-pricing';
 
 /**
  * Mock data for `api.payroll` (R39 contract, Payroll). It checks input with the contract's schemas
@@ -248,6 +249,7 @@ export function createPayrollMock({ role = 'OWNER', empty = false }: Options = {
     return {
       id: r.id,
       client: r.client,
+      catalogServiceId: r.catalogServiceId ?? null,
       engagementId: r.engagementId,
       plan: r.plan,
       status: r.status,
@@ -787,8 +789,15 @@ export function createPayrollMock({ role = 'OWNER', empty = false }: Options = {
       run(() => {
         const input = parseInput(PayrollPlanRequest, body);
         const r = rec(clientId);
-        log(r, 'plan', r.plan, input.plan);
-        r.plan = input.plan;
+        // SH9: a catalog payroll service by id saves the link and its name.
+        const chosen = input.catalogServiceId
+          ? catalogPlanRef(input.catalogServiceId, 'PAYROLL')
+          : null;
+        if (input.catalogServiceId && !chosen) throw fail(404, 'NOT_FOUND', 'No such plan');
+        const plan = chosen?.name ?? input.plan ?? null;
+        log(r, 'plan', r.plan, plan);
+        r.plan = plan;
+        r.catalogServiceId = chosen?.id ?? null;
         return workspace(r);
       }),
     changes: (clientId, q = {}) =>

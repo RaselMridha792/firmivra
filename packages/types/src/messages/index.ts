@@ -1,4 +1,5 @@
 export * from './schemas.js';
+export * from './settings.js';
 export {
   createClientNotesClient,
   createMessagesClient,
