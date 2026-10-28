@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { MessageNotices } from './message-notices.js';
+import { MessageSettingsController } from './message-settings.controller.js';
+import { MessageSettingsService } from './message-settings.service.js';
 import {
   ClientMessageThreadsController,
   MessageThreadsController,
@@ -16,8 +18,8 @@ import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { TemplatesModule } from '../templates/templates.module.js';
 
 /**
- * Messages and notes (R20): firm threads, the portal's messages, read state and counts; New
- * Message's drafts, schedules and sends (R60).
+ * Messages and notes (R20): firm threads, the portal's messages, read state and counts; Messages
+ * Settings and New Message's drafts, schedules and sends (R60).
  */
 @Module({
   imports: [NotificationsModule, PortalTabsModule, TemplatesModule],
@@ -29,11 +31,13 @@ import { TemplatesModule } from '../templates/templates.module.js';
     NotesController,
     MyNotesController,
     OutboundMessagesController,
+    MessageSettingsController,
   ],
   providers: [
     MessagesService,
     NotesService,
     MessageNotices,
+    MessageSettingsService,
     OutboundMessagesService,
     OutboundMessagesJob,
   ],

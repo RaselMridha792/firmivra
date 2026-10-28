@@ -58,6 +58,7 @@ const row = (s: RowShape) => ({
   category: categoryRef(s.category),
   price: priceOf(s),
   status: statusOf(s),
+  kind: s.kind,
   updatedAt: iso(s.updatedAt),
   updatedBy: s.updatedBy?.user.name ?? null,
 });

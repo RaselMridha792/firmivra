@@ -48,6 +48,8 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { registerServiceEngagement } from './service-engagements';
+import { teamFixtures } from './team';
+import { catalogPlanRef } from './services-pricing';
 
 /**
  * Mock data for `api.bookkeeping` (R38 contract, Bookkeeping). Synthetic firms only, dated around
@@ -69,6 +71,11 @@ const copy = <T>(v: T): T => structuredClone(v);
 const nowIso = () => new Date().toISOString();
 const MAYA: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000011', name: 'Alex Rivera' };
 const SAM: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000012', name: 'Sam Staff' };
+/** A team mock member by user id (the Assign dialog lists the team), else the signed-in user. */
+const memberRef = (userId: string): MemberRef => {
+  const m = teamFixtures().find((t) => t.user.id === userId);
+  return m ? { userId, name: m.user.name } : { ...mockMe, userId };
+};
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const monthOf = (back: number) => {
   const t = new Date();
@@ -402,6 +409,7 @@ export function createBookkeepingMock({
         engagementId: uid('b400', i + 1),
         engagementStatus: 'ACTIVE',
         plan: s.plan,
+        catalogServiceId: null,
         clientSince: '2024-01-15T10:00:00.000Z',
         assignedTo: i % 2 === 0 ? MAYA : SAM,
         reviewer: mockMe,
@@ -957,6 +965,10 @@ export function createBookkeepingMock({
         const input = parseInput(AddBookkeepingClientRequest, body);
         if (clients.some((c) => c.client.id === input.clientId))
           throw fail(409, 'ALREADY_BOOKKEEPING_CLIENT', 'This client already has bookkeeping.');
+        const chosen = input.catalogServiceId
+          ? catalogPlanRef(input.catalogServiceId, 'BOOKKEEPING')
+          : null;
+        if (input.catalogServiceId && !chosen) throw fail(404, 'NOT_FOUND', 'No such plan');
         const i = clients.length;
         const ws = copy(clients[0] ?? ({} as Ws));
         const base: Ws = {
@@ -970,7 +982,9 @@ export function createBookkeepingMock({
             email: null,
             phone: null,
           },
-          plan: input.plan ?? null,
+          // SH9: a catalog bookkeeping service by id is the plan: its link and its name.
+          plan: chosen?.name ?? input.plan ?? null,
+          catalogServiceId: chosen?.id ?? null,
           status: 'NOT_STARTED',
           statusReason: null,
           connections: [],
@@ -1100,7 +1114,8 @@ export function createBookkeepingMock({
               ? SAM
               : input.assignedUserId === MAYA.userId
                 ? MAYA
-                : mockMe;
+                : // BK-D06: the chosen team member, as the API saves them (not the signed-in one).
+                  memberRef(input.assignedUserId);
         log(c, 'ASSIGNMENT', `Assigned to ${c.assignedTo?.name ?? 'no one'}`);
         return view(c);
       }),

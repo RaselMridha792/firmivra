@@ -20,6 +20,8 @@ import {
   InternalNote,
   InternalNoteId,
   ListInternalNotesQuery,
+  MESSAGE_SETTINGS_DEFAULTS,
+  type MessageSettings,
   ListMessageThreadsQuery,
   ListMyMessagesQuery,
   type Message,
@@ -40,13 +42,21 @@ import {
   SendMessageRequest,
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
+  UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
-import { createClientsMock, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import {
+  clientFixtures,
+  createClientsMock,
+  firstClientId,
+  type MockFirmRole,
+  mockStaff,
+} from './clients';
 import { createLeadPipelineMock } from './leads-pipeline';
 import { BOOKKEEPING_ENGAGEMENT } from './tasks';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.messages`, `api.clientNotes`, `api.myMessages(slug)` and `api.myNotes(slug)`
@@ -81,9 +91,12 @@ interface ThreadRow {
   subject: string;
   related: MessageThread['related'];
   repliesEnabled: boolean;
+  automated: boolean;
+  archivedAt: string | null;
   createdAt: string;
 }
 interface Store {
+  settings?: MessageSettings;
   threads: ThreadRow[];
   messages: Message[];
   notes: InternalNote[];
@@ -110,6 +123,8 @@ function seed(): Store {
       subject,
       related: null,
       repliesEnabled: true,
+      automated: false,
+      archivedAt: null,
       createdAt: posts[0]?.[2] ?? now(),
       ...extra,
     };
@@ -127,14 +142,20 @@ function seed(): Store {
       });
     }
   };
-  thread(firstClientId, 'Welcome to LVP!', [
+  // The new-client automation's Send client message opened it (the Automations view).
+  thread(
+    firstClientId,
+    'Welcome to LVP!',
     [
-      staff(mockMe),
-      'Welcome to the portal. Send us a message here any time.',
-      '2026-09-20T14:00:00.000Z',
-      false,
+      [
+        staff(mockMe),
+        'Welcome to the portal. Send us a message here any time.',
+        '2026-09-20T14:00:00.000Z',
+        false,
+      ],
     ],
-  ]);
+    { automated: true },
+  );
   thread(firstClientId, 'Follow Up', [
     [
       client(JAMIE),
@@ -180,6 +201,21 @@ function seed(): Store {
   thread('0199b6a1-0000-7000-8000-000000000003', 'Engagement letter', [
     [client(RILEY), 'I signed the letter. What happens next?', '2026-10-06T08:00:00.000Z', false],
   ]);
+  // Archived: out of the active inbox, its history kept (the Archived view).
+  thread(
+    '0199b6a1-0000-7000-8000-000000000003',
+    '2024 Organizer',
+    [
+      [
+        staff(mockStaff),
+        'Your 2024 organizer is attached (sample).',
+        '2025-02-01T15:00:00.000Z',
+        true,
+      ],
+      [client(RILEY), 'Thanks, all done.', '2025-02-03T09:00:00.000Z', true],
+    ],
+    { archivedAt: '2025-03-01T12:00:00.000Z' },
+  );
   const notes: InternalNote[] = [
     InternalNote.parse({
       id: id('0199b6e3', 1),
@@ -208,13 +244,29 @@ function seed(): Store {
 const s = () => (store ??= seed());
 const next = () => (s().seq += 1);
 const inThread = (threadId: string) => s().messages.filter((m) => m.threadId === threadId);
-const matches = (t: ThreadRow, search?: string) => {
+const digitsOf = (v: string) => v.replace(/\D/g, '');
+/** A full phone number in any format, as the API reads it: 7 to 15 digits, else null. */
+const phoneDigits = (search: string) => {
+  const d = digitsOf(search);
+  return /^[+\d\s().-]+$/.test(search) && d.length >= 7 && d.length <= 15 ? d : null;
+};
+/** The subject and text; on the firm side also the client's name, email and phone (MSG-F01). */
+const matches = (t: ThreadRow, search?: string, firm = false) => {
   if (!search) return true;
   const q = search.toLowerCase();
-  return (
+  if (
     t.subject.toLowerCase().includes(q) ||
     inThread(t.id).some((m) => m.body.toLowerCase().includes(q))
-  );
+  )
+    return true;
+  if (!firm) return false;
+  const c = clientFixtures().find((x) => x.id === t.clientId);
+  if (!c) return false;
+  if (c.displayName.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q)) return true;
+  const d = phoneDigits(search);
+  const p = c.phone ? digitsOf(c.phone) : '';
+  if (!d || !p) return false;
+  return d.length >= 10 ? p.slice(-10) === d.slice(-10) : p.includes(d);
 };
 const lastAt = (t: ThreadRow) => inThread(t.id).at(-1)?.createdAt ?? t.createdAt;
 const newestFirst = (a: ThreadRow, b: ThreadRow) => lastAt(b).localeCompare(lastAt(a));
@@ -275,6 +327,8 @@ function firmThread(t: ThreadRow): MessageThread {
         }
       : null,
     unreadCount: msgs.filter((m) => m.direction === 'CLIENT_TO_FIRM' && !m.readAt).length,
+    automated: t.automated,
+    archivedAt: t.archivedAt,
     createdAt: t.createdAt,
   };
 }
@@ -637,6 +691,8 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             subject: r.subject?.trim() || 'A message from your firm',
             related: null,
             repliesEnabled: true,
+            automated: false,
+            archivedAt: null,
             createdAt: now(),
           };
           s().threads.push(t);
@@ -678,6 +734,18 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
   };
 }
 
+/** Messages Settings: the defaults until the first save; texts not set up in mock mode. */
+const settingsOf = (): MessageSettings =>
+  (s().settings ??= {
+    ...MESSAGE_SETTINGS_DEFAULTS,
+    allowedAttachmentTypes: [...MESSAGE_SETTINGS_DEFAULTS.allowedAttachmentTypes],
+    smsReady: false,
+    defaultAssignee: null,
+    timezone: 'America/New_York',
+    updatedAt: null,
+    updatedBy: null,
+  });
+
 /** An in-memory `api.messages`. */
 export function createMessagesMock(options: { role?: MockFirmRole } = {}): MessagesClient {
   const role = options.role ?? 'OWNER';
@@ -699,7 +767,8 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
   const list = (rows: ThreadRow[], query: ListMessageThreadsQuery) => {
     const q = parseInput(ListMessageThreadsQuery, query);
     const kept = rows
-      .filter((t) => matches(t, q.search))
+      .filter((t) => (q.archived ? t.archivedAt !== null : t.archivedAt === null))
+      .filter((t) => matches(t, q.search, true))
       .map(firmThread)
       .filter((t) => !q.unread || t.unreadCount > 0);
     kept.sort((a, b) =>
@@ -734,6 +803,8 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
         subject: b.subject,
         related: b.related ?? null,
         repliesEnabled: b.repliesEnabled ?? true,
+        automated: false,
+        archivedAt: null,
         createdAt: now(),
       };
       s().threads.push(t);
@@ -774,6 +845,36 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
       return { total: items.reduce((sum, x) => sum + x.count, 0), byClient: items };
     },
     outbound: createOutboundMock(role, me),
+    settings: async () => (await mockDelay(), structuredClone(settingsOf())),
+    updateSettings: async (body) => {
+      await mockDelay();
+      const { version, defaultAssigneeUserId, ...change } = parseInput(
+        UpdateMessageSettingsRequest,
+        body,
+      );
+      if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'Forbidden');
+      const current = settingsOf();
+      const assignee =
+        defaultAssigneeUserId === undefined
+          ? current.defaultAssignee
+          : defaultAssigneeUserId === null
+            ? null
+            : teamFixtures()
+                .filter((m) => m.status === 'ACTIVE' && m.user.id === defaultAssigneeUserId)
+                .map((m) => ({ userId: m.user.id, name: m.user.name }))[0];
+      if (assignee === undefined) throw notFound();
+      if (version !== undefined && version !== current.updatedAt)
+        throw fail(409, 'STALE_VERSION', 'Someone saved these settings since you opened them.');
+      const set = Object.fromEntries(Object.entries(change).filter(([, v]) => v !== undefined));
+      s().settings = {
+        ...current,
+        ...set,
+        defaultAssignee: assignee ? { ...assignee } : null,
+        updatedAt: now(),
+        updatedBy: { ...me },
+      };
+      return structuredClone(settingsOf());
+    },
   };
 }
 
@@ -911,6 +1012,8 @@ export function createMyMessagesMock(): MyMessagesClient {
         subject: b.subject,
         related: null,
         repliesEnabled: true,
+        automated: false,
+        archivedAt: null,
         createdAt: now(),
       };
       s().threads.push(t);

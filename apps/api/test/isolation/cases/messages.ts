@@ -124,6 +124,12 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/message-threads/:id/read': { ...thread, body: {} },
   // Found, but the thread's only message is the firm's own: nothing to mark unread.
   'POST /api/v1/business/message-threads/:id/unread': { ...thread, body: {}, expect: 409 },
+  // Messages Settings (R60): the default assignee must be one of the firm's own members.
+  'PATCH /api/v1/business/message-settings': {
+    params: {},
+    bodyIds: { defaultAssigneeUserId: 'adminUser' },
+    body: { notifyUnread: true },
+  },
   'GET /api/v1/portal/:firmSlug/me/messages/:id': thread,
   'POST /api/v1/portal/:firmSlug/me/messages/:id/messages': { ...thread, body: { body: 'Fake' } },
   'POST /api/v1/portal/:firmSlug/me/messages/:id/read': { ...thread, body: {} },
