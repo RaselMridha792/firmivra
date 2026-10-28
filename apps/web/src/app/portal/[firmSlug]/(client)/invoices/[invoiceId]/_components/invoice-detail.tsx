@@ -1,6 +1,6 @@
 'use client';
 
-import type { MyInvoiceDetail } from '@firmivra/types';
+import { type MyInvoiceDetail, PAYMENT_TERM_LABELS } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft, Printer } from 'lucide-react';
 import Link from 'next/link';
@@ -73,6 +73,12 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
             {i.dueOn ? day(i.dueOn) : 'N/A'}
           </dd>
         </div>
+        {i.paymentTerms ? (
+          <div>
+            <dt className="text-muted">Payment Terms</dt>
+            <dd className="text-heading">{PAYMENT_TERM_LABELS[i.paymentTerms]}</dd>
+          </div>
+        ) : null}
         {i.paidAt ? (
           <div>
             <dt className="text-muted">Paid</dt>
@@ -111,6 +117,15 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
           </div>
         ))}
       </dl>
+      {i.notesToClient ? (
+        <p
+          data-testid="notes-to-client"
+          className="rounded-lg bg-canvas p-3 text-sm whitespace-pre-line"
+        >
+          <span className="block text-xs text-muted">Notes</span>
+          {i.notesToClient}
+        </p>
+      ) : null}
       {i.payments.length > 0 ? (
         <section aria-labelledby="payments" className="grid gap-2">
           <h2 id="payments" className="font-display text-xl font-bold text-heading">

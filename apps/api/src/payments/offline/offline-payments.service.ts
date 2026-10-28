@@ -29,7 +29,7 @@ import {
   paidCents,
   processing,
   toDate,
-  toInvoice,
+  invoiceOf,
 } from '../invoices/invoice-view.js';
 import { InvoicesService } from '../invoices/invoices.service.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
@@ -110,7 +110,7 @@ export class OfflinePaymentsService {
       });
       if (known?.invoiceId !== id.toLowerCase()) throw notFound();
       const row = await this.invoices.load(tx, businessId, actor, id);
-      return toInvoice(row, (await firmToday(tx, businessId)).today);
+      return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     });
   }
 
@@ -141,7 +141,7 @@ export class OfflinePaymentsService {
         });
         if (known) {
           if (known.invoiceId !== id.toLowerCase()) throw notFound();
-          return toInvoice(current, today);
+          return await invoiceOf(tx, businessId, current, today);
         }
         if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
         if (processing(current)) throw paymentInProgress();
@@ -199,7 +199,12 @@ export class OfflinePaymentsService {
           );
         }
         recorded = true;
-        return toInvoice(await this.invoices.load(tx, businessId, actor, id), today);
+        return invoiceOf(
+          tx,
+          businessId,
+          await this.invoices.load(tx, businessId, actor, id),
+          today,
+        );
       }),
     ).catch(async (error: unknown) => {
       if (isUniqueViolation(error)) {
@@ -260,7 +265,7 @@ export class OfflinePaymentsService {
           ...(before.status !== row.status ? { reopened: true } : {}),
         },
       );
-      return toInvoice(row, (await firmToday(tx, businessId)).today);
+      return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     }).catch((error: unknown) => {
       throw mapped(error);
     });

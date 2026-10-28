@@ -66,6 +66,19 @@ export const MessageSender = z.object({
 });
 export type MessageSender = z.infer<typeof MessageSender>;
 
+/**
+ * A file on a message (MSG-F12): a document of the client's vault, opened through Documents (a
+ * short download link, only once the scan passed). CHECKING while it is still being scanned.
+ */
+export const MessageAttachment = z.object({
+  documentId: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int().min(0),
+  status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+});
+export type MessageAttachment = z.infer<typeof MessageAttachment>;
+
 /** A message as the firm sees it. */
 export const Message = z.object({
   id: z.uuid(),
@@ -78,6 +91,8 @@ export const Message = z.object({
    * read receipt: when the client read it. On the client's, when the firm read it.
    */
   readAt: DateTime.nullable(),
+  /** Its files (MSG-F12), oldest first. */
+  attachments: z.array(MessageAttachment),
   createdAt: DateTime,
 });
 export type Message = z.infer<typeof Message>;
@@ -150,9 +165,29 @@ export const CreateMessageThreadRequest = z.strictObject({
 });
 export type CreateMessageThreadRequest = z.input<typeof CreateMessageThreadRequest>;
 
-/** POST /business/message-threads/{id}/messages and POST /portal/{slug}/me/messages/{id}/messages. */
+/** POST /portal/{slug}/me/messages/{id}/messages: the client's reply. */
 export const SendMessageRequest = z.strictObject({ body: MessageBody });
 export type SendMessageRequest = z.input<typeof SendMessageRequest>;
+
+/** The most files one reply carries (MSG-F12). */
+export const MESSAGE_ATTACHMENTS_MAX = 10;
+
+/**
+ * POST /business/message-threads/{id}/messages: the firm's reply, with up to 10 of the thread
+ * client's documents the client can see (shared, or their own uploads; never an internal one).
+ * The firm's Messages Settings decide the file types and the size.
+ */
+export const SendFirmMessageRequest = z.strictObject({
+  body: MessageBody,
+  documentIds: z
+    .array(z.uuid())
+    .max(MESSAGE_ATTACHMENTS_MAX, `Attach up to ${MESSAGE_ATTACHMENTS_MAX} files`)
+    .refine((ids) => new Set(ids.map((i) => i.toLowerCase())).size === ids.length, {
+      message: 'Attach each file once',
+    })
+    .optional(),
+});
+export type SendFirmMessageRequest = z.input<typeof SendFirmMessageRequest>;
 
 /** PATCH /business/message-threads/{id}: close or reopen the client's replies. */
 export const UpdateMessageThreadRequest = z.strictObject({ repliesEnabled: z.boolean() });
@@ -222,6 +257,8 @@ export const MyMessage = z.object({
   body: z.string(),
   /** Only on the firm's messages: unread until the client opens or marks it read. */
   unread: z.boolean(),
+  /** The files this login may open (My Documents' own rule), oldest first. */
+  attachments: z.array(MessageAttachment),
   createdAt: DateTime,
 });
 export type MyMessage = z.infer<typeof MyMessage>;

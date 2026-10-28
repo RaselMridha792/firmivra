@@ -3,8 +3,10 @@ import type { Prisma, TxClient } from '@firmivra/db';
 import {
   type FirmInvoicePayment,
   type Invoice,
+  PaymentTerm,
   type InvoiceListItem,
   type InvoicePayment,
+  invoiceDueState,
   isInvoiceOverdue,
   MY_INVOICE_SECTIONS,
   type MyInvoice,
@@ -99,6 +101,9 @@ export const invoiceSelect = {
   paidAt: true,
   canceledAt: true,
   cancelReason: true,
+  paymentTerms: true,
+  notesToClient: true,
+  internalNote: true,
   createdAt: true,
   updatedAt: true,
   client: { select: { id: true, displayName: true } },
@@ -235,7 +240,11 @@ export const amountDetail = (row: InvoiceRow) => ({
   refundedCents: money(row).refundedCents,
 });
 
-export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
+export function toListItem(
+  row: InvoiceRow,
+  today: string,
+  sentAt: string | null = null,
+): InvoiceListItem {
   const state = stateOf(row);
   return {
     id: row.id,
@@ -251,6 +260,11 @@ export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
     scheduledFor: state.scheduledFor,
     dueOn: state.dueOn,
     overdue: isInvoiceOverdue(state, today),
+    dueState: invoiceDueState(
+      { status: row.status, dueOn: state.dueOn, balanceDueCents: money(row).balanceDueCents },
+      today,
+    ),
+    sentAt,
     issuedAt: state.issuedAt,
     paidAt: iso(row.paidAt),
     canceledAt: iso(row.canceledAt),
@@ -259,9 +273,9 @@ export function toListItem(row: InvoiceRow, today: string): InvoiceListItem {
   };
 }
 
-export function toInvoice(row: InvoiceRow, today: string): Invoice {
+export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null = null): Invoice {
   return {
-    ...toListItem(row, today),
+    ...toListItem(row, today, sentAt),
     ...amountDetail(row),
     payments: shownPayments(row).map(toFirmPayment),
     offlinePayments: row.offlinePayments.map(toOffline),
@@ -269,8 +283,14 @@ export function toInvoice(row: InvoiceRow, today: string): Invoice {
     createdBy: row.createdBy
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
       : null,
+    paymentTerms: termOf(row.paymentTerms),
+    notesToClient: row.notesToClient,
+    internalNote: row.internalNote,
   };
 }
+
+/** A stored terms code the contract knows, or null (an older or unknown one shows none). */
+const termOf = (code: string | null) => PaymentTerm.safeParse(code).data ?? null;
 
 /** The client's view of an invoice, or null when the portal never shows it (a draft). */
 export function toMyInvoice(
@@ -309,6 +329,9 @@ export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDe
   return {
     ...mine,
     ...amountDetail(row),
+    // The client's: the terms and the note to them. Never `internalNote`.
+    paymentTerms: termOf(row.paymentTerms),
+    notesToClient: row.notesToClient,
     payments: shownPayments(row).map(toPayment),
     // Live ones only, and only their method, amount and day.
     offlinePayments: live(row).map((o) => ({
@@ -319,4 +342,44 @@ export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDe
       receivedOn: day(o.receivedOn) ?? '',
     })),
   };
+}
+
+/**
+ * IP-F07: when each invoice was actually dispatched: the first time its `invoice.sent` email to
+ * the client was sent (the outbox's sent time). Invoices never dispatched are left out.
+ */
+export async function dispatchTimes(
+  tx: TxClient,
+  businessId: string,
+  invoiceIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (invoiceIds.length === 0) return out;
+  const sent = await tx.notificationDelivery.findMany({
+    where: {
+      businessId,
+      channel: 'EMAIL',
+      status: 'SENT',
+      sentAt: { not: null },
+      notification: { type: 'invoice.sent', entityType: 'invoice', entityId: { in: invoiceIds } },
+    },
+    select: { sentAt: true, notification: { select: { entityId: true } } },
+  });
+  for (const d of sent) {
+    const at = d.sentAt!.toISOString();
+    const known = out.get(d.notification.entityId);
+    if (!known || at < known) out.set(d.notification.entityId, at);
+  }
+  return out;
+}
+
+/** The invoice as the firm sees it, with its dispatch time. */
+export async function invoiceOf(
+  tx: TxClient,
+  businessId: string,
+  row: InvoiceRow,
+  today: string,
+): Promise<Invoice> {
+  const sentAt = (await dispatchTimes(tx, businessId, [row.id])).get(row.id) ?? null;
+  return toInvoice(row, today, sentAt);
 }

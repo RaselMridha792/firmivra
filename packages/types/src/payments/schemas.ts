@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.js';
+import { PaymentTerm } from './preferences.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
 // Invoices, and the firm's Invoices page); the client pays it by card on Stripe's hosted checkout
@@ -118,6 +119,29 @@ export function myInvoiceStatus(invoice: InvoiceState, today: string): MyInvoice
 /** Open and past its due date on `today` (the firm's calendar). */
 export const isInvoiceOverdue = (invoice: InvoiceState, today: string): boolean =>
   invoice.status === 'OPEN' && invoice.dueOn !== null && invoice.dueOn < today;
+
+// ---------- IP-F06: the firm's due rules (Octavia, Oct 27) ----------
+/**
+ * How near an open invoice with a balance is to its due date, on the firm's calendar: Due Soon
+ * 7 to 2 days before, Due Tomorrow the day before, Due Today on the day, Overdue from the next
+ * midnight. Earlier than 7 days, and a paid, canceled, draft or scheduled invoice, have none.
+ */
+export const InvoiceDueState = z.enum(['DUE_SOON', 'DUE_TOMORROW', 'DUE_TODAY', 'OVERDUE']);
+export type InvoiceDueState = z.infer<typeof InvoiceDueState>;
+
+export function invoiceDueState(
+  invoice: { status: InvoiceStatus; dueOn: string | null; balanceDueCents: number },
+  today: string,
+): InvoiceDueState | null {
+  if (invoice.status !== 'OPEN' || invoice.balanceDueCents <= 0 || !invoice.dueOn) return null;
+  const days = Math.round(
+    (Date.parse(`${invoice.dueOn}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000,
+  );
+  if (days < 0) return 'OVERDUE';
+  if (days === 0) return 'DUE_TODAY';
+  if (days === 1) return 'DUE_TOMORROW';
+  return days <= DUE_SOON_DAYS ? 'DUE_SOON' : null;
+}
 
 // ---------- Amounts (computed by the database; these only preview them) ----------
 /** One line's amount: quantity x unit amount, rounded to cents half up, as the database does. */
@@ -302,6 +326,14 @@ export const InvoiceListItem = z.object({
   dueOn: CalendarDate.nullable(),
   /** Open and past its due date (the firm's calendar). */
   overdue: z.boolean(),
+  /** IP-F06: Due Soon, Due Tomorrow, Due Today or Overdue on the firm's calendar, or null. */
+  dueState: InvoiceDueState.nullable(),
+  /**
+   * IP-F07: when the invoice was actually dispatched: its email went to the client (the email's
+   * sent time). Null until then: pressing Send, or a scheduled day, is not a dispatch. Kept once
+   * set, whatever the invoice becomes (paid, overdue).
+   */
+  sentAt: DateTime.nullable(),
   /** When it opened (sent, or its scheduled day came). */
   issuedAt: DateTime.nullable(),
   paidAt: DateTime.nullable(),
@@ -321,6 +353,10 @@ export const Invoice = InvoiceListItem.extend({
   /** The firm's reason; never shown to the client. */
   cancelReason: z.string().nullable(),
   createdBy: MemberRef.nullable(),
+  paymentTerms: PaymentTerm.nullable(),
+  notesToClient: z.string().nullable(),
+  /** The firm's own note: only firm routes return it. */
+  internalNote: z.string().nullable(),
 });
 export type Invoice = z.infer<typeof Invoice>;
 
@@ -383,6 +419,8 @@ export const InvoiceList = z.object({
    * portal hides Pay Now); say so on the Invoices page. Invoices can still be created and sent.
    */
   paymentsEnabled: z.boolean(),
+  /** IP-F06: the firm's calendar date now: every date rule on the screens counts from it. */
+  today: CalendarDate,
 });
 export type InvoiceList = z.infer<typeof InvoiceList>;
 
@@ -406,6 +444,14 @@ const LineInput = z.strictObject({
   unitAmountCents: Amount,
 });
 
+/** A note on an invoice: up to 1,000 characters; empty is none. */
+const InvoiceNote = z
+  .string()
+  .trim()
+  .max(1000, 'Use 1,000 characters or fewer')
+  .transform((v) => v || null)
+  .nullable();
+
 /** A draft's fields: what create takes (with the client) and what update replaces. */
 const DraftFields = {
   /** One of this client's services (an engagement id from api.engagements); null or left out: none. */
@@ -418,6 +464,12 @@ const DraftFields = {
   dueOn: z.iso.date('Choose a due date'),
   /** A later day makes `send` schedule it (Upcoming) to open that day; left out, it opens when sent. */
   scheduledFor: CalendarDate.nullable().optional(),
+  /** IP-F02: the terms shown to the client (the due date stays the one sent). */
+  paymentTerms: PaymentTerm.nullable().optional(),
+  /** IP-F02: shown to the client on the invoice. */
+  notesToClient: InvoiceNote.optional(),
+  /** IP-F02: the firm's own; never in the client's invoice, PDF, email or portal. */
+  internalNote: InvoiceNote.optional(),
 };
 
 type DraftBody = {
@@ -593,6 +645,9 @@ export type MyInvoice = z.infer<typeof MyInvoice>;
 /** GET /portal/{firmSlug}/me/invoices/{id} ("View"): lines, totals and the payment history. */
 export const MyInvoiceDetail = MyInvoice.extend({
   ...AmountDetail,
+  /** The firm's terms and notes for the client (IP-F02); the firm's internal note never comes. */
+  paymentTerms: PaymentTerm.nullable(),
+  notesToClient: z.string().nullable(),
   /** Newest first. */
   payments: z.array(InvoicePayment),
   /** Check and cash payments the firm recorded, live ones only; newest first. */
