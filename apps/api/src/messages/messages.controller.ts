@@ -16,6 +16,7 @@ import {
   type MyMessageThread,
   type MyMessageThreadDetail,
   type MyMessageThreadList,
+  SendFirmMessageRequest,
   SendMessageRequest,
   type UnreadCount,
   UpdateMessageThreadRequest,
@@ -30,6 +31,7 @@ import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 const clientPipe = new ZodValidationPipe(ClientId);
 const idPipe = new ZodValidationPipe(MessageThreadId);
 const sendPipe = new ZodValidationPipe(SendMessageRequest);
+const firmSendPipe = new ZodValidationPipe(SendFirmMessageRequest);
 
 export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
@@ -128,9 +130,15 @@ export class MessageThreadsController {
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Body(sendPipe) body: z.output<typeof SendMessageRequest>,
+    @Body(firmSendPipe) body: z.output<typeof SendFirmMessageRequest>,
   ): Promise<Message> {
-    return this.messages.send(tenant.businessId, actorOf(auth, tenant), id, body.body);
+    return this.messages.send(
+      tenant.businessId,
+      actorOf(auth, tenant),
+      id,
+      body.body,
+      body.documentIds,
+    );
   }
 
   @Post(':id/read')

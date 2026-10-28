@@ -22,6 +22,7 @@ import {
 import {
   ArrowSquareOut,
   CalendarBlank,
+  CalendarCheck,
   ChartBar,
   CheckCircle,
   Coins,
@@ -73,6 +74,7 @@ import {
   VIEW_CHART,
   VIEW_LABEL,
   VIEW_ORDER,
+  inView,
   type InvoiceView,
   viewOf,
   ViewPill,
@@ -93,6 +95,8 @@ export function InvoicesOverview({
 } = {}) {
   const all = useAllInvoices();
   const items = useMemo(() => all.data?.items ?? [], [all.data]);
+  // IP-F06: the firm's calendar date from the API (the browser's only until it loads).
+  const today = all.data?.today ?? localToday();
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="invoices-page">
@@ -111,12 +115,12 @@ export function InvoicesOverview({
           Showing the newest {items.length} invoices; older ones are not counted here.
         </p>
       ) : null}
-      <Kpis items={items} loading={all.isPending} ready={!!all.data} />
+      <Kpis items={items} today={today} loading={all.isPending} ready={!!all.data} />
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="flex min-w-0 flex-col gap-5">
           <div className="grid min-w-0 gap-5 lg:grid-cols-3">
-            <ActivityChart items={items} />
-            <StatusChart items={items} />
+            <ActivityChart items={items} today={today} />
+            <StatusChart items={items} today={today} />
             <MethodsChart />
           </div>
           <InvoiceTable
@@ -183,9 +187,6 @@ const shiftMonth = (ym: string, by: number) => {
   const d = new Date(Date.UTC(y, m - 1 + by, 1));
   return d.toISOString().slice(0, 7);
 };
-const addDays = (date: string, days: number) =>
-  new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-
 /** "12%" up or down against last month; none when last month had nothing to compare. */
 function trendOf(now: number, before: number, goodWhenUp: boolean): KpiTrend | undefined {
   if (before <= 0) return undefined;
@@ -200,16 +201,18 @@ function trendOf(now: number, before: number, goodWhenUp: boolean): KpiTrend | u
 
 function Kpis({
   items,
+  today,
   loading,
   ready,
 }: {
   items: InvoiceListItem[];
+  /** The firm's calendar date (IP-F06). */
+  today: string;
   loading: boolean;
   /** False when the invoices did not load: every tile shows a dash, never a made-up $0. */
   ready: boolean;
 }) {
   const show = (cents: number) => (ready ? moneyWhole(cents) : '—');
-  const today = localToday();
   const thisMonth = monthOf(today);
   const lastMonth = shiftMonth(thisMonth, -1);
   const open = items.filter((i) => i.status === 'OPEN');
@@ -220,14 +223,15 @@ function Kpis({
       items.filter((i) => i.status === 'PAID' && i.paidAt && monthOf(i.paidAt) === ym),
       (i) => i.totalCents,
     );
-  const overdue = open.filter((i) => i.overdue);
-  const soonEnd = addDays(today, DUE_SOON_DAYS);
-  const dueSoon = open.filter((i) => !i.overdue && i.dueOn && i.dueOn <= soonEnd);
+  // IP-F06: the firm's due rules, as the API works them out on the firm's calendar.
+  const overdue = open.filter((i) => i.dueState === 'OVERDUE');
+  const dueToday = open.filter((i) => i.dueState === 'DUE_TODAY');
+  const dueSoon = open.filter((i) => i.dueState === 'DUE_SOON');
   const count = (n: number) => `${n} invoice${n === 1 ? '' : 's'}`;
   return (
     <section
       aria-label="Invoice totals"
-      className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+      className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6"
       data-testid="invoice-kpis"
     >
       <KpiCard
@@ -256,11 +260,19 @@ function Kpis({
         loading={loading}
       />
       <KpiCard
+        icon={CalendarCheck}
+        tone="amber"
+        value={show(sum(dueToday, (i) => i.balanceDueCents))}
+        label="Due Today"
+        note={ready ? count(dueToday.length) : undefined}
+        loading={loading}
+      />
+      <KpiCard
         icon={CalendarBlank}
         tone="amber"
         value={show(sum(dueSoon, (i) => i.balanceDueCents))}
         label="Due Soon"
-        note={`next ${DUE_SOON_DAYS} days`}
+        note={`${DUE_SOON_DAYS} to 2 days`}
         loading={loading}
       />
       <KpiCard
@@ -282,8 +294,8 @@ const SERIES = [
 ] as const;
 
 /** Invoice Activity: by month of the chosen year, the amounts sent, paid and now overdue. */
-function ActivityChart({ items }: { items: InvoiceListItem[] }) {
-  const year = Number(localToday().slice(0, 4));
+function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: string }) {
+  const year = Number(today.slice(0, 4));
   const [chosen, setChosen] = useState(year);
   const months = MONTHS.map((_, m) => `${chosen}-${String(m + 1).padStart(2, '0')}`);
   const at = (ym: string) => ({
@@ -372,9 +384,9 @@ function ActivityChart({ items }: { items: InvoiceListItem[] }) {
 }
 
 /** Payment Status: how many invoices are in each status. */
-function StatusChart({ items }: { items: InvoiceListItem[] }) {
+function StatusChart({ items, today }: { items: InvoiceListItem[]; today: string }) {
   const [range, setRange] = useState<'all' | 'year'>('all');
-  const year = localToday().slice(0, 4);
+  const year = today.slice(0, 4);
   const list = range === 'all' ? items : items.filter((i) => invoiceDay(i).startsWith(year));
   const segments = VIEW_ORDER.map((v) => ({
     label: VIEW_LABEL[v],
@@ -482,7 +494,15 @@ function MethodsChart() {
 type Tab = 'ALL' | InvoiceView;
 
 /** The views of an OPEN invoice: unpaid, whether due later, soon or overdue. */
-const OUTSTANDING_VIEWS: readonly string[] = ['SENT', 'PARTIALLY_PAID', 'DUE_SOON', 'OVERDUE'];
+const OUTSTANDING_VIEWS: readonly string[] = [
+  'OPEN',
+  'SENT',
+  'PARTIALLY_PAID',
+  'DUE_SOON',
+  'DUE_TOMORROW',
+  'DUE_TODAY',
+  'OVERDUE',
+];
 
 function InvoiceTable({
   items,
@@ -527,13 +547,13 @@ function InvoiceTable({
       (!status ||
         (status === 'OUTSTANDING'
           ? OUTSTANDING_VIEWS.includes(viewOf(i))
-          : viewOf(i) === status)) &&
+          : inView(i, status as InvoiceView))) &&
       (!from || day >= from) &&
       (!to || day <= to) &&
       (!term || `${i.number} ${i.client.displayName} ${i.title}`.toLowerCase().includes(term))
     );
   });
-  const rows = tab === 'ALL' ? filtered : filtered.filter((i) => viewOf(i) === tab);
+  const rows = tab === 'ALL' ? filtered : filtered.filter((i) => inView(i, tab));
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages);
   const shown = rows.slice((current - 1) * size, current * size);
@@ -542,7 +562,7 @@ function InvoiceTable({
     ...VIEW_ORDER.map((v) => ({
       id: v,
       label: VIEW_LABEL[v],
-      count: filtered.filter((i) => viewOf(i) === v).length,
+      count: filtered.filter((i) => inView(i, v)).length,
     })),
   ];
   const clear = () => {

@@ -31,6 +31,7 @@ test('Overview: KPIs, the three charts, tabs with counts, filters and paging', a
     'Total Outstanding',
     'Paid This Month',
     'Overdue',
+    'Due Today',
     'Due Soon',
     'Total Collected',
   ])
@@ -101,6 +102,38 @@ test('Record Payment: part of the overdue invoice, then it shows on the invoice'
   await page.getByRole('button', { name: 'Record Payment' }).click();
   await expect(page.getByTestId('invoice-payments')).toContainText('$25.00');
   await expect(page.getByTestId('invoice-balance')).toHaveText('$200.00');
+});
+
+test('Due rules on the firm’s calendar: the Due Today tab and the tags (IP-F06)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  const tabs = page.getByRole('tablist', { name: 'Invoice views' });
+  for (const name of [/^Due Soon/, /^Due Tomorrow/, /^Due Today/, /^Overdue/])
+    await expect(tabs.getByRole('tab', { name })).toBeVisible();
+  await tabs.getByRole('tab', { name: /^Overdue/ }).click();
+  await expect(page.getByTestId('invoice-row').first()).toContainText('Overdue');
+  await tabs.getByRole('tab', { name: /^Due Today/ }).click();
+  const rows = page.getByTestId('invoice-row');
+  const count = await rows.count();
+  for (let i = 0; i < count; i += 1) await expect(rows.nth(i)).toContainText('Due Today');
+});
+
+test('Sent is its own tag: the Sent tab lists dispatched invoices, overdue too (IP-F07)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByLabel('Search invoices').fill('0098');
+  const tabs = page.getByRole('tablist', { name: 'Invoice views' });
+  await tabs.getByRole('tab', { name: /^Sent/ }).click();
+  const rows = page.getByTestId('invoice-row');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Overdue');
+  await expect(rows.first()).toContainText('Sent');
+  await tabs.getByRole('tab', { name: /^Not Sent/ }).click();
+  await expect(rows).toHaveCount(0);
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {
