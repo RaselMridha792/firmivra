@@ -20,7 +20,10 @@ const firmA = () => db.forBusiness(f.firmA);
 const firmB = () => db.forBusiness(f.firmB);
 const thread = (data: Record<string, unknown>) =>
   firmA().messageThread.create({ data: { ...A(), subject: 'Your consultation', ...data } });
-const post = (threadId: string, direction = 'FIRM_TO_CLIENT') =>
+const post = (
+  threadId: string,
+  direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM' = 'FIRM_TO_CLIENT',
+) =>
   firmA().message.create({
     data: { ...A(), threadId, senderUserId: staff, direction, body: 'Thanks for reaching out' },
   });
