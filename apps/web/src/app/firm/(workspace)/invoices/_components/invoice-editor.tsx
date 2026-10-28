@@ -48,9 +48,17 @@ interface LineDraft {
   description: string;
   quantity: string;
   rate: string;
+  /** The Services & Pricing offering the line came from; '' for a custom one-time item. */
+  serviceId: string;
 }
 let nextKey = 1;
-const blankLine = (): LineDraft => ({ key: nextKey++, description: '', quantity: '1', rate: '' });
+const blankLine = (): LineDraft => ({
+  key: nextKey++,
+  description: '',
+  quantity: '1',
+  rate: '',
+  serviceId: '',
+});
 const centsText = (cents: number) => (cents / 100).toFixed(2);
 
 /**
@@ -109,6 +117,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
           description: l.description,
           quantity: String(l.quantity),
           rate: centsText(l.unitAmountCents),
+          serviceId: '',
         }))
       : [blankLine()],
   );
@@ -137,6 +146,36 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const services = useApiQuery(['engagements', clientId], () =>
     clientId ? api.engagements.listForClient(clientId) : Promise.resolve([]),
   );
+  // IP-F01: every active offering the member may see in Services & Pricing, for any client; the
+  // client's assigned ones first and marked. A member without Services & Pricing gets custom
+  // lines only.
+  const catalog = useApiQuery(['catalog-services', 'invoice-lines'], () =>
+    api.servicesPricing.services({ status: 'active', pageSize: 100, sort: 'name' }),
+  );
+  const [categoryId, setCategoryId] = useState('');
+  const assigned = new Set((services.data ?? []).map((s) => s.service.id));
+  const offerings = [...(catalog.data?.items ?? [])].sort(
+    (a, b) => Number(assigned.has(b.id)) - Number(assigned.has(a.id)),
+  );
+  const categories = [
+    ...new Map(
+      offerings.flatMap((o) => (o.category ? [[o.category.id, o.category.name] as const] : [])),
+    ),
+  ];
+  const pickable = offerings.filter((o) => !categoryId || o.category?.id === categoryId);
+  /** Fills the line from the offering: its name and short description, and its price. */
+  const pick = (key: number, serviceId: string) => {
+    const o = offerings.find((x) => x.id === serviceId);
+    update(key, {
+      serviceId,
+      ...(o
+        ? {
+            description: o.shortDescription ? `${o.name} — ${o.shortDescription}` : o.name,
+            ...(o.price.amountCents === null ? {} : { rate: centsText(o.price.amountCents) }),
+          }
+        : {}),
+    });
+  };
 
   const parsed = lines.map((l) => ({
     description: l.description.trim(),
@@ -327,6 +366,29 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
             <h2 id="inv-lines" className="mb-3 font-display text-xl font-bold text-heading">
               Line Items
             </h2>
+            {catalog.isError ? (
+              <p className="mb-3 text-sm text-muted">
+                Services & Pricing isn&apos;t available to you: type each item.
+              </p>
+            ) : (
+              <div className="mb-3 flex flex-wrap items-end gap-3">
+                <div className="w-56">
+                  <Select
+                    label="Service category"
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    options={[
+                      { value: '', label: 'All categories' },
+                      ...categories.map(([id, name]) => ({ value: id, label: name })),
+                    ]}
+                  />
+                </div>
+                <p className="max-w-xl text-xs text-muted">
+                  Pick a service to fill a line with its details and price, or type a custom item. A
+                  custom item is for this invoice only; add lasting services in Services & Pricing.
+                </p>
+              </div>
+            )}
             <ol className="flex flex-col gap-3">
               {lines.map((l, i) => (
                 <li
@@ -334,6 +396,24 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   className="grid gap-3 rounded-lg border border-divider p-3 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_7rem_auto] sm:items-start"
                   data-testid="invoice-line"
                 >
+                  {catalog.isError ? null : (
+                    <div className="sm:col-span-5">
+                      <Select
+                        label={`Service ${i + 1}`}
+                        value={l.serviceId}
+                        onChange={(e) => pick(l.key, e.target.value)}
+                        options={[
+                          { value: '', label: 'Custom item' },
+                          ...pickable.map((o) => ({
+                            value: o.id,
+                            label: `${o.name}${assigned.has(o.id) ? ' (assigned to this client)' : ''}${
+                              o.price.amountCents === null ? ' · custom quote' : ''
+                            }`,
+                          })),
+                        ]}
+                      />
+                    </div>
+                  )}
                   <Textarea
                     label={`Description ${i + 1} *`}
                     rows={2}

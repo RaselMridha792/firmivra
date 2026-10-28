@@ -343,6 +343,42 @@ export const ListInvoicesQuery = z.strictObject({
 });
 export type ListInvoicesQuery = z.input<typeof ListInvoicesQuery>;
 
+// ---------- IP-F20: Payment Methods (Octavia, Oct 27) ----------
+/** How money came in: Stripe's card and bank (ACH) payments and the firm's recorded ones. */
+export const PaymentMethodKey = z.enum(['CARD', 'ACH', 'CASH', 'CHECK', 'OTHER']);
+export type PaymentMethodKey = z.infer<typeof PaymentMethodKey>;
+export const PAYMENT_METHOD_LABELS: Readonly<Record<PaymentMethodKey, string>> = {
+  CARD: 'Card',
+  ACH: 'ACH',
+  CASH: 'Cash',
+  CHECK: 'Check',
+  OTHER: 'Other',
+};
+
+/** GET /business/invoices/payment-methods: both days included, the firm's calendar; this year by default. */
+export const PaymentMethodsQuery = z
+  .strictObject({ from: CalendarDate.optional(), to: CalendarDate.optional() })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, {
+    message: 'The start date is after the end date',
+    path: ['to'],
+  });
+export type PaymentMethodsQuery = z.input<typeof PaymentMethodsQuery>;
+
+/**
+ * The money collected in the range, by method: Stripe payments that succeeded, less their
+ * confirmed refunds, and recorded payments that were not voided. Staff: their clients only. A
+ * method with nothing is left out.
+ */
+export const PaymentMethodsSummary = z.object({
+  from: CalendarDate,
+  to: CalendarDate,
+  items: z.array(
+    z.object({ method: PaymentMethodKey, amountCents: z.number().int(), count: z.number().int() }),
+  ),
+  totalCents: z.number().int(),
+});
+export type PaymentMethodsSummary = z.infer<typeof PaymentMethodsSummary>;
+
 export const InvoiceList = z.object({
   items: z.array(InvoiceListItem).max(100),
   /** Null on the last page. */

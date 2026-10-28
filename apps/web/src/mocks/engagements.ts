@@ -4,6 +4,7 @@ import {
   CancelEngagementRequest,
   ClientId,
   CreateEngagementRequest,
+  StopFutureBillingRequest,
   Engagement,
   EngagementId,
   type EngagementsClient,
@@ -69,6 +70,8 @@ const fixture = (n: number, data: Partial<Engagement> & { title: string }): Enga
     billingInterval: 'ONE_TIME',
     recurring: false,
     nextBillingOn: null,
+    stopFutureBilling: false,
+    billingStopsOn: null,
     assignedTo: mockStaff,
     completedAt: null,
     cancelRequestedAt: null,
@@ -191,6 +194,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
   let nextId = 100;
   const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
   /** SH4, SH6: a Payroll or Bookkeeping mock client's engagement, as a record. */
+  const billingStops = new Map<string, Pick<Engagement, 'stopFutureBilling' | 'billingStopsOn'>>();
   const serviceRecord = (e: ServiceMockEngagement) =>
     Engagement.parse({
       ...structuredClone(engagementFixtures()[0]!),
@@ -200,6 +204,10 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       taxYear: null,
       status: 'ACTIVE',
       service: ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
+      billingInterval: 'MONTHLY',
+      recurring: true,
+      nextBillingOn: addDays(today(), 20),
+      ...billingStops.get(e.id),
     });
   return {
     listForClient: async (clientId, query = {}) => {
@@ -283,6 +291,28 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         cancellationReason: reason,
         updatedAt: now(),
       });
+    },
+    // SH10: Owner and Admin record Stop Future Billing; nothing is invoiced or refunded.
+    stopBilling: async (id, body) => {
+      await pause();
+      if (options.role === 'STAFF') throw forbidden();
+      const key = parseInput(EngagementId, id);
+      const b = parseInput(StopFutureBillingRequest, body);
+      const extra = serviceMockEngagement(key);
+      const row = extra ? serviceRecord(extra) : find(key);
+      if (!row.recurring)
+        throw fail(409, 'NOT_RECURRING', 'A one-time service has no future billing');
+      const stopsOn = b.stop ? (b.stopsOn ?? row.nextBillingOn) : null;
+      if (b.stop && !stopsOn) throw fail(409, 'NO_BILLING_DATE', 'Choose the date billing stops');
+      if (stopsOn && stopsOn < today()) {
+        throw fail(409, 'DATE_IN_PAST', 'Billing can stop today or later');
+      }
+      const next = { stopFutureBilling: b.stop, billingStopsOn: stopsOn };
+      if (extra) {
+        billingStops.set(key, next);
+        return serviceRecord(extra);
+      }
+      return save({ ...row, ...next });
     },
     reactivate: async (id) => {
       await pause();

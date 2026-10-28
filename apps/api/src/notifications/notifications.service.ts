@@ -102,12 +102,15 @@ const CLIENT_OF: Partial<Record<NotificationTargetKind, ClientIds>> = {
         select: { id: true, clientId: true },
       }),
     ),
+  // A lead's thread (r1_message_thread_lead) has no client: it is left out.
   message_thread: async (tx, businessId, ids) =>
     byId(
-      await tx.messageThread.findMany({
-        where: { businessId, id: { in: ids } },
-        select: { id: true, clientId: true },
-      }),
+      (
+        await tx.messageThread.findMany({
+          where: { businessId, id: { in: ids } },
+          select: { id: true, clientId: true },
+        })
+      ).flatMap((t) => (t.clientId ? [{ id: t.id, clientId: t.clientId }] : [])),
     ),
   appointment: async (tx, businessId, ids) =>
     byId(

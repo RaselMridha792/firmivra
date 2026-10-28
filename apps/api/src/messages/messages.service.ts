@@ -274,6 +274,8 @@ export class MessagesService {
       ...[...last.values()].map((m) => m.senderUserId),
     ]);
     return rows.map((t): MessageThread => {
+      // The firm's queries read client threads only; a lead's (r1_message_thread_lead) has no client.
+      if (!t.clientId || !t.client) throw new Error(`message thread ${t.id} has no client`);
       const m = last.get(t.id);
       const starter = t.createdByUserId ? people.get(t.createdByUserId) : undefined;
       return {
@@ -348,7 +350,7 @@ export class MessagesService {
         FOR UPDATE`;
     }
     const row = await tx.messageThread.findFirst({
-      where: { businessId, id, client: this.reach(actor) },
+      where: { businessId, id, clientId: { not: null }, client: this.reach(actor) },
       select: threadSelect,
     });
     if (!row) throw notFound();
@@ -372,7 +374,7 @@ export class MessagesService {
       const rows = await tx.messageThread.findMany({
         where: {
           AND: [
-            { businessId, client: this.reach(actor) },
+            { businessId, clientId: { not: null }, client: this.reach(actor) },
             clientId ? { clientId } : {},
             q.unread ? { messages: { some: { direction: 'CLIENT_TO_FIRM', readAt: null } } } : {},
             { archivedAt: q.archived ? { not: null } : null },
@@ -418,11 +420,16 @@ export class MessagesService {
     return detail;
   }
 
+  /**
+   * A new thread with its first message. `emailNotice: false` (New Message's Email channel, which
+   * emails its own notice to the client's address) keeps the bell item and skips this email.
+   */
   async create(
     businessId: string,
     actor: ClientsActor,
     clientId: string,
     body: CreateBody,
+    options: { emailNotice?: boolean } = {},
   ): Promise<MessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
@@ -475,7 +482,14 @@ export class MessagesService {
       );
       return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
     });
-    await this.notify(businessId, detail.id, detail.messages[0]?.id, actor.userId, 'client', true);
+    await this.notify(
+      businessId,
+      detail.id,
+      detail.messages[0]?.id,
+      actor.userId,
+      'client',
+      options.emailNotice ?? true,
+    );
     return detail;
   }
 

@@ -451,6 +451,7 @@ export class ReportsService {
       | 'quick'
       | 'extraFilters'
       | 'sort'
+      | 'breakdownBy'
       | 'search'
       | 'chartType'
       | 'showDataLabels'
@@ -487,6 +488,21 @@ export class ReportsService {
       if (!f.sortable)
         throw reportErrors.invalidDefinition([
           { path: 'sort.field', message: `${f.label} cannot be sorted` },
+        ]);
+    }
+    if (o.breakdownBy) {
+      const f = r.source.fields.find((x) => x.key === o.breakdownBy);
+      if (!f)
+        throw reportErrors.invalidDefinition([
+          {
+            path: 'breakdownBy',
+            message: `“${o.breakdownBy}” is not a field of ${r.source.label}`,
+          },
+        ]);
+      if (f.sensitive && !ctx.restricted) throw reportErrors.fieldNotAllowed([f.key]);
+      if (!f.groupable)
+        throw reportErrors.invalidDefinition([
+          { path: 'breakdownBy', message: `${f.label} cannot be grouped` },
         ]);
     }
     this.validate(ctx, {
@@ -528,6 +544,7 @@ export class ReportsService {
       filters: filters.length > 0 ? filters : [EMPTY_FILTERS],
       search: o.search,
       sort: o.sort,
+      breakdownBy: o.breakdownBy,
       includeTax: def.includeTaxRevenue || ctx.settings.includeTaxDefault,
       page: o.page,
       pageSize: o.pageSize,

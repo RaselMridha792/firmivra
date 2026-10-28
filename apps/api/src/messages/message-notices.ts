@@ -75,8 +75,9 @@ export class MessageNotices {
       where: { businessId: m.businessId, id: m.threadId },
       select: { clientId: true, client: { select: { assignedUserId: true } } },
     });
-    if (!thread) return;
-    const { clientId } = thread;
+    // A lead's thread (r1_message_thread_lead) has no client to notify.
+    if (!thread?.clientId || !thread.client) return;
+    const { clientId, client } = thread;
     const recipients: {
       to: string;
       name: string;
@@ -100,7 +101,7 @@ export class MessageNotices {
       }
     } else {
       link = linkOn(this.env.APP_BASE_URL, `/clients/${clientId}/messages`);
-      const assigned = thread.client.assignedUserId;
+      const assigned = client.assignedUserId;
       const members = await db.membership.findMany({
         where: {
           businessId: m.businessId,

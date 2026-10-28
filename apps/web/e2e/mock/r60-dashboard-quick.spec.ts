@@ -35,7 +35,9 @@ test('Send a Message opens a new message, and Bulk Email creates nothing until S
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/messages?new=1'));
-  await expect(page.getByRole('dialog', { name: 'New Message' })).toBeVisible({ timeout: 60_000 });
+  // New Message is its own page now (MSG-F09).
+  await expect(page).toHaveURL(/\/messages\/new$/, { timeout: 60_000 });
+  await expect(page.getByTestId('compose')).toBeVisible({ timeout: 60_000 });
 
   await page.goto(app('/communications/new?channel=EMAIL'));
   const start = page.getByTestId('new-communication');

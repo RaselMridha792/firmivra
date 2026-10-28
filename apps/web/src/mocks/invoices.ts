@@ -24,6 +24,8 @@ import {
   OfflinePaymentId,
   parseInput,
   PaymentId,
+  PaymentMethodKey,
+  PaymentMethodsQuery,
   RecordOfflinePaymentRequest,
   RefundPaymentRequest,
   UpdateInvoiceRequest,
@@ -609,6 +611,36 @@ export function createInvoicesMock(
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number.localeCompare(a.number));
       return copy({ ...page(found, q), paymentsEnabled });
+    },
+    // IP-F20: the money collected by method, as the API sums it (mock Stripe payments are card).
+    paymentMethods: async (query = {}) => {
+      await mockDelay();
+      const q = parseInput(PaymentMethodsQuery, query);
+      const now = today();
+      const from = q.from ?? `${now.slice(0, 4)}-01-01`;
+      const to = q.to ?? now;
+      const totals = new Map<PaymentMethodKey, { amountCents: number; count: number }>();
+      const add = (method: PaymentMethodKey, cents: number) => {
+        if (cents <= 0) return;
+        const t = totals.get(method) ?? { amountCents: 0, count: 0 };
+        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + 1 });
+      };
+      for (const r of s.rows.filter(visible)) {
+        for (const p of r.payments) {
+          const on = p.paidAt ? dateOf(p.paidAt) : null;
+          if (p.status !== 'SUCCEEDED' || !on || on < from || on > to) continue;
+          const refunded = p.refunds
+            .filter((x) => x.status === 'SUCCEEDED')
+            .reduce((n, x) => n + x.amountCents, 0);
+          add('CARD', p.amountCents - refunded);
+        }
+        for (const o of live(r))
+          if (o.receivedOn >= from && o.receivedOn <= to) add(o.method, o.amountCents);
+      }
+      const items = PaymentMethodKey.options
+        .filter((m) => totals.has(m))
+        .map((method) => ({ method, ...totals.get(method)! }));
+      return copy({ from, to, items, totalCents: items.reduce((n, i) => n + i.amountCents, 0) });
     },
     get: async (id) => {
       await mockDelay();
