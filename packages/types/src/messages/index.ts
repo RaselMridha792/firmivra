@@ -1,5 +1,6 @@
 export * from './schemas.js';
 export * from './outbound.js';
+export * from './settings.js';
 export {
   createClientNotesClient,
   createMessagesClient,
