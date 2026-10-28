@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from
 import { z } from 'zod';
 import {
   CancelInvoiceRequest,
+  CorrectInvoiceRequest,
   CreateInvoiceRequest,
   type Invoice,
   InvoiceId,
@@ -114,6 +115,20 @@ export class InvoicesController {
     @Body(new ZodValidationPipe(CancelInvoiceRequest)) body: z.output<typeof CancelInvoiceRequest>,
   ): Promise<Invoice> {
     return this.invoices.cancel(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** IP-F08: the dates of a scheduled or unpaid open invoice, with a reason once sent. */
+  @Post(':id/correct')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  correct(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CorrectInvoiceRequest))
+    body: z.output<typeof CorrectInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.invoices.correct(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Put(':id')
