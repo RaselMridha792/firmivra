@@ -172,7 +172,9 @@ export const cases: CaseModule['cases'] = {
   },
   [`POST ${BASE}/clients/:id/plan`]: {
     params: { id: 'payrollClient' },
-    body: { plan: 'Fake plan' },
+    // SH9: the plan is a Services & Pricing payroll service, by id.
+    bodyIds: { catalogServiceId: 'payrollService' },
+    body: {},
   },
   [`GET ${BASE}/clients/:id/changes`]: { params: { id: 'payrollClient' } },
   // Not connected to a provider: found, then refused with a 409.

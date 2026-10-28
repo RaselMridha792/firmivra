@@ -105,6 +105,10 @@ export const MessageThread = z.object({
   lastMessage: LastMessage.nullable(),
   /** The client's messages the firm has not read yet. */
   unreadCount: z.number().int().min(0),
+  /** An automation opened it (Send client message): the Automations view. */
+  automated: z.boolean(),
+  /** Archived: out of the active inbox, its history kept (null: active). */
+  archivedAt: DateTime.nullable(),
   createdAt: DateTime,
 });
 export type MessageThread = z.infer<typeof MessageThread>;
@@ -116,12 +120,14 @@ export type MessageThreadDetail = z.infer<typeof MessageThreadDetail>;
 /**
  * GET /business/message-threads (the inbox: every thread the caller may see) and
  * GET /business/clients/{id}/message-threads (one client's). Newest activity first. `search`
- * matches the subject and the messages' text; `unread=true` keeps threads with unread client
- * messages.
+ * matches the subject, the messages' text and the client's name and email, and a phone number by
+ * its digits whatever the format (MSG-F01); `unread=true` keeps threads with unread client
+ * messages; `archived=true` lists only archived threads, otherwise only active ones.
  */
 export const ListMessageThreadsQuery = z.strictObject({
   search: SearchText.optional(),
   unread: Bool.optional(),
+  archived: Bool.optional(),
   ...Page,
 });
 export type ListMessageThreadsQuery = z.input<typeof ListMessageThreadsQuery>;
