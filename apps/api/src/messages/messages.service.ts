@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -6,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
+import { MESSAGE_SETTINGS_DEFAULTS } from '@firmivra/types';
 import type {
   CreateMessageThreadRequest,
   CreateMyMessageThreadRequest,
@@ -13,6 +15,7 @@ import type {
   ListMessageThreadsQuery,
   ListMyMessagesQuery,
   Message,
+  MessageAttachment,
   MessageDirection,
   MessageSender,
   MessageThread,
@@ -45,6 +48,8 @@ const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not 
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
 const repliesClosed = () => conflict('REPLIES_CLOSED', 'Replies are closed on this thread');
 const nothingToMark = () => conflict('NOTHING_TO_MARK', 'There is no message to mark unread');
+const badRequest = (code: string, message: string) => new BadRequestException({ code, message });
+const MB = 1024 * 1024;
 const CHECK_VIOLATION = '23514';
 const EXCERPT = 140;
 
@@ -72,8 +77,36 @@ const messageSelect = {
   body: true,
   readAt: true,
   createdAt: true,
+  attachments: {
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: {
+      document: {
+        select: {
+          id: true,
+          fileName: true,
+          contentType: true,
+          sizeBytes: true,
+          scanStatus: true,
+          direction: true,
+          uploadedByUserId: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.MessageSelect;
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof messageSelect }>;
+type AttachedDocument = MessageRow['attachments'][number]['document'];
+/** A thread's latest message, for list rows: no files. */
+type LastRow = Omit<MessageRow, 'attachments'>;
+
+/** A message's file as both sides show it; the download link is Documents' own (CLEAN only). */
+const attachment = (d: AttachedDocument): MessageAttachment => ({
+  documentId: d.id,
+  fileName: d.fileName,
+  contentType: d.contentType,
+  sizeBytes: d.sizeBytes,
+  status: d.scanStatus === 'CLEAN' ? 'READY' : d.scanStatus === 'PENDING' ? 'CHECKING' : 'BLOCKED',
+});
 
 /** Names of the people who write in this firm: staff by membership, clients by portal login. */
 type People = Map<string, { kind: MessageSender['kind']; name: string }>;
@@ -202,7 +235,7 @@ export class MessagesService {
 
   /** The latest message of each thread, with no more than one row per thread. */
   private async lastMessages(tx: TxClient, businessId: string, threadIds: string[]) {
-    if (threadIds.length === 0) return new Map<string, MessageRow>();
+    if (threadIds.length === 0) return new Map<string, LastRow>();
     const rows = await tx.$queryRaw<
       {
         id: string;
@@ -218,7 +251,7 @@ export class MessagesService {
       FROM messages
       WHERE business_id = ${businessId}::uuid AND thread_id = ANY(${threadIds}::uuid[])
       ORDER BY thread_id, created_at DESC, id DESC`;
-    return new Map<string, MessageRow>(
+    return new Map<string, LastRow>(
       rows.map((r) => [
         r.thread_id,
         {
@@ -332,6 +365,7 @@ export class MessagesService {
       sender: this.sender(people, m.senderUserId, m.direction),
       body: m.body,
       readAt: m.readAt?.toISOString() ?? null,
+      attachments: m.attachments.map((a) => attachment(a.document)),
       createdAt: m.createdAt.toISOString(),
     };
   }
@@ -493,7 +527,13 @@ export class MessagesService {
     return detail;
   }
 
-  async send(businessId: string, actor: ClientsActor, id: string, body: string): Promise<Message> {
+  async send(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: string,
+    documentIds: readonly string[] = [],
+  ): Promise<Message> {
     const sent = await this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
       // The same lock as a client reply: two messages on one thread queue, so only the first of
@@ -508,8 +548,9 @@ export class MessagesService {
           direction: 'FIRM_TO_CLIENT',
           body,
         },
-        select: messageSelect,
+        select: { id: true },
       });
+      const attached = await this.attach(tx, businessId, t.clientId, row.id, documentIds);
       await this.audit.logIn(
         tx,
         'message.sent',
@@ -517,12 +558,17 @@ export class MessagesService {
         {
           threadId: t.id,
           clientId: t.clientId,
+          ...(attached.length ? { documentIds: attached } : {}),
         },
       );
+      const sent = await tx.message.findUniqueOrThrow({
+        where: { id: row.id },
+        select: messageSelect,
+      });
       return {
         threadId: t.id,
         email,
-        message: this.toMessage(await this.people(tx, businessId, [actor.userId]), row),
+        message: this.toMessage(await this.people(tx, businessId, [actor.userId]), sent),
       };
     });
     await this.notify(
@@ -534,6 +580,63 @@ export class MessagesService {
       sent.email,
     );
     return sent.message;
+  }
+
+  /**
+   * MSG-F12: files on the firm's reply are the thread client's own documents that the client can
+   * see (shared, or their uploads; never internal, trashed or archived), within the firm's
+   * Messages Settings. A file still being scanned may go (the client opens it once it passes, as
+   * in My Documents); a blocked one may not. Another client's or firm's document is 404.
+   */
+  private async attach(
+    tx: TxClient,
+    businessId: string,
+    clientId: string | null,
+    messageId: string,
+    documentIds: readonly string[],
+  ): Promise<string[]> {
+    if (documentIds.length === 0) return [];
+    // A lead's thread has no documents to open.
+    if (!clientId)
+      throw badRequest(
+        'ATTACHMENT_NEEDS_CLIENT',
+        "Files go from a client's documents; a lead has none",
+      );
+    const ids = [...new Set(documentIds.map((d) => d.toLowerCase()))];
+    const [docs, settings] = await Promise.all([
+      tx.document.findMany({
+        where: { businessId, clientId, id: { in: ids }, trashedAt: null, archivedAt: null },
+        select: { id: true, direction: true, fileName: true, sizeBytes: true, scanStatus: true },
+      }),
+      tx.messageSettings.findUnique({
+        where: { businessId },
+        select: { attachmentMaxMb: true, allowedAttachmentTypes: true },
+      }),
+    ]);
+    const types: readonly string[] =
+      settings?.allowedAttachmentTypes ?? MESSAGE_SETTINGS_DEFAULTS.allowedAttachmentTypes;
+    const maxMb = settings?.attachmentMaxMb ?? MESSAGE_SETTINGS_DEFAULTS.attachmentMaxMb;
+    const byId = new Map(docs.map((d) => [d.id, d]));
+    for (const id of ids) {
+      const d = byId.get(id);
+      if (!d) throw notFound();
+      if (d.direction === 'INTERNAL')
+        throw conflict(
+          'ATTACHMENT_NOT_SHARED',
+          `${d.fileName} is internal: share it with the client in Documents first`,
+        );
+      if (d.scanStatus === 'INFECTED' || d.scanStatus === 'FAILED')
+        throw conflict('FILE_BLOCKED', `${d.fileName} failed its security check`);
+      const ext = d.fileName.toLowerCase().split('.').pop() ?? '';
+      if (!types.includes(ext))
+        throw badRequest('ATTACHMENT_TYPE', `Messages Settings don't allow .${ext} files`);
+      if (d.sizeBytes > maxMb * MB)
+        throw badRequest('ATTACHMENT_TOO_LARGE', `${d.fileName} is over ${maxMb} MB`);
+    }
+    await tx.messageAttachment.createMany({
+      data: ids.map((documentId) => ({ businessId, messageId, documentId })),
+    });
+    return ids;
   }
 
   async setReplies(
@@ -627,13 +730,15 @@ export class MessagesService {
   private async me(tx: TxClient, businessId: string, clientAccountId: string) {
     const account = await tx.clientAccount.findFirst({
       where: { businessId, id: clientAccountId },
-      select: { userId: true, clientId: true, status: true },
+      select: { userId: true, clientId: true, status: true, portalRole: true },
     });
     if (!account?.clientId) throw notFound();
     return {
       userId: account.userId,
       clientId: account.clientId,
       active: account.status === 'ACTIVE',
+      /** PRIMARY and SPOUSE see the household's files; AUTHORIZED only its own uploads. */
+      household: account.portalRole === 'PRIMARY' || account.portalRole === 'SPOUSE',
     };
   }
 
@@ -683,6 +788,7 @@ export class MessagesService {
     businessId: string,
     me: string,
     t: ThreadRow,
+    household: boolean,
   ): Promise<MyMessageThreadDetail> {
     const [thread] = await this.myThreads(tx, businessId, me, [t]);
     const rows = await tx.message.findMany({
@@ -697,11 +803,11 @@ export class MessagesService {
     );
     return {
       ...(thread as MyMessageThread),
-      messages: rows.map((m) => this.toMine(people, me, m)),
+      messages: rows.map((m) => this.toMine(people, me, m, household)),
     };
   }
 
-  private toMine(people: People, me: string, m: MessageRow): MyMessage {
+  private toMine(people: People, me: string, m: MessageRow, household: boolean): MyMessage {
     const from =
       m.direction === 'FIRM_TO_CLIENT'
         ? { from: 'FIRM' as const, senderName: null }
@@ -711,6 +817,16 @@ export class MessagesService {
       ...from,
       body: m.body,
       unread: m.direction === 'FIRM_TO_CLIENT' && m.readAt === null,
+      // My Documents' rule (storage/my-documents.service.ts `visible`): the firm's shared files and
+      // the household's uploads for PRIMARY and SPOUSE; an AUTHORIZED login only its own uploads.
+      attachments: m.attachments
+        .map((a) => a.document)
+        .filter((d) =>
+          d.direction === 'FIRM_TO_CLIENT'
+            ? household
+            : d.direction === 'CLIENT_TO_FIRM' && (household || d.uploadedByUserId === me),
+        )
+        .map(attachment),
       createdAt: m.createdAt.toISOString(),
     };
   }
@@ -783,6 +899,7 @@ export class MessagesService {
         businessId,
         me.userId,
         await this.myThread(tx, businessId, me.clientId, id),
+        me.household,
       );
     });
     await this.audit.log('portal.message_thread_viewed', { type: 'message_thread', id });
@@ -831,6 +948,7 @@ export class MessagesService {
           businessId,
           me.userId,
           await this.myThread(tx, businessId, me.clientId, thread.id),
+          me.household,
         ),
       };
     });
@@ -872,7 +990,7 @@ export class MessagesService {
           },
         );
         return {
-          message: this.toMine(new Map(), me.userId, row),
+          message: this.toMine(new Map(), me.userId, row, me.household),
           userId: me.userId,
           threadId: t.id,
           email,
