@@ -29,6 +29,7 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageThreadRequest,
 } from './schemas.js';
+import { MessageSettings, UpdateMessageSettingsRequest } from './settings.js';
 
 const THREADS = '/business/message-threads';
 const thread = (id: string) => `${THREADS}/${parseInput(MessageThreadId, id)}`;
@@ -90,6 +91,15 @@ export function createMessagesClient(request: ApiRequest) {
     /** Unread client messages, in total and per client. Poll at most once a minute. */
     unreadCount: async (): Promise<FirmUnreadCount> =>
       request(FirmUnreadCount, `${THREADS}/unread-count`),
+    /** Messages Settings (MSG-F02): the firm's, or the defaults before the first save. */
+    settings: async (): Promise<MessageSettings> =>
+      request(MessageSettings, '/business/message-settings'),
+    /** Owner and Admin. 409 STALE_VERSION when someone saved since `version` was read. */
+    updateSettings: async (body: UpdateMessageSettingsRequest): Promise<MessageSettings> =>
+      request(MessageSettings, '/business/message-settings', {
+        method: 'PATCH',
+        body: parseInput(UpdateMessageSettingsRequest, body),
+      }),
   };
 }
 
