@@ -12,6 +12,14 @@ const inDays = (n: number) => {
 };
 const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** `n` days from today on the mock firm's calendar (New York), as the API counts a schedule. */
+const firmInDays = (n: number) => {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' })
+    .format(new Date())
+    .split('-')
+    .map(Number);
+  return new Date(y!, m! - 1, d! + n);
+};
 const us = (d: Date) =>
   `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
 
@@ -72,7 +80,8 @@ test('a custom schedule waits as a draft and starts when the invoice is sent', a
   );
   await expect(page.getByTestId('invoice-recurring').getByLabel('Repeat every')).toHaveValue('3');
   await page.getByRole('button', { name: 'Send Invoice' }).click();
-  await expect(page.getByText(`Every 3 weeks · next ${us(inDays(21))}`)).toBeVisible();
+  // The schedule starts on the firm's today (the card above previews from this computer's).
+  await expect(page.getByText(`Every 3 weeks · next ${us(firmInDays(21))}`)).toBeVisible();
 });
 
 test('turning Recurring off keeps a one-time invoice', async ({ page }) => {
