@@ -56,6 +56,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
+import { InvoiceCorrectForm } from './invoice-correct-form';
 import {
   card,
   dayText,
@@ -125,6 +126,7 @@ export function InvoicesOverview({
           </div>
           <InvoiceTable
             items={items}
+            today={today}
             initialStatus={initialStatus}
             loading={all.isPending}
             failed={all.isError}
@@ -506,12 +508,15 @@ const OUTSTANDING_VIEWS: readonly string[] = [
 
 function InvoiceTable({
   items,
+  today,
   initialStatus = '',
   loading,
   failed,
   onNotice,
 }: {
   items: InvoiceListItem[];
+  /** The firm's calendar date (IP-F06). */
+  today: string;
   initialStatus?: string;
   loading: boolean;
   failed: boolean;
@@ -532,6 +537,7 @@ function InvoiceTable({
   const [size, setSize] = useState(10);
   const [selected, setSelected] = useState<string[]>([]);
   const [canceling, setCanceling] = useState<InvoiceListItem>();
+  const [correcting, setCorrecting] = useState<InvoiceListItem>();
   const [busy, setBusy] = useState(false);
 
   const clients = [...new Map(items.map((i) => [i.client.id, i.client.displayName])).entries()]
@@ -609,6 +615,8 @@ function InvoiceTable({
     const open = i.status === 'OPEN';
     const draft = i.status === 'DRAFT';
     const cancelable = (draft || i.status === 'SCHEDULED' || open) && paidCents(i) === 0;
+    // IP-F08: a scheduled invoice, or an open one with something to pay, keeps its number.
+    const correctable = i.status === 'SCHEDULED' || (open && i.balanceDueCents > 0);
     return [
       {
         title: 'Invoice',
@@ -620,6 +628,15 @@ function InvoiceTable({
                   label: 'Edit Invoice',
                   icon: PencilSimple,
                   onSelect: () => router.push(`/invoices/${i.id}/edit`),
+                },
+              ]
+            : []),
+          ...(canChange && correctable
+            ? [
+                {
+                  label: 'Correct Dates',
+                  icon: CalendarBlank,
+                  onSelect: () => setCorrecting(i),
                 },
               ]
             : []),
@@ -948,6 +965,14 @@ function InvoiceTable({
       )}
       {canceling ? (
         <InvoiceCancelForm invoice={canceling} onClose={() => setCanceling(undefined)} />
+      ) : null}
+      {correcting ? (
+        <InvoiceCorrectForm
+          invoice={correcting}
+          today={today}
+          onClose={() => setCorrecting(undefined)}
+          onDone={(text) => onNotice(text, 'success')}
+        />
       ) : null}
     </section>
   );

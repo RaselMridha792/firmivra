@@ -532,6 +532,21 @@ export type CreateInvoiceRequest = z.input<typeof CreateInvoiceRequest>;
  * the client never changes.
  */
 export const UpdateInvoiceRequest = z.strictObject(DraftFields).superRefine(draftRules);
+
+/**
+ * POST /business/invoices/{id}/correct (IP-F08, Octavia Oct 27): the dates of an invoice already
+ * on its way, on the same invoice number. A scheduled one: its send day (after today) and due
+ * date. An open one with something still to pay: its due date (today or later). A sent one needs
+ * a reason, which goes in its history (the audit). Amounts and paid invoices stay as they are.
+ */
+export const CorrectInvoiceRequest = z
+  .strictObject({
+    dueOn: CalendarDate.optional(),
+    scheduledFor: CalendarDate.optional(),
+    reason: text(500, 'many', 'Say why the invoice changes').optional(),
+  })
+  .refine((b) => b.dueOn !== undefined || b.scheduledFor !== undefined, 'Change a date');
+export type CorrectInvoiceRequest = z.input<typeof CorrectInvoiceRequest>;
 export type UpdateInvoiceRequest = z.input<typeof UpdateInvoiceRequest>;
 
 /** POST /business/invoices/{id}/cancel (Owner and Admin). The reason stays with the firm. */
