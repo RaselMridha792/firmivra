@@ -8,6 +8,7 @@ import {
   CalendarBlank,
   ChartBar,
   ChatCircleDots,
+  CurrencyCircleDollar,
   Eye,
   FileText,
   Folder,
@@ -45,6 +46,7 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
+import { StopBillingDialog } from '../../../../../components/stop-billing-dialog';
 import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 
 type Kind =
@@ -85,6 +87,7 @@ export function ClientActionMenu({
   const toOrigin = useOriginNavigate();
   const docs = useServiceDocuments();
   const [dialog, setDialog] = useState<Kind>();
+  const [billing, setBilling] = useState(false);
   const options = { invalidate: [...PAYROLL_KEY] };
   const sync = useApiMutation(() => api.payroll.sync(client.id), options);
   // SH1: a page outside the workspace gets Back to this exact place.
@@ -161,12 +164,26 @@ export function ClientActionMenu({
               .catch((e) => onNotice(errorMessage(e, PAYROLL_ERRORS), 'error'))
           : setDialog('pause'),
     ),
+    // SH10: its own control; pausing never stops billing.
+    item('Stop Future Billing', CurrencyCircleDollar, () => setBilling(true)),
     item('Archive Payroll Client', Archive, () => setDialog('archive')),
     item('Remove Payroll Service', Trash, () => setDialog('remove'), { danger: true }),
   ];
   return (
     <>
       <ActionMenu label={label} align={align} trigger={trigger} sections={[{ items }]} />
+      {billing ? (
+        <StopBillingDialog
+          engagementId={client.engagementId}
+          clientName={client.client.displayName}
+          service="Payroll"
+          onClose={() => setBilling(false)}
+          onDone={(text) => {
+            setBilling(false);
+            onNotice(text, 'success');
+          }}
+        />
+      ) : null}
       {dialog ? (
         <ClientDialog
           kind={dialog}
@@ -446,7 +463,7 @@ function ClientDialog({
           <>
             <p className="text-sm text-text">
               Firmivra’s payroll service and its reminders go on hold. Payroll at the provider is
-              not paused.
+              not paused, and billing continues: Stop Future Billing is a separate action.
             </p>
             <Textarea
               label="Reason (optional)"

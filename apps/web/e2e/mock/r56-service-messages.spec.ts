@@ -20,12 +20,13 @@ test('Payroll Send Message opens the client’s conversations with New Message f
     page.getByText('No conversations with Green Leaf Café LLC yet.', { exact: false }),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'New Message' }).first().click();
-  const dialog = page.getByTestId('new-message');
-  await expect(dialog.getByLabel('To').locator('option:checked')).toHaveText('Green Leaf Café LLC');
-  await expect(dialog.getByLabel('Subject')).toHaveValue('Payroll');
-  await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog).toHaveCount(0);
+  // New Message is its own page (R60, MSG-F09), for that client and service.
+  await page.getByRole('link', { name: 'New Message' }).first().click();
+  await expect(page).toHaveURL(/\/messages\/new\?clientId=.+&subject=Payroll&from=/);
+  await expect(page.getByTestId('compose-selected')).toHaveText('1 selected');
+  await expect(page.getByLabel('Subject (optional)')).toHaveValue('Payroll');
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(/\/messages\?clientId=.+&service=Payroll&from=/);
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(`${app}/payroll`);
 });
