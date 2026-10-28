@@ -459,23 +459,25 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 ## Handoff for a fresh R56 (Oct 28)
 
-Rasel's rules are as on Oct 27 (below): at most three PRs open; `origin/main` merged in before each opens; target `main`; each PR number and full head sha at 8 of 8 green; after each merge, merge `origin/main` into the remaining open and waiting branches; only the changed files' specs; no Co-Authored-By or "Generated with" lines; never force-push.
+Rasel's rules are as on Oct 27 (below): at most three PRs open; `origin/main` merged in before each opens; target `main`; each PR number, exact title and full head sha at 8 of 8 green; after each merge, merge `origin/main` into the remaining open and waiting branches; only the changed files' specs; no Co-Authored-By or "Generated with" lines; never force-push. Rasel (Oct 28): the Deploy dev run takes about 15 minutes after each merge; do not open a PR that needs a migration without his tap (none of the waiting branches has one). If usage runs low, stop at a safe point, commit, and log the next step in `R56-invoices-payments.md`.
 
-**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared; Rasel's "Allow clearing", Oct 27).
+**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared), #1200 (SH9), #1201 (SH10), #1205 (r56-communications clicks Start), #1207 (IP-F20, F22), #1208 (IP-F23, F24).
 
-**Open (three, the limit), 8 of 8, waiting for review:** **#1200** SH9 `rasel/R56-shared-plans` (4ede7867c), **#1201** SH10 `rasel/R56-billing-stop` (5ac36b187), **#1205** `rasel/R56-communications-start` (121b13475; r56-communications clicks Start).
+**Open (three, the limit), stacked in this order:** **#1212** `rasel/R56-ip-due-rules` (IP-F06), **#1214** `rasel/R56-ip-sent-state` (IP-F07), **#1218** `rasel/R56-ip-correct` (IP-F08). After the lowest squashes, the next one conflicts only in `R56-invoices-payments.md`: main's copy is the squashed branch's, so keep the branch's (`git checkout --ours`).
 
-**Waiting, open in this order** (each PR title is its branch's own commit subject; the bodies follow the progress log in `R56-invoices-payments.md`, with "Builds on #N" while the lower one is open):
-1. `rasel/R56-ip-diagnosis` (IP-F20, F22).
-2. `rasel/R56-ip-report-export` (IP-F23, F24).
-3. `rasel/R56-ip-due-rules` (IP-F06).
-4. `rasel/R56-ip-sent-state` (IP-F07).
-5. `rasel/R56-ip-correct` (IP-F08).
-6. `rasel/R56-ip-row-actions` (IP-F09, F11's Send Message).
-7. `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`).
-8. `rasel/R56-bookkeeping-terms`, then `rasel/R56-bookkeeping-transactions`, then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
+**Waiting, open in this order** (each PR title is its branch's own commit subject; "Builds on #N" while the lower one is open):
+1. `rasel/R56-ip-row-actions` (IP-F09, F11's Send Message).
+2. `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`).
+3. `rasel/R56-bookkeeping-terms`, then `rasel/R56-bookkeeping-transactions`, then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before, with main merged in on Oct 28. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
 
-Items 1 to 7 are stacked, each on the one before. Main's #1202 (R60, Messages) shares no files with them, and `NewMessageDialog`'s props are unchanged.
+**Merging the Bookkeeping stack (Oct 28):**
+- The R files and `mocks/bookkeeping.ts` conflict with SH9 and SH10: keep main's lines plus the branch's own.
+- `bookkeeping.e2e.test.ts` gets a new `describe` at its end on several branches. Keep both, and close the first one (`  });\n});`) before the second starts.
+
+**Local test notes:**
+- The Pay Now "two clicks at once" e2e (`invoice-checkout`) waits at most 1 s for the first click's row. It can fail when 16 files run at once on this laptop; it passes alone and in CI.
+- Run the invoice e2e files with `--maxWorkers=4`.
+- The isolation suite's positive control fails locally only on the file and export cases (scanner, S3).
 
 **Next, after the queue:** BK-T01's engines, then Advisory B4 to B12 and B15 (as in the Oct 27 handoff). IP-F01 to F05, F12 and F13 are R60's (do not touch the Create Invoice page files). R60's one-line editor change for a scheduled invoice is under Needs in `R56-invoices-payments.md`.
 
