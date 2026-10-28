@@ -1,6 +1,11 @@
 'use client';
 
-import { INVOICE_ERRORS, type InvoiceListItem } from '@firmivra/types';
+import {
+  INVOICE_ERRORS,
+  type InvoiceListItem,
+  PAYMENT_METHOD_LABELS,
+  type PaymentMethodKey,
+} from '@firmivra/types';
 import {
   ActionMenu,
   type ActionMenuSection,
@@ -48,6 +53,7 @@ import { RequireRole } from '../../../../../components/require-role';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import {
   card,
@@ -408,19 +414,66 @@ function StatusChart({ items }: { items: InvoiceListItem[] }) {
   );
 }
 
-/** Payment Methods: the contract's invoice list carries no payment method, so it stays empty. */
+const METHOD_TONE: Record<PaymentMethodKey, 'blue' | 'navy' | 'green' | 'purple' | 'grey'> = {
+  CARD: 'blue',
+  ACH: 'navy',
+  CASH: 'green',
+  CHECK: 'purple',
+  OTHER: 'grey',
+};
+
+/**
+ * Payment Methods (IP-F20, Octavia's D1): the money collected this year by method, Stripe's and
+ * the payments recorded by hand alike (`api.invoices.paymentMethods`). The dropdown offers All,
+ * Card, Cash and ACH, plus Check and Other once the firm has taken them.
+ */
 function MethodsChart() {
+  const q = useApiQuery([...INV_KEY, 'payment-methods'], () => api.invoices.paymentMethods());
+  const [method, setMethod] = useState<'ALL' | PaymentMethodKey>('ALL');
+  const items = q.data?.items ?? [];
+  const offered: PaymentMethodKey[] = [
+    'CARD',
+    'CASH',
+    'ACH',
+    ...(['CHECK', 'OTHER'] as const).filter((m) => items.some((i) => i.method === m)),
+  ];
+  const shown = method === 'ALL' ? items : items.filter((i) => i.method === method);
+  const total = shown.reduce((n, i) => n + i.amountCents, 0);
   return (
     <section className={card} aria-labelledby="inv-methods" data-testid="invoice-methods-chart">
-      <h2 id="inv-methods" className="mb-3 font-display text-lg font-bold text-heading">
-        Payment Methods
-      </h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="inv-methods" className="font-display text-lg font-bold text-heading">
+          Payment Methods
+        </h2>
+        <Select
+          label="Payment method"
+          hideLabel
+          value={method}
+          onChange={(e) => setMethod(e.target.value as 'ALL' | PaymentMethodKey)}
+          options={[
+            { value: 'ALL', label: 'All' },
+            ...offered.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] })),
+          ]}
+        />
+      </div>
       <DonutChart
-        segments={[]}
-        centerValue="—"
+        segments={shown.map((i) => ({
+          label: PAYMENT_METHOD_LABELS[i.method],
+          value: Math.round(i.amountCents / 100),
+          tone: METHOD_TONE[i.method],
+        }))}
+        centerValue={q.data ? moneyWhole(total) : '—'}
         centerLabel="Collected"
         legend
-        emptyText="No payment-method breakdown yet. Each invoice shows how it was paid."
+        emptyText={
+          q.isError
+            ? 'Payment methods are not available right now. Try again in a moment.'
+            : q.isPending
+              ? 'Loading…'
+              : method === 'ALL'
+                ? 'No payments collected this year yet.'
+                : `No ${PAYMENT_METHOD_LABELS[method]} payments this year yet.`
+        }
       />
     </section>
   );

@@ -5,6 +5,23 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
+test('Payment Methods: the money collected this year by method (IP-F20, D1)', async ({ page }) => {
+  await page.goto(app('/invoices'));
+  const chart = page.getByTestId('invoice-methods-chart');
+  // Stripe's card payments and the check recorded by hand; the voided cash payment is left out.
+  const legend = chart.getByRole('listitem');
+  await expect(legend).toHaveCount(2);
+  await expect(legend.nth(0)).toContainText('Card');
+  await expect(legend.nth(1)).toContainText('Check');
+  const picker = chart.getByLabel('Payment method');
+  await expect(picker.locator('option')).toHaveText(['All', 'Card', 'Cash', 'ACH', 'Check']);
+  await picker.selectOption({ label: 'Check' });
+  await expect(legend).toHaveCount(1);
+  await expect(legend.first()).toContainText('Check');
+  await picker.selectOption({ label: 'ACH' });
+  await expect(chart).toContainText('No ACH payments this year yet.');
+});
+
 test('Overview: KPIs, the three charts, tabs with counts, filters and paging', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(app('/invoices'));

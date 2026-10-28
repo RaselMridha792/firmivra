@@ -57,6 +57,8 @@ export interface SourceDef {
   supportsTaxToggle: boolean;
   /** Only Owner and Admin (and a role with Manage on Reports) may use it: money and team data. */
   restricted: boolean;
+  /** The breakdown chart's field when the report has no grouping (else the first status field). */
+  breakdownBy?: string;
   load(ctx: LoadContext): Promise<Row[]>;
 }
 
@@ -265,6 +267,42 @@ const invoices: SourceDef = {
 
 // ---------- Payments received ----------
 
+/** A payment's method in words: Stripe's method types and the recorded (offline) methods alike. */
+export const paymentMethodLabel = (method: string | null): string => {
+  switch (method) {
+    case 'card':
+    case 'CARD':
+      return 'Card';
+    case 'us_bank_account':
+    case 'ACH':
+      return 'ACH';
+    case 'CASH':
+      return 'Cash';
+    case 'CHECK':
+      return 'Check';
+    default:
+      return 'Other';
+  }
+};
+
+/** The services an invoice's lines came from: one name, "Multiple services" or "Custom items". */
+const serviceOf = (lines: { itemName: string | null; service: { name: string } | null }[]) => {
+  const names = new Set(
+    lines.filter((l) => l.service).map((l) => l.itemName ?? l.service?.name ?? ''),
+  );
+  if (names.size === 1) return [...names][0]!;
+  return names.size > 1 ? 'Multiple services' : 'Custom items';
+};
+
+const paymentInvoiceSelect = {
+  number: true,
+  clientId: true,
+  client: { select: { displayName: true } },
+  lines: { select: { itemName: true, service: { select: { name: true } } } },
+} as const;
+
+// IP-F22 (Octavia, Oct 27): payments received are Stripe's (confirmed by its webhook) and the
+// ones the firm recorded by hand (Record Payment: check, cash, ACH, card, other), not voided.
 const payments: SourceDef = {
   key: 'payments_received',
   category: 'FINANCIAL',
@@ -275,23 +313,22 @@ const payments: SourceDef = {
   supportsComparison: true,
   supportsTaxToggle: false,
   restricted: true,
+  breakdownBy: 'method',
   fields: [
     field('invoice', 'Invoice', 'TEXT', { locked: true, groupable: false }),
     field('client', 'Client', 'TEXT'),
+    field('service', 'Service', 'TEXT'),
     field('status', 'Status', 'STATUS', { options: PaymentStatus.options }),
     field('amount', 'Amount', 'MONEY'),
     field('tip', 'Tip', 'MONEY'),
-    field('method', 'Method', 'TEXT'),
+    field('method', 'Payment Method', 'TEXT'),
     field('processor', 'Processor', 'TEXT'),
     field('paidOn', 'Paid Date', 'DATE', { groupable: false }),
   ],
   async load(c) {
-    const rows = await c.tx.payment.findMany({
-      where: {
-        businessId: c.businessId,
-        paidAt: windowOf(c.from, c.to),
-        ...(c.reachOnly ? { invoice: { client: { assignedUserId: c.actor.userId } } } : {}),
-      },
+    const reach = c.reachOnly ? { invoice: { client: { assignedUserId: c.actor.userId } } } : {};
+    const online = await c.tx.payment.findMany({
+      where: { businessId: c.businessId, paidAt: windowOf(c.from, c.to), ...reach },
       take: MAX_ROWS + 1,
       select: {
         id: true,
@@ -302,20 +339,36 @@ const payments: SourceDef = {
         processor: true,
         paidAt: true,
         invoiceId: true,
-        invoice: {
-          select: { number: true, clientId: true, client: { select: { displayName: true } } },
-        },
+        invoice: { select: paymentInvoiceSelect },
       },
     });
-    return rows.map((r) => ({
+    const recorded = await c.tx.offlinePayment.findMany({
+      where: {
+        businessId: c.businessId,
+        voidedAt: null,
+        receivedOn: windowOf(c.from, c.to),
+        ...reach,
+      },
+      take: MAX_ROWS + 1,
+      select: {
+        id: true,
+        amountCents: true,
+        method: true,
+        receivedOn: true,
+        invoiceId: true,
+        invoice: { select: paymentInvoiceSelect },
+      },
+    });
+    const rows: Row[] = online.map((r) => ({
       id: r.id,
       cells: {
         invoice: r.invoice.number,
         client: r.invoice.client.displayName,
+        service: serviceOf(r.invoice.lines),
         status: r.status,
         amount: r.amountCents,
         tip: r.tipCents,
-        method: r.methodType,
+        method: paymentMethodLabel(r.methodType),
         processor: r.processor,
         paidOn: localDay(r.paidAt, c.timezone),
       },
@@ -325,6 +378,25 @@ const payments: SourceDef = {
         link('CLIENT', r.invoice.clientId),
       ],
     }));
+    for (const r of recorded) {
+      rows.push({
+        id: r.id,
+        cells: {
+          invoice: r.invoice.number,
+          client: r.invoice.client.displayName,
+          service: serviceOf(r.invoice.lines),
+          // A recorded payment is money received; a voided one is left out above.
+          status: 'SUCCEEDED',
+          amount: r.amountCents,
+          tip: 0,
+          method: paymentMethodLabel(r.method),
+          processor: 'MANUAL',
+          paidOn: r.receivedOn.toISOString().slice(0, 10),
+        },
+        links: [link('INVOICE', r.invoiceId), link('CLIENT', r.invoice.clientId)],
+      });
+    }
+    return rows.slice(0, MAX_ROWS + 1);
   },
 };
 

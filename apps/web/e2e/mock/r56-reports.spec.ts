@@ -34,28 +34,34 @@ test('Detail: cards, chart, table, quick range and settings', async ({ page }) =
   await page.goto(`${base}/revenue-summary`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Revenue Summary');
   await expect(page.getByTestId('report-filters')).toBeVisible();
-  await expect(page.getByTestId('report-kpis').getByRole('listitem')).toHaveCount(4);
+  // IP-F22: Revenue Summary is the payments received (Stripe's and recorded), as the API's.
+  await expect(page.getByTestId('report-kpis').getByRole('listitem')).toHaveCount(2);
+  await expect(page.getByTestId('report-kpis')).toContainText('Total Payments');
   await expect(page.getByTestId('report-chart')).toBeVisible();
-  await expect(page.getByTestId('report-table')).toContainText('Tax Preparation');
+  await expect(page.getByTestId('report-table')).toContainText('Anderson LLC');
+  // Octavia's D2: Group By (Payment Method by default) changes the breakdown.
+  const groupBy = page.getByTestId('report-breakdown').getByLabel('Group by');
+  await expect(groupBy).toHaveValue('method');
+  await expect(page.getByTestId('report-breakdown')).toContainText('Cash');
+  await groupBy.selectOption({ label: 'Service' });
+  await expect(page.getByTestId('report-breakdown')).toContainText('Tax Preparation');
+  await expect(groupBy.locator('option')).toHaveText(['Client', 'Service', 'Payment Method']);
   await expect(page.getByTestId('totals')).toContainText('Total');
   await page.getByTestId('quick-range').getByRole('button', { name: 'Last 30 Days' }).click();
   await expect(
     page.getByTestId('quick-range').getByRole('button', { name: 'Last 30 Days' }),
   ).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('switch', { name: 'Show data labels' }).click();
-  await page.getByLabel('Search results').fill('payroll');
-  await expect(page.getByTestId('report-table')).toContainText('Payroll');
+  await page.getByLabel('Search results').fill('anderson');
+  await expect(page.getByTestId('report-table')).toContainText('Anderson LLC');
 });
 
 test('Detail: More Filters, export, save and schedule', async ({ page }) => {
   await page.goto(`${base}/revenue-summary`);
   await page.getByRole('button', { name: /More Filters/ }).click();
   await page.getByRole('button', { name: '+ Add Filter' }).click();
-  await page
-    .getByTestId('more-filters')
-    .getByLabel('Field')
-    .selectOption({ label: 'Payment Status' });
-  await page.getByTestId('more-filters').getByLabel('Value').selectOption('Paid');
+  await page.getByTestId('more-filters').getByLabel('Field').selectOption({ label: 'Status' });
+  await page.getByTestId('more-filters').getByLabel('Value').selectOption('SUCCEEDED');
   await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByRole('button', { name: /More Filters \(1\)/ })).toBeVisible();
   await page

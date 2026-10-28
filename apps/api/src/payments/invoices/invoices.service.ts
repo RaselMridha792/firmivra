@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { INVOICE_ERRORS } from '@firmivra/types';
+import { INVOICE_ERRORS, PaymentMethodKey } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CancelInvoiceRequest,
@@ -7,6 +7,7 @@ import type {
   Invoice,
   InvoiceList,
   ListInvoicesQuery,
+  PaymentMethodsSummary,
   UpdateInvoiceRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -33,6 +34,7 @@ import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js'
 import { InvoiceNotices } from './invoice-notices.js';
 import {
   conflict,
+  dateIn,
   day,
   firmToday,
   holdsMoney,
@@ -52,6 +54,8 @@ type DraftBody = z.output<typeof UpdateInvoiceRequest>;
 
 export const archived = () => conflict('CLIENT_ARCHIVED', 'Restore the client first');
 export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed');
+
+const DAY = 86_400_000;
 
 /**
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
@@ -168,6 +172,80 @@ export class InvoicesService {
       { count: list.items.length, ...(q.clientId ? { clientId: q.clientId } : {}) },
     );
     return list;
+  }
+
+  /**
+   * IP-F20 (Octavia, Oct 27): the money collected in the range by method, on the firm's calendar.
+   * Stripe payments count once their webhook confirmed them, less their confirmed refunds; recorded
+   * payments count unless voided. Staff see only their clients' money.
+   */
+  async paymentMethods(
+    businessId: string,
+    actor: ClientsActor,
+    q: { from?: string | undefined; to?: string | undefined },
+  ): Promise<PaymentMethodsSummary> {
+    const summary = await this.inFirm(businessId, async (tx) => {
+      const { timeZone, today } = await firmToday(tx, businessId);
+      const from = q.from ?? `${today.slice(0, 4)}-01-01`;
+      const to = q.to ?? today;
+      const reach = { client: this.reach(actor) };
+      const widen = (d: string, days: number) =>
+        new Date(Date.parse(`${d}T00:00:00Z`) + days * DAY);
+      const online = await tx.payment.findMany({
+        where: {
+          businessId,
+          status: { in: ['SUCCEEDED', 'REFUNDED'] },
+          paidAt: { gte: widen(from, -1), lt: widen(to, 2) },
+          invoice: reach,
+        },
+        select: {
+          amountCents: true,
+          methodType: true,
+          paidAt: true,
+          refunds: { where: { status: 'SUCCEEDED' }, select: { amountCents: true } },
+        },
+      });
+      const recorded = await tx.offlinePayment.findMany({
+        where: {
+          businessId,
+          voidedAt: null,
+          receivedOn: { gte: toDate(from), lte: toDate(to) },
+          invoice: reach,
+        },
+        select: { amountCents: true, method: true },
+      });
+      const totals = new Map<PaymentMethodKey, { amountCents: number; count: number }>();
+      const add = (method: PaymentMethodKey, cents: number) => {
+        if (cents <= 0) return;
+        const t = totals.get(method) ?? { amountCents: 0, count: 0 };
+        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + 1 });
+      };
+      for (const p of online) {
+        const onDay = p.paidAt ? dateIn(timeZone, p.paidAt) : null;
+        if (!onDay || onDay < from || onDay > to) continue;
+        const refunded = p.refunds.reduce((s, r) => s + r.amountCents, 0);
+        add(
+          p.methodType === 'card' ? 'CARD' : p.methodType === 'us_bank_account' ? 'ACH' : 'OTHER',
+          p.amountCents - refunded,
+        );
+      }
+      for (const p of recorded) add(p.method, p.amountCents);
+      const items = PaymentMethodKey.options
+        .filter((m) => totals.has(m))
+        .map((method) => ({ method, ...totals.get(method)! }));
+      return {
+        from,
+        to,
+        items,
+        totalCents: items.reduce((s, i) => s + i.amountCents, 0),
+      };
+    });
+    await this.audit.log(
+      'invoices.payment_methods.viewed',
+      { type: 'invoice' },
+      { from: summary.from, to: summary.to, methods: summary.items.length },
+    );
+    return summary;
   }
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
