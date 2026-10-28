@@ -2,7 +2,8 @@
 // reaches and why not; drafts saved and reopened, replaced when the people change; send once,
 // never twice; a client's email is a notice with the portal link and never the text (Rasel,
 // Oct 28); a lead's email carries it; schedules sent by the job, canceled before. The notify
-// service is replaced: nothing leaves. Synthetic data only.
+// service is replaced: nothing leaves. MSG-F11, F15: a template kept on the draft, merge fields
+// filled per person in the review, and unfilled ones blocking until confirmed. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -452,5 +453,82 @@ describe('MSG-F09, F14: drafts, sending once, schedules', () => {
     } finally {
       await owner.$disconnect();
     }
+  });
+});
+
+describe('MSG-F11, F15: templates, merge fields and the review', () => {
+  it('a template of the firm is kept on the draft; another one is 404', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const templateId = await runInScope(
+      owner,
+      { kind: 'business', businessId: ids.firmA },
+      async (tx) =>
+        (
+          await tx.messageTemplate.create({
+            data: {
+              businessId: ids.firmA,
+              kind: 'PORTAL_MESSAGE',
+              name: `Fake template ${run}`,
+              body: 'Hello [Client First Name]',
+              status: 'ACTIVE',
+              ownerUserId: people.ownerA.id,
+            },
+          })
+        ).id,
+    ).finally(() => owner.$disconnect());
+    const d = await draft({
+      channel: 'PORTAL',
+      body: 'Hello [Client First Name]',
+      templateId,
+      clientIds: [ids.one],
+    });
+    expect(d.templateId).toBe(templateId);
+    const missing = await call('post', '/outbound-messages', people.ownerA, {
+      channel: 'PORTAL',
+      body: 'x',
+      templateId: randomUUID(),
+      clientIds: [ids.one],
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it('the review fills each person’s fields; unfilled ones block the send until confirmed', async () => {
+    const d = await draft({
+      channel: 'EMAIL',
+      subject: 'For [Client Full Name]',
+      body: `Hi [Client First Name], your code is [Fake Field] (${run}).`,
+      clientIds: [ids.one],
+      leadIds: [ids.lead],
+    });
+    const review = ok(await call('get', `/outbound-messages/${d.id}/review`)).body as {
+      recipients: { id: string; subject: string | null; body: string; unresolved: string[] }[];
+      unresolved: string[];
+      checks: { code: string; severity: string }[];
+    };
+    const one = review.recipients.find((r) => r.id === ids.one);
+    const lead = review.recipients.find((r) => r.id === ids.lead);
+    expect(one?.subject).toBe('For Fake One');
+    expect(one?.body).toContain('Hi Fake,');
+    expect(lead?.body).toContain('Hi Fake,');
+    expect(review.unresolved).toEqual(['Fake Field']);
+    expect(review.checks.map((c) => c.code)).toContain('UNRESOLVED_FIELDS');
+    const blocked = await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+      version: d.updatedAt,
+    });
+    expect(codeOf(blocked)).toBe('UNRESOLVED_FIELDS');
+    outbox.length = 0;
+    const sent = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+          version: d.updatedAt,
+          confirmUnresolved: true,
+        }),
+      ).body,
+    );
+    expect(sent.status).toBe('SENT');
+    // The lead's email carries the filled text; the field nobody could fill goes as written.
+    const toLead = outbox.find((m) => m.template === 'lead.message-email');
+    expect(JSON.stringify(toLead?.data)).toContain('Hi Fake,');
+    expect(JSON.stringify(toLead?.data)).toContain('[Fake Field]');
   });
 });

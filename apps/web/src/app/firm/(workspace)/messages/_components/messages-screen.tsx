@@ -30,6 +30,7 @@ import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
+import { EmojiPicker, TemplatePicker } from './compose-tools';
 import {
   activeFilters,
   addressOf,
@@ -554,13 +555,18 @@ function Conversation({
           );
         })}
       </ul>
+      {/* MSG-F11: a portal message template and emoji in the reply, the text still editable. */}
+      <div className="border-t border-divider pt-3" data-testid="reply-tools">
+        <TemplatePicker kind="PORTAL_MESSAGE" onUse={(t) => setBody(t.body)} />
+      </div>
       <form
-        className="flex items-end gap-2 border-t border-divider pt-3"
+        className="flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
+        <EmojiPicker onPick={(emoji) => setBody((b) => `${b}${emoji}`)} />
         <div className="min-w-0 flex-1">
           <Textarea
             label="Type a message"

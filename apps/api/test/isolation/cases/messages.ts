@@ -58,6 +58,9 @@ const thread = { params: { id: 'messageThread' } };
 const VERSION = '2026-01-01T00:00:00.000Z';
 const outbound = { params: { id: 'outboundMessage' } };
 const people = { bodyIds: { clientIds: 'client', leadIds: 'leadFollowUp' } };
+const withTemplate = {
+  bodyIds: { clientIds: 'client', leadIds: 'leadFollowUp', templateId: 'communicationTemplate' },
+};
 const PH = '00000000-0000-4000-8000-000000000000';
 
 export const cases: CaseModule['cases'] = {
@@ -76,14 +79,28 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/outbound-messages': {
     params: {},
-    ...people,
-    body: { channel: 'PORTAL', body: 'Fake message', clientIds: [PH], leadIds: [PH] },
+    ...withTemplate,
+    body: {
+      channel: 'PORTAL',
+      body: 'Fake message',
+      templateId: PH,
+      clientIds: [PH],
+      leadIds: [PH],
+    },
   },
   'GET /api/v1/business/outbound-messages/:id': outbound,
+  'GET /api/v1/business/outbound-messages/:id/review': outbound,
   'PUT /api/v1/business/outbound-messages/:id': {
     ...outbound,
-    ...people,
-    body: { version: VERSION, channel: 'PORTAL', body: 'Fake', clientIds: [PH], leadIds: [PH] },
+    ...withTemplate,
+    body: {
+      version: VERSION,
+      channel: 'PORTAL',
+      body: 'Fake',
+      templateId: PH,
+      clientIds: [PH],
+      leadIds: [PH],
+    },
     expect: 409,
   },
   'POST /api/v1/business/outbound-messages/:id/send': {
