@@ -23,6 +23,7 @@ import {
   MyMessageThreadList,
   MyNoteResponse,
   SaveMyNoteRequest,
+  SendFirmMessageRequest,
   SendMessageRequest,
   SetNoteReminderRequest,
   UnreadCount,
@@ -85,11 +86,15 @@ export function createMessagesClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CreateMessageThreadRequest, body),
       }),
-    /** The firm may write even while the client's replies are closed. */
-    send: async (id: string, body: SendMessageRequest): Promise<Message> =>
+    /**
+     * The firm may write even while the client's replies are closed. `documentIds` attach the
+     * client's documents (MSG-F12): 409 ATTACHMENT_NOT_SHARED or FILE_BLOCKED, 400 ATTACHMENT_TYPE
+     * or ATTACHMENT_TOO_LARGE.
+     */
+    send: async (id: string, body: SendFirmMessageRequest): Promise<Message> =>
       request(Message, `${thread(id)}/messages`, {
         method: 'POST',
-        body: parseInput(SendMessageRequest, body),
+        body: parseInput(SendFirmMessageRequest, body),
       }),
     /** Close or reopen the client's replies. */
     update: async (id: string, body: UpdateMessageThreadRequest): Promise<MessageThread> =>

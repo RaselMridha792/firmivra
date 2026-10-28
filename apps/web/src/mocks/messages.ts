@@ -39,7 +39,10 @@ import {
   type MyNotesClient,
   parseInput,
   SaveMyNoteRequest,
+  SendFirmMessageRequest,
   SendMessageRequest,
+  type DocumentsClient,
+  type MessageAttachment,
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
@@ -138,6 +141,7 @@ function seed(): Store {
         sender,
         body,
         readAt: read ? at : null,
+        attachments: [],
         createdAt: at,
       });
     }
@@ -276,7 +280,12 @@ function page<T>(rows: T[], cursor: string | undefined, limit: number) {
   const items = rows.slice(start, start + limit);
   return { items, nextCursor: start + limit < rows.length ? String(start + limit) : null };
 }
-const addMessage = (t: ThreadRow, sender: MessageSender, body: string): Message => {
+const addMessage = (
+  t: ThreadRow,
+  sender: MessageSender,
+  body: string,
+  attachments: MessageAttachment[] = [],
+): Message => {
   const m: Message = {
     id: id('0199b6e2', next()),
     threadId: t.id,
@@ -284,6 +293,7 @@ const addMessage = (t: ThreadRow, sender: MessageSender, body: string): Message 
     sender,
     body,
     readAt: null,
+    attachments,
     createdAt: now(),
   };
   s().messages.push(m);
@@ -747,7 +757,13 @@ const settingsOf = (): MessageSettings =>
   });
 
 /** An in-memory `api.messages`. */
-export function createMessagesMock(options: { role?: MockFirmRole } = {}): MessagesClient {
+export function createMessagesMock(
+  options: {
+    role?: MockFirmRole;
+    /** The app's own documents mock, so a file uploaded from the reply is found (MSG-F12). */
+    documents?: Pick<DocumentsClient, 'get'>;
+  } = {},
+): MessagesClient {
   const role = options.role ?? 'OWNER';
   const me = role === 'STAFF' ? mockStaff : mockMe;
   const reaches = (clientId: string) =>
@@ -814,7 +830,31 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
     send: async (threadId, body) => {
       await mockDelay();
       const t = find(threadId);
-      return addMessage(t, staff(me), parseInput(SendMessageRequest, body).body);
+      const b = parseInput(SendFirmMessageRequest, body);
+      // MSG-F12: the thread client's documents the client can see, within Messages Settings.
+      const files: MessageAttachment[] = [];
+      for (const documentId of b.documentIds ?? []) {
+        const d = await options.documents?.get(documentId).catch(() => undefined);
+        if (!d || d.clientId !== t.clientId) throw notFound();
+        if (d.direction === 'INTERNAL')
+          throw fail(409, 'ATTACHMENT_NOT_SHARED', `${d.fileName} is internal: share it first`);
+        if (d.scanStatus === 'INFECTED' || d.scanStatus === 'FAILED')
+          throw fail(409, 'FILE_BLOCKED', `${d.fileName} failed its security check`);
+        const { allowedAttachmentTypes, attachmentMaxMb } = settingsOf();
+        const ending = d.fileName.toLowerCase().split('.').pop() ?? '';
+        if (!(allowedAttachmentTypes as readonly string[]).includes(ending))
+          throw fail(400, 'ATTACHMENT_TYPE', `Messages Settings don't allow .${ending} files`);
+        if (d.sizeBytes > attachmentMaxMb * 1024 * 1024)
+          throw fail(400, 'ATTACHMENT_TOO_LARGE', `${d.fileName} is over ${attachmentMaxMb} MB`);
+        files.push({
+          documentId: d.id,
+          fileName: d.fileName,
+          contentType: d.contentType,
+          sizeBytes: d.sizeBytes,
+          status: d.scanStatus === 'CLEAN' ? 'READY' : 'CHECKING',
+        });
+      }
+      return addMessage(t, staff(me), b.body, files);
     },
     update: async (threadId, body) => {
       await mockDelay();
@@ -958,6 +998,8 @@ const toMine = (m: Message): MyMessage => ({
   ...fromOf(m),
   body: m.body,
   unread: m.direction === 'FIRM_TO_CLIENT' && !m.readAt,
+  // Jamie is the household's primary login: every file the firm sent is theirs to open.
+  attachments: m.attachments,
   createdAt: m.createdAt,
 });
 function myThread(t: ThreadRow): MyMessageThread {

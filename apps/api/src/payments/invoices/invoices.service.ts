@@ -326,6 +326,9 @@ export class InvoicesService {
         discountCents: body.discountCents,
         dueOn: toDate(body.dueOn),
         scheduledFor: body.scheduledFor ? toDate(body.scheduledFor) : null,
+        paymentTerms: body.paymentTerms ?? null,
+        notesToClient: body.notesToClient ?? null,
+        internalNote: body.internalNote ?? null,
       },
     });
   }

@@ -120,7 +120,12 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/business/message-threads/:id': thread,
   'PATCH /api/v1/business/message-threads/:id': { ...thread, body: { repliesEnabled: false } },
-  'POST /api/v1/business/message-threads/:id/messages': { ...thread, body: { body: 'Fake' } },
+  // MSG-F12: the reply's files are the thread client's own documents.
+  'POST /api/v1/business/message-threads/:id/messages': {
+    ...thread,
+    bodyIds: { documentIds: 'document' },
+    body: { body: 'Fake', documentIds: [PH] },
+  },
   'POST /api/v1/business/message-threads/:id/read': { ...thread, body: {} },
   // Found, but the thread's only message is the firm's own: nothing to mark unread.
   'POST /api/v1/business/message-threads/:id/unread': { ...thread, body: {}, expect: 409 },
