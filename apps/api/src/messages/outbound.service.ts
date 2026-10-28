@@ -15,6 +15,7 @@ import type {
   OutboundMessage,
   OutboundMessageList,
   OutboundRecipient,
+  OutboundReview,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   UpdateOutboundRequest,
@@ -32,6 +33,8 @@ import type { NotifyConfig } from '../notify/config.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 import { NotifyDeliveryError } from '../notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { fill } from '../templates/merge-fields.js';
+import { TemplateRenderService } from '../templates/template-render.service.js';
 import { MessagesService } from './messages.service.js';
 
 type Channel = OutboundMessage['channel'];
@@ -56,6 +59,7 @@ const messageSelect = {
   channel: true,
   subject: true,
   body: true,
+  templateId: true,
   scheduledFor: true,
   createdByUserId: true,
   completedAt: true,
@@ -110,6 +114,7 @@ export class OutboundMessagesService {
     @Inject(NOTIFY_CONFIG) private readonly notifyConfig: NotifyConfig,
     @Inject(ENV) private readonly env: Env,
     private readonly messages: MessagesService,
+    private readonly render: TemplateRenderService,
     private readonly audit: AuditService,
   ) {}
 
@@ -327,6 +332,7 @@ export class OutboundMessagesService {
       channel: row.channel,
       subject: row.subject,
       body: row.body,
+      templateId: row.templateId,
       scheduledFor: row.status === 'SCHEDULED' ? (row.scheduledFor?.toISOString() ?? null) : null,
       timezone: await firmTimeZone(tx, businessId),
       recipients,
@@ -376,6 +382,7 @@ export class OutboundMessagesService {
         status: 'DRAFT',
         subject: body.subject ?? null,
         body: body.body,
+        templateId: await this.template(tx, businessId, body.templateId),
         createdByUserId: actor.userId,
       },
       select: { id: true },
@@ -422,8 +429,10 @@ export class OutboundMessagesService {
     const { version, ...save } = body;
     const result = await this.inFirm(businessId, async (tx) => {
       const row = await this.row(tx, businessId, actor, id, true);
-      // The people first: another firm's or out of reach is 404 whatever the version.
+      // The people and the template first: another firm's or out of reach is 404 whatever the
+      // version.
       await this.people(tx, businessId, actor, save.clientIds, save.leadIds);
+      await this.template(tx, businessId, save.templateId);
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED')
         throw conflict('NOT_EDITABLE', 'This message was already sent or canceled.');
       if (row.updatedAt.toISOString() !== version) throw stale();
@@ -444,7 +453,11 @@ export class OutboundMessagesService {
           });
         await tx.outboundMessage.update({
           where: { id },
-          data: { subject: save.subject ?? null, body: save.body },
+          data: {
+            subject: save.subject ?? null,
+            body: save.body,
+            templateId: await this.template(tx, businessId, save.templateId),
+          },
         });
         return this.shape(tx, businessId, await this.row(tx, businessId, actor, id));
       }
@@ -488,6 +501,156 @@ export class OutboundMessagesService {
     });
   }
 
+  /** An active template of the firm (MSG-F11), or null; another firm's or unknown is 404. */
+  private async template(tx: TxClient, businessId: string, id: string | null | undefined) {
+    if (!id) return null;
+    const t = await tx.messageTemplate.findFirst({
+      where: { businessId, id, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!t) throw notFound();
+    return t.id;
+  }
+
+  /**
+   * One person's merge-field values (MSG-F15), from the canonical Templates renderer: the firm,
+   * the author, and the client's own record; a lead's name fills the recipient's name fields.
+   */
+  private async valuesFor(tx: TxClient, businessId: string, author: ClientsActor, p: Person) {
+    const values = await this.render.liveValues(
+      tx,
+      businessId,
+      author,
+      p.kind === 'CLIENT' ? { clientId: p.id } : {},
+    );
+    if (p.kind === 'LEAD') {
+      const [first = '', ...rest] = p.name.split(' ');
+      values.set('client first name', first);
+      values.set('client last name', rest.join(' '));
+      values.set('client full name', p.name);
+      if (p.email) values.set('email address', p.email);
+      if (p.phone) values.set('phone number', p.phone);
+    }
+    return values;
+  }
+
+  private filled(values: ReadonlyMap<string, string>, subject: string | null, body: string) {
+    const s = subject ? fill(subject, values, 'text') : null;
+    const b = fill(body, values, 'text');
+    return {
+      subject: s?.text ?? null,
+      body: b.text,
+      unresolved: [...new Set([...(s?.unresolved ?? []), ...b.unresolved])],
+    };
+  }
+
+  /** The people of a message as the author sees them (the author's reach applies at send). */
+  private async peopleOf(tx: TxClient, businessId: string, row: Row, list: OutboundRecipient[]) {
+    return this.people(
+      tx,
+      businessId,
+      { userId: row.createdByUserId, role: 'OWNER' },
+      list.flatMap((r) => (r.kind === 'CLIENT' ? [r.id] : [])),
+      list.flatMap((r) => (r.kind === 'LEAD' ? [r.id] : [])),
+    );
+  }
+
+  async review(businessId: string, actor: ClientsActor, id: string): Promise<OutboundReview> {
+    return this.inFirm(businessId, async (tx) => {
+      const row = await this.row(tx, businessId, actor, id);
+      const m = await this.shape(tx, businessId, row);
+      const author: ClientsActor = {
+        userId: row.createdByUserId,
+        role: legacyFirmRole(row.createdBy.role),
+      };
+      const people = await this.peopleOf(tx, businessId, row, m.recipients);
+      const recipients: OutboundReview['recipients'] = [];
+      for (const r of m.recipients) {
+        const p = people.find((x) => x.id === r.id);
+        if (!p) continue;
+        const f = this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body);
+        recipients.push({
+          kind: r.kind,
+          id: r.id,
+          name: r.name,
+          canReceive: r.canReceive,
+          reason: r.reason,
+          ...f,
+        });
+      }
+      const unresolved = [
+        ...new Set(recipients.filter((r) => r.canReceive).flatMap((r) => r.unresolved)),
+      ];
+      const checks: OutboundReview['checks'] = [];
+      if (m.counts.canReceive === 0)
+        checks.push({
+          code: 'NO_RECIPIENTS',
+          severity: 'BLOCK',
+          message: 'Nobody you chose can receive it on this channel.',
+        });
+      if (m.channel === 'EMAIL' && !m.subject?.trim())
+        checks.push({
+          code: 'SUBJECT_REQUIRED',
+          severity: 'BLOCK',
+          message: 'An email needs a subject.',
+        });
+      if (unresolved.length > 0)
+        checks.push({
+          code: 'UNRESOLVED_FIELDS',
+          severity: 'WARN',
+          message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
+        });
+      if (m.counts.cannotReceive > 0)
+        checks.push({
+          code: 'SOME_SKIPPED',
+          severity: 'WARN',
+          message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
+        });
+      if (!checks.some((c) => c.severity === 'BLOCK'))
+        checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
+      return {
+        channel: m.channel,
+        timing: {
+          mode: m.status === 'SCHEDULED' ? ('SCHEDULED' as const) : ('NOW' as const),
+          scheduledFor: m.scheduledFor,
+          timezone: m.timezone,
+        },
+        recipients,
+        unresolved,
+        checks,
+      };
+    });
+  }
+
+  /** Fields left unfilled for someone who receives it block a send until confirmed (409). */
+  private async confirmFields(
+    tx: TxClient,
+    businessId: string,
+    row: Row,
+    m: OutboundMessage,
+    confirmed: boolean,
+  ) {
+    if (confirmed) return;
+    const author: ClientsActor = {
+      userId: row.createdByUserId,
+      role: legacyFirmRole(row.createdBy.role),
+    };
+    const people = await this.peopleOf(
+      tx,
+      businessId,
+      row,
+      m.recipients.filter((r) => r.canReceive),
+    );
+    for (const p of people) {
+      const f = this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body);
+      if (f.unresolved.length > 0)
+        throw conflict(
+          'UNRESOLVED_FIELDS',
+          'Some merge fields cannot be filled. Review the message, or send them as written.',
+        );
+    }
+  }
+
   /** Ready to leave: an email has its subject, and someone can receive it. */
   private ready(m: OutboundMessage): void {
     if (m.channel === 'EMAIL' && !m.subject?.trim())
@@ -516,7 +679,9 @@ export class OutboundMessagesService {
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED')
         throw conflict('NOT_EDITABLE', 'This message was already sent or canceled.');
       if (row.updatedAt.toISOString() !== body.version) throw stale();
-      this.ready(await this.shape(tx, businessId, row));
+      const m = await this.shape(tx, businessId, row);
+      this.ready(m);
+      await this.confirmFields(tx, businessId, row, m, body.confirmUnresolved === true);
       await tx.outboundMessage.update({
         where: { id },
         data: { status: 'SCHEDULED', scheduledFor: at },
@@ -562,13 +727,16 @@ export class OutboundMessagesService {
     actor: ClientsActor,
     id: string,
     version: string | null,
+    confirmUnresolved = false,
   ): Promise<OutboundMessage> {
     const started = await this.inFirm(businessId, async (tx) => {
       const row = await this.row(tx, businessId, actor, id, true);
       if (row.status === 'CANCELED') throw conflict('CANCELED', 'This message was canceled.');
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED') return false;
       if (version !== null && row.updatedAt.toISOString() !== version) throw stale();
-      this.ready(await this.shape(tx, businessId, row));
+      const m = await this.shape(tx, businessId, row);
+      this.ready(m);
+      await this.confirmFields(tx, businessId, row, m, confirmUnresolved);
       await tx.outboundMessage.update({ where: { id }, data: { status: 'SENDING' } });
       return true;
     });
@@ -629,7 +797,12 @@ export class OutboundMessagesService {
         );
         continue;
       }
-      const outcome = await this.one(businessId, author, m, p, slug).catch((error: unknown) => {
+      // Each person's own text: the merge fields filled from their record (MSG-F15).
+      const text = await this.inFirm(businessId, async (tx) =>
+        this.filled(await this.valuesFor(tx, businessId, author, p), m.subject, m.body),
+      );
+      const own = { ...m, subject: text.subject, body: text.body };
+      const outcome = await this.one(businessId, author, own, p, slug).catch((error: unknown) => {
         this.logger.warn(
           `message ${id}: a recipient failed (${error instanceof Error ? error.name : 'Error'})`,
         );

@@ -36,6 +36,7 @@ import {
   OutboundCheck,
   OutboundMessage,
   OutboundMessageList,
+  OutboundReview,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
   SendOutboundRequest,
@@ -117,6 +118,9 @@ export function createMessagesClient(request: ApiRequest) {
       list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> =>
         request(OutboundMessageList, `${OUTBOUND}${toQuery(parseInput(ListOutboundQuery, query))}`),
       get: async (id: string): Promise<OutboundMessage> => request(OutboundMessage, outbound(id)),
+      /** Review (MSG-F15): each person's message with the fields filled; nothing is sent. */
+      review: async (id: string): Promise<OutboundReview> =>
+        request(OutboundReview, `${outbound(id)}/review`),
       /** Save Draft: a new draft. */
       create: async (body: SaveOutboundRequest): Promise<OutboundMessage> =>
         request(OutboundMessage, OUTBOUND, {
