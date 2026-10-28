@@ -41,14 +41,16 @@ test('Conversation: reply, mark unread and add a note', async ({ page }) => {
 });
 
 test('New Message: choose a client, write it and see it in the list', async ({ page }) => {
+  // New Message is its own page (R60, MSG-F09).
   await page.goto(app('/messages'));
-  await page.getByRole('button', { name: 'New Message' }).click();
-  const dialog = page.getByTestId('new-message');
-  await dialog.getByLabel('To').selectOption({ index: 1 });
-  await dialog.getByLabel('Subject').fill('Welcome aboard');
-  await dialog.getByLabel('Message').fill('Glad to have you.');
-  await page.getByRole('dialog').getByRole('button', { name: 'Send Message' }).click();
-  await expect(page.getByText('Message sent.')).toBeVisible();
+  await page.getByRole('link', { name: 'New Message' }).click();
+  const recipients = page.getByRole('region', { name: 'Select Recipients' });
+  await recipients.getByRole('checkbox', { name: 'Jamie Sample', exact: true }).check();
+  await page.getByLabel('Subject (optional)').fill('Welcome aboard');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Glad to have you.');
+  await page.getByRole('button', { name: 'Send Message' }).click();
+  await expect(page.getByTestId('compose-outcome')).toContainText('Message sent');
+  await page.getByRole('link', { name: 'Open conversation' }).click();
   await expect(page.getByTestId('conversation')).toContainText('Glad to have you.');
 });
 
