@@ -136,6 +136,29 @@ test('Sent is its own tag: the Sent tab lists dispatched invoices, overdue too (
   await expect(rows).toHaveCount(0);
 });
 
+test('Correct Dates: a sent invoice gets a later due date with a reason (IP-F08)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByLabel('Search invoices').fill('0098');
+  const row = page.getByTestId('invoice-row').first();
+  await expect(row).toContainText('Overdue');
+  await page.getByRole('button', { name: 'Actions for INV-2026-0098' }).click();
+  await page.getByRole('menuitem', { name: 'Correct Dates' }).click();
+  const dialog = page.getByRole('dialog');
+  const later = await page.evaluate(() =>
+    new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10),
+  );
+  await dialog.getByLabel('Due date').fill(later);
+  await dialog.getByRole('button', { name: 'Save Dates' }).click();
+  await expect(dialog.getByText('Say why the sent invoice changes.')).toBeVisible();
+  await dialog.getByLabel('Reason').fill('Fake: the client asked for more time');
+  await dialog.getByRole('button', { name: 'Save Dates' }).click();
+  await expect(page.getByText('INV-2026-0098 corrected.')).toBeVisible();
+  await expect(row).not.toContainText('Overdue');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['/invoices', '/invoices/new', '/invoices/record-payment']) {

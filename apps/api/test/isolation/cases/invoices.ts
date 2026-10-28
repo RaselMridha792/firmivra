@@ -122,6 +122,11 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },
   },
+  // IP-F08: an open invoice's due date, later (not yet dispatched, so no reason is needed).
+  'POST /api/v1/business/invoices/:id/correct': {
+    params: { id: 'openInvoice' },
+    body: { dueOn: day(40) },
+  },
   // Found, but a checkout that is not paid is not refundable.
   'POST /api/v1/business/invoices/:id/payments/:paymentId/refunds': {
     params: { id: 'checkoutInvoice', paymentId: 'payment' },
