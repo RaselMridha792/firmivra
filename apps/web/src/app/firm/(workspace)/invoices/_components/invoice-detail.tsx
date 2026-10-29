@@ -1,6 +1,12 @@
 'use client';
 
-import { INVOICE_ERRORS, type Invoice, PAYMENT_TERM_LABELS } from '@firmivra/types';
+import {
+  INVOICE_ERRORS,
+  type Invoice,
+  type InvoiceRecurrence,
+  PAYMENT_TERM_LABELS,
+  recurrenceLabel,
+} from '@firmivra/types';
 import { Button, Input, Modal } from '@firmivra/ui';
 import {
   ArrowLeft,
@@ -32,6 +38,7 @@ import {
   toCents,
   ViewPill,
 } from './inv-shared';
+import { InvoiceHistoryCard } from './invoice-history';
 
 const PAYMENT_STATUS: Record<string, string> = {
   PENDING: 'Pending',
@@ -166,6 +173,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ...(i?.paymentTerms
                   ? [['Payment Terms', PAYMENT_TERM_LABELS[i.paymentTerms]] as const]
                   : []),
+                ...(i?.recurring ? [['Recurring', recurringText(i.recurring)] as const] : []),
                 ...(i?.scheduledFor ? [['Opens On', dayText(i.scheduledFor)] as const] : []),
                 ...(i?.paidAt ? [['Paid On', dayText(i.paidAt)] as const] : []),
                 ...(i?.canceledAt ? [['Canceled On', dayText(i.canceledAt)] as const] : []),
@@ -299,6 +307,9 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
               </ul>
             )}
           </section>
+
+          {/* IP-F09: the firm's notes and logged activity. */}
+          {i ? <InvoiceHistoryCard invoiceId={i.id} /> : null}
         </div>
 
         <aside
@@ -437,4 +448,17 @@ function ReasonDialog({
       </form>
     </Modal>
   );
+}
+
+/** IP-F05: "Every 3 weeks · next 11/18/2026", or where the schedule stands. */
+function recurringText(r: InvoiceRecurrence): string {
+  const state =
+    r.status === 'PAUSED' && r.occurrences === 0
+      ? 'starts when this invoice is sent'
+      : r.status === 'ACTIVE'
+        ? `next ${dayText(r.nextSendOn)}`
+        : r.status === 'PAUSED'
+          ? 'paused'
+          : 'ended';
+  return `${recurrenceLabel(r)} · ${state}`;
 }

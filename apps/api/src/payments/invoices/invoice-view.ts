@@ -3,6 +3,7 @@ import type { Prisma, TxClient } from '@firmivra/db';
 import {
   type FirmInvoicePayment,
   type Invoice,
+  type InvoiceRecurrence,
   PaymentTerm,
   type InvoiceListItem,
   type InvoicePayment,
@@ -86,6 +87,23 @@ const offlineSelect = {
 } satisfies Prisma.OfflinePaymentSelect;
 type OfflineRow = Prisma.OfflinePaymentGetPayload<{ select: typeof offlineSelect }>;
 
+/** IP-F05: the schedule an invoice starts or was made by (invoice-recurrence.ts). */
+const recurringSelect = {
+  id: true,
+  frequency: true,
+  intervalCount: true,
+  intervalUnit: true,
+  startOn: true,
+  nextSendOn: true,
+  endOn: true,
+  maxOccurrences: true,
+  occurrences: true,
+  status: true,
+  autoSend: true,
+  autopay: true,
+} satisfies Prisma.RecurringInvoiceSelect;
+type RecurringRow = Prisma.RecurringInvoiceGetPayload<{ select: typeof recurringSelect }>;
+
 export const invoiceSelect = {
   id: true,
   clientId: true,
@@ -104,6 +122,7 @@ export const invoiceSelect = {
   paymentTerms: true,
   notesToClient: true,
   internalNote: true,
+  recurring: { select: recurringSelect },
   createdAt: true,
   updatedAt: true,
   client: { select: { id: true, displayName: true } },
@@ -286,6 +305,25 @@ export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null 
     paymentTerms: termOf(row.paymentTerms),
     notesToClient: row.notesToClient,
     internalNote: row.internalNote,
+    recurring: toRecurrence(row.recurring),
+  };
+}
+
+function toRecurrence(r: RecurringRow | null): InvoiceRecurrence | null {
+  if (!r || r.frequency === 'ONE_TIME') return null;
+  return {
+    id: r.id,
+    frequency: r.frequency,
+    intervalCount: r.intervalCount,
+    intervalUnit: r.intervalUnit,
+    startOn: r.startOn.toISOString().slice(0, 10),
+    nextSendOn: day(r.nextSendOn),
+    endOn: day(r.endOn),
+    maxOccurrences: r.maxOccurrences,
+    occurrences: r.occurrences,
+    status: r.status,
+    autoSend: r.autoSend,
+    autopay: r.autopay,
   };
 }
 
