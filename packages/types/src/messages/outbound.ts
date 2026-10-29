@@ -45,6 +45,59 @@ export const OutboundRecipient = z.object({
 });
 export type OutboundRecipient = z.infer<typeof OutboundRecipient>;
 
+/**
+ * MSG-F13: what a message can be about, one of the client's own records. The thread it opens takes
+ * it as its related record, so it shows under Appointments, Invoices or Documents in Messages.
+ */
+export const OUTBOUND_RELATED_TYPES = [
+  'appointment',
+  'invoice',
+  'tax_return',
+  'document_request',
+  'task',
+  'engagement',
+] as const;
+export const OutboundRelatedType = z.enum(OUTBOUND_RELATED_TYPES);
+export type OutboundRelatedType = z.infer<typeof OutboundRelatedType>;
+export const OUTBOUND_RELATED_LABELS: Record<OutboundRelatedType, string> = {
+  appointment: 'Appointment',
+  invoice: 'Invoice or payment',
+  tax_return: 'Tax return',
+  document_request: 'Document request',
+  task: 'Task',
+  engagement: 'Service',
+};
+/** A record of the client's, as the Related To list shows it. */
+export const OutboundRelated = z.object({
+  type: OutboundRelatedType,
+  id: z.uuid(),
+  /** Its name in words, e.g. "Invoice INV-1001" or "2025 Tax Return". */
+  label: z.string(),
+});
+export type OutboundRelated = z.infer<typeof OutboundRelated>;
+
+/**
+ * GET /business/outbound-messages/related-options?clientId=: the client's records a message can be
+ * about, newest first, at most 20 of each type (404 for a client out of reach).
+ */
+export const OutboundRelatedOptionsQuery = z.strictObject({ clientId: z.uuid() });
+export type OutboundRelatedOptionsQuery = z.input<typeof OutboundRelatedOptionsQuery>;
+export const OutboundRelatedOptions = z.object({ items: z.array(OutboundRelated) });
+export type OutboundRelatedOptions = z.infer<typeof OutboundRelatedOptions>;
+
+/**
+ * GET /business/outbound-messages/assignees (MSG-F16): the firm's active members who can own the
+ * conversations. One with the Staff role owns only conversations with their own clients.
+ */
+export const OutboundAssignee = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  role: z.enum(['OWNER', 'ADMIN', 'STAFF']),
+});
+export type OutboundAssignee = z.infer<typeof OutboundAssignee>;
+export const OutboundAssigneeList = z.object({ items: z.array(OutboundAssignee) });
+export type OutboundAssigneeList = z.infer<typeof OutboundAssigneeList>;
+
 /** The most files one New Message carries (MSG-F12). */
 export const OUTBOUND_FILES_MAX = 10;
 /** The most a file may be: the database's limit; Messages Settings may set less. */
@@ -73,6 +126,10 @@ export const OutboundMessage = z.object({
   body: z.string(),
   /** The template it started from (MSG-F11); the text stays editable. */
   templateId: z.uuid().nullable(),
+  /** MSG-F13: the client's record it is about. */
+  related: OutboundRelated.nullable(),
+  /** MSG-F16: who owns the conversations it opens. */
+  assignedTo: z.object({ userId: z.uuid(), name: z.string() }).nullable(),
   /** Only while SCHEDULED. */
   scheduledFor: DateTime.nullable(),
   /** The firm's time zone: a schedule is picked and shown in it. */
@@ -131,6 +188,16 @@ const SaveShape = {
   body: Body,
   /** An active template of the firm (404 otherwise), or none. */
   templateId: z.uuid().nullable().optional(),
+  /**
+   * MSG-F13: one of the client's records (404 otherwise); only with exactly one client (400
+   * RELATED_NEEDS_ONE_CLIENT). Leads in the same message take no record.
+   */
+  related: z.strictObject({ type: OutboundRelatedType, id: z.uuid() }).nullable().optional(),
+  /**
+   * MSG-F16: an active member who owns the conversations it opens (404 otherwise); a member with
+   * the Staff role only for their own clients (400 ASSIGNEE_CANNOT_REACH).
+   */
+  assignedUserId: z.uuid().nullable().optional(),
   ...People,
 };
 const saveRules = <

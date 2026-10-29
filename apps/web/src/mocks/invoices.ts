@@ -17,6 +17,8 @@ import {
   lineAmountCents,
   ListInvoicesQuery,
   ListMyInvoicesQuery,
+  ListPaymentsQuery,
+  type PaymentRow,
   type MemberRef,
   MY_INVOICE_SECTIONS,
   MY_INVOICE_VIEWS,
@@ -780,6 +782,76 @@ export function createInvoicesMock(
         : { status: 'OPEN', issuedAt: at, scheduledFor: null, recurring, updatedAt: at };
       Object.assign(r, change);
       return toInvoice(r, day);
+    },
+    // IP-F17: every payment in the range, as the API lists them (mock Stripe payments are card).
+    payments: async (query = {}) => {
+      await mockDelay();
+      const q = parseInput(ListPaymentsQuery, query);
+      const day = today();
+      const from = q.from ?? `${day.slice(0, 4)}-01-01`;
+      const to = q.to ?? day;
+      const rows: PaymentRow[] = [];
+      for (const r of s.rows.filter(visible)) {
+        const client = {
+          id: r.clientId,
+          displayName: clientFixtures().find((c) => c.id === r.clientId)?.displayName ?? '',
+        };
+        const invoice = { id: r.id, number: r.number };
+        for (const p of r.payments) {
+          const on = p.paidAt ? dateOf(p.paidAt) : null;
+          if (p.status !== 'SUCCEEDED' || !on || on < from || on > to) continue;
+          const refunded = p.refunds
+            .filter((x) => x.status === 'SUCCEEDED')
+            .reduce((n, x) => n + x.amountCents, 0);
+          rows.push({
+            id: p.id,
+            source: 'STRIPE',
+            invoice,
+            client,
+            method: 'CARD',
+            amountCents: p.amountCents - refunded,
+            receivedOn: on,
+            status: refunded >= p.amountCents ? 'REFUNDED' : 'RECEIVED',
+          });
+        }
+        for (const o of r.offline)
+          if (o.receivedOn >= from && o.receivedOn <= to)
+            rows.push({
+              id: o.id,
+              source: 'RECORDED',
+              invoice,
+              client,
+              method: o.method,
+              amountCents: o.amountCents,
+              receivedOn: o.receivedOn,
+              status: o.voidedAt ? 'VOIDED' : 'RECEIVED',
+            });
+      }
+      const term = q.search?.toLowerCase();
+      const found = rows
+        .filter(
+          (x) =>
+            !term ||
+            x.invoice.number.toLowerCase().includes(term) ||
+            x.client.displayName.toLowerCase().includes(term),
+        )
+        .sort((a, b) => b.receivedOn.localeCompare(a.receivedOn));
+      return copy({
+        items: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
+        total: found.length,
+        page: q.page,
+        pageSize: q.pageSize,
+        from,
+        to,
+        receivedCents: found
+          .filter((x) => x.status === 'RECEIVED')
+          .reduce((n, x) => n + x.amountCents, 0),
+      });
+    },
+    // IP-F17: no recurring schedules in mock mode yet (IP-F18 makes them).
+    recurring: async () => {
+      await mockDelay();
+      return { items: [] };
     },
     // IP-F09: the invoice's firm-only history, and its PDF (a harmless file in mock mode).
     history: async (id) => {
