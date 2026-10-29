@@ -176,6 +176,50 @@ paths:
       responses:
         '200': { description: '`MessageThread`.' }
         default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads:
+    get:
+      tags: [firm]
+      operationId: leadMessageThreads
+      summary: "The Leads tab (MSG-F03): conversations with leads, newest activity first"
+      description: |
+        A lead has no portal: a lead's thread keeps the firm's emails and texts to the lead,
+        written when New Message (or the next message below) sent them; one thread per lead and
+        subject. Owner and Admin reach every lead's threads; Staff only their assigned leads'. A
+        lead's thread is never in `/business/message-threads`. `search` also matches the lead's
+        name, email and phone. Source of truth: `packages/types/src/messages/lead-threads.ts`.
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/Archived' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: '`LeadMessageThreadList`: `{ items: LeadMessageThread[], nextCursor }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [firm]
+      operationId: getLeadMessageThread
+      summary: The lead's thread and its messages, oldest first, each with its channel and delivery
+      responses:
+        '200': { description: '`LeadMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads/{id}/messages:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: sendLeadMessage
+      summary: "The next email or text to the lead (`{ body, channel: EMAIL | SMS }`), sent now"
+      description: |
+        Goes through New Message on the thread's subject (the same checks, merge fields and
+        delivery; a field that cannot be filled goes as written), and lands in this thread. `409`
+        with the reason as the code when the channel cannot reach the lead (`NO_CONTACT`,
+        `NO_CONSENT`, `SUPPRESSED`, `PROVIDER_UNAVAILABLE`, `NOT_PERMITTED`): nothing is saved.
+        `409 SEND_FAILED` when it did not go out.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`LeadMessage`.' }
+        default: { $ref: '#/components/responses/Error' }
   /business/clients/{clientId}/notes:
     parameters: [{ $ref: '#/components/parameters/ClientId' }]
     get:
