@@ -19,11 +19,28 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
 import {
   STRIPE_GATEWAY,
   STRIPE_WEBHOOK_SECRET,
   type StripeGateway,
 } from '../../src/payments/stripe/stripe-gateway.js';
+
+/** The report file store in memory (an invoice's PDF): CI has no S3. */
+export class MemoryReportFiles implements ReportFiles {
+  readonly objects = new Map<string, Buffer>();
+  put(key: string, bytes: Uint8Array) {
+    this.objects.set(key, Buffer.from(bytes));
+    return Promise.resolve();
+  }
+  presignDownload(input: { key: string; fileName: string }) {
+    return Promise.resolve(`memory:${input.key}?name=${encodeURIComponent(input.fileName)}`);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+}
 
 /** The webhook signing secret of the test apps that get a fake Stripe. */
 export const TEST_WEBHOOK_SECRET = 'whsec_testsecret0001';
@@ -182,7 +199,10 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] });
+  const files = new MemoryReportFiles();
+  const builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(REPORT_FILES)
+    .useValue(files);
   if (stripe !== undefined) {
     builder.overrideProvider(STRIPE_GATEWAY).useValue(stripe);
     builder.overrideProvider(STRIPE_WEBHOOK_SECRET).useValue(TEST_WEBHOOK_SECRET);
@@ -282,5 +302,5 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     return Invoice.parse(expectOk(await firm('get', `/${id}`, people.ownerA)).body);
   };
 
-  return { app, run, people, ids, firm, portal, inScope, draft, appUrl: fx.appUrl };
+  return { app, run, people, ids, firm, portal, inScope, draft, files, appUrl: fx.appUrl };
 }

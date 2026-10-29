@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nes
 import type { z } from 'zod';
 import {
   ClientId,
+  type DownloadLink,
   CreateMessageThreadRequest,
   CreateMyMessageThreadRequest,
   type FirmUnreadCount,
@@ -26,6 +27,7 @@ import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { MessagesService } from './messages.service.js';
+import { OutboundFilesService } from './outbound-files.service.js';
 import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
@@ -167,7 +169,10 @@ export class MessageThreadsController {
 @Roles('CLIENT')
 @PortalTabRoute('MESSAGES')
 export class MyMessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly files: OutboundFilesService,
+  ) {}
 
   @Get()
   list(
@@ -189,6 +194,15 @@ export class MyMessagesController {
   @Get('unread-count')
   unreadCount(@CurrentTenant() tenant: TenantContext): Promise<UnreadCount> {
     return this.messages.myUnreadCount(tenant.businessId, accountOf(tenant));
+  }
+
+  /** MSG-F12: a file the firm's New Message sent to this client, through their portal. */
+  @Get('files/:fileId/download')
+  fileDownload(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('fileId', idPipe) fileId: string,
+  ): Promise<DownloadLink> {
+    return this.files.portalDownload(tenant.businessId, accountOf(tenant), fileId);
   }
 
   @Get(':id')

@@ -1,12 +1,17 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { INVOICE_ERRORS, PaymentMethodKey } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
+  AddInvoiceHistoryRequest,
   CancelInvoiceRequest,
   CorrectInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
+  InvoiceHistory,
+  InvoiceHistoryItem,
   InvoiceList,
+  InvoicePdfLink,
   ListInvoicesQuery,
   PaymentMethodsSummary,
   UpdateInvoiceRequest,
@@ -32,7 +37,9 @@ import {
   withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
+import { REPORT_FILES, type ReportFiles } from '../../reports/report-files.js';
 import { InvoiceNotices } from './invoice-notices.js';
+import { renderInvoicePdf } from './invoice-pdf.js';
 import { endDraftRecurrence, startRecurrence, syncDraftRecurrence } from './invoice-recurrence.js';
 import {
   conflict,
@@ -61,6 +68,27 @@ export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed
 
 const DAY = 86_400_000;
 
+const historySelect = {
+  id: true,
+  type: true,
+  body: true,
+  createdAt: true,
+  actor: { select: { userId: true, user: { select: { name: true } } } },
+} as const;
+const toHistoryItem = (r: {
+  id: string;
+  type: string;
+  body: string | null;
+  createdAt: Date;
+  actor: { userId: string; user: { name: string } } | null;
+}): InvoiceHistoryItem => ({
+  id: r.id,
+  type: r.type,
+  body: r.body,
+  actor: r.actor ? { userId: r.actor.userId, name: r.actor.user.name } : null,
+  createdAt: r.createdAt.toISOString(),
+});
+
 /**
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
  * every invoice; Staff only read those of clients assigned to them (others 404) and the routes
@@ -74,6 +102,7 @@ export class InvoicesService {
     private readonly audit: AuditService,
     private readonly notices: InvoiceNotices,
     @Inject(STRIPE_GATEWAY) private readonly stripe: StripeGateway | null,
+    @Inject(REPORT_FILES) private readonly files: ReportFiles,
   ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -448,6 +477,93 @@ export class InvoicesService {
       );
       return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     });
+  }
+
+  /** IP-F09: the invoice's history: what the firm wrote and logged, newest first. */
+  async history(businessId: string, actor: ClientsActor, id: string): Promise<InvoiceHistory> {
+    const items = await this.inFirm(businessId, async (tx) => {
+      await this.load(tx, businessId, actor, id);
+      const rows = await tx.invoiceEvent.findMany({
+        where: { businessId, invoiceId: id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 100,
+        select: historySelect,
+      });
+      return rows.map(toHistoryItem);
+    });
+    await this.audit.log(
+      'invoice.history_viewed',
+      { type: 'invoice', id },
+      { count: items.length },
+    );
+    return { items };
+  }
+
+  /** IP-F09: Add Note or Log Activity: firm only, kept in the invoice's history and audited. */
+  async addHistory(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof AddInvoiceHistoryRequest>,
+  ): Promise<InvoiceHistoryItem> {
+    return this.inFirm(businessId, async (tx) => {
+      const invoice = await this.load(tx, businessId, actor, id);
+      const row = await tx.invoiceEvent.create({
+        data: {
+          businessId,
+          invoiceId: id,
+          type: body.type,
+          actorKind: 'STAFF',
+          actorUserId: actor.userId,
+          body: body.body,
+        },
+        select: historySelect,
+      });
+      await this.audit.logIn(
+        tx,
+        body.type === 'NOTE' ? 'invoice.note_added' : 'invoice.activity_logged',
+        { type: 'invoice', id },
+        { clientId: invoice.clientId, length: body.body.length },
+      );
+      return toHistoryItem(row);
+    });
+  }
+
+  /**
+   * IP-F09: the invoice as a PDF under the firm's own prefix, behind a 5-minute link. What the
+   * client is billed only; the firm's notes and history never go on it.
+   */
+  async pdf(businessId: string, actor: ClientsActor, id: string): Promise<InvoicePdfLink> {
+    const { invoice, firm } = await this.inFirm(businessId, async (tx) => {
+      const row = await this.load(tx, businessId, actor, id);
+      const business = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { name: true },
+      });
+      const { today } = await firmToday(tx, businessId);
+      return { invoice: await invoiceOf(tx, businessId, row, today), firm: business.name };
+    });
+    const bytes = await renderInvoicePdf(invoice, firm);
+    const key = `tenant/${businessId}/reports/invoice-${randomUUID()}.pdf`;
+    let url: string;
+    try {
+      await this.files.put(key, bytes, 'application/pdf');
+      url = await this.files.presignDownload({
+        key,
+        fileName: `${invoice.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`,
+        contentType: 'application/pdf',
+      });
+    } catch {
+      throw new HttpException(
+        {
+          code: 'FILE_STORE_UNAVAILABLE',
+          message: 'The file could not be saved. Try again shortly.',
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    await this.audit.log('invoice.pdf_exported', { type: 'invoice', id });
+    return { url, expiresAt: new Date(Date.now() + 300_000).toISOString() };
   }
 
   /**
