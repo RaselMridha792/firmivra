@@ -33,6 +33,8 @@ import {
   UpdateInvoiceRequest,
   VoidOfflinePaymentRequest,
   type PaymentTerm,
+  type InvoiceRecurrence,
+  recurringPeriodOn,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -67,6 +69,7 @@ const lineId = (n: number) => `0199b6e2-0000-7000-8000-${String(n).padStart(12, 
 const paymentId = (n: number) => `0199b6e3-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const refundId = (n: number) => `0199b6e4-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const offlineId = (n: number) => `0199b6e5-0000-7000-8000-${String(n).padStart(12, '0')}`;
+const recurringId = (n: number) => `0199b6e6-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
 type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents'>;
@@ -90,6 +93,8 @@ interface Row {
   paymentTerms?: PaymentTerm | null;
   notesToClient?: string | null;
   internalNote?: string | null;
+  /** IP-F05: the schedule it starts; left out on the sample rows: one-time. */
+  recurring?: InvoiceRecurrence | null;
   createdAt: string;
   updatedAt: string;
   /** Submitted payments, newest first (checkouts the client left are never kept). */
@@ -469,6 +474,7 @@ function toInvoice(r: Row, day: string): Invoice {
     paymentTerms: r.paymentTerms ?? null,
     notesToClient: r.notesToClient ?? null,
     internalNote: r.internalNote ?? null,
+    recurring: r.recurring ?? null,
   });
 }
 
@@ -530,8 +536,10 @@ function store() {
   let nextLine = 1000;
   let nextRefund = 100;
   let nextOffline = 100;
+  let nextRecurring = 100;
   return {
     rows,
+    recurringId: () => recurringId(nextRecurring++),
     refundId: () => refundId(nextRefund++),
     offlineId: () => offlineId(nextOffline++),
     /** `{invoiceId}` of each offline payment by its idempotency key (keys are per firm). */
@@ -596,6 +604,52 @@ export function createInvoicesMock(
     return e.id;
   };
   const notDraft = () => fail(409, 'NOT_DRAFT', 'Only a draft can be changed or sent');
+  const endTooSoon = () =>
+    fail(409, 'RECURRING_END_TOO_SOON', 'The schedule ends before its second invoice');
+  /** IP-F05, as the API: the second invoice's day; 409 when the end comes before it. */
+  const nextAfter = (startOn: string, rule: InvoiceRecurrence, endOn: string | null) => {
+    const next = recurringPeriodOn(startOn, rule, 1);
+    if (endOn !== null && endOn < next) throw endTooSoon();
+    return next;
+  };
+  /** A draft's schedule waits PAUSED, auto-send and AutoPay off; off is none. */
+  const waitingSchedule = (
+    current: InvoiceRecurrence | null,
+    input: ReturnType<typeof UpdateInvoiceRequest.parse>['recurring'],
+    scheduledFor: string | null,
+  ): InvoiceRecurrence | null => {
+    if (!input) return null;
+    const custom = input.frequency === 'CUSTOM';
+    const day = today();
+    const startOn = scheduledFor && scheduledFor > day ? scheduledFor : day;
+    const endOn = input.endOn ?? null;
+    const rule = {
+      id: current?.id ?? s.recurringId(),
+      frequency: input.frequency,
+      intervalCount: custom ? (input.intervalCount ?? null) : null,
+      intervalUnit: custom ? (input.intervalUnit ?? null) : null,
+      startOn,
+      nextSendOn: null,
+      endOn,
+      maxOccurrences: endOn === null ? (input.maxOccurrences ?? null) : null,
+      occurrences: 0,
+      status: 'PAUSED' as const,
+      autoSend: false,
+      autopay: false,
+    };
+    return { ...rule, nextSendOn: nextAfter(startOn, rule, endOn) };
+  };
+  /** Sending starts it from the day the invoice opens. */
+  const startSchedule = (r: InvoiceRecurrence | null, openOn: string) =>
+    r && r.status === 'PAUSED' && r.occurrences === 0
+      ? {
+          ...r,
+          status: 'ACTIVE' as const,
+          startOn: openOn,
+          nextSendOn: nextAfter(openOn, r, r.endOn),
+          occurrences: 1,
+        }
+      : r;
   const archived = () => fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
   const isArchived = (r: Row) => !!clientFixtures().find((c) => c.id === r.clientId)?.archivedAt;
 
@@ -667,6 +721,7 @@ export function createInvoicesMock(
         engagementId,
         status: 'DRAFT',
         ...s.draft(b),
+        recurring: waitingSchedule(null, b.recurring, b.scheduledFor ?? null),
         issuedAt: null,
         paidAt: null,
         canceledAt: null,
@@ -691,7 +746,12 @@ export function createInvoicesMock(
       if (r.status === 'SCHEDULED' && (!b.scheduledFor || b.scheduledFor <= today()))
         throw fail(409, 'SCHEDULE_PASSED', 'Choose a send day after today');
       if (isArchived(r)) throw archived();
-      const change: Partial<Row> = { ...s.draft(b), engagementId, updatedAt: now() };
+      const change: Partial<Row> = {
+        ...s.draft(b),
+        recurring: waitingSchedule(r.recurring ?? null, b.recurring, b.scheduledFor ?? null),
+        engagementId,
+        updatedAt: now(),
+      };
       Object.assign(r, change);
       return toInvoice(r, today());
     },
@@ -710,10 +770,11 @@ export function createInvoicesMock(
         throw fail(409, 'DUE_DATE_PASSED', 'The due date has passed; change it first');
       }
       const at = now();
+      const recurring = startSchedule(r.recurring ?? null, later ? r.scheduledFor! : day);
       // A scheduled one opens on its day (the API's daily job); otherwise it opens now.
       const change: Partial<Row> = later
-        ? { status: 'SCHEDULED', updatedAt: at }
-        : { status: 'OPEN', issuedAt: at, scheduledFor: null, updatedAt: at };
+        ? { status: 'SCHEDULED', recurring, updatedAt: at }
+        : { status: 'OPEN', issuedAt: at, scheduledFor: null, recurring, updatedAt: at };
       Object.assign(r, change);
       return toInvoice(r, day);
     },
@@ -771,7 +832,15 @@ export function createInvoicesMock(
         cancelReason: reason,
         // A draft was never shown, so it never reaches the portal; a scheduled one keeps its day
         // (the client saw it as Upcoming) and stays in their history as Canceled.
-        ...(r.status === 'DRAFT' ? { scheduledFor: null } : {}),
+        ...(r.status === 'DRAFT'
+          ? {
+              scheduledFor: null,
+              // Its waiting schedule ends with it.
+              recurring: r.recurring
+                ? { ...r.recurring, status: 'ENDED' as const, nextSendOn: null }
+                : null,
+            }
+          : {}),
         updatedAt: at,
       };
       Object.assign(r, change);
