@@ -1,10 +1,12 @@
 import {
   ApiRequestError,
+  AddInvoiceHistoryRequest,
   CancelInvoiceRequest,
   CorrectInvoiceRequest,
   CreateInvoiceRequest,
   type FirmInvoicePayment,
   Invoice,
+  type InvoiceHistoryItem,
   InvoiceId,
   type InvoiceListItem,
   type InvoiceRefund,
@@ -591,6 +593,7 @@ export function createInvoicesMock(
   const visible = (r: Row) =>
     !staffOnly ||
     clientFixtures().some((c) => c.id === r.clientId && c.assignedTo?.userId === mockStaff.userId);
+  const histories = new Map<string, InvoiceHistoryItem[]>();
   const find = (id: string) => {
     const r = s.rows.find((x) => x.id === id && visible(x));
     if (!r) throw notFound();
@@ -777,6 +780,35 @@ export function createInvoicesMock(
         : { status: 'OPEN', issuedAt: at, scheduledFor: null, recurring, updatedAt: at };
       Object.assign(r, change);
       return toInvoice(r, day);
+    },
+    // IP-F09: the invoice's firm-only history, and its PDF (a harmless file in mock mode).
+    history: async (id) => {
+      await mockDelay();
+      find(parseInput(InvoiceId, id));
+      return copy({ items: histories.get(id) ?? [] });
+    },
+    addHistory: async (id, body) => {
+      await mockDelay();
+      manager();
+      const b = parseInput(AddInvoiceHistoryRequest, body);
+      find(parseInput(InvoiceId, id));
+      const item = {
+        id: crypto.randomUUID(),
+        type: b.type,
+        body: b.body,
+        actor: { userId: mockMe.userId, name: mockMe.name },
+        createdAt: now(),
+      };
+      histories.set(id, [item, ...(histories.get(id) ?? [])]);
+      return copy(item);
+    },
+    pdf: async (id) => {
+      await mockDelay();
+      const r = find(parseInput(InvoiceId, id));
+      return {
+        url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock invoice ${r.number}`)}`,
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      };
     },
     // IP-F08: the dates of a scheduled or unpaid open invoice, as the API corrects them.
     correct: async (id, body) => {

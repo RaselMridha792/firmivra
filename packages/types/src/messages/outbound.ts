@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { clearable, text } from '../clients/text.js';
+import { UploadContentType } from '../documents/schemas.js';
 import {
   MessageChannel,
   OutboundExclusion,
@@ -36,10 +37,33 @@ export const OutboundRecipient = z.object({
   reason: OutboundExclusion.nullable(),
   /** QUEUED until it is sent (null before the message is saved). */
   status: OutboundRecipientStatus.nullable(),
-  /** A client's portal conversation it went to (portal and email), for Open. */
+  /**
+   * The conversation it went to, for Open: a client's portal thread, or the lead's own thread
+   * that keeps the lead's email or text (the Messages Leads tab).
+   */
   threadId: z.uuid().nullable(),
 });
 export type OutboundRecipient = z.infer<typeof OutboundRecipient>;
+
+/** The most files one New Message carries (MSG-F12). */
+export const OUTBOUND_FILES_MAX = 10;
+/** The most a file may be: the database's limit; Messages Settings may set less. */
+export const OUTBOUND_FILE_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A file sent with New Message (MSG-F12). Files reach clients only, through their portal (an email
+ * to a client links the portal; it never carries a file); a lead or a text cannot take them.
+ * CHECKING while the virus scan runs: the message sends only once every file is READY.
+ */
+export const OutboundFile = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int().min(1),
+  status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+  createdAt: DateTime,
+});
+export type OutboundFile = z.infer<typeof OutboundFile>;
 
 export const OutboundMessage = z.object({
   id: z.uuid(),
@@ -54,6 +78,8 @@ export const OutboundMessage = z.object({
   /** The firm's time zone: a schedule is picked and shown in it. */
   timezone: z.string(),
   recipients: z.array(OutboundRecipient),
+  /** Its files (MSG-F12), oldest first. */
+  files: z.array(OutboundFile),
   counts: z.object({
     total: z.number().int(),
     canReceive: z.number().int(),
@@ -188,6 +214,8 @@ export const OutboundReview = z.object({
         'SUBJECT_REQUIRED',
         'UNRESOLVED_FIELDS',
         'SOME_SKIPPED',
+        'FILES_NOT_READY',
+        'FILES_NEED_PORTAL',
         'READY',
       ]),
       severity: z.enum(['BLOCK', 'WARN', 'OK']),
@@ -196,3 +224,18 @@ export const OutboundReview = z.object({
   ),
 });
 export type OutboundReview = z.infer<typeof OutboundReview>;
+
+/**
+ * POST .../{id}/files/uploads: where to send a file for a draft or a scheduled message (step 1 of
+ * Documents' three; PUT or multipart, then POST .../files/uploads/confirm with the token). The type
+ * must be one Messages Settings allow and the size within their limit (400 ATTACHMENT_TYPE,
+ * ATTACHMENT_TOO_LARGE); at most 10 files (400 TOO_MANY_FILES); 409 NOT_EDITABLE once sent.
+ */
+export const StartOutboundFileRequest = z.strictObject({
+  fileName: text(200, 'one', 'Enter a file name'),
+  contentType: UploadContentType,
+  sizeBytes: z.number().int().min(1).max(OUTBOUND_FILE_MAX_BYTES, 'A file is at most 25 MB'),
+  /** SHA-256 of the file, hex. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Use the lower-case hex SHA-256'),
+});
+export type StartOutboundFileRequest = z.input<typeof StartOutboundFileRequest>;
