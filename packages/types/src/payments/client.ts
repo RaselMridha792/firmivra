@@ -3,11 +3,15 @@ import { portalMe } from '../clients/client.js';
 import {
   CancelInvoiceRequest,
   CheckoutLink,
+  AddInvoiceHistoryRequest,
   CorrectInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
+  InvoiceHistory,
+  InvoiceHistoryItem,
   InvoiceId,
   InvoiceList,
+  InvoicePdfLink,
   ListInvoicesQuery,
   ListMyInvoicesQuery,
   MyInvoiceDetail,
@@ -54,6 +58,17 @@ export function createInvoicesClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CorrectInvoiceRequest, body),
       }),
+    /** IP-F09: the invoice's history (notes and logged activity), newest first. Firm only. */
+    history: async (id: string): Promise<InvoiceHistory> =>
+      request(InvoiceHistory, `${one(id)}/history`),
+    /** IP-F09: Add Note or Log Activity (Owner and Admin). */
+    addHistory: async (id: string, body: AddInvoiceHistoryRequest): Promise<InvoiceHistoryItem> =>
+      request(InvoiceHistoryItem, `${one(id)}/history`, {
+        method: 'POST',
+        body: parseInput(AddInvoiceHistoryRequest, body),
+      }),
+    /** IP-F09: the invoice as a PDF, behind a 5-minute link. */
+    pdf: async (id: string): Promise<InvoicePdfLink> => request(InvoicePdfLink, `${one(id)}/pdf`),
     /** IP-F20: the money collected in the range by method (the overview's Payment Methods). */
     paymentMethods: async (query: PaymentMethodsQuery = {}): Promise<PaymentMethodsSummary> =>
       request(

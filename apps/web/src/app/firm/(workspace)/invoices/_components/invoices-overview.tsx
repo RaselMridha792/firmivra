@@ -2,6 +2,7 @@
 
 import {
   INVOICE_ERRORS,
+  type InvoiceHistoryKind,
   type InvoiceListItem,
   PAYMENT_METHOD_LABELS,
   type PaymentMethodKey,
@@ -21,7 +22,15 @@ import {
 } from '@firmivra/ui';
 import {
   ArrowSquareOut,
+  BellRinging,
   CalendarBlank,
+  CalendarPlus,
+  CheckSquare,
+  FileMagnifyingGlass,
+  FilePdf,
+  Globe,
+  NotePencil,
+  Phone,
   CalendarCheck,
   ChartBar,
   CheckCircle,
@@ -57,6 +66,10 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceCorrectForm } from './invoice-correct-form';
+import { InvoiceHistoryForm } from './invoice-history';
+import { useOriginNavigate } from '../../../../../components/origin-link';
+import { NewMessageDialog } from '../../messages/_components/messages-screen';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
 import {
   card,
   dayText,
@@ -538,6 +551,25 @@ function InvoiceTable({
   const [selected, setSelected] = useState<string[]>([]);
   const [canceling, setCanceling] = useState<InvoiceListItem>();
   const [correcting, setCorrecting] = useState<InvoiceListItem>();
+  // IP-F09: the row menu's dialogs.
+  const [historyFor, setHistoryFor] = useState<{ i: InvoiceListItem; kind: InvoiceHistoryKind }>();
+  const [messageFor, setMessageFor] = useState<{ i: InvoiceListItem; reminder: boolean }>();
+  const toOrigin = useOriginNavigate();
+  const pdf = async (i: InvoiceListItem, view: boolean) => {
+    try {
+      const link = await api.invoices.pdf(i.id);
+      if (view) window.open(link.url, '_blank', 'noopener');
+      else {
+        const save = document.createElement('a');
+        save.href = link.url;
+        save.download = `${i.number}.pdf`;
+        save.rel = 'noopener';
+        save.click();
+      }
+    } catch (e) {
+      onNotice(errorMessage(e, INVOICE_ERRORS), 'error');
+    }
+  };
   const [busy, setBusy] = useState(false);
 
   const clients = [...new Map(items.map((i) => [i.client.id, i.client.displayName])).entries()]
@@ -617,11 +649,34 @@ function InvoiceTable({
     const cancelable = (draft || i.status === 'SCHEDULED' || open) && paidCents(i) === 0;
     // IP-F08: a scheduled invoice, or an open one with something to pay, keeps its number.
     const correctable = i.status === 'SCHEDULED' || (open && i.balanceDueCents > 0);
+    // IP-F09: a reminder for money still owed on an invoice the client already has.
+    const remindable = open && i.balanceDueCents > 0;
+    const withService = i.service ? `&engagementId=${i.service.id}` : '';
     return [
+      ...(canChange && remindable
+        ? [
+            {
+              title: 'Remind',
+              items: [
+                {
+                  label: 'Send Reminder',
+                  icon: BellRinging,
+                  onSelect: () => setMessageFor({ i, reminder: true }),
+                },
+              ],
+            },
+          ]
+        : []),
       {
         title: 'Invoice',
         items: [
           { label: 'View Invoice', icon: Eye, onSelect: () => router.push(`/invoices/${i.id}`) },
+          {
+            label: 'Preview Invoice',
+            icon: FileMagnifyingGlass,
+            onSelect: () => void pdf(i, true),
+          },
+          { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i, false) },
           ...(canChange && draft
             ? [
                 {
@@ -688,7 +743,43 @@ function InvoiceTable({
             icon: User,
             onSelect: () => router.push(`/clients/${i.client.id}`),
           },
-          { label: 'Send Message', icon: ChatCircleDots, onSelect: () => router.push('/messages') },
+          // The firm cannot sign in as the client: this opens the client's portal access.
+          {
+            label: 'View Client Portal',
+            icon: Globe,
+            onSelect: () => toOrigin(`/clients/${i.client.id}#portal`),
+          },
+          // IP-F11 with SH5: the composer for this client, the invoice as the subject.
+          {
+            label: 'Send Message',
+            icon: ChatCircleDots,
+            onSelect: () => setMessageFor({ i, reminder: false }),
+          },
+          {
+            label: 'Create Task',
+            icon: CheckSquare,
+            onSelect: () =>
+              toOrigin(newTaskHref({ clientId: i.client.id, engagementId: i.service?.id })),
+          },
+          {
+            label: 'Schedule Follow-Up',
+            icon: CalendarPlus,
+            onSelect: () => toOrigin(`/calendar/new?clientId=${i.client.id}${withService}`),
+          },
+          ...(canChange
+            ? [
+                {
+                  label: 'Add Note',
+                  icon: NotePencil,
+                  onSelect: () => setHistoryFor({ i, kind: 'NOTE' }),
+                },
+                {
+                  label: 'Log Activity',
+                  icon: Phone,
+                  onSelect: () => setHistoryFor({ i, kind: 'ACTIVITY_LOGGED' }),
+                },
+              ]
+            : []),
         ],
       },
       ...(canChange && cancelable
@@ -965,6 +1056,32 @@ function InvoiceTable({
       )}
       {canceling ? (
         <InvoiceCancelForm invoice={canceling} onClose={() => setCanceling(undefined)} />
+      ) : null}
+      {historyFor ? (
+        <InvoiceHistoryForm
+          invoice={historyFor.i}
+          kind={historyFor.kind}
+          onClose={() => setHistoryFor(undefined)}
+          onDone={(text) => onNotice(text, 'success')}
+        />
+      ) : null}
+      {messageFor ? (
+        <NewMessageDialog
+          clientId={messageFor.i.client.id}
+          clientName={messageFor.i.client.displayName}
+          subject={
+            messageFor.reminder
+              ? `Reminder: invoice ${messageFor.i.number}, ${money(messageFor.i.balanceDueCents)} due${
+                  messageFor.i.dueOn ? ` ${dayText(messageFor.i.dueOn)}` : ''
+                }`
+              : `Invoice ${messageFor.i.number}`
+          }
+          onClose={() => setMessageFor(undefined)}
+          onSent={() => {
+            setMessageFor(undefined);
+            onNotice('Message sent.', 'success');
+          }}
+        />
       ) : null}
       {correcting ? (
         <InvoiceCorrectForm

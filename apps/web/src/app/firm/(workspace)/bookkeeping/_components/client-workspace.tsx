@@ -58,6 +58,7 @@ const TABS = [
   'Tasks',
   'Notes',
   'Communications',
+  'Terms',
   'Settings',
 ] as const;
 type TabId = (typeof TABS)[number];
@@ -65,6 +66,8 @@ const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> =
   Documents: (w) => `/documents?clientId=${w.client.id}`,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
   Notes: (w) => `/clients/${w.client.id}`,
+  // BK-E01: the client's Terms page (six areas).
+  Terms: (w) => `/bookkeeping/clients/${w.id}/terms`,
   // SH5: this client's conversations in Messages, not every message.
   Communications: (w) => `/messages?clientId=${w.client.id}&service=Bookkeeping`,
 };

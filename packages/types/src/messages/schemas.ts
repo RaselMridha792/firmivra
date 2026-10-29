@@ -67,11 +67,15 @@ export const MessageSender = z.object({
 export type MessageSender = z.infer<typeof MessageSender>;
 
 /**
- * A file on a message (MSG-F12): a document of the client's vault, opened through Documents (a
- * short download link, only once the scan passed). CHECKING while it is still being scanned.
+ * A file on a message (MSG-F12): DOCUMENT, a document of the client's vault (a reply's file),
+ * opened through Documents; FILE, a file New Message sent with it, opened through Messages
+ * (`fileDownload`). Either is a short download link, only once the scan passed. CHECKING while it
+ * is still being scanned.
  */
 export const MessageAttachment = z.object({
-  documentId: z.uuid(),
+  kind: z.enum(['DOCUMENT', 'FILE']),
+  /** The document's id (DOCUMENT) or the file's (FILE). */
+  id: z.uuid(),
   fileName: z.string(),
   contentType: z.string(),
   sizeBytes: z.number().int().min(0),

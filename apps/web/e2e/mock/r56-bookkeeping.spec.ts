@@ -95,7 +95,9 @@ test('Client workspace: software, period, accounts, shared counts and the tabs',
   await expect(page.getByTestId('accounts')).toContainText('Business Checking');
   await expect(page.getByTestId('shared-tasks')).toContainText('open');
   await expect(page.getByTestId('upcoming-reports')).toContainText('Profit & Loss');
-  await expect(page.getByRole('tablist', { name: 'Client views' }).getByRole('tab')).toHaveCount(9);
+  await expect(page.getByRole('tablist', { name: 'Client views' }).getByRole('tab')).toHaveCount(
+    10,
+  );
   await page.getByRole('tab', { name: 'Reports' }).click();
   await expect(page.getByTestId('reports-tab')).toContainText('Profit & Loss');
   await page.getByRole('tab', { name: 'Settings' }).click();

@@ -41,26 +41,30 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
   see (shared, or their uploads), or a file uploaded into the client's Documents (shared, filed
   under the thread's service or a chosen open one). Settings decide types and size. The portal
   shows each login what My Documents lets it open (`visible()` in storage/my-documents.service.ts).
-- [ ] **F12b** (MSG-F12 for New Message), next, on `outbound_message_files` (no schema change):
-  - Upload: ticket `POST /business/outbound-messages/{id}/files/uploads` and confirm, as
-    `TemplateAttachmentsService` / `SupportFilesService` do (key `tenant/{bid}/messages/{uuid}`,
-    the table's check); remove while DRAFT or SCHEDULED (the table's trigger allows it).
-  - Scan: `messages` is not in `SCAN_PREFIXES` (storage/scan-queue/scan-router.ts), so on dev the
-    file would stay PENDING. Add the prefix and a handler (`recordScan` in storage/scan-record.ts);
-    GuardDuty already scans all of `tenant/` (infra/src/nag.ts), so no infra change.
-  - Send: every file CLEAN (409 otherwise); files go only through the portal, so a lead or SMS
-    with files is refused (or the lead skipped with a reason; `OutboundExclusion` is a DB enum, so
-    no new value: refuse instead). Email to a client stays the notice with the portal link.
-  - Show and open: a recipient's portal message links its outbound message
-    (`outbound_message_recipients.message_id`), so both sides list that message's files and open
-    them through new download routes (firm: the author or a manager; portal: the recipient client).
-    `MessageAttachment` then needs a file kind beside `documentId`.
+- [x] **F12b** (MSG-F12 for New Message), branch `rasel/R60-messages-new-files` (stacked on the
+  Leads tab), on `outbound_message_files`, no schema change:
+  - Upload: Documents' three steps under `tenant/{bid}/messages/` (`OutboundFilesService`, PUT or
+    multipart up to Messages Settings' size, at most 10); remove while DRAFT or SCHEDULED; a
+    replaced draft (other people or channel) keeps its files with their scan.
+  - Scan: `messages` added to `SCAN_PREFIXES`; the handler is `OutboundFilesService.handle`
+    (GuardDuty already scans all of `tenant/`, so no infra change).
+  - Send: every file CLEAN (409 FILES_NOT_READY, FILE_BLOCKED) and only on Portal (409
+    FILES_NEED_PORTAL): R1's `outbound_recipients_rules` links a client's portal message only on a
+    PORTAL delivery, so an Email send could not show the files (see "Needs from others").
+  - Show and open: `MessageAttachment` has `kind` (DOCUMENT or FILE) and `id`;
+    `GET /business/message-files/{id}/download` (the author, Owner, Admin, Staff whose client got
+    it) and `GET /portal/{slug}/me/messages/files/{id}/download` (PRIMARY and SPOUSE, as My
+    Documents).
 - [ ] Then F13 and F16 (Related To, Assign Staff, Add to Client Timeline: `outbound_messages` has
   `related_entity_type`/`id`, `assigned_user_id`, `add_to_timeline`), then F18 to F22 (contact
   panel and thread menu on R36's `assigned_user_id`, `archived_at`, `message_thread_mutes`,
   `message_thread_tags`).
-- [ ] The Leads tab on `message_threads.lead_id` (#1213, merged): only after Rasel's word that its
-  Deploy dev run is green.
+- [x] **Leads tab** (MSG-F03 on `message_threads.lead_id`, #1213; Rasel's go of Oct 28, Deploy dev
+  run 831 green): branch `rasel/R60-messages-leads`. New Message's email or text to a lead keeps a
+  copy in the lead's own thread (one per lead and subject, linked from
+  `outbound_message_recipients.message_id`); `GET /business/lead-message-threads`, `GET .../{id}`
+  and `POST .../{id}/messages` (the next email or text, through New Message's own path). All
+  Messages and Leads list them; Staff reach their own leads only. No schema change.
 - Invoices & Payments IP-F01 to F05, F12, F13 moved to R55 (Rasel, Oct 28); R60 is on Messages
   only. The two schema questions (a custom recurring frequency, a firm's own payment terms list)
   went to R55's side through Rasel.
@@ -74,13 +78,16 @@ client's Email is the existing `message.received` notice with the portal link, n
 (no notify change was needed); a lead's email or text carries it, as Send Email on Leads does.
 
 Needs from others (Rasel):
-- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
-  Rasel allowed it (Oct 28) and R1 writes it. When it merges, the Leads tab uses it: ask Rasel for
-  the merge note first. Until then the Leads view stays a tidy empty state.
+- **A conversation with a lead** (`message_threads.lead_id`): done, R1's #1213 (Oct 28); the
+  Leads tab is built on it.
 - **Leads** (`apps/api/src/leads/leads.controller.ts`, LeadsModule): export `LeadMessagesService`
   so a message to a lead from Messages goes through it and shows in the lead's activity. Today
   Messages sends with the same Leads templates and no activity row.
 - **A client's text notice** (notify): texts to clients are not set up, and New Message says so.
+- **Files on an Email New Message to a client** (MSG-F12, optional): `outbound_recipients_rules`
+  (R1) links a client's delivery to their portal message only on PORTAL, so files go with the
+  Portal channel only. Letting an EMAIL delivery to a client link the portal message it writes
+  would let Email carry files too (the email stays the notice). A schema change: Rasel's tap first.
 - **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
   One library page for the three message kinds would need a change in Templates (not R60's).
 
@@ -101,8 +108,16 @@ Progress (Messages):
   37 of 37). E opened as #1215, 8 of 8; merged.
 - Oct 28: F12a built and opened as #1219 (`pnpm lint` and `pnpm typecheck` clean; API e2e
   `message-attachments` 4 of 4 and the Messages suites 32 of 32; mock 24 of 24).
-  **Next step:** F12b (New Message files, notes above), then F13 and F16; the Leads tab only after
-  Rasel's word on #1213's Deploy dev run.
+  #1219 merged.
+- Oct 28: Rasel's order: the Leads tab, then F12b, F13, F16, one PR at a time. Leads tab built
+  (API e2e `lead-message-threads` 8 of 8 and the Messages suites 36 of 36; isolation: only the 10
+  known local file and export failures; unit 7 of 7; mock `r60-messages-leads` 3 of 3 and every
+  Messages spec 39 of 39). Opened as #1226; its isolation case now sends a text (CI has no mail
+  server, so an email there failed), 8 of 8.
+- Oct 28: F12b built (API e2e `outbound-files` 9 of 9, Messages suites and the scan registry 45 of
+  45; isolation: only the 10 known local failures; mock `r60-messages-new-files` 4 of 4 and every
+  Messages spec green). **Next step:** F13 and F16 (`outbound_messages.related_entity_type`/`id`,
+  `assigned_user_id`, `add_to_timeline`), after F12b's PR.
 
 ## Handoff (Oct 23): start here
 

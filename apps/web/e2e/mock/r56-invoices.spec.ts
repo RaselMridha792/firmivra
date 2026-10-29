@@ -159,6 +159,48 @@ test('Correct Dates: a sent invoice gets a later due date with a reason (IP-F08)
   await expect(row).not.toContainText('Overdue');
 });
 
+test('Row menu: Send Reminder first, notes in the history, a message and a task (IP-F09)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByLabel('Search invoices').fill('0098');
+  const open = () => page.getByRole('button', { name: 'Actions for INV-2026-0098' }).click();
+  await open();
+  const items = page.getByRole('menuitem');
+  await expect(items.first()).toHaveText('Send Reminder');
+  for (const name of [
+    'Preview Invoice',
+    'Download PDF',
+    'View Client Portal',
+    'Create Task',
+    'Schedule Follow-Up',
+    'Add Note',
+    'Log Activity',
+  ])
+    await expect(page.getByRole('menuitem', { name })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Add Note' }).click();
+  await page.getByRole('dialog').getByLabel('Note (firm only)').fill('Fake: will pay Friday');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Note added. (INV-2026-0098)')).toBeVisible();
+
+  await open();
+  await page.getByRole('menuitem', { name: 'Send Reminder' }).click();
+  await expect(page.getByRole('dialog').getByLabel(/Subject/)).toHaveValue(
+    /^Reminder: invoice INV-2026-0098/,
+  );
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+
+  await open();
+  await page.getByRole('menuitem', { name: 'View Invoice', exact: true }).click();
+  await expect(page.getByTestId('invoice-history')).toContainText('Fake: will pay Friday');
+  await page.goBack();
+  await page.getByLabel('Search invoices').fill('0098');
+  await open();
+  await page.getByRole('menuitem', { name: 'Create Task' }).click();
+  await expect(page).toHaveURL(/\/tasks\/new\?clientId=/);
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['/invoices', '/invoices/new', '/invoices/record-payment']) {

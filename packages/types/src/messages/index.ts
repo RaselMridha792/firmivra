@@ -1,6 +1,7 @@
 export * from './schemas.js';
 export * from './outbound.js';
 export * from './settings.js';
+export * from './lead-threads.js';
 export {
   createClientNotesClient,
   createMessagesClient,

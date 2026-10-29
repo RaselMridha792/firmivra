@@ -36,6 +36,7 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { fill } from '../templates/merge-fields.js';
 import { TemplateRenderService } from '../templates/template-render.service.js';
 import { MessagesService } from './messages.service.js';
+import { OutboundFilesService } from './outbound-files.service.js';
 
 type Channel = OutboundMessage['channel'];
 type Save = z.output<typeof SaveOutboundRequest>;
@@ -116,6 +117,7 @@ export class OutboundMessagesService {
     private readonly messages: MessagesService,
     private readonly render: TemplateRenderService,
     private readonly audit: AuditService,
+    private readonly files: OutboundFilesService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -336,6 +338,7 @@ export class OutboundMessagesService {
       scheduledFor: row.status === 'SCHEDULED' ? (row.scheduledFor?.toISOString() ?? null) : null,
       timezone: await firmTimeZone(tx, businessId),
       recipients,
+      files: (await this.files.filesOf(tx, businessId, [row.id])).get(row.id) ?? [],
       counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
       createdBy: { userId: row.createdBy.userId, name: row.createdBy.user.name },
       editable,
@@ -462,6 +465,8 @@ export class OutboundMessagesService {
         return this.shape(tx, businessId, await this.row(tx, businessId, actor, id));
       }
       const next = await this.insert(tx, businessId, actor, save);
+      // Its files go with it (MSG-F12), while it is still a draft.
+      await this.files.move(tx, businessId, id, next);
       await tx.outboundMessage.update({
         where: { id },
         data: { status: 'CANCELED', canceledAt: new Date() },
@@ -600,6 +605,13 @@ export class OutboundMessagesService {
           severity: 'WARN',
           message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
         });
+      const files = this.fileProblem(m);
+      if (files)
+        checks.push({
+          code: files.code === 'FILE_BLOCKED' ? 'FILES_NOT_READY' : files.code,
+          severity: 'BLOCK',
+          message: `${files.message}.`,
+        });
       if (m.counts.cannotReceive > 0)
         checks.push({
           code: 'SOME_SKIPPED',
@@ -660,6 +672,33 @@ export class OutboundMessagesService {
       });
     if (m.counts.canReceive === 0)
       throw conflict('NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+    const files = this.fileProblem(m);
+    if (files) throw conflict(files.code, files.message);
+  }
+
+  /**
+   * Why its files (MSG-F12) stop it, or null. Files reach clients only, through their portal: the
+   * Portal channel, the only one whose delivery links the client's portal message (R1's
+   * outbound_recipients_rules), so a lead or a text never takes them. Every file passed its scan.
+   */
+  private fileProblem(m: OutboundMessage): {
+    code: 'FILES_NEED_PORTAL' | 'FILES_NOT_READY' | 'FILE_BLOCKED';
+    message: string;
+  } | null {
+    if (m.files.length === 0) return null;
+    if (m.channel !== 'PORTAL')
+      return {
+        code: 'FILES_NEED_PORTAL',
+        message: 'Files go to clients through their portal. Choose Portal, or remove the files',
+      };
+    if (m.files.some((f) => f.status === 'BLOCKED'))
+      return { code: 'FILE_BLOCKED', message: 'A file failed its security check. Remove it' };
+    if (m.files.some((f) => f.status === 'CHECKING'))
+      return {
+        code: 'FILES_NOT_READY',
+        message: 'A file is still being checked for viruses. Try again in a moment',
+      };
+    return null;
   }
 
   async schedule(
@@ -808,6 +847,21 @@ export class OutboundMessagesService {
         );
         return { ok: false as const, code: 'send_failed' };
       });
+      // A client's portal message, or the copy of a lead's email or text in the lead's own thread.
+      const messageId = !outcome.ok
+        ? undefined
+        : m.channel === 'PORTAL'
+          ? outcome.messageId
+          : p.kind === 'LEAD'
+            ? await this.inFirm(businessId, (tx) =>
+                this.leadCopy(tx, businessId, m.createdByUserId, p.id, own.subject, own.body),
+              ).catch((error: unknown) => {
+                this.logger.warn(
+                  `message ${id}: a lead's copy was not kept (${error instanceof Error ? error.name : 'Error'})`,
+                );
+                return undefined;
+              })
+            : undefined;
       await this.inFirm(businessId, (tx) =>
         tx.outboundMessageRecipient.updateMany({
           where,
@@ -816,9 +870,7 @@ export class OutboundMessagesService {
                 status: 'SENT',
                 sentAt: new Date(),
                 attempts: { increment: 1 },
-                ...(m.channel === 'PORTAL' && outcome.messageId
-                  ? { messageId: outcome.messageId }
-                  : {}),
+                ...(messageId ? { messageId } : {}),
               }
             : { status: 'FAILED', attempts: { increment: 1 }, lastError: outcome.code },
         }),
@@ -843,6 +895,45 @@ export class OutboundMessagesService {
       { type: 'outbound_message', id },
       { channel: m.channel, ...summary },
     );
+  }
+
+  /**
+   * A lead's email or text, kept in the lead's own thread (r1_message_thread_lead, the Messages
+   * Leads tab): the active thread with this subject, or a new one. The lead is locked first, so
+   * two sends at once never open two threads.
+   */
+  private async leadCopy(
+    tx: TxClient,
+    businessId: string,
+    authorUserId: string,
+    leadId: string,
+    subject: string | null,
+    body: string,
+  ): Promise<string> {
+    await tx.$queryRaw`
+      SELECT 1 FROM leads WHERE business_id = ${businessId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
+    const title = subject?.trim() || 'A message from your firm';
+    const thread =
+      (await tx.messageThread.findFirst({
+        where: { businessId, leadId, subject: title, archivedAt: null },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      })) ??
+      (await tx.messageThread.create({
+        data: { businessId, leadId, subject: title, createdByUserId: authorUserId },
+        select: { id: true },
+      }));
+    const message = await tx.message.create({
+      data: {
+        businessId,
+        threadId: thread.id,
+        senderUserId: authorUserId,
+        direction: 'FIRM_TO_CLIENT',
+        body,
+      },
+      select: { id: true },
+    });
+    return message.id;
   }
 
   /** One person: a client's portal message (and the email notice), or a lead's email or text. */
