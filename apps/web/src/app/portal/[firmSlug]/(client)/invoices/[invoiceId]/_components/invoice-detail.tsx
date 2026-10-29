@@ -1,6 +1,6 @@
 'use client';
 
-import { type MyInvoiceDetail, PAYMENT_TERM_LABELS } from '@firmivra/types';
+import { type MyInvoiceDetail, paymentTermLabel } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft, Printer } from 'lucide-react';
 import Link from 'next/link';
@@ -47,6 +47,7 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
   const totals: [string, number][] = [
     ['Subtotal', i.subtotalCents],
     ...(i.discountCents > 0 ? [['Discount', -i.discountCents] as [string, number]] : []),
+    ...(i.tax ? [[`Tax (${i.tax.rateBps / 100}%)`, i.tax.cents] as [string, number]] : []),
     ['Total', i.totalCents],
     ['Paid', i.amountPaidCents],
     ...(i.refundedCents > 0 ? [['Refunded', i.refundedCents] as [string, number]] : []),
@@ -76,7 +77,7 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
         {i.paymentTerms ? (
           <div>
             <dt className="text-muted">Payment Terms</dt>
-            <dd className="text-heading">{PAYMENT_TERM_LABELS[i.paymentTerms]}</dd>
+            <dd className="text-heading">{paymentTermLabel(i.paymentTerms)}</dd>
           </div>
         ) : null}
         {i.paidAt ? (
@@ -108,6 +109,29 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
             ))}
           </tbody>
         </table>
+        {i.attachments.length > 0 ? (
+          <div data-testid="invoice-attachments">
+            <p className="text-sm font-semibold text-heading">Attached files</p>
+            <ul className="mt-1 flex flex-col gap-1 text-sm">
+              {i.attachments.map((a) => (
+                <li key={a.documentId}>
+                  <button
+                    type="button"
+                    className="text-link underline"
+                    onClick={() =>
+                      void api
+                        .myDocuments(slug)
+                        .download(a.documentId)
+                        .then((link) => window.open(link.url, '_blank', 'noopener'))
+                    }
+                  >
+                    {a.fileName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
       <dl className="ml-auto grid w-full max-w-xs gap-1 text-sm">
         {totals.map(([label, cents]) => (

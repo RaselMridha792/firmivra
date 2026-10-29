@@ -37,12 +37,17 @@ import {
   type PaymentTerm,
   type InvoiceRecurrence,
   recurringPeriodOn,
+  type InvoiceAttachment,
+  invoiceTaxCents,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
+import { documentFixtures } from './documents';
+import { mockLiveTaxRate, mockLiveTemplate } from './payment-preferences';
 import { mockOffset } from './tasks';
+import { teamFixtures } from './team';
 
 /**
  * Mock data for `api.invoices` (firm) and `api.myInvoices(slug)` (portal), R7. Synthetic data
@@ -82,7 +87,13 @@ interface Row {
   clientId: string;
   engagementId: string | null;
   status: InvoiceStatus;
-  lines: { id: string; description: string; quantity: number; unitAmountCents: number }[];
+  lines: {
+    id: string;
+    description: string;
+    quantity: number;
+    unitAmountCents: number;
+    taxable?: boolean;
+  }[];
   discountCents: number;
   scheduledFor: string | null;
   dueOn: string | null;
@@ -95,6 +106,11 @@ interface Row {
   paymentTerms?: PaymentTerm | null;
   notesToClient?: string | null;
   internalNote?: string | null;
+  /** IP-F03: the rate as chosen (kept if the firm archives it), staff, template and files. */
+  tax?: { id: string; name: string; rateBps: number } | null;
+  assignedTo?: MemberRef | null;
+  template?: { id: string; name: string } | null;
+  attachments?: InvoiceAttachment[];
   /** IP-F05: the schedule it starts; left out on the sample rows: one-time. */
   recurring?: InvoiceRecurrence | null;
   createdAt: string;
@@ -407,10 +423,16 @@ const live = (r: Row) => r.offline.filter((o) => o.voidedAt === null);
 function figures(r: Row) {
   const lines = r.lines.map((l) => ({
     ...l,
+    taxable: l.taxable ?? false,
     amountCents: lineAmountCents(l.quantity, l.unitAmountCents),
   }));
   const subtotalCents = sum(lines.map((l) => l.amountCents));
-  const totalCents = subtotalCents - r.discountCents;
+  // IP-F03: as the database computes it.
+  const taxableSubtotalCents = sum(lines.filter((l) => l.taxable).map((l) => l.amountCents));
+  const taxCents = r.tax
+    ? invoiceTaxCents(taxableSubtotalCents, subtotalCents, r.discountCents, r.tax.rateBps)
+    : 0;
+  const totalCents = subtotalCents - r.discountCents + taxCents;
   const received = r.payments.filter((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED');
   const amountPaidCents =
     sum(received.map((p) => p.amountCents)) + sum(live(r).map((o) => o.amountCents));
@@ -420,6 +442,10 @@ function figures(r: Row) {
     lines,
     subtotalCents,
     discountCents: r.discountCents,
+    tax: r.tax
+      ? { name: r.tax.name, rateBps: r.tax.rateBps, taxableSubtotalCents, cents: taxCents }
+      : null,
+    attachments: r.attachments ?? [],
     totalCents,
     amountPaidCents,
     refundedCents,
@@ -477,6 +503,9 @@ function toInvoice(r: Row, day: string): Invoice {
     notesToClient: r.notesToClient ?? null,
     internalNote: r.internalNote ?? null,
     recurring: r.recurring ?? null,
+    assignedTo: r.assignedTo ?? null,
+    template: r.template ?? null,
+    taxRateId: r.tax?.id ?? null,
   });
 }
 
@@ -607,6 +636,60 @@ export function createInvoicesMock(
     return e.id;
   };
   const notDraft = () => fail(409, 'NOT_DRAFT', 'Only a draft can be changed or sent');
+  /**
+   * IP-F03, as the API: the firm's live rate and template (a draft keeps its own), an active
+   * member, and the client's shared, clean files; 404 or 409 otherwise.
+   */
+  const extras = (
+    clientId: string,
+    current: Row | null,
+    b: ReturnType<typeof UpdateInvoiceRequest.parse>,
+  ): Partial<Row> => {
+    const rate = b.taxRateId
+      ? b.taxRateId === current?.tax?.id
+        ? current.tax
+        : mockLiveTaxRate(b.taxRateId)
+      : null;
+    if (b.taxRateId && !rate) throw notFound();
+    const template = b.templateId
+      ? b.templateId === current?.template?.id
+        ? current.template
+        : mockLiveTemplate(b.templateId)
+      : null;
+    if (b.templateId && !template) throw notFound();
+    const member = b.assignedUserId
+      ? teamFixtures().find((m) => m.user.id === b.assignedUserId && m.status === 'ACTIVE')
+      : null;
+    if (b.assignedUserId && !member) throw notFound();
+    const docs = (b.documentIds ?? []).map((id) =>
+      documentFixtures().documents.find((d) => d.id === id && d.clientId === clientId),
+    );
+    if (docs.some((d) => !d)) throw notFound();
+    if (docs.some((d) => d && (d.direction === 'INTERNAL' || d.scanStatus !== 'CLEAN'))) {
+      throw fail(409, 'ATTACHMENT_NOT_SHAREABLE', 'The file is internal or not checked yet');
+    }
+    return {
+      tax: rate ? { id: rate.id, name: rate.name, rateBps: rate.rateBps } : null,
+      template: template ? { id: template.id, name: template.name } : null,
+      assignedTo: member ? { userId: member.user.id, name: member.user.name } : null,
+      ...(b.documentIds === undefined
+        ? {}
+        : {
+            attachments: docs.flatMap((d) =>
+              d
+                ? [
+                    {
+                      documentId: d.id,
+                      fileName: d.fileName,
+                      contentType: d.contentType,
+                      sizeBytes: d.sizeBytes,
+                    },
+                  ]
+                : [],
+            ),
+          }),
+    };
+  };
   const endTooSoon = () =>
     fail(409, 'RECURRING_END_TOO_SOON', 'The schedule ends before its second invoice');
   /** IP-F05, as the API: the second invoice's day; 409 when the end comes before it. */
@@ -724,6 +807,7 @@ export function createInvoicesMock(
         engagementId,
         status: 'DRAFT',
         ...s.draft(b),
+        ...extras(client.id, null, b),
         recurring: waitingSchedule(null, b.recurring, b.scheduledFor ?? null),
         issuedAt: null,
         paidAt: null,
@@ -751,6 +835,7 @@ export function createInvoicesMock(
       if (isArchived(r)) throw archived();
       const change: Partial<Row> = {
         ...s.draft(b),
+        ...extras(r.clientId, r, b),
         recurring: waitingSchedule(r.recurring ?? null, b.recurring, b.scheduledFor ?? null),
         engagementId,
         updatedAt: now(),

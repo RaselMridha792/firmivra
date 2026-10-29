@@ -95,7 +95,7 @@ describe('api.invoices (firm)', () => {
         'POST /api/v1/business/invoices',
         {
           clientId: id,
-          lines: [{ ...line, description: 'Tax prep', quantity: 1 }],
+          lines: [{ ...line, description: 'Tax prep', quantity: 1, taxable: false }],
           discountCents: 0,
           dueOn: '2026-10-31',
         },
@@ -105,8 +105,13 @@ describe('api.invoices (firm)', () => {
         {
           engagementId: id,
           lines: [
-            { ...line, quantity: 1 },
-            { description: 'Bookkeeping hours', quantity: 2.5, unitAmountCents: 8_000 },
+            { ...line, quantity: 1, taxable: false },
+            {
+              description: 'Bookkeeping hours',
+              quantity: 2.5,
+              unitAmountCents: 8_000,
+              taxable: false,
+            },
           ],
           discountCents: 5_000,
           dueOn: '2026-10-31',
@@ -361,10 +366,20 @@ describe('api.invoices (firm)', () => {
           quantity: 1,
           unitAmountCents: 15_000,
           amountCents: 15_000,
+          taxable: true,
         },
       ],
       subtotalCents: 15_000,
       discountCents: 0,
+      tax: { name: 'Fake State Tax', rateBps: 825, taxableSubtotalCents: 15_000, cents: 1_238 },
+      attachments: [
+        {
+          documentId: id,
+          fileName: 'engagement-letter-fake.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 2048,
+        },
+      ],
       amountPaidCents: 15_000,
       refundedCents: 2_500,
       payments: [payment],
@@ -390,10 +405,16 @@ describe('api.invoices (firm)', () => {
       notesToClient: 'Thank you (fake)',
       internalNote: null,
       recurring: null,
+      assignedTo: { userId: id, name: 'Fake Staff' },
+      template: { id, name: 'Fake Standard' },
+      taxRateId: id,
     };
     expect(Invoice.parse({ ...invoice, stripeAccountId: 'acct_1' })).toEqual(invoice);
-    // IP-F02: only the four standard terms.
-    expect(Invoice.safeParse({ ...invoice, paymentTerms: 'net_99' }).success).toBe(false);
+    // IP-F02: the standard terms or a firm's own, Net 1 to Net 365.
+    expect(Invoice.parse({ ...invoice, paymentTerms: 'net_45' }).paymentTerms).toBe('net_45');
+    for (const paymentTerms of ['net_0', 'net_366', 'net_07', 'net_x', 'due_later']) {
+      expect(Invoice.safeParse({ ...invoice, paymentTerms }).success).toBe(false);
+    }
     // IP-F05: a schedule never repeats ONE_TIME.
     const schedule = {
       id,

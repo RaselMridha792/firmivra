@@ -4,7 +4,7 @@ import {
   INVOICE_ERRORS,
   type Invoice,
   type InvoiceRecurrence,
-  PAYMENT_TERM_LABELS,
+  paymentTermLabel,
   recurrenceLabel,
 } from '@firmivra/types';
 import { Button, Input, Modal } from '@firmivra/ui';
@@ -171,13 +171,15 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ['Invoice Date', dayText(i?.issuedAt ?? i?.createdAt)],
                 ['Due Date', dayText(i?.dueOn)],
                 ...(i?.paymentTerms
-                  ? [['Payment Terms', PAYMENT_TERM_LABELS[i.paymentTerms]] as const]
+                  ? [['Payment Terms', paymentTermLabel(i.paymentTerms)] as const]
                   : []),
                 ...(i?.recurring ? [['Recurring', recurringText(i.recurring)] as const] : []),
                 ...(i?.scheduledFor ? [['Opens On', dayText(i.scheduledFor)] as const] : []),
                 ...(i?.paidAt ? [['Paid On', dayText(i.paidAt)] as const] : []),
                 ...(i?.canceledAt ? [['Canceled On', dayText(i.canceledAt)] as const] : []),
                 ['Created By', i?.createdBy?.name ?? '—'],
+                ['Assigned Staff', i?.assignedTo?.name ?? 'Unassigned'],
+                ['Template', i?.template?.name ?? "Your firm's branding"],
               ].map(([label, value]) => (
                 <div key={String(label)}>
                   <dt className="text-muted">{label}</dt>
@@ -203,6 +205,28 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 <span className="font-semibold">Internal Note (your firm only):</span>{' '}
                 {i.internalNote}
               </p>
+            ) : null}
+            {i && i.attachments.length > 0 ? (
+              <div className="mt-3" data-testid="invoice-attachments">
+                <p className="text-sm font-semibold text-heading">Attachments</p>
+                <ul className="mt-1 flex flex-col gap-1 text-sm">
+                  {i.attachments.map((a) => (
+                    <li key={a.documentId}>
+                      <button
+                        type="button"
+                        className="text-link underline"
+                        onClick={() =>
+                          void api.documents
+                            .download(a.documentId)
+                            .then((link) => window.open(link.url, '_blank', 'noopener'))
+                        }
+                      >
+                        {a.fileName}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </section>
 
@@ -324,6 +348,9 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             {[
               ['Subtotal', i?.subtotalCents],
               ['Discount', i?.discountCents],
+              ...(i?.tax
+                ? [[`Tax (${i.tax.name} ${i.tax.rateBps / 100}%)`, i.tax.cents] as const]
+                : []),
             ].map(([label, v]) => (
               <div key={String(label)} className="flex justify-between">
                 <dt>{label}</dt>

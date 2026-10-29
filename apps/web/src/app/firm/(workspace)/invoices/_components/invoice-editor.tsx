@@ -7,9 +7,10 @@ import {
   INVOICE_LIMITS,
   invoiceTotals,
   UpdateInvoiceRequest,
-  PAYMENT_TERM_DAYS,
-  PAYMENT_TERM_LABELS,
+  offeredPaymentTerms,
   PaymentTerm,
+  paymentTermDays,
+  paymentTermLabel,
 } from '@firmivra/types';
 import { Input, Modal, Select, Textarea } from '@firmivra/ui';
 import {
@@ -23,6 +24,7 @@ import {
   FloppyDisk,
   Trash,
   FilePlus,
+  FileText,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -43,6 +45,7 @@ import {
   quiet,
   toCents,
 } from './inv-shared';
+import { InvoiceAttachments } from './invoice-attachments';
 import { RecurringCard, recurringBody, recurringDraftOf, upcomingDays } from './recurring-card';
 
 interface LineDraft {
@@ -52,6 +55,8 @@ interface LineDraft {
   rate: string;
   /** The Services & Pricing offering the line came from; '' for a custom one-time item. */
   serviceId: string;
+  /** IP-F03: the invoice's tax rate applies to this line. */
+  taxable: boolean;
 }
 let nextKey = 1;
 const blankLine = (): LineDraft => ({
@@ -60,7 +65,10 @@ const blankLine = (): LineDraft => ({
   quantity: '1',
   rate: '',
   serviceId: '',
+  taxable: false,
 });
+/** 825 basis points: "8.25%". */
+const pct = (bps: number) => `${(bps / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
 const centsText = (cents: number) => (cents / 100).toFixed(2);
 
 /**
@@ -120,6 +128,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
           quantity: String(l.quantity),
           rate: centsText(l.unitAmountCents),
           serviceId: '',
+          taxable: l.taxable,
         }))
       : [blankLine()],
   );
@@ -127,11 +136,35 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [discount, setDiscount] = useState(() =>
     source?.discountCents ? centsText(source.discountCents) : '',
   );
+  // IP-F03: the firm's own tax rates, staff and templates (never fixed ones), and the files.
+  const taxRates = useApiQuery(['invoice-tax-rates'], () => api.paymentPreferences.taxRates());
+  const templates = useApiQuery(['invoice-templates'], () => api.paymentPreferences.templates());
+  const team = useApiQuery(['team', 'invoice-staff'], () => api.team.list());
+  const [taxRateId, setTaxRateId] = useState<string | null>(editing ? editing.taxRateId : null);
+  const [templateId, setTemplateId] = useState<string | null>(
+    editing ? (editing.template?.id ?? '') : null,
+  );
+  const [assignedUserId, setAssignedUserId] = useState(editing?.assignedTo?.userId ?? '');
+  const [documentIds, setDocumentIds] = useState<string[]>(
+    () => editing?.attachments.map((a) => a.documentId) ?? [],
+  );
+  // A new invoice starts from the firm's default rate and template.
+  const rateId = taxRateId ?? taxRates.data?.items.find((r) => r.isDefault)?.id ?? '';
+  const chosenRate = taxRates.data?.items.find((r) => r.id === rateId) ?? null;
+  const keptRate = editing?.tax && editing.taxRateId === rateId ? editing.tax : null;
+  const rateBps = chosenRate?.rateBps ?? keptRate?.rateBps ?? 0;
+  const rateName = chosenRate?.name ?? keptRate?.name ?? '';
+  const template = templateId ?? templates.data?.items.find((t) => t.isDefault)?.id ?? '';
+  const chosenTemplate = templates.data?.items.find((t) => t.id === template) ?? null;
+  const staff = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
   // IP-F02: the terms (the due date follows them unless typed), the note to the client and the
   // firm's internal note, which never reaches the client.
   const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerm | ''>(editing?.paymentTerms ?? '');
   const terms = paymentTerms || prefs.data?.invoiceDefaults.defaultTerms || 'net_14';
+  // The four standard terms and the firm's own; a draft keeps terms the firm has since removed.
+  const offered = offeredPaymentTerms(prefs.data?.invoiceDefaults.customTermDays ?? []);
+  const termOptions = offered.includes(terms) ? offered : [...offered, terms];
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
@@ -142,7 +175,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     setPaymentTerms(next);
     const from = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
     const due = new Date(`${from}T12:00:00Z`);
-    due.setUTCDate(due.getUTCDate() + PAYMENT_TERM_DAYS[next]);
+    due.setUTCDate(due.getUTCDate() + (paymentTermDays(next) ?? 0));
     setDueOn(due.toISOString().slice(0, 10));
   };
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -186,10 +219,12 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     description: l.description.trim(),
     quantity: Number(l.quantity),
     unitAmountCents: toCents(l.rate || '0'),
+    taxable: l.taxable,
   }));
   const valid = parsed.map((l) => ({
     quantity: Number.isFinite(l.quantity) && l.quantity > 0 ? l.quantity : 0,
     unitAmountCents: Number.isNaN(l.unitAmountCents) ? 0 : l.unitAmountCents,
+    taxable: l.taxable,
   }));
   const { lineAmountsCents, subtotalCents } = invoiceTotals({ lines: valid });
   const discountCents =
@@ -198,7 +233,11 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       : Number.isNaN(toCents(discount || '0'))
         ? 0
         : toCents(discount || '0');
-  const totalCents = subtotalCents - discountCents;
+  const { taxableSubtotalCents, taxCents, totalCents } = invoiceTotals({
+    lines: valid,
+    discountCents,
+    taxRateBps: rateBps,
+  });
 
   const update = (key: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -230,6 +269,10 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       notesToClient: notesToClient || null,
       internalNote: internalNote || null,
       recurring: recurringBody(recurring),
+      taxRateId: rateId || null,
+      assignedUserId: assignedUserId || null,
+      templateId: template || null,
+      documentIds,
     };
     const check = invoiceId
       ? UpdateInvoiceRequest.safeParse(body)
@@ -357,10 +400,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 label="Payment Terms"
                 value={terms}
                 onChange={(e) => chooseTerms(PaymentTerm.parse(e.target.value))}
-                options={PaymentTerm.options.map((t) => ({
-                  value: t,
-                  label: PAYMENT_TERM_LABELS[t],
-                }))}
+                options={termOptions.map((t) => ({ value: t, label: paymentTermLabel(t) }))}
               />
               <Input
                 label="Due Date *"
@@ -369,6 +409,19 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 min={localToday()}
                 error={errors['dueOn']}
                 onChange={(e) => setDueOn(e.target.value)}
+              />
+              <Select
+                label="Assigned Staff"
+                value={assignedUserId}
+                onChange={(e) => setAssignedUserId(e.target.value)}
+                options={[
+                  { value: '', label: team.isPending ? 'Loading staff…' : 'Unassigned' },
+                  ...staff.map((m) => ({ value: m.user.id, label: m.user.name })),
+                  // A member who has since left stays shown on their draft.
+                  ...(editing?.assignedTo && !staff.some((m) => m.user.id === assignedUserId)
+                    ? [{ value: editing.assignedTo.userId, label: editing.assignedTo.name }]
+                    : []),
+                ]}
               />
             </div>
             <p className="mt-2 text-xs text-muted">
@@ -408,11 +461,11 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               {lines.map((l, i) => (
                 <li
                   key={l.key}
-                  className="grid gap-3 rounded-lg border border-divider p-3 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_7rem_auto] sm:items-start"
+                  className="grid gap-3 rounded-lg border border-divider p-3 sm:grid-cols-[minmax(0,1fr)_6rem_8rem_9rem_7rem_auto] sm:items-start"
                   data-testid="invoice-line"
                 >
                   {catalog.isError ? null : (
-                    <div className="sm:col-span-5">
+                    <div className="sm:col-span-6">
                       <Select
                         label={`Service ${i + 1}`}
                         value={l.serviceId}
@@ -452,6 +505,15 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                     value={l.rate}
                     error={errors[`rate${i}`]}
                     onChange={(e) => update(l.key, { rate: e.target.value })}
+                  />
+                  <Select
+                    label={`Tax ${i + 1}`}
+                    value={l.taxable ? 'TAXABLE' : 'NON'}
+                    onChange={(e) => update(l.key, { taxable: e.target.value === 'TAXABLE' })}
+                    options={[
+                      { value: 'NON', label: 'Non-taxable' },
+                      { value: 'TAXABLE', label: 'Taxable' },
+                    ]}
                   />
                   <p className="flex flex-col gap-1 text-sm">
                     <span className="font-medium text-text">Amount</span>
@@ -505,6 +567,34 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 onChange={(e) => setDiscount(e.target.value)}
               />
             </div>
+            <div className="mt-3 max-w-md">
+              {taxRates.isError ? null : (taxRates.data?.items.length ?? 0) === 0 && !keptRate ? (
+                <p className="text-sm text-muted">
+                  No tax rates yet.{' '}
+                  <Link href="/settings/payments" className="text-link">
+                    Add your firm&apos;s rates in Settings &gt; Payments
+                  </Link>{' '}
+                  to tax lines.
+                </p>
+              ) : (
+                <Select
+                  label="Tax rate"
+                  value={rateId}
+                  error={errors['taxRateId']}
+                  onChange={(e) => setTaxRateId(e.target.value)}
+                  options={[
+                    { value: '', label: 'No tax' },
+                    ...(taxRates.data?.items ?? []).map((r) => ({
+                      value: r.id,
+                      label: `${r.name} (${pct(r.rateBps)})`,
+                    })),
+                    ...(keptRate && !chosenRate
+                      ? [{ value: rateId, label: `${keptRate.name} (${pct(keptRate.rateBps)})` }]
+                      : []),
+                  ]}
+                />
+              )}
+            </div>
           </section>
 
           <section className={card} aria-labelledby="inv-notes">
@@ -534,6 +624,20 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                   email or portal.
                 </p>
               </div>
+            </div>
+            <div className="mt-3">
+              <InvoiceAttachments
+                clientId={clientId}
+                services={(services.data ?? []).map((sv) => ({ id: sv.id, title: sv.title }))}
+                engagementId={engagementId}
+                value={documentIds}
+                onChange={setDocumentIds}
+              />
+              {errors['documentIds'] ? (
+                <p role="alert" className="mt-1 text-sm text-danger">
+                  {errors['documentIds']}
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -598,6 +702,13 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 <dt>Discount{discountKind === 'PERCENT' && discount ? ` (${discount}%)` : ''}</dt>
                 <dd>{money(discountCents)}</dd>
               </div>
+              <div className="flex justify-between" data-testid="invoice-tax">
+                <dt>{rateBps > 0 ? `Tax (${rateName} ${pct(rateBps)})` : 'Tax'}</dt>
+                <dd>{money(taxCents)}</dd>
+              </div>
+              {rateBps > 0 && taxableSubtotalCents === 0 ? (
+                <p className="text-xs text-muted">Mark lines Taxable to apply the rate.</p>
+              ) : null}
               <div className="flex justify-between rounded-lg bg-info-soft p-3 text-lg font-bold text-heading">
                 <dt>Total</dt>
                 <dd data-testid="invoice-total">{money(totalCents)}</dd>
@@ -649,6 +760,47 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               </Link>
             </div>
           </section>
+          <section className={card} aria-labelledby="inv-template">
+            <h2
+              id="inv-template"
+              className="mb-3 flex items-center gap-2 font-display text-xl font-bold text-heading"
+            >
+              <FileText aria-hidden weight="fill" className="size-6 text-action" /> Invoice Template
+            </h2>
+            {templates.isError ? (
+              <p className="text-sm text-muted">Templates aren&apos;t available right now.</p>
+            ) : (templates.data?.items.length ?? 0) === 0 && !editing?.template ? (
+              <p className="text-sm text-muted">
+                No templates yet: the invoice uses your firm&apos;s branding.{' '}
+                <Link href="/settings/payments" className="text-link">
+                  Create one in Settings &gt; Payments
+                </Link>
+                .
+              </p>
+            ) : (
+              <>
+                <Select
+                  label="Template"
+                  value={template}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                  options={[
+                    { value: '', label: "Your firm's branding" },
+                    ...(templates.data?.items ?? []).map((t) => ({ value: t.id, label: t.name })),
+                    ...(editing?.template && !chosenTemplate && template === editing.template.id
+                      ? [{ value: editing.template.id, label: editing.template.name }]
+                      : []),
+                  ]}
+                />
+                <button
+                  type="button"
+                  className={`${linkBtn} mt-2`}
+                  onClick={() => setPreviewing(true)}
+                >
+                  Preview Template
+                </button>
+              </>
+            )}
+          </section>
           <RecurringCard
             value={recurring}
             onChange={setRecurring}
@@ -687,7 +839,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
             </div>
             <div>
               <dt className="text-xs text-muted">Terms</dt>
-              <dd>{PAYMENT_TERM_LABELS[terms]}</dd>
+              <dd>{paymentTermLabel(terms)}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted">Due</dt>
@@ -723,6 +875,12 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 <dd className="text-right">-{money(discountCents)}</dd>
               </>
             ) : null}
+            {taxCents > 0 ? (
+              <>
+                <dt>Tax ({pct(rateBps)})</dt>
+                <dd className="text-right">{money(taxCents)}</dd>
+              </>
+            ) : null}
             <dt className="font-semibold text-heading">Total</dt>
             <dd className="text-right font-semibold text-heading">{money(totalCents)}</dd>
           </dl>
@@ -730,6 +888,21 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
             <p className="rounded-lg bg-canvas p-3">
               <span className="block text-xs text-muted">Notes</span>
               <span className="whitespace-pre-line">{notesToClient}</span>
+            </p>
+          ) : null}
+          {chosenTemplate?.memo ? (
+            <p className="whitespace-pre-line">{chosenTemplate.memo}</p>
+          ) : null}
+          {documentIds.length > 0 ? (
+            <p className="text-xs text-muted">
+              {documentIds.length === 1
+                ? '1 file attached'
+                : `${documentIds.length} files attached`}
+            </p>
+          ) : null}
+          {chosenTemplate?.footer ? (
+            <p className="border-t border-divider pt-2 text-xs whitespace-pre-line text-muted">
+              {chosenTemplate.footer}
             </p>
           ) : null}
         </div>
