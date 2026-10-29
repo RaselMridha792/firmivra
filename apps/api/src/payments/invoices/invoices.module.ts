@@ -12,7 +12,10 @@ import {
   type InvoiceList,
   type InvoicePdfLink,
   ListInvoicesQuery,
+  ListPaymentsQuery,
+  type PaymentPage,
   PaymentMethodsQuery,
+  type RecurringInvoiceList,
   type PaymentMethodsSummary,
   UpdateInvoiceRequest,
 } from '@firmivra/types';
@@ -66,6 +69,25 @@ export class InvoicesController {
     @Query(new ZodValidationPipe(ListInvoicesQuery)) q: z.output<typeof ListInvoicesQuery>,
   ): Promise<InvoiceList> {
     return this.invoices.list(tenant.businessId, actorOf(auth, tenant), q);
+  }
+
+  /** IP-F17: View All Payments (declared before `:id`). */
+  @Get('payments')
+  payments(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(ListPaymentsQuery)) q: z.output<typeof ListPaymentsQuery>,
+  ): Promise<PaymentPage> {
+    return this.invoices.payments(tenant.businessId, actorOf(auth, tenant), q);
+  }
+
+  /** IP-F17: the recurring invoice schedules (declared before `:id`). */
+  @Get('recurring')
+  recurring(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<RecurringInvoiceList> {
+    return this.invoices.recurring(tenant.businessId, actorOf(auth, tenant));
   }
 
   /** IP-F20: the money collected by method (declared before `:id`). */

@@ -201,6 +201,34 @@ test('Row menu: Send Reminder first, notes in the history, a message and a task 
   await expect(page).toHaveURL(/\/tasks\/new\?clientId=/);
 });
 
+test('The routes from Quick Links: payments, recurring, statement, payment link (IP-F17)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByRole('link', { name: 'View All Payments' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('All Payments');
+  await expect(page.getByRole('table', { name: 'Payments' })).toContainText('Check');
+  await expect(page.getByRole('table', { name: 'Payments' })).toContainText('Voided');
+  await page.getByRole('link', { name: 'Back to Invoices' }).click();
+
+  await page.getByRole('link', { name: 'Recurring Invoices' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Recurring Invoices');
+  await expect(page.getByText('No recurring invoices yet')).toBeVisible();
+  await page.getByRole('link', { name: 'Back to Invoices' }).click();
+
+  await page.getByRole('link', { name: 'Client Statement' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Client Statement');
+  await page.getByRole('combobox', { name: 'Client', exact: true }).selectOption({ index: 1 });
+  await expect(page.getByTestId('statement-totals')).toContainText('Balance due');
+  await page.getByRole('link', { name: 'Back to Invoices' }).click();
+
+  await page.getByRole('link', { name: 'Payment Link Generator' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Payment Link Generator');
+  await page.getByRole('combobox', { name: 'Invoice', exact: true }).selectOption({ index: 1 });
+  await expect(page.getByTestId('payment-link')).toHaveValue(/\/invoices\/[0-9a-f-]{36}$/);
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['/invoices', '/invoices/new', '/invoices/record-payment']) {
