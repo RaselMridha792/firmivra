@@ -17,6 +17,7 @@ import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import {
   type InvoiceTaxRate,
   type InvoiceTemplateView,
+  offeredPaymentTerms,
   type PaymentPreferences,
   PaymentTerm,
   ResetPaymentPreferencesRequest,
@@ -42,7 +43,12 @@ type TemplateBody = z.output<typeof SaveInvoiceTemplateRequest>;
  * defaults switch some on, so every save writes each field explicitly.
  */
 export const DEFAULTS: Sections = {
-  invoiceDefaults: { invoicePrefix: 'INV-', defaultTerms: 'net_14', defaultMemo: null },
+  invoiceDefaults: {
+    invoicePrefix: 'INV-',
+    defaultTerms: 'net_14',
+    defaultMemo: null,
+    customTermDays: [],
+  },
   reminders: {
     sendReminders: false,
     reminderDaysBefore: 3,
@@ -80,12 +86,16 @@ type Row = Prisma.PaymentSettingsGetPayload<object>;
 
 function sectionsOf(row: Row | null): PaymentPreferences {
   if (!row) return { ...DEFAULTS, updatedAt: null };
-  const terms = PaymentTerm.safeParse(row.defaultTerms);
+  const customTermDays = [...row.customTermDays].sort((a, b) => a - b);
+  // Terms the firm no longer offers (or an unknown code) read as the default.
+  const terms = PaymentTerm.safeParse(row.defaultTerms).data;
+  const offered = terms !== undefined && offeredPaymentTerms(customTermDays).includes(terms);
   return {
     invoiceDefaults: {
       invoicePrefix: row.invoicePrefix,
-      defaultTerms: terms.success ? terms.data : DEFAULTS.invoiceDefaults.defaultTerms,
+      defaultTerms: offered ? terms : DEFAULTS.invoiceDefaults.defaultTerms,
       defaultMemo: row.defaultMemo,
+      customTermDays,
     },
     reminders: {
       sendReminders: row.sendReminders,
@@ -115,6 +125,7 @@ const columnsOf = (s: Sections) => {
   // A late fee keeps only the value of its type, as the table's check requires.
   return {
     ...s.invoiceDefaults,
+    customTermDays: [...s.invoiceDefaults.customTermDays].sort((a, b) => a - b),
     ...s.reminders,
     lateFeeEnabled: fees.lateFeeEnabled,
     lateFeeType: fees.lateFeeType,
@@ -128,7 +139,7 @@ const columnsOf = (s: Sections) => {
 /** Field names whose values differ (the audit names fields, never values). */
 const changed = (a: Sections, b: Sections) =>
   (Object.keys(columnsOf(a)) as (keyof ReturnType<typeof columnsOf>)[]).filter(
-    (k) => columnsOf(a)[k] !== columnsOf(b)[k],
+    (k) => JSON.stringify(columnsOf(a)[k]) !== JSON.stringify(columnsOf(b)[k]),
   );
 
 const taxView = (r: {

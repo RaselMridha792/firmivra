@@ -474,7 +474,10 @@ const DraftFields = {
   dueOn: z.iso.date('Choose a due date'),
   /** A later day makes `send` schedule it (Upcoming) to open that day; left out, it opens when sent. */
   scheduledFor: CalendarDate.nullable().optional(),
-  /** IP-F02: the terms shown to the client (the due date stays the one sent). */
+  /**
+   * IP-F02: the terms shown to the client (the due date stays the one sent): a standard one or one
+   * of the firm's own (409 TERMS_NOT_OFFERED for one the firm doesn't offer; a draft keeps its own).
+   */
   paymentTerms: PaymentTerm.nullable().optional(),
   /** IP-F02: shown to the client on the invoice. */
   notesToClient: InvoiceNote.optional(),
@@ -908,6 +911,11 @@ export const InvoiceErrorCode = z.enum([
    */
   'RECURRING_END_TOO_SOON',
   /**
+   * 409 (create, update): the payment terms are neither standard nor in the firm's own list (nor
+   * the draft's current terms); choose other terms.
+   */
+  'TERMS_NOT_OFFERED',
+  /**
    * 503 (Pay Now, refund): Stripe did not answer; nothing was charged or refunded. Try again in a
    * moment (a refund with the same `idempotencyKey`).
    */
@@ -940,6 +948,8 @@ export const INVOICE_ERRORS = {
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
   RECURRING_END_TOO_SOON:
     'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
+  TERMS_NOT_OFFERED:
+    "These payment terms are not in your firm's list. Choose other terms, or add them in Settings > Payments.",
   PAYMENT_PROVIDER_UNAVAILABLE:
     'The payment service is not answering. Nothing was charged or refunded. Try again in a moment.',
 } as const satisfies Record<InvoiceErrorCode, string>;

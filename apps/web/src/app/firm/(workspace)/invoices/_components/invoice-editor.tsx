@@ -7,9 +7,10 @@ import {
   INVOICE_LIMITS,
   invoiceTotals,
   UpdateInvoiceRequest,
-  PAYMENT_TERM_DAYS,
-  PAYMENT_TERM_LABELS,
+  offeredPaymentTerms,
   PaymentTerm,
+  paymentTermDays,
+  paymentTermLabel,
 } from '@firmivra/types';
 import { Input, Modal, Select, Textarea } from '@firmivra/ui';
 import {
@@ -132,6 +133,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerm | ''>(editing?.paymentTerms ?? '');
   const terms = paymentTerms || prefs.data?.invoiceDefaults.defaultTerms || 'net_14';
+  // The four standard terms and the firm's own; a draft keeps terms the firm has since removed.
+  const offered = offeredPaymentTerms(prefs.data?.invoiceDefaults.customTermDays ?? []);
+  const termOptions = offered.includes(terms) ? offered : [...offered, terms];
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
@@ -142,7 +146,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     setPaymentTerms(next);
     const from = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
     const due = new Date(`${from}T12:00:00Z`);
-    due.setUTCDate(due.getUTCDate() + PAYMENT_TERM_DAYS[next]);
+    due.setUTCDate(due.getUTCDate() + (paymentTermDays(next) ?? 0));
     setDueOn(due.toISOString().slice(0, 10));
   };
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -357,10 +361,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 label="Payment Terms"
                 value={terms}
                 onChange={(e) => chooseTerms(PaymentTerm.parse(e.target.value))}
-                options={PaymentTerm.options.map((t) => ({
-                  value: t,
-                  label: PAYMENT_TERM_LABELS[t],
-                }))}
+                options={termOptions.map((t) => ({ value: t, label: paymentTermLabel(t) }))}
               />
               <Input
                 label="Due Date *"
@@ -687,7 +688,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
             </div>
             <div>
               <dt className="text-xs text-muted">Terms</dt>
-              <dd>{PAYMENT_TERM_LABELS[terms]}</dd>
+              <dd>{paymentTermLabel(terms)}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted">Due</dt>
