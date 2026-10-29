@@ -149,6 +149,8 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/invoices/:id/offline-payments': {
     params: { id: 'openInvoice' },
+    // IP-F12: Deposit To is one of the firm's own accounts.
+    bodyIds: { depositAccountId: 'depositAccount' },
     body: () => ({
       method: 'CASH',
       amountCents: 1_000,
@@ -159,6 +161,14 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/invoices/:id/offline-payments/:offlinePaymentId/void': {
     params: { id: 'openInvoice', offlinePaymentId: 'offlinePayment' },
     body: { reason: 'Recorded by mistake' },
+  },
+  // IP-F12: a receipt for one of the invoice's own payments (the Stripe one is still pending).
+  'POST /api/v1/business/invoices/:id/payments/:paymentId/receipts': {
+    params: { id: 'checkoutInvoice', paymentId: 'payment' },
+    expect: 409,
+  },
+  'POST /api/v1/business/invoices/:id/offline-payments/:offlinePaymentId/receipts': {
+    params: { id: 'openInvoice', offlinePaymentId: 'offlinePayment' },
   },
   'GET /api/v1/portal/:firmSlug/me/invoices/:id': { params: { id: 'openInvoice' } },
   // Found, but firm P has no Stripe account that takes charges.

@@ -20,6 +20,7 @@ import {
   PaymentId,
   RefundPaymentRequest,
   UpdateInvoiceRequest,
+  type ReceiptFor,
   VoidOfflinePaymentRequest,
 } from './schemas.js';
 
@@ -114,6 +115,18 @@ export function createInvoicesClient(request: ApiRequest) {
         Invoice,
         `${one(id)}/offline-payments/${parseInput(OfflinePaymentId, offlinePaymentId)}/void`,
         { method: 'POST', body: parseInput(VoidOfflinePaymentRequest, body) },
+      ),
+    /**
+     * IP-F12: Send Receipt or Resend Receipt for one payment, a SUCCEEDED or REFUNDED Stripe one
+     * or a live offline one; every call sends one. 409 RECEIPT_NOT_AVAILABLE otherwise.
+     */
+    sendReceipt: async (id: string, payment: ReceiptFor): Promise<Invoice> =>
+      request(
+        Invoice,
+        'paymentId' in payment
+          ? `${one(id)}/payments/${parseInput(PaymentId, payment.paymentId)}/receipts`
+          : `${one(id)}/offline-payments/${parseInput(OfflinePaymentId, payment.offlinePaymentId)}/receipts`,
+        { method: 'POST', body: {} },
       ),
   };
 }

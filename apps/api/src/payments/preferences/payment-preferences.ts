@@ -15,12 +15,14 @@ import {
 } from '@nestjs/common';
 import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import {
+  type DepositAccount,
   type InvoiceTaxRate,
   type InvoiceTemplateView,
   offeredPaymentTerms,
   type PaymentPreferences,
   PaymentTerm,
   ResetPaymentPreferencesRequest,
+  SaveDepositAccountRequest,
   SaveInvoiceTaxRateRequest,
   SaveInvoiceTemplateRequest,
   UpdatePaymentPreferencesRequest,
@@ -36,6 +38,7 @@ type Update = z.output<typeof UpdatePaymentPreferencesRequest>;
 type Sections = Omit<PaymentPreferences, 'updatedAt'>;
 type TaxBody = z.output<typeof SaveInvoiceTaxRateRequest>;
 type TemplateBody = z.output<typeof SaveInvoiceTemplateRequest>;
+type AccountBody = z.output<typeof SaveDepositAccountRequest>;
 
 /**
  * What a firm that never saved gets, and what Reset to Default restores: every option off
@@ -153,6 +156,7 @@ const taxView = (r: {
   rateBps: r.rateBps,
   isDefault: r.isDefault,
 });
+const accountSelect = { id: true, name: true, isDefault: true } as const;
 const templateSelect = {
   id: true,
   name: true,
@@ -288,6 +292,79 @@ export class PaymentPreferencesService {
     return this.taxRates(businessId, userId);
   }
 
+  // ---------- Deposit accounts (IP-F12) ----------
+  async depositAccounts(businessId: string, userId: string): Promise<{ items: DepositAccount[] }> {
+    return this.inFirm(businessId, userId, async (tx) => ({
+      items: await tx.depositAccount.findMany({
+        where: { businessId, archivedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        select: accountSelect,
+      }),
+    }));
+  }
+
+  async saveDepositAccount(
+    businessId: string,
+    userId: string,
+    id: string | null,
+    body: AccountBody,
+  ): Promise<DepositAccount> {
+    try {
+      return await this.inFirm(businessId, userId, async (tx) => {
+        if (
+          id &&
+          !(await tx.depositAccount.findFirst({ where: { businessId, id, archivedAt: null } }))
+        )
+          throw notFound();
+        // One default per firm (deposit_accounts_one_default): the new one takes it over.
+        if (body.isDefault)
+          await tx.depositAccount.updateMany({
+            where: { businessId, isDefault: true, ...(id ? { id: { not: id } } : {}) },
+            data: { isDefault: false },
+          });
+        const row = id
+          ? await tx.depositAccount.update({ where: { id }, data: body, select: accountSelect })
+          : await tx.depositAccount.create({
+              data: { businessId, ...body },
+              select: accountSelect,
+            });
+        await this.audit.logIn(
+          tx,
+          id ? 'deposit_account.updated' : 'deposit_account.created',
+          { type: 'deposit_account', id: row.id },
+          { name: row.name, isDefault: row.isDefault },
+          { businessId, actorUserId: userId },
+        );
+        return row;
+      });
+    } catch (e) {
+      if (isUnique(e)) throw nameTaken('deposit account');
+      throw e;
+    }
+  }
+
+  /** Payments already recorded to it keep showing its name. */
+  async archiveDepositAccount(businessId: string, userId: string, id: string) {
+    await this.inFirm(businessId, userId, async (tx) => {
+      const row = await tx.depositAccount.findFirst({
+        where: { businessId, id, archivedAt: null },
+      });
+      if (!row) throw notFound();
+      await tx.depositAccount.update({
+        where: { id },
+        data: { archivedAt: new Date(), isDefault: false },
+      });
+      await this.audit.logIn(
+        tx,
+        'deposit_account.archived',
+        { type: 'deposit_account', id },
+        { name: row.name },
+        { businessId, actorUserId: userId },
+      );
+    });
+    return this.depositAccounts(businessId, userId);
+  }
+
   // ---------- Templates ----------
   async templates(businessId: string, userId: string) {
     return this.inFirm(businessId, userId, async (tx) => ({
@@ -420,6 +497,40 @@ export class PaymentPreferencesController {
     @Param('id', uuidPipe) id: string,
   ) {
     return this.prefs.archiveTaxRate(t.businessId, auth.userId, id);
+  }
+
+  @Get('deposit-accounts')
+  depositAccounts(@CurrentAuth() auth: AuthContext, @CurrentTenant() t: TenantContext) {
+    return this.prefs.depositAccounts(t.businessId, auth.userId);
+  }
+
+  @Post('deposit-accounts')
+  createDepositAccount(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() t: TenantContext,
+    @Body(new ZodValidationPipe(SaveDepositAccountRequest)) body: AccountBody,
+  ) {
+    return this.prefs.saveDepositAccount(t.businessId, auth.userId, null, body);
+  }
+
+  @Put('deposit-accounts/:id')
+  updateDepositAccount(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() t: TenantContext,
+    @Param('id', uuidPipe) id: string,
+    @Body(new ZodValidationPipe(SaveDepositAccountRequest)) body: AccountBody,
+  ) {
+    return this.prefs.saveDepositAccount(t.businessId, auth.userId, id, body);
+  }
+
+  @Post('deposit-accounts/:id/archive')
+  @HttpCode(200)
+  archiveDepositAccount(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() t: TenantContext,
+    @Param('id', uuidPipe) id: string,
+  ) {
+    return this.prefs.archiveDepositAccount(t.businessId, auth.userId, id);
   }
 
   @Get('templates')

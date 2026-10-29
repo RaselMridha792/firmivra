@@ -291,6 +291,8 @@ export const FirmInvoicePayment = InvoicePayment.extend({
    * ones included), while SUCCEEDED; 0 for any other status.
    */
   refundableCents: Cents,
+  /** IP-F12: the last time a receipt for it went to the client; null: never. */
+  receiptSentAt: DateTime.nullable(),
 });
 export type FirmInvoicePayment = z.infer<typeof FirmInvoicePayment>;
 
@@ -323,6 +325,10 @@ export const OfflinePayment = z.object({
   voidedAt: DateTime.nullable(),
   voidedBy: MemberRef.nullable(),
   voidReason: z.string().nullable(),
+  /** IP-F12: where the firm deposited it (kept when the account is archived later). */
+  depositAccount: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** IP-F12: the last time a receipt for it went to the client; null: never. */
+  receiptSentAt: DateTime.nullable(),
 });
 export type OfflinePayment = z.infer<typeof OfflinePayment>;
 
@@ -717,6 +723,13 @@ export type RefundPaymentRequest = z.input<typeof RefundPaymentRequest>;
 export const OfflinePaymentId = z.uuid();
 
 /**
+ * IP-F12: the payment a receipt is for, a Stripe one or a recorded (offline) one: POST
+ * /business/invoices/{id}/payments/{paymentId}/receipts or
+ * /business/invoices/{id}/offline-payments/{offlinePaymentId}/receipts (Owner and Admin).
+ */
+export type ReceiptFor = { paymentId: string } | { offlinePaymentId: string };
+
+/**
  * POST /business/invoices/{id}/offline-payments (Owner and Admin): records a check or cash payment
  * on an OPEN invoice, at most its balance due; the invoice turns PAID when the money received
  * covers the total. The API first ends an open Pay Now checkout the client left (409
@@ -743,6 +756,13 @@ export const RecordOfflinePaymentRequest = z
     receivedOn: CalendarDate.refine((d) => d >= '2000-01-01', 'Enter a date from 2000 on'),
     /** For the firm only. Left out when there is none (empty is 400). */
     note: text(500, 'many', 'Add a note').optional(),
+    /** IP-F12: Deposit To, one of the firm's live deposit accounts (404 otherwise). */
+    depositAccountId: z.uuid().optional(),
+    /**
+     * IP-F12: email the client a receipt once the payment is recorded. Left out: the firm's
+     * Automatic Receipts setting decides. The firm's own notice goes either way.
+     */
+    sendReceipt: z.boolean().optional(),
     /**
      * A new random id each time the dialog opens, sent again unchanged on a retry: a retry of a
      * payment already recorded answers the invoice as it is (200, nothing recorded twice).
@@ -934,6 +954,11 @@ export const InvoiceErrorCode = z.enum([
    */
   'OPTION_NOT_ENABLED',
   /**
+   * 409 (IP-F12, Send Receipt): the payment has not succeeded (or was voided), so there is nothing
+   * to give a receipt for.
+   */
+  'RECEIPT_NOT_AVAILABLE',
+  /**
    * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
    * then would never be made; choose a later end date or turn Recurring off.
    */
@@ -977,6 +1002,7 @@ export const INVOICE_ERRORS = {
   ATTACHMENT_NOT_SHAREABLE:
     'A file can be attached once it is shared with the client and has passed its virus check.',
   OPTION_NOT_ENABLED: 'Turn this option on in Settings > Payments first.',
+  RECEIPT_NOT_AVAILABLE: 'A receipt can be sent once the payment has gone through.',
   RECURRING_END_TOO_SOON:
     'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   TERMS_NOT_OFFERED:

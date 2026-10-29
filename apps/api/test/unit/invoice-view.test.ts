@@ -19,6 +19,7 @@ const payment = (p: Partial<Payment> & Pick<Payment, 'status'>): Payment => ({
   createdAt: new Date(),
   _count: { events: 1 },
   refunds: [],
+  invoiceEvents: [],
   ...p,
 });
 type Offline = InvoiceRow['offlinePayments'][number];

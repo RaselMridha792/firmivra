@@ -43,7 +43,12 @@ import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
 import { documentFixtures } from './documents';
-import { mockLivePreferences, mockLiveTaxRate, mockLiveTemplate } from './payment-preferences';
+import {
+  mockLiveDepositAccount,
+  mockLivePreferences,
+  mockLiveTaxRate,
+  mockLiveTemplate,
+} from './payment-preferences';
 import { mockOffset } from './tasks';
 import { teamFixtures } from './team';
 
@@ -77,7 +82,7 @@ const offlineId = (n: number) => `0199b6e5-0000-7000-8000-${String(n).padStart(1
 const recurringId = (n: number) => `0199b6e6-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
-type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents'>;
+type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents' | 'receiptSentAt'>;
 /** An invoice as the database keeps it: amounts and the client's view are computed from it. */
 interface Row {
   id: string;
@@ -347,6 +352,8 @@ function built() {
           voidedAt: null,
           voidedBy: null,
           voidReason: null,
+          depositAccount: null,
+          receiptSentAt: null,
         },
         {
           id: offlineId(1),
@@ -361,6 +368,8 @@ function built() {
           voidedAt: noonOn(day(-21)),
           voidedBy: mockMe,
           voidReason: 'Recorded on the wrong invoice.',
+          depositAccount: null,
+          receiptSentAt: null,
         },
       ],
     }),
@@ -414,7 +423,11 @@ const firmPayment = (p: Payment): FirmInvoicePayment => ({
   ...p,
   refundedCents: refunded(p),
   refundableCents: refundable(p),
+  receiptSentAt: receiptsSent().get(p.id) ?? null,
 });
+/** IP-F12: the last receipt sent for each payment (Stripe or offline), by payment id. */
+let receiptTimes: Map<string, string> | undefined;
+const receiptsSent = () => (receiptTimes ??= new Map());
 
 const live = (r: Row) => r.offline.filter((o) => o.voidedAt === null);
 /**
@@ -1018,10 +1031,16 @@ export function createInvoicesMock(
       ) {
         throw fail(409, 'DUPLICATE_CHECK_NUMBER', 'This check number is already recorded');
       }
+      // IP-F12: Deposit To, one of the firm's live accounts; the receipt when asked.
+      const account = b.depositAccountId ? mockLiveDepositAccount(b.depositAccountId) : null;
+      if (b.depositAccountId && !account) throw notFound();
       const at = now();
+      const oid = s.offlineId();
+      const receipt = b.sendReceipt ?? mockLivePreferences().reminders.autoReceipts;
+      if (receipt) receiptsSent().set(oid, at);
       s.offlineKeys.set(b.idempotencyKey, r.id);
       r.offline.unshift({
-        id: s.offlineId(),
+        id: oid,
         method: b.method,
         amountCents: b.amountCents,
         currency: 'usd',
@@ -1033,6 +1052,8 @@ export function createInvoicesMock(
         voidedAt: null,
         voidedBy: null,
         voidReason: null,
+        depositAccount: account ? { id: account.id, name: account.name } : null,
+        receiptSentAt: receipt ? at : null,
       });
       if (figures(r).balanceDueCents === 0) Object.assign(r, { status: 'PAID', paidAt: at });
       r.updatedAt = at;
@@ -1056,6 +1077,26 @@ export function createInvoicesMock(
         if (amountPaidCents < totalCents) Object.assign(r, { status: 'OPEN', paidAt: null });
       }
       r.updatedAt = at;
+      return toInvoice(r, today());
+    },
+    sendReceipt: async (id, b) => {
+      await mockDelay();
+      manager();
+      const r = find(parseInput(InvoiceId, id));
+      const at = now();
+      if ('offlinePaymentId' in b) {
+        const o = r.offline.find((x) => x.id === b.offlinePaymentId);
+        if (!o) throw notFound();
+        if (o.voidedAt) throw fail(409, 'RECEIPT_NOT_AVAILABLE', 'The payment was voided');
+        o.receiptSentAt = at;
+      } else {
+        const p = r.payments.find((x) => x.id === b.paymentId);
+        if (!p) throw notFound();
+        if (p.status !== 'SUCCEEDED' && p.status !== 'REFUNDED') {
+          throw fail(409, 'RECEIPT_NOT_AVAILABLE', 'The payment has not gone through');
+        }
+        receiptsSent().set(p.id, at);
+      }
       return toInvoice(r, today());
     },
   };
