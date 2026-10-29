@@ -3377,7 +3377,8 @@ model Task {
   /// Draft, Duplicate), so a retry after a lost answer returns this task instead of making a second
   /// one. Unique per firm; set together with its scope (SQL only: tasks_idempotency_*).
   idempotencyKey    String?      @map("idempotency_key") @db.Uuid
-  /// Where the key was used: 'create', 'draft' or 'duplicate:<source task id>'.
+  /// Where the key was used: 'create', 'draft', 'duplicate:<source task id>' or, for a deadline's
+  /// Create Task, 'deadline:<deadline id>'.
   idempotencyScope  String?      @map("idempotency_scope")
 
   client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
