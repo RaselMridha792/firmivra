@@ -6842,28 +6842,36 @@ model TemplateCategory {
 /// at use time. Each save adds a message_template_versions row. `starterKey` marks one of the 48
 /// preloaded templates (unique per firm, so seeding is repeatable). Archived, never deleted.
 model MessageTemplate {
-  id                   String                @id @default(uuid(7)) @db.Uuid
-  businessId           String                @map("business_id") @db.Uuid
-  kind                 MessageTemplateKind
-  categoryId           String?               @map("category_id") @db.Uuid
-  name                 String
-  description          String?
-  subject              String?
-  previewText          String?               @map("preview_text")
-  body                 String
-  status               MessageTemplateStatus @default(DRAFT)
-  access               MessageTemplateAccess @default(TEAM)
-  tags                 String[]              @default([])
+  id                        String                @id @default(uuid(7)) @db.Uuid
+  businessId                String                @map("business_id") @db.Uuid
+  kind                      MessageTemplateKind
+  categoryId                String?               @map("category_id") @db.Uuid
+  name                      String
+  description               String?
+  subject                   String?
+  previewText               String?               @map("preview_text")
+  body                      String
+  status                    MessageTemplateStatus @default(DRAFT)
+  access                    MessageTemplateAccess @default(TEAM)
+  tags                      String[]              @default([])
   /// Offered to Automations (only an ACTIVE template with a kind automations support).
-  includeInAutomations Boolean               @default(false) @map("include_in_automations")
-  starterKey           String?               @map("starter_key")
+  includeInAutomations      Boolean               @default(false) @map("include_in_automations")
+  starterKey                String?               @map("starter_key")
+  /// R1 (Oct 29, TP-F08): the structure behind a structured kind. TASK, DOCUMENT_REQUEST and
+  /// INTAKE_ORGANIZER link the existing template of their module (each at most one library row);
+  /// TAX_WORKFLOW and BOOKKEEPING keep theirs in `structure` (a JSON object, shape checked by the
+  /// API). Only for those kinds (SQL only: message_templates_structure_by_kind).
+  taskTemplateId            String?               @map("task_template_id") @db.Uuid
+  documentRequestTemplateId String?               @map("document_request_template_id") @db.Uuid
+  intakeTemplateId          String?               @map("intake_template_id") @db.Uuid
+  structure                 Json?
   /// The newest version number.
-  version              Int                   @default(1)
-  ownerUserId          String                @map("owner_user_id") @db.Uuid
-  updatedByUserId      String?               @map("updated_by_user_id") @db.Uuid
-  archivedAt           DateTime?             @map("archived_at") @db.Timestamptz(3)
-  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version                   Int                   @default(1)
+  ownerUserId               String                @map("owner_user_id") @db.Uuid
+  updatedByUserId           String?               @map("updated_by_user_id") @db.Uuid
+  archivedAt                DateTime?             @map("archived_at") @db.Timestamptz(3)
+  createdAt                 DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   category       TemplateCategory?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   versions       MessageTemplateVersion[]
@@ -6875,8 +6883,15 @@ model MessageTemplate {
 
   outboundMessages OutboundMessage[]
 
+  taskTemplate            TaskTemplate?            @relation(fields: [businessId, taskTemplateId], references: [businessId, id], onDelete: Restrict)
+  documentRequestTemplate DocumentRequestTemplate? @relation(fields: [businessId, documentRequestTemplateId], references: [businessId, id], onDelete: Restrict)
+  intakeTemplate          IntakeTemplate?          @relation(fields: [businessId, intakeTemplateId], references: [businessId, id], onDelete: Restrict)
+
   @@unique([businessId, id])
   @@unique([businessId, starterKey])
+  @@unique([businessId, taskTemplateId])
+  @@unique([businessId, documentRequestTemplateId])
+  @@unique([businessId, intakeTemplateId])
   @@index([businessId, kind, status])
   @@index([businessId, categoryId])
   @@index([businessId, ownerUserId])
@@ -6892,6 +6907,8 @@ model MessageTemplateVersion {
   name          String
   subject       String?
   body          String
+  /// The structure as saved (TAX_WORKFLOW and BOOKKEEPING), so history keeps it.
+  structure     Json?
   savedByUserId String   @map("saved_by_user_id") @db.Uuid
   savedAt       DateTime @default(now()) @map("saved_at") @db.Timestamptz(3)
 
@@ -9396,6 +9413,7 @@ model TaskTemplate {
   tasks                 Task[]
   complianceDeadlines   ComplianceDeadline[]
   complianceRecurrences ComplianceRecurrence[]
+  messageTemplate       MessageTemplate?
 
   @@unique([businessId, id])
   @@unique([businessId, name])
@@ -10867,11 +10885,12 @@ model IntakeTemplate {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business        Business     @relation(fields: [businessId], references: [id])
-  service         Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  defaultAssignee Membership?  @relation("IntakeTemplateAssignedTo", fields: [businessId, defaultAssignedUserId], references: [businessId, userId], onDelete: Restrict)
-  createdBy       Membership?  @relation("IntakeTemplateCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  business        Business         @relation(fields: [businessId], references: [id])
+  service         Service          @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  defaultAssignee Membership?      @relation("IntakeTemplateAssignedTo", fields: [businessId, defaultAssignedUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy       Membership?      @relation("IntakeTemplateCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
   forms           IntakeForm[]
+  messageTemplate MessageTemplate?
 
   @@unique([businessId, id])
   // Target of the versions' same-service foreign key.
@@ -11042,10 +11061,11 @@ model DocumentRequestTemplate {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business                      @relation(fields: [businessId], references: [id])
-  owner    Membership?                   @relation("RequestTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
-  items    DocumentRequestTemplateItem[]
-  packets  DocumentRequestPacket[]
+  business        Business                      @relation(fields: [businessId], references: [id])
+  owner           Membership?                   @relation("RequestTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  items           DocumentRequestTemplateItem[]
+  packets         DocumentRequestPacket[]
+  messageTemplate MessageTemplate?
 
   @@unique([businessId, id])
   @@map("document_request_templates")
