@@ -808,6 +808,21 @@ export class OutboundMessagesService {
         );
         return { ok: false as const, code: 'send_failed' };
       });
+      // A client's portal message, or the copy of a lead's email or text in the lead's own thread.
+      const messageId = !outcome.ok
+        ? undefined
+        : m.channel === 'PORTAL'
+          ? outcome.messageId
+          : p.kind === 'LEAD'
+            ? await this.inFirm(businessId, (tx) =>
+                this.leadCopy(tx, businessId, m.createdByUserId, p.id, own.subject, own.body),
+              ).catch((error: unknown) => {
+                this.logger.warn(
+                  `message ${id}: a lead's copy was not kept (${error instanceof Error ? error.name : 'Error'})`,
+                );
+                return undefined;
+              })
+            : undefined;
       await this.inFirm(businessId, (tx) =>
         tx.outboundMessageRecipient.updateMany({
           where,
@@ -816,9 +831,7 @@ export class OutboundMessagesService {
                 status: 'SENT',
                 sentAt: new Date(),
                 attempts: { increment: 1 },
-                ...(m.channel === 'PORTAL' && outcome.messageId
-                  ? { messageId: outcome.messageId }
-                  : {}),
+                ...(messageId ? { messageId } : {}),
               }
             : { status: 'FAILED', attempts: { increment: 1 }, lastError: outcome.code },
         }),
@@ -843,6 +856,45 @@ export class OutboundMessagesService {
       { type: 'outbound_message', id },
       { channel: m.channel, ...summary },
     );
+  }
+
+  /**
+   * A lead's email or text, kept in the lead's own thread (r1_message_thread_lead, the Messages
+   * Leads tab): the active thread with this subject, or a new one. The lead is locked first, so
+   * two sends at once never open two threads.
+   */
+  private async leadCopy(
+    tx: TxClient,
+    businessId: string,
+    authorUserId: string,
+    leadId: string,
+    subject: string | null,
+    body: string,
+  ): Promise<string> {
+    await tx.$queryRaw`
+      SELECT 1 FROM leads WHERE business_id = ${businessId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
+    const title = subject?.trim() || 'A message from your firm';
+    const thread =
+      (await tx.messageThread.findFirst({
+        where: { businessId, leadId, subject: title, archivedAt: null },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      })) ??
+      (await tx.messageThread.create({
+        data: { businessId, leadId, subject: title, createdByUserId: authorUserId },
+        select: { id: true },
+      }));
+    const message = await tx.message.create({
+      data: {
+        businessId,
+        threadId: thread.id,
+        senderUserId: authorUserId,
+        direction: 'FIRM_TO_CLIENT',
+        body,
+      },
+      select: { id: true },
+    });
+    return message.id;
   }
 
   /** One person: a client's portal message (and the email notice), or a lead's email or text. */

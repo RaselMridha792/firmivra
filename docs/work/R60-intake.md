@@ -59,8 +59,12 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
   `related_entity_type`/`id`, `assigned_user_id`, `add_to_timeline`), then F18 to F22 (contact
   panel and thread menu on R36's `assigned_user_id`, `archived_at`, `message_thread_mutes`,
   `message_thread_tags`).
-- [ ] The Leads tab on `message_threads.lead_id` (#1213, merged): only after Rasel's word that its
-  Deploy dev run is green.
+- [x] **Leads tab** (MSG-F03 on `message_threads.lead_id`, #1213; Rasel's go of Oct 28, Deploy dev
+  run 831 green): branch `rasel/R60-messages-leads`. New Message's email or text to a lead keeps a
+  copy in the lead's own thread (one per lead and subject, linked from
+  `outbound_message_recipients.message_id`); `GET /business/lead-message-threads`, `GET .../{id}`
+  and `POST .../{id}/messages` (the next email or text, through New Message's own path). All
+  Messages and Leads list them; Staff reach their own leads only. No schema change.
 - Invoices & Payments IP-F01 to F05, F12, F13 moved to R55 (Rasel, Oct 28); R60 is on Messages
   only. The two schema questions (a custom recurring frequency, a firm's own payment terms list)
   went to R55's side through Rasel.
@@ -74,9 +78,8 @@ client's Email is the existing `message.received` notice with the portal link, n
 (no notify change was needed); a lead's email or text carries it, as Send Email on Leads does.
 
 Needs from others (Rasel):
-- **A conversation with a lead** (`message_threads.lead_id`, a client or a lead, never both):
-  Rasel allowed it (Oct 28) and R1 writes it. When it merges, the Leads tab uses it: ask Rasel for
-  the merge note first. Until then the Leads view stays a tidy empty state.
+- **A conversation with a lead** (`message_threads.lead_id`): done, R1's #1213 (Oct 28); the
+  Leads tab is built on it.
 - **Leads** (`apps/api/src/leads/leads.controller.ts`, LeadsModule): export `LeadMessagesService`
   so a message to a lead from Messages goes through it and shows in the lead's activity. Today
   Messages sends with the same Leads templates and no activity row.
@@ -101,8 +104,12 @@ Progress (Messages):
   37 of 37). E opened as #1215, 8 of 8; merged.
 - Oct 28: F12a built and opened as #1219 (`pnpm lint` and `pnpm typecheck` clean; API e2e
   `message-attachments` 4 of 4 and the Messages suites 32 of 32; mock 24 of 24).
-  **Next step:** F12b (New Message files, notes above), then F13 and F16; the Leads tab only after
-  Rasel's word on #1213's Deploy dev run.
+  #1219 merged.
+- Oct 28: Rasel's order: the Leads tab, then F12b, F13, F16, one PR at a time. Leads tab built
+  (API e2e `lead-message-threads` 8 of 8 and the Messages suites 36 of 36; isolation: only the 10
+  known local file and export failures; unit 7 of 7; mock `r60-messages-leads` 3 of 3 and every
+  Messages spec 39 of 39). **Next step:** F12b (New Message files, notes above, with the
+  `messages/` handler in storage/scan-queue/scan-router.ts), then F13 and F16.
 
 ## Handoff (Oct 23): start here
 
