@@ -36,7 +36,10 @@ export const OutboundRecipient = z.object({
   reason: OutboundExclusion.nullable(),
   /** QUEUED until it is sent (null before the message is saved). */
   status: OutboundRecipientStatus.nullable(),
-  /** A client's portal conversation it went to (portal and email), for Open. */
+  /**
+   * The conversation it went to, for Open: a client's portal thread, or the lead's own thread
+   * that keeps the lead's email or text (the Messages Leads tab).
+   */
   threadId: z.uuid().nullable(),
 });
 export type OutboundRecipient = z.infer<typeof OutboundRecipient>;
