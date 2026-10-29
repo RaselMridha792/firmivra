@@ -10,11 +10,14 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CheckOutboundRequest,
   ListOutboundQuery,
+  OutboundAssigneeList,
   OutboundCheck,
   OutboundExclusion,
   OutboundMessage,
   OutboundMessageList,
   OutboundRecipient,
+  OutboundRelated,
+  OutboundRelatedOptions,
   OutboundReview,
   SaveOutboundRequest,
   ScheduleOutboundRequest,
@@ -36,6 +39,7 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { fill } from '../templates/merge-fields.js';
 import { TemplateRenderService } from '../templates/template-render.service.js';
 import { MessagesService } from './messages.service.js';
+import { OutboundFilesService } from './outbound-files.service.js';
 
 type Channel = OutboundMessage['channel'];
 type Save = z.output<typeof SaveOutboundRequest>;
@@ -61,6 +65,10 @@ const messageSelect = {
   body: true,
   templateId: true,
   scheduledFor: true,
+  relatedEntityType: true,
+  relatedEntityId: true,
+  assignedUserId: true,
+  assignedTo: { select: { userId: true, user: { select: { name: true } } } },
   createdByUserId: true,
   completedAt: true,
   canceledAt: true,
@@ -116,6 +124,7 @@ export class OutboundMessagesService {
     private readonly messages: MessagesService,
     private readonly render: TemplateRenderService,
     private readonly audit: AuditService,
+    private readonly files: OutboundFilesService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -333,9 +342,17 @@ export class OutboundMessagesService {
       subject: row.subject,
       body: row.body,
       templateId: row.templateId,
+      related:
+        row.relatedEntityType && row.relatedEntityId
+          ? await this.relatedOf(tx, businessId, row.relatedEntityType, row.relatedEntityId)
+          : null,
+      assignedTo: row.assignedTo
+        ? { userId: row.assignedTo.userId, name: row.assignedTo.user.name }
+        : null,
       scheduledFor: row.status === 'SCHEDULED' ? (row.scheduledFor?.toISOString() ?? null) : null,
       timezone: await firmTimeZone(tx, businessId),
       recipients,
+      files: (await this.files.filesOf(tx, businessId, [row.id])).get(row.id) ?? [],
       counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
       createdBy: { userId: row.createdBy.userId, name: row.createdBy.user.name },
       editable,
@@ -372,8 +389,202 @@ export class OutboundMessagesService {
     return row;
   }
 
+  /**
+   * MSG-F13: one of the client's records, in words, or null when it is gone (another firm's or
+   * another client's never reaches here: `extras` checks them on save).
+   */
+  private async relatedOf(
+    tx: TxClient,
+    businessId: string,
+    type: string,
+    id: string,
+    clientId?: string,
+  ): Promise<OutboundRelated | null> {
+    const own = { businessId, id, ...(clientId ? { clientId } : {}) };
+    const day = (d: Date) =>
+      d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+      });
+    const of = (label: string | undefined) =>
+      label === undefined ? null : { type: type as OutboundRelated['type'], id, label };
+    switch (type) {
+      case 'appointment': {
+        const a = await tx.appointment.findFirst({ where: own, select: { startsAt: true } });
+        return of(a ? `Appointment, ${day(a.startsAt)}` : undefined);
+      }
+      case 'invoice': {
+        const i = await tx.invoice.findFirst({ where: own, select: { number: true } });
+        return of(i ? `Invoice ${i.number}` : undefined);
+      }
+      case 'tax_return': {
+        const r = await tx.taxReturn.findFirst({ where: own, select: { taxYear: true } });
+        return of(r ? `${r.taxYear} Tax Return` : undefined);
+      }
+      case 'document_request': {
+        const d = await tx.documentRequest.findFirst({ where: own, select: { title: true } });
+        return of(d?.title);
+      }
+      case 'task': {
+        const t = await tx.task.findFirst({ where: own, select: { title: true } });
+        return of(t?.title);
+      }
+      case 'engagement': {
+        const e = await tx.engagement.findFirst({ where: own, select: { title: true } });
+        return of(e?.title);
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * MSG-F13 and F16, checked on every save: the related record is the one client's own (404
+   * otherwise; 400 RELATED_NEEDS_ONE_CLIENT with another client; leads take no record), and the
+   * owner an active member (404
+   * otherwise) who reaches everyone chosen (a Staff member: their own clients and leads only, 400
+   * ASSIGNEE_CANNOT_REACH).
+   */
+  private async extras(tx: TxClient, businessId: string, body: Save) {
+    const clientIds = [...new Set(body.clientIds)];
+    const leadIds = [...new Set(body.leadIds)];
+    if (body.related) {
+      if (clientIds.length !== 1)
+        throw new BadRequestException({
+          code: 'RELATED_NEEDS_ONE_CLIENT',
+          message: 'Related To is for a message to one client',
+        });
+      const found = await this.relatedOf(
+        tx,
+        businessId,
+        body.related.type,
+        body.related.id,
+        clientIds[0],
+      );
+      if (!found) throw notFound();
+    }
+    if (body.assignedUserId) {
+      const m = await tx.membership.findFirst({
+        where: { businessId, userId: body.assignedUserId, status: 'ACTIVE' },
+        select: { role: true },
+      });
+      if (!m) throw notFound();
+      if (legacyFirmRole(m.role) === 'STAFF') {
+        const [clients, leads] = await Promise.all([
+          tx.client.count({
+            where: { businessId, id: { in: clientIds }, assignedUserId: body.assignedUserId },
+          }),
+          tx.lead.count({
+            where: { businessId, id: { in: leadIds }, assignedUserId: body.assignedUserId },
+          }),
+        ]);
+        if (clients !== clientIds.length || leads !== leadIds.length)
+          throw new BadRequestException({
+            code: 'ASSIGNEE_CANNOT_REACH',
+            message: 'This staff member does not work with everyone you chose',
+          });
+      }
+    }
+    return {
+      relatedEntityType: body.related?.type ?? null,
+      relatedEntityId: body.related?.id ?? null,
+      assignedUserId: body.assignedUserId ?? null,
+    };
+  }
+
+  /** MSG-F13: the client's records a message can be about, newest first, 20 of each type. */
+  async relatedOptions(
+    businessId: string,
+    actor: ClientsActor,
+    clientId: string,
+  ): Promise<OutboundRelatedOptions> {
+    return this.inFirm(businessId, async (tx) => {
+      const client = await tx.client.findFirst({
+        where: { AND: [{ businessId, id: clientId }, this.clientReach(actor)] },
+        select: { id: true },
+      });
+      if (!client) throw notFound();
+      const own = { businessId, clientId };
+      const take = 20;
+      const [appointments, invoices, returns, requests, tasks, services] = await Promise.all([
+        tx.appointment.findMany({
+          where: own,
+          orderBy: { startsAt: 'desc' },
+          take,
+          select: { id: true },
+        }),
+        tx.invoice.findMany({
+          where: { ...own, canceledAt: null },
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { id: true },
+        }),
+        tx.taxReturn.findMany({
+          where: { ...own, archivedAt: null },
+          orderBy: { taxYear: 'desc' },
+          take,
+          select: { id: true },
+        }),
+        tx.documentRequest.findMany({
+          where: own,
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { id: true },
+        }),
+        tx.task.findMany({
+          where: { ...own, archivedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { id: true },
+        }),
+        tx.engagement.findMany({
+          where: own,
+          orderBy: { createdAt: 'desc' },
+          take,
+          select: { id: true },
+        }),
+      ]);
+      const items: OutboundRelated[] = [];
+      for (const [type, rows] of [
+        ['appointment', appointments],
+        ['invoice', invoices],
+        ['tax_return', returns],
+        ['document_request', requests],
+        ['task', tasks],
+        ['engagement', services],
+      ] as const) {
+        for (const r of rows) {
+          const found = await this.relatedOf(tx, businessId, type, r.id, clientId);
+          if (found) items.push(found);
+        }
+      }
+      return { items };
+    });
+  }
+
+  /** MSG-F16: the firm's active members who can own the conversations. */
+  async assignees(businessId: string): Promise<OutboundAssigneeList> {
+    return this.inFirm(businessId, async (tx) => {
+      const rows = await tx.membership.findMany({
+        where: { businessId, status: 'ACTIVE' },
+        select: { userId: true, role: true, user: { select: { name: true } } },
+        orderBy: { user: { name: 'asc' } },
+      });
+      return {
+        items: rows.map((m) => ({
+          userId: m.userId,
+          name: m.user.name,
+          role: legacyFirmRole(m.role),
+        })),
+      };
+    });
+  }
+
   private async insert(tx: TxClient, businessId: string, actor: ClientsActor, body: Save) {
     await this.people(tx, businessId, actor, body.clientIds, body.leadIds);
+    const extras = await this.extras(tx, businessId, body);
     const created = await tx.outboundMessage.create({
       data: {
         businessId,
@@ -383,6 +594,7 @@ export class OutboundMessagesService {
         subject: body.subject ?? null,
         body: body.body,
         templateId: await this.template(tx, businessId, body.templateId),
+        ...extras,
         createdByUserId: actor.userId,
       },
       select: { id: true },
@@ -433,6 +645,7 @@ export class OutboundMessagesService {
       // version.
       await this.people(tx, businessId, actor, save.clientIds, save.leadIds);
       await this.template(tx, businessId, save.templateId);
+      await this.extras(tx, businessId, save);
       if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED')
         throw conflict('NOT_EDITABLE', 'This message was already sent or canceled.');
       if (row.updatedAt.toISOString() !== version) throw stale();
@@ -457,11 +670,14 @@ export class OutboundMessagesService {
             subject: save.subject ?? null,
             body: save.body,
             templateId: await this.template(tx, businessId, save.templateId),
+            ...(await this.extras(tx, businessId, save)),
           },
         });
         return this.shape(tx, businessId, await this.row(tx, businessId, actor, id));
       }
       const next = await this.insert(tx, businessId, actor, save);
+      // Its files go with it (MSG-F12), while it is still a draft.
+      await this.files.move(tx, businessId, id, next);
       await tx.outboundMessage.update({
         where: { id },
         data: { status: 'CANCELED', canceledAt: new Date() },
@@ -600,6 +816,13 @@ export class OutboundMessagesService {
           severity: 'WARN',
           message: `Some fields cannot be filled for everyone: ${unresolved.map((u) => `[${u}]`).join(', ')}. They would go as written.`,
         });
+      const files = this.fileProblem(m);
+      if (files)
+        checks.push({
+          code: files.code === 'FILE_BLOCKED' ? 'FILES_NOT_READY' : files.code,
+          severity: 'BLOCK',
+          message: `${files.message}.`,
+        });
       if (m.counts.cannotReceive > 0)
         checks.push({
           code: 'SOME_SKIPPED',
@@ -660,6 +883,33 @@ export class OutboundMessagesService {
       });
     if (m.counts.canReceive === 0)
       throw conflict('NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+    const files = this.fileProblem(m);
+    if (files) throw conflict(files.code, files.message);
+  }
+
+  /**
+   * Why its files (MSG-F12) stop it, or null. Files reach clients only, through their portal: the
+   * Portal channel, the only one whose delivery links the client's portal message (R1's
+   * outbound_recipients_rules), so a lead or a text never takes them. Every file passed its scan.
+   */
+  private fileProblem(m: OutboundMessage): {
+    code: 'FILES_NEED_PORTAL' | 'FILES_NOT_READY' | 'FILE_BLOCKED';
+    message: string;
+  } | null {
+    if (m.files.length === 0) return null;
+    if (m.channel !== 'PORTAL')
+      return {
+        code: 'FILES_NEED_PORTAL',
+        message: 'Files go to clients through their portal. Choose Portal, or remove the files',
+      };
+    if (m.files.some((f) => f.status === 'BLOCKED'))
+      return { code: 'FILE_BLOCKED', message: 'A file failed its security check. Remove it' };
+    if (m.files.some((f) => f.status === 'CHECKING'))
+      return {
+        code: 'FILES_NOT_READY',
+        message: 'A file is still being checked for viruses. Try again in a moment',
+      };
+    return null;
   }
 
   async schedule(
@@ -815,7 +1065,15 @@ export class OutboundMessagesService {
           ? outcome.messageId
           : p.kind === 'LEAD'
             ? await this.inFirm(businessId, (tx) =>
-                this.leadCopy(tx, businessId, m.createdByUserId, p.id, own.subject, own.body),
+                this.leadCopy(
+                  tx,
+                  businessId,
+                  m.createdByUserId,
+                  p.id,
+                  own.subject,
+                  own.body,
+                  m.assignedUserId,
+                ),
               ).catch((error: unknown) => {
                 this.logger.warn(
                   `message ${id}: a lead's copy was not kept (${error instanceof Error ? error.name : 'Error'})`,
@@ -870,6 +1128,7 @@ export class OutboundMessagesService {
     leadId: string,
     subject: string | null,
     body: string,
+    assignedUserId: string | null = null,
   ): Promise<string> {
     await tx.$queryRaw`
       SELECT 1 FROM leads WHERE business_id = ${businessId}::uuid AND id = ${leadId}::uuid FOR UPDATE`;
@@ -881,7 +1140,7 @@ export class OutboundMessagesService {
         select: { id: true },
       })) ??
       (await tx.messageThread.create({
-        data: { businessId, leadId, subject: title, createdByUserId: authorUserId },
+        data: { businessId, leadId, subject: title, createdByUserId: authorUserId, assignedUserId },
         select: { id: true },
       }));
     const message = await tx.message.create({
@@ -906,12 +1165,21 @@ export class OutboundMessagesService {
     slug: string | undefined,
   ): Promise<{ ok: true; messageId?: string } | { ok: false; code: string }> {
     if (p.kind === 'CLIENT') {
+      const related =
+        m.relatedEntityType && m.relatedEntityId
+          ? { type: m.relatedEntityType, id: m.relatedEntityId }
+          : undefined;
       const thread = await this.messages.create(
         businessId,
         author,
         p.id,
-        { subject: m.subject?.trim() || 'A message from your firm', body: m.body },
-        { emailNotice: m.channel !== 'EMAIL' },
+        {
+          subject: m.subject?.trim() || 'A message from your firm',
+          body: m.body,
+          ...(related ? { related } : {}),
+          ...(related?.type === 'engagement' ? { engagementId: related.id } : {}),
+        },
+        { emailNotice: m.channel !== 'EMAIL', assignedUserId: m.assignedUserId },
       );
       if (m.channel === 'EMAIL' && p.email && slug) {
         try {
