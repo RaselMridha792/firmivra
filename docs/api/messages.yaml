@@ -220,6 +220,63 @@ paths:
       responses:
         '201': { description: '`LeadMessage`.' }
         default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/uploads:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: startOutboundFile
+      summary: "MSG-F12: a file for a New Message draft or scheduled message, step 1 of Documents' three"
+      description: |
+        `StartOutboundFileRequest` (`fileName`, `contentType`, `sizeBytes`, `sha256`): a PUT or a
+        multipart `UploadTicket` under `tenant/{businessId}/messages/`. Messages Settings decide the
+        types and the size (`400 ATTACHMENT_TYPE`, `ATTACHMENT_TOO_LARGE`); at most 10 files
+        (`400 TOO_MANY_FILES`); `409 NOT_EDITABLE` once sent or canceled. Staff only their own
+        messages. Source of truth: `packages/types/src/messages/outbound.ts`.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`UploadTicket`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/uploads/confirm:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: confirmOutboundFile
+      summary: "Step 3 (`{ uploadToken }`): the stored bytes are checked and the file is on the message"
+      description: |
+        `OutboundFile`, `CHECKING` until its virus scan (GuardDuty, through the scan router's
+        `messages` prefix; clean at once with `SCAN_MODE=local`). `410 UPLOAD_EXPIRED`; `409
+        UPLOAD_MISMATCH`, `FILE_PASSWORD_PROTECTED` or `FILE_HAS_MACROS` (the upload is deleted).
+        The message's `files` list it. Files go to clients through their portal only: Send and the
+        Review refuse a message with files on Email or Text (`409 FILES_NEED_PORTAL`), with a file
+        still being checked (`409 FILES_NOT_READY`) or one that failed (`409 FILE_BLOCKED`). A
+        draft replaced by a new one (other people or another channel) keeps its files.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`OutboundFile`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/{fileId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [firm]
+      operationId: removeOutboundFile
+      summary: Takes a file off a draft or a scheduled message (`409 NOT_EDITABLE` once sent)
+      responses:
+        '200': { description: '`{ ok: true }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-files/{id}/download:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [firm]
+      operationId: downloadMessageFile
+      summary: "A file New Message sent (a message's attachment of kind `FILE`): a 5-minute link"
+      description: |
+        The author, the Owner and Admins, and Staff whose client the message reached; any other
+        file is `404`. Only once its scan passed: `409 SCAN_PENDING` or `FILE_BLOCKED`.
+      responses:
+        '200': { description: '`DownloadLink`.' }
+        default: { $ref: '#/components/responses/Error' }
   /business/clients/{clientId}/notes:
     parameters: [{ $ref: '#/components/parameters/ClientId' }]
     get:
@@ -325,6 +382,22 @@ paths:
       summary: The thread and its messages, oldest first. Marks nothing read.
       responses:
         '200': { description: '`MyMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/files/{fileId}/download:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [portal]
+      operationId: downloadMyMessageFile
+      summary: "A file the firm's New Message sent to this client (attachment kind `FILE`): a 5-minute link"
+      description: |
+        Only a file whose message reached this client through their portal, and, as the firm's
+        shared documents in My Documents, only for a PRIMARY or SPOUSE login (an AUTHORIZED login
+        neither sees nor opens it). Another client's is `404`. `409 SCAN_PENDING` or
+        `FILE_BLOCKED` until it passed its scan.
+      responses:
+        '200': { description: '`DownloadLink`.' }
         default: { $ref: '#/components/responses/Error' }
   /portal/{firmSlug}/me/messages/{id}/messages:
     parameters:

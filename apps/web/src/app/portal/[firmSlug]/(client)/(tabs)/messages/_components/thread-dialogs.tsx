@@ -96,7 +96,8 @@ function ThreadBody({
 
 function Messages({ thread, slug }: { thread: MyMessageThreadDetail; slug: string }) {
   const { business } = usePortal();
-  const files = api.myDocuments(slug);
+  const documents = api.myDocuments(slug);
+  const messages = api.myMessages(slug);
   return (
     <ol aria-label="Conversation" className="grid max-h-96 gap-3 overflow-y-auto">
       {thread.messages.map((m) => (
@@ -109,8 +110,14 @@ function Messages({ thread, slug }: { thread: MyMessageThreadDetail; slug: strin
             {when.format(new Date(m.createdAt))}
           </span>
           <p className="text-sm whitespace-pre-wrap text-text">{m.body}</p>
-          {/* MSG-F12: the files this login may open, through My Documents' own link. */}
-          <MessageFiles files={m.attachments} open={(id) => files.download(id)} />
+          {/* MSG-F12: the files this login may open: a document through My Documents' own link,
+              a file the firm's New Message sent through Messages'. */}
+          <MessageFiles
+            files={m.attachments}
+            open={(f) =>
+              f.kind === 'FILE' ? messages.fileDownload(f.id) : documents.download(f.id)
+            }
+          />
         </li>
       ))}
     </ol>
