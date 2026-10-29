@@ -34,6 +34,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import {
   card,
+  dayText,
   INV_KEY,
   linkBtn,
   localToday,
@@ -43,6 +44,7 @@ import {
   quiet,
   toCents,
 } from './inv-shared';
+import { RecurringCard, recurringBody, recurringDraftOf, upcomingDays } from './recurring-card';
 
 interface LineDraft {
   key: number;
@@ -137,6 +139,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
+  // IP-F05: off keeps a one-time invoice; on, the schedule starts the day the invoice opens.
+  const [recurring, setRecurring] = useState(() => recurringDraftOf(editing?.recurring));
+  const startOn = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
   const chooseTerms = (next: PaymentTerm) => {
     setPaymentTerms(next);
     const from = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
@@ -212,6 +217,13 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     });
     if (!dueOn) next['dueOn'] = 'Choose a due date';
     else if (!invoiceId && dueOn < localToday()) next['dueOn'] = 'Choose today or a future date';
+    if (recurring.on && recurring.ends === 'ON') {
+      const second = upcomingDays(recurring, startOn, 1)[0];
+      if (!recurring.endOn) next['recurring.endOn'] = 'Choose an end date';
+      else if (second && recurring.endOn < second) {
+        next['recurring.endOn'] = `End on or after the next invoice, ${dayText(second)}`;
+      }
+    }
     const body = {
       engagementId: engagementId || null,
       lines: parsed,
@@ -221,6 +233,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       paymentTerms: terms,
       notesToClient: notesToClient || null,
       internalNote: internalNote || null,
+      recurring: recurringBody(recurring),
     };
     const check = invoiceId
       ? UpdateInvoiceRequest.safeParse(body)
@@ -231,7 +244,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
         const key =
           field === 'lines' && typeof index === 'number'
             ? `${sub === 'description' ? 'desc' : sub === 'quantity' ? 'qty' : 'rate'}${index}`
-            : String(field ?? 'form');
+            : field === 'recurring'
+              ? `recurring.${String(index)}`
+              : String(field ?? 'form');
         next[key === 'lines' ? 'form' : key] ??= issue.message;
       }
     }
@@ -635,6 +650,12 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               </Link>
             </div>
           </section>
+          <RecurringCard
+            value={recurring}
+            onChange={setRecurring}
+            startOn={startOn}
+            errors={errors}
+          />
         </aside>
       </div>
       <Modal

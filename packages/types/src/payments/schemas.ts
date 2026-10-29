@@ -3,6 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.js';
 import { PaymentTerm } from './preferences.js';
+import { InvoiceRecurrence, InvoiceRecurrenceInput } from './recurring.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
 // Invoices, and the firm's Invoices page); the client pays it by card on Stripe's hosted checkout
@@ -357,6 +358,8 @@ export const Invoice = InvoiceListItem.extend({
   notesToClient: z.string().nullable(),
   /** The firm's own note: only firm routes return it. */
   internalNote: z.string().nullable(),
+  /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
+  recurring: InvoiceRecurrence.nullable(),
 });
 export type Invoice = z.infer<typeof Invoice>;
 
@@ -473,6 +476,11 @@ const DraftFields = {
   notesToClient: InvoiceNote.optional(),
   /** IP-F02: the firm's own; never in the client's invoice, PDF, email or portal. */
   internalNote: InvoiceNote.optional(),
+  /**
+   * IP-F05: repeat this invoice; null or left out keeps it one-time (and ends a schedule the
+   * draft had). The schedule starts from the day the invoice opens, when it is sent.
+   */
+  recurring: InvoiceRecurrenceInput.nullable().optional(),
 };
 
 type DraftBody = {
@@ -480,6 +488,7 @@ type DraftBody = {
   discountCents?: unknown;
   dueOn?: unknown;
   scheduledFor?: string | null;
+  recurring?: { endOn?: string | null } | null;
 };
 const isLine = (l: unknown): l is { quantity: number; unitAmountCents: number } =>
   typeof l === 'object' &&
@@ -512,6 +521,14 @@ const draftRules = (body: DraftBody, ctx: z.RefinementCtx) => {
       code: 'custom',
       path: ['dueOn'],
       message: 'The due date must be on or after the scheduled date',
+    });
+  }
+  const endOn = body.recurring?.endOn;
+  if (endOn && body.scheduledFor && endOn <= body.scheduledFor) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['recurring', 'endOn'],
+      message: 'The schedule must end after the first invoice',
     });
   }
 };
@@ -786,6 +803,11 @@ export const InvoiceErrorCode = z.enum([
   /** 409 (refund): more than the payment's `refundableCents`. */
   'REFUND_TOO_LARGE',
   /**
+   * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
+   * then would never be made; choose a later end date or turn Recurring off.
+   */
+  'RECURRING_END_TOO_SOON',
+  /**
    * 409 (create, update): the payment terms are neither standard nor in the firm's own list (nor
    * the draft's current terms); choose other terms.
    */
@@ -821,6 +843,8 @@ export const INVOICE_ERRORS = {
   PAYMENTS_NOT_SET_UP: 'Online payment is not available yet. Please contact the firm to pay.',
   NOT_REFUNDABLE: 'This payment cannot be refunded. Reload to see its status.',
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
+  RECURRING_END_TOO_SOON:
+    'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   TERMS_NOT_OFFERED:
     "These payment terms are not in your firm's list. Choose other terms, or add them in Settings > Payments.",
   PAYMENT_PROVIDER_UNAVAILABLE:

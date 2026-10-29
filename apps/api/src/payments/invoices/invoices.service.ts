@@ -33,6 +33,7 @@ import {
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import { InvoiceNotices } from './invoice-notices.js';
+import { endDraftRecurrence, startRecurrence, syncDraftRecurrence } from './invoice-recurrence.js';
 import {
   conflict,
   dateIn,
@@ -354,6 +355,19 @@ export class InvoicesService {
     });
   }
 
+  /** IP-F05: the draft's schedule follows its Recurring settings (see invoice-recurrence.ts). */
+  private async writeRecurrence(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: DraftBody,
+  ) {
+    const row = await this.load(tx, businessId, actor, id);
+    const { today } = await firmToday(tx, businessId);
+    await syncDraftRecurrence(tx, this.audit, businessId, actor.userId, row, body.recurring, today);
+  }
+
   /**
    * Terms a firm's own list (`custom_term_days`) no longer has are 409 TERMS_NOT_OFFERED, except
    * the ones the draft already carries.
@@ -404,6 +418,7 @@ export class InvoicesService {
           select: { id: true },
         });
         await this.writeDraft(tx, businessId, id, body);
+        await this.writeRecurrence(tx, businessId, actor, id, body);
         const row = await this.load(tx, businessId, actor, id);
         await this.audit.logIn(
           tx,
@@ -444,6 +459,7 @@ export class InvoicesService {
         }
       }
       await this.writeDraft(tx, businessId, id, body);
+      await this.writeRecurrence(tx, businessId, actor, id, body);
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
         tx,
@@ -565,6 +581,13 @@ export class InvoicesService {
           ? { status: 'SCHEDULED' }
           : { status: 'OPEN', issuedAt: new Date(), scheduledFor: null },
       });
+      await startRecurrence(
+        tx,
+        this.audit,
+        businessId,
+        current,
+        scheduledFor !== null && later ? scheduledFor : today,
+      );
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
         tx,
@@ -610,6 +633,7 @@ export class InvoicesService {
         }
         if (processing(current)) throw paymentInProgress();
         if (holdsMoney(current)) throw conflict('HAS_PAYMENTS', INVOICE_ERRORS.HAS_PAYMENTS);
+        await endDraftRecurrence(tx, this.audit, businessId, current);
         const unsettled = current.payments.some((p) => p.status === 'PENDING');
         if (unsettled) {
           if (!this.stripe) throw providerUnavailable();
