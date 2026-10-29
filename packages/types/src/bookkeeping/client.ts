@@ -54,6 +54,11 @@ import {
   UpdateBookkeepingReconciliationRequest,
   UpdateBookkeepingReportRequest,
 } from './schemas.js';
+import {
+  BookkeepingCategoryList,
+  BookkeepingTransactionPage,
+  ListBookkeepingTransactionsQuery,
+} from './transactions.js';
 
 const BASE = '/business/bookkeeping';
 const client = (id: string) => `${BASE}/clients/${parseInput(BookkeepingClientId, id)}`;
@@ -207,6 +212,18 @@ export function createBookkeepingClient(request: ApiRequest) {
     // Accounts
     accounts: async (id: string): Promise<BookkeepingAccountList> =>
       request(BookkeepingAccountList, `${client(id)}/accounts`),
+    /** BK-T01: the client's transactions, newest first, with the tabs' counts. */
+    transactions: async (
+      id: string,
+      query: ListBookkeepingTransactionsQuery = {},
+    ): Promise<BookkeepingTransactionPage> =>
+      request(
+        BookkeepingTransactionPage,
+        `${client(id)}/transactions${toQuery(parseInput(ListBookkeepingTransactionsQuery, query))}`,
+      ),
+    /** BK-T01: the categories the client's transactions are filed under. */
+    categories: async (id: string): Promise<BookkeepingCategoryList> =>
+      request(BookkeepingCategoryList, `${client(id)}/categories`),
     addAccount: async (
       id: string,
       body: AddBookkeepingAccountRequest,
