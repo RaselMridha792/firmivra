@@ -43,7 +43,7 @@ import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { engagementFixtures } from './engagements';
 import { documentFixtures } from './documents';
-import { mockLiveTaxRate, mockLiveTemplate } from './payment-preferences';
+import { mockLivePreferences, mockLiveTaxRate, mockLiveTemplate } from './payment-preferences';
 import { mockOffset } from './tasks';
 import { teamFixtures } from './team';
 
@@ -109,6 +109,10 @@ interface Row {
   assignedTo?: MemberRef | null;
   template?: { id: string; name: string } | null;
   attachments?: InvoiceAttachment[];
+  /** IP-F04; left out on the sample rows: the email on, the others off. */
+  emailClient?: boolean;
+  allowTip?: boolean;
+  requirePaymentBeforeDue?: boolean;
   /** IP-F05: the schedule it starts; left out on the sample rows: one-time. */
   recurring?: InvoiceRecurrence | null;
   createdAt: string;
@@ -444,6 +448,7 @@ function figures(r: Row) {
       ? { name: r.tax.name, rateBps: r.tax.rateBps, taxableSubtotalCents, cents: taxCents }
       : null,
     attachments: r.attachments ?? [],
+    requirePaymentBeforeDue: r.requirePaymentBeforeDue ?? false,
     totalCents,
     amountPaidCents,
     refundedCents,
@@ -478,8 +483,9 @@ function toListItem(r: Row, day: string): InvoiceListItem {
       { status: r.status, dueOn: r.dueOn, balanceDueCents: f.balanceDueCents },
       day,
     ),
-    // IP-F07: the mock has no email outbox; an invoice that opened was emailed then.
-    sentAt: r.issuedAt,
+    // IP-F07: the mock has no email outbox; an invoice that opened was emailed then (IP-F04:
+    // unless its email was off).
+    sentAt: r.emailClient === false ? null : r.issuedAt,
     issuedAt: r.issuedAt,
     paidAt: r.paidAt,
     canceledAt: r.canceledAt,
@@ -504,6 +510,8 @@ function toInvoice(r: Row, day: string): Invoice {
     assignedTo: r.assignedTo ?? null,
     template: r.template ?? null,
     taxRateId: r.tax?.id ?? null,
+    emailClient: r.emailClient ?? true,
+    allowTip: r.allowTip ?? false,
   });
 }
 
@@ -665,7 +673,22 @@ export function createInvoicesMock(
     if (docs.some((d) => d && (d.direction === 'INTERNAL' || d.scanStatus !== 'CLEAN'))) {
       throw fail(409, 'ATTACHMENT_NOT_SHAREABLE', 'The file is internal or not checked yet');
     }
+    // IP-F04: the tip and payment-before-due options while Settings has them on.
+    const fees = mockLivePreferences().taxesAndFees;
+    if (
+      (b.allowTip && !current?.allowTip && !fees.tippingEnabled) ||
+      (b.requirePaymentBeforeDue &&
+        !current?.requirePaymentBeforeDue &&
+        !fees.requirePaymentBeforeDue)
+    ) {
+      throw fail(409, 'OPTION_NOT_ENABLED', 'Turn this option on in Settings > Payments first.');
+    }
     return {
+      ...(b.emailClient === undefined ? {} : { emailClient: b.emailClient }),
+      ...(b.allowTip === undefined ? {} : { allowTip: b.allowTip }),
+      ...(b.requirePaymentBeforeDue === undefined
+        ? {}
+        : { requirePaymentBeforeDue: b.requirePaymentBeforeDue }),
       tax: rate ? { id: rate.id, name: rate.name, rateBps: rate.rateBps } : null,
       template: template ? { id: template.id, name: template.name } : null,
       assignedTo: member ? { userId: member.user.id, name: member.user.name } : null,

@@ -27,10 +27,12 @@ Rasel's two approved additions are merged: Custom frequency (#1217, wired in F05
    - Attachments (`documentIds`, up to 10, `invoice_attachments`): the client's shared, clean files, not trashed or archived (404; 409 ATTACHMENT_NOT_SHAREABLE for internal or unchecked). Left out keeps the draft's; [] removes them. Read back only while still shareable. The drop zone uploads into the client's Documents (shared) under the invoice's service.
    - A recurring draft's schedule copies the rate, staff, template and taxable lines.
    - Isolation: the invoice cases map `taxRateId`, `assignedUserId`, `templateId` and `documentIds`.
-2. **IP-F04**: waits on Rasel's answers (asked Oct 28):
-   - **Email notification** (`email_client`; the column defaults TRUE, and today every sent invoice emails the client): checked by default (the mockup, today's behavior) or unchecked ("nothing on by default")? Off means the invoice opens in the portal with no email (R56's IP-F07 then never marks it Sent).
-   - **Allow tip** (`allow_tip`, shown only when Taxes & Fees' Tipping is on): the portal's Pay Now would add the tip to the Stripe checkout over the invoice total. In scope now, or the flag only?
-   - **Require payment before due** (`require_payment_before_due`, shown only when that setting is on): what the client must do (pay in full by the due date, no partial payment?).
+2. **IP-F04** (done Oct 29 on local branch `rasel/R55-ip-f04-options`, stacked on #1230; no PR until a slot frees). Rasel's defaults (Oct 29), all reversible:
+   - **Email** (`email_client`): Create Invoice's "Send email notification to client" starts unchecked. Off, the invoice opens in the client's portal with its bell item and no email copy (`InvoiceNotices` reads the invoice's choice for `invoice.sent`, on Send and on the scheduled open). A recurring draft's schedule gets `delivery` PORTAL (EMAIL_AND_PORTAL when on). Left out of the API body: kept on update, and on create the column's default (on), so older callers and R56's tests still email; the form always sends it. With it off, IP-F07's Sent never shows (no email is dispatched).
+   - **Allow tip** (`allow_tip`): shown only while Settings > Payments' Tipping is on; stored only. Pay Now still charges the balance due; the tip joins the Stripe charge in a later PR once Stripe test mode is verified. The client's portal shows nothing about tips yet.
+   - **Require payment before due date** (`require_payment_before_due`): shown only while that setting is on. The client's invoice shows "Please pay before the due date, {date}." while it can be paid; Pay Now stays where it is. No blocking, no extra email.
+   - Tip or before-due turned on while the setting is off is 409 OPTION_NOT_ENABLED; a draft keeps one it already has.
+   - Not wired: the mockup's "Include attached files with invoice" (`include_attachments`); choosing files (IP-F03) already is that choice. Rasel's word if the box should show.
 3. **IP-F12**:
    - Record Payment's Deposit To: `deposit_accounts` and `offline_payments.deposit_account_id` already exist, with no schema change;
    - Send Receipt once, after success only (`RECEIPT_SENT` invoice events dedupe it), and manual Send/Resend;

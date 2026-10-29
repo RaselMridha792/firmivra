@@ -179,6 +179,12 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ['Created By', i?.createdBy?.name ?? '—'],
                 ['Assigned Staff', i?.assignedTo?.name ?? 'Unassigned'],
                 ['Template', i?.template?.name ?? "Your firm's branding"],
+                // IP-F04
+                ['Email to Client', i && !i.emailClient ? 'Off: portal only' : 'On'],
+                ...(i?.allowTip ? [['Tips', 'Allowed (not added to Pay Now yet)'] as const] : []),
+                ...(i?.requirePaymentBeforeDue
+                  ? [['Payment', 'Required before the due date'] as const]
+                  : []),
               ].map(([label, value]) => (
                 <div key={String(label)}>
                   <dt className="text-muted">{label}</dt>

@@ -357,6 +357,11 @@ const AmountDetail = {
   /** IP-F03: files from the client's documents (shared with the client, clean), oldest first. */
   attachments: z.array(InvoiceAttachment).max(INVOICE_LIMITS.maxAttachments),
   /**
+   * IP-F04: the firm asks for payment before the due date; the client's invoice says so. Nothing
+   * is blocked and no extra email goes out.
+   */
+  requirePaymentBeforeDue: z.boolean(),
+  /**
    * Money received: Stripe payments that succeeded (refunded ones in full) plus live offline
    * payments. The balance due is the total less this.
    */
@@ -433,6 +438,10 @@ export const Invoice = InvoiceListItem.extend({
   template: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   /** IP-F03: the chosen tax rate's id (the amounts are in `tax`). */
   taxRateId: z.uuid().nullable(),
+  /** IP-F04: the client gets the email when the invoice opens (the portal shows it either way). */
+  emailClient: z.boolean(),
+  /** IP-F04: the client may add a tip. Stored only for now: Pay Now charges the balance due. */
+  allowTip: z.boolean(),
   /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
   recurring: InvoiceRecurrence.nullable(),
 });
@@ -571,6 +580,23 @@ const DraftFields = {
     .max(INVOICE_LIMITS.maxAttachments, `Attach at most ${INVOICE_LIMITS.maxAttachments} files`)
     .refine((ids) => new Set(ids).size === ids.length, 'Attach each file once')
     .optional(),
+  /**
+   * IP-F04: email the client when the invoice opens; off, it opens in their portal without one.
+   * Left out: kept on update, and on create the email goes as before (Create Invoice always sends
+   * it, unchecked to start).
+   */
+  emailClient: z.boolean().optional(),
+  /**
+   * IP-F04: the client may add a tip, while Settings > Payments' Tipping is on (409
+   * OPTION_NOT_ENABLED otherwise; a draft keeps its own). Left out: kept, off on create.
+   */
+  allowTip: z.boolean().optional(),
+  /**
+   * IP-F04: ask for payment before the due date, while Settings > Payments' "Require payment
+   * before due date" is on (409 OPTION_NOT_ENABLED otherwise; a draft keeps its own). Left out:
+   * kept, off on create.
+   */
+  requirePaymentBeforeDue: z.boolean().optional(),
   /**
    * IP-F05: repeat this invoice; null or left out keeps it one-time (and ends a schedule the
    * draft had). The schedule starts from the day the invoice opens, when it is sent.
@@ -903,6 +929,11 @@ export const InvoiceErrorCode = z.enum([
    */
   'ATTACHMENT_NOT_SHAREABLE',
   /**
+   * 409 (IP-F04, create or update): a tip or payment-before-due option the firm has not turned on
+   * in Settings > Payments; turn it on there first.
+   */
+  'OPTION_NOT_ENABLED',
+  /**
    * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
    * then would never be made; choose a later end date or turn Recurring off.
    */
@@ -945,6 +976,7 @@ export const INVOICE_ERRORS = {
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
   ATTACHMENT_NOT_SHAREABLE:
     'A file can be attached once it is shared with the client and has passed its virus check.',
+  OPTION_NOT_ENABLED: 'Turn this option on in Settings > Payments first.',
   RECURRING_END_TOO_SOON:
     'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   TERMS_NOT_OFFERED:

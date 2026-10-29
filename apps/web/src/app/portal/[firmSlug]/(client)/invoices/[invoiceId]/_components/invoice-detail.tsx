@@ -87,6 +87,15 @@ function InvoiceCard({ slug, invoice: i }: { slug: string; invoice: MyInvoiceDet
           </div>
         ) : null}
       </dl>
+      {/* IP-F04: the firm asks for payment before the due date; Pay Now stays where it is. */}
+      {i.requirePaymentBeforeDue && i.canPay && i.dueOn ? (
+        <p
+          className="rounded-lg bg-warning-soft p-3 text-sm font-semibold text-heading"
+          data-testid="pay-before-due"
+        >
+          Please pay before the due date, {day(i.dueOn)}.
+        </p>
+      ) : null}
       <div className="min-w-0 overflow-x-auto">
         <table className="w-full text-sm">
           <caption className="sr-only">Invoice lines</caption>

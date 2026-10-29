@@ -12,7 +12,7 @@ import {
   paymentTermDays,
   paymentTermLabel,
 } from '@firmivra/types';
-import { Input, Modal, Select, Textarea } from '@firmivra/ui';
+import { Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import {
   Bank,
   Calculator,
@@ -25,6 +25,7 @@ import {
   Trash,
   FilePlus,
   FileText,
+  GearSix,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -168,6 +169,14 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
+  // IP-F04: nothing on to start. The email is the invoice's own choice; the tip and the
+  // payment-before-due options appear while Settings > Payments has them on (a draft keeps its own).
+  const [emailClient, setEmailClient] = useState(editing?.emailClient ?? false);
+  const [allowTip, setAllowTip] = useState(editing?.allowTip ?? false);
+  const [payBeforeDue, setPayBeforeDue] = useState(editing?.requirePaymentBeforeDue ?? false);
+  const tipOffered = !!prefs.data?.taxesAndFees.tippingEnabled || !!editing?.allowTip;
+  const beforeDueOffered =
+    !!prefs.data?.taxesAndFees.requirePaymentBeforeDue || !!editing?.requirePaymentBeforeDue;
   // IP-F05: off keeps a one-time invoice; on, the schedule starts the day the invoice opens.
   const [recurring, setRecurring] = useState(() => recurringDraftOf(editing?.recurring));
   const startOn = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
@@ -273,6 +282,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       assignedUserId: assignedUserId || null,
       templateId: template || null,
       documentIds,
+      emailClient,
+      allowTip: tipOffered && allowTip,
+      requirePaymentBeforeDue: beforeDueOffered && payBeforeDue,
     };
     const check = invoiceId
       ? UpdateInvoiceRequest.safeParse(body)
@@ -760,6 +772,58 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               </Link>
             </div>
           </section>
+          <section className={card} aria-labelledby="inv-additional">
+            <h2
+              id="inv-additional"
+              className="mb-2 flex items-center gap-2 font-display text-xl font-bold text-heading"
+            >
+              <GearSix aria-hidden weight="fill" className="size-6 text-action" /> Additional
+              Settings
+            </h2>
+            <Checkbox
+              label="Send email notification to client"
+              checked={emailClient}
+              onChange={(e) => setEmailClient(e.target.checked)}
+              className="text-sm"
+            />
+            {!emailClient ? (
+              <p className="text-xs text-muted">
+                No email: the invoice opens in the client&apos;s portal only.
+              </p>
+            ) : null}
+            {tipOffered ? (
+              <>
+                <Checkbox
+                  label="Allow client to add a tip"
+                  checked={allowTip}
+                  onChange={(e) => setAllowTip(e.target.checked)}
+                  className="text-sm"
+                />
+                {allowTip ? (
+                  <p className="text-xs text-muted">
+                    Saved with the invoice. Pay Now charges the balance due; tips are not added yet.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {beforeDueOffered ? (
+              <Checkbox
+                label="Require payment before due date"
+                checked={payBeforeDue}
+                onChange={(e) => setPayBeforeDue(e.target.checked)}
+                className="text-sm"
+              />
+            ) : null}
+            {!tipOffered && !beforeDueOffered ? (
+              <p className="mt-1 text-xs text-muted">
+                Tipping and payment before the due date show here once turned on in{' '}
+                <Link href="/settings/payments" className="text-link">
+                  Settings &gt; Payments
+                </Link>
+                .
+              </p>
+            ) : null}
+          </section>
           <section className={card} aria-labelledby="inv-template">
             <h2
               id="inv-template"
@@ -846,6 +910,11 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               <dd>{dueOn || 'Not chosen yet'}</dd>
             </div>
           </dl>
+          {beforeDueOffered && payBeforeDue ? (
+            <p className="rounded-lg bg-warning-soft p-2 font-semibold text-heading">
+              Please pay before the due date.
+            </p>
+          ) : null}
           <table className="w-full text-left">
             <thead className="text-xs text-muted">
               <tr>
