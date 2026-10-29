@@ -1,8 +1,14 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   CancelOutboundRequest,
   CheckOutboundRequest,
+  ConfirmUploadRequest,
+  type DownloadLink,
+  type OkResponse,
+  type OutboundFile,
+  StartOutboundFileRequest,
+  type UploadTicket,
   ListOutboundQuery,
   MessageThreadId,
   type OutboundCheck,
@@ -18,6 +24,7 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { actorOf } from './messages.controller.js';
+import { OutboundFilesService } from './outbound-files.service.js';
 import { OutboundMessagesService } from './outbound.service.js';
 
 const idPipe = new ZodValidationPipe(MessageThreadId);
@@ -27,7 +34,10 @@ const idPipe = new ZodValidationPipe(MessageThreadId);
 @Access('MESSAGES')
 @Roles(...FIRM_STAFF)
 export class OutboundMessagesController {
-  constructor(private readonly outbound: OutboundMessagesService) {}
+  constructor(
+    private readonly outbound: OutboundMessagesService,
+    private readonly files: OutboundFilesService,
+  ) {}
 
   @Get()
   list(
@@ -126,5 +136,54 @@ export class OutboundMessagesController {
     body: z.output<typeof CancelOutboundRequest>,
   ): Promise<OutboundMessage> {
     return this.outbound.cancel(tenant.businessId, actorOf(auth, tenant), id, body.version);
+  }
+
+  /** MSG-F12: a file for a draft or a scheduled message, step 1. */
+  @Post(':id/files/uploads')
+  startFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(StartOutboundFileRequest))
+    body: z.output<typeof StartOutboundFileRequest>,
+  ): Promise<UploadTicket> {
+    return this.files.ticket(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  @Post(':id/files/uploads/confirm')
+  confirmFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+  ): Promise<OutboundFile> {
+    return this.files.confirm(tenant.businessId, actorOf(auth, tenant), id, body.uploadToken);
+  }
+
+  @Delete(':id/files/:fileId')
+  removeFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('fileId', idPipe) fileId: string,
+  ): Promise<OkResponse> {
+    return this.files.remove(tenant.businessId, actorOf(auth, tenant), id, fileId);
+  }
+}
+
+/** MSG-F12: a file New Message sent, opened from a conversation or the message. */
+@Controller('business/message-files')
+@Access('MESSAGES')
+@Roles(...FIRM_STAFF)
+export class MessageFilesController {
+  constructor(private readonly files: OutboundFilesService) {}
+
+  @Get(':id/download')
+  download(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<DownloadLink> {
+    return this.files.firmDownload(tenant.businessId, actorOf(auth, tenant), id);
   }
 }

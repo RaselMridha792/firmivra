@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { clientPath, portalMe } from '../clients/client.js';
 import { OkResponse } from '../schemas.js';
+import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
 import {
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
@@ -39,8 +40,10 @@ import {
   OutboundMessageList,
   OutboundReview,
   SaveOutboundRequest,
+  OutboundFile,
   ScheduleOutboundRequest,
   SendOutboundRequest,
+  StartOutboundFileRequest,
   UpdateOutboundRequest,
 } from './outbound.js';
 import { MessageSettings, UpdateMessageSettingsRequest } from './settings.js';
@@ -59,6 +62,7 @@ const leadThread = (id: string) => `${LEAD_THREADS}/${parseInput(MessageThreadId
 const OUTBOUND = '/business/outbound-messages';
 const outbound = (id: string) => `${OUTBOUND}/${parseInput(MessageThreadId, id)}`;
 const note = (id: string) => `/business/notes/${parseInput(InternalNoteId, id)}`;
+const messageFile = (id: string) => `/business/message-files/${parseInput(MessageThreadId, id)}`;
 
 /**
  * `api.messages` (apps/web/src/lib/api.ts): the firm's message threads with its clients (F10).
@@ -117,6 +121,13 @@ export function createMessagesClient(request: ApiRequest) {
     /** Marks the client's latest message unread again. 409 NOTHING_TO_MARK if it has none. */
     markUnread: async (id: string): Promise<MessageThread> =>
       request(MessageThread, `${thread(id)}/unread`, { method: 'POST', body: {} }),
+    /**
+     * A file New Message sent (a message's attachment of kind FILE): a 5-minute download link,
+     * only once its scan passed (409 SCAN_PENDING or FILE_BLOCKED). The author, the Owner and
+     * Admins, and Staff whose client got it.
+     */
+    fileDownload: async (fileId: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${messageFile(fileId)}/download`),
     /** Unread client messages, in total and per client. Poll at most once a minute. */
     unreadCount: async (): Promise<FirmUnreadCount> =>
       request(FirmUnreadCount, `${THREADS}/unread-count`),
@@ -165,6 +176,28 @@ export function createMessagesClient(request: ApiRequest) {
         request(OutboundMessage, OUTBOUND, {
           method: 'POST',
           body: parseInput(SaveOutboundRequest, body),
+        }),
+      /**
+       * MSG-F12: a file for a draft or a scheduled message, step 1 of Documents' three (`uploadFile`
+       * in apps/web/src/lib/upload.ts runs them). 400 ATTACHMENT_TYPE, ATTACHMENT_TOO_LARGE or
+       * TOO_MANY_FILES; 409 NOT_EDITABLE.
+       */
+      startFile: async (id: string, body: StartOutboundFileRequest): Promise<UploadTicket> =>
+        request(UploadTicket, `${outbound(id)}/files/uploads`, {
+          method: 'POST',
+          body: parseInput(StartOutboundFileRequest, body),
+        }),
+      /** Step 3: the file is on the message, CHECKING until its scan. 410 UPLOAD_EXPIRED. */
+      confirmFile: async (id: string, body: ConfirmUploadRequest): Promise<OutboundFile> =>
+        request(OutboundFile, `${outbound(id)}/files/uploads/confirm`, {
+          method: 'POST',
+          body: parseInput(ConfirmUploadRequest, body),
+        }),
+      /** Takes a file off a draft or a scheduled message. 409 NOT_EDITABLE once sent. */
+      removeFile: async (id: string, fileId: string): Promise<OkResponse> =>
+        request(OkResponse, `${outbound(id)}/files/${parseInput(MessageThreadId, fileId)}`, {
+          method: 'DELETE',
+          body: {},
         }),
       /** Changed recipients or channel answer a new draft (a new id). 409 STALE_VERSION. */
       update: async (id: string, body: UpdateOutboundRequest): Promise<OutboundMessage> =>
@@ -266,6 +299,12 @@ export function createMyMessagesClient(request: ApiRequest, firmSlug: string) {
       request(MyMessageThread, `${one(id)}/unread`, { method: 'POST', body: {} }),
     /** The sidebar badge: unread firm messages. Poll at most once a minute and on focus. */
     unreadCount: async (): Promise<UnreadCount> => request(UnreadCount, `${base()}/unread-count`),
+    /**
+     * A file the firm's New Message sent to this client (a message's attachment of kind FILE): a
+     * 5-minute download link, only once its scan passed. Another client's is 404.
+     */
+    fileDownload: async (fileId: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${base()}/files/${parseInput(MessageThreadId, fileId)}/download`),
   };
 }
 

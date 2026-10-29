@@ -47,6 +47,10 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
+  ConfirmUploadRequest,
+  OUTBOUND_FILES_MAX,
+  type OutboundFile,
+  StartOutboundFileRequest,
   type LeadMessage,
   type LeadMessageThread,
   type LeadMessageThreadDetail,
@@ -373,6 +377,8 @@ interface OutboundRow {
   scheduledFor: string | null;
   clientIds: string[];
   leadIds: string[];
+  /** MSG-F12: its files (clean at once in mock mode). */
+  files: OutboundFile[];
   /** After the send: what happened to each person. */
   results: Map<
     string,
@@ -517,6 +523,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
+      files: r.files.map((f) => ({ ...f })),
       counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
       createdBy: { ...r.createdBy },
       editable,
@@ -544,7 +551,14 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
     if ((await shape(r)).counts.canReceive === 0)
       throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+    if (r.files.length > 0 && r.channel !== 'PORTAL')
+      throw fail(409, 'FILES_NEED_PORTAL', FILES_NEED_PORTAL);
   };
+  /** MSG-F12: tickets not confirmed yet, by token. */
+  const uploads = new Map<
+    string,
+    { outboundId: string; file: Omit<OutboundFile, 'id' | 'status' | 'createdAt'> }
+  >();
   /** The merge fields each person gets, as the API fills them (MSG-F15). */
   const fillFor = (p: MockPerson, text: string) => {
     const [first = '', ...rest] = p.name.split(' ');
@@ -596,6 +610,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
       leadIds: [...new Set(b.leadIds)],
+      files: [],
       results: new Map(),
       createdBy: { ...me },
       createdAt: at,
@@ -688,6 +703,12 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           severity: 'WARN',
           message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
         });
+      if (m.files.length > 0 && m.channel !== 'PORTAL')
+        checks.push({
+          code: 'FILES_NEED_PORTAL',
+          severity: 'BLOCK',
+          message: `${FILES_NEED_PORTAL}.`,
+        });
       if (!checks.some((c) => c.severity === 'BLOCK'))
         checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
       return {
@@ -725,6 +746,8 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         return shape(r);
       }
       const next = await insert(b);
+      next.files = r.files;
+      r.files = [];
       r.status = 'CANCELED';
       r.canceledAt = now();
       r.updatedAt = stamp();
@@ -759,7 +782,19 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             createdAt: now(),
           };
           s().threads.push(t);
-          addMessage(t, staff(me), fillFor(p, r.body).text);
+          addMessage(
+            t,
+            staff(me),
+            fillFor(p, r.body).text,
+            r.files.map((f) => ({
+              kind: 'FILE' as const,
+              id: f.id,
+              fileName: f.fileName,
+              contentType: f.contentType,
+              sizeBytes: f.sizeBytes,
+              status: f.status,
+            })),
+          );
           threadId = t.id;
         } else if (r.channel !== 'PORTAL') {
           // A lead's email or text is kept in the lead's own thread (the Leads tab).
@@ -786,6 +821,62 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+    startFile: async (outboundId: string, body: StartOutboundFileRequest) => {
+      await mockDelay();
+      const b = parseInput(StartOutboundFileRequest, body);
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      const { allowedAttachmentTypes, attachmentMaxMb } = settingsOf();
+      const ending = b.fileName.toLowerCase().split('.').pop() ?? '';
+      if (!(allowedAttachmentTypes as readonly string[]).includes(ending))
+        throw fail(400, 'ATTACHMENT_TYPE', `Messages Settings don't allow .${ending} files`);
+      if (b.sizeBytes > attachmentMaxMb * 1024 * 1024)
+        throw fail(400, 'ATTACHMENT_TOO_LARGE', `A file is at most ${attachmentMaxMb} MB`);
+      if (r.files.length >= OUTBOUND_FILES_MAX)
+        throw fail(400, 'TOO_MANY_FILES', `A message carries at most ${OUTBOUND_FILES_MAX} files`);
+      const n = next();
+      uploads.set(`mock-message-file-${n}`, {
+        outboundId,
+        file: { fileName: b.fileName, contentType: b.contentType, sizeBytes: b.sizeBytes },
+      });
+      return {
+        uploadToken: `mock-message-file-${n}`,
+        method: 'PUT' as const,
+        url: `mock:message-file/${n}`,
+        headers: { 'content-type': b.contentType },
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      };
+    },
+    confirmFile: async (outboundId: string, body: ConfirmUploadRequest) => {
+      await mockDelay();
+      const { uploadToken } = parseInput(ConfirmUploadRequest, body);
+      const pending = uploads.get(uploadToken);
+      const r = find(outboundId);
+      if (pending?.outboundId !== outboundId)
+        throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Add it again.');
+      uploads.delete(uploadToken);
+      // Mock mode scans at once, as SCAN_MODE=local.
+      const file: OutboundFile = {
+        id: id('0199b6e9', next()),
+        ...pending.file,
+        status: 'READY',
+        createdAt: now(),
+      };
+      r.files.push(file);
+      r.updatedAt = stamp();
+      return { ...file };
+    },
+    removeFile: async (outboundId: string, fileId: string) => {
+      await mockDelay();
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      if (!r.files.some((f) => f.id === fileId)) throw notFound();
+      r.files = r.files.filter((f) => f.id !== fileId);
+      r.updatedAt = stamp();
+      return { ok: true as const };
+    },
     cancel: async (outboundId: string, body: CancelOutboundRequest) => {
       await mockDelay();
       const { version } = parseInput(CancelOutboundRequest, body);
@@ -797,6 +888,21 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+  };
+}
+
+const FILES_NEED_PORTAL =
+  'Files go to clients through their portal. Choose Portal, or remove the files';
+
+/** A file New Message sent (MSG-F12), as the API links it: only once it reached a client. */
+function sentFileLink(fileId: string) {
+  const sent = outboundRows.some(
+    (r) => r.status === 'SENT' && r.files.some((f) => f.id === fileId),
+  );
+  if (!sent) throw notFound();
+  return {
+    url: `data:text/plain;charset=utf-8,${encodeURIComponent('Mock message file')}`,
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
   };
 }
 
@@ -956,7 +1062,8 @@ export function createMessagesMock(
         if (d.sizeBytes > attachmentMaxMb * 1024 * 1024)
           throw fail(400, 'ATTACHMENT_TOO_LARGE', `${d.fileName} is over ${attachmentMaxMb} MB`);
         files.push({
-          documentId: d.id,
+          kind: 'DOCUMENT',
+          id: d.id,
           fileName: d.fileName,
           contentType: d.contentType,
           sizeBytes: d.sizeBytes,
@@ -983,6 +1090,7 @@ export function createMessagesMock(
       mark(t, 'CLIENT_TO_FIRM', false);
       return firmThread(t);
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
     unreadCount: async () => {
       await mockDelay();
       const byClient = new Map<string, number>();
@@ -1225,6 +1333,7 @@ export function createMyMessagesMock(): MyMessagesClient {
       await mockDelay();
       return { count: mine().reduce((sum, t) => sum + myThread(t).unreadCount, 0) };
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
   };
 }
 
