@@ -1,4 +1,5 @@
 // Message threads between the firm and a client, firm side and portal side.
+import { randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
 export const records: CaseModule['records'] = {
@@ -35,6 +36,88 @@ export const records: CaseModule['records'] = {
         data: {
           businessId,
           clientId: await get('client'),
+          subject: 'Fake subject',
+          createdByUserId: owner.id,
+        },
+      });
+      await tx.message.create({
+        data: {
+          businessId,
+          threadId: thread.id,
+          senderUserId: owner.id,
+          direction: 'FIRM_TO_CLIENT',
+          body: 'Fake message',
+        },
+      });
+      return thread.id;
+    },
+  },
+  /**
+   * MSG-F12: a New Message draft to client X with one file (still being scanned), and the delivery
+   * that reached X's portal message (as a sent one links it).
+   */
+  outboundFileMessage: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const clientId = await get('client');
+      const threadId = await get('messageThread');
+      const message = await tx.message.findFirstOrThrow({
+        where: { businessId, threadId },
+        select: { id: true },
+      });
+      const m = await tx.outboundMessage.create({
+        data: {
+          businessId,
+          kind: 'DIRECT',
+          channel: 'PORTAL',
+          status: 'DRAFT',
+          body: 'Fake message',
+          createdByUserId: owner.id,
+        },
+      });
+      await tx.outboundMessageFile.create({
+        data: {
+          businessId,
+          outboundMessageId: m.id,
+          fileName: 'Fake.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: '0'.repeat(64),
+          s3Key: `tenant/${businessId}/messages/${randomUUID()}`,
+          uploadedByUserId: owner.id,
+        },
+      });
+      await tx.outboundMessageRecipient.create({
+        data: {
+          businessId,
+          outboundMessageId: m.id,
+          channel: 'PORTAL',
+          clientId,
+          messageId: message.id,
+        },
+      });
+      return m.id;
+    },
+  },
+  /** That draft's file. */
+  outboundMessageFile: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const outboundMessageId = await get('outboundFileMessage');
+      const f = await tx.outboundMessageFile.findFirstOrThrow({
+        where: { businessId, outboundMessageId },
+        select: { id: true },
+      });
+      return f.id;
+    },
+  },
+  /** A lead's own thread (Messages' Leads tab), with the firm's email to the lead. */
+  leadMessageThread: {
+    async create({ tx, businessId, owner, get }) {
+      const thread = await tx.messageThread.create({
+        data: {
+          businessId,
+          leadId: await get('leadFollowUp'),
           subject: 'Fake subject',
           createdByUserId: owner.id,
         },
@@ -89,6 +172,29 @@ export const cases: CaseModule['cases'] = {
     },
   },
   'GET /api/v1/business/outbound-messages/:id': outbound,
+  // MSG-F12: New Message's files. The confirm's token is not one, so a found message is 410; a
+  // file still being scanned does not open (409).
+  'POST /api/v1/business/outbound-messages/:id/files/uploads': {
+    ...outbound,
+    body: {
+      fileName: 'Fake.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  },
+  'POST /api/v1/business/outbound-messages/:id/files/uploads/confirm': {
+    ...outbound,
+    body: { uploadToken: 'fake-token' },
+    expect: 410,
+  },
+  'DELETE /api/v1/business/outbound-messages/:id/files/:fileId': {
+    params: { id: 'outboundFileMessage', fileId: 'outboundMessageFile' },
+  },
+  'GET /api/v1/business/message-files/:id/download': {
+    params: { id: 'outboundMessageFile' },
+    expect: 409,
+  },
   'GET /api/v1/business/outbound-messages/:id/review': outbound,
   'PUT /api/v1/business/outbound-messages/:id': {
     ...outbound,
@@ -118,6 +224,15 @@ export const cases: CaseModule['cases'] = {
     body: { version: VERSION },
     expect: 409,
   },
+  // The Leads tab: a lead's own threads.
+  'GET /api/v1/business/lead-message-threads/:id': { params: { id: 'leadMessageThread' } },
+  // A text: off until the firm turns texts on, so the found thread answers 409
+  // PROVIDER_UNAVAILABLE everywhere, and nothing is sent.
+  'POST /api/v1/business/lead-message-threads/:id/messages': {
+    params: { id: 'leadMessageThread' },
+    body: { body: 'Fake', channel: 'SMS' },
+    expect: 409,
+  },
   'GET /api/v1/business/message-threads/:id': thread,
   'PATCH /api/v1/business/message-threads/:id': { ...thread, body: { repliesEnabled: false } },
   // MSG-F12: the reply's files are the thread client's own documents.
@@ -136,6 +251,10 @@ export const cases: CaseModule['cases'] = {
     body: { notifyUnread: true },
   },
   'GET /api/v1/portal/:firmSlug/me/messages/:id': thread,
+  'GET /api/v1/portal/:firmSlug/me/messages/files/:fileId/download': {
+    params: { fileId: 'outboundMessageFile' },
+    expect: 409,
+  },
   'POST /api/v1/portal/:firmSlug/me/messages/:id/messages': { ...thread, body: { body: 'Fake' } },
   'POST /api/v1/portal/:firmSlug/me/messages/:id/read': { ...thread, body: {} },
   'POST /api/v1/portal/:firmSlug/me/messages/:id/unread': { ...thread, body: {} },

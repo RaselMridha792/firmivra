@@ -34,6 +34,8 @@ export const SCAN_PREFIXES = [
   'agreements',
   'staff',
   'support',
+  // New Message's files (R60, MSG-F12): outbound_message_files, OutboundFilesService.
+  'messages',
 ] as const;
 export type ScanPrefix = (typeof SCAN_PREFIXES)[number];
 

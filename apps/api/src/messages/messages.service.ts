@@ -93,20 +93,53 @@ const messageSelect = {
       },
     },
   },
+  // MSG-F12: the files New Message sent with it, through the delivery that wrote it.
+  outboundRecipients: {
+    take: 1,
+    select: {
+      outbound: {
+        select: {
+          files: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              fileName: true,
+              contentType: true,
+              sizeBytes: true,
+              scanStatus: true,
+            },
+          },
+        },
+      },
+    },
+  },
 } satisfies Prisma.MessageSelect;
 type MessageRow = Prisma.MessageGetPayload<{ select: typeof messageSelect }>;
 type AttachedDocument = MessageRow['attachments'][number]['document'];
 /** A thread's latest message, for list rows: no files. */
-type LastRow = Omit<MessageRow, 'attachments'>;
+type LastRow = Omit<MessageRow, 'attachments' | 'outboundRecipients'>;
 
 /** A message's file as both sides show it; the download link is Documents' own (CLEAN only). */
 const attachment = (d: AttachedDocument): MessageAttachment => ({
-  documentId: d.id,
+  kind: 'DOCUMENT',
+  id: d.id,
   fileName: d.fileName,
   contentType: d.contentType,
   sizeBytes: d.sizeBytes,
   status: d.scanStatus === 'CLEAN' ? 'READY' : d.scanStatus === 'PENDING' ? 'CHECKING' : 'BLOCKED',
 });
+
+/** The files New Message sent with a message (MSG-F12), opened through Messages. */
+const sentFiles = (m: Pick<MessageRow, 'outboundRecipients'>): MessageAttachment[] =>
+  (m.outboundRecipients[0]?.outbound.files ?? []).map((f) => ({
+    kind: 'FILE',
+    id: f.id,
+    fileName: f.fileName,
+    contentType: f.contentType,
+    sizeBytes: f.sizeBytes,
+    status:
+      f.scanStatus === 'CLEAN' ? 'READY' : f.scanStatus === 'PENDING' ? 'CHECKING' : 'BLOCKED',
+  }));
 
 /** Names of the people who write in this firm: staff by membership, clients by portal login. */
 type People = Map<string, { kind: MessageSender['kind']; name: string }>;
@@ -365,7 +398,7 @@ export class MessagesService {
       sender: this.sender(people, m.senderUserId, m.direction),
       body: m.body,
       readAt: m.readAt?.toISOString() ?? null,
-      attachments: m.attachments.map((a) => attachment(a.document)),
+      attachments: [...m.attachments.map((a) => attachment(a.document)), ...sentFiles(m)],
       createdAt: m.createdAt.toISOString(),
     };
   }
@@ -819,14 +852,18 @@ export class MessagesService {
       unread: m.direction === 'FIRM_TO_CLIENT' && m.readAt === null,
       // My Documents' rule (storage/my-documents.service.ts `visible`): the firm's shared files and
       // the household's uploads for PRIMARY and SPOUSE; an AUTHORIZED login only its own uploads.
-      attachments: m.attachments
-        .map((a) => a.document)
-        .filter((d) =>
-          d.direction === 'FIRM_TO_CLIENT'
-            ? household
-            : d.direction === 'CLIENT_TO_FIRM' && (household || d.uploadedByUserId === me),
-        )
-        .map(attachment),
+      // New Message's files are the firm's: PRIMARY and SPOUSE only (MSG-F12).
+      attachments: [
+        ...m.attachments
+          .map((a) => a.document)
+          .filter((d) =>
+            d.direction === 'FIRM_TO_CLIENT'
+              ? household
+              : d.direction === 'CLIENT_TO_FIRM' && (household || d.uploadedByUserId === me),
+          )
+          .map(attachment),
+        ...(household ? sentFiles(m) : []),
+      ],
       createdAt: m.createdAt.toISOString(),
     };
   }

@@ -1,6 +1,12 @@
 'use client';
 
-import type { MessageThread } from '@firmivra/types';
+import type {
+  LeadMessageChannel,
+  LeadMessageThread,
+  LeadThreadContact,
+  MessageThread,
+  OutboundRecipientStatus,
+} from '@firmivra/types';
 import {
   Avatar,
   Button,
@@ -32,11 +38,15 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
-import { EmojiPicker, TemplatePicker } from './compose-tools';
+import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
 import {
   activeFilters,
   addressOf,
+  byActivity,
+  contactOf,
+  type InboxThread,
   inView,
+  isLead,
   type MessagesView,
   readView,
   REPLIES,
@@ -66,8 +76,31 @@ const select =
   'h-10 w-full rounded-lg border border-divider bg-surface px-3 text-sm font-normal text-text';
 const tag = 'rounded-md bg-canvas px-2 py-0.5 text-xs font-medium text-muted';
 
-const relatedLabel = (t: MessageThread) =>
-  t.related ? t.related.type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Client';
+const relatedLabel = (t: InboxThread) =>
+  isLead(t)
+    ? 'Lead'
+    : t.related
+      ? t.related.type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+      : 'Client';
+/** How a lead's email or text went. */
+const DELIVERY: Record<OutboundRecipientStatus, string> = {
+  QUEUED: 'Queued',
+  SENT: 'Sent',
+  DELIVERED: 'Delivered',
+  READ: 'Read',
+  FAILED: 'Not delivered',
+  SKIPPED: 'Not sent',
+};
+/** Why the next email or text to a lead did not go (the API's codes). */
+const LEAD_SEND: Record<string, string> = {
+  NO_CONTACT: 'This lead has no email address or mobile number for this channel.',
+  NO_CONSENT: 'This lead has not agreed to get messages on this channel.',
+  SUPPRESSED: 'Messages to this lead on this channel are stopped (an opt-out or a bounce).',
+  PROVIDER_UNAVAILABLE: 'This channel is turned off or not set up for your firm.',
+  NOT_PERMITTED: 'This lead cannot get messages.',
+  SEND_FAILED: 'This message did not go out. Try again in a moment.',
+  NOT_KEPT: 'It went out, but it could not be kept in this conversation.',
+};
 const EMPTY: Partial<Record<TabId, string>> = {
   leads: 'No conversations with leads yet.',
   automations: 'No conversations opened by an automation.',
@@ -113,23 +146,42 @@ export function MessagesScreen({
     placeholderData: keepPreviousData,
     retry: shouldRetry,
   });
+  // MSG-F03: conversations with leads (their emails and texts), in All Messages and Leads.
+  const leadInbox = useQuery({
+    queryKey: [...KEY, 'leads', term],
+    queryFn: () => api.messages.leads.list({ ...search, limit: 100 }),
+    placeholderData: keepPreviousData,
+    retry: shouldRetry,
+  });
   const unread = useApiQuery([...KEY, 'unread'], () => api.messages.unreadCount());
-  const all = inbox.data?.items ?? [];
+  const clientThreads = inbox.data?.items ?? [];
+  const all: InboxThread[] = [...clientThreads, ...(leadInbox.data?.items ?? [])].sort(byActivity);
   const archived = archive.data?.items ?? [];
-  const source = view.tab === 'archived' ? archive : inbox;
-  const pool = view.tab === 'archived' ? archived : all;
+  const sources =
+    view.tab === 'archived'
+      ? [archive]
+      : view.tab === 'leads'
+        ? [leadInbox]
+        : view.tab === 'all'
+          ? [inbox, leadInbox]
+          : [inbox];
+  const pending = sources.some((q) => q.isPending);
+  const failed = sources.some((q) => q.isError);
+  const pool: InboxThread[] = view.tab === 'archived' ? archived : all;
   // The client filter (SH5): the threads' clients, and the one a workspace opened with.
   const clientChoices = [
     ...new Map([
       ...(scoped.data ? [[scoped.data.id, scoped.data.displayName] as const] : []),
-      ...[...all, ...archived].map((t) => [t.client.id, t.client.displayName] as const),
+      ...[...clientThreads, ...archived].map((t) => [t.client.id, t.client.displayName] as const),
     ]).entries(),
   ].sort((a, b) => a[1].localeCompare(b[1]));
   const rows = pool.filter((t) => inView(t, view));
-  // The chosen thread, or the list's first when a new search no longer has it.
+  // The chosen thread, or the list's first when a new search no longer has it. A thread the
+  // address names waits for every list, so another thread never shows in its place meanwhile.
   const chosen = [...all, ...archived].find((t) => t.id === view.thread);
-  const current = chosen ?? rows[0];
-  const loaded = !inbox.isPending && !archive.isPending;
+  const loaded = !inbox.isPending && !archive.isPending && !leadInbox.isPending;
+  const waiting = view.thread !== '' && !chosen && !loaded;
+  const current = chosen ?? (waiting ? undefined : rows[0]);
   // The address follows the view, so Back to Messages returns to this thread, list and search;
   // a thread the loaded lists no longer have is left out of it.
   const address = addressOf(loaded && !chosen ? { ...view, thread: '' } : view);
@@ -274,7 +326,7 @@ export function MessagesScreen({
         </div>
       ) : null}
 
-      {source.isError ? (
+      {failed ? (
         <p role="alert" className={quiet} data-testid="messages-error">
           Messages are not available right now. We could not load them. Try again in a moment.
         </p>
@@ -286,8 +338,8 @@ export function MessagesScreen({
           aria-label="Conversations"
           data-testid="thread-list"
         >
-          {source.isPending ? <p className={quiet}>Loading…</p> : null}
-          {!source.isPending && rows.length === 0 ? (
+          {pending ? <p className={quiet}>Loading…</p> : null}
+          {!pending && rows.length === 0 ? (
             <p className={quiet}>
               {view.clientId && !term && view.tab === 'all' && filters.length === 0
                 ? `No conversations with ${scoped.data?.displayName ?? 'this client'} yet. Start one with New Message.`
@@ -308,13 +360,13 @@ export function MessagesScreen({
                   onClick={() => update({ thread: t.id })}
                   className={`flex w-full gap-3 rounded-lg border p-3 text-left hover:bg-canvas ${current?.id === t.id ? 'border-action bg-info-soft' : 'border-divider'}`}
                 >
-                  <Avatar name={t.client.displayName} size="lg" />
+                  <Avatar name={contactOf(t).displayName} size="lg" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span
-                        className={`truncate text-sm ${t.unreadCount ? 'font-bold' : 'font-semibold'} text-heading`}
+                        className={`truncate text-sm ${!isLead(t) && t.unreadCount ? 'font-bold' : 'font-semibold'} text-heading`}
                       >
-                        {t.client.displayName}
+                        {contactOf(t).displayName}
                       </span>
                       <span className="shrink-0 text-xs text-muted">
                         {day(t.lastMessage?.createdAt ?? t.createdAt)}
@@ -328,10 +380,10 @@ export function MessagesScreen({
                         <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
                           {relatedLabel(t)}
                         </span>
-                        {t.automated ? <span className={tag}>Automation</span> : null}
+                        {!isLead(t) && t.automated ? <span className={tag}>Automation</span> : null}
                         {t.archivedAt ? <span className={tag}>Archived</span> : null}
                       </span>
-                      {t.unreadCount ? (
+                      {!isLead(t) && t.unreadCount ? (
                         <span className="rounded-pill bg-action px-2 text-xs font-semibold text-on-action">
                           {t.unreadCount}
                         </span>
@@ -347,7 +399,14 @@ export function MessagesScreen({
           </p>
         </section>
 
-        {current ? (
+        {current && isLead(current) ? (
+          <LeadConversation
+            key={current.id}
+            thread={current}
+            onChanged={refresh}
+            onNotice={(text, tone) => setMessage({ text, tone })}
+          />
+        ) : current ? (
           <Conversation
             key={current.id}
             thread={current}
@@ -356,10 +415,12 @@ export function MessagesScreen({
           />
         ) : (
           <section className={card} aria-label="Conversation">
-            <p className={quiet}>Choose a conversation to read it.</p>
+            <p className={quiet}>{waiting ? 'Loading…' : 'Choose a conversation to read it.'}</p>
           </section>
         )}
-        {current ? (
+        {current && isLead(current) ? (
+          <LeadPanel key={`l${current.lead.id}`} lead={current.lead} />
+        ) : current ? (
           <ContactPanel
             key={`c${current.client.id}`}
             clientId={current.client.id}
@@ -552,7 +613,12 @@ function Conversation({
                 {m.body}
               </p>
               {/* MSG-F12: the message's files, opened through Documents once checked. */}
-              <MessageFiles files={m.attachments} open={(id) => api.documents.download(id)} />
+              <MessageFiles
+                files={m.attachments}
+                open={(f) =>
+                  f.kind === 'FILE' ? api.messages.fileDownload(f.id) : api.documents.download(f.id)
+                }
+              />
               <span className="mt-0.5 text-xs text-muted">
                 {m.sender.name} · {day(m.createdAt)}
                 {/* MSG-F10: every conversation message is a portal message. */}
@@ -606,6 +672,192 @@ function Conversation({
         </button>
       </form>
     </section>
+  );
+}
+
+/**
+ * MSG-F03: a conversation with a lead. A lead has no portal, so each message went to them by
+ * email or text, and the next one goes the same way, through New Message's own checks.
+ */
+function LeadConversation({
+  thread,
+  onChanged,
+  onNotice,
+}: {
+  thread: LeadMessageThread;
+  onChanged: () => void;
+  onNotice: (t: string, tone: 'success' | 'error') => void;
+}) {
+  const detail = useApiQuery([...KEY, 'lead-thread', thread.id], () =>
+    api.messages.leads.get(thread.id),
+  );
+  const [channel, setChannel] = useState<LeadMessageChannel>('EMAIL');
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    if (!body.trim()) return;
+    setBusy(true);
+    try {
+      await api.messages.leads.send(thread.id, { body: body.trim(), channel });
+      setBody('');
+      await detail.refetch();
+      onChanged();
+      onNotice(channel === 'EMAIL' ? 'Email sent.' : 'Text sent.', 'success');
+    } catch (e) {
+      onNotice(errorMessage(e, LEAD_SEND), 'error');
+    }
+    setBusy(false);
+  };
+  return (
+    <section
+      className={`${card} flex flex-col gap-3`}
+      aria-label="Conversation"
+      data-testid="conversation"
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-divider pb-3">
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar name={thread.lead.displayName} size="lg" />
+          <span className="min-w-0">
+            <span className="block truncate font-display text-xl font-bold text-heading">
+              {thread.lead.displayName}
+            </span>
+            <span className="block truncate text-xs text-muted">{thread.subject}</span>
+          </span>
+        </span>
+        <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
+          Lead
+        </span>
+      </header>
+      <p className="rounded-lg bg-canvas p-3 text-xs text-muted" data-testid="lead-note">
+        Leads have no portal: each message here went to them by email or text. Their answers come to
+        your firm&apos;s email.
+      </p>
+      {detail.isError ? (
+        <p role="alert" className={quiet}>
+          This conversation is not available right now.
+        </p>
+      ) : null}
+      {detail.isPending ? <p className={quiet}>Loading…</p> : null}
+      <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
+        {(detail.data?.messages ?? []).map((m) => (
+          <li key={m.id} className="flex flex-col items-end">
+            <p className="max-w-[85%] rounded-xl bg-info-soft px-3 py-2 text-sm whitespace-pre-wrap text-heading">
+              {m.body}
+            </p>
+            <span className="mt-0.5 text-xs text-muted">
+              {m.sender.name} · {day(m.createdAt)}
+              {m.channel ? (
+                <>
+                  {' · '}
+                  <span data-testid="message-channel">
+                    {m.channel === 'EMAIL' ? 'Email' : 'Text'}
+                  </span>
+                </>
+              ) : null}
+              {m.status ? ` · ${DELIVERY[m.status]}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-col gap-3 border-t border-divider pt-3" data-testid="reply-tools">
+        <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
+          Send as
+          <select
+            className={select}
+            value={channel}
+            onChange={(e) => setChannel(e.target.value as LeadMessageChannel)}
+          >
+            <option value="EMAIL">Email</option>
+            <option value="SMS">Text message</option>
+          </select>
+        </label>
+        <TemplatePicker
+          key={channel}
+          kind={TEMPLATE_KIND[channel]}
+          onUse={(t) => setBody(channel === 'EMAIL' ? plainText(t.body) : t.body)}
+        />
+      </div>
+      <form
+        className="flex items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send();
+        }}
+      >
+        <EmojiPicker onPick={(emoji) => setBody((b) => `${b}${emoji}`)} />
+        <div className="min-w-0 flex-1">
+          <Textarea
+            label="Type a message"
+            rows={2}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </div>
+        <button
+          type="submit"
+          aria-label="Send message"
+          disabled={busy || !body.trim()}
+          className="flex size-12 shrink-0 items-center justify-center rounded-control bg-gold text-on-action disabled:opacity-50"
+        >
+          <PaperPlaneRight aria-hidden weight="fill" className="size-5" />
+        </button>
+      </form>
+    </section>
+  );
+}
+
+/** The lead beside their conversation: Open Lead, and how to reach them. */
+function LeadPanel({ lead }: { lead: LeadThreadContact }) {
+  return (
+    <aside className={`${card} flex flex-col gap-4`} aria-label="Lead" data-testid="contact-panel">
+      <div className="flex items-center gap-3">
+        <Avatar name={lead.displayName} size="xl" />
+        <div className="min-w-0">
+          <p className="truncate font-display text-xl font-bold text-heading">{lead.displayName}</p>
+          {/* Back returns to this thread (MSG-F08). */}
+          <OriginLink href={`/leads/${lead.id}`} className="text-sm font-medium text-link">
+            Open Lead
+          </OriginLink>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-heading">
+        {[
+          { label: 'Call', icon: Phone, href: lead.phone ? `tel:${lead.phone}` : undefined },
+          { label: 'Email', icon: Envelope, href: lead.email ? `mailto:${lead.email}` : undefined },
+          { label: 'Schedule', icon: CalendarBlank, href: '/calendar' },
+        ].map((a) =>
+          a.href ? (
+            <a
+              key={a.label}
+              href={a.href}
+              className="flex flex-col items-center gap-1 rounded-lg border border-divider p-2 hover:bg-canvas"
+            >
+              <a.icon aria-hidden weight="fill" className="size-5 text-action" /> {a.label}
+            </a>
+          ) : (
+            <span
+              key={a.label}
+              className="flex flex-col items-center gap-1 rounded-lg border border-divider p-2 opacity-50"
+            >
+              <a.icon aria-hidden weight="fill" className="size-5 text-action" /> {a.label}
+            </span>
+          ),
+        )}
+      </div>
+      <section aria-label="Contact information">
+        <h3 className="mb-1 font-display text-lg font-bold text-heading">Contact Information</h3>
+        <dl className="flex flex-col gap-1 text-sm">
+          <div className="flex gap-2">
+            <dt className="sr-only">Phone</dt>
+            <dd>{lead.phone ?? '—'}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="sr-only">Email</dt>
+            <dd className="break-all">{lead.email ?? '—'}</dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
   );
 }
 
