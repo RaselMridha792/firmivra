@@ -389,10 +389,30 @@ describe('api.invoices (firm)', () => {
       paymentTerms: 'net_30',
       notesToClient: 'Thank you (fake)',
       internalNote: null,
+      recurring: null,
     };
     expect(Invoice.parse({ ...invoice, stripeAccountId: 'acct_1' })).toEqual(invoice);
     // IP-F02: only the four standard terms.
     expect(Invoice.safeParse({ ...invoice, paymentTerms: 'net_99' }).success).toBe(false);
+    // IP-F05: a schedule never repeats ONE_TIME.
+    const schedule = {
+      id,
+      frequency: 'CUSTOM',
+      intervalCount: 3,
+      intervalUnit: 'WEEK',
+      startOn: '2026-01-20',
+      nextSendOn: '2026-02-10',
+      endOn: null,
+      maxOccurrences: 6,
+      occurrences: 1,
+      status: 'ACTIVE',
+      autoSend: false,
+      autopay: false,
+    } as const;
+    expect(Invoice.parse({ ...invoice, recurring: schedule }).recurring).toEqual(schedule);
+    expect(
+      Invoice.safeParse({ ...invoice, recurring: { ...schedule, frequency: 'ONE_TIME' } }).success,
+    ).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: 1.5 }).success).toBe(false);
     expect(Invoice.safeParse({ ...invoice, totalCents: -1 }).success).toBe(false);
     const list = { items: [], nextCursor: null, today: '2026-01-20' };

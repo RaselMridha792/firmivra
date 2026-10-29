@@ -1,8 +1,16 @@
 import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
-import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.js';
+import {
+  BillingFrequency,
+  InvoiceStatus,
+  PaymentRefundStatus,
+  PaymentStatus,
+  RecurringIntervalUnit,
+  RecurringInvoiceStatus,
+} from '../db-enums.js';
 import { PaymentTerm } from './preferences.js';
+import { InvoiceRecurrence, InvoiceRecurrenceInput } from './recurring.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
 // Invoices, and the firm's Invoices page); the client pays it by card on Stripe's hosted checkout
@@ -357,6 +365,8 @@ export const Invoice = InvoiceListItem.extend({
   notesToClient: z.string().nullable(),
   /** The firm's own note: only firm routes return it. */
   internalNote: z.string().nullable(),
+  /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
+  recurring: InvoiceRecurrence.nullable(),
 });
 export type Invoice = z.infer<typeof Invoice>;
 
@@ -470,6 +480,11 @@ const DraftFields = {
   notesToClient: InvoiceNote.optional(),
   /** IP-F02: the firm's own; never in the client's invoice, PDF, email or portal. */
   internalNote: InvoiceNote.optional(),
+  /**
+   * IP-F05: repeat this invoice; null or left out keeps it one-time (and ends a schedule the
+   * draft had). The schedule starts from the day the invoice opens, when it is sent.
+   */
+  recurring: InvoiceRecurrenceInput.nullable().optional(),
 };
 
 type DraftBody = {
@@ -477,6 +492,7 @@ type DraftBody = {
   discountCents?: unknown;
   dueOn?: unknown;
   scheduledFor?: string | null;
+  recurring?: { endOn?: string | null } | null;
 };
 const isLine = (l: unknown): l is { quantity: number; unitAmountCents: number } =>
   typeof l === 'object' &&
@@ -509,6 +525,14 @@ const draftRules = (body: DraftBody, ctx: z.RefinementCtx) => {
       code: 'custom',
       path: ['dueOn'],
       message: 'The due date must be on or after the scheduled date',
+    });
+  }
+  const endOn = body.recurring?.endOn;
+  if (endOn && body.scheduledFor && endOn <= body.scheduledFor) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['recurring', 'endOn'],
+      message: 'The schedule must end after the first invoice',
     });
   }
 };
@@ -544,6 +568,102 @@ export const CorrectInvoiceRequest = z
   })
   .refine((b) => b.dueOn !== undefined || b.scheduledFor !== undefined, 'Change a date');
 export type CorrectInvoiceRequest = z.input<typeof CorrectInvoiceRequest>;
+
+// ---------- IP-F09: an invoice's history and its PDF ----------
+/** What the firm writes in an invoice's history by hand: a note, or an activity it logged. */
+export const InvoiceHistoryKind = z.enum(['NOTE', 'ACTIVITY_LOGGED']);
+export type InvoiceHistoryKind = z.infer<typeof InvoiceHistoryKind>;
+
+/** One entry of an invoice's history (firm only; never on the PDF, the email or the portal). */
+export const InvoiceHistoryItem = z.object({
+  id: z.uuid(),
+  type: z.string(),
+  body: z.string().nullable(),
+  actor: MemberRef.nullable(),
+  createdAt: DateTime,
+});
+export type InvoiceHistoryItem = z.infer<typeof InvoiceHistoryItem>;
+
+/** GET /business/invoices/{id}/history: newest first, at most 100. */
+export const InvoiceHistory = z.object({ items: z.array(InvoiceHistoryItem) });
+export type InvoiceHistory = z.infer<typeof InvoiceHistory>;
+
+/** POST /business/invoices/{id}/history: Add Note or Log Activity. */
+export const AddInvoiceHistoryRequest = z.strictObject({
+  type: InvoiceHistoryKind,
+  body: text(2000, 'many', 'Write the note'),
+});
+export type AddInvoiceHistoryRequest = z.input<typeof AddInvoiceHistoryRequest>;
+
+// ---------- IP-F17: View All Payments and Recurring Invoices ----------
+/** GET /business/invoices/payments: both days included, the firm's calendar; this year by default. */
+export const ListPaymentsQuery = z
+  .strictObject({
+    from: CalendarDate.optional(),
+    to: CalendarDate.optional(),
+    search: SearchText.optional(),
+    page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, {
+    message: 'The start date is after the end date',
+    path: ['to'],
+  });
+export type ListPaymentsQuery = z.input<typeof ListPaymentsQuery>;
+
+/**
+ * One payment of any invoice: Stripe's (once its webhook confirmed it; less confirmed refunds) or
+ * one the firm recorded by hand (a voided one stays listed as Voided).
+ */
+export const PaymentRow = z.object({
+  id: z.uuid(),
+  source: z.enum(['STRIPE', 'RECORDED']),
+  invoice: z.object({ id: z.uuid(), number: z.string() }),
+  client: z.object({ id: z.uuid(), displayName: z.string() }),
+  method: PaymentMethodKey,
+  amountCents: z.number().int(),
+  /** The day the money came in, on the firm's calendar. */
+  receivedOn: CalendarDate,
+  status: z.enum(['RECEIVED', 'REFUNDED', 'VOIDED']),
+});
+export type PaymentRow = z.infer<typeof PaymentRow>;
+
+export const PaymentPage = z.object({
+  items: z.array(PaymentRow),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  from: CalendarDate,
+  to: CalendarDate,
+  /** Money received in the range (not refunded, not voided). */
+  receivedCents: z.number().int(),
+});
+export type PaymentPage = z.infer<typeof PaymentPage>;
+
+/**
+ * GET /business/invoices/recurring: the firm's recurring invoice schedules (read only: they are
+ * made with IP-F18). `amountCents`: each invoice's lines before discount and tax.
+ */
+export const RecurringInvoiceRow = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  client: z.object({ id: z.uuid(), displayName: z.string() }),
+  frequency: BillingFrequency,
+  /** CUSTOM only: every `count` weeks, months or years (R1, Oct 28); null for the others. */
+  interval: z.object({ count: z.number().int().min(1), unit: RecurringIntervalUnit }).nullable(),
+  nextSendOn: CalendarDate.nullable(),
+  status: RecurringInvoiceStatus,
+  amountCents: z.number().int(),
+  autoSend: z.boolean(),
+  autopay: z.boolean(),
+});
+export type RecurringInvoiceRow = z.infer<typeof RecurringInvoiceRow>;
+export const RecurringInvoiceList = z.object({ items: z.array(RecurringInvoiceRow) });
+export type RecurringInvoiceList = z.infer<typeof RecurringInvoiceList>;
+
+/** GET /business/invoices/{id}/pdf: a 5-minute link to the invoice as a PDF. */
+export const InvoicePdfLink = z.object({ url: z.string(), expiresAt: DateTime });
+export type InvoicePdfLink = z.infer<typeof InvoicePdfLink>;
 export type UpdateInvoiceRequest = z.input<typeof UpdateInvoiceRequest>;
 
 /** POST /business/invoices/{id}/cancel (Owner and Admin). The reason stays with the firm. */
@@ -783,6 +903,11 @@ export const InvoiceErrorCode = z.enum([
   /** 409 (refund): more than the payment's `refundableCents`. */
   'REFUND_TOO_LARGE',
   /**
+   * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
+   * then would never be made; choose a later end date or turn Recurring off.
+   */
+  'RECURRING_END_TOO_SOON',
+  /**
    * 503 (Pay Now, refund): Stripe did not answer; nothing was charged or refunded. Try again in a
    * moment (a refund with the same `idempotencyKey`).
    */
@@ -813,6 +938,8 @@ export const INVOICE_ERRORS = {
   PAYMENTS_NOT_SET_UP: 'Online payment is not available yet. Please contact the firm to pay.',
   NOT_REFUNDABLE: 'This payment cannot be refunded. Reload to see its status.',
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
+  RECURRING_END_TOO_SOON:
+    'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   PAYMENT_PROVIDER_UNAVAILABLE:
     'The payment service is not answering. Nothing was charged or refunded. Try again in a moment.',
 } as const satisfies Record<InvoiceErrorCode, string>;

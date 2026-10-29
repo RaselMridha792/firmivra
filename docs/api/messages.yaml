@@ -176,6 +176,136 @@ paths:
       responses:
         '200': { description: '`MessageThread`.' }
         default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads:
+    get:
+      tags: [firm]
+      operationId: leadMessageThreads
+      summary: "The Leads tab (MSG-F03): conversations with leads, newest activity first"
+      description: |
+        A lead has no portal: a lead's thread keeps the firm's emails and texts to the lead,
+        written when New Message (or the next message below) sent them; one thread per lead and
+        subject. Owner and Admin reach every lead's threads; Staff only their assigned leads'. A
+        lead's thread is never in `/business/message-threads`. `search` also matches the lead's
+        name, email and phone. Source of truth: `packages/types/src/messages/lead-threads.ts`.
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/Archived' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: '`LeadMessageThreadList`: `{ items: LeadMessageThread[], nextCursor }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [firm]
+      operationId: getLeadMessageThread
+      summary: The lead's thread and its messages, oldest first, each with its channel and delivery
+      responses:
+        '200': { description: '`LeadMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/lead-message-threads/{id}/messages:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: sendLeadMessage
+      summary: "The next email or text to the lead (`{ body, channel: EMAIL | SMS }`), sent now"
+      description: |
+        Goes through New Message on the thread's subject (the same checks, merge fields and
+        delivery; a field that cannot be filled goes as written), and lands in this thread. `409`
+        with the reason as the code when the channel cannot reach the lead (`NO_CONTACT`,
+        `NO_CONSENT`, `SUPPRESSED`, `PROVIDER_UNAVAILABLE`, `NOT_PERMITTED`): nothing is saved.
+        `409 SEND_FAILED` when it did not go out.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`LeadMessage`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/related-options:
+    get:
+      tags: [firm]
+      operationId: outboundRelatedOptions
+      summary: "MSG-F13: one client's records a New Message can be about (`?clientId=`)"
+      description: |
+        `OutboundRelatedOptions`: appointments, invoices, tax returns, document requests, tasks and
+        services (engagements), newest first, at most 20 of each, each with its `label`. A client
+        out of reach (Staff: not theirs) or another firm's is `404`. A message saved with
+        `related: { type, id }` (exactly one client, else `400 RELATED_NEEDS_ONE_CLIENT`; another
+        client's or firm's record `404`) opens a conversation filed under that record (a service
+        also as its engagement), so it shows under Appointments, Invoices or Documents.
+      parameters:
+        - { name: clientId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '`OutboundRelatedOptions`: `{ items: [{ type, id, label }] }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/assignees:
+    get:
+      tags: [firm]
+      operationId: outboundAssignees
+      summary: "MSG-F16: the firm's active members who can own the conversations"
+      description: |
+        `OutboundAssigneeList`. A message saved with `assignedUserId` (an active member, else
+        `404`; a member with the Staff role only for their own clients and leads, else `400
+        ASSIGNEE_CANNOT_REACH`) opens conversations owned by that member, for clients and leads.
+      responses:
+        '200': { description: '`OutboundAssigneeList`: `{ items: [{ userId, name, role }] }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/uploads:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: startOutboundFile
+      summary: "MSG-F12: a file for a New Message draft or scheduled message, step 1 of Documents' three"
+      description: |
+        `StartOutboundFileRequest` (`fileName`, `contentType`, `sizeBytes`, `sha256`): a PUT or a
+        multipart `UploadTicket` under `tenant/{businessId}/messages/`. Messages Settings decide the
+        types and the size (`400 ATTACHMENT_TYPE`, `ATTACHMENT_TOO_LARGE`); at most 10 files
+        (`400 TOO_MANY_FILES`); `409 NOT_EDITABLE` once sent or canceled. Staff only their own
+        messages. Source of truth: `packages/types/src/messages/outbound.ts`.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`UploadTicket`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/uploads/confirm:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: confirmOutboundFile
+      summary: "Step 3 (`{ uploadToken }`): the stored bytes are checked and the file is on the message"
+      description: |
+        `OutboundFile`, `CHECKING` until its virus scan (GuardDuty, through the scan router's
+        `messages` prefix; clean at once with `SCAN_MODE=local`). `410 UPLOAD_EXPIRED`; `409
+        UPLOAD_MISMATCH`, `FILE_PASSWORD_PROTECTED` or `FILE_HAS_MACROS` (the upload is deleted).
+        The message's `files` list it. Files go to clients through their portal only: Send and the
+        Review refuse a message with files on Email or Text (`409 FILES_NEED_PORTAL`), with a file
+        still being checked (`409 FILES_NOT_READY`) or one that failed (`409 FILE_BLOCKED`). A
+        draft replaced by a new one (other people or another channel) keeps its files.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`OutboundFile`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/outbound-messages/{id}/files/{fileId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [firm]
+      operationId: removeOutboundFile
+      summary: Takes a file off a draft or a scheduled message (`409 NOT_EDITABLE` once sent)
+      responses:
+        '200': { description: '`{ ok: true }`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-files/{id}/download:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [firm]
+      operationId: downloadMessageFile
+      summary: "A file New Message sent (a message's attachment of kind `FILE`): a 5-minute link"
+      description: |
+        The author, the Owner and Admins, and Staff whose client the message reached; any other
+        file is `404`. Only once its scan passed: `409 SCAN_PENDING` or `FILE_BLOCKED`.
+      responses:
+        '200': { description: '`DownloadLink`.' }
+        default: { $ref: '#/components/responses/Error' }
   /business/clients/{clientId}/notes:
     parameters: [{ $ref: '#/components/parameters/ClientId' }]
     get:
@@ -281,6 +411,22 @@ paths:
       summary: The thread and its messages, oldest first. Marks nothing read.
       responses:
         '200': { description: '`MyMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/files/{fileId}/download:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [portal]
+      operationId: downloadMyMessageFile
+      summary: "A file the firm's New Message sent to this client (attachment kind `FILE`): a 5-minute link"
+      description: |
+        Only a file whose message reached this client through their portal, and, as the firm's
+        shared documents in My Documents, only for a PRIMARY or SPOUSE login (an AUTHORIZED login
+        neither sees nor opens it). Another client's is `404`. `409 SCAN_PENDING` or
+        `FILE_BLOCKED` until it passed its scan.
+      responses:
+        '200': { description: '`DownloadLink`.' }
         default: { $ref: '#/components/responses/Error' }
   /portal/{firmSlug}/me/messages/{id}/messages:
     parameters:

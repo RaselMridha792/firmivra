@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { clearable, text } from '../clients/text.js';
+import { UploadContentType } from '../documents/schemas.js';
 import {
   MessageChannel,
   OutboundExclusion,
@@ -36,10 +37,86 @@ export const OutboundRecipient = z.object({
   reason: OutboundExclusion.nullable(),
   /** QUEUED until it is sent (null before the message is saved). */
   status: OutboundRecipientStatus.nullable(),
-  /** A client's portal conversation it went to (portal and email), for Open. */
+  /**
+   * The conversation it went to, for Open: a client's portal thread, or the lead's own thread
+   * that keeps the lead's email or text (the Messages Leads tab).
+   */
   threadId: z.uuid().nullable(),
 });
 export type OutboundRecipient = z.infer<typeof OutboundRecipient>;
+
+/**
+ * MSG-F13: what a message can be about, one of the client's own records. The thread it opens takes
+ * it as its related record, so it shows under Appointments, Invoices or Documents in Messages.
+ */
+export const OUTBOUND_RELATED_TYPES = [
+  'appointment',
+  'invoice',
+  'tax_return',
+  'document_request',
+  'task',
+  'engagement',
+] as const;
+export const OutboundRelatedType = z.enum(OUTBOUND_RELATED_TYPES);
+export type OutboundRelatedType = z.infer<typeof OutboundRelatedType>;
+export const OUTBOUND_RELATED_LABELS: Record<OutboundRelatedType, string> = {
+  appointment: 'Appointment',
+  invoice: 'Invoice or payment',
+  tax_return: 'Tax return',
+  document_request: 'Document request',
+  task: 'Task',
+  engagement: 'Service',
+};
+/** A record of the client's, as the Related To list shows it. */
+export const OutboundRelated = z.object({
+  type: OutboundRelatedType,
+  id: z.uuid(),
+  /** Its name in words, e.g. "Invoice INV-1001" or "2025 Tax Return". */
+  label: z.string(),
+});
+export type OutboundRelated = z.infer<typeof OutboundRelated>;
+
+/**
+ * GET /business/outbound-messages/related-options?clientId=: the client's records a message can be
+ * about, newest first, at most 20 of each type (404 for a client out of reach).
+ */
+export const OutboundRelatedOptionsQuery = z.strictObject({ clientId: z.uuid() });
+export type OutboundRelatedOptionsQuery = z.input<typeof OutboundRelatedOptionsQuery>;
+export const OutboundRelatedOptions = z.object({ items: z.array(OutboundRelated) });
+export type OutboundRelatedOptions = z.infer<typeof OutboundRelatedOptions>;
+
+/**
+ * GET /business/outbound-messages/assignees (MSG-F16): the firm's active members who can own the
+ * conversations. One with the Staff role owns only conversations with their own clients.
+ */
+export const OutboundAssignee = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  role: z.enum(['OWNER', 'ADMIN', 'STAFF']),
+});
+export type OutboundAssignee = z.infer<typeof OutboundAssignee>;
+export const OutboundAssigneeList = z.object({ items: z.array(OutboundAssignee) });
+export type OutboundAssigneeList = z.infer<typeof OutboundAssigneeList>;
+
+/** The most files one New Message carries (MSG-F12). */
+export const OUTBOUND_FILES_MAX = 10;
+/** The most a file may be: the database's limit; Messages Settings may set less. */
+export const OUTBOUND_FILE_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A file sent with New Message (MSG-F12). Files reach clients only, through their portal (an email
+ * to a client links the portal; it never carries a file); a lead or a text cannot take them.
+ * CHECKING while the virus scan runs: the message sends only once every file is READY.
+ */
+export const OutboundFile = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int().min(1),
+  status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+  createdAt: DateTime,
+});
+export type OutboundFile = z.infer<typeof OutboundFile>;
 
 export const OutboundMessage = z.object({
   id: z.uuid(),
@@ -49,11 +126,17 @@ export const OutboundMessage = z.object({
   body: z.string(),
   /** The template it started from (MSG-F11); the text stays editable. */
   templateId: z.uuid().nullable(),
+  /** MSG-F13: the client's record it is about. */
+  related: OutboundRelated.nullable(),
+  /** MSG-F16: who owns the conversations it opens. */
+  assignedTo: z.object({ userId: z.uuid(), name: z.string() }).nullable(),
   /** Only while SCHEDULED. */
   scheduledFor: DateTime.nullable(),
   /** The firm's time zone: a schedule is picked and shown in it. */
   timezone: z.string(),
   recipients: z.array(OutboundRecipient),
+  /** Its files (MSG-F12), oldest first. */
+  files: z.array(OutboundFile),
   counts: z.object({
     total: z.number().int(),
     canReceive: z.number().int(),
@@ -105,6 +188,16 @@ const SaveShape = {
   body: Body,
   /** An active template of the firm (404 otherwise), or none. */
   templateId: z.uuid().nullable().optional(),
+  /**
+   * MSG-F13: one of the client's records (404 otherwise); only with exactly one client (400
+   * RELATED_NEEDS_ONE_CLIENT). Leads in the same message take no record.
+   */
+  related: z.strictObject({ type: OutboundRelatedType, id: z.uuid() }).nullable().optional(),
+  /**
+   * MSG-F16: an active member who owns the conversations it opens (404 otherwise); a member with
+   * the Staff role only for their own clients (400 ASSIGNEE_CANNOT_REACH).
+   */
+  assignedUserId: z.uuid().nullable().optional(),
   ...People,
 };
 const saveRules = <
@@ -188,6 +281,8 @@ export const OutboundReview = z.object({
         'SUBJECT_REQUIRED',
         'UNRESOLVED_FIELDS',
         'SOME_SKIPPED',
+        'FILES_NOT_READY',
+        'FILES_NEED_PORTAL',
         'READY',
       ]),
       severity: z.enum(['BLOCK', 'WARN', 'OK']),
@@ -196,3 +291,18 @@ export const OutboundReview = z.object({
   ),
 });
 export type OutboundReview = z.infer<typeof OutboundReview>;
+
+/**
+ * POST .../{id}/files/uploads: where to send a file for a draft or a scheduled message (step 1 of
+ * Documents' three; PUT or multipart, then POST .../files/uploads/confirm with the token). The type
+ * must be one Messages Settings allow and the size within their limit (400 ATTACHMENT_TYPE,
+ * ATTACHMENT_TOO_LARGE); at most 10 files (400 TOO_MANY_FILES); 409 NOT_EDITABLE once sent.
+ */
+export const StartOutboundFileRequest = z.strictObject({
+  fileName: text(200, 'one', 'Enter a file name'),
+  contentType: UploadContentType,
+  sizeBytes: z.number().int().min(1).max(OUTBOUND_FILE_MAX_BYTES, 'A file is at most 25 MB'),
+  /** SHA-256 of the file, hex. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Use the lower-case hex SHA-256'),
+});
+export type StartOutboundFileRequest = z.input<typeof StartOutboundFileRequest>;

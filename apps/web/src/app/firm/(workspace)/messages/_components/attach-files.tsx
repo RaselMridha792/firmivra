@@ -20,7 +20,12 @@ import { uploadFile } from '../../../../../lib/upload';
 // and the size; internal files never go.
 
 /** A file chosen for the reply: a document of the client's vault. */
-export type ChosenFile = Omit<MessageAttachment, 'contentType'>;
+export interface ChosenFile {
+  documentId: string;
+  fileName: string;
+  sizeBytes: number;
+  status: MessageAttachment['status'];
+}
 
 const MB = 1024 * 1024;
 const ending = (name: string) => name.toLowerCase().split('.').pop() ?? '';

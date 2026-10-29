@@ -11,23 +11,17 @@ Rasel (Oct 28): R55 takes IP-F01 to F05, F12 and F13. R56 owns F06 to F09, F17 a
 **Done:** IP-F13 (Settings > Payments: Invoice Defaults, Reminders & Automations, Taxes & Fees; tax rates and templates). A firm that never saved has every option off; the table's own column defaults turn `auto_receipts`, `send_reminders`, `notify_overdue` and `auto_apply_payments` on, so the API writes every field explicitly. A migration flipping those defaults would make the database agree (Rasel's card, not needed for the feature).
 
 **Open:**
-- IP-F13 #1209 and IP-F01 #1211: merged.
-- IP-F02 on `rasel/R55-ip-f02-terms-notes`, on main: Payment Terms (the due date follows them), Notes to Client, an Internal Note that never reaches the client, and Preview Invoice.
+- IP-F13 #1209, IP-F01 #1211 and IP-F02 #1216: merged.
+- IP-F05 on `rasel/R55-ip-f05-recurring`: Create Invoice's Recurring card. Off keeps a one-time invoice. On: the named frequencies (weekly, biweekly, semi-monthly, monthly, quarterly, semiannual, annual) or Custom, every 1 to 52 weeks, months or years (R1's #1217), and an end rule (never, a date, or after 2 to 120 invoices). A recurring draft keeps a `recurring_invoices` row that waits PAUSED, so nothing is made or sent from a draft. Sending the invoice starts it ACTIVE from the day the invoice opens, as its first period (`invoices.recurring_period_on`). Auto-send and AutoPay are written off (IP-010: recurrence authorizes neither). Turning Recurring off, or canceling the draft, ends the schedule (no DELETE grant). An end before the second invoice is 409 RECURRING_END_TOO_SOON. The period math is shared (`recurringPeriodOn` in packages/types), counted from the start so month ends hold. Nothing generates the later invoices yet: that is IP-F18's job (the Recurring Invoices screen and its daily run; not assigned to R55). "Firm-configured" frequencies have no table; Custom covers them.
 
-Rasel approved (Oct 28, 12:07Z) `recurring_invoices.interval_count` and `interval_unit` with BillingFrequency CUSTOM, and `payment_settings.custom_term_days`; R1 writes them. Until each merges, show the named frequencies and the four standard terms. Wire Custom and the firm's terms list when Rasel says each migration merged.
+Rasel's two approved additions are merged: Custom frequency (#1217, wired in F05) and `payment_settings.custom_term_days` (#1220, Oct 28; dev gets it with Deploy dev run 833).
 
-**Next, in order (one PR each; no schema change needed for any of them):**
-1. IP-F02 (done, see Open):
-   - Preview Invoice (client-facing, no status change);
-   - payment terms (`PaymentTerm`, the default from F13; the due date follows `PAYMENT_TERM_DAYS` unless typed);
-   - Notes to Client and an Internal Note, which never reaches the client PDF, email or portal;
-   - `CreateInvoiceRequest` and `UpdateInvoiceRequest` gain `paymentTerms`, `notesToClient` and `internalNote` on the existing columns.
-   - R56's IP-F08 (Edit/Correct) changes the same editor and service: merge `origin/main` first.
+**Next, in order (one PR each; no further schema needed):**
+1. The firm's own terms (#1220): `net_<days>` codes beside the four standard ones in `PaymentTerm`; the list kept in Settings > Payments' Invoice Defaults (1 to 365 days, at most 12); Create Invoice's Payment Terms select and the default terms offer the standard four plus the firm's list. Browser tests on the mock until run 833 is green.
 2. IP-F03 and IP-F04:
    - attachments (`invoice_attachments`: the client's clean, non-internal documents), Assigned Staff (`assigned_user_id`), the template (F13's list) and the tax line (`tax_rate_id`, `tax_rate_bps`, `tax_cents` from `invoice_tax_rates`, never a fixed rate);
    - Email the client, Allow tip and Payment before due (`email_client`, `allow_tip`, `require_payment_before_due`), each shown only where F13 turned it on.
-3. IP-F05: Recurring on `recurring_invoices` (weekly to annual, plus custom). Check R56's F17 and F18 routes first.
-4. IP-F12:
+3. IP-F12:
    - Record Payment's Deposit To: `deposit_accounts` and `offline_payments.deposit_account_id` already exist, with no schema change;
    - Send Receipt once, after success only (`RECEIPT_SENT` invoice events dedupe it), and manual Send/Resend;
    - Automatic Receipts is F13's `autoReceipts`.

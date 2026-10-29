@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { clientPath, portalMe } from '../clients/client.js';
 import { OkResponse } from '../schemas.js';
+import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
 import {
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
@@ -39,17 +40,32 @@ import {
   OutboundMessageList,
   OutboundReview,
   SaveOutboundRequest,
+  OutboundAssigneeList,
+  OutboundFile,
+  OutboundRelatedOptions,
+  OutboundRelatedOptionsQuery,
   ScheduleOutboundRequest,
   SendOutboundRequest,
+  StartOutboundFileRequest,
   UpdateOutboundRequest,
 } from './outbound.js';
 import { MessageSettings, UpdateMessageSettingsRequest } from './settings.js';
+import {
+  LeadMessage,
+  LeadMessageThreadDetail,
+  LeadMessageThreadList,
+  ListLeadMessageThreadsQuery,
+  SendLeadMessageRequest,
+} from './lead-threads.js';
 
 const THREADS = '/business/message-threads';
 const thread = (id: string) => `${THREADS}/${parseInput(MessageThreadId, id)}`;
+const LEAD_THREADS = '/business/lead-message-threads';
+const leadThread = (id: string) => `${LEAD_THREADS}/${parseInput(MessageThreadId, id)}`;
 const OUTBOUND = '/business/outbound-messages';
 const outbound = (id: string) => `${OUTBOUND}/${parseInput(MessageThreadId, id)}`;
 const note = (id: string) => `/business/notes/${parseInput(InternalNoteId, id)}`;
+const messageFile = (id: string) => `/business/message-files/${parseInput(MessageThreadId, id)}`;
 
 /**
  * `api.messages` (apps/web/src/lib/api.ts): the firm's message threads with its clients (F10).
@@ -108,9 +124,41 @@ export function createMessagesClient(request: ApiRequest) {
     /** Marks the client's latest message unread again. 409 NOTHING_TO_MARK if it has none. */
     markUnread: async (id: string): Promise<MessageThread> =>
       request(MessageThread, `${thread(id)}/unread`, { method: 'POST', body: {} }),
+    /**
+     * A file New Message sent (a message's attachment of kind FILE): a 5-minute download link,
+     * only once its scan passed (409 SCAN_PENDING or FILE_BLOCKED). The author, the Owner and
+     * Admins, and Staff whose client got it.
+     */
+    fileDownload: async (fileId: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${messageFile(fileId)}/download`),
     /** Unread client messages, in total and per client. Poll at most once a minute. */
     unreadCount: async (): Promise<FirmUnreadCount> =>
       request(FirmUnreadCount, `${THREADS}/unread-count`),
+    /**
+     * Conversations with leads (MSG-F03's Leads tab): the firm's emails and texts to a lead. Staff
+     * reach only their assigned leads' threads (others are 404).
+     */
+    leads: {
+      /** Newest activity first. */
+      list: async (query: ListLeadMessageThreadsQuery = {}): Promise<LeadMessageThreadList> =>
+        request(
+          LeadMessageThreadList,
+          `${LEAD_THREADS}${toQuery(parseInput(ListLeadMessageThreadsQuery, query))}`,
+        ),
+      /** The thread and its messages, oldest first, each with its channel and delivery. */
+      get: async (id: string): Promise<LeadMessageThreadDetail> =>
+        request(LeadMessageThreadDetail, leadThread(id)),
+      /**
+       * The next email or text, sent now. 409 with the reason (NO_CONTACT, NO_CONSENT,
+       * SUPPRESSED, PROVIDER_UNAVAILABLE, NOT_PERMITTED) when the channel cannot reach the lead,
+       * 409 SEND_FAILED when it did not go out.
+       */
+      send: async (id: string, body: SendLeadMessageRequest): Promise<LeadMessage> =>
+        request(LeadMessage, `${leadThread(id)}/messages`, {
+          method: 'POST',
+          body: parseInput(SendLeadMessageRequest, body),
+        }),
+    },
     /** New Message (MSG-F09, F10, F14): drafts, schedules and sends. Nothing sends but `send`. */
     outbound: {
       /** Who the channel reaches; nothing is saved. */
@@ -119,6 +167,15 @@ export function createMessagesClient(request: ApiRequest) {
           method: 'POST',
           body: parseInput(CheckOutboundRequest, body),
         }),
+      /** MSG-F13: the client's records a message can be about. */
+      relatedOptions: async (query: OutboundRelatedOptionsQuery): Promise<OutboundRelatedOptions> =>
+        request(
+          OutboundRelatedOptions,
+          `${OUTBOUND}/related-options${toQuery(parseInput(OutboundRelatedOptionsQuery, query))}`,
+        ),
+      /** MSG-F16: the members who can own the conversations. */
+      assignees: async (): Promise<OutboundAssigneeList> =>
+        request(OutboundAssigneeList, `${OUTBOUND}/assignees`),
       /** Drafts and scheduled messages (Staff: their own). */
       list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> =>
         request(OutboundMessageList, `${OUTBOUND}${toQuery(parseInput(ListOutboundQuery, query))}`),
@@ -131,6 +188,28 @@ export function createMessagesClient(request: ApiRequest) {
         request(OutboundMessage, OUTBOUND, {
           method: 'POST',
           body: parseInput(SaveOutboundRequest, body),
+        }),
+      /**
+       * MSG-F12: a file for a draft or a scheduled message, step 1 of Documents' three (`uploadFile`
+       * in apps/web/src/lib/upload.ts runs them). 400 ATTACHMENT_TYPE, ATTACHMENT_TOO_LARGE or
+       * TOO_MANY_FILES; 409 NOT_EDITABLE.
+       */
+      startFile: async (id: string, body: StartOutboundFileRequest): Promise<UploadTicket> =>
+        request(UploadTicket, `${outbound(id)}/files/uploads`, {
+          method: 'POST',
+          body: parseInput(StartOutboundFileRequest, body),
+        }),
+      /** Step 3: the file is on the message, CHECKING until its scan. 410 UPLOAD_EXPIRED. */
+      confirmFile: async (id: string, body: ConfirmUploadRequest): Promise<OutboundFile> =>
+        request(OutboundFile, `${outbound(id)}/files/uploads/confirm`, {
+          method: 'POST',
+          body: parseInput(ConfirmUploadRequest, body),
+        }),
+      /** Takes a file off a draft or a scheduled message. 409 NOT_EDITABLE once sent. */
+      removeFile: async (id: string, fileId: string): Promise<OkResponse> =>
+        request(OkResponse, `${outbound(id)}/files/${parseInput(MessageThreadId, fileId)}`, {
+          method: 'DELETE',
+          body: {},
         }),
       /** Changed recipients or channel answer a new draft (a new id). 409 STALE_VERSION. */
       update: async (id: string, body: UpdateOutboundRequest): Promise<OutboundMessage> =>
@@ -232,6 +311,12 @@ export function createMyMessagesClient(request: ApiRequest, firmSlug: string) {
       request(MyMessageThread, `${one(id)}/unread`, { method: 'POST', body: {} }),
     /** The sidebar badge: unread firm messages. Poll at most once a minute and on focus. */
     unreadCount: async (): Promise<UnreadCount> => request(UnreadCount, `${base()}/unread-count`),
+    /**
+     * A file the firm's New Message sent to this client (a message's attachment of kind FILE): a
+     * 5-minute download link, only once its scan passed. Another client's is 404.
+     */
+    fileDownload: async (fileId: string): Promise<DownloadLink> =>
+      request(DownloadLink, `${base()}/files/${parseInput(MessageThreadId, fileId)}/download`),
   };
 }
 

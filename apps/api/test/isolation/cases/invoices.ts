@@ -122,6 +122,14 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },
   },
+  // IP-F09: an invoice's history (notes, logged activity) and its PDF (the suite has no file
+  // store, so found and then 503, as the intake PDF).
+  'GET /api/v1/business/invoices/:id/history': { params: { id: 'invoice' } },
+  'POST /api/v1/business/invoices/:id/history': {
+    params: { id: 'invoice' },
+    body: { type: 'NOTE', body: 'Fake note' },
+  },
+  'GET /api/v1/business/invoices/:id/pdf': { params: { id: 'openInvoice' }, expect: 503 },
   // IP-F08: an open invoice's due date, later (not yet dispatched, so no reason is needed).
   'POST /api/v1/business/invoices/:id/correct': {
     params: { id: 'openInvoice' },

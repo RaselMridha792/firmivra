@@ -1,7 +1,25 @@
 'use client';
 
-import type { OutboundExclusion, OutboundMessage } from '@firmivra/types';
-import { Button, Checkbox, Input, Modal, Stepper, Textarea, Toast, Toggle } from '@firmivra/ui';
+import {
+  OUTBOUND_FILES_MAX,
+  OUTBOUND_RELATED_LABELS,
+  OUTBOUND_RELATED_TYPES,
+  type OutboundExclusion,
+  type OutboundRelatedType,
+  type OutboundMessage,
+  UPLOAD_LIMITS,
+} from '@firmivra/types';
+import {
+  Button,
+  Checkbox,
+  FileDropzone,
+  Input,
+  Modal,
+  Stepper,
+  Textarea,
+  Toast,
+  Toggle,
+} from '@firmivra/ui';
 import {
   CaretRight,
   ChatCircleDots,
@@ -11,14 +29,18 @@ import {
   Info,
   MagnifyingGlass,
   PaperPlaneTilt,
+  Paperclip,
+  X,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useDeferredValue, useEffect, useState } from 'react';
+import { fileSize } from '../../../../../../components/message-files';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../../lib/unsaved';
+import { uploadFile } from '../../../../../../lib/upload';
 import { addDays, localParts, todayIn, toInstant } from '../../../calendar/_components/time';
 import {
   EmojiPicker,
@@ -71,6 +93,10 @@ type Form = {
   body: string;
   /** The template it started from (MSG-F11). */
   templateId: string | null;
+  /** MSG-F13: "type:id" of the client's record it is about, or ''. */
+  related: string;
+  /** MSG-F16: who owns the conversations it opens, or ''. */
+  assignedUserId: string;
   clients: Map<string, string>;
   leads: Map<string, string>;
   later: boolean;
@@ -82,6 +108,8 @@ const emptyForm = (subject = ''): Form => ({
   subject,
   body: '',
   templateId: null,
+  related: '',
+  assignedUserId: '',
   clients: new Map(),
   leads: new Map(),
   later: false,
@@ -95,12 +123,26 @@ const formOf = (m: OutboundMessage, timeZone: string): Form => {
     subject: m.subject ?? '',
     body: m.body,
     templateId: m.templateId,
+    related: m.related ? `${m.related.type}:${m.related.id}` : '',
+    assignedUserId: m.assignedTo?.userId ?? '',
     clients: new Map(m.recipients.filter((r) => r.kind === 'CLIENT').map((r) => [r.id, r.name])),
     leads: new Map(m.recipients.filter((r) => r.kind === 'LEAD').map((r) => [r.id, r.name])),
     later: at !== null,
     date: at?.date ?? '',
     time: at?.time ?? '09:00',
   };
+};
+/** New Message's refusals (MSG-F12, F13, F16), in the screen's words. */
+const ERRORS: Record<string, string> = {
+  RELATED_NEEDS_ONE_CLIENT: 'Related To is for a message to one client.',
+  ASSIGNEE_CANNOT_REACH: 'This staff member does not work with everyone you chose.',
+  FILES_NEED_PORTAL:
+    'Files go to clients through their portal. Choose Portal, or remove the files.',
+  FILES_NOT_READY: 'A file is still being checked for viruses. Try again in a moment.',
+  FILE_BLOCKED: 'A file failed its security check. Remove it, then send.',
+  ATTACHMENT_TYPE: 'Messages Settings do not allow this type of file.',
+  ATTACHMENT_TOO_LARGE: 'This file is over the size Messages Settings allow.',
+  TOO_MANY_FILES: `A message carries at most ${OUTBOUND_FILES_MAX} files.`,
 };
 const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
@@ -190,11 +232,19 @@ export function ComposeScreen({
           ? 'details'
           : 'review';
 
+  // Related To is for a message to one client: another client leaves it out.
+  const oneClient = form.clients.size === 1;
+  const [relatedType, relatedId] = form.related.split(':');
   const payload = () => ({
     channel: form.channel,
     subject: form.subject.trim() || null,
     body: form.body.trim(),
     templateId: form.templateId,
+    related:
+      oneClient && relatedType && relatedId
+        ? { type: relatedType as OutboundRelatedType, id: relatedId }
+        : null,
+    assignedUserId: form.assignedUserId || null,
     ...ids,
   });
   /** Saves the draft (a new one when its people or channel changed) and answers it. */
@@ -233,7 +283,7 @@ export function ComposeScreen({
       setReviewing(false);
       await qc.invalidateQueries({ queryKey: ['messages'] });
     } catch (e) {
-      setNotice({ text: errorMessage(e), tone: 'error' });
+      setNotice({ text: errorMessage(e, ERRORS), tone: 'error' });
     }
     setBusy(false);
   };
@@ -244,7 +294,7 @@ export function ComposeScreen({
       setSaved(await api.messages.outbound.cancel(saved.id, { version: saved.updatedAt }));
       setNotice({ text: 'The scheduled message was canceled. Nothing was sent.', tone: 'success' });
     } catch (e) {
-      setNotice({ text: errorMessage(e), tone: 'error' });
+      setNotice({ text: errorMessage(e, ERRORS), tone: 'error' });
     }
     setBusy(false);
   };
@@ -393,11 +443,21 @@ export function ComposeScreen({
               Words: {words(form.body)} · Characters: {form.body.length}
               {form.channel === 'SMS' ? ` of 1,600` : ''}
             </p>
+            {/* MSG-F12: files, to clients through their portal. */}
+            <ComposeFiles
+              message={saved}
+              channel={form.channel}
+              canSave={chosen > 0 && form.body.trim() !== '' && !smsTooLong}
+              prepare={prepare}
+              onChanged={setSaved}
+              onError={(text) => setNotice({ text, tone: 'error' })}
+            />
           </section>
 
           <div className="flex min-w-0 flex-col gap-4">
             <section aria-label="Additional Options" className={card}>
               <h2 className={h2}>3. Additional Options</h2>
+              <RelatedAndOwner form={form} onChange={set} />
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-heading">
                 <span>
                   Schedule Message <span className="font-normal text-muted">(optional)</span>
@@ -645,6 +705,207 @@ function Recipients({ form, onChange }: { form: Form; onChange: (patch: Partial<
 }
 
 /** Drafts and scheduled messages to pick up again (Staff: their own). */
+/**
+ * MSG-F12: files sent with the message, to clients through their portal (the Portal channel). A
+ * file goes on the saved draft (saved first when needed), is checked for viruses, and the message
+ * sends once each is ready. Messages Settings decide the types and the size.
+ */
+function ComposeFiles({
+  message,
+  channel,
+  canSave,
+  prepare,
+  onChanged,
+  onError,
+}: {
+  message?: OutboundMessage;
+  channel: OutboundMessage['channel'];
+  /** A draft can be saved: someone is chosen and there is a message. */
+  canSave: boolean;
+  prepare: () => Promise<OutboundMessage>;
+  onChanged: (m: OutboundMessage) => void;
+  onError: (text: string) => void;
+}) {
+  const settings = useApiQuery(['messages', 'settings'], () => api.messages.settings());
+  const [busy, setBusy] = useState(false);
+  const files = message?.files ?? [];
+  const editable = !message || message.editable;
+  const types: readonly string[] = settings.data?.allowedAttachmentTypes ?? [];
+  const maxMb = settings.data?.attachmentMaxMb ?? 0;
+  const accept = Object.values(UPLOAD_LIMITS.types)
+    .flat()
+    .filter((e) => types.includes(e.slice(1)));
+  const room = OUTBOUND_FILES_MAX - files.length;
+  const add = async (picked: File[]) => {
+    setBusy(true);
+    try {
+      const m = await prepare();
+      for (const file of picked.slice(0, room)) {
+        await uploadFile(file, {
+          start: (facts) => api.messages.outbound.startFile(m.id, facts),
+          finish: (uploadToken) => api.messages.outbound.confirmFile(m.id, { uploadToken }),
+          maxBytes: maxMb * 1024 * 1024,
+        });
+      }
+      onChanged(await api.messages.outbound.get(m.id));
+    } catch (e) {
+      onError(errorMessage(e, ERRORS));
+    }
+    setBusy(false);
+  };
+  const remove = async (fileId: string) => {
+    if (!message) return;
+    setBusy(true);
+    try {
+      await api.messages.outbound.removeFile(message.id, fileId);
+      onChanged(await api.messages.outbound.get(message.id));
+    } catch (e) {
+      onError(errorMessage(e, ERRORS));
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="flex flex-col gap-2" data-testid="compose-files">
+      <span className="text-sm font-semibold text-heading">
+        Attachments <span className="font-normal text-muted">(optional)</span>
+      </span>
+      {files.length > 0 ? (
+        <ul aria-label="Attached files" className="flex flex-wrap gap-2">
+          {files.map((f) => (
+            <li
+              key={f.id}
+              className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-control border border-border bg-surface px-3 text-sm text-heading"
+            >
+              <Paperclip aria-hidden className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">{f.fileName}</span>
+              <span className="shrink-0 text-xs text-muted">
+                {f.status === 'READY'
+                  ? fileSize(f.sizeBytes)
+                  : f.status === 'CHECKING'
+                    ? 'Checking…'
+                    : 'Failed its security check'}
+              </span>
+              {editable ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${f.fileName}`}
+                  disabled={busy}
+                  onClick={() => void remove(f.id)}
+                  className="rounded-full p-1 text-muted hover:bg-canvas hover:text-heading disabled:opacity-50"
+                >
+                  <X aria-hidden className="size-3.5" />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {channel !== 'PORTAL' && files.length > 0 ? (
+        <p role="alert" className="text-xs text-danger">
+          Files go to clients through their portal. Choose Portal, or remove the files.
+        </p>
+      ) : null}
+      {editable && room > 0 ? (
+        <FileDropzone
+          label="Attach files"
+          multiple
+          accept={accept}
+          maxBytes={maxMb * 1024 * 1024 || undefined}
+          maxFiles={room}
+          disabled={busy || !canSave || accept.length === 0}
+          hints={[
+            `Accepted formats: ${accept.map((e) => e.slice(1).toUpperCase()).join(', ')}`,
+            `Max size: ${maxMb} MB per file, up to ${OUTBOUND_FILES_MAX} files`,
+            canSave
+              ? 'Files go to clients through their portal (Portal channel), never by email or text.'
+              : 'Choose recipients and write the message first: files go on the saved draft.',
+          ]}
+          onFiles={(picked) => void add(picked)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const pick =
+  'h-10 w-full min-w-0 rounded-lg border border-divider bg-surface px-3 text-sm font-normal text-text disabled:opacity-50';
+
+/**
+ * MSG-F13, F16: Related To, one of the client's own records (for a message to one client), and
+ * Assign Staff, who owns the conversations it opens. Both reach the conversation: it is filed
+ * under the record (Appointments, Invoices or Documents in Messages) and owned by that person.
+ */
+function RelatedAndOwner({
+  form,
+  onChange,
+}: {
+  form: Form;
+  onChange: (patch: Partial<Form>) => void;
+}) {
+  const one = form.clients.size === 1 ? [...form.clients.keys()][0] : '';
+  const options = useApiQuery([...KEY, 'related', one], async () =>
+    one ? api.messages.outbound.relatedOptions({ clientId: one }) : null,
+  );
+  const assignees = useApiQuery([...KEY, 'assignees'], () => api.messages.outbound.assignees());
+  const items = options.data?.items ?? [];
+  return (
+    <div className="flex flex-col gap-3" data-testid="compose-related">
+      <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
+        <span>
+          Related To <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <select
+          className={pick}
+          value={one ? form.related : ''}
+          disabled={!one}
+          onChange={(e) => onChange({ related: e.target.value })}
+        >
+          <option value="">
+            {one
+              ? items.length || options.isPending
+                ? 'Nothing'
+                : 'This client has no records yet'
+              : 'Choose one client to link one of their records'}
+          </option>
+          {OUTBOUND_RELATED_TYPES.map((type) => {
+            const ofType = items.filter((i) => i.type === type);
+            return ofType.length ? (
+              <optgroup key={type} label={OUTBOUND_RELATED_LABELS[type]}>
+                {ofType.map((i) => (
+                  <option key={i.id} value={`${i.type}:${i.id}`}>
+                    {i.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null;
+          })}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
+        <span>
+          Assign Staff <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <select
+          className={pick}
+          value={form.assignedUserId}
+          onChange={(e) => onChange({ assignedUserId: e.target.value })}
+        >
+          <option value="">Nobody</option>
+          {(assignees.data?.items ?? []).map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-muted">
+        The conversation it opens is filed under the record and owned by this person. A staff member
+        owns only conversations with their own clients.
+      </p>
+    </div>
+  );
+}
+
 function Drafts({ currentId }: { currentId?: string }) {
   const list = useApiQuery([...KEY, 'list'], () => api.messages.outbound.list());
   const items = (list.data?.items ?? []).filter((m) => m.id !== currentId);

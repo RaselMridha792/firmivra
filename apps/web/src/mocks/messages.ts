@@ -47,6 +47,18 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
+  ConfirmUploadRequest,
+  OUTBOUND_FILES_MAX,
+  type OutboundRelated,
+  OutboundRelatedOptionsQuery,
+  type OutboundFile,
+  StartOutboundFileRequest,
+  type LeadMessage,
+  type LeadMessageThread,
+  type LeadMessageThreadDetail,
+  type LeadThreadContact,
+  ListLeadMessageThreadsQuery,
+  SendLeadMessageRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -98,10 +110,21 @@ interface ThreadRow {
   archivedAt: string | null;
   createdAt: string;
 }
+/** A lead's own thread (MSG-F03's Leads tab): the firm's emails and texts to the lead. */
+interface LeadThreadRow {
+  id: string;
+  lead: LeadThreadContact;
+  subject: string;
+  startedBy: MessageSender;
+  archivedAt: string | null;
+  createdAt: string;
+}
 interface Store {
   settings?: MessageSettings;
   threads: ThreadRow[];
   messages: Message[];
+  leadThreads: LeadThreadRow[];
+  leadMessages: LeadMessage[];
   notes: InternalNote[];
   myNotes: Map<string, MyNote>;
   seq: number;
@@ -242,7 +265,8 @@ function seed(): Store {
       },
     ],
   ]);
-  return { threads, messages, notes, myNotes, seq: 1000 };
+  // No lead conversation until New Message emails or texts a lead (the Leads tab).
+  return { threads, messages, leadThreads: [], leadMessages: [], notes, myNotes, seq: 1000 };
 }
 
 const s = () => (store ??= seed());
@@ -355,6 +379,11 @@ interface OutboundRow {
   scheduledFor: string | null;
   clientIds: string[];
   leadIds: string[];
+  /** MSG-F13, F16: the record it is about and who owns the conversations. */
+  related: OutboundRelated | null;
+  assignedUserId: string | null;
+  /** MSG-F12: its files (clean at once in mock mode). */
+  files: OutboundFile[];
   /** After the send: what happened to each person. */
   results: Map<
     string,
@@ -397,6 +426,61 @@ function mockExclusion(
   }
   return 'PROVIDER_UNAVAILABLE';
 }
+
+/** The lead's active thread with this subject, or a new one, with the message; its id. */
+function leadCopy(
+  p: MockPerson,
+  subject: string | null,
+  body: string,
+  channel: 'EMAIL' | 'SMS',
+  sender: MessageSender,
+): string {
+  const title = subject?.trim() || 'A message from your firm';
+  let t = s().leadThreads.find(
+    (x) => x.lead.id === p.id && x.subject === title && x.archivedAt === null,
+  );
+  if (!t) {
+    t = {
+      id: id('0199b6e7', next()),
+      lead: { id: p.id, displayName: p.name, email: p.email, phone: p.phone },
+      subject: title,
+      startedBy: sender,
+      archivedAt: null,
+      createdAt: now(),
+    };
+    s().leadThreads.push(t);
+  }
+  s().leadMessages.push({
+    id: id('0199b6e8', next()),
+    threadId: t.id,
+    sender,
+    body,
+    channel,
+    status: 'SENT',
+    createdAt: now(),
+  });
+  return t.id;
+}
+
+/** MSG-F13: Jamie's own records a message can be about (synthetic). */
+function relatedFor(clientId: string): OutboundRelated[] {
+  if (clientId !== firstClientId) return [];
+  return [
+    { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
+    { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
+    { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },
+  ];
+}
+/** MSG-F16: the firm's active members. */
+const assigneesOf = () =>
+  teamFixtures()
+    .filter((m) => m.status === 'ACTIVE')
+    .map((m) => ({
+      userId: m.user.id,
+      name: m.user.name,
+      // As the API's legacyFirmRole: the newer roles own conversations as Staff.
+      role: m.role === 'OWNER' || m.role === 'ADMIN' ? m.role : ('STAFF' as const),
+    }));
 
 /** An in-memory `api.messages.outbound`; nothing is sent anywhere. */
 function createOutboundMock(role: MockFirmRole, me: { userId: string; name: string }) {
@@ -461,9 +545,15 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       subject: r.subject,
       body: r.body,
       templateId: r.templateId,
+      related: r.related ? { ...r.related } : null,
+      assignedTo:
+        assigneesOf()
+          .filter((m) => m.userId === r.assignedUserId)
+          .map((m) => ({ userId: m.userId, name: m.name }))[0] ?? null,
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
+      files: r.files.map((f) => ({ ...f })),
       counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
       createdBy: { ...r.createdBy },
       editable,
@@ -472,6 +562,38 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };
+  };
+  /** MSG-F13, F16, as the API checks them on every save. */
+  const extrasOf = (b: {
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
+    clientIds: string[];
+    leadIds: string[];
+  }) => {
+    const clientIds = [...new Set(b.clientIds)];
+    let related: OutboundRelated | null = null;
+    if (b.related) {
+      if (clientIds.length !== 1)
+        throw fail(400, 'RELATED_NEEDS_ONE_CLIENT', 'Related To is for a message to one client');
+      const want = b.related;
+      related =
+        relatedFor(clientIds[0]!).find((x) => x.type === want.type && x.id === want.id) ?? null;
+      if (!related) throw notFound();
+    }
+    if (b.assignedUserId) {
+      const m = assigneesOf().find((x) => x.userId === b.assignedUserId);
+      if (!m) throw notFound();
+      if (
+        m.role === 'STAFF' &&
+        (b.leadIds.length > 0 || clientIds.some((c) => !STAFF_CLIENTS.includes(c)))
+      )
+        throw fail(
+          400,
+          'ASSIGNEE_CANNOT_REACH',
+          'This staff member does not work with everyone you chose',
+        );
+    }
+    return { related, assignedUserId: b.assignedUserId ?? null };
   };
   const find = (id: string) => {
     const r = outboundRows.find(
@@ -491,7 +613,14 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
     if ((await shape(r)).counts.canReceive === 0)
       throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+    if (r.files.length > 0 && r.channel !== 'PORTAL')
+      throw fail(409, 'FILES_NEED_PORTAL', FILES_NEED_PORTAL);
   };
+  /** MSG-F12: tickets not confirmed yet, by token. */
+  const uploads = new Map<
+    string,
+    { outboundId: string; file: Omit<OutboundFile, 'id' | 'status' | 'createdAt'> }
+  >();
   /** The merge fields each person gets, as the API fills them (MSG-F15). */
   const fillFor = (p: MockPerson, text: string) => {
     const [first = '', ...rest] = p.name.split(' ');
@@ -528,10 +657,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     subject?: string | null;
     body: string;
     templateId?: string | null;
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
     clientIds: string[];
     leadIds: string[];
   }): Promise<OutboundRow> => {
     await people(b.clientIds, b.leadIds);
+    const extras = extrasOf(b);
     const at = stamp();
     const r: OutboundRow = {
       id: id('0199b6e4', next()),
@@ -543,6 +675,8 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
       leadIds: [...new Set(b.leadIds)],
+      ...extras,
+      files: [],
       results: new Map(),
       createdBy: { ...me },
       createdAt: at,
@@ -635,6 +769,12 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           severity: 'WARN',
           message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
         });
+      if (m.files.length > 0 && m.channel !== 'PORTAL')
+        checks.push({
+          code: 'FILES_NEED_PORTAL',
+          severity: 'BLOCK',
+          message: `${FILES_NEED_PORTAL}.`,
+        });
       if (!checks.some((c) => c.severity === 'BLOCK'))
         checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
       return {
@@ -668,10 +808,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         r.subject = b.subject ?? null;
         r.body = b.body;
         r.templateId = b.templateId ?? null;
+        Object.assign(r, extrasOf(b));
         r.updatedAt = stamp();
         return shape(r);
       }
       const next = await insert(b);
+      next.files = r.files;
+      r.files = [];
       r.status = 'CANCELED';
       r.canceledAt = now();
       r.updatedAt = stamp();
@@ -699,15 +842,30 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             clientId: p.id,
             engagementId: null,
             subject: r.subject?.trim() || 'A message from your firm',
-            related: null,
+            related: r.related ? { type: r.related.type, id: r.related.id } : null,
             repliesEnabled: true,
             automated: false,
             archivedAt: null,
             createdAt: now(),
           };
           s().threads.push(t);
-          addMessage(t, staff(me), fillFor(p, r.body).text);
+          addMessage(
+            t,
+            staff(me),
+            fillFor(p, r.body).text,
+            r.files.map((f) => ({
+              kind: 'FILE' as const,
+              id: f.id,
+              fileName: f.fileName,
+              contentType: f.contentType,
+              sizeBytes: f.sizeBytes,
+              status: f.status,
+            })),
+          );
           threadId = t.id;
+        } else if (r.channel !== 'PORTAL') {
+          // A lead's email or text is kept in the lead's own thread (the Leads tab).
+          threadId = leadCopy(p, r.subject, fillFor(p, r.body).text, r.channel, staff(me));
         }
         r.results.set(p.id, { status: 'SENT', reason: null, threadId });
       }
@@ -730,6 +888,69 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+    relatedOptions: async (query: OutboundRelatedOptionsQuery) => {
+      await mockDelay();
+      const { clientId } = parseInput(OutboundRelatedOptionsQuery, query);
+      await people([clientId], []);
+      return { items: relatedFor(clientId).map((x) => ({ ...x })) };
+    },
+    assignees: async () => (await mockDelay(), { items: assigneesOf() }),
+    startFile: async (outboundId: string, body: StartOutboundFileRequest) => {
+      await mockDelay();
+      const b = parseInput(StartOutboundFileRequest, body);
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      const { allowedAttachmentTypes, attachmentMaxMb } = settingsOf();
+      const ending = b.fileName.toLowerCase().split('.').pop() ?? '';
+      if (!(allowedAttachmentTypes as readonly string[]).includes(ending))
+        throw fail(400, 'ATTACHMENT_TYPE', `Messages Settings don't allow .${ending} files`);
+      if (b.sizeBytes > attachmentMaxMb * 1024 * 1024)
+        throw fail(400, 'ATTACHMENT_TOO_LARGE', `A file is at most ${attachmentMaxMb} MB`);
+      if (r.files.length >= OUTBOUND_FILES_MAX)
+        throw fail(400, 'TOO_MANY_FILES', `A message carries at most ${OUTBOUND_FILES_MAX} files`);
+      const n = next();
+      uploads.set(`mock-message-file-${n}`, {
+        outboundId,
+        file: { fileName: b.fileName, contentType: b.contentType, sizeBytes: b.sizeBytes },
+      });
+      return {
+        uploadToken: `mock-message-file-${n}`,
+        method: 'PUT' as const,
+        url: `mock:message-file/${n}`,
+        headers: { 'content-type': b.contentType },
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      };
+    },
+    confirmFile: async (outboundId: string, body: ConfirmUploadRequest) => {
+      await mockDelay();
+      const { uploadToken } = parseInput(ConfirmUploadRequest, body);
+      const pending = uploads.get(uploadToken);
+      const r = find(outboundId);
+      if (pending?.outboundId !== outboundId)
+        throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Add it again.');
+      uploads.delete(uploadToken);
+      // Mock mode scans at once, as SCAN_MODE=local.
+      const file: OutboundFile = {
+        id: id('0199b6e9', next()),
+        ...pending.file,
+        status: 'READY',
+        createdAt: now(),
+      };
+      r.files.push(file);
+      r.updatedAt = stamp();
+      return { ...file };
+    },
+    removeFile: async (outboundId: string, fileId: string) => {
+      await mockDelay();
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      if (!r.files.some((f) => f.id === fileId)) throw notFound();
+      r.files = r.files.filter((f) => f.id !== fileId);
+      r.updatedAt = stamp();
+      return { ok: true as const };
+    },
     cancel: async (outboundId: string, body: CancelOutboundRequest) => {
       await mockDelay();
       const { version } = parseInput(CancelOutboundRequest, body);
@@ -741,6 +962,21 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+  };
+}
+
+const FILES_NEED_PORTAL =
+  'Files go to clients through their portal. Choose Portal, or remove the files';
+
+/** A file New Message sent (MSG-F12), as the API links it: only once it reached a client. */
+function sentFileLink(fileId: string) {
+  const sent = outboundRows.some(
+    (r) => r.status === 'SENT' && r.files.some((f) => f.id === fileId),
+  );
+  if (!sent) throw notFound();
+  return {
+    url: `data:text/plain;charset=utf-8,${encodeURIComponent('Mock message file')}`,
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
   };
 }
 
@@ -793,6 +1029,59 @@ export function createMessagesMock(
       ),
     );
     return page(kept, q.cursor, q.limit);
+  };
+  const outbound = createOutboundMock(role, me);
+  // Conversations with leads: the leads the role reaches in mocks/leads-pipeline.ts.
+  const leadsMock = createLeadPipelineMock({ role });
+  const leadReach = async () =>
+    new Set((await leadsMock.list({ pageSize: 100 })).items.map((l) => l.id));
+  const leadMessagesOf = (threadId: string) =>
+    s().leadMessages.filter((m) => m.threadId === threadId);
+  const leadThread = (t: LeadThreadRow): LeadMessageThread => {
+    const last = leadMessagesOf(t.id).at(-1);
+    return {
+      id: t.id,
+      lead: { ...t.lead },
+      subject: t.subject,
+      startedBy: { ...t.startedBy },
+      lastMessage: last
+        ? {
+            direction: 'FIRM_TO_CLIENT',
+            senderName: last.sender.name,
+            excerpt: last.body.replace(/\s+/g, ' ').trim().slice(0, 140),
+            createdAt: last.createdAt,
+          }
+        : null,
+      archivedAt: t.archivedAt,
+      createdAt: t.createdAt,
+    };
+  };
+  const findLead = async (threadId: string) => {
+    const reach = await leadReach();
+    const t = s().leadThreads.find(
+      (x) => x.id === parseInput(MessageThreadId, threadId) && reach.has(x.lead.id),
+    );
+    if (!t) throw notFound();
+    return t;
+  };
+  const leadDetail = (t: LeadThreadRow): LeadMessageThreadDetail => ({
+    ...leadThread(t),
+    messages: leadMessagesOf(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
+  });
+  /** The subject, the text, the lead's name and email, and a phone number by its digits. */
+  const leadMatches = (t: LeadThreadRow, search?: string) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    const digits = phoneDigits(search);
+    return (
+      t.subject.toLowerCase().includes(q) ||
+      leadMessagesOf(t.id).some((m) => m.body.toLowerCase().includes(q)) ||
+      t.lead.displayName.toLowerCase().includes(q) ||
+      (t.lead.email ?? '').toLowerCase().includes(q) ||
+      (digits !== null &&
+        t.lead.phone !== null &&
+        digitsOf(t.lead.phone).slice(-10).endsWith(digits.slice(-10)))
+    );
   };
   return {
     inbox: async (query = {}) => (await mockDelay(), list(visible(), query)),
@@ -847,7 +1136,8 @@ export function createMessagesMock(
         if (d.sizeBytes > attachmentMaxMb * 1024 * 1024)
           throw fail(400, 'ATTACHMENT_TOO_LARGE', `${d.fileName} is over ${attachmentMaxMb} MB`);
         files.push({
-          documentId: d.id,
+          kind: 'DOCUMENT',
+          id: d.id,
           fileName: d.fileName,
           contentType: d.contentType,
           sizeBytes: d.sizeBytes,
@@ -874,6 +1164,7 @@ export function createMessagesMock(
       mark(t, 'CLIENT_TO_FIRM', false);
       return firmThread(t);
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
     unreadCount: async () => {
       await mockDelay();
       const byClient = new Map<string, number>();
@@ -884,7 +1175,38 @@ export function createMessagesMock(
       const items = [...byClient].map(([clientId, count]) => ({ clientId, count }));
       return { total: items.reduce((sum, x) => sum + x.count, 0), byClient: items };
     },
-    outbound: createOutboundMock(role, me),
+    leads: {
+      list: async (query = {}) => {
+        await mockDelay();
+        const q = parseInput(ListLeadMessageThreadsQuery, query);
+        const reach = await leadReach();
+        const kept = s()
+          .leadThreads.filter((t) => reach.has(t.lead.id))
+          .filter((t) => (q.archived ? t.archivedAt !== null : t.archivedAt === null))
+          .filter((t) => leadMatches(t, q.search))
+          .map(leadThread);
+        kept.sort((a, b) =>
+          (b.lastMessage?.createdAt ?? b.createdAt).localeCompare(
+            a.lastMessage?.createdAt ?? a.createdAt,
+          ),
+        );
+        return page(kept, q.cursor, q.limit);
+      },
+      get: async (threadId) => (await mockDelay(), leadDetail(await findLead(threadId))),
+      // As the API: through New Message, the copy lands in this thread.
+      send: async (threadId, body) => {
+        const t = await findLead(threadId);
+        const b = parseInput(SendLeadMessageRequest, body);
+        const who = { channel: b.channel, clientIds: [], leadIds: [t.lead.id] };
+        const reason = (await outbound.check(who)).recipients[0]?.reason;
+        if (reason) throw fail(409, reason, 'This lead cannot get messages on this channel.');
+        const d = await outbound.create({ ...who, subject: t.subject, body: b.body });
+        await outbound.send(d.id, { version: d.updatedAt, confirmUnresolved: true });
+        const sent = leadMessagesOf(t.id).at(-1)!;
+        return { ...sent, sender: { ...sent.sender } };
+      },
+    },
+    outbound,
     settings: async () => (await mockDelay(), structuredClone(settingsOf())),
     updateSettings: async (body) => {
       await mockDelay();
@@ -1085,6 +1407,7 @@ export function createMyMessagesMock(): MyMessagesClient {
       await mockDelay();
       return { count: mine().reduce((sum, t) => sum + myThread(t).unreadCount, 0) };
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
   };
 }
 
