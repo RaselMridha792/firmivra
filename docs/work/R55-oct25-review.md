@@ -12,6 +12,13 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03); Clients, Leads, Intake Forms and Documents events (AU-F08 to F11). Committed; PR when a slot frees.
 - AU triggers 2 (`rasel/R55-au-triggers-2`, stacked): Tax Returns, Tax Planning and Business Advisory events (AU-F12 to F14). AU-F15 Custom stays empty: no custom field or date exists to change, and its manual confirmation comes with AU-F29 to F33.
 
+**Manual Event Confirmation (AU-F29 to F33), design (`rasel/R55-au-confirm`, from main):**
+- F29: `automation_settings.manual_confirmation_enabled` (R1, on main) in Automation Settings; only an Owner or Admin changes it (403), audited (`automation_settings.updated` plus from/to); off by default.
+- F30: confirmable events (external outcomes, AU-Y07): tax return accepted, tax return rejected, payroll filing confirmed, deadline filing confirmed. Each rule on one picks its source: Integration verified, Manual confirmation or Either, kept in the version's `settings` JSON as `triggerSource` (no schema). Integration verified shows "not available yet": no vetted integration event exists.
+- F31: `automation_event_confirmations` (R1 #1238): one row per occurrence (`occurrence_key` = `<event>:<record id>:<occurrence>`, unique per firm), so no bulk. API `POST /business/automations/confirmations` (master on, else 409; Owner/Admin, or Staff with that module's manage right), `GET` for a record. Audited; never changes the source record. The confirm dialog lives in Automations until the owning sessions add record-page buttons (asked the lead).
+- F32: provider evidence is set once on the same row (`provider_*`), so the occurrence key and the runs keyed by it stay the same: nothing reruns.
+- F33: a confirmation only records a known fact; it never files, submits, charges, pays, changes consent or grants rights. Tests per limit.
+
 **Not listed (no real source, AU-Y02 default):** client status changed (nothing changes a client's status after creation), client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
