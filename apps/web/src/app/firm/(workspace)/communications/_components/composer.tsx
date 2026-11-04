@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ApiRequestError,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
   TEMPLATE_ATTACHMENT_TYPES,
   type CommunicationDetail,
@@ -30,10 +31,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
 import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
@@ -44,7 +46,6 @@ import {
   COMM_KEY,
   card,
   channelOf,
-  dateTimeText,
   outlined,
   plain,
   quiet,
@@ -89,6 +90,42 @@ const formOf = (d: CommunicationDetail): Form => ({
   publishEndsAt: local(d.publishEndsAt),
   visibility: d.visibility ?? '',
 });
+
+/** CM-F09: the field the API refused, in the firm's words (never the API's own text). */
+const FIELD_ERRORS: Record<string, string> = {
+  publishEndsAt: 'Show Until must be after Show From.',
+  publishStartsAt: 'Choose a real date and time.',
+  replyTo: 'Enter a valid email address.',
+  senderId: 'Choose a verified sender.',
+  name: 'Remove the special characters.',
+  subject: 'Remove the special characters.',
+  previewText: 'Remove the special characters.',
+};
+const fieldsOf = (e: unknown): Record<string, string> =>
+  e instanceof ApiRequestError && e.code === 'VALIDATION_FAILED'
+    ? Object.fromEntries(
+        (e.details ?? []).map((x) => {
+          const field = String(x.path).split('.')[0] ?? '';
+          return [field, FIELD_ERRORS[field] ?? 'Check this field.'];
+        }),
+      )
+    : {};
+
+/** CM-F07: when it was last saved, in the firm's time zone. */
+const savedAt = (iso: string, timeZone: string) => {
+  const parts = {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  } as const;
+  try {
+    return new Date(iso).toLocaleString('en-US', { ...parts, timeZone });
+  } catch {
+    return new Date(iso).toLocaleString('en-US', parts);
+  }
+};
 
 /**
  * Another page's panel around the composer (Create Campaign on Leads, L7): no breadcrumb or page
@@ -143,10 +180,18 @@ function ComposerForm({
   const [pendingChannel, setPendingChannel] = useState<CommunicationRow['channel']>();
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saveError, setSaveError] = useState<string>();
+  /** CM-F06: where Back, the breadcrumb or Cancel go once the unsaved changes are settled. */
+  const [leaving, setLeaving] = useState<() => void>();
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const channel = d.channel;
   const meta = channelOf(channel);
-  const set = (p: Partial<Form>) => setForm((f) => ({ ...f, ...p }));
+  const set = (p: Partial<Form>) => {
+    setForm((f) => ({ ...f, ...p }));
+    setFieldErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !(k in p))));
+    setSaveError(undefined);
+  };
   const senders = useApiQuery([...COMM_KEY, 'senders'], () => api.communications.senders());
   const locations = useApiQuery([...COMM_KEY, 'locations'], () =>
     api.communications.announcementLocations(),
@@ -160,17 +205,53 @@ function ComposerForm({
   const readOnly = !d.editable;
   const mine = (senders.data ?? []).filter((s) => s.channel === channel);
   const dirty = JSON.stringify(form) !== JSON.stringify(formOf(d));
+  // CM-F09: the API refuses a window that ends before it starts; say so on Show Until at once.
+  const windowProblem =
+    channel === 'ANNOUNCEMENT' &&
+    form.publishStartsAt &&
+    form.publishEndsAt &&
+    form.publishEndsAt <= form.publishStartsAt
+      ? FIELD_ERRORS.publishEndsAt
+      : undefined;
 
-  const refresh = async () => {
-    const next = await api.communications.get(d.id);
+  // CM-F06: the shared Back bar (SH1, a composer opened with ?from=) asks first too, and closing or
+  // reloading the tab asks in the browser's own words.
+  useUnsavedChanges(dirty && !readOnly);
+  useEffect(() => {
+    if (!dirty || readOnly) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, readOnly]);
+  /** Back, the breadcrumb and Cancel go at once when nothing is unsaved; otherwise they ask. */
+  const guard = (go: () => void) => (event: MouseEvent) => {
+    if (!dirty || readOnly) return;
+    event.preventDefault();
+    setLeaving(() => go);
+  };
+  const toList = () => router.push('/communications');
+
+  /** Takes a fresh detail here and in the page's cache, so coming back shows what was saved. */
+  const keep = (next: CommunicationDetail) => {
     setD(next);
     setForm(formOf(next));
+    qc.setQueryData([...COMM_KEY, 'detail', next.id], next);
+  };
+  const refresh = async () => {
+    const next = await api.communications.get(d.id);
+    keep(next);
     await qc.invalidateQueries({ queryKey: [...COMM_KEY, 'list'] });
     return next;
   };
   /** Sends only what changed, with the etag. Answers the fresh detail, or undefined after reporting the problem. */
   const save = async (quiet = false): Promise<CommunicationDetail | undefined> => {
     if (!dirty) return d;
+    if (windowProblem) {
+      setFieldErrors({ publishEndsAt: windowProblem });
+      setSaveError(windowProblem);
+      notice(windowProblem, 'error');
+      return undefined;
+    }
     const base = formOf(d);
     const patch: Record<string, unknown> = {};
     if (form.name !== base.name) patch.name = form.name.trim() || 'Untitled communication';
@@ -189,12 +270,18 @@ function ComposerForm({
     setSaving(true);
     try {
       const next = await api.communications.update(d.id, { ...patch, etag: d.etag });
-      setD(next);
-      setForm(formOf(next));
+      keep(next);
+      setFieldErrors({});
+      setSaveError(undefined);
+      void qc.invalidateQueries({ queryKey: [...COMM_KEY, 'list'] });
       if (!quiet) notice('Draft saved.', 'success');
       return next;
     } catch (e) {
-      notice(errorMessage(e, COMM_ERRORS), 'error');
+      const fields = fieldsOf(e);
+      const text = Object.values(fields)[0] ?? errorMessage(e, COMM_ERRORS);
+      setFieldErrors(fields);
+      setSaveError(text);
+      notice(text, 'error');
       return undefined;
     } finally {
       setSaving(false);
@@ -210,8 +297,7 @@ function ComposerForm({
         ...(confirm ? { confirmStripContent: true } : {}),
         etag: saved.etag,
       });
-      setD(next);
-      setForm(formOf(next));
+      keep(next);
       setDialog(undefined);
     } catch (e) {
       if (
@@ -262,6 +348,55 @@ function ComposerForm({
   );
   const typeLabel = { EMAIL: 'Email', SMS: 'Text Message (SMS)', ANNOUNCEMENT: 'Announcement' };
   const chips = d.audience?.chips.filter((c) => !c.kind.startsWith('EXCLUDE')) ?? [];
+  // CM-F07: only a confirmed save moves the time; a refused one says why.
+  const saveState = saving
+    ? 'Saving…'
+    : saveError
+      ? `Not saved: ${saveError}`
+      : dirty
+        ? 'Unsaved changes'
+        : `Last saved ${savedAt(d.savedAt, d.timezone)}`;
+  const recipients = (
+    <div className="flex flex-col gap-1" data-testid="recipients-field">
+      <span className="text-sm font-medium text-heading">Recipients</span>
+      <div className="flex flex-wrap items-center gap-2 rounded-control border border-border p-2">
+        {chips.length === 0 ? (
+          <span className="px-1 text-sm text-muted">No recipients chosen yet</span>
+        ) : null}
+        {chips.map((c) => (
+          <span
+            key={`${c.kind}${c.id}`}
+            className="inline-flex items-center rounded-pill bg-info-soft px-3 py-1 text-xs font-medium text-info"
+          >
+            {c.label}
+            {c.count !== null && c.kind === 'SEGMENT' ? ` (${c.count})` : ''}
+          </span>
+        ))}
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => void save(true).then((s) => s && setDialog('recipients'))}
+          className={`${outlined} ml-auto min-h-9`}
+        >
+          <UsersThree aria-hidden weight="bold" className="size-4" /> Choose Recipients
+        </button>
+      </div>
+      {channel === 'ANNOUNCEMENT' ? (
+        <p className="text-xs text-muted">
+          Only the clients you choose who have an active portal login see it, where you set above.
+        </p>
+      ) : null}
+      {d.audience ? (
+        <p className="text-xs text-muted" data-testid="audience-count">
+          {d.audience.finalCount} can receive this{' '}
+          {channel === 'ANNOUNCEMENT' ? 'announcement' : 'message'}
+          {d.audience.selectedCount - d.audience.finalCount > 0
+            ? ` · ${d.audience.selectedCount - d.audience.finalCount} left out`
+            : ''}
+        </p>
+      ) : null}
+    </div>
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="composer">
@@ -277,10 +412,15 @@ function ComposerForm({
       ) : (
         <>
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-            <Link href="/communications" aria-label="Back to Communications" className="text-link">
+            <Link
+              href="/communications"
+              aria-label="Back to Communications"
+              className="text-link"
+              onClick={guard(toList)}
+            >
               <ArrowLeft aria-hidden weight="bold" className="size-4" />
             </Link>
-            <Link href="/communications" className="text-link">
+            <Link href="/communications" className="text-link" onClick={guard(toList)}>
               Communications
             </Link>
             <span aria-hidden className="text-muted">
@@ -300,6 +440,9 @@ function ComposerForm({
               </div>
               <p className="text-base text-muted">
                 Build, preview, and send a message to the right audience.
+              </p>
+              <p aria-hidden className="mt-1 text-xs text-muted">
+                {saveState}
               </p>
             </div>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Top actions">
@@ -363,45 +506,7 @@ function ComposerForm({
             onChange={(e) => set({ name: e.target.value })}
           />
 
-          {channel !== 'ANNOUNCEMENT' ? (
-            <div className="flex flex-col gap-1" data-testid="recipients-field">
-              <span className="text-sm font-medium text-heading">Recipients</span>
-              <div className="flex flex-wrap items-center gap-2 rounded-control border border-border p-2">
-                {chips.length === 0 ? (
-                  <span className="px-1 text-sm text-muted">No recipients chosen yet</span>
-                ) : null}
-                {chips.map((c) => (
-                  <span
-                    key={`${c.kind}${c.id}`}
-                    className="inline-flex items-center rounded-pill bg-info-soft px-3 py-1 text-xs font-medium text-info"
-                  >
-                    {c.label}
-                    {c.count !== null && c.kind === 'SEGMENT' ? ` (${c.count})` : ''}
-                  </span>
-                ))}
-                <button
-                  type="button"
-                  disabled={readOnly}
-                  onClick={() => void save(true).then((s) => s && setDialog('recipients'))}
-                  className={`${outlined} ml-auto min-h-9`}
-                >
-                  <UsersThree aria-hidden weight="bold" className="size-4" /> Choose Recipients
-                </button>
-              </div>
-              {d.audience ? (
-                <p className="text-xs text-muted" data-testid="audience-count">
-                  {d.audience.finalCount} can receive this message
-                  {d.audience.selectedCount - d.audience.finalCount > 0
-                    ? ` · ${d.audience.selectedCount - d.audience.finalCount} left out`
-                    : ''}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <p className="rounded-lg bg-info-soft p-3 text-sm text-info">
-              An announcement is shown in the client portal to all of your clients.
-            </p>
-          )}
+          {channel !== 'ANNOUNCEMENT' ? recipients : null}
 
           {channel !== 'ANNOUNCEMENT' ? (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -509,6 +614,7 @@ function ComposerForm({
                 type="datetime-local"
                 value={form.publishStartsAt}
                 disabled={readOnly}
+                error={fieldErrors.publishStartsAt}
                 onChange={(e) => set({ publishStartsAt: e.target.value })}
               />
               <Input
@@ -516,6 +622,7 @@ function ComposerForm({
                 type="datetime-local"
                 value={form.publishEndsAt}
                 disabled={readOnly}
+                error={fieldErrors.publishEndsAt ?? windowProblem}
                 onChange={(e) => set({ publishEndsAt: e.target.value })}
               />
               <Select
@@ -530,6 +637,7 @@ function ComposerForm({
               />
             </div>
           ) : null}
+          {channel === 'ANNOUNCEMENT' ? recipients : null}
 
           {channel !== 'SMS' ? (
             <div data-testid="attachments">
@@ -754,16 +862,22 @@ function ComposerForm({
 
       <footer className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface p-3 shadow-md">
         {embedded ? (
-          <button type="button" className={subtle} onClick={embedded.onClose}>
+          <button
+            type="button"
+            className={subtle}
+            onClick={(event) =>
+              dirty && !readOnly ? guard(embedded.onClose)(event) : embedded.onClose()
+            }
+          >
             Cancel
           </button>
         ) : (
-          <Link href="/communications" className={subtle}>
+          <Link href="/communications" className={subtle} onClick={guard(toList)}>
             Cancel
           </Link>
         )}
-        <p className="text-xs text-muted" role="status">
-          {saving ? 'Saving…' : dirty ? 'Unsaved changes' : `Saved ${dateTimeText(d.savedAt)}`}
+        <p className="text-xs text-muted" role="status" data-testid="save-state">
+          {saveState}
         </p>
         <div className="flex flex-wrap gap-2">
           {saveDraft}
@@ -812,8 +926,7 @@ function ComposerForm({
           detail={d}
           onClose={() => setDialog(undefined)}
           onUsed={(next) => {
-            setD(next);
-            setForm(formOf(next));
+            keep(next);
             setDialog(undefined);
             notice('Template copied into this draft.', 'success');
           }}
@@ -838,6 +951,52 @@ function ComposerForm({
           }
         >
           <p className="text-sm text-text">Your wording stays. Only the formatting is removed.</p>
+        </Modal>
+      ) : null}
+      {leaving ? (
+        <Modal
+          open
+          title="Save your changes?"
+          subtitle="This draft has changes you have not saved."
+          onClose={() => setLeaving(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setLeaving(undefined)}>
+                Keep Editing
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setLeaving(undefined);
+                  setForm(formOf(d));
+                  leaving();
+                }}
+              >
+                Discard
+              </Button>
+              <Button
+                disabled={saving}
+                onClick={async () => {
+                  if (await save(true)) {
+                    setLeaving(undefined);
+                    leaving();
+                  }
+                }}
+              >
+                Save Draft
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            Save Draft keeps them and leaves. Discard leaves without them; what you saved before
+            stays as it was.
+          </p>
+          {saveError ? (
+            <p role="alert" className="mt-2 text-sm font-medium text-danger">
+              {saveError}
+            </p>
+          ) : null}
         </Modal>
       ) : null}
     </div>

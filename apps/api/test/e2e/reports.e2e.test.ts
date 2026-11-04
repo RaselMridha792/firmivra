@@ -636,6 +636,58 @@ describe('quick reports and the run path', () => {
     expect(compared.runId).toBeNull();
   });
 
+  it('money filters are in cents; a value its type does not take is refused with its path; the search narrows the totals (RP-F10, F02, F20, Octavia Oct 28)', async () => {
+    const invoices = (conditions: object[], over: object = {}) =>
+      ({
+        target: {
+          kind: 'DEFINITION',
+          definition: def({
+            category: 'FINANCIAL',
+            dataSource: 'invoices_payments',
+            columns: ['number', 'client', 'status', 'total'],
+            filters: { conditions },
+          }),
+        },
+        includeTaxRevenue: true,
+        ...over,
+      }) as const;
+    const numbers = (r: ReportResult) => r.table.rows.map((x) => x.cells.number);
+    // $75.00 is 7,500 cents: the $100 invoice only, alone and with its status (Octavia's "Total
+    // above 500 and Paid" shape); a number typed as text still counts.
+    const above = { field: 'total', op: 'GREATER_THAN', value: 7_500 };
+    expect(numbers(await result(invoices([above])))).toEqual([`INV-A-${run}-1`]);
+    expect(
+      numbers(await result(invoices([above, { field: 'status', op: 'IS', value: 'OPEN' }]))),
+    ).toEqual([`INV-A-${run}-1`]);
+    expect(numbers(await result(invoices([{ ...above, value: '7500' }])))).toEqual([
+      `INV-A-${run}-1`,
+    ]);
+    const between = await result(
+      invoices([{ field: 'total', op: 'BETWEEN', value: { from: 2_500, to: 7_500 } }]),
+    );
+    expect(numbers(between)).toEqual([`INV-A-${run}-2`]);
+    expect(between.chips).toEqual([
+      { field: 'total', label: 'Total', value: 'between $25.00 and $75.00' },
+    ]);
+    // RP-F02: "abc" is refused with the condition's path (the screen keeps the report and the
+    // filter), in the definition and in More Filters alike.
+    for (const body of [
+      invoices([{ ...above, value: 'abc' }]),
+      invoices([], { extraFilters: { conditions: [{ ...above, value: 'abc' }] } }),
+    ]) {
+      const bad = await runReport(body);
+      expectError(bad, 400, 'INVALID_DEFINITION');
+      expect((bad.body as { error: { details: { path: string }[] } }).error.details).toEqual([
+        expect.objectContaining({ path: 'filters.conditions.0.value' }),
+      ]);
+    }
+    // RP-F20: the search narrows the cards and the chart with the table.
+    const searched = await result(invoices([], { search: `INV-A-${run}-2` }));
+    expect(numbers(searched)).toEqual([`INV-A-${run}-2`]);
+    expect(searched.kpis.find((k) => k.key === 'count')?.value).toBe(1);
+    expect(searched.kpis.find((k) => k.key === 'total')?.value).toBe(5_000);
+  });
+
   it('refuses a definition the data source does not allow, and a restricted one', async () => {
     const bad = async (over: object, who: Who = people.ownerA) =>
       runReport({ target: { kind: 'DEFINITION', definition: def(over) } }, who);
@@ -1035,6 +1087,41 @@ describe('exports', () => {
       expect.arrayContaining(['report.exported', 'report.download_link_issued']),
     );
     expect(JSON.stringify(audit)).not.toMatch(/Riley|50\.00/);
+  });
+
+  it('an export has the screen’s rows: its search and More Filters too, with real bytes (RP-F07, F20, Octavia Oct 28)', async () => {
+    const saved = await saveReport({
+      definition: def({
+        category: 'FINANCIAL',
+        dataSource: 'invoices_payments',
+        columns: ['number', 'client', 'total'],
+        showTotals: true,
+      }),
+    });
+    const screen = {
+      target: { kind: 'SAVED', id: saved.id },
+      includeTaxRevenue: true,
+      search: `INV-A-${run}`,
+      extraFilters: { conditions: [{ field: 'total', op: 'GREATER_THAN', value: 7_500 }] },
+    };
+    const shown = await result(screen);
+    expect(shown.table.total).toBe(1);
+    for (const format of ['CSV', 'XLSX', 'PDF'] as const) {
+      const made = ReportRunStatusView.parse(
+        ok(await call('post', '/reports/exports', people.ownerA, { run: screen, format })),
+      );
+      expect(made).toMatchObject({ status: 'SUCCEEDED', ready: true, rowCount: 1 });
+      const row = await inFirm('a', (tx) =>
+        tx.reportRun.findFirstOrThrow({ where: { id: made.runId } }),
+      );
+      const bytes = files.objects.get(row.s3Key!);
+      expect(bytes?.length).toBeGreaterThan(0);
+      if (format === 'CSV') {
+        const csv = bytes!.toString('utf8');
+        expect(csv).toContain(`INV-A-${run}-1`);
+        expect(csv).not.toContain(`INV-A-${run}-2`);
+      }
+    }
   });
 
   it('a spreadsheet formula in a cell is made inert; hidden columns are left out; locked ones stay', async () => {
