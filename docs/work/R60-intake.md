@@ -123,6 +123,11 @@ Progress (Communications, Oct 28 review):
   F06 (Back, the breadcrumb and Cancel ask Save Draft, Discard or Keep Editing), F07 (Last saved in
   the firm's time zone; a refused save says why), F09 (a backwards window is refused on Show Until,
   shown at once; a past window is the checklist's).
+- Overview PR, branch `rasel/R60-comms-overview` (stacked on the composer): CM-F01 (the KPI cards
+  open Sent History filtered to all, emails or texts), F02 (Segments & Lists says how to build an
+  audience), F03 (Choose Recipients picks or starts a draft and opens it with its chooser; Manage
+  Segments stays apart), F04 (a channel that is not connected links Owners and Admins to
+  Integrations, whose Back returns; Staff are told to ask one).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
