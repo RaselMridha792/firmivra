@@ -55,10 +55,20 @@ reads of `message_settings`. Bulk sends stay on the Communications engine (R39):
     `GET /business/message-files/{id}/download` (the author, Owner, Admin, Staff whose client got
     it) and `GET /portal/{slug}/me/messages/files/{id}/download` (PRIMARY and SPOUSE, as My
     Documents).
-- [ ] Then F13 and F16 (Related To, Assign Staff, Add to Client Timeline: `outbound_messages` has
-  `related_entity_type`/`id`, `assigned_user_id`, `add_to_timeline`), then F18 to F22 (contact
-  panel and thread menu on R36's `assigned_user_id`, `archived_at`, `message_thread_mutes`,
-  `message_thread_tags`).
+- [x] **F13 and F16's Assign Staff**, branch `rasel/R60-messages-related` (stacked on F12b):
+  Related To (`outbound_messages.related_entity_type`/`id`): one client's appointment, invoice,
+  tax return, document request, task or service, listed by `GET .../related-options?clientId=`;
+  the client's conversation takes it as its related record (a service also as its engagement),
+  so it shows under Appointments, Invoices or Documents. Assign Staff (`assigned_user_id`): an
+  active member from `GET .../assignees`, a Staff member only for their own clients and leads;
+  the conversations (clients' and leads') take the owner.
+- [ ] **Add to Client Timeline** (F16): Rasel's go of Oct 29 on `outbound_messages.add_to_timeline`
+  (the box starts unchecked; once sent, one entry on the client's own timeline with the subject,
+  channel and date, never the body or file names; only the client it went to, and only for staff
+  who may see that client; audited with ids; a firm B isolation test; stop if the timeline needs a
+  new column or table). **Stopped:** there is no client timeline to write to (see Needs from
+  others). Then F18 to F22 (contact panel and thread menu on R36's `assigned_user_id`,
+  `archived_at`, `message_thread_mutes`, `message_thread_tags`).
 - [x] **Leads tab** (MSG-F03 on `message_threads.lead_id`, #1213; Rasel's go of Oct 28, Deploy dev
   run 831 green): branch `rasel/R60-messages-leads`. New Message's email or text to a lead keeps a
   copy in the lead's own thread (one per lead and subject, linked from
@@ -88,6 +98,18 @@ Needs from others (Rasel):
   (R1) links a client's delivery to their portal message only on PORTAL, so files go with the
   Portal channel only. Letting an EMAIL delivery to a client link the portal message it writes
   would let Email carry files too (the email stays the notice). A schema change: Rasel's tap first.
+- **A client timeline for Add to Client Timeline** (F16, stopped Oct 29): the client's Activity
+  tab (the Clients guide: a "cross-module timeline/audit view" whose entries reference the source
+  record) has no table, API or screen, and `audit_logs` has no client link. The only per-client
+  feed is R36's `client_portal_activity`, the Client Portal tab's Activity (sign-ins, uploads,
+  views, payments; its instructions list "message" among the portal events). Nothing writes or
+  reads it yet (`GET /client-portal/clients/:id/activity` is not built). It could hold the entry
+  with no new column (`type` `message.sent`, `entity_type` `outbound_message` and its id,
+  `actor_kind` STAFF, `actor_user_id`, `occurred_at`; the subject and channel read from the
+  message when shown), but it is a portal feed, and an Email or Text is not portal activity.
+  Rasel's call: (a) yes to `client_portal_activity` for this, and which screen shows it; or (b) a
+  client timeline table (a schema change; Rasel's tap first). Until then New Message has no box,
+  and nothing reads `add_to_timeline`.
 - **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
   One library page for the three message kinds would need a change in Templates (not R60's).
 
@@ -116,8 +138,15 @@ Progress (Messages):
   server, so an email there failed), 8 of 8.
 - Oct 28: F12b built (API e2e `outbound-files` 9 of 9, Messages suites and the scan registry 45 of
   45; isolation: only the 10 known local failures; mock `r60-messages-new-files` 4 of 4 and every
-  Messages spec green). **Next step:** F13 and F16 (`outbound_messages.related_entity_type`/`id`,
-  `assigned_user_id`, `add_to_timeline`), after F12b's PR.
+  Messages spec green). Opened as #1227, 8 of 8.
+- Oct 29: F13 and F16's Assign Staff built (API e2e `outbound-options` 5 of 5 and the Messages
+  suites 53 of 53; isolation cases name `related.id` and `assignedUserId`; mock
+  `r60-messages-related` 2 of 2). Opened as #1229, 8 of 8.
+- Oct 29: #1226 merged; `main` merged into #1227 (only #1226's lines next to F12b's; 8 of 8),
+  then #1227 merged. `main` merged into #1229 (only F12b's lines next to F13's; R1's new
+  migration applied locally). Add to Client Timeline (Rasel's go): stopped, there is no client
+  timeline to write to (Needs from others). **Next step:** Rasel's answer on the timeline, then
+  F18 to F22.
 
 ## Handoff (Oct 23): start here
 

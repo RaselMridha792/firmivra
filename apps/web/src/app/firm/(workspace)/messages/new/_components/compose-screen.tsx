@@ -2,7 +2,10 @@
 
 import {
   OUTBOUND_FILES_MAX,
+  OUTBOUND_RELATED_LABELS,
+  OUTBOUND_RELATED_TYPES,
   type OutboundExclusion,
+  type OutboundRelatedType,
   type OutboundMessage,
   UPLOAD_LIMITS,
 } from '@firmivra/types';
@@ -90,6 +93,10 @@ type Form = {
   body: string;
   /** The template it started from (MSG-F11). */
   templateId: string | null;
+  /** MSG-F13: "type:id" of the client's record it is about, or ''. */
+  related: string;
+  /** MSG-F16: who owns the conversations it opens, or ''. */
+  assignedUserId: string;
   clients: Map<string, string>;
   leads: Map<string, string>;
   later: boolean;
@@ -101,6 +108,8 @@ const emptyForm = (subject = ''): Form => ({
   subject,
   body: '',
   templateId: null,
+  related: '',
+  assignedUserId: '',
   clients: new Map(),
   leads: new Map(),
   later: false,
@@ -114,12 +123,26 @@ const formOf = (m: OutboundMessage, timeZone: string): Form => {
     subject: m.subject ?? '',
     body: m.body,
     templateId: m.templateId,
+    related: m.related ? `${m.related.type}:${m.related.id}` : '',
+    assignedUserId: m.assignedTo?.userId ?? '',
     clients: new Map(m.recipients.filter((r) => r.kind === 'CLIENT').map((r) => [r.id, r.name])),
     leads: new Map(m.recipients.filter((r) => r.kind === 'LEAD').map((r) => [r.id, r.name])),
     later: at !== null,
     date: at?.date ?? '',
     time: at?.time ?? '09:00',
   };
+};
+/** New Message's refusals (MSG-F12, F13, F16), in the screen's words. */
+const ERRORS: Record<string, string> = {
+  RELATED_NEEDS_ONE_CLIENT: 'Related To is for a message to one client.',
+  ASSIGNEE_CANNOT_REACH: 'This staff member does not work with everyone you chose.',
+  FILES_NEED_PORTAL:
+    'Files go to clients through their portal. Choose Portal, or remove the files.',
+  FILES_NOT_READY: 'A file is still being checked for viruses. Try again in a moment.',
+  FILE_BLOCKED: 'A file failed its security check. Remove it, then send.',
+  ATTACHMENT_TYPE: 'Messages Settings do not allow this type of file.',
+  ATTACHMENT_TOO_LARGE: 'This file is over the size Messages Settings allow.',
+  TOO_MANY_FILES: `A message carries at most ${OUTBOUND_FILES_MAX} files.`,
 };
 const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
 
@@ -209,11 +232,19 @@ export function ComposeScreen({
           ? 'details'
           : 'review';
 
+  // Related To is for a message to one client: another client leaves it out.
+  const oneClient = form.clients.size === 1;
+  const [relatedType, relatedId] = form.related.split(':');
   const payload = () => ({
     channel: form.channel,
     subject: form.subject.trim() || null,
     body: form.body.trim(),
     templateId: form.templateId,
+    related:
+      oneClient && relatedType && relatedId
+        ? { type: relatedType as OutboundRelatedType, id: relatedId }
+        : null,
+    assignedUserId: form.assignedUserId || null,
     ...ids,
   });
   /** Saves the draft (a new one when its people or channel changed) and answers it. */
@@ -252,7 +283,7 @@ export function ComposeScreen({
       setReviewing(false);
       await qc.invalidateQueries({ queryKey: ['messages'] });
     } catch (e) {
-      setNotice({ text: errorMessage(e), tone: 'error' });
+      setNotice({ text: errorMessage(e, ERRORS), tone: 'error' });
     }
     setBusy(false);
   };
@@ -263,7 +294,7 @@ export function ComposeScreen({
       setSaved(await api.messages.outbound.cancel(saved.id, { version: saved.updatedAt }));
       setNotice({ text: 'The scheduled message was canceled. Nothing was sent.', tone: 'success' });
     } catch (e) {
-      setNotice({ text: errorMessage(e), tone: 'error' });
+      setNotice({ text: errorMessage(e, ERRORS), tone: 'error' });
     }
     setBusy(false);
   };
@@ -426,6 +457,7 @@ export function ComposeScreen({
           <div className="flex min-w-0 flex-col gap-4">
             <section aria-label="Additional Options" className={card}>
               <h2 className={h2}>3. Additional Options</h2>
+              <RelatedAndOwner form={form} onChange={set} />
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-heading">
                 <span>
                   Schedule Message <span className="font-normal text-muted">(optional)</span>
@@ -717,7 +749,7 @@ function ComposeFiles({
       }
       onChanged(await api.messages.outbound.get(m.id));
     } catch (e) {
-      onError(errorMessage(e));
+      onError(errorMessage(e, ERRORS));
     }
     setBusy(false);
   };
@@ -728,7 +760,7 @@ function ComposeFiles({
       await api.messages.outbound.removeFile(message.id, fileId);
       onChanged(await api.messages.outbound.get(message.id));
     } catch (e) {
-      onError(errorMessage(e));
+      onError(errorMessage(e, ERRORS));
     }
     setBusy(false);
   };
@@ -791,6 +823,85 @@ function ComposeFiles({
           onFiles={(picked) => void add(picked)}
         />
       ) : null}
+    </div>
+  );
+}
+
+const pick =
+  'h-10 w-full min-w-0 rounded-lg border border-divider bg-surface px-3 text-sm font-normal text-text disabled:opacity-50';
+
+/**
+ * MSG-F13, F16: Related To, one of the client's own records (for a message to one client), and
+ * Assign Staff, who owns the conversations it opens. Both reach the conversation: it is filed
+ * under the record (Appointments, Invoices or Documents in Messages) and owned by that person.
+ */
+function RelatedAndOwner({
+  form,
+  onChange,
+}: {
+  form: Form;
+  onChange: (patch: Partial<Form>) => void;
+}) {
+  const one = form.clients.size === 1 ? [...form.clients.keys()][0] : '';
+  const options = useApiQuery([...KEY, 'related', one], async () =>
+    one ? api.messages.outbound.relatedOptions({ clientId: one }) : null,
+  );
+  const assignees = useApiQuery([...KEY, 'assignees'], () => api.messages.outbound.assignees());
+  const items = options.data?.items ?? [];
+  return (
+    <div className="flex flex-col gap-3" data-testid="compose-related">
+      <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
+        <span>
+          Related To <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <select
+          className={pick}
+          value={one ? form.related : ''}
+          disabled={!one}
+          onChange={(e) => onChange({ related: e.target.value })}
+        >
+          <option value="">
+            {one
+              ? items.length || options.isPending
+                ? 'Nothing'
+                : 'This client has no records yet'
+              : 'Choose one client to link one of their records'}
+          </option>
+          {OUTBOUND_RELATED_TYPES.map((type) => {
+            const ofType = items.filter((i) => i.type === type);
+            return ofType.length ? (
+              <optgroup key={type} label={OUTBOUND_RELATED_LABELS[type]}>
+                {ofType.map((i) => (
+                  <option key={i.id} value={`${i.type}:${i.id}`}>
+                    {i.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null;
+          })}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
+        <span>
+          Assign Staff <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <select
+          className={pick}
+          value={form.assignedUserId}
+          onChange={(e) => onChange({ assignedUserId: e.target.value })}
+        >
+          <option value="">Nobody</option>
+          {(assignees.data?.items ?? []).map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-xs text-muted">
+        The conversation it opens is filed under the record and owned by this person. A staff member
+        owns only conversations with their own clients.
+      </p>
     </div>
   );
 }

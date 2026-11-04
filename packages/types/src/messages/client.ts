@@ -40,7 +40,10 @@ import {
   OutboundMessageList,
   OutboundReview,
   SaveOutboundRequest,
+  OutboundAssigneeList,
   OutboundFile,
+  OutboundRelatedOptions,
+  OutboundRelatedOptionsQuery,
   ScheduleOutboundRequest,
   SendOutboundRequest,
   StartOutboundFileRequest,
@@ -164,6 +167,15 @@ export function createMessagesClient(request: ApiRequest) {
           method: 'POST',
           body: parseInput(CheckOutboundRequest, body),
         }),
+      /** MSG-F13: the client's records a message can be about. */
+      relatedOptions: async (query: OutboundRelatedOptionsQuery): Promise<OutboundRelatedOptions> =>
+        request(
+          OutboundRelatedOptions,
+          `${OUTBOUND}/related-options${toQuery(parseInput(OutboundRelatedOptionsQuery, query))}`,
+        ),
+      /** MSG-F16: the members who can own the conversations. */
+      assignees: async (): Promise<OutboundAssigneeList> =>
+        request(OutboundAssigneeList, `${OUTBOUND}/assignees`),
       /** Drafts and scheduled messages (Staff: their own). */
       list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> =>
         request(OutboundMessageList, `${OUTBOUND}${toQuery(parseInput(ListOutboundQuery, query))}`),

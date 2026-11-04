@@ -141,8 +141,15 @@ const thread = { params: { id: 'messageThread' } };
 const VERSION = '2026-01-01T00:00:00.000Z';
 const outbound = { params: { id: 'outboundMessage' } };
 const people = { bodyIds: { clientIds: 'client', leadIds: 'leadFollowUp' } };
+// MSG-F13, F16: Related To (one of client X's records) and Assign Staff (a member).
 const withTemplate = {
-  bodyIds: { clientIds: 'client', leadIds: 'leadFollowUp', templateId: 'communicationTemplate' },
+  bodyIds: {
+    clientIds: 'client',
+    leadIds: 'leadFollowUp',
+    templateId: 'communicationTemplate',
+    'related.id': 'documentRequest',
+    assignedUserId: 'adminUser',
+  },
 };
 const PH = '00000000-0000-4000-8000-000000000000';
 
@@ -167,6 +174,8 @@ export const cases: CaseModule['cases'] = {
       channel: 'PORTAL',
       body: 'Fake message',
       templateId: PH,
+      related: { type: 'document_request', id: PH },
+      assignedUserId: PH,
       clientIds: [PH],
       leadIds: [PH],
     },
@@ -204,6 +213,8 @@ export const cases: CaseModule['cases'] = {
       channel: 'PORTAL',
       body: 'Fake',
       templateId: PH,
+      related: { type: 'document_request', id: PH },
+      assignedUserId: PH,
       clientIds: [PH],
       leadIds: [PH],
     },

@@ -49,6 +49,8 @@ import {
   UpdateMessageThreadRequest,
   ConfirmUploadRequest,
   OUTBOUND_FILES_MAX,
+  type OutboundRelated,
+  OutboundRelatedOptionsQuery,
   type OutboundFile,
   StartOutboundFileRequest,
   type LeadMessage,
@@ -377,6 +379,9 @@ interface OutboundRow {
   scheduledFor: string | null;
   clientIds: string[];
   leadIds: string[];
+  /** MSG-F13, F16: the record it is about and who owns the conversations. */
+  related: OutboundRelated | null;
+  assignedUserId: string | null;
   /** MSG-F12: its files (clean at once in mock mode). */
   files: OutboundFile[];
   /** After the send: what happened to each person. */
@@ -457,6 +462,26 @@ function leadCopy(
   return t.id;
 }
 
+/** MSG-F13: Jamie's own records a message can be about (synthetic). */
+function relatedFor(clientId: string): OutboundRelated[] {
+  if (clientId !== firstClientId) return [];
+  return [
+    { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
+    { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
+    { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },
+  ];
+}
+/** MSG-F16: the firm's active members. */
+const assigneesOf = () =>
+  teamFixtures()
+    .filter((m) => m.status === 'ACTIVE')
+    .map((m) => ({
+      userId: m.user.id,
+      name: m.user.name,
+      // As the API's legacyFirmRole: the newer roles own conversations as Staff.
+      role: m.role === 'OWNER' || m.role === 'ADMIN' ? m.role : ('STAFF' as const),
+    }));
+
 /** An in-memory `api.messages.outbound`; nothing is sent anywhere. */
 function createOutboundMock(role: MockFirmRole, me: { userId: string; name: string }) {
   const leadsMock = createLeadPipelineMock({ role });
@@ -520,6 +545,11 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       subject: r.subject,
       body: r.body,
       templateId: r.templateId,
+      related: r.related ? { ...r.related } : null,
+      assignedTo:
+        assigneesOf()
+          .filter((m) => m.userId === r.assignedUserId)
+          .map((m) => ({ userId: m.userId, name: m.name }))[0] ?? null,
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
@@ -532,6 +562,38 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };
+  };
+  /** MSG-F13, F16, as the API checks them on every save. */
+  const extrasOf = (b: {
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
+    clientIds: string[];
+    leadIds: string[];
+  }) => {
+    const clientIds = [...new Set(b.clientIds)];
+    let related: OutboundRelated | null = null;
+    if (b.related) {
+      if (clientIds.length !== 1)
+        throw fail(400, 'RELATED_NEEDS_ONE_CLIENT', 'Related To is for a message to one client');
+      const want = b.related;
+      related =
+        relatedFor(clientIds[0]!).find((x) => x.type === want.type && x.id === want.id) ?? null;
+      if (!related) throw notFound();
+    }
+    if (b.assignedUserId) {
+      const m = assigneesOf().find((x) => x.userId === b.assignedUserId);
+      if (!m) throw notFound();
+      if (
+        m.role === 'STAFF' &&
+        (b.leadIds.length > 0 || clientIds.some((c) => !STAFF_CLIENTS.includes(c)))
+      )
+        throw fail(
+          400,
+          'ASSIGNEE_CANNOT_REACH',
+          'This staff member does not work with everyone you chose',
+        );
+    }
+    return { related, assignedUserId: b.assignedUserId ?? null };
   };
   const find = (id: string) => {
     const r = outboundRows.find(
@@ -595,10 +657,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     subject?: string | null;
     body: string;
     templateId?: string | null;
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
     clientIds: string[];
     leadIds: string[];
   }): Promise<OutboundRow> => {
     await people(b.clientIds, b.leadIds);
+    const extras = extrasOf(b);
     const at = stamp();
     const r: OutboundRow = {
       id: id('0199b6e4', next()),
@@ -610,6 +675,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
       leadIds: [...new Set(b.leadIds)],
+      ...extras,
       files: [],
       results: new Map(),
       createdBy: { ...me },
@@ -742,6 +808,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         r.subject = b.subject ?? null;
         r.body = b.body;
         r.templateId = b.templateId ?? null;
+        Object.assign(r, extrasOf(b));
         r.updatedAt = stamp();
         return shape(r);
       }
@@ -775,7 +842,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             clientId: p.id,
             engagementId: null,
             subject: r.subject?.trim() || 'A message from your firm',
-            related: null,
+            related: r.related ? { type: r.related.type, id: r.related.id } : null,
             repliesEnabled: true,
             automated: false,
             archivedAt: null,
@@ -821,6 +888,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+    relatedOptions: async (query: OutboundRelatedOptionsQuery) => {
+      await mockDelay();
+      const { clientId } = parseInput(OutboundRelatedOptionsQuery, query);
+      await people([clientId], []);
+      return { items: relatedFor(clientId).map((x) => ({ ...x })) };
+    },
+    assignees: async () => (await mockDelay(), { items: assigneesOf() }),
     startFile: async (outboundId: string, body: StartOutboundFileRequest) => {
       await mockDelay();
       const b = parseInput(StartOutboundFileRequest, body);

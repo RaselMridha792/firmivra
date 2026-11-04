@@ -496,7 +496,7 @@ export class MessagesService {
     actor: ClientsActor,
     clientId: string,
     body: CreateBody,
-    options: { emailNotice?: boolean } = {},
+    options: { emailNotice?: boolean; assignedUserId?: string | null } = {},
   ): Promise<MessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
@@ -525,6 +525,7 @@ export class MessagesService {
           entityId: body.related?.id ?? null,
           repliesEnabled: body.repliesEnabled ?? true,
           createdByUserId: actor.userId,
+          assignedUserId: options.assignedUserId ?? null,
         },
         select: { id: true },
       });

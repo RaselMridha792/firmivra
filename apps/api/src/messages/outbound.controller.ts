@@ -6,7 +6,10 @@ import {
   ConfirmUploadRequest,
   type DownloadLink,
   type OkResponse,
+  type OutboundAssigneeList,
   type OutboundFile,
+  type OutboundRelatedOptions,
+  OutboundRelatedOptionsQuery,
   StartOutboundFileRequest,
   type UploadTicket,
   ListOutboundQuery,
@@ -57,6 +60,23 @@ export class OutboundMessagesController {
     @Body(new ZodValidationPipe(CheckOutboundRequest)) body: z.output<typeof CheckOutboundRequest>,
   ): Promise<OutboundCheck> {
     return this.outbound.check(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  /** MSG-F13: the client's records a message can be about. Before ':id'. */
+  @Get('related-options')
+  relatedOptions(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(OutboundRelatedOptionsQuery))
+    q: z.output<typeof OutboundRelatedOptionsQuery>,
+  ): Promise<OutboundRelatedOptions> {
+    return this.outbound.relatedOptions(tenant.businessId, actorOf(auth, tenant), q.clientId);
+  }
+
+  /** MSG-F16: the members who can own the conversations. Before ':id'. */
+  @Get('assignees')
+  assignees(@CurrentTenant() tenant: TenantContext): Promise<OutboundAssigneeList> {
+    return this.outbound.assignees(tenant.businessId);
   }
 
   @Post()

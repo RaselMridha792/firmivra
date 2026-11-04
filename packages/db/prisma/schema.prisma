@@ -10036,17 +10036,20 @@ model AutomationActionExecution {
 /// loop depth and safety threshold for new rules, who is told when a rule fails, the minutes each
 /// action is counted as saving (the Time Saved figure) and how long logs are kept. One row per firm.
 model AutomationSettings {
-  businessId            String    @id @map("business_id") @db.Uuid
-  quietStart            DateTime? @map("quiet_start") @db.Time(0)
-  quietEnd              DateTime? @map("quiet_end") @db.Time(0)
-  defaultDedupeDays     Int       @default(7) @map("default_dedupe_days")
-  maxDepth              Int       @default(3) @map("max_depth")
-  safetyThreshold       Int       @default(500) @map("safety_threshold")
-  failureAlertUserIds   String[]  @default([]) @map("failure_alert_user_ids") @db.Uuid
-  minutesSavedPerAction Int       @default(5) @map("minutes_saved_per_action")
-  logRetentionDays      Int       @default(365) @map("log_retention_days")
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  businessId                String    @id @map("business_id") @db.Uuid
+  quietStart                DateTime? @map("quiet_start") @db.Time(0)
+  quietEnd                  DateTime? @map("quiet_end") @db.Time(0)
+  defaultDedupeDays         Int       @default(7) @map("default_dedupe_days")
+  maxDepth                  Int       @default(3) @map("max_depth")
+  safetyThreshold           Int       @default(500) @map("safety_threshold")
+  failureAlertUserIds       String[]  @default([]) @map("failure_alert_user_ids") @db.Uuid
+  minutesSavedPerAction     Int       @default(5) @map("minutes_saved_per_action")
+  logRetentionDays          Int       @default(365) @map("log_retention_days")
+  /// R1 (Oct 29, AU-F29): the Manual Event Confirmation master. While false (the default), no
+  /// one can report an external event by hand; only Owner and Admin change it (audited).
+  manualConfirmationEnabled Boolean   @default(false) @map("manual_confirmation_enabled")
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
 
