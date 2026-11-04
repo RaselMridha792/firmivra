@@ -47,6 +47,11 @@ export const templateErrors = {
       code: 'NOT_THE_OWNER',
       message: 'Only its owner, an Owner or an Admin can change this template',
     }),
+  activateNotAllowed: () =>
+    new ForbiddenException({
+      code: 'ACTIVATE_NOT_ALLOWED',
+      message: 'Only an Owner or an Admin can make a template active',
+    }),
   testRefused: () =>
     new BadRequestException({
       code: 'TEST_SEND_REFUSED',

@@ -240,7 +240,8 @@ export class CommunicationExtrasService {
         subject: c.channel === 'SMS' ? null : c.subject,
         previewText: c.channel === 'EMAIL' ? c.previewText : null,
         body: c.body,
-        status: 'DRAFT',
+        // CM-F12: Active when asked (Owner and Admin; insert refuses Staff), else a draft.
+        status: body.activate ? 'ACTIVE' : 'DRAFT',
       });
       await this.audit.logIn(
         ctx.tx,

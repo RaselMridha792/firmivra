@@ -47,8 +47,25 @@ describe('the starter templates', () => {
     }
   });
 
-  it('cover every kind', () => {
-    expect(new Set(STARTERS.map((s) => s.kind)).size).toBe(16);
+  it('cover the twelve kinds of the guide’s list (TP-F18)', () => {
+    // The developer guide's 48 have no text, organizer, tax workflow or announcement starter: those
+    // kinds start from a blank template.
+    expect([...new Set(STARTERS.map((s) => s.kind))].sort()).toEqual(
+      [
+        'APPOINTMENT',
+        'BOOKKEEPING',
+        'CAMPAIGN',
+        'DOCUMENT_REQUEST',
+        'EMAIL',
+        'ENGAGEMENT_AGREEMENT',
+        'INVOICE_PAYMENT',
+        'LEAD_FOLLOW_UP',
+        'LETTER_NOTICE',
+        'PAYROLL',
+        'PORTAL_MESSAGE',
+        'TASK',
+      ].sort(),
+    );
   });
 });
 

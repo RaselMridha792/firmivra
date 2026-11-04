@@ -1189,7 +1189,8 @@ export function createCommunicationsMock({
           description: null,
           subject: r.d.subject,
           tags: [],
-          status: 'DRAFT' as const,
+          // CM-F12: Active when asked (Staff never reach here: manage() refuses them).
+          status: input.activate ? ('ACTIVE' as const) : ('DRAFT' as const),
           access: 'TEAM' as const,
           starter: false,
           includeInAutomations: false,

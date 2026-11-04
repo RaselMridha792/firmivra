@@ -33,6 +33,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -177,6 +178,9 @@ function Editor({
   const dirty = JSON.stringify(form) !== baseline;
   const hasSubject = HAS_SUBJECT.includes(kind);
   const eligible = AUTOMATION_KINDS.includes(kind);
+  // CM-F12: Owner and Admin make a template active; Staff save drafts (and keep an active one).
+  const { role } = useFirm();
+  const canActivate = role === 'OWNER' || role === 'ADMIN' || saved?.status === 'ACTIVE';
 
   // TP-F05: unsaved work asks before it is lost: closing or reloading the tab (the browser's
   // words), the shared Back bar (SH1), and Cancel or the breadcrumb (Stay or Discard).
@@ -421,10 +425,16 @@ function Editor({
               onChange={(e) => set({ status: e.target.value as Form['status'] })}
               options={[
                 { value: 'DRAFT', label: 'Draft' },
-                { value: 'ACTIVE', label: 'Active' },
+                ...(canActivate ? [{ value: 'ACTIVE', label: 'Active' }] : []),
               ]}
             />
           </div>
+          {canActivate ? null : (
+            <p className="-mt-2 text-xs text-muted" data-testid="activate-note">
+              Only an Owner or Admin can activate a template. Save it as a draft and ask one to
+              activate it.
+            </p>
+          )}
           {hasSubject ? (
             <div className="flex flex-col gap-1">
               <label htmlFor="te-subject" className="text-sm font-medium text-text">
@@ -842,7 +852,9 @@ function Editor({
             type="button"
             className={gold}
             disabled={save.isPending || saved?.status === 'ARCHIVED'}
-            onClick={() => doSave(form.status === 'DRAFT' && !saved ? 'ACTIVE' : form.status)}
+            onClick={() =>
+              doSave(form.status === 'DRAFT' && !saved && canActivate ? 'ACTIVE' : form.status)
+            }
             data-testid="save-template"
           >
             <FloppyDisk aria-hidden weight="fill" className="size-5" /> Save Template
