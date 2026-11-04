@@ -59,7 +59,18 @@ export class CommunicationAudienceService {
   ): Promise<Map<string, Exclude<Reason, 'DUPLICATE'>>> {
     const out = new Map<string, Exclude<Reason, 'DUPLICATE'>>();
     if (channel === 'ANNOUNCEMENT') {
-      for (const p of people) if (p.kind === 'LEAD') out.set(keyOf(p), 'MISSING_CHANNEL');
+      // CM-F05: the portal shows an announcement to its recipients only, so only clients with an
+      // active portal login can get one (New Message's rule); leads have no portal.
+      const ids = people.filter((p) => p.kind === 'CLIENT').map((p) => p.id);
+      const accounts = ids.length
+        ? await ctx.tx.clientAccount.findMany({
+            where: { businessId: ctx.businessId, clientId: { in: ids }, status: 'ACTIVE' },
+            select: { clientId: true },
+          })
+        : [];
+      const portal = new Set(accounts.map((a) => a.clientId));
+      for (const p of people)
+        if (p.kind === 'LEAD' || !portal.has(p.id)) out.set(keyOf(p), 'MISSING_CHANNEL');
       return out;
     }
     const clientIds = people.filter((p) => p.kind === 'CLIENT').map((p) => p.id);

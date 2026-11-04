@@ -35,8 +35,13 @@ type ViewId = (typeof VIEWS)[number]['id'];
 const REASON: Record<string, string> = {
   UNSUBSCRIBED: 'Unsubscribed',
   INVALID: 'Invalid address',
-  MISSING_CHANNEL: 'No phone number',
   NO_CONSENT: 'No consent',
+};
+/** What a missing channel means: no email, no mobile, or (an announcement, CM-F05) no portal login. */
+const MISSING: Record<CommunicationDetail['channel'], string> = {
+  EMAIL: 'No email address',
+  SMS: 'No phone number',
+  ANNOUNCEMENT: 'No portal access',
 };
 
 interface Pick {
@@ -222,7 +227,7 @@ export function RecipientsModal({
       <div className="max-w-full" data-testid="recipients-modal">
         <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_17rem]">
           <nav aria-label="Recipient groups" className="flex gap-1 overflow-x-auto md:col-span-2">
-            {VIEWS.map((v) => (
+            {VIEWS.filter((v) => v.id !== 'LEADS' || detail.channel !== 'ANNOUNCEMENT').map((v) => (
               <button
                 key={v.id}
                 type="button"
@@ -299,7 +304,9 @@ export function RecipientsModal({
                     </span>
                     <span className="block truncate text-xs text-muted">
                       {c.secondary}
-                      {c.ineligibleReason ? ` · ${REASON[c.ineligibleReason]}` : ''}
+                      {c.ineligibleReason
+                        ? ` · ${c.ineligibleReason === 'MISSING_CHANNEL' ? MISSING[detail.channel] : REASON[c.ineligibleReason]}`
+                        : ''}
                     </span>
                   </span>
                   {c.count !== null ? (
