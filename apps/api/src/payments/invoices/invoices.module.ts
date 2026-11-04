@@ -37,6 +37,7 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { NotificationsModule } from '../../notifications/notifications.controller.js';
 import { InvoiceJobs } from './invoice-jobs.js';
 import { InvoiceNotices } from './invoice-notices.js';
+import { InvoiceReceipts } from './invoice-receipts.js';
 import { InvoicesService } from './invoices.service.js';
 import { MyInvoicesController } from './my-invoices.controller.js';
 import { MyInvoicesService } from './my-invoices.service.js';
@@ -207,7 +208,7 @@ export class InvoicesController {
   // ReportsModule: its file store keeps the invoice PDFs under the firm's reports prefix.
   imports: [NotificationsModule, PortalTabsModule, ReportsModule],
   controllers: [InvoicesController, MyInvoicesController],
-  providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
-  exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
+  providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceReceipts, InvoiceJobs],
+  exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceReceipts, InvoiceJobs],
 })
 export class InvoicesModule {}
