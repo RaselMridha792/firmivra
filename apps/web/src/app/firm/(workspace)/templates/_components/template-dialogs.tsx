@@ -23,13 +23,17 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
 /** Preview with sample data: unresolved merge fields are flagged, and a test send never changes the template. */
 export function PreviewDialog({
   template,
+  draft,
   onClose,
 }: {
   template: Pick<MessageTemplateRow, 'id' | 'name' | 'kind'>;
+  /** TP-F04: the editor's unsaved subject and content, shown instead of the saved ones. */
+  draft?: { subject: string | null; body: string };
   onClose: () => void;
 }) {
-  const preview = useApiQuery([...TEMPLATES_KEY, 'preview', template.id], () =>
-    api.templates.preview(template.id),
+  const preview = useApiQuery(
+    [...TEMPLATES_KEY, 'preview', template.id, draft ? JSON.stringify(draft) : 'saved'],
+    () => api.templates.preview(template.id, draft ? { draft } : {}),
   );
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -48,7 +52,7 @@ export function PreviewDialog({
     <Modal
       open
       title="Preview"
-      subtitle={`${template.name} · sample data`}
+      subtitle={`${template.name} · ${draft ? 'your unsaved changes, ' : ''}sample data`}
       onClose={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -101,6 +105,11 @@ export function PreviewDialog({
         )}
         <div className="rounded-lg bg-canvas p-3">
           <h3 className="mb-2 text-sm font-semibold text-heading">Test Send</h3>
+          {draft ? (
+            <p className="mb-2 text-xs text-muted" data-testid="test-saved-only">
+              A test sends the saved template. Save first to test your changes.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-48 flex-1">
               {channel === 'EMAIL' ? (

@@ -330,16 +330,18 @@ describe('creating and reading', () => {
       400,
       'SUBJECT_REQUIRED',
     );
-    expectError(
-      await call('post', '/templates', people.ownerA, {
-        kind: 'EMAIL',
-        name: mark('B'),
-        body: 'x',
-        includeInAutomations: true,
-      }),
-      409,
-      'NOT_AUTOMATION_ELIGIBLE',
-    );
+    // TP-F11: a draft may keep Include in Automations, dormant; a kind automations can't use can't.
+    expect(
+      detail(
+        await call('post', '/templates', people.ownerA, {
+          kind: 'EMAIL',
+          name: mark('B'),
+          body: 'x',
+          includeInAutomations: true,
+        }),
+        201,
+      ),
+    ).toMatchObject({ status: 'DRAFT', includeInAutomations: true });
     expectError(
       await call('post', '/templates', people.ownerA, {
         kind: 'LETTER_NOTICE',
@@ -592,15 +594,53 @@ describe('changes, versions and the etag', () => {
     );
   });
 
-  it('an active email needs a subject; leaving active ends the automation offer', async () => {
+  it('an active email needs a subject; as a draft its automation choice stays, unused (TP-F11)', async () => {
     const t = await make({ subject: 'Hello' });
     const active = detail(
       await patchT(t.id, { etag: t.etag, status: 'ACTIVE', includeInAutomations: true }),
     );
     expect(active).toMatchObject({ status: 'ACTIVE', includeInAutomations: true });
     expectError(await patchT(t.id, { etag: active.etag, subject: null }), 400, 'SUBJECT_REQUIRED');
-    const draft = detail(await patchT(t.id, { etag: active.etag, status: 'DRAFT' }));
-    expect(draft.includeInAutomations).toBe(false);
+    // Active with Include in Automations on, set to Draft in one save: allowed, the choice kept.
+    const draft = detail(
+      await patchT(t.id, { etag: active.etag, status: 'DRAFT', includeInAutomations: true }),
+    );
+    expect(draft).toMatchObject({ status: 'DRAFT', includeInAutomations: true });
+    // What automations are offered (the rule builder's list) leaves it out while it is a draft.
+    const offered = async () =>
+      MessageTemplatePage.parse(
+        ok(
+          await call(
+            'get',
+            '/templates?tab=all&kind=EMAIL&status=ACTIVE&automations=true&pageSize=100',
+            people.ownerA,
+          ),
+        ),
+      ).items.map((i) => i.id);
+    expect(await offered()).not.toContain(t.id);
+    detail(await patchT(t.id, { etag: draft.etag, status: 'ACTIVE' }));
+    expect(await offered()).toContain(t.id);
+  });
+
+  it('previews the unsaved words in place of the saved ones, and saves nothing (TP-F04)', async () => {
+    const t = await make({ subject: 'Saved subject', body: '<p>Saved words</p>' });
+    const shown = RenderedTemplate.parse(
+      ok(
+        await call('post', `/templates/${t.id}/preview`, people.ownerA, {
+          draft: {
+            subject: 'Unsaved subject',
+            body: '<p>Unsaved words for [Client First Name]</p><script>x()</script>',
+          },
+        }),
+      ),
+    );
+    expect(shown.subject).toBe('Unsaved subject');
+    expect(shown.body).toContain('Unsaved words for');
+    expect(shown.body).not.toContain('Saved words');
+    expect(shown.body).not.toContain('<script');
+    const after = await getT(t.id);
+    expect(after).toMatchObject({ subject: 'Saved subject', version: t.version });
+    expect(after.body).toContain('Saved words');
   });
 });
 

@@ -61,6 +61,44 @@ describe('date ranges', () => {
     expect(range).toMatchObject({ from: '2026-10-17', to: '2026-10-17', label: 'Today' });
   });
 
+  it('end on the firm’s current day at each boundary (RP-F04, Octavia Oct 28)', () => {
+    const today = (iso: string) =>
+      rangeOf({ rule: 'ROLLING', preset: 'today' }, TZ, new Date(iso)).to;
+    // Her case: 00:08 in New York on Oct 28 is Oct 28 there; a minute before midnight is not.
+    expect(today('2026-10-28T04:08:00Z')).toBe('2026-10-28');
+    expect(today('2026-10-28T03:59:00Z')).toBe('2026-10-27');
+    // Daylight saving starts (Mar 8) and ends (Nov 1): the day turns at local midnight.
+    expect(today('2026-03-08T04:59:00Z')).toBe('2026-03-07');
+    expect(today('2026-03-08T05:01:00Z')).toBe('2026-03-08');
+    expect(today('2026-11-01T03:59:00Z')).toBe('2026-10-31');
+    expect(today('2026-11-01T04:01:00Z')).toBe('2026-11-01');
+    // A leap day, and the first day of a quarter and of a year.
+    expect(presetBounds('last_7_days', '2028-02-29')).toEqual({
+      from: '2028-02-23',
+      to: '2028-02-29',
+    });
+    expect(presetBounds('last_30_days', '2028-03-01')).toEqual({
+      from: '2028-02-01',
+      to: '2028-03-01',
+    });
+    expect(presetBounds('this_quarter', '2026-04-01')).toEqual({
+      from: '2026-04-01',
+      to: '2026-04-01',
+    });
+    expect(presetBounds('last_quarter', '2026-04-01')).toEqual({
+      from: '2026-01-01',
+      to: '2026-03-31',
+    });
+    expect(presetBounds('this_year', '2027-01-01')).toEqual({
+      from: '2027-01-01',
+      to: '2027-01-01',
+    });
+    expect(presetBounds('last_year', '2027-01-01')).toEqual({
+      from: '2026-01-01',
+      to: '2026-12-31',
+    });
+  });
+
   it('compare to the previous period and the same period last year', () => {
     const spec: DateSpec = { rule: 'ROLLING', preset: 'last_month' };
     const range = rangeOf(spec, TZ, new Date('2026-10-17T12:00:00Z'));

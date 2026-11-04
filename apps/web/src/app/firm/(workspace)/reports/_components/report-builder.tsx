@@ -17,6 +17,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, conditionsOf } from './filter-rules';
+import { CustomRangeDialog } from './report-date-controls';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
 import { FilterRows } from './report-filters';
 import {
@@ -32,6 +33,7 @@ import {
   outlined,
   primary,
   quiet,
+  rangeText,
   RP_ERRORS,
   subtle,
 } from './reports-shared';
@@ -58,6 +60,9 @@ export function ReportBuilder() {
   const [columns, setColumns] = useState<string[]>([]);
   const [fieldSearch, setFieldSearch] = useState('');
   const [preset, setPreset] = useState('this_year');
+  // RP-F16: a Custom Range as on a report's page, kept as a fixed range when saved.
+  const [fixed, setFixed] = useState<{ from: string; to: string }>();
+  const [picking, setPicking] = useState(false);
   const [conds, setConds] = useState<FilterDraft[]>([]);
   // RP-F09: a column dragged to a new place (the arrows do the same by keyboard).
   const [dragged, setDragged] = useState<string>();
@@ -95,7 +100,7 @@ export function ReportBuilder() {
         showTotals: totals,
         showPercentage: pct,
         compareTo: compare ? 'PREVIOUS_PERIOD' : 'NONE',
-        date: { rule: 'ROLLING', preset: preset as never },
+        date: fixed ? { rule: 'FIXED', ...fixed } : { rule: 'ROLLING', preset: preset as never },
         chartType: 'AUTO',
         showDataLabels: false,
         includeTaxRevenue: false,
@@ -333,9 +338,18 @@ export function ReportBuilder() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Select
                 label="Date Range"
-                value={preset}
-                onChange={(e) => setPreset(e.target.value)}
-                options={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+                value={fixed ? 'custom' : preset}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') setPicking(true);
+                  else {
+                    setFixed(undefined);
+                    setPreset(e.target.value);
+                  }
+                }}
+                options={[
+                  ...PRESETS.map((p) => ({ value: p.value, label: p.label })),
+                  { value: 'custom', label: fixed ? rangeText(fixed) : 'Custom Range…' },
+                ]}
               />
             </div>
             <FilterRows fields={filterFields} rows={conds} onChange={setConds} />
@@ -526,6 +540,16 @@ export function ReportBuilder() {
         </div>
       </div>
 
+      {picking ? (
+        <CustomRangeDialog
+          initial={fixed}
+          onClose={() => setPicking(false)}
+          onApply={(range) => {
+            setFixed(range);
+            setPicking(false);
+          }}
+        />
+      ) : null}
       {dialog === 'save' && definition ? (
         <SaveReportDialog
           definition={definition}

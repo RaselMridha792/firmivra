@@ -40,10 +40,17 @@ const defaults = (): PaymentPreferences => ({
   updatedAt: null,
 });
 
-/** The latest mock's live tax rates and templates, for the invoice mock (IP-F03). */
-let live: { taxes: () => InvoiceTaxRate[]; templates: () => InvoiceTemplateView[] } | undefined;
+/** The latest mock's live tax rates, templates and settings, for the invoice mock (IP-F03, F04). */
+let live:
+  | {
+      taxes: () => InvoiceTaxRate[];
+      templates: () => InvoiceTemplateView[];
+      prefs: () => PaymentPreferences;
+    }
+  | undefined;
 export const mockLiveTaxRate = (id: string) => live?.taxes().find((t) => t.id === id);
 export const mockLiveTemplate = (id: string) => live?.templates().find((t) => t.id === id);
+export const mockLivePreferences = () => live?.prefs() ?? defaults();
 
 /** `api.paymentPreferences` in mock mode (synthetic), with the API's stale-save check. */
 export function createPaymentPreferencesMock(
@@ -52,7 +59,7 @@ export function createPaymentPreferencesMock(
   let prefs = defaults();
   let taxes: InvoiceTaxRate[] = [];
   let templates: InvoiceTemplateView[] = [];
-  live = { taxes: () => taxes, templates: () => templates };
+  live = { taxes: () => taxes, templates: () => templates, prefs: () => prefs };
   let n = 0;
   const id = () => `01a1a000-0000-7000-8000-${String(++n).padStart(12, '0')}`;
   const guard = async () => {
