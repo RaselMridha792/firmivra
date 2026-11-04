@@ -138,6 +138,11 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - The manual part: module, event, record, client, member, time, reference (up to 200), note (up to 500) and an evidence document. A trigger keeps it from ever changing.
   - Provider evidence: `provider_verified_at`, `provider_code` and `provider_reference`, set together and only once.
   - FKs to clients, memberships and documents are RESTRICT. No backfill.
+- Oct 29 (Rasel's card "Approve all four", 11:19:57Z, last of four; R1 adds this line): `r1_template_structures` (R1, branch `rasel/R1-template-structures`, opened after `r1_automation_event_confirmations` merges): Octavia's TP-F08.
+  - On `message_templates`: `task_template_id`, `document_request_template_id` and `intake_template_id` (uuid NULL), each a composite FK to its module's template table (RESTRICT) and UNIQUE per firm.
+  - Also on `message_templates`: `structure jsonb NULL` for Tax Workflow and Bookkeeping.
+  - The check `message_templates_structure_by_kind` puts each link only on its own kind, and a structure (a JSON object) only on those two.
+  - `message_template_versions.structure jsonb NULL` (an object) keeps what each save had. No backfill.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.

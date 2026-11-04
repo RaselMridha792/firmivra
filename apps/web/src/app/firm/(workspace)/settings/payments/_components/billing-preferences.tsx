@@ -477,6 +477,16 @@ function PreferencesForm({
         />
       </Card>
 
+      <Card className="flex flex-col gap-3" aria-labelledby="deposit-accounts-title">
+        <h2 id="deposit-accounts-title" className="text-xl font-bold text-heading">
+          Deposit Accounts
+        </h2>
+        <p className="text-sm text-text">
+          Where your firm deposits payments it records. Record Payment offers them as Deposit To.
+        </p>
+        <DepositAccounts />
+      </Card>
+
       <div className="flex flex-wrap items-center gap-3">
         <Button
           disabled={!dirty || problem !== null || save.isPending}
@@ -643,6 +653,90 @@ function TaxRates() {
           disabled={!name.trim() || rate === '' || add.isPending}
         >
           Add Tax
+        </Button>
+      </form>
+      {(add.error ?? archive.error ?? makeDefault.error) ? (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(add.error ?? archive.error ?? makeDefault.error)}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** IP-F12: deposit accounts (Record Payment's Deposit To): add, make default, archive. */
+function DepositAccounts() {
+  const list = useApiQuery(['deposit-accounts'], () => api.paymentPreferences.depositAccounts());
+  const [name, setName] = useState('');
+  const add = useApiMutation(
+    () => api.paymentPreferences.createDepositAccount({ name, isDefault: false }),
+    { invalidate: ['deposit-accounts'] },
+  );
+  const archive = useApiMutation((id: string) => api.paymentPreferences.archiveDepositAccount(id), {
+    invalidate: ['deposit-accounts'],
+  });
+  const makeDefault = useApiMutation(
+    (a: { id: string; name: string }) =>
+      api.paymentPreferences.updateDepositAccount(a.id, { name: a.name, isDefault: true }),
+    { invalidate: ['deposit-accounts'] },
+  );
+  return (
+    <section aria-label="Deposit accounts" className="flex flex-col gap-2">
+      <PageState
+        query={list}
+        isEmpty={(d) => d.items.length === 0}
+        empty="No deposit accounts yet. Add the accounts your firm deposits into."
+      >
+        {(d) => (
+          <ul className="divide-y divide-divider rounded-control border border-border">
+            {d.items.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+                <span className="flex-1 font-medium text-heading">{a.name}</span>
+                {a.isDefault ? (
+                  <span className="rounded-pill bg-info-soft px-2 py-0.5 text-xs font-medium text-info">
+                    Default
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-link underline"
+                    onClick={() => makeDefault.mutate(a)}
+                  >
+                    Make default<span className="sr-only"> {a.name}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-link underline"
+                  onClick={() => archive.mutate(a.id)}
+                >
+                  Archive<span className="sr-only"> {a.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </PageState>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add.mutate(undefined, { onSuccess: () => setName('') });
+        }}
+      >
+        <Labelled label="Account name">
+          {(id) => (
+            <input
+              id={id}
+              value={name}
+              maxLength={80}
+              onChange={(e) => setName(e.target.value)}
+              className={`${field} w-64`}
+            />
+          )}
+        </Labelled>
+        <Button type="submit" variant="secondary" disabled={!name.trim() || add.isPending}>
+          Add Account
         </Button>
       </form>
       {(add.error ?? archive.error ?? makeDefault.error) ? (

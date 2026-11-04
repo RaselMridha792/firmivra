@@ -10,6 +10,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:seed:demo": "tsx prisma/seed-demo.ts",
+    "db:seed:qa": "tsx prisma/seed-qa.ts",
     "db:unseed:demo": "tsx prisma/unseed-demo.ts",
     "db:bootstrap-platform-org": "tsx prisma/bootstrap-platform-org-cli.ts",
     "db:studio": "prisma studio",

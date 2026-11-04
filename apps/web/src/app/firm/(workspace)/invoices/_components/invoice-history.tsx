@@ -86,7 +86,12 @@ export function InvoiceHistoryForm({
   );
 }
 
-const LABEL: Record<string, string> = { NOTE: 'Note', ACTIVITY_LOGGED: 'Activity' };
+const LABEL: Record<string, string> = {
+  NOTE: 'Note',
+  ACTIVITY_LOGGED: 'Activity',
+  // IP-F12 (R55): a receipt sent to the client.
+  RECEIPT_SENT: 'Receipt sent',
+};
 
 /** The invoice page's History card: the firm's notes and logged activity, newest first. */
 export function InvoiceHistoryCard({ invoiceId }: { invoiceId: string }) {

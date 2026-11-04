@@ -214,6 +214,37 @@ test('A saved report reopens as saved; Save Changes keeps it; Back returns to th
   );
 });
 
+test('The overview’s range and comparison go to a report and come back; Custom Range says what is wrong (RP-F01, F16)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(base);
+  await page.getByLabel('Date range').selectOption('last_month');
+  await expect(page).toHaveURL(/range=last_month/);
+  await page.getByLabel('Compare to').selectOption('NONE');
+  await expect(page).toHaveURL(/\/reports\?range=last_month&compare=NONE$/);
+  await page.getByRole('link', { name: 'Revenue Summary' }).first().click();
+  await expect(page).toHaveURL(/\/reports\/revenue-summary\?range=last_month&compare=NONE/);
+  const filters = page.getByTestId('report-filters');
+  await expect(filters.getByLabel('Date Range')).toHaveValue('last_month');
+  await expect(filters.getByLabel('Compare To')).toHaveValue('NONE');
+  await page.getByRole('link', { name: '← Back to Reports' }).click();
+  await expect(page).toHaveURL(/\/reports\?range=last_month&compare=NONE$/);
+  await expect(page.getByLabel('Date range')).toHaveValue('last_month');
+
+  // RP-F16: the overview's Custom Range, reversed dates named in place.
+  await page.getByLabel('Date range').selectOption('custom');
+  const custom = page.getByTestId('custom-range');
+  await custom.getByLabel('From').fill('2026-10-26');
+  await custom.getByLabel('To').fill('2026-10-24');
+  await expect(custom.getByText('The start date must be on or before the end date.')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('custom-range.png') });
+  await custom.getByLabel('To').fill('2026-10-27');
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
+  await expect(page).toHaveURL(/range=custom&start=2026-10-26&end=2026-10-27/);
+  await expect(page.getByTestId('range')).toContainText('Oct 26, 2026');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {

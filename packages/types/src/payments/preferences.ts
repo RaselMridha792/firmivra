@@ -219,6 +219,22 @@ export const SaveInvoiceTaxRateRequest = z.strictObject({
 });
 export type SaveInvoiceTaxRateRequest = z.input<typeof SaveInvoiceTaxRateRequest>;
 
+// ---------- Deposit accounts (deposit_accounts; IP-F12) ----------
+/** Where the firm puts money it records (Record Payment's Deposit To); archived ones are hidden. */
+export const DepositAccount = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  isDefault: z.boolean(),
+});
+export type DepositAccount = z.infer<typeof DepositAccount>;
+export const DepositAccountList = z.object({ items: z.array(DepositAccount) });
+/** 409 NAME_TAKEN for a name the firm already has, archived ones included. */
+export const SaveDepositAccountRequest = z.strictObject({
+  name: z.string().trim().min(1, 'Enter a name').max(80, 'Use 80 characters or fewer'),
+  isDefault: z.boolean().optional().default(false),
+});
+export type SaveDepositAccountRequest = z.input<typeof SaveDepositAccountRequest>;
+
 // ---------- Templates (invoice_templates) ----------
 export const InvoiceTemplateView = z.object({
   id: z.uuid(),
@@ -286,6 +302,25 @@ export function createPaymentPreferencesClient(request: ApiRequest) {
       request(
         InvoiceTaxRateList,
         `${BASE}/tax-rates/${encodeURIComponent(id)}/archive`,
+        json('POST', {}),
+      ),
+    depositAccounts: async () => request(DepositAccountList, `${BASE}/deposit-accounts`),
+    createDepositAccount: async (body: SaveDepositAccountRequest) =>
+      request(
+        DepositAccount,
+        `${BASE}/deposit-accounts`,
+        json('POST', parseInput(SaveDepositAccountRequest, body)),
+      ),
+    updateDepositAccount: async (id: string, body: SaveDepositAccountRequest) =>
+      request(
+        DepositAccount,
+        `${BASE}/deposit-accounts/${encodeURIComponent(id)}`,
+        json('PUT', parseInput(SaveDepositAccountRequest, body)),
+      ),
+    archiveDepositAccount: async (id: string) =>
+      request(
+        DepositAccountList,
+        `${BASE}/deposit-accounts/${encodeURIComponent(id)}/archive`,
         json('POST', {}),
       ),
     templates: async () => request(InvoiceTemplateList, `${BASE}/templates`),

@@ -44,6 +44,14 @@ export async function paymentsEnabled(tx: TxClient, businessId: string): Promise
   return account?.chargesEnabled ?? false;
 }
 
+/** IP-F12: a payment's latest receipt to the client (RECEIPT_SENT invoice events). */
+const lastReceipt = {
+  where: { type: 'RECEIPT_SENT' },
+  orderBy: { createdAt: 'desc' },
+  take: 1,
+  select: { createdAt: true },
+} satisfies Prisma.InvoiceEventFindManyArgs;
+
 const paymentSelect = {
   id: true,
   amountCents: true,
@@ -67,6 +75,7 @@ const paymentSelect = {
       createdAt: true,
     },
   },
+  invoiceEvents: lastReceipt,
 } satisfies Prisma.PaymentSelect;
 type PaymentRow = Prisma.PaymentGetPayload<{ select: typeof paymentSelect }>;
 
@@ -84,6 +93,9 @@ const offlineSelect = {
   voidReason: true,
   recordedBy: memberRef,
   voidedBy: memberRef,
+  // IP-F12
+  depositAccount: { select: { id: true, name: true } },
+  invoiceEvents: lastReceipt,
 } satisfies Prisma.OfflinePaymentSelect;
 type OfflineRow = Prisma.OfflinePaymentGetPayload<{ select: typeof offlineSelect }>;
 
@@ -231,6 +243,8 @@ const toOffline = (o: OfflineRow) => ({
   voidedAt: iso(o.voidedAt),
   voidedBy: o.voidedBy ? ref(o.voidedBy) : null,
   voidReason: o.voidReason,
+  depositAccount: o.depositAccount,
+  receiptSentAt: iso(o.invoiceEvents[0]?.createdAt ?? null),
 });
 
 /** The invoice's state as `myInvoiceStatus()` reads it. */
@@ -299,6 +313,7 @@ function toFirmPayment(p: PaymentRow): FirmInvoicePayment {
       createdAt: r.createdAt.toISOString(),
     })),
     refundableCents: p.status === 'SUCCEEDED' ? p.amountCents - p.refundReservedCents : 0,
+    receiptSentAt: iso(p.invoiceEvents[0]?.createdAt ?? null),
   };
 }
 
