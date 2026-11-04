@@ -2,6 +2,19 @@
 
 Source: `docs/specs/review-2026-10-25/CHANGE-LIST.md` (sections A, C, D, F), `dashboard--developer-feedback.md`, `client-signups--developer-instructions.md`, `screenshots/client-signups-expanded-sidebar.png`.
 
+## Automations and Integrations (Octavia's review of Oct 28): AU-F01 to F33, IN-F01 to F04
+
+Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Integrations (IN-F01 to F04). Order: the 13 trigger selectors (AU-F08 to F20), then AU-F01 to F03 and F28, IN-F01 and IN-F02, then the rest. Manual Event Confirmation (AU-F29 to F33) waits for Rasel's word. Source: `docs/specs/review-2026-10-28/AUTOMATIONS.md`, `INTEGRATIONS.md`.
+
+**Design (trigger selectors):** the engine polls: each event has a loader in `automations/matching.ts` that reads the firm's records and keys each occurrence, so a run never repeats. Change events (status changed, submitted, converted) bind to the source module's own audit entries (`audit_logs`, firm-scoped, indexed by firm and time): one occurrence per audit row, read from the rule version's start. No event is invented: an event without a real audit action or record date stays unlisted (AU-Y02 default).
+
+**PRs (one line each):**
+- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03) and the Clients, Leads, Intake Forms and Documents selectors (AU-F08 to F11). In progress.
+
+**Needs from others:**
+- AU-F28 Rule Owner: no column needed. `automation_rules.owner_user_id` already exists (R38's migration, FK to memberships), and the engine acts as that member (`automations-read.service.ts` `actingMember`). Asked whether R55 may build AU-F28 on it with no schema change; not started.
+- AU-F29 to F33: R1's `manual_confirmation_enabled` on `automation_settings` is merged; waiting for Rasel's word before starting.
+
 ## Invoices & Payments (Octavia's review of Oct 27, section A): IP-F01 to F05, F12, F13
 
 Rasel (Oct 28): R55 takes IP-F01 to F05, F12 and F13. R56 owns F06 to F09, F17 and F20 to F24 (do not touch those files); R60 is on Messages only.

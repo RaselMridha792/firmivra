@@ -45,7 +45,9 @@ describe('withOrigin', () => {
     expect(originLabel('/somewhere-else')).toBe('Previous Page');
     // RP-F03: the Report Library, with its tab and page.
     expect(originLabel('/reports/library?tab=saved&page=2')).toBe('Report Library');
-    expect(originLabel('/reports/library-x')).toBe('Previous Page');
+    expect(originLabel('/reports/library-x')).toBe('Reports');
+    // RP-F01: the overview, with its range and comparison.
+    expect(originLabel('/reports?range=last_month&compare=NONE')).toBe('Reports');
   });
 });
 
