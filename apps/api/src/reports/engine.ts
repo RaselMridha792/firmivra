@@ -334,19 +334,58 @@ export function matches(
   return combine(filters.logic, parts);
 }
 
-/** The filters as chips for the detail view. */
-export function chipsOf(filters: Filters, fields: Map<string, ReportField>): ReportFilterChip[] {
-  const text = (c: Condition) => {
-    if (NO_VALUE.has(c.op)) return c.op === 'IS_EMPTY' ? 'is empty' : 'is not empty';
-    const op = c.op.toLowerCase().replace(/_/g, ' ');
-    const v = pair(c.value)
-      ? `${String((c.value as { from: unknown }).from)} and ${String((c.value as { to: unknown }).to)}`
-      : Array.isArray(c.value)
-        ? c.value.join(', ')
-        : String(c.value);
-    return `${op} ${v}`;
+const OP_WORDS: Record<string, string> = {
+  EQUALS: 'equals',
+  NOT_EQUALS: 'does not equal',
+  CONTAINS: 'contains',
+  NOT_CONTAINS: 'does not contain',
+  STARTS_WITH: 'starts with',
+  IS_EMPTY: 'is empty',
+  IS_NOT_EMPTY: 'is not empty',
+  GREATER_THAN: 'greater than',
+  LESS_THAN: 'less than',
+  BETWEEN: 'between',
+  ON: 'on',
+  BEFORE: 'before',
+  AFTER: 'after',
+  RELATIVE: 'in',
+  IS: 'is',
+  IS_NOT: 'is not',
+  IS_ANY_OF: 'is any of',
+  IS_NONE_OF: 'is none of',
+};
+const DOLLARS = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+/**
+ * The conditions as chips for the detail view, in words (RP-F09, Octavia Oct 28): "Total greater
+ * than $500.00", a status by its label, a date range by its name; money filters are in cents.
+ */
+export function chipsOf(
+  conditions: readonly Condition[],
+  fields: Map<string, ReportField>,
+): ReportFilterChip[] {
+  const one = (f: ReportField | undefined, v: unknown) => {
+    if (f?.type === 'MONEY' && !Number.isNaN(num(v))) return DOLLARS.format(num(v) / 100);
+    if (f?.type === 'PERCENT' && !Number.isNaN(num(v))) return `${num(v)}%`;
+    if (f?.type === 'BOOLEAN') return v === true ? 'Yes' : 'No';
+    if (f?.type === 'DATE' || f?.type === 'DATETIME')
+      return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)
+        ? fmt(v.slice(0, 10))
+        : String(v);
+    return f?.options.find((o) => o.value === v)?.label ?? String(v);
   };
-  return [...filters.conditions, ...filters.groups.flatMap((g) => g.conditions)].map((c) => ({
+  const text = (c: Condition) => {
+    const f = fields.get(c.field);
+    const op = OP_WORDS[c.op] ?? c.op.toLowerCase();
+    if (NO_VALUE.has(c.op)) return op;
+    if (c.op === 'RELATIVE')
+      return `${op} ${PRESET_LABELS[c.value as ReportDatePreset] ?? String(c.value)}`;
+    const p = pair(c.value);
+    if (p) return `${op} ${one(f, p[0])} and ${one(f, p[1])}`;
+    if (Array.isArray(c.value)) return `${op} ${c.value.map((v) => one(f, v)).join(', ')}`;
+    return `${op} ${one(f, c.value)}`;
+  };
+  return conditions.map((c) => ({
     field: c.field,
     label: fields.get(c.field)?.label ?? c.field,
     value: text(c),
@@ -556,16 +595,36 @@ export function compute(input: ComputeInput): Computed {
   const { source, def } = input;
   const fields = new Map(source.fields.map((f) => [f.key, f]));
   const today = todayIn(input.range.timezone);
-  const rows = prepare(source, input.rows, input.range, input.filters, today, input.includeTax);
+  // RP-F20 (Octavia, Oct 28): the search narrows the cards, the charts, the table and the export
+  // together (one dataset), in the period and the comparison alike.
+  const needle = input.search?.toLowerCase();
+  const searchable = source.fields
+    .filter((f) => f.type === 'TEXT' && !f.sensitive)
+    .map((f) => f.key);
+  const searchIn = (list: Row[]) =>
+    needle
+      ? list.filter((r) =>
+          searchable.some((k) =>
+            String(r.cells[k] ?? '')
+              .toLowerCase()
+              .includes(needle),
+          ),
+        )
+      : list;
+  const rows = searchIn(
+    prepare(source, input.rows, input.range, input.filters, today, input.includeTax),
+  );
   const previous =
     input.compareRows && input.comparisonRange
-      ? prepare(
-          source,
-          input.compareRows,
-          input.comparisonRange,
-          input.filters,
-          today,
-          input.includeTax,
+      ? searchIn(
+          prepare(
+            source,
+            input.compareRows,
+            input.comparisonRange,
+            input.filters,
+            today,
+            input.includeTax,
+          ),
         )
       : null;
   const notices: string[] = [];
@@ -711,20 +770,8 @@ export function compute(input: ComputeInput): Computed {
     };
   }
 
-  // The table: detail rows, or the groups.
-  const needle = input.search?.toLowerCase();
-  const searchable = source.fields
-    .filter((f) => f.type === 'TEXT' && !f.sensitive)
-    .map((f) => f.key);
-  const searched = needle
-    ? rows.filter((r) =>
-        searchable.some((k) =>
-          String(r.cells[k] ?? '')
-            .toLowerCase()
-            .includes(needle),
-        ),
-      )
-    : rows;
+  // The table: detail rows, or the groups (already searched).
+  const searched = rows;
   const sortField = input.sort?.field ?? def.sortBy;
   const descending = input.sort ? input.sort.descending : def.sortDescending;
 

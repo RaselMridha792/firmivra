@@ -1,6 +1,6 @@
 'use client';
 
-import { ApiRequestError, type ReportResult } from '@firmivra/types';
+import { ApiRequestError, type ReportFilterCondition, type ReportResult } from '@firmivra/types';
 import {
   ActionMenu,
   Button,
@@ -23,13 +23,16 @@ import {
   Printer,
   Funnel,
 } from '@phosphor-icons/react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
+import { FilterRows } from './report-filters';
 import {
   BarChart,
   CATEGORY_META,
@@ -51,6 +54,17 @@ import {
 } from './reports-shared';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** More Filters as typed and as sent (only rows that fit are ever applied). */
+interface Extra {
+  rows: FilterDraft[];
+  conditions: ReportFilterCondition[];
+}
+const NO_EXTRA: Extra = { rows: [], conditions: [] };
+/** A run's result, or why it could not run with the last result of this report kept (RP-F02). */
+interface Run {
+  result: ReportResult | undefined;
+  error: unknown;
+}
 const QUICK = ['last_7_days', 'last_30_days', 'this_month', 'this_year', 'last_year'] as const;
 const CHARTS = [
   { value: 'AUTO', label: 'Automatic' },
@@ -79,7 +93,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{ id: string; descending: boolean }>();
   const [hidden, setHidden] = useState<string[]>([]);
-  const [extra, setExtra] = useState<{ field: string; op: string; value: string }[]>([]);
+  const [extra, setExtra] = useState<Extra>(NO_EXTRA);
   const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
@@ -102,13 +116,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           },
         }
       : {}),
-    ...(extra.length
-      ? {
-          extraFilters: {
-            conditions: extra.map((c) => ({ field: c.field, op: c.op as never, value: c.value })),
-          },
-        }
-      : {}),
+    ...(extra.conditions.length ? { extraFilters: { conditions: extra.conditions } } : {}),
     ...(term ? { search: term } : {}),
     ...(sort ? { sort: { field: sort.id, descending: sort.descending } } : {}),
     ...(groupBy ? { breakdownBy: groupBy } : {}),
@@ -118,15 +126,44 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     page,
     pageSize: 10,
   };
-  const q = useApiQuery([...RP_KEY, 'run', JSON.stringify(req)], () => api.reports.run(req));
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: [...RP_KEY, 'run', JSON.stringify(req)],
+    queryFn: async (): Promise<Run> => {
+      try {
+        return { result: await api.reports.run(req), error: null };
+      } catch (error) {
+        // RP-F02 (Octavia, Oct 28): settings the report cannot run with keep its last results
+        // on screen with the reason, and every control stays to change them.
+        const mine = `{"target":${JSON.stringify(target)}`;
+        const last = client
+          .getQueryCache()
+          .findAll({ queryKey: [...RP_KEY, 'run'] })
+          .filter((x) => {
+            const run = x.state.data as Run | undefined;
+            return (
+              String(x.queryKey[RP_KEY.length + 1]).startsWith(mine) && !!run?.result && !run.error
+            );
+          })
+          .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0];
+        return { result: (last?.state.data as Run | undefined)?.result, error };
+      }
+    },
+    placeholderData: keepPreviousData,
+  });
   const services = useApiQuery([...RP_KEY, 'services'], () =>
     api.reports.lookups({ kind: 'SERVICE_CATEGORY' }),
   );
   const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
-  const r: ReportResult | undefined = q.data;
+  const r: ReportResult | undefined = q.data?.result;
+  const runError = q.data?.error ?? null;
+  const reason = runError
+    ? ((runError instanceof ApiRequestError ? runError.details?.[0]?.message : undefined) ??
+      errorMessage(runError, RP_ERRORS))
+    : '';
   const meta = r ? (CATEGORY_META[r.category] ?? CATEGORY_META['FINANCIAL']!) : undefined;
 
-  if (q.isError)
+  if ((q.isError || runError) && !r)
     return (
       <div className="flex flex-col gap-3" data-testid="report-error">
         <Link href="/reports" className="text-sm font-medium text-link">
@@ -260,6 +297,37 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      {runError ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-danger-soft p-3 text-sm text-danger"
+          data-testid="run-error"
+        >
+          <span>
+            The report could not run with these settings: {reason} It still shows the last results.
+          </span>
+          <span className="flex gap-4">
+            <button
+              type="button"
+              className="font-medium text-link"
+              onClick={() => setDialog('filters')}
+            >
+              Edit Filters
+            </button>
+            <button
+              type="button"
+              className="font-medium text-link"
+              onClick={() => {
+                setExtra(NO_EXTRA);
+                setSearch('');
+                setPage(1);
+              }}
+            >
+              Clear All
+            </button>
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-w-0 flex-col gap-4">
@@ -325,10 +393,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               onClick={() => setDialog('filters')}
             >
               <Funnel aria-hidden weight="fill" className="size-4" /> More Filters
-              {extra.length ? ` (${extra.length})` : ''}
+              {extra.rows.length ? ` (${extra.rows.length})` : ''}
             </button>
           </section>
-          {r && r.chips.length + extra.length > 0 ? (
+          {r && r.chips.length + extra.rows.length > 0 ? (
             <ul className="flex flex-wrap items-center gap-2" aria-label="Active filters">
               {r.chips.map((c) => (
                 <li
@@ -338,12 +406,15 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                   {c.label} {c.value}
                 </li>
               ))}
-              {extra.length ? (
+              {extra.rows.length ? (
                 <li>
                   <button
                     type="button"
                     className="text-sm font-medium text-link"
-                    onClick={() => setExtra([])}
+                    onClick={() => {
+                      setExtra(NO_EXTRA);
+                      setPage(1);
+                    }}
                   >
                     Clear All
                   </button>
@@ -681,7 +752,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {dialog === 'filters' ? (
         <MoreFilters
           fields={(src?.fields ?? []).filter((f) => f.filterable)}
-          value={extra}
+          value={extra.rows}
           onClose={() => setDialog(undefined)}
           onApply={(v) => {
             setExtra(v);
@@ -749,17 +820,28 @@ function MoreFilters({
   onClose,
   onApply,
 }: {
-  fields: {
-    key: string;
-    label: string;
-    type: string;
-    options: { value: string; label: string }[];
-  }[];
-  value: { field: string; op: string; value: string }[];
+  fields: readonly FilterField[];
+  value: FilterDraft[];
   onClose: () => void;
-  onApply: (v: { field: string; op: string; value: string }[]) => void;
+  onApply: (v: Extra) => void;
 }) {
   const [rows, setRows] = useState(value);
+  const [showAll, setShowAll] = useState(false);
+  // RP-F02: Apply sends only filters that fit; otherwise each says what to fix and the first takes
+  // the focus, and the report stays as it was.
+  const apply = () => {
+    const { conditions, problems } = conditionsOf(fields, rows);
+    if (problems.some(Boolean)) {
+      setShowAll(true);
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>('[data-testid="more-filters"] [aria-invalid="true"]')
+          ?.focus(),
+      );
+      return;
+    }
+    onApply({ rows, conditions });
+  };
   return (
     <Modal
       open
@@ -771,92 +853,13 @@ function MoreFilters({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => onApply(rows.filter((r) => r.field))}>Apply</Button>
+          <Button onClick={apply}>Apply</Button>
         </>
       }
     >
       <div className="flex flex-col gap-3" data-testid="more-filters">
         {rows.length === 0 ? <p className={quiet}>No extra filters.</p> : null}
-        {rows.map((r, i) => {
-          const f = fields.find((x) => x.key === r.field);
-          return (
-            <div
-              key={`${r.field}-${i}`}
-              className="grid items-end gap-2 sm:grid-cols-[1fr_8rem_1fr_auto]"
-            >
-              <Select
-                label="Field"
-                value={r.field}
-                onChange={(e) =>
-                  setRows(
-                    rows.map((x, j) =>
-                      j === i ? { field: e.target.value, op: 'IS', value: '' } : x,
-                    ),
-                  )
-                }
-                options={fields.map((x) => ({ value: x.key, label: x.label }))}
-              />
-              <Select
-                label="Is"
-                value={r.op}
-                onChange={(e) =>
-                  setRows(rows.map((x, j) => (j === i ? { ...x, op: e.target.value } : x)))
-                }
-                options={
-                  f && (f.type === 'MONEY' || f.type === 'NUMBER')
-                    ? [
-                        { value: 'GREATER_THAN', label: 'above' },
-                        { value: 'LESS_THAN', label: 'below' },
-                      ]
-                    : [
-                        { value: 'IS', label: 'is' },
-                        { value: 'IS_NOT', label: 'is not' },
-                        { value: 'CONTAINS', label: 'contains' },
-                      ]
-                }
-              />
-              {f && f.options.length ? (
-                <Select
-                  label="Value"
-                  value={r.value}
-                  onChange={(e) =>
-                    setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                  }
-                  options={[{ value: '', label: 'Choose…' }, ...f.options]}
-                />
-              ) : (
-                <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-                  Value
-                  <input
-                    value={r.value}
-                    onChange={(e) =>
-                      setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                    }
-                    className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-                  />
-                </label>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove filter ${i + 1}`}
-                onClick={() => setRows(rows.filter((_, j) => j !== i))}
-                className="min-h-10 px-2 text-sm font-medium text-danger"
-              >
-                Remove
-              </button>
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="w-fit text-sm font-medium text-link"
-          disabled={!fields[0]}
-          onClick={() =>
-            fields[0] && setRows([...rows, { field: fields[0].key, op: 'IS', value: '' }])
-          }
-        >
-          + Add Filter
-        </button>
+        <FilterRows fields={fields} rows={rows} onChange={setRows} showAll={showAll} />
       </div>
     </Modal>
   );

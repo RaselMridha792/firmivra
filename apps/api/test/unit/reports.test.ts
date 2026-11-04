@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkDefinition,
+  chipsOf,
   comparisonOf,
   compute,
   conditionShapeOk,
@@ -442,6 +443,52 @@ describe('the computation', () => {
     ).toMatch(/Comparison is not available/);
   });
 
+  it('the search narrows the cards, the chart and the table alike (RP-F20, Octavia Oct 28)', () => {
+    const c = compute(input({ search: 'b' }) as never);
+    expect(c.kpis[0]).toMatchObject({ key: 'count', value: 1 });
+    expect(c.kpis.find((k) => k.key === 'total')?.value).toBe(20_000);
+    expect(c.chart?.series[0]?.values.reduce<number>((a, b) => a + (b ?? 0), 0)).toBe(20_000);
+    expect(c.totals).toEqual({ total: 20_000 });
+    expect(c.all.map((r) => r.cells.number)).toEqual(['2']);
+    // The comparison period is searched the same way.
+    const cmp = { from: '2026-09-01', to: '2026-09-30', timezone: TZ, label: 'y' };
+    const compared = compute(
+      input({
+        search: 'b',
+        def: def({ compareTo: 'PREVIOUS_PERIOD' }),
+        compareRows: [
+          mk('p1', '2026-09-05', 10_000, 0),
+          mk('p2', '2026-09-06', 7_000, 0, 'OPEN', 'B'),
+        ],
+        comparisonRange: cmp,
+      }) as never,
+    );
+    expect(compared.kpis.find((k) => k.key === 'total')?.previous).toBe(7_000);
+  });
+
+  it('a money filter is in cents, alone or with a status (RP-F10, Octavia Oct 28)', () => {
+    const above = (conditions: object[]) => {
+      const filters = { logic: 'AND' as const, conditions, groups: [] };
+      return compute(input({ def: def({ filters }), filters: [filters] }) as never).all.map(
+        (r) => r.cells.number,
+      );
+    };
+    // $150.00 is 15,000 cents: only the $220 invoice (its total without tax is $200).
+    expect(above([{ field: 'total', op: 'GREATER_THAN', value: 15_000 }])).toEqual(['2']);
+    expect(
+      above([
+        { field: 'total', op: 'GREATER_THAN', value: 15_000 },
+        { field: 'status', op: 'IS', value: 'PAID' },
+      ]),
+    ).toEqual(['2']);
+    expect(
+      above([
+        { field: 'total', op: 'GREATER_THAN', value: 15_000 },
+        { field: 'status', op: 'IS', value: 'OPEN' },
+      ]),
+    ).toEqual([]);
+  });
+
   it('pages and previews', () => {
     const many = Array.from({ length: 30 }, (_, i) => mk(String(i), '2026-10-10', 1_000, 0));
     const page = compute(input({ rows: many, page: 2, pageSize: 10 }) as never);
@@ -449,6 +496,31 @@ describe('the computation', () => {
     expect(page.rows).toHaveLength(10);
     const preview = compute(input({ rows: many, pageSize: 25, preview: true }) as never);
     expect(preview.rows).toHaveLength(10);
+  });
+});
+
+describe('the filter chips', () => {
+  it('say the condition in words: money in dollars, a status by its label, a range by its name', () => {
+    const fields = new Map(sourceOf('invoices_payments')!.fields.map((f) => [f.key, f]));
+    const chips = chipsOf(
+      [
+        { field: 'total', op: 'GREATER_THAN', value: 50_000 },
+        { field: 'total', op: 'BETWEEN', value: { from: 10_000, to: 25_050 } },
+        { field: 'status', op: 'IS_ANY_OF', value: ['OPEN', 'PAID'] },
+        { field: 'issuedOn', op: 'AFTER', value: '2026-10-24' },
+        { field: 'issuedOn', op: 'RELATIVE', value: 'last_30_days' },
+        { field: 'client', op: 'IS_EMPTY' },
+      ],
+      fields,
+    );
+    expect(chips.map((c) => `${c.label} ${c.value}`)).toEqual([
+      'Total greater than $500.00',
+      'Total between $100.00 and $250.50',
+      'Status is any of Open, Paid',
+      'Invoice Date after Oct 24, 2026',
+      'Invoice Date in Last 30 Days',
+      'Client is empty',
+    ]);
   });
 });
 
