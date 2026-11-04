@@ -2624,6 +2624,47 @@ describe('recurring definitions', () => {
     }
   });
 
+  it('saves an edit as the screen sends it: the whole definition, only the description changed (CD-F10, Octavia Oct 28)', async () => {
+    for (const isTemplate of [false, true]) {
+      const r = await mk({
+        description: 'Fake first words',
+        reminders: [{ daysBefore: 7 }],
+        ...(isTemplate ? { isTemplate: true, startOn: undefined } : {}),
+      });
+      // Every field of the form, as Save Changes sends it (never `isTemplate`).
+      const edited = exact(
+        ComplianceRecurrence,
+        await call('patch', `/compliance/recurrences/${r.id}`, people.ownerA, {
+          name: r.name,
+          type: r.type,
+          description: 'Fake new words',
+          agency: r.agency,
+          frequency: r.frequency,
+          repeatRule: r.repeatRule,
+          ...(isTemplate ? {} : { startOn: r.startOn }),
+          endMode: r.endMode,
+          holidayRule: r.holidayRule,
+          createTask: r.createTask,
+          clientVisible: r.clientVisible,
+          remindClient: r.remindClient,
+          addToTaxCalendar: r.addToTaxCalendar,
+          notifyTeam: r.notifyTeam,
+          reminders: r.reminders.map((x) => ({ daysBefore: x.daysBefore })),
+          sendPastDueNotice: r.sendPastDueNotice,
+          escalateToManager: r.escalateToManager,
+        }),
+      );
+      expect(edited.description).toBe('Fake new words');
+      expect(edited.isTemplate).toBe(isTemplate);
+      expect(
+        exact(
+          ComplianceRecurrence,
+          await call('get', `/compliance/recurrences/${r.id}`, people.ownerA),
+        ).description,
+      ).toBe('Fake new words');
+    }
+  });
+
   it('edits a definition, checking the whole of it', async () => {
     const r = await mk();
     const patch = (body: object, who: Who = people.ownerA) =>

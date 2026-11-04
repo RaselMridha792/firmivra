@@ -164,6 +164,17 @@ test('Calendars: import a draft, verify, publish; rules and logs', async ({ page
   await expect(page.getByTestId('logs-tab')).toContainText('Published');
 });
 
+test('Recurring: Save Changes saves an edit of the description alone (CD-F10)', async ({
+  page,
+}) => {
+  await page.goto(`${base}/recurring/new?edit=0199c0f0-3e00-7000-8000-000000000001`);
+  const description = page.getByLabel('Description');
+  await expect(page.getByLabel('Deadline Name')).not.toHaveValue('');
+  await description.fill('Fake: the payroll deposit for the month.');
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page).toHaveURL(/tab=manage&saved=/);
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {
