@@ -5,7 +5,7 @@ import {
   type ConnectIntegrationResult,
   type IntegrationConnectionDetail,
 } from '@firmivra/types';
-import { ActionMenu, Badge, Button, Card } from '@firmivra/ui';
+import { ActionMenu, Badge, Button, Card, HelpTip } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowsClockwise,
@@ -107,8 +107,12 @@ export function ManageHeader({
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-heading">
+              <h1 className="flex items-center gap-2 text-2xl font-bold text-heading">
                 {detail?.provider.name ?? 'Integration unavailable'}
+                <HelpTip topic="Managing a connection">
+                  Sync Settings sets what syncs and how often; Data Mapping matches its fields to
+                  Firmivra&apos;s; Sync History and Troubleshooting list each sync and error.
+                </HelpTip>
               </h1>
               {detail ? (
                 <ConnectionBadge status={detail.status} large />

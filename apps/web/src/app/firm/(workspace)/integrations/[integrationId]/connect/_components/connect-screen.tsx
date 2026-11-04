@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import {
   ConnectIntegrationRequest,
@@ -6,7 +6,7 @@ import {
   type IntegrationProviderDetail,
   type IntegrationSettings,
 } from '@firmivra/types';
-import { Badge, Button, Callout, Card, Checkbox, Input, Select } from '@firmivra/ui';
+import { Badge, Button, Callout, Card, Checkbox, Input, Select, HelpTip } from '@firmivra/ui';
 import {
   ArrowRight,
   ArrowSquareOut,
@@ -27,6 +27,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { useFirm } from '../../../../../../../components/firm-context';
 import { useMe } from '../../../../../../../components/signed-in';
 import { api } from '../../../../../../../lib/api';
+import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../../../lib/origin';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { providerDisc } from '../../_components/manage-integration-shared';
@@ -132,6 +133,10 @@ function SetupForm({
       settings: { ...settings, ...value },
     });
   const base = `/integrations/${encodeURIComponent(providerKey)}/connect`;
+  /** IN-F02: the list the member opened setup from; Cancel returns there as it was. */
+  const from = safeOrigin(params.get(ORIGIN_PARAM));
+  /** A step of setup, still carrying where Cancel returns to. */
+  const stepHref = (path: string) => (from ? withOrigin(path, from) : path);
   const directions =
     provider?.directions.filter((direction) =>
       provider.entities
@@ -174,7 +179,7 @@ function SetupForm({
         setLeaving(true);
         window.location.assign(target.href);
       } else {
-        router.push(`${base}/complete`);
+        router.push(stepHref(`${base}/complete`));
         onRefresh();
       }
     } catch {
@@ -203,8 +208,12 @@ function SetupForm({
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-bold text-heading">
+              <h1 className="flex items-center gap-2 text-3xl font-bold text-heading">
                 {provider?.name ?? 'Connect Integration'}
+                <HelpTip topic="Setting up an integration">
+                  You choose the environment, the records it may access and the sync direction
+                  before you connect, and review each choice in the steps that follow.
+                </HelpTip>
               </h1>
               <Badge tone={connection ? 'success' : 'neutral'} dot>
                 {connection ? 'Connected' : 'Not Connected'}
@@ -271,7 +280,7 @@ function SetupForm({
                   />
                 ) : null}
                 <Link
-                  href={`${base}${item.suffix}`}
+                  href={stepHref(`${base}${item.suffix}`)}
                   aria-current={step === item.id ? 'step' : undefined}
                   className={`relative flex gap-3 rounded-control p-3 hover:bg-accent-soft ${step === item.id ? 'bg-accent-soft' : ''}`}
                 >
@@ -578,7 +587,7 @@ function SetupForm({
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Link
-                  href="/integrations/marketplace"
+                  href={from ?? '/integrations/marketplace'}
                   className="inline-flex min-h-11 items-center justify-center rounded-control border border-action px-4 py-2 text-sm font-semibold text-action hover:bg-accent-soft"
                 >
                   Cancel
