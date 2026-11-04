@@ -17,4 +17,5 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 
 ## Log
 
-- Nov 4: `rasel/R56-rp-filters`: RP-F02, F09 (typed operators, value boxes by type, Clear All, client suggestions, column drag), F10, F20, F07's parity test.
+- Nov 4: #1241 `rasel/R56-rp-filters`: RP-F02, F09 (typed operators, value boxes by type, Clear All, client suggestions, column drag), F10, F20, F07's parity test.
+- Nov 4: `rasel/R56-rp-saved` (on #1241): RP-F06 (a saved report reopens as saved; Save takes the screen), F13 (Save Changes and Save As), F12 (library search, category, show, sort, Owner, Status, permitted row actions), F03 (the library's state in the address; SH1's Back returns to it).

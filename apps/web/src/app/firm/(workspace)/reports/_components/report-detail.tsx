@@ -1,6 +1,11 @@
 'use client';
 
-import { ApiRequestError, type ReportFilterCondition, type ReportResult } from '@firmivra/types';
+import {
+  ApiRequestError,
+  type ReportDefinitionView,
+  type ReportFilterCondition,
+  type ReportResult,
+} from '@firmivra/types';
 import {
   ActionMenu,
   Button,
@@ -25,10 +30,11 @@ import {
 } from '@phosphor-icons/react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
@@ -76,19 +82,25 @@ const CHARTS = [
 /** /reports/[reportId]: one report (a quick report by key, or a saved one by id) with its controls. */
 export function ReportDetail({ reportId }: { reportId: string }) {
   const router = useRouter();
+  const params = useSearchParams();
   const target = UUID.test(reportId)
     ? ({ kind: 'SAVED', id: reportId } as const)
     : ({ kind: 'SYSTEM', key: reportId } as const);
   const [preset, setPreset] = useState<string>();
   const [fixed, setFixed] = useState<{ from: string; to: string }>();
-  const [compare, setCompare] = useState<string>('SAME_PERIOD_LAST_YEAR');
+  // RP-F06 (Octavia, Oct 28): a control left alone is the report's own setting, so a saved report
+  // reopens as it was saved (comparison, chart, labels, tax, range); a quick report still opens
+  // compared with the same period last year.
+  const [compare, setCompare] = useState<string | undefined>(
+    target.kind === 'SYSTEM' ? 'SAME_PERIOD_LAST_YEAR' : undefined,
+  );
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
-  const [chartType, setChartType] = useState('AUTO');
+  const [chartType, setChartType] = useState<string>();
   // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
   const [groupBy, setGroupBy] = useState('');
-  const [labels, setLabels] = useState(false);
-  const [tax, setTax] = useState(false);
+  const [labels, setLabels] = useState<boolean>();
+  const [tax, setTax] = useState<boolean>();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{ id: string; descending: boolean }>();
@@ -120,9 +132,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     ...(term ? { search: term } : {}),
     ...(sort ? { sort: { field: sort.id, descending: sort.descending } } : {}),
     ...(groupBy ? { breakdownBy: groupBy } : {}),
-    chartType: chartType as never,
-    showDataLabels: labels,
-    includeTaxRevenue: tax,
+    ...(chartType ? { chartType: chartType as never } : {}),
+    ...(labels === undefined ? {} : { showDataLabels: labels }),
+    ...(tax === undefined ? {} : { includeTaxRevenue: tax }),
     page,
     pageSize: 10,
   };
@@ -155,6 +167,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     api.reports.lookups({ kind: 'SERVICE_CATEGORY' }),
   );
   const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
+  // RP-F13: a saved report's owner (or an Owner or Admin) may save changes on it.
+  const savedOne = useApiQuery([...RP_KEY, 'saved-one', reportId], () =>
+    target.kind === 'SAVED' ? api.reports.savedReport(reportId) : Promise.resolve(null),
+  );
   const r: ReportResult | undefined = q.data?.result;
   const runError = q.data?.error ?? null;
   const reason = runError
@@ -246,9 +262,73 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         ? r.definition.compareTo
         : 'NONE'
       : 'NONE');
-  const presetValue = fixed
+  // A saved fixed range shows as Custom Range with its dates (RP-F06), never as This Year.
+  const ownDate = r?.definition.date;
+  const shownFixed = fixed ?? (!preset && ownDate?.rule === 'FIXED' ? ownDate : undefined);
+  const presetValue = shownFixed
     ? 'custom'
-    : (preset ?? (r?.definition.date.rule === 'ROLLING' ? r.definition.date.preset : 'this_year'));
+    : (preset ?? (ownDate?.rule === 'ROLLING' ? ownDate.preset : 'this_year'));
+  const shownChart = chartType ?? r?.definition.chartType ?? 'AUTO';
+  const shownLabels = labels ?? r?.definition.showDataLabels ?? false;
+  const shownTax = tax ?? r?.definition.includeTaxRevenue ?? false;
+  // RP-F03: opened from the library, the page's Back (SH1's bar above it, "Back to Report
+  // Library") and its Saved Reports crumb return to that tab, page, search and filters.
+  const from = safeOrigin(params.get(ORIGIN_PARAM));
+  // RP-F13: Save Changes keeps the report's id; Save As makes a new one.
+  const canSaveChanges = !!savedOne.data?.canEdit && !savedOne.data.archived;
+  const saveChanges = async () => {
+    const definition = screenDefinition();
+    if (!definition || !savedOne.data) return;
+    try {
+      await api.reports.updateSaved(savedOne.data.id, {
+        definition: definition as never,
+        etag: savedOne.data.etag,
+      });
+      await client.invalidateQueries({ queryKey: [...RP_KEY] });
+      notice('Changes saved.', 'success');
+    } catch (e) {
+      const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
+      notice(detail ?? errorMessage(e, RP_ERRORS), 'error');
+    }
+  };
+  /**
+   * What the screen shows, as a definition (RP-F06): the range, comparison, chart, labels and tax
+   * in effect, the table's sort, the columns not hidden and the More Filters too.
+   */
+  function screenDefinition(): ReportDefinitionView | undefined {
+    if (!r) return undefined;
+    const d = r.definition;
+    const locked = new Set((src?.fields ?? []).filter((f) => f.locked).map((f) => f.key));
+    const columns = d.columns.filter((c) => locked.has(c) || !hidden.includes(c));
+    const sortable = sort && src?.fields.some((f) => f.key === sort.id && f.sortable);
+    const added = extra.conditions as ReportDefinitionView['filters']['conditions'];
+    const filters: ReportDefinitionView['filters'] = !added.length
+      ? d.filters
+      : d.filters.logic === 'AND' || d.filters.conditions.length === 0
+        ? { ...d.filters, logic: 'AND', conditions: [...d.filters.conditions, ...added] }
+        : // An OR report keeps its own conditions together, and the added ones apply to all.
+          {
+            logic: 'AND',
+            conditions: added,
+            groups: [{ logic: 'OR', conditions: d.filters.conditions }, ...d.filters.groups],
+          };
+    // The controls themselves, not the last result: a change still loading is saved too.
+    return {
+      ...d,
+      columns: columns.length ? columns : d.columns,
+      filters,
+      ...(sortable ? { sortBy: sort.id, sortDescending: sort.descending } : {}),
+      ...(fixed
+        ? { date: { rule: 'FIXED' as const, ...fixed } }
+        : preset
+          ? { date: { rule: 'ROLLING' as const, preset: preset as never } }
+          : {}),
+      ...(compare && src?.supportsComparison ? { compareTo: compare as never } : {}),
+      chartType: shownChart as never,
+      showDataLabels: shownLabels,
+      includeTaxRevenue: shownTax,
+    };
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="report-detail">
@@ -260,7 +340,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <span aria-hidden className="text-muted">
               ›
             </span>
-            <Link href="/reports/library?tab=saved">Saved Reports</Link>
+            <Link href={from?.startsWith('/reports/library') ? from : '/reports/library?tab=saved'}>
+              Saved Reports
+            </Link>
           </>
         ) : null}
         {meta ? (
@@ -349,7 +431,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               }}
               options={[
                 ...PRESETS.map((p) => ({ value: p.value, label: p.label })),
-                { value: 'custom', label: fixed ? rangeText(fixed) : 'Custom Range…' },
+                { value: 'custom', label: shownFixed ? rangeText(shownFixed) : 'Custom Range…' },
               ]}
             />
             <Select
@@ -607,13 +689,24 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               <button type="button" className={subtle} onClick={() => window.print()}>
                 <Printer aria-hidden weight="bold" className="size-4" /> Print
               </button>
+              {canSaveChanges ? (
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!r}
+                  onClick={() => void saveChanges()}
+                >
+                  <Bookmark aria-hidden weight="bold" className="size-4" /> Save Changes
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={subtle}
                 disabled={!r}
                 onClick={() => setDialog('save')}
               >
-                <Bookmark aria-hidden weight="bold" className="size-4" /> Save Report
+                <Bookmark aria-hidden weight="bold" className="size-4" />{' '}
+                {target.kind === 'SAVED' ? 'Save As' : 'Save Report'}
               </button>
               <button
                 type="button"
@@ -645,9 +738,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               ))}
               <button
                 type="button"
-                aria-pressed={!!fixed}
+                aria-pressed={!!shownFixed}
                 onClick={() => setDialog('custom')}
-                className={`min-h-9 rounded-control border px-2 text-xs font-medium ${fixed ? 'border-action bg-action text-on-action' : 'border-border text-heading hover:bg-canvas'}`}
+                className={`min-h-9 rounded-control border px-2 text-xs font-medium ${shownFixed ? 'border-action bg-action text-on-action' : 'border-border text-heading hover:bg-canvas'}`}
               >
                 Custom Range
               </button>
@@ -662,7 +755,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <h2 className="font-display text-lg font-bold text-heading">Report Settings</h2>
             <Select
               label="Chart Type"
-              value={chartType}
+              value={shownChart}
               onChange={(e) => setChartType(e.target.value)}
               options={CHARTS}
             />
@@ -679,12 +772,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             </label>
             <label className="flex items-center justify-between gap-3 text-sm text-heading">
               Show Data Labels
-              <Toggle label="Show data labels" checked={labels} onChange={setLabels} />
+              <Toggle label="Show data labels" checked={shownLabels} onChange={setLabels} />
             </label>
             {src?.supportsTaxToggle ? (
               <label className="flex items-center justify-between gap-3 text-sm text-heading">
                 Include Tax in Revenue
-                <Toggle label="Include tax in revenue" checked={tax} onChange={setTax} />
+                <Toggle label="Include tax in revenue" checked={shownTax} onChange={setTax} />
               </label>
             ) : null}
           </section>
@@ -722,7 +815,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
       {dialog === 'save' && r ? (
         <SaveReportDialog
-          definition={r.definition}
+          definition={screenDefinition() ?? r.definition}
           defaultName={r.title}
           onClose={() => setDialog(undefined)}
           onSaved={(id) => {
