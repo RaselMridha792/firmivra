@@ -15,10 +15,14 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
+import { CustomRangeDialog } from './report-date-controls';
+import { type DateState, datesFrom, withDates } from './report-dates';
 import {
   CategoryTile,
   COMPARE,
@@ -37,17 +41,43 @@ import {
   rangeText,
 } from './reports-shared';
 
-const hrefOf = (i: ReportInsight) =>
-  i.target.kind === 'REPORT' ? `/reports/${i.target.reportKey}` : `/${i.target.module}`;
+const hrefOf = (i: ReportInsight, dates: DateState) =>
+  i.target.kind === 'REPORT'
+    ? withDates(`/reports/${i.target.reportKey}`, dates)
+    : `/${i.target.module}`;
 
 /** /reports: the dashboard: range, KPI cards, report categories, quick reports, recent, scheduled and insights. */
 export function ReportsDashboard() {
   const qc = useQueryClient();
-  const [preset, setPreset] = useState('this_year');
-  const [compare, setCompare] = useState('SAME_PERIOD_LAST_YEAR');
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  // RP-F01, F16 (Octavia, Oct 28): the range and comparison live in the address, travel to each
+  // report opened from here and come back with Back; a Custom Range is one of the choices.
+  const chosen = datesFrom(params) ?? { rule: 'ROLLING' as const, preset: 'this_year' };
+  const compare = chosen.compare ?? 'SAME_PERIOD_LAST_YEAR';
+  const dates: DateState = { ...chosen, compare };
+  const preset = chosen.rule === 'ROLLING' ? chosen.preset : 'custom';
+  // Each change keeps the other half as the address has it now, so two quick changes in a row
+  // never undo each other while the first is on its way.
+  const current = () => datesFrom(new URLSearchParams(window.location.search)) ?? chosen;
+  const go = (next: DateState) => router.replace(withDates(pathname, next), { scroll: false });
+  const setRange = (
+    range: { rule: 'ROLLING'; preset: string } | { rule: 'FIXED'; from: string; to: string },
+  ) => go({ ...range, compare: current().compare ?? compare });
+  const setCompare = (c: string) => go({ ...current(), compare: c });
+  const here = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+  /** A report opened from here: with the overview's dates, and Back to here. */
+  const open = (href: string) => withOrigin(withDates(href, dates), here);
+  const [custom, setCustom] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const q = useApiQuery([...RP_KEY, 'dashboard', preset, compare], () =>
-    api.reports.dashboard({ preset: preset as never, compareTo: compare as never }),
+  const q = useApiQuery([...RP_KEY, 'dashboard', JSON.stringify(dates)], () =>
+    api.reports.dashboard({
+      ...(chosen.rule === 'FIXED'
+        ? { from: chosen.from, to: chosen.to }
+        : { preset: preset as never }),
+      compareTo: compare as never,
+    }),
   );
   const d = q.data;
   const toggle = async (id: string, active: boolean) => {
@@ -86,8 +116,18 @@ export function ReportsDashboard() {
               label="Date range"
               hideLabel
               value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-              options={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+              onChange={(e) =>
+                e.target.value === 'custom'
+                  ? setCustom(true)
+                  : setRange({ rule: 'ROLLING', preset: e.target.value })
+              }
+              options={[
+                ...PRESETS.map((p) => ({ value: p.value, label: p.label })),
+                {
+                  value: 'custom',
+                  label: chosen.rule === 'FIXED' ? rangeText(chosen) : 'Custom Range…',
+                },
+              ]}
             />
           </div>
           <div className="w-52">
@@ -181,7 +221,7 @@ export function ReportsDashboard() {
                   )}
                   {c.allowed ? (
                     <Link
-                      href={`/reports/${c.reportKey}`}
+                      href={open(`/reports/${c.reportKey}`)}
                       className="mt-auto inline-flex min-h-10 items-center justify-center gap-2 rounded-control bg-info-soft px-4 text-sm font-medium text-action hover:bg-accent-soft"
                     >
                       View Report <ArrowRight aria-hidden weight="bold" className="size-4" />
@@ -224,7 +264,7 @@ export function ReportsDashboard() {
               {(d?.quickReports ?? []).map((r: ReportCatalogItem) => (
                 <li key={r.key}>
                   <Link
-                    href={`/reports/${r.key}`}
+                    href={open(`/reports/${r.key}`)}
                     className="flex items-center gap-3 border-t border-divider py-2 text-sm font-medium text-heading first:border-t-0 hover:text-action"
                   >
                     <CategoryTile category={r.category} size="sm" />
@@ -264,11 +304,12 @@ export function ReportsDashboard() {
                   </span>
                 </span>
                 <Link
-                  href={
+                  href={withOrigin(
                     r.savedReportId
                       ? `/reports/${r.savedReportId}`
-                      : `/reports/${r.systemKey ?? ''}`
-                  }
+                      : `/reports/${r.systemKey ?? ''}`,
+                    here,
+                  )}
                   className="rounded-control bg-info-soft px-3 py-1 text-xs font-medium text-action"
                 >
                   View
@@ -322,7 +363,11 @@ export function ReportsDashboard() {
             {(d?.insights ?? []).map((i) => (
               <li key={i.key}>
                 <Link
-                  href={hrefOf(i)}
+                  href={
+                    i.target.kind === 'REPORT'
+                      ? withOrigin(hrefOf(i, dates), here)
+                      : hrefOf(i, dates)
+                  }
                   className="flex items-start gap-3 border-t border-divider py-2 text-sm text-heading first:border-t-0 hover:text-action"
                 >
                   <span className="min-w-0 flex-1">{i.message}</span>
@@ -337,6 +382,16 @@ export function ReportsDashboard() {
           </ul>
         </section>
       </div>
+      {custom ? (
+        <CustomRangeDialog
+          initial={chosen.rule === 'FIXED' ? chosen : undefined}
+          onClose={() => setCustom(false)}
+          onApply={(range) => {
+            setCustom(false);
+            setRange({ rule: 'FIXED', ...range });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

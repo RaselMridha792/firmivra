@@ -1832,3 +1832,61 @@ describe('settings and the overview', () => {
     expect(b.health).toMatchObject({ status: 'HEALTHY', failedRuns24h: 0, pendingRuns: 0 });
   });
 });
+
+describe('trigger events from the source modules (AU-F08 to F11)', () => {
+  /** The clients API itself, so the event is the module's own record of the change. */
+  const clientAction = async (firm: 'a' | 'b', who: Who, id: string, what: 'archive' | 'restore') =>
+    ok(
+      await request(app.getHttpServer())
+        .post(`/api/v1/business/clients/${id}/${what}`)
+        .set('x-business-id', firms[firm])
+        .set('x-forwarded-for', viewer())
+        .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+        .send({}),
+    );
+
+  it('lists the Clients, Leads, Intake Forms and Documents events, each with a real source', async () => {
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const codes = (module: string) =>
+      catalog.events.filter((e) => e.module === module).map((e) => e.code);
+    expect(codes('CLIENTS')).toEqual(
+      expect.arrayContaining(['client.created', 'client.archived', 'client.reactivated']),
+    );
+    expect(codes('LEADS')).toEqual(
+      expect.arrayContaining(['lead.created', 'lead.stage_changed', 'lead.converted']),
+    );
+    expect(codes('INTAKE_FORMS')).toEqual(
+      expect.arrayContaining(['intake.sent', 'intake.submitted', 'intake.resubmitted']),
+    );
+    expect(codes('DOCUMENTS')).toEqual(
+      expect.arrayContaining(['document.requested', 'document.uploaded', 'document.approved']),
+    );
+    // No event the product can't observe: a client's status never changes after it is set.
+    expect(catalog.events.map((e) => e.code)).not.toContain('client.status_changed');
+  });
+
+  it('runs once for a client reactivated through Clients, and never for another firm’s', async () => {
+    const live = await createRule(
+      { trigger: { module: 'CLIENTS', event: 'client.reactivated' }, actions: [note()] },
+      { name: mark('Welcome back') },
+    );
+    expect(AutomationRuleDetail.parse(ok(await activate(live.id))).status).toBe('ACTIVE');
+    // Firm B's own change: never firm A's event.
+    await clientAction('b', ownerB, clients.cB, 'archive');
+    await clientAction('b', ownerB, clients.cB, 'restore');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 0 });
+
+    await clientAction('a', ownerA, clients.c2, 'archive');
+    await clientAction('a', ownerA, clients.c2, 'restore');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    // The same change never starts a second run.
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 0 });
+    const page = await runs(`?ruleId=${live.id}`);
+    expect(page.total).toBe(1);
+    expect(page.items[0]).toMatchObject({
+      triggerModule: 'CLIENTS',
+      recordKind: 'client',
+      client: { id: clients.c2 },
+    });
+  });
+});

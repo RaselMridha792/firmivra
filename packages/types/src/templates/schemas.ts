@@ -310,6 +310,16 @@ export const PreviewTemplateRequest = z.strictObject({
   taskId: z.uuid().optional(),
   /** Values for the preview only, by field name without brackets. */
   sample: z.record(z.string().max(60), z.string().max(500)).optional(),
+  /**
+   * TP-F04: the editor's unsaved subject and content, previewed in place of the saved ones (cleaned
+   * as a save would be; nothing is saved or recorded).
+   */
+  draft: z
+    .strictObject({
+      subject: z.string().max(300).nullable().optional(),
+      body: z.string().max(50_000),
+    })
+    .optional(),
 });
 export type PreviewTemplateRequest = z.input<typeof PreviewTemplateRequest>;
 export const RenderedTemplate = z.object({
