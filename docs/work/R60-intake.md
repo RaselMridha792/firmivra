@@ -157,6 +157,9 @@ Progress (Communications, Oct 28 review):
   starts a draft and opens it with its chooser; Manage Segments stays apart), F04 (a channel that is
   not connected links Owners and Admins to Integrations, whose Back returns; Staff are told to ask
   one).
+- Activation PR, branch `rasel/R60-template-activation`: CM-F12 (Template Actions activate a draft;
+  Save as Template can save it Active; only an Owner or Admin activates, `403
+  ACTIVATE_NOT_ALLOWED`, and Staff keep editing an active one).
 
 Progress (Templates, Oct 28 review):
 - Editor, #1248 (merged): TP-F04 (Preview renders the unsaved subject and

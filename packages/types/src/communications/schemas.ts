@@ -314,6 +314,11 @@ export type UseTemplateRequest = z.input<typeof UseTemplateRequest>;
 export const SaveAsTemplateRequest = z.strictObject({
   name: text(200),
   categoryId: z.uuid().nullable().optional(),
+  /**
+   * CM-F12: save it Active, so Use Template offers it at once (an Owner or Admin only: 403
+   * ACTIVATE_NOT_ALLOWED; an email needs its subject: 400 SUBJECT_REQUIRED). Draft otherwise.
+   */
+  activate: z.boolean().optional(),
 });
 export type SaveAsTemplateRequest = z.input<typeof SaveAsTemplateRequest>;
 
