@@ -18,6 +18,33 @@ Messages (from Oct 28, Rasel's order of Oct 27; R20, which built the API, closed
 `apps/api/src/messages/`, `packages/types/src/messages/`, `docs/api/messages.yaml`, their tests
 (`apps/api/test/e2e/messages*.e2e.test.ts`, `apps/web/e2e/mock/r60-messages*`).
 
+Communications and Templates (from Oct 29, Rasel's order): the firm's
+`apps/web/src/app/firm/(workspace)/communications/` and `templates/`, `apps/web/src/mocks/communications.ts`
+and `templates.ts`, `apps/api/src/communications/` and `templates/`, `packages/types/src/communications/`
+and `templates/`, their tests (`apps/web/e2e/mock/r60-comms*`, `r60-templates*`), and the shared
+`packages/ui/src/help-tip*` (Rasel's order; R55 and R56 reuse it).
+
+### Communications and Templates (Octavia's Oct 28 review, `docs/specs/review-2026-10-28/`)
+
+Rasel (Oct 29): after the Messages PRs, R60 owns `COMMUNICATIONS.md` (CM-F01 to F18) and
+`TEMPLATES.md` (TP-F01 to F18, with the 48 starters under TP-F18). Order: one small PR with the
+shared Help/info icon in `packages/ui` (hover, keyboard, tap); then the High items (CM-F05, F03, F06,
+F12; TP-F18, F06, F04); then the rest; then the Help icons. Re-test CM-F11, CM-F12 and Back to
+Origin against MSG-F02, F07 and F08 on `main` before building them. TP-F08 waits for R1's migration
+(Rasel says when it is merged). The Y items' defaults are used. No schema, seed, infra or `.github`
+change. One page per PR, at most 3 open, `main` merged into a stacked PR after the lower one squashes.
+MSG-F18 to F22 (contact panel and thread menu) wait until this is done; Add to Client Timeline waits
+for Rasel's answer (Needs from others).
+
+- [x] **Help icon**, #1236 (merged as `1fe4b4a3`): `HelpTip` in `packages/ui` (the info icon with a
+  short explainer on hover, keyboard focus and tap; Escape, a press elsewhere or moving away closes
+  it; drawn above the page, in its dialog when in one, inside the window at 375 px; the icon is
+  described by the same text). Unit tests (the open and close rules, placement, markup), a story,
+  and a browser check against Storybook (14 of 14).
+- [ ] High: CM-F05, CM-F03, CM-F06, CM-F12; TP-F18, TP-F06, TP-F04.
+- [ ] The rest of CM-F01 to F18 and TP-F01 to F18 (TP-F08 after R1's migration).
+- [ ] Help icons in Communications and Templates (CM, TP-F02).
+
 ### Messages (section B of `docs/specs/review-2026-10-27/CHANGE-LIST.md`)
 
 R36's `r36_message_workspace` already holds most of what section C lists for Messages: a thread's
@@ -112,6 +139,22 @@ Needs from others (Rasel):
   and nothing reads `add_to_timeline`.
 - **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
   One library page for the three message kinds would need a change in Templates (not R60's).
+- **TP-F18, the 48 starter templates** (Octavia's Oct 28 Templates review): Rasel's order is seed
+  rows, so they wait for whoever owns the seed. R1's check (#1234) recommends instead reconciling
+  them into `apps/api/src/templates/template-starters.ts` (48 starters today, other names and
+  categories) and installing them at business setup, so there is one source. Rasel's call.
+
+Progress (Communications, Oct 28 review):
+- Composer, #1242 (merged as `0677a8cf`): CM-F05 (an announcement chooses its clients below
+  Show From and Show Until; only clients with an active portal login count, as in New Message),
+  F06 (Back, the breadcrumb and Cancel ask Save Draft, Discard or Keep Editing), F07 (Last saved in
+  the firm's time zone; a refused save says why), F09 (a backwards window is refused on Show Until,
+  shown at once; a past window is the checklist's).
+- Overview, #1243 (branch `rasel/R60-comms-overview`, `main` merged in after #1242): CM-F01 (the KPI cards
+  open Sent History filtered to all, emails or texts), F02 (Segments & Lists says how to build an
+  audience), F03 (Choose Recipients picks or starts a draft and opens it with its chooser; Manage
+  Segments stays apart), F04 (a channel that is not connected links Owners and Admins to
+  Integrations, whose Back returns; Staff are told to ask one).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
@@ -147,6 +190,13 @@ Progress (Messages):
   migration applied locally). Add to Client Timeline (Rasel's go): stopped, there is no client
   timeline to write to (Needs from others). **Next step:** Rasel's answer on the timeline, then
   F18 to F22.
+- Oct 29: #1229 merged (`5bcd01c4`). Rasel's order: Octavia's Oct 28 Communications and Templates
+  review first, with the shared Help icon PR first; F18 to F22 after it. Help icon built (unit 10
+  of 10, `packages/ui` lint and `tsc` clean, browser check against Storybook 14 of 14: hover, the
+  bubble hoverable, Escape on a hover, keyboard focus, Escape keeping focus, Tab to the next, click
+  pins, described for screen readers, tap at 375 px inside the window, tap elsewhere, second tap,
+  inside a dialog, Escape order). **Next step:** its PR, then the re-tests of CM-F11, CM-F12 and
+  Back to Origin, then CM-F05.
 
 ## Handoff (Oct 23): start here
 

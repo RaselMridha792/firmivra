@@ -41,7 +41,9 @@ import {
   BookkeepingReasonRequest,
   type BookkeepingReconciliation,
   BookkeepingReconciliationId,
+  type BookkeepingReconciliationItems,
   type BookkeepingReconciliationList,
+  ClearBookkeepingReconciliationItemsRequest,
   BookkeepingReopenRequest,
   BookkeepingReportId,
   type BookkeepingReportPage,
@@ -584,6 +586,34 @@ export class BookkeepingController {
     body: z.output<typeof UpdateBookkeepingReconciliationRequest>,
   ): Promise<BookkeepingReconciliation> {
     return this.periods.saveReconciliation(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** BK-R01: the lines this reconciliation can clear, with the figures they give. */
+  @Get('reconciliations/:id/items')
+  reconciliationItems(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reconciliationId) id: string,
+  ): Promise<BookkeepingReconciliationItems> {
+    return this.periods.reconciliationItems(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** BK-R01: mark lines cleared, or not. */
+  @Post('reconciliations/:id/items')
+  @HttpCode(200)
+  clearReconciliationItems(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reconciliationId) id: string,
+    @Body(pipe(ClearBookkeepingReconciliationItemsRequest))
+    body: z.output<typeof ClearBookkeepingReconciliationItemsRequest>,
+  ): Promise<BookkeepingReconciliation> {
+    return this.periods.clearReconciliationItems(
+      tenant.businessId,
+      actorOf(auth, tenant),
+      id,
+      body,
+    );
   }
 
   @Post('reconciliations/:id/ready')

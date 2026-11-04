@@ -906,6 +906,48 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     if (d.groupBy && !src.meta.fields.find((f) => f.key === d.groupBy)?.groupable)
       throw fail(400, 'INVALID_DEFINITION', 'That field cannot be grouped.');
   };
+  // RP-F02, F10 (Octavia, Oct 28): as the API, an operator the field's type does not take or a
+  // value that does not fit is 400 with the condition's path; money values are in cents.
+  const OPS_OF: Record<string, readonly string[]> = {
+    TEXT: ['EQUALS', 'NOT_EQUALS', 'CONTAINS', 'NOT_CONTAINS', 'STARTS_WITH'],
+    NUMBER: ['EQUALS', 'NOT_EQUALS', 'GREATER_THAN', 'LESS_THAN', 'BETWEEN'],
+    MONEY: ['EQUALS', 'NOT_EQUALS', 'GREATER_THAN', 'LESS_THAN', 'BETWEEN'],
+    PERCENT: ['EQUALS', 'NOT_EQUALS', 'GREATER_THAN', 'LESS_THAN', 'BETWEEN'],
+    DATE: ['ON', 'BEFORE', 'AFTER', 'BETWEEN', 'RELATIVE'],
+    DATETIME: ['ON', 'BEFORE', 'AFTER', 'BETWEEN', 'RELATIVE'],
+    STATUS: ['IS', 'IS_NOT', 'IS_ANY_OF', 'IS_NONE_OF'],
+    BOOLEAN: ['IS', 'IS_NOT'],
+  };
+  const checkConditions = (
+    src: SourceDef,
+    conditions: readonly { field: string; op: string; value?: unknown }[],
+  ) =>
+    conditions.forEach((c, i) => {
+      const f = src.meta.fields.find((x) => x.key === c.field);
+      const path = `filters.conditions.${i}`;
+      const bad = (where: string, message: string) =>
+        new ApiRequestError(
+          400,
+          'INVALID_DEFINITION',
+          'The report is not valid for its data source',
+          undefined,
+          undefined,
+          [{ path: `${path}.${where}`, message }],
+        );
+      if (!f) throw bad('field', `“${c.field}” is not a field of ${src.meta.label}`);
+      if (c.op === 'IS_EMPTY' || c.op === 'IS_NOT_EMPTY') return;
+      if (!(OPS_OF[f.type] ?? []).includes(c.op))
+        throw bad('op', `${f.label} does not take “${c.op.toLowerCase().replace(/_/g, ' ')}”`);
+      const nums = (v: unknown) =>
+        v && typeof v === 'object' && 'from' in v && 'to' in v
+          ? [(v as { from: unknown }).from, (v as { to: unknown }).to]
+          : [v];
+      if (
+        ['NUMBER', 'MONEY', 'PERCENT'].includes(f.type) &&
+        nums(c.value).some((v) => Number.isNaN(Number(v)))
+      )
+        throw bad('value', `Enter a valid value for ${f.label}`);
+    });
   const matches = (r: Row, c: { field: string; op: string; value?: unknown }) => {
     const v = r[c.field];
     const s = String(v ?? '').toLowerCase();
@@ -928,9 +970,27 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       case 'IS_NOT_EMPTY':
         return v !== null && v !== '';
       case 'GREATER_THAN':
-        return Number(v) > Number(c.value);
+        return v !== null && v !== '' && Number(v) > Number(c.value);
       case 'LESS_THAN':
-        return Number(v) < Number(c.value);
+        return v !== null && v !== '' && Number(v) < Number(c.value);
+      case 'BETWEEN': {
+        const p = c.value as { from: string | number; to: string | number };
+        if (v === null || v === '') return false;
+        return typeof p.from === 'number'
+          ? Number(v) >= Number(p.from) && Number(v) <= Number(p.to)
+          : String(v).slice(0, 10) >= String(p.from) && String(v).slice(0, 10) <= String(p.to);
+      }
+      case 'ON':
+        return String(v ?? '').slice(0, 10) === String(c.value);
+      case 'BEFORE':
+        return v !== null && v !== '' && String(v).slice(0, 10) < String(c.value);
+      case 'AFTER':
+        return v !== null && v !== '' && String(v).slice(0, 10) > String(c.value);
+      case 'RELATIVE': {
+        const b = resolveRange({ rule: 'ROLLING', preset: String(c.value) });
+        const d = String(v ?? '').slice(0, 10);
+        return d >= b.from && d <= b.to;
+      }
       case 'IS_ANY_OF':
         return Array.isArray(c.value) && c.value.map((q) => String(q).toLowerCase()).includes(s);
       case 'IS_NONE_OF':
@@ -1078,13 +1138,20 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
   ): ReportResult => {
     check(d);
     const src = srcs[d.dataSource]!;
+    checkConditions(src, [...d.filters.conditions, ...(q.extra?.conditions ?? [])]);
     const dateSpec = q.date ?? d.date;
     const range = resolveRange(dateSpec as never);
     const compare = q.compareTo ?? d.compareTo;
     const cmpRange =
       compare === 'NONE' || !src.meta.supportsComparison ? null : shiftRange(range, compare);
-    const cur = apply(src, d, range, q.extra);
-    const prev = cmpRange ? apply(src, d, cmpRange, q.extra) : null;
+    // RP-F20: the search narrows the cards and the chart with the table (one dataset).
+    const needle = q.search?.toLowerCase();
+    const searched = (rs: Row[]) =>
+      needle
+        ? rs.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(needle)))
+        : rs;
+    const cur = searched(apply(src, d, range, q.extra));
+    const prev = cmpRange ? searched(apply(src, d, cmpRange, q.extra)) : null;
     const labels = monthLabels(range);
     const money = src.meta.fields.find((f) => f.key === src.metric)?.type === 'MONEY';
     const chart: ReportChart | null =
@@ -1114,10 +1181,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
             money,
           };
     const kpis = kpisOf(src, cur, prev);
-    const needle = q.search?.toLowerCase();
-    let list = cur.filter(
-      (r) => !needle || Object.values(r).some((v) => String(v).toLowerCase().includes(needle)),
-    );
+    let list = cur;
     const fieldsOf = (keys: string[]) =>
       keys.map((k) => src.meta.fields.find((f) => f.key === k)!).filter(Boolean);
     let columns;
@@ -1207,14 +1271,29 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     const pageRows = q.preview
       ? tableRows.slice(0, 10)
       : tableRows.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
-    const chips = (d.filters.conditions as { field: string; op: string; value?: unknown }[]).map(
-      (c) => ({
+    // As the API words them (RP-F09): money in dollars, a range as "between A and B".
+    const chips = [
+      ...(d.filters.conditions as { field: string; op: string; value?: unknown }[]),
+      ...(q.extra?.conditions ?? []),
+    ].map((c) => {
+      const f = src.meta.fields.find((x) => x.key === c.field);
+      const one = (v: unknown) =>
+        f?.type === 'MONEY'
+          ? `$${(Number(v) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+          : String(v ?? '');
+      const v: unknown = c.value;
+      const range = v && typeof v === 'object' && 'from' in v && 'to' in v ? v : null;
+      const shown = range
+        ? `${one(range.from)} and ${one(range.to)}`
+        : Array.isArray(v)
+          ? v.join(', ')
+          : one(v);
+      return {
         field: c.field,
-        label: src.meta.fields.find((f) => f.key === c.field)?.label ?? c.field,
-        value:
-          `${c.op.toLowerCase().replace(/_/g, ' ')} ${Array.isArray(c.value) ? c.value.join(', ') : String(c.value ?? '')}`.trim(),
-      }),
-    );
+        label: f?.label ?? c.field,
+        value: `${c.op.toLowerCase().replace(/_/g, ' ')} ${shown}`.trim(),
+      };
+    });
     const runId = q.preview ? null : id('c900');
     if (runId)
       recent.unshift({
@@ -1593,16 +1672,22 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
               (query.tab !== 'favorites' || r.favorite) &&
               (!term || r.name.toLowerCase().includes(term)),
           )
+          // RP-F12: sorted as the API sorts (name or last change, either way).
+          .sort(
+            (a, b) =>
+              (query.sort === 'name'
+                ? a.name.localeCompare(b.name)
+                : a.updatedAt.localeCompare(b.updatedAt)) * (query.direction === 'asc' ? 1 : -1),
+          )
           .map(
             ({
               definition: _d,
               sharedRoles: _s,
               sharedWith: _w,
-              canEdit: _c,
               createdAt: _ca,
               etag: _e,
               ...row
-            }) => (void [_d, _s, _w, _c, _ca, _e], row),
+            }) => (void [_d, _s, _w, _ca, _e], row),
           );
         return page(list, query.page, query.pageSize);
       }),
