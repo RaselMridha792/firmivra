@@ -5,10 +5,11 @@ import { COMPLIANCE_STATES } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Radio, Textarea, Toast, Toggle } from '@firmivra/ui';
 import { ArrowLeft, Bank, CalendarPlus, CloudArrowUp, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useClients, useMembers, useSettings } from './compliance-data';
 import {
@@ -301,6 +302,9 @@ function DeadlineForm({
   initial: ComplianceDeadline | undefined;
 }) {
   const router = useRouter();
+  // CD-F05 (Octavia, Oct 28): Cancel returns to the list it was opened from (its view, range and
+  // filters), saving nothing.
+  const origin = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
   const [f, setF] = useState<Form>(() => (initial ? fromDeadline(initial) : blank()));
   const [saved] = useState<Form | undefined>(() => (initial ? fromDeadline(initial) : undefined));
   const [errors, setErrors] = useState<Partial<Record<keyof Form, string>>>({});
@@ -973,7 +977,7 @@ function DeadlineForm({
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
-        <Link href={id ? `/compliance/${id}` : '/compliance'} className={subtle}>
+        <Link href={origin ?? (id ? `/compliance/${id}` : '/compliance')} className={subtle}>
           Cancel
         </Link>
         <div className="flex flex-wrap items-center gap-3">

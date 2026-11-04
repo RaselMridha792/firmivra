@@ -175,6 +175,39 @@ test('Recurring: Save Changes saves an edit of the description alone (CD-F10)', 
   await expect(page).toHaveURL(/tab=manage&saved=/);
 });
 
+test('Lists keep their place: a client at risk, Back, and Cancel from Add Deadline (CD-F02, F03, F05)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(base);
+  // CD-F02: the list says which date it goes by.
+  await expect(page.getByTestId('date-basis')).toContainText('effective due date');
+  // CD-F03: View on a client at risk opens that client's deadlines, with the reason.
+  const risky = page.getByTestId('card-risk').getByRole('link').first();
+  await risky.click();
+  await expect(page).toHaveURL(/tab=all&range=ALL&client=[0-9a-f-]{36}&risk=/);
+  await expect(page.getByTestId('risk-banner')).toContainText('is at risk:');
+  await page.screenshot({ path: test.info().outputPath('at-risk.png') });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/compliance$/);
+  // CD-F05: All Deadlines, All Dates and a type, then Add Deadline and Cancel: the same list.
+  await page.getByRole('tab', { name: 'All Deadlines' }).click();
+  await expect(page).toHaveURL(/tab=all/);
+  await page.getByLabel('Date Range').selectOption('ALL');
+  await page.getByLabel('Deadline Type').first().selectOption({ index: 1 });
+  await expect(page).toHaveURL(/tab=all&type=/);
+  const list = page.url();
+  await page.getByRole('link', { name: 'Add Deadline' }).first().click();
+  await expect(page).toHaveURL(/\/compliance\/new\?from=/);
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(list);
+  await expect(page.getByRole('tab', { name: 'All Deadlines' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByLabel('Date Range')).toHaveValue('ALL');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {

@@ -46,6 +46,7 @@ const LABELS: Record<string, string> = {
   messages: 'Messages',
   calendar: 'Appointments',
   integrations: 'Integrations',
+  compliance: 'Compliance & Deadlines',
   reports: 'Reports',
 };
 
