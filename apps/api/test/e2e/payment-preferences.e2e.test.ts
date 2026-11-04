@@ -67,7 +67,12 @@ describe('payment preferences (IP-F13)', () => {
   it('starts with every option off, for any firm that never saved', async () => {
     current = prefs(await call('get', '', fx.users.ownerB));
     expect(current).toEqual({
-      invoiceDefaults: { invoicePrefix: 'INV-', defaultTerms: 'net_14', defaultMemo: null },
+      invoiceDefaults: {
+        invoicePrefix: 'INV-',
+        defaultTerms: 'net_14',
+        defaultMemo: null,
+        customTermDays: [],
+      },
       reminders: {
         sendReminders: false,
         reminderDaysBefore: 3,
@@ -98,6 +103,7 @@ describe('payment preferences (IP-F13)', () => {
         invoicePrefix: 'LVP-',
         defaultTerms: 'net_30',
         defaultMemo: 'Thank you (fake)',
+        customTermDays: [],
       },
       reminders: { ...start.reminders, autoReceipts: true, sendReminders: true },
       taxesAndFees: {
@@ -148,6 +154,40 @@ describe('payment preferences (IP-F13)', () => {
     );
     expect(reset.reminders.autoReceipts).toBe(false);
     expect(reset.invoiceDefaults.invoicePrefix).toBe('INV-');
+  });
+
+  it("keeps the firm's own terms beside the standard ones, offered as the default", async () => {
+    const start = prefs(await call('get', '', fx.users.ownerA));
+    const withTerms = (customTermDays: number[], defaultTerms = 'net_14') => ({
+      ...start,
+      invoiceDefaults: { ...start.invoiceDefaults, customTermDays, defaultTerms },
+    });
+    for (const bad of [
+      withTerms([30]),
+      withTerms([45, 45]),
+      withTerms([0]),
+      withTerms([366]),
+      withTerms([1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15]),
+      withTerms([45], 'net_90'),
+    ]) {
+      expect(code(await call('patch', '', fx.users.ownerA, bad))).toBe('VALIDATION_FAILED');
+    }
+    const saved = prefs(await call('patch', '', fx.users.ownerA, withTerms([60, 45], 'net_45')));
+    expect(saved.invoiceDefaults).toMatchObject({
+      customTermDays: [45, 60],
+      defaultTerms: 'net_45',
+    });
+    expect(prefs(await call('get', '', fx.users.ownerA)).invoiceDefaults.customTermDays).toEqual([
+      45, 60,
+    ]);
+    // Another firm's list stays its own (empty).
+    expect(prefs(await call('get', '', fx.users.ownerB)).invoiceDefaults.customTermDays).toEqual(
+      [],
+    );
+    const reset = prefs(
+      await call('post', '/reset', fx.users.ownerA, { updatedAt: saved.updatedAt }),
+    );
+    expect(reset.invoiceDefaults).toMatchObject({ customTermDays: [], defaultTerms: 'net_14' });
   });
 
   it('checks the input and lets only Owner and Admin in', async () => {

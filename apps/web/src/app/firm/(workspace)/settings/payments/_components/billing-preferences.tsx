@@ -1,12 +1,16 @@
 'use client';
 
 import {
-  PAYMENT_TERM_LABELS,
+  CUSTOM_TERM_LIMITS,
+  offeredPaymentTerms,
+  PAYMENT_TERM_DAYS,
   type PaymentPreferences,
   PaymentTerm,
+  paymentTermLabel,
   UpdatePaymentPreferencesRequest,
 } from '@firmivra/types';
 import { Button, Card, Modal, Toggle } from '@firmivra/ui';
+import { X } from '@phosphor-icons/react';
 import { type ReactNode, useId, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -100,6 +104,109 @@ function NumberField({
   );
 }
 
+/**
+ * The firm's own payment terms beside the four standard ones (#1220's `custom_term_days`): each a
+ * number of days, offered on Create Invoice and as the default. Saved with Save Changes.
+ */
+function CustomTerms({
+  days,
+  onChange,
+}: {
+  days: readonly number[];
+  onChange: (days: number[]) => void;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState('');
+  const n = Number(draft);
+  const standard = Object.values(PAYMENT_TERM_DAYS);
+  const full = days.length >= CUSTOM_TERM_LIMITS.maxTerms;
+  const problem = !draft
+    ? null
+    : !Number.isInteger(n) || n < CUSTOM_TERM_LIMITS.minDays || n > CUSTOM_TERM_LIMITS.maxDays
+      ? 'Use a whole number of days, 1 to 365.'
+      : standard.includes(n)
+        ? `Net ${n} is already a standard term.`
+        : days.includes(n)
+          ? `Net ${n} is in your list already.`
+          : null;
+  const add = () => {
+    if (!draft || problem || full) return;
+    onChange([...days, n].sort((a, b) => a - b));
+    setDraft('');
+  };
+  return (
+    <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
+      <h3 id={`${id}-title`} className="text-sm font-medium text-heading">
+        Your payment terms
+      </h3>
+      <p className="text-xs text-muted">
+        Offered beside Due on Receipt, Net 7, Net 14 and Net 30. Up to 12, each 1 to 365 days.
+      </p>
+      {days.length === 0 ? (
+        <p className="text-sm text-muted">No terms of your own yet.</p>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {days.map((d) => (
+            <li
+              key={d}
+              className="flex items-center gap-1 rounded-pill bg-info-soft py-1 pr-1 pl-3 text-sm text-heading"
+            >
+              {paymentTermLabel(`net_${d}`)}
+              <button
+                type="button"
+                aria-label={`Remove Net ${d}`}
+                onClick={() => onChange(days.filter((x) => x !== d))}
+                className="flex size-6 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-danger"
+              >
+                <X aria-hidden weight="bold" className="size-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-end gap-2">
+        <Labelled label="Days">
+          {(fieldId) => (
+            <input
+              id={fieldId}
+              type="number"
+              min={CUSTOM_TERM_LIMITS.minDays}
+              max={CUSTOM_TERM_LIMITS.maxDays}
+              step={1}
+              value={draft}
+              disabled={full}
+              aria-invalid={problem !== null}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  add();
+                }
+              }}
+              className={`${field} w-28`}
+            />
+          )}
+        </Labelled>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={!draft || problem !== null || full}
+          onClick={add}
+        >
+          Add Terms
+        </Button>
+      </div>
+      {problem ? (
+        <p role="alert" className="text-xs text-danger">
+          {problem}
+        </p>
+      ) : full ? (
+        <p className="text-xs text-muted">Your list is full: remove one to add another.</p>
+      ) : null}
+    </section>
+  );
+}
+
 /** The three sections and their one Save Changes, Cancel and Reset to Default. */
 export function BillingPreferences() {
   const prefs = useApiQuery(KEY, () => api.paymentPreferences.get());
@@ -186,14 +293,18 @@ function PreferencesForm({
                 }
                 className={`${field} w-48`}
               >
-                {PaymentTerm.options.map((t) => (
+                {offeredPaymentTerms(d.customTermDays).map((t) => (
                   <option key={t} value={t}>
-                    {PAYMENT_TERM_LABELS[t]}
+                    {paymentTermLabel(t)}
                   </option>
                 ))}
               </select>
             )}
           </Labelled>
+          <CustomTerms
+            days={d.customTermDays}
+            onChange={(customTermDays) => set('invoiceDefaults', { customTermDays })}
+          />
           <Labelled label="Default memo" hint="Printed on new invoices; up to 500 characters.">
             {(id) => (
               <textarea

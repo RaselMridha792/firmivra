@@ -59,9 +59,41 @@ describe('payment terms and notes (IP-F02)', () => {
     ).not.toContain(INTERNAL);
   });
 
+  it("takes the firm's own terms, and a draft keeps them once the firm removes them", async () => {
+    const ownTerms = (customTermDays: number[]) =>
+      t.inScope(t.ids.firmA, (tx) =>
+        tx.paymentSettings.upsert({
+          where: { businessId: t.ids.firmA },
+          create: { businessId: t.ids.firmA, customTermDays },
+          update: { customTermDays },
+        }),
+      );
+    await ownTerms([45]);
+    const draft = Invoice.parse(
+      expectOk(await t.firm('post', '', t.people.ownerA, body({ paymentTerms: 'net_45' }))).body,
+    );
+    expect(draft.paymentTerms).toBe('net_45');
+    const other = await t.firm('post', '', t.people.ownerA, body({ paymentTerms: 'net_90' }));
+    expect([other.status, codeOf(other)]).toEqual([409, 'TERMS_NOT_OFFERED']);
+
+    await ownTerms([]);
+    const { clientId: _c, ...update } = body({ paymentTerms: 'net_45' });
+    expectOk(await t.firm('put', `/${draft.id}`, t.people.ownerA, update));
+    expect(
+      codeOf(await t.firm('post', '', t.people.ownerA, body({ paymentTerms: 'net_45' }))),
+    ).toBe('TERMS_NOT_OFFERED');
+    // The client reads them as Net 45.
+    expectOk(await t.firm('post', `/${draft.id}/send`, t.people.ownerA, {}));
+    const mine = MyInvoiceDetail.parse(
+      expectOk(await t.portal('get', `/${draft.id}`, t.people.primary)).body,
+    );
+    expect(mine.paymentTerms).toBe('net_45');
+  });
+
   it('refuses an unknown term and a note over 1,000 characters', async () => {
     for (const bad of [
-      body({ paymentTerms: 'net_99' }),
+      body({ paymentTerms: 'net_999' }),
+      body({ paymentTerms: 'net_0' }),
       body({ internalNote: 'x'.repeat(1001) }),
     ]) {
       expect(codeOf(await t.firm('post', '', t.people.ownerA, bad))).toBe('VALIDATION_FAILED');
