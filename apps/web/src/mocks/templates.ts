@@ -1194,12 +1194,14 @@ export function createTemplatesMock({
       run(() => {
         const input = parseInput(PreviewTemplateRequest, body);
         const r = find(templateId);
-        const subject = render(r.d.subject ?? '', input.sample);
-        const text = render(r.d.body, input.sample);
+        // TP-F04: the editor's unsaved words, as the API previews them (nothing saved).
+        const shownSubject = input.draft ? (input.draft.subject ?? null) : r.d.subject;
+        const subject = render(shownSubject ?? '', input.sample);
+        const text = render(input.draft?.body ?? r.d.body, input.sample);
         const pv = r.d.previewText ? render(r.d.previewText, input.sample) : null;
         const plainText = text.out.replace(/<[^>]+>/g, '');
         return {
-          subject: r.d.subject === null ? null : subject.out,
+          subject: shownSubject === null ? null : subject.out,
           previewText: pv?.out ?? null,
           body: text.out,
           unresolved: [
