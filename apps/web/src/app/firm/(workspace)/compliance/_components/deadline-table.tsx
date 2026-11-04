@@ -74,6 +74,8 @@ export function DeadlineTable({
   const reopen = useApiMutation((id: string) => api.compliance.reopenDeadline(id), options);
   const archive = useApiMutation((id: string) => api.compliance.archiveDeadline(id), options);
   const task = useApiMutation((id: string) => api.compliance.addTask(id), options);
+  // CD-F01: the task each deadline's Create Task made, so its menu then offers View Task.
+  const [made, setMade] = useState<Record<string, string>>({});
   const page = Number(query.page ?? 1);
   const sort = { id: query.sort ?? 'dueOn', descending: query.direction === 'desc' };
 
@@ -155,9 +157,23 @@ export function DeadlineTable({
                 item('Complete', CheckCircle, () => setDialog({ kind: 'complete', row: d })),
                 item('Reassign', UserSwitch, () => setDialog({ kind: 'reassign', row: d })),
                 item('Reminder', Bell, () => setDialog({ kind: 'reminders', row: d })),
-                item('Create Task', ListChecks, () =>
-                  task.mutate(d.id, { onSuccess: done('Task created.'), onError: fail }),
-                ),
+                // One task per deadline: no second request while one runs, View Task once made.
+                ...(made[d.id]
+                  ? [item('View Task', ListChecks, () => router.push(`/tasks/${made[d.id]}`))]
+                  : task.isPending && task.variables === d.id
+                    ? []
+                    : [
+                        item('Create Task', ListChecks, () =>
+                          task.mutate(d.id, {
+                            onSuccess: (res) => {
+                              const t = res.tasks.find((x) => x.madeHere);
+                              if (t) setMade((m) => ({ ...m, [d.id]: t.id }));
+                              done('Task created.')();
+                            },
+                            onError: fail,
+                          }),
+                        ),
+                      ]),
                 item('Add Document', FileArrowUp, () => router.push(`/compliance/${d.id}#related`)),
                 item('Not Applicable', Prohibit, () =>
                   setDialog({ kind: 'notApplicable', row: d }),

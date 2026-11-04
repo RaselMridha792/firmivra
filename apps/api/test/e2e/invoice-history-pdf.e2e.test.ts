@@ -3,8 +3,9 @@
 // short-lived link). Owner and Admin write; Staff read their clients' only; another firm none.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
-import { InvoiceHistory, InvoiceHistoryItem, InvoicePdfLink } from '@firmivra/types';
-import { codeOf, expectOk, startInvoiceApp } from './invoice-setup.js';
+import { Invoice, InvoiceHistory, InvoiceHistoryItem, InvoicePdfLink } from '@firmivra/types';
+import { pdfTotals } from '../../src/payments/invoices/invoice-pdf.js';
+import { codeOf, expectOk, nyDay, startInvoiceApp } from './invoice-setup.js';
 
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
 beforeAll(async () => {
@@ -92,6 +93,43 @@ describe('Download PDF (IP-F09)', () => {
     expect(doc.getPageCount()).toBe(1);
     // Staff: their client's invoice only.
     expectOk(await t.firm('get', `/${inv.id}/pdf`, t.people.staffA));
+    // A taxed invoice (R55's IP-F03) has a Tax row, and its rows add up to the Total.
+    const rate = await t.inScope(t.ids.firmA, (tx) =>
+      tx.invoiceTaxRate.create({
+        data: { businessId: t.ids.firmA, name: `Fake State Tax ${t.run}`, rateBps: 825 },
+        select: { id: true },
+      }),
+    );
+    const taxed = Invoice.parse(
+      expectOk(
+        await t.firm('post', '', t.people.ownerA, {
+          clientId: t.ids.one,
+          lines: [
+            { description: 'Fake tax return', unitAmountCents: 10_000, taxable: true },
+            { description: 'Fake advice', unitAmountCents: 5_000 },
+          ],
+          discountCents: 1_500,
+          taxRateId: rate.id,
+          dueOn: nyDay(30),
+        }),
+      ).body,
+    );
+    const rows = pdfTotals(taxed);
+    expect(rows.map(([label]) => label)).toEqual([
+      'Subtotal',
+      'Discount',
+      'Tax (8.25%)',
+      'Total',
+      'Balance due',
+    ]);
+    const [subtotal, discount, tax, total] = rows.map(([, cents]) => cents);
+    expect(subtotal! + discount! + tax!).toBe(total);
+    expect(total).toBe(14_243);
+    const taxedLink = InvoicePdfLink.parse(
+      expectOk(await t.firm('get', `/${taxed.id}/pdf`, t.people.ownerA)).body,
+    );
+    const [taxedKey] = taxedLink.url.replace(/^memory:/, '').split('?name=');
+    expect((await PDFDocument.load(t.files.objects.get(taxedKey!)!)).getPageCount()).toBe(1);
     const other = await t.draft(t.ids.two, { status: 'OPEN' });
     await refused(t.firm('get', `/${other.id}/pdf`, t.people.staffA), 404, 'NOT_FOUND');
   });

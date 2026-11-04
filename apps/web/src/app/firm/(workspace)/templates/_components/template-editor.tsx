@@ -2,6 +2,7 @@
 
 import {
   ApiRequestError,
+  DOCUMENT_ERRORS,
   type MessageTemplateDetail,
   type MessageTemplateKind,
   type MergeField,
@@ -19,13 +20,23 @@ import {
   Textarea,
   Toast,
 } from '@firmivra/ui';
-import { ArrowLeft, Copy, Eye, FloppyDisk, PaperPlaneTilt, Trash, X } from '@phosphor-icons/react';
+import {
+  ArrowLeft,
+  Copy,
+  DownloadSimple,
+  Eye,
+  FloppyDisk,
+  PaperPlaneTilt,
+  Trash,
+  X,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
 import { PreviewDialog } from './template-dialogs';
 import {
@@ -77,6 +88,22 @@ const blank = (): Form => ({
   automations: false,
   tags: [],
 });
+/** TP-F06: why a file was not attached, in words the user can act on. */
+const MAX_FILES = 10;
+const UPLOAD_ERRORS: Record<string, string> = {
+  ...DOCUMENT_ERRORS,
+  FILE_TYPE_NOT_ALLOWED: 'Attach a PDF, DOCX, XLSX, JPG or PNG file.',
+  FILE_TOO_LARGE: 'This file is larger than 10 MB. Choose a smaller file.',
+  UPLOAD_FAILED:
+    'The file could not be sent to storage. Check your connection and try again; if it keeps failing, tell your administrator.',
+  ...TEMPLATE_ERRORS,
+};
+const REJECTED: Record<'type' | 'size' | 'count', (name: string) => string> = {
+  type: (name) => `${name} is not a PDF, DOCX, XLSX, JPG or PNG file.`,
+  size: (name) => `${name} is larger than 10 MB.`,
+  count: () => `A template holds at most ${MAX_FILES} files.`,
+};
+
 const fromDetail = (d: MessageTemplateDetail): Form => ({
   name: d.name,
   categoryId: d.category?.id ?? '',
@@ -142,6 +169,8 @@ function Editor({
   const [group, setGroup] = useState<(typeof GROUPS)[number]['id']>('ALL');
   const [target, setTarget] = useState<'subject' | 'body'>('body');
   const [uploading, setUploading] = useState(false);
+  /** TP-F05: where Cancel or the breadcrumb go once Discard is chosen. */
+  const [leaving, setLeaving] = useState<string>();
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const set = (change: Partial<Form>) => setForm((cur) => ({ ...cur, ...change }));
@@ -149,12 +178,20 @@ function Editor({
   const hasSubject = HAS_SUBJECT.includes(kind);
   const eligible = AUTOMATION_KINDS.includes(kind);
 
+  // TP-F05: unsaved work asks before it is lost: closing or reloading the tab (the browser's
+  // words), the shared Back bar (SH1), and Cancel or the breadcrumb (Stay or Discard).
+  useUnsavedChanges(dirty);
   useEffect(() => {
     if (!dirty) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+  const guard = (href: string) => (event: MouseEvent) => {
+    if (!dirty) return;
+    event.preventDefault();
+    setLeaving(href);
+  };
 
   const cats = useApiQuery([...TEMPLATES_KEY, 'categories', kind], () =>
     api.templates.categories({ kind }),
@@ -277,13 +314,17 @@ function Editor({
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="template-editor">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href="/templates" className="text-link">
+        <Link href="/templates" className="text-link" onClick={guard('/templates')}>
           Templates
         </Link>
         <span aria-hidden className="text-muted">
           ›
         </span>
-        <Link href={`/templates/library/${meta.slug}`} className="text-link">
+        <Link
+          href={`/templates/library/${meta.slug}`}
+          className="text-link"
+          onClick={guard(`/templates/library/${meta.slug}`)}
+        >
           {meta.title}
         </Link>
         <span aria-hidden className="text-muted">
@@ -509,7 +550,9 @@ function Editor({
                 disabled={uploading || saved.status === 'ARCHIVED'}
                 onReject={(r) =>
                   setMessage({
-                    text: `${r[0]?.file.name ?? 'That file'} cannot be attached.`,
+                    text: r[0]
+                      ? REJECTED[r[0].reason](r[0].file.name)
+                      : 'That file cannot be attached.',
                     tone: 'error',
                   })
                 }
@@ -526,7 +569,7 @@ function Editor({
                     setSaved(await api.templates.get(saved.id));
                     setMessage({ text: 'Attachment added.', tone: 'success' });
                   } catch (e) {
-                    fail(e);
+                    setMessage({ text: errorMessage(e, UPLOAD_ERRORS), tone: 'error' });
                   } finally {
                     setUploading(false);
                   }
@@ -543,6 +586,27 @@ function Editor({
                       <span className="shrink-0 text-xs text-muted">
                         {Math.max(1, Math.round(a.sizeBytes / 1024))} KB
                       </span>
+                      <button
+                        type="button"
+                        aria-label={`Download ${a.fileName}`}
+                        className="text-link"
+                        onClick={async () => {
+                          try {
+                            const link = await api.templates.attachmentLink(saved.id, a.id);
+                            // Mock mode's link has no storage behind it (as Settings > Payments).
+                            if (link.url.startsWith('mock:'))
+                              setMessage({
+                                text: `${a.fileName} is ready to download.`,
+                                tone: 'success',
+                              });
+                            else window.location.assign(link.url);
+                          } catch (e) {
+                            setMessage({ text: errorMessage(e, UPLOAD_ERRORS), tone: 'error' });
+                          }
+                        }}
+                      >
+                        <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                      </button>
                       <button
                         type="button"
                         aria-label={`Remove ${a.fileName}`}
@@ -723,7 +787,11 @@ function Editor({
       ) : null}
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
-        <Link href={`/templates/library/${meta.slug}`} className={subtle}>
+        <Link
+          href={`/templates/library/${meta.slug}`}
+          className={subtle}
+          onClick={guard(`/templates/library/${meta.slug}`)}
+        >
           Cancel
         </Link>
         <div className="flex flex-wrap items-center gap-3">
@@ -782,7 +850,45 @@ function Editor({
         </div>
       </footer>
       {preview && saved ? (
-        <PreviewDialog template={saved} onClose={() => setPreview(false)} />
+        <PreviewDialog
+          template={saved}
+          draft={
+            dirty
+              ? { subject: hasSubject ? form.subject.trim() || null : null, body: form.body }
+              : undefined
+          }
+          onClose={() => setPreview(false)}
+        />
+      ) : null}
+      {leaving ? (
+        <Modal
+          open
+          title="Leave without saving?"
+          subtitle="Your changes to this template are not saved."
+          onClose={() => setLeaving(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setLeaving(undefined)}>
+                Stay
+              </Button>
+              <Button
+                onClick={() => {
+                  const to = leaving;
+                  setLeaving(undefined);
+                  setBaseline(JSON.stringify(form));
+                  router.push(to);
+                }}
+              >
+                Discard
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            Stay keeps everything you entered. Discard leaves; what was saved before stays as it
+            was.
+          </p>
+        </Modal>
       ) : null}
       {impact ? (
         <Modal

@@ -138,7 +138,8 @@ export class TemplatesService {
       throw templateErrors.subjectRequired();
     }
     const includeInAutomations = input.includeInAutomations ?? false;
-    if (includeInAutomations && !(status === 'ACTIVE' && AUTOMATION_KINDS.has(input.kind))) {
+    // TP-F11: a draft may keep it, dormant (automations offer and run ACTIVE templates only).
+    if (includeInAutomations && !AUTOMATION_KINDS.has(input.kind)) {
       throw templateErrors.notAutomationEligible();
     }
     if (input.sharedWithUserIds?.length && access !== 'SELECTED') {
@@ -230,13 +231,11 @@ export class TemplatesService {
       if (next.status === 'ACTIVE' && SUBJECT_KINDS.has(kind) && !next.subject) {
         throw templateErrors.subjectRequired();
       }
-      // Leaving ACTIVE ends the automation offer; asking for it needs an eligible active template.
-      let includeInAutomations = body.includeInAutomations ?? cur.includeInAutomations;
-      if (next.status !== 'ACTIVE') includeInAutomations = false;
-      if (
-        body.includeInAutomations === true &&
-        !(next.status === 'ACTIVE' && AUTOMATION_KINDS.has(kind))
-      ) {
+      // TP-F11: leaving ACTIVE keeps the choice, dormant: automations offer and run ACTIVE templates
+      // only (the rule builder's list, the engine and the rule check), so a draft is never used and
+      // is offered again once active. Only a kind automations cannot use is refused.
+      const includeInAutomations = body.includeInAutomations ?? cur.includeInAutomations;
+      if (body.includeInAutomations === true && !AUTOMATION_KINDS.has(kind)) {
         throw templateErrors.notAutomationEligible();
       }
       if (body.categoryId !== undefined) {
@@ -609,7 +608,15 @@ export class TemplatesService {
         ? await this.renderer.liveValues(tx, businessId, actor, body)
         : await this.renderer.sampleValues(tx, businessId);
       const values = this.renderer.withSample(base, body.sample);
-      return this.renderer.render(t, values, !live);
+      // TP-F04: the editor's unsaved words, cleaned as a save would clean them, never stored.
+      const shown = body.draft
+        ? {
+            ...t,
+            subject: SUBJECT_KINDS.has(t.kind) ? body.draft.subject?.trim() || null : t.subject,
+            body: cleanBody(t.kind, body.draft.body),
+          }
+        : t;
+      return this.renderer.render(shown, values, !live);
     });
     if (live) {
       await this.audit.log(
