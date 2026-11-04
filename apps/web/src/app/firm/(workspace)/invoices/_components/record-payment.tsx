@@ -1,7 +1,7 @@
 'use client';
 
 import { INVOICE_ERRORS, OfflinePaymentMethod, RecordOfflinePaymentRequest } from '@firmivra/types';
-import { Input, Select, Textarea } from '@firmivra/ui';
+import { Checkbox, Input, Select, Textarea } from '@firmivra/ui';
 import {
   Buildings,
   CalendarBlank,
@@ -60,6 +60,15 @@ export function RecordPayment() {
   const [busy, setBusy] = useState(false);
   // One key per page visit, sent again on a retry: the API records the payment once.
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  // IP-F12: Deposit To (the firm's default to start) and Send Receipt (Automatic Receipts to start).
+  const accounts = useApiQuery(['deposit-accounts'], () =>
+    api.paymentPreferences.depositAccounts(),
+  );
+  const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
+  const [depositTo, setDepositTo] = useState<string | null>(null);
+  const deposit = depositTo ?? accounts.data?.items.find((a) => a.isDefault)?.id ?? '';
+  const [sendReceipt, setSendReceipt] = useState<boolean | null>(null);
+  const receipt = sendReceipt ?? prefs.data?.reminders.autoReceipts ?? false;
 
   const due = inv?.balanceDueCents ?? 0;
   const cents = amount ? toCents(amount) : 0;
@@ -89,6 +98,8 @@ export function RecordPayment() {
       receivedOn,
       note: note.trim() || undefined,
       idempotencyKey,
+      depositAccountId: deposit || undefined,
+      sendReceipt: receipt,
     };
     const check = RecordOfflinePaymentRequest.safeParse(body);
     if (!check.success) {
@@ -244,6 +255,25 @@ export function RecordPayment() {
               error={errors['reference']}
               onChange={(e) => setReference(e.target.value)}
             />
+            {(accounts.data?.items.length ?? 0) > 0 ? (
+              <Select
+                label="Deposit To"
+                value={deposit}
+                onChange={(e) => setDepositTo(e.target.value)}
+                options={[
+                  { value: '', label: 'Not recorded' },
+                  ...(accounts.data?.items ?? []).map((a) => ({ value: a.id, label: a.name })),
+                ]}
+              />
+            ) : accounts.isPending ? null : (
+              <p className="text-sm text-muted sm:self-end">
+                Deposit To: no accounts yet.{' '}
+                <Link href="/settings/payments" className="text-link">
+                  Add one in Settings &gt; Payments
+                </Link>
+                .
+              </p>
+            )}
             <div className="sm:col-span-2">
               <Textarea
                 label="Notes (for the firm only)"
@@ -256,6 +286,17 @@ export function RecordPayment() {
               <p className="text-right text-xs text-muted">{note.length}/500</p>
             </div>
           </div>
+          <Checkbox
+            label="Send receipt to client"
+            checked={receipt}
+            onChange={(e) => setSendReceipt(e.target.checked)}
+            className="mt-2 text-sm"
+          />
+          <p className="text-xs text-muted">
+            {receipt
+              ? 'A receipt is emailed to the client once the payment is recorded.'
+              : 'No receipt: you can send one from the invoice later.'}
+          </p>
           <p className="mt-2 text-xs text-muted">
             The invoice turns Paid once the money received covers its total.
           </p>
@@ -357,6 +398,7 @@ export function RecordPayment() {
                   <th className="p-2">Amount</th>
                   <th className="p-2">Payment Method</th>
                   <th className="p-2">Reference ID</th>
+                  <th className="p-2">Deposited To</th>
                   <th className="p-2">Notes</th>
                   <th className="p-2">Recorded By</th>
                 </tr>
@@ -371,6 +413,7 @@ export function RecordPayment() {
                     <td className="p-2">{money(p.amountCents, p.currency)}</td>
                     <td className="p-2">{OFFLINE_METHOD[p.method] ?? p.method}</td>
                     <td className="p-2">{p.reference ?? '—'}</td>
+                    <td className="p-2">{p.depositAccount?.name ?? '—'}</td>
                     <td className="p-2 wrap-anywhere">{p.note ?? '—'}</td>
                     <td className="p-2">{p.recordedBy.name}</td>
                   </tr>
