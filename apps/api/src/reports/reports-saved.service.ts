@@ -77,7 +77,10 @@ export class ReportsSavedService {
         tx.reportDefinition.count({ where }),
         tx.reportDefinition.findMany({
           where,
-          orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+          orderBy: [
+            q.sort === 'name' ? { name: q.direction } : { updatedAt: q.direction },
+            { id: 'asc' },
+          ],
           skip: (q.page - 1) * q.pageSize,
           take: q.pageSize,
           include: include(userId),
@@ -95,7 +98,9 @@ export class ReportsSavedService {
         rows.map((r) => r.ownerUserId),
       );
       return {
-        items: rows.map((r) => this.row(r, names, lastBy.get(r.id) ?? null)),
+        items: rows.map((r) =>
+          this.row(r, names, lastBy.get(r.id) ?? null, isAdmin(tenant) || r.ownerUserId === userId),
+        ),
         total,
         page: q.page,
         pageSize: q.pageSize,
@@ -112,7 +117,12 @@ export class ReportsSavedService {
     return this.inFirm(businessId, (tx) => this.detailIn(tx, businessId, tenant, userId, id));
   }
 
-  private row(r: Shape, names: Map<string, string>, lastRunAt: Date | null): SavedReportRow {
+  private row(
+    r: Shape,
+    names: Map<string, string>,
+    lastRunAt: Date | null,
+    canEdit: boolean,
+  ): SavedReportRow {
     return {
       id: r.id,
       name: r.name,
@@ -126,6 +136,7 @@ export class ReportsSavedService {
       lastRunAt: lastRunAt?.toISOString() ?? null,
       scheduleCount: r._count.schedules,
       updatedAt: r.updatedAt.toISOString(),
+      canEdit,
     };
   }
 
@@ -153,7 +164,7 @@ export class ReportsSavedService {
       _max: { createdAt: true },
     });
     return {
-      ...this.row(r, names, last._max.createdAt),
+      ...this.row(r, names, last._max.createdAt, isAdmin(tenant) || r.ownerUserId === userId),
       definition: toView(r),
       sharedRoles: r.sharedRoles.filter(
         (x): x is 'OWNER' | 'ADMIN' | 'STAFF' => x === 'OWNER' || x === 'ADMIN' || x === 'STAFF',
@@ -161,7 +172,6 @@ export class ReportsSavedService {
       sharedWith: r.shares.flatMap((s) =>
         names.get(s.userId) ? [{ userId: s.userId, name: names.get(s.userId)! }] : [],
       ),
-      canEdit: isAdmin(tenant) || r.ownerUserId === userId,
       createdAt: r.createdAt.toISOString(),
       etag: r.updatedAt.toISOString(),
     };
