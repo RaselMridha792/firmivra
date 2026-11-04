@@ -83,6 +83,8 @@ const field = (): RecordDef => ({
 export const records: CaseModule['records'] = {
   tpl: template(),
   tplPatch: template(),
+  /** TP-F08: a Task template, which stands for one of the firm's task templates. */
+  tplTask: template({ kind: 'TASK', subject: null, body: 'Fake step' }),
   tplArchive: template(),
   tplRestore: template({ status: 'ARCHIVED', archivedAt: STAMP }),
   tplShares: template(),
@@ -120,6 +122,12 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'tplPatch' },
     bodyIds: { categoryId: 'templateCategory', sharedWithUserIds: 'adminUser' },
     body: { etag: ETAG, access: 'SELECTED', description: 'Fake description' },
+  },
+  // TP-F08: another firm's task template is NOT_FOUND, never told apart from none.
+  [`PUT ${BASE}/templates/:id/linked-template`]: {
+    params: { id: 'tplTask' },
+    bodyIds: { moduleTemplateId: 'taskTemplate' },
+    body: { etag: ETAG },
   },
   [`POST ${BASE}/templates/:id/duplicate`]: { params: { id: 'tpl' } },
   [`POST ${BASE}/templates/:id/archive`]: { params: { id: 'tplArchive' } },

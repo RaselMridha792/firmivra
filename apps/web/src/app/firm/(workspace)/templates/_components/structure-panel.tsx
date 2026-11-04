@@ -88,23 +88,15 @@ export function draftOf(
   return null;
 }
 
-/** What a save sends for the structure: the kind's link, or its structure (null when empty). */
-export function structurePayload(
-  kind: MessageTemplateKind,
-  draft: StructureDraft | null,
-): {
-  taskTemplateId?: string | null;
-  documentRequestTemplateId?: string | null;
-  intakeTemplateId?: string | null;
+/** The module template a linked kind's draft stands for (null: none), or undefined for the others. */
+export const linkTarget = (draft: StructureDraft | null): string | null | undefined =>
+  draft?.type === 'link' ? draft.id || null : undefined;
+
+/** What a create or update sends for the structure (null when empty); a link goes on its own. */
+export function structurePayload(draft: StructureDraft | null): {
   structure?: TemplateStructure | null;
 } {
-  if (!draft) return {};
-  if (draft.type === 'link') {
-    const id = draft.id || null;
-    if (kind === 'TASK') return { taskTemplateId: id };
-    if (kind === 'DOCUMENT_REQUEST') return { documentRequestTemplateId: id };
-    return { intakeTemplateId: id };
-  }
+  if (!draft || draft.type === 'link') return {};
   if (draft.type === 'tax') {
     const sections = draft.sections
       .map((s) => ({ title: s.title.trim(), items: lines(s.items) }))

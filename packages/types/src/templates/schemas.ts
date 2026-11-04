@@ -263,14 +263,6 @@ const templateFields = {
   tags: Tags.optional(),
   /** Offered to Automations: only an ACTIVE template of a kind automations support. */
   includeInAutomations: z.boolean().optional(),
-  /**
-   * TP-F08: the module template a TASK (task template), DOCUMENT_REQUEST (request list) or
-   * INTAKE_ORGANIZER (intake template) template stands for; only on its own kind (400), one of the
-   * firm's (404), and not one another template already stands for (409 STRUCTURE_IN_USE).
-   */
-  taskTemplateId: z.uuid().nullable().optional(),
-  documentRequestTemplateId: z.uuid().nullable().optional(),
-  intakeTemplateId: z.uuid().nullable().optional(),
   /** TP-F08: a TAX_WORKFLOW template's TaxWorkflowStructure, a BOOKKEEPING one's BookkeepingStructure. */
   structure: TemplateStructure.nullable().optional(),
 };
@@ -548,6 +540,18 @@ export const InstallStartersResult = z.object({
   alreadyThere: z.number().int(),
 });
 export type InstallStartersResult = z.infer<typeof InstallStartersResult>;
+
+/**
+ * PUT /business/templates/{id}/linked-template (TP-F08): the module template a TASK (task
+ * template), DOCUMENT_REQUEST (request list) or INTAKE_ORGANIZER (intake template) template stands
+ * for, or null for none. Only those kinds (400), one of the firm's (404), and not one another
+ * template already stands for (409 STRUCTURE_IN_USE). `etag` guards a concurrent save.
+ */
+export const SetLinkedTemplateRequest = z.strictObject({
+  moduleTemplateId: z.uuid().nullable(),
+  etag: z.string().min(1).max(100),
+});
+export type SetLinkedTemplateRequest = z.input<typeof SetLinkedTemplateRequest>;
 
 /** GET /business/templates/structure-options?kind=: the module templates a template can stand for. */
 export const TemplateStructureOptionsQuery = z.strictObject({ kind: LinkedTemplateKind });

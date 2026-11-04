@@ -28,6 +28,7 @@ import type {
 import { TemplateReadService, automationCount } from './template-read.service.js';
 import { TemplateRenderService } from './template-render.service.js';
 import {
+  linkData,
   linkedTemplates,
   type StructureInput,
   structureData,
@@ -164,7 +165,7 @@ export class TemplatesService {
     await this.checkMembers(tx, businessId, shares);
     const name = stripTags(input.name).trim();
     await this.uniqueName(tx, businessId, input.kind, name);
-    const structured = await structureData(tx, businessId, input.kind, input);
+    const structured = structureData(input.kind, input);
     const row = await tx.messageTemplate.create({
       data: {
         businessId,
@@ -214,6 +215,37 @@ export class TemplatesService {
     return this.inFirm(businessId, async (tx) => ({
       items: await linkedTemplates(tx, businessId, kind),
     }));
+  }
+
+  /**
+   * TP-F08: PUT .../linked-template. The module template a TASK, DOCUMENT_REQUEST or
+   * INTAKE_ORGANIZER template stands for (null clears it), as its owner or an Owner or Admin may
+   * change it; not archived; `etag` guards a concurrent save. The text and its version stay.
+   */
+  async setLinked(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: { moduleTemplateId: string | null; etag: string },
+  ): Promise<MessageTemplateDetail> {
+    const detail = await this.write(businessId, async (tx) => {
+      const cur = await this.lock(tx, businessId, actor, id);
+      if (!canEdit(cur, actor)) throw templateErrors.notTheOwner();
+      if (cur.status === 'ARCHIVED') throw templateErrors.archived();
+      if (body.etag !== etagOf(cur)) throw templateErrors.saveConflict();
+      const data = await linkData(tx, businessId, cur.kind, body.moduleTemplateId, id);
+      await tx.messageTemplate.update({
+        where: { id },
+        data: { ...data, updatedByUserId: actor.userId },
+      });
+      return this.reader.detailIn(tx, businessId, actor, id);
+    });
+    await this.audit.log(
+      'message_template.linked',
+      { type: ENTITY, id },
+      { moduleTemplateId: body.moduleTemplateId },
+    );
+    return detail;
   }
 
   // ---------- Change ----------
@@ -272,7 +304,7 @@ export class TemplatesService {
       if (next.name !== cur.name) await this.uniqueName(tx, businessId, kind, next.name, id);
 
       // TP-F08: the structure columns; a changed structure is a new version, as text is.
-      const structured = await structureData(tx, businessId, kind, body, id);
+      const structured = structureData(kind, body);
       const structureAfter =
         structured.structure === undefined
           ? (cur.structure ?? Prisma.DbNull)

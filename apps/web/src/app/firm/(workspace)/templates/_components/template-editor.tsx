@@ -44,6 +44,7 @@ import {
   StructurePanel,
   draftOf,
   hasStructure,
+  linkTarget,
   structurePayload,
 } from './structure-panel';
 import { PreviewDialog } from './template-dialogs';
@@ -240,16 +241,19 @@ function Editor({
       sharedWithUserIds: form.access === 'SELECTED' ? form.shared : [],
       tags: form.tags,
       includeInAutomations: eligible ? form.automations : false,
-      ...structurePayload(kind, form.structure),
+      ...structurePayload(form.structure),
     };
-    if (saved) {
-      return api.templates.update(saved.id, {
-        ...common,
-        etag: saved.etag,
-        ...(v.confirm ? { confirmAutomationImpact: true } : {}),
-      });
-    }
-    return api.templates.create({ kind, ...common });
+    const d = saved
+      ? await api.templates.update(saved.id, {
+          ...common,
+          etag: saved.etag,
+          ...(v.confirm ? { confirmAutomationImpact: true } : {}),
+        })
+      : await api.templates.create({ kind, ...common });
+    // TP-F08: the module template it stands for has its own route, after the template is saved.
+    const target = linkTarget(form.structure);
+    if (target === undefined || target === (d.linkedTemplate?.id ?? null)) return d;
+    return api.templates.setLinkedTemplate(d.id, { moduleTemplateId: target, etag: d.etag });
   }, options);
   const doSave = (status: Form['status'], confirm = false) => {
     if (!check(status)) return;

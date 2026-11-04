@@ -22,7 +22,6 @@ const LINKS = {
   INTAKE_ORGANIZER: 'intakeTemplateId',
 } as const satisfies Record<LinkedTemplateKind, string>;
 type LinkField = (typeof LINKS)[LinkedTemplateKind];
-const FIELDS = Object.values(LINKS);
 
 const SHAPES: Partial<
   Record<MessageTemplateKind, typeof TaxWorkflowStructure | typeof BookkeepingStructure>
@@ -31,18 +30,12 @@ const SHAPES: Partial<
   BOOKKEEPING: BookkeepingStructure,
 };
 
-/** What a save writes to the structure columns (only the ones sent). */
+/** What a save writes to `structure` (only when sent). */
 export interface StructureData {
-  taskTemplateId?: string | null;
-  documentRequestTemplateId?: string | null;
-  intakeTemplateId?: string | null;
   structure?: Prisma.InputJsonValue | typeof Prisma.DbNull;
 }
 
 export interface StructureInput {
-  taskTemplateId?: string | null | undefined;
-  documentRequestTemplateId?: string | null | undefined;
-  intakeTemplateId?: string | null | undefined;
   structure?: TemplateStructure | null | undefined;
 }
 
@@ -55,47 +48,49 @@ const missing = () =>
   new NotFoundException({ code: 'NOT_FOUND', message: 'That template was not found' });
 
 /**
- * The structure columns a save writes: a link only on its own kind (400), to one of the firm's
- * module templates (404) that no other template stands for (409 STRUCTURE_IN_USE); a structure
- * only on TAX_WORKFLOW and BOOKKEEPING, of their shape (400). Fields not sent stay as they are.
+ * The structure a save writes: only on TAX_WORKFLOW and BOOKKEEPING, of their shape (400). Not
+ * sent: it stays as it is.
  */
-export async function structureData(
+export function structureData(kind: MessageTemplateKind, body: StructureInput): StructureData {
+  if (body.structure === undefined) return {};
+  if (body.structure === null) return { structure: Prisma.DbNull };
+  const shape = SHAPES[kind];
+  if (!shape) throw templateErrors.invalid('structure', 'Only its own kind of template has this');
+  const parsed = shape.safeParse(body.structure);
+  if (!parsed.success) {
+    throw templateErrors.invalid('structure', parsed.error.issues[0]?.message ?? 'Check it');
+  }
+  return { structure: parsed.data as Prisma.InputJsonValue };
+}
+
+/**
+ * The link a TASK, DOCUMENT_REQUEST or INTAKE_ORGANIZER template keeps (PUT .../linked-template):
+ * only those kinds (400); one of the firm's module templates (404, so another firm's is never
+ * told apart from none), which no other template stands for (409 STRUCTURE_IN_USE). Null clears it.
+ */
+export async function linkData(
   tx: TxClient,
   businessId: string,
   kind: MessageTemplateKind,
-  body: StructureInput,
-  templateId?: string,
-): Promise<StructureData> {
-  const data: StructureData = {};
-  for (const field of FIELDS) {
-    const id = body[field];
-    if (id === undefined) continue;
-    if (id !== null && LINKS[kind as LinkedTemplateKind] !== field) {
-      throw templateErrors.invalid(field, 'Only its own kind of template has this');
-    }
-    if (id !== null) {
-      if (!(await moduleTemplateExists(tx, businessId, field, id))) throw missing();
-      const other = await tx.messageTemplate.findFirst({
-        where: { businessId, [field]: id, ...(templateId ? { id: { not: templateId } } : {}) },
-        select: { id: true },
-      });
-      if (other) throw inUse();
-    }
-    data[field] = id;
+  moduleTemplateId: string | null,
+  templateId: string,
+): Promise<Partial<Record<LinkField, string | null>>> {
+  const field = LINKS[kind as LinkedTemplateKind] as LinkField | undefined;
+  if (!field) {
+    throw templateErrors.invalid(
+      'moduleTemplateId',
+      'Only a task, document request or intake template stands for one',
+    );
   }
-  if (body.structure !== undefined) {
-    const shape = SHAPES[kind];
-    if (body.structure !== null) {
-      if (!shape)
-        throw templateErrors.invalid('structure', 'Only its own kind of template has this');
-      const parsed = shape.safeParse(body.structure);
-      if (!parsed.success) {
-        throw templateErrors.invalid('structure', parsed.error.issues[0]?.message ?? 'Check it');
-      }
-      data.structure = parsed.data as Prisma.InputJsonValue;
-    } else data.structure = Prisma.DbNull;
+  if (moduleTemplateId !== null) {
+    if (!(await moduleTemplateExists(tx, businessId, field, moduleTemplateId))) throw missing();
+    const other = await tx.messageTemplate.findFirst({
+      where: { businessId, [field]: moduleTemplateId, id: { not: templateId } },
+      select: { id: true },
+    });
+    if (other) throw inUse();
   }
-  return data;
+  return { [field]: moduleTemplateId };
 }
 
 async function moduleTemplateExists(

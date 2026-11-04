@@ -34,6 +34,7 @@ import {
   type LinkedModuleTemplate,
   TaxWorkflowStructure,
   TemplateStructureOptionsQuery,
+  SetLinkedTemplateRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -469,36 +470,31 @@ export function createTemplatesMock({
       steps: ['Individual tax organizer'],
     },
   ];
-  const LINK_FIELDS = {
-    TASK: 'taskTemplateId',
-    DOCUMENT_REQUEST: 'documentRequestTemplateId',
-    INTAKE_ORGANIZER: 'intakeTemplateId',
-  } as const;
-  /** As the API: a link only on its kind, one of the firm's, used by one template; a structure of its kind's shape. */
-  const applyStructure = (
-    r: Pick<Rec, 'd'>,
-    input: {
-      taskTemplateId?: string | null | undefined;
-      documentRequestTemplateId?: string | null | undefined;
-      intakeTemplateId?: string | null | undefined;
-      structure?: unknown;
-    },
-  ) => {
-    for (const [kind, field] of Object.entries(LINK_FIELDS)) {
-      const value = input[field];
-      if (value === undefined) continue;
-      if (value !== null && r.d.kind !== kind)
-        throw fail(400, 'VALIDATION_FAILED', 'Only its own kind of template has this');
-      if (value === null) {
-        if (r.d.kind === kind) r.d.linkedTemplate = null;
-        continue;
-      }
-      const m = MODULE_TEMPLATES.find((x) => x.id === value && x.kind === kind);
-      if (!m) throw fail(404, 'NOT_FOUND', 'That template was not found');
-      if (recs.some((o) => o.d.id !== r.d.id && o.d.linkedTemplate?.id === value))
-        throw fail(409, 'STRUCTURE_IN_USE', 'Another template already stands for this one');
-      r.d.linkedTemplate = m;
+  const LINKED_KINDS: readonly MessageTemplateKind[] = [
+    'TASK',
+    'DOCUMENT_REQUEST',
+    'INTAKE_ORGANIZER',
+  ];
+  /** As the API: PUT .../linked-template, on its kind, one of the firm's, used by one template. */
+  const linkTo = (r: Pick<Rec, 'd'>, moduleTemplateId: string | null) => {
+    if (!LINKED_KINDS.includes(r.d.kind))
+      throw fail(
+        400,
+        'VALIDATION_FAILED',
+        'Only a task, document request or intake template stands for one',
+      );
+    if (moduleTemplateId === null) {
+      r.d.linkedTemplate = null;
+      return;
     }
+    const m = MODULE_TEMPLATES.find((x) => x.id === moduleTemplateId && x.kind === r.d.kind);
+    if (!m) throw fail(404, 'NOT_FOUND', 'That template was not found');
+    if (recs.some((o) => o.d.id !== r.d.id && o.d.linkedTemplate?.id === moduleTemplateId))
+      throw fail(409, 'STRUCTURE_IN_USE', 'Another template already stands for this one');
+    r.d.linkedTemplate = m;
+  };
+  /** As the API: a structure only on Tax Workflow and Bookkeeping, of their shape. */
+  const applyStructure = (r: Pick<Rec, 'd'>, input: { structure?: unknown }) => {
     if (input.structure !== undefined) {
       const shape =
         r.d.kind === 'TAX_WORKFLOW'
@@ -1043,6 +1039,17 @@ export function createTemplatesMock({
         });
         recs.unshift(r);
         return { template: detailOf(r), removed };
+      }),
+    setLinkedTemplate: (templateId, body) =>
+      run(() => {
+        const input = parseInput(SetLinkedTemplateRequest, body);
+        const r = find(templateId);
+        needEdit(r);
+        if (r.d.etag !== input.etag)
+          throw fail(409, 'SAVE_CONFLICT', 'Someone saved this template after you opened it.');
+        linkTo(r, input.moduleTemplateId);
+        r.d.etag = `e${next++}`;
+        return detailOf(r);
       }),
     structureOptions: (q) =>
       run(() => {

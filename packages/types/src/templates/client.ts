@@ -40,6 +40,7 @@ import {
   TestSendTemplateRequest,
   UpdateMessageTemplateRequest,
   UpdateTemplateCategoryRequest,
+  SetLinkedTemplateRequest,
   TemplateStructureOptions,
   TemplateStructureOptionsQuery,
 } from './schemas.js';
@@ -190,6 +191,15 @@ export function createTemplatesClient(request: ApiRequest) {
       ),
     starters: async (): Promise<StarterTemplatesStatus> =>
       request(StarterTemplatesStatus, `${TEMPLATES}/starters`),
+    /** TP-F08: the module template a TASK, DOCUMENT_REQUEST or INTAKE_ORGANIZER template stands for. */
+    setLinkedTemplate: async (
+      id: string,
+      body: SetLinkedTemplateRequest,
+    ): Promise<MessageTemplateDetail> =>
+      request(MessageTemplateDetail, `${template(id)}/linked-template`, {
+        method: 'PUT',
+        body: parseInput(SetLinkedTemplateRequest, body),
+      }),
     /** TP-F08: the firm's task templates, request lists or intake templates a template can stand for. */
     structureOptions: async (
       query: TemplateStructureOptionsQuery,

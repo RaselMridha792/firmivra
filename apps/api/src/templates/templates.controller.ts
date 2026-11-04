@@ -50,6 +50,7 @@ import {
   PreviewBody,
   SharesBody,
   StartAttachmentBody,
+  SetLinkedBody,
   StructureOptionsQ,
   TemplatesQuery,
   TestSendBody,
@@ -185,6 +186,17 @@ export class TemplatesController {
     @Body(new ZodValidationPipe(UpdateTemplateBody)) body: Out<typeof UpdateTemplateBody>,
   ): Promise<MessageTemplateDetail> {
     return this.templates.update(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** TP-F08: the task template, request list or intake template it stands for (null: none). */
+  @Put(':id/linked-template')
+  setLinked(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SetLinkedBody)) body: Out<typeof SetLinkedBody>,
+  ): Promise<MessageTemplateDetail> {
+    return this.templates.setLinked(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Post(':id/duplicate')
