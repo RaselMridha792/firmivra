@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   INVOICE_ERRORS,
-  lineAmountCents,
+  invoiceTotals,
   PaymentMethodKey,
   STANDARD_PAYMENT_TERMS,
 } from '@firmivra/types';
@@ -376,7 +376,13 @@ export class InvoicesService {
     await this.checkTerms(tx, businessId, id, body.paymentTerms ?? null);
     const current = await tx.invoice.findUniqueOrThrow({
       where,
-      select: { clientId: true, taxRateId: true, templateId: true },
+      select: {
+        clientId: true,
+        taxRateId: true,
+        templateId: true,
+        allowTip: true,
+        requirePaymentBeforeDue: true,
+      },
     });
     await checkDraftExtras(tx, businessId, current, body);
     await tx.invoice.update({ where, data: { discountCents: 0 } });
@@ -405,6 +411,12 @@ export class InvoicesService {
         paymentTerms: body.paymentTerms ?? null,
         notesToClient: body.notesToClient ?? null,
         internalNote: body.internalNote ?? null,
+        // IP-F04: left out, each stays as it is (the email's column default on create).
+        ...(body.emailClient === undefined ? {} : { emailClient: body.emailClient }),
+        ...(body.allowTip === undefined ? {} : { allowTip: body.allowTip }),
+        ...(body.requirePaymentBeforeDue === undefined
+          ? {}
+          : { requirePaymentBeforeDue: body.requirePaymentBeforeDue }),
       },
     });
     await writeAttachments(tx, businessId, id, body.documentIds, actorUserId);
@@ -654,7 +666,11 @@ export class InvoicesService {
           autoSend: true,
           autopay: true,
           client: { select: { id: true, displayName: true } },
-          lines: { select: { quantity: true, unitAmountCents: true } },
+          lines: { select: { quantity: true, unitAmountCents: true, taxable: true } },
+          discountType: true,
+          discountPercent: true,
+          discountCents: true,
+          taxRate: { select: { rateBps: true } },
         },
       });
       return rows.map((r) => ({
@@ -668,10 +684,7 @@ export class InvoicesService {
             : null,
         nextSendOn: day(r.nextSendOn),
         status: r.status,
-        amountCents: r.lines.reduce(
-          (s, l) => s + lineAmountCents(Number(l.quantity), l.unitAmountCents),
-          0,
-        ),
+        amountCents: scheduleTotal(r),
         autoSend: r.autoSend,
         autopay: r.autopay,
       }));
@@ -961,4 +974,29 @@ export class InvoicesService {
       CHECKOUT_LIMITS,
     );
   }
+}
+
+/**
+ * A recurring schedule's amount as each invoice will bill it, as Create Invoice's summary works it
+ * out: the lines, less the discount (a percent one in whole cents), plus the schedule's tax rate on
+ * its taxable lines (R55's IP-F03).
+ */
+function scheduleTotal(r: {
+  lines: { quantity: Prisma.Decimal; unitAmountCents: number; taxable: boolean }[];
+  discountType: 'FIXED' | 'PERCENT';
+  discountPercent: Prisma.Decimal | null;
+  discountCents: number;
+  taxRate: { rateBps: number } | null;
+}): number {
+  const lines = r.lines.map((l) => ({
+    quantity: Number(l.quantity),
+    unitAmountCents: l.unitAmountCents,
+    taxable: l.taxable,
+  }));
+  const subtotal = invoiceTotals({ lines }).subtotalCents;
+  const discountCents =
+    r.discountType === 'PERCENT' && r.discountPercent !== null
+      ? Math.round((subtotal * Number(r.discountPercent)) / 100)
+      : r.discountCents;
+  return invoiceTotals({ lines, discountCents, taxRateBps: r.taxRate?.rateBps ?? 0 }).totalCents;
 }

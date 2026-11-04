@@ -298,6 +298,8 @@ export const FirmInvoicePayment = InvoicePayment.extend({
    * ones included), while SUCCEEDED; 0 for any other status.
    */
   refundableCents: Cents,
+  /** IP-F12: the last time a receipt for it went to the client; null: never. */
+  receiptSentAt: DateTime.nullable(),
 });
 export type FirmInvoicePayment = z.infer<typeof FirmInvoicePayment>;
 
@@ -330,6 +332,10 @@ export const OfflinePayment = z.object({
   voidedAt: DateTime.nullable(),
   voidedBy: MemberRef.nullable(),
   voidReason: z.string().nullable(),
+  /** IP-F12: where the firm deposited it (kept when the account is archived later). */
+  depositAccount: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  /** IP-F12: the last time a receipt for it went to the client; null: never. */
+  receiptSentAt: DateTime.nullable(),
 });
 export type OfflinePayment = z.infer<typeof OfflinePayment>;
 
@@ -363,6 +369,11 @@ const AmountDetail = {
     .nullable(),
   /** IP-F03: files from the client's documents (shared with the client, clean), oldest first. */
   attachments: z.array(InvoiceAttachment).max(INVOICE_LIMITS.maxAttachments),
+  /**
+   * IP-F04: the firm asks for payment before the due date; the client's invoice says so. Nothing
+   * is blocked and no extra email goes out.
+   */
+  requirePaymentBeforeDue: z.boolean(),
   /**
    * Money received: Stripe payments that succeeded (refunded ones in full) plus live offline
    * payments. The balance due is the total less this.
@@ -440,6 +451,10 @@ export const Invoice = InvoiceListItem.extend({
   template: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   /** IP-F03: the chosen tax rate's id (the amounts are in `tax`). */
   taxRateId: z.uuid().nullable(),
+  /** IP-F04: the client gets the email when the invoice opens (the portal shows it either way). */
+  emailClient: z.boolean(),
+  /** IP-F04: the client may add a tip. Stored only for now: Pay Now charges the balance due. */
+  allowTip: z.boolean(),
   /** IP-F05: the schedule this invoice starts or was made by; null for a one-time invoice. */
   recurring: InvoiceRecurrence.nullable(),
 });
@@ -578,6 +593,23 @@ const DraftFields = {
     .max(INVOICE_LIMITS.maxAttachments, `Attach at most ${INVOICE_LIMITS.maxAttachments} files`)
     .refine((ids) => new Set(ids).size === ids.length, 'Attach each file once')
     .optional(),
+  /**
+   * IP-F04: email the client when the invoice opens; off, it opens in their portal without one.
+   * Left out: kept on update, and on create the email goes as before (Create Invoice always sends
+   * it, unchecked to start).
+   */
+  emailClient: z.boolean().optional(),
+  /**
+   * IP-F04: the client may add a tip, while Settings > Payments' Tipping is on (409
+   * OPTION_NOT_ENABLED otherwise; a draft keeps its own). Left out: kept, off on create.
+   */
+  allowTip: z.boolean().optional(),
+  /**
+   * IP-F04: ask for payment before the due date, while Settings > Payments' "Require payment
+   * before due date" is on (409 OPTION_NOT_ENABLED otherwise; a draft keeps its own). Left out:
+   * kept, off on create.
+   */
+  requirePaymentBeforeDue: z.boolean().optional(),
   /**
    * IP-F05: repeat this invoice; null or left out keeps it one-time (and ends a schedule the
    * draft had). The schedule starts from the day the invoice opens, when it is sent.
@@ -794,6 +826,13 @@ export type RefundPaymentRequest = z.input<typeof RefundPaymentRequest>;
 export const OfflinePaymentId = z.uuid();
 
 /**
+ * IP-F12: the payment a receipt is for, a Stripe one or a recorded (offline) one: POST
+ * /business/invoices/{id}/payments/{paymentId}/receipts or
+ * /business/invoices/{id}/offline-payments/{offlinePaymentId}/receipts (Owner and Admin).
+ */
+export type ReceiptFor = { paymentId: string } | { offlinePaymentId: string };
+
+/**
  * POST /business/invoices/{id}/offline-payments (Owner and Admin): records a check or cash payment
  * on an OPEN invoice, at most its balance due; the invoice turns PAID when the money received
  * covers the total. The API first ends an open Pay Now checkout the client left (409
@@ -820,6 +859,13 @@ export const RecordOfflinePaymentRequest = z
     receivedOn: CalendarDate.refine((d) => d >= '2000-01-01', 'Enter a date from 2000 on'),
     /** For the firm only. Left out when there is none (empty is 400). */
     note: text(500, 'many', 'Add a note').optional(),
+    /** IP-F12: Deposit To, one of the firm's live deposit accounts (404 otherwise). */
+    depositAccountId: z.uuid().optional(),
+    /**
+     * IP-F12: email the client a receipt once the payment is recorded. Left out: the firm's
+     * Automatic Receipts setting decides. The firm's own notice goes either way.
+     */
+    sendReceipt: z.boolean().optional(),
     /**
      * A new random id each time the dialog opens, sent again unchanged on a retry: a retry of a
      * payment already recorded answers the invoice as it is (200, nothing recorded twice).
@@ -1006,6 +1052,16 @@ export const InvoiceErrorCode = z.enum([
    */
   'ATTACHMENT_NOT_SHAREABLE',
   /**
+   * 409 (IP-F04, create or update): a tip or payment-before-due option the firm has not turned on
+   * in Settings > Payments; turn it on there first.
+   */
+  'OPTION_NOT_ENABLED',
+  /**
+   * 409 (IP-F12, Send Receipt): the payment has not succeeded (or was voided), so there is nothing
+   * to give a receipt for.
+   */
+  'RECEIPT_NOT_AVAILABLE',
+  /**
    * 409 (IP-F05, save or send): the schedule's end date comes before its second invoice, which
    * then would never be made; choose a later end date or turn Recurring off.
    */
@@ -1048,6 +1104,8 @@ export const INVOICE_ERRORS = {
   REFUND_TOO_LARGE: 'The refund is more than what is left of this payment.',
   ATTACHMENT_NOT_SHAREABLE:
     'A file can be attached once it is shared with the client and has passed its virus check.',
+  OPTION_NOT_ENABLED: 'Turn this option on in Settings > Payments first.',
+  RECEIPT_NOT_AVAILABLE: 'A receipt can be sent once the payment has gone through.',
   RECURRING_END_TOO_SOON:
     'The schedule ends before its second invoice. Choose a later end date or turn Recurring off.',
   TERMS_NOT_OFFERED:

@@ -337,6 +337,7 @@ describe('api.invoices (firm)', () => {
         },
       ],
       refundableCents: 12_500,
+      receiptSentAt: at,
     };
     const invoice = {
       id,
@@ -380,6 +381,7 @@ describe('api.invoices (firm)', () => {
           sizeBytes: 2048,
         },
       ],
+      requirePaymentBeforeDue: true,
       amountPaidCents: 15_000,
       refundedCents: 2_500,
       payments: [payment],
@@ -397,6 +399,8 @@ describe('api.invoices (firm)', () => {
           voidedAt: at,
           voidedBy: { userId: id, name: 'Fake Owner' },
           voidReason: 'Wrong invoice',
+          depositAccount: { id, name: 'Operating (fake)' },
+          receiptSentAt: null,
         },
       ],
       cancelReason: null,
@@ -408,6 +412,8 @@ describe('api.invoices (firm)', () => {
       assignedTo: { userId: id, name: 'Fake Staff' },
       template: { id, name: 'Fake Standard' },
       taxRateId: id,
+      emailClient: false,
+      allowTip: true,
     };
     expect(Invoice.parse({ ...invoice, stripeAccountId: 'acct_1' })).toEqual(invoice);
     // IP-F02: the standard terms or a firm's own, Net 1 to Net 365.

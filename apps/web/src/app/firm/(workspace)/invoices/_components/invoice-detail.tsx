@@ -25,6 +25,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
+import { ReceiptButton } from './receipt-button';
 import {
   card,
   dayText,
@@ -180,6 +181,12 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 ['Created By', i?.createdBy?.name ?? '—'],
                 ['Assigned Staff', i?.assignedTo?.name ?? 'Unassigned'],
                 ['Template', i?.template?.name ?? "Your firm's branding"],
+                // IP-F04
+                ['Email to Client', i && !i.emailClient ? 'Off: portal only' : 'On'],
+                ...(i?.allowTip ? [['Tips', 'Allowed (not added to Pay Now yet)'] as const] : []),
+                ...(i?.requirePaymentBeforeDue
+                  ? [['Payment', 'Required before the due date'] as const]
+                  : []),
               ].map(([label, value]) => (
                 <div key={String(label)}>
                   <dt className="text-muted">{label}</dt>
@@ -287,6 +294,13 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                       {p.refunds.some((r) => r.status === 'PENDING') ? ' · Refund pending' : ''}
                       {p.failureCode ? ` · ${p.failureCode}` : ''}
                     </span>
+                    {p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? (
+                      <ReceiptButton
+                        invoiceId={i.id}
+                        payment={{ paymentId: p.id }}
+                        sentAt={p.receiptSentAt}
+                      />
+                    ) : null}
                     {p.refundableCents > 0 ? (
                       <RequireRole roles={['OWNER', 'ADMIN']}>
                         <button
@@ -312,19 +326,27 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                       · {OFFLINE_METHOD[p.method] ?? p.method}
                       {p.reference ? ` #${p.reference}` : ''} · {dayText(p.receivedOn)} · Recorded
                       by {p.recordedBy.name}
+                      {p.depositAccount ? ` · Deposited to ${p.depositAccount.name}` : ''}
                     </span>
                     {p.voidedAt ? (
                       <span className="text-xs text-muted">Voided: {p.voidReason}</span>
                     ) : (
-                      <RequireRole roles={['OWNER', 'ADMIN']}>
-                        <button
-                          type="button"
-                          className={`${outlined} min-h-9!`}
-                          onClick={() => setVoiding(p)}
-                        >
-                          Void
-                        </button>
-                      </RequireRole>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <ReceiptButton
+                          invoiceId={i.id}
+                          payment={{ offlinePaymentId: p.id }}
+                          sentAt={p.receiptSentAt}
+                        />
+                        <RequireRole roles={['OWNER', 'ADMIN']}>
+                          <button
+                            type="button"
+                            className={`${outlined} min-h-9!`}
+                            onClick={() => setVoiding(p)}
+                          >
+                            Void
+                          </button>
+                        </RequireRole>
+                      </span>
                     )}
                   </li>
                 ))}
