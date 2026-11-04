@@ -48,6 +48,7 @@ import {
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
+import { TransactionsTab } from './transactions-tab';
 
 const TABS = [
   'Overview',
@@ -648,13 +649,7 @@ export function ClientWorkspace({ id }: { id: string }) {
             </div>
           </>
         ) : tab === 'Transactions' ? (
-          <section className={card} aria-label="Transactions" data-testid="transactions-tab">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Transactions</h2>
-            <p className={quiet}>
-              Transactions stay in {sw?.label ?? 'the accounting software'}; Firmivra keeps no
-              ledger. Period figures are entered or imported under Reconciliation.
-            </p>
-          </section>
+          <TransactionsTab w={w} />
         ) : tab === 'Reconciliation' ? (
           <PeriodsTab w={w} onNotice={notice} />
         ) : tab === 'Reports' ? (
