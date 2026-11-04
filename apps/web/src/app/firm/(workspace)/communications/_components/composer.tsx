@@ -137,8 +137,19 @@ export interface ComposerEmbed {
   onDone: (id: string) => void;
 }
 
-/** /communications/[id]/edit: the channel-aware composer (also inside a panel, `embedded`). */
-export function Composer({ id, embedded }: { id: string; embedded?: ComposerEmbed }) {
+/**
+ * /communications/[id]/edit: the channel-aware composer (also inside a panel, `embedded`).
+ * `chooseRecipients` (CM-F03, `?recipients=1`) opens Choose Recipients on arrival.
+ */
+export function Composer({
+  id,
+  embedded,
+  chooseRecipients,
+}: {
+  id: string;
+  embedded?: ComposerEmbed;
+  chooseRecipients?: boolean;
+}) {
   const detail = useApiQuery([...COMM_KEY, 'detail', id], () => api.communications.get(id));
   if (detail.isError)
     return (
@@ -154,15 +165,24 @@ export function Composer({ id, embedded }: { id: string; embedded?: ComposerEmbe
       </div>
     );
   if (!detail.data) return <p className={quiet}>Loading…</p>;
-  return <ComposerForm key={detail.data.id} initial={detail.data} embedded={embedded} />;
+  return (
+    <ComposerForm
+      key={detail.data.id}
+      initial={detail.data}
+      embedded={embedded}
+      chooseRecipients={chooseRecipients}
+    />
+  );
 }
 
 function ComposerForm({
   initial,
   embedded,
+  chooseRecipients,
 }: {
   initial: CommunicationDetail;
   embedded?: ComposerEmbed;
+  chooseRecipients?: boolean;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -170,8 +190,8 @@ function ComposerForm({
   const [form, setForm] = useState<Form>(() => formOf(initial));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<
-    'recipients' | 'test' | 'template' | 'review' | 'strip' | 'saveTemplate'
-  >();
+    'recipients' | 'test' | 'template' | 'review' | 'strip' | 'saveTemplate' | undefined
+  >(() => (chooseRecipients && initial.editable ? 'recipients' : undefined));
   const [mode, setMode] = useState<'NOW' | 'LATER'>(() => (initial.scheduledFor ? 'LATER' : 'NOW'));
   const [when, setWhen] = useState(
     () => local(initial.scheduledFor) || local(new Date(Date.now() + 86_400_000).toISOString()),
@@ -889,9 +909,13 @@ function ComposerForm({
       {dialog === 'recipients' ? (
         <RecipientsModal
           detail={d}
-          onClose={() => setDialog(undefined)}
+          onClose={() => {
+            setDialog(undefined);
+            if (chooseRecipients) router.replace(`/communications/${d.id}/edit`);
+          }}
           onApplied={() => {
             setDialog(undefined);
+            if (chooseRecipients) router.replace(`/communications/${d.id}/edit`);
             void refresh();
           }}
         />

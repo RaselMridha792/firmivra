@@ -4,6 +4,7 @@ import type { SegmentDetail, SegmentField, SegmentRow } from '@firmivra/types';
 import {
   ActionMenu,
   Button,
+  Callout,
   Checkbox,
   Input,
   Modal,
@@ -19,6 +20,7 @@ import {
   MagnifyingGlass,
   PencilSimple,
   Plus,
+  Lightbulb,
   Trash,
   UsersThree,
 } from '@phosphor-icons/react';
@@ -423,6 +425,21 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
       aria-label="Segments and lists"
       data-testid="segments-panel"
     >
+      {/* CM-F02: what these are and what must exist first; nothing is chosen from here. */}
+      <Callout
+        icon={Lightbulb}
+        iconStyle="tile"
+        tone="blue"
+        surface="info"
+        title="How to build an audience"
+      >
+        <span data-testid="segments-guide" className="block">
+          A <strong>segment</strong> follows rules (for example, Client Status is Active) and
+          updates itself as clients change. A <strong>list</strong> holds the people you pick. Your
+          clients and leads must be in Firmivra first, with an email address for email or a mobile
+          number and consent for texts. Then use them in Choose Recipients on a draft.
+        </span>
+      </Callout>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex h-10 w-64 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
