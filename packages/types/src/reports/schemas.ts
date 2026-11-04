@@ -108,7 +108,11 @@ const FilterValue = z.union([
   }),
 ]);
 
-/** `value` is absent for IS_EMPTY and IS_NOT_EMPTY, a { from, to } pair for BETWEEN, a list for IS_ANY_OF and IS_NONE_OF. */
+/**
+ * `value` is absent for IS_EMPTY and IS_NOT_EMPTY, a { from, to } pair for BETWEEN, a list for
+ * IS_ANY_OF and IS_NONE_OF. A MONEY field's value is in cents, like every amount (the screens turn
+ * the dollars typed into cents); a value its field's type does not take is 400 INVALID_DEFINITION.
+ */
 export const ReportFilterCondition = z.strictObject({
   field: ReportFieldKey,
   op: ReportFilterOp,

@@ -25,6 +25,7 @@ import {
   type DateSpec,
   type Filters,
   checkDefinition,
+  chipsOf,
   compute,
   comparisonOf,
   rangeOf,
@@ -552,16 +553,15 @@ export class ReportsService {
       ...(o.hiddenColumns ? { hiddenColumns: o.hiddenColumns } : {}),
     });
     const fields = new Map(r.source.fields.map((f) => [f.key, f]));
-    const chips = [
-      ...def.filters.conditions,
-      ...def.filters.groups.flatMap((g) => g.conditions),
-      ...(extra?.conditions ?? []),
-      ...quick.filters.conditions,
-    ].map((c) => ({
-      field: c.field,
-      label: fields.get(c.field)?.label ?? c.field,
-      value: `${c.op.toLowerCase().replace(/_/g, ' ')}${c.value === undefined ? '' : ` ${Array.isArray(c.value) ? c.value.join(', ') : typeof c.value === 'object' ? JSON.stringify(c.value) : String(c.value)}`}`,
-    }));
+    const chips = chipsOf(
+      [
+        ...def.filters.conditions,
+        ...def.filters.groups.flatMap((g) => g.conditions),
+        ...(extra?.conditions ?? []),
+        ...quick.filters.conditions,
+      ],
+      fields,
+    );
     if (def.compareTo !== 'NONE' && !cmpRange)
       notices.push('Comparison is not available for this range.');
     const insights: ReportInsight[] = computed.insights.map((i) => ({

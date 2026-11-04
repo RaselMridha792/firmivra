@@ -1,14 +1,24 @@
 'use client';
 
-import type { ReportDefinitionView } from '@firmivra/types';
+import { ApiRequestError, type ReportDefinitionView } from '@firmivra/types';
 import { Checkbox, KpiCard, Select, Table, Toast, Toggle, type Column } from '@firmivra/ui';
-import { ArrowDown, ArrowUp, CalendarBlank, MagnifyingGlass, Plus, X } from '@phosphor-icons/react';
+import {
+  ArrowDown,
+  ArrowUp,
+  CalendarBlank,
+  DotsSixVertical,
+  MagnifyingGlass,
+  X,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { type FilterDraft, conditionsOf } from './filter-rules';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
+import { FilterRows } from './report-filters';
 import {
   BarChart,
   CATEGORY_META,
@@ -22,6 +32,7 @@ import {
   outlined,
   primary,
   quiet,
+  RP_ERRORS,
   subtle,
 } from './reports-shared';
 
@@ -37,12 +48,6 @@ const section = (n: number, title: string) => (
   </h2>
 );
 
-interface Cond {
-  field: string;
-  op: string;
-  value: string;
-}
-
 /** /reports/builder: Create Custom Report: type and data, columns, filters, grouping and a live preview. */
 export function ReportBuilder() {
   const router = useRouter();
@@ -53,7 +58,9 @@ export function ReportBuilder() {
   const [columns, setColumns] = useState<string[]>([]);
   const [fieldSearch, setFieldSearch] = useState('');
   const [preset, setPreset] = useState('this_year');
-  const [conds, setConds] = useState<Cond[]>([]);
+  const [conds, setConds] = useState<FilterDraft[]>([]);
+  // RP-F09: a column dragged to a new place (the arrows do the same by keyboard).
+  const [dragged, setDragged] = useState<string>();
   const [groupBy, setGroupBy] = useState('');
   const [sortBy, setSortBy] = useState('');
   const [desc, setDesc] = useState(true);
@@ -68,6 +75,10 @@ export function ReportBuilder() {
   const src = all.find((s) => s.key === (sourceKey || inCategory[0]?.key));
   const cols = columns.length ? columns : (src?.defaultColumns ?? []);
   const fields = src?.fields ?? [];
+  const filterFields = fields.filter((f) => f.filterable);
+  // RP-F02, F10: only the filters that fit go to the preview; the others say why, in place.
+  const filtered = conditionsOf(filterFields, conds);
+  const unfit = filtered.problems.filter(Boolean).length;
   const definition: ReportDefinitionView | undefined = src
     ? {
         category: src.category,
@@ -75,9 +86,7 @@ export function ReportBuilder() {
         columns: cols,
         filters: {
           logic: 'AND',
-          conditions: conds
-            .filter((c) => c.field && c.value !== '')
-            .map((c) => ({ field: c.field, op: c.op as never, value: c.value })),
+          conditions: filtered.conditions as ReportDefinitionView['filters']['conditions'],
           groups: [],
         },
         groupBy: groupBy || null,
@@ -101,6 +110,12 @@ export function ReportBuilder() {
       : Promise.resolve(null),
   );
   const r = preview.data;
+  // RP-F10: a preview that could not run says why; it is never shown as "no data".
+  const previewError = preview.isError
+    ? ((preview.error instanceof ApiRequestError
+        ? preview.error.details?.[0]?.message
+        : undefined) ?? errorMessage(preview.error, RP_ERRORS))
+    : undefined;
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const move = (key: string, by: number) => {
     const i = cols.indexOf(key);
@@ -108,6 +123,12 @@ export function ReportBuilder() {
     if (i < 0 || j < 0 || j >= cols.length) return;
     const next = [...cols];
     [next[i], next[j]] = [next[j]!, next[i]!];
+    setColumns(next);
+  };
+  const dropOn = (key: string) => {
+    if (!dragged || dragged === key) return;
+    const next = cols.filter((c) => c !== dragged);
+    next.splice(next.indexOf(key), 0, dragged);
     setColumns(next);
   };
   const tableCols: Column<{ cells: Record<string, string | number | boolean | null> }>[] = (
@@ -248,8 +269,26 @@ export function ReportBuilder() {
                   {cols.map((k) => (
                     <li
                       key={k}
-                      className="flex items-center gap-1 rounded-lg border border-divider px-2 py-1 text-sm"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', k);
+                        setDragged(k);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        dropOn(k);
+                        setDragged(undefined);
+                      }}
+                      onDragEnd={() => setDragged(undefined)}
+                      className={`flex cursor-grab items-center gap-1 rounded-lg border px-2 py-1 text-sm ${dragged === k ? 'border-action bg-accent-soft' : 'border-divider'}`}
                     >
+                      <DotsSixVertical
+                        aria-hidden
+                        weight="bold"
+                        className="size-4 shrink-0 text-muted"
+                      />
                       <span className="min-w-0 flex-1 truncate text-heading">
                         {fields.find((f) => f.key === k)?.label ?? k}
                       </span>
@@ -299,93 +338,13 @@ export function ReportBuilder() {
                 options={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
               />
             </div>
-            {conds.map((c, i) => {
-              const f = fields.find((x) => x.key === c.field);
-              return (
-                <div
-                  key={`${c.field}-${i}`}
-                  className="grid items-end gap-2 sm:grid-cols-[1fr_7rem_1fr_auto]"
-                >
-                  <Select
-                    label="Field"
-                    value={c.field}
-                    onChange={(e) =>
-                      setConds(
-                        conds.map((x, j) =>
-                          j === i ? { field: e.target.value, op: 'IS', value: '' } : x,
-                        ),
-                      )
-                    }
-                    options={fields
-                      .filter((x) => x.filterable)
-                      .map((x) => ({ value: x.key, label: x.label }))}
-                  />
-                  <Select
-                    label="Is"
-                    value={c.op}
-                    onChange={(e) =>
-                      setConds(conds.map((x, j) => (j === i ? { ...x, op: e.target.value } : x)))
-                    }
-                    options={
-                      f && (f.type === 'MONEY' || f.type === 'NUMBER')
-                        ? [
-                            { value: 'GREATER_THAN', label: 'above' },
-                            { value: 'LESS_THAN', label: 'below' },
-                          ]
-                        : [
-                            { value: 'IS', label: 'is' },
-                            { value: 'IS_NOT', label: 'is not' },
-                            { value: 'CONTAINS', label: 'contains' },
-                          ]
-                    }
-                  />
-                  {f && f.options.length ? (
-                    <Select
-                      label="Value"
-                      value={c.value}
-                      onChange={(e) =>
-                        setConds(
-                          conds.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
-                        )
-                      }
-                      options={[{ value: '', label: 'Choose…' }, ...f.options]}
-                    />
-                  ) : (
-                    <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-                      Value
-                      <input
-                        value={c.value}
-                        onChange={(e) =>
-                          setConds(
-                            conds.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
-                          )
-                        }
-                        className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-                      />
-                    </label>
-                  )}
-                  <button
-                    type="button"
-                    aria-label={`Remove filter ${i + 1}`}
-                    onClick={() => setConds(conds.filter((_, j) => j !== i))}
-                    className="min-h-10 px-2 text-sm font-medium text-danger"
-                  >
-                    Remove
-                  </button>
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              className={`${outlined} min-h-9 w-fit`}
-              disabled={!fields.some((f) => f.filterable)}
-              onClick={() => {
-                const f = fields.find((x) => x.filterable);
-                if (f) setConds([...conds, { field: f.key, op: 'IS', value: '' }]);
-              }}
-            >
-              <Plus aria-hidden weight="bold" className="size-4" /> Add Filter
-            </button>
+            <FilterRows fields={filterFields} rows={conds} onChange={setConds} />
+            {unfit ? (
+              <p className="text-sm text-warning" role="status">
+                {unfit === 1 ? 'One filter is' : `${unfit} filters are`} not in the preview until
+                fixed.
+              </p>
+            ) : null}
           </section>
 
           <section
@@ -470,9 +429,9 @@ export function ReportBuilder() {
                 Refresh Preview
               </button>
             </div>
-            {preview.isError ? (
-              <p role="alert" className={quiet}>
-                The preview is not available. Check the fields and filters.
+            {previewError ? (
+              <p role="alert" className="rounded-lg bg-danger-soft p-4 text-sm text-danger">
+                The preview could not run: {previewError}
               </p>
             ) : null}
             <ul className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="preview-kpis">
@@ -490,9 +449,9 @@ export function ReportBuilder() {
             </ul>
             {r?.chart ? (
               <BarChart chart={r.chart} />
-            ) : (
+            ) : previewError ? null : (
               <p className={quiet}>
-                {preview.isPending ? 'Loading…' : 'There is no data for this selection.'}
+                {preview.isPending ? 'Loading…' : 'No rows match these fields and filters.'}
               </p>
             )}
             <div className="mt-4">
@@ -510,8 +469,12 @@ export function ReportBuilder() {
                   pageSize={10}
                   showPagination={false}
                   loading={preview.isPending}
-                  emptyTitle="No results"
-                  emptyText="Change the fields or filters to see data."
+                  emptyTitle={previewError ? 'Preview not available' : 'No results'}
+                  emptyText={
+                    previewError
+                      ? 'Fix the filter named above to see data.'
+                      : 'Change the fields or filters to see data.'
+                  }
                 />
               </div>
               {r ? (
