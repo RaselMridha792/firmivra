@@ -139,6 +139,17 @@ Needs from others (Rasel):
   and nothing reads `add_to_timeline`.
 - **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
   One library page for the three message kinds would need a change in Templates (not R60's).
+- **TP-F18, the 48 starter templates** (Octavia's Oct 28 Templates review): Rasel's order is seed
+  rows, so they wait for whoever owns the seed. R1's check (#1234) recommends instead reconciling
+  them into `apps/api/src/templates/template-starters.ts` (48 starters today, other names and
+  categories) and installing them at business setup, so there is one source. Rasel's call.
+
+Progress (Communications, Oct 28 review):
+- Composer PR, branch `rasel/R60-comms-composer`: CM-F05 (an announcement chooses its clients below
+  Show From and Show Until; only clients with an active portal login count, as in New Message),
+  F06 (Back, the breadcrumb and Cancel ask Save Draft, Discard or Keep Editing), F07 (Last saved in
+  the firm's time zone; a refused save says why), F09 (a backwards window is refused on Show Until,
+  shown at once; a past window is the checklist's).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
