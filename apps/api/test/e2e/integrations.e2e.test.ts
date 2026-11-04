@@ -293,6 +293,12 @@ describe('the main page and marketplace', () => {
       ok(await call('get', '/integrations', people.ownerA)),
     );
     expect(overview.summary.total).toBeGreaterThanOrEqual(18);
+    // IN-F01: with nothing connected nothing was checked, so nothing reads as operational.
+    expect(overview.summary).toMatchObject({
+      connected: 0,
+      lastCheckAt: null,
+      allOperational: false,
+    });
     expect(overview.summary.total).toBe(
       overview.summary.connected +
         overview.summary.needsAttention +
