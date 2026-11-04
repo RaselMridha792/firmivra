@@ -9,7 +9,7 @@ import type {
   JurisdictionLevel,
   RecurrenceEnd,
 } from '@firmivra/types';
-import { COMPLIANCE_STATES } from '@firmivra/types';
+import { ApiRequestError, COMPLIANCE_STATES } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Radio, Textarea, Toast } from '@firmivra/ui';
 import { ArrowsClockwise, Gear, Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -237,6 +237,19 @@ function repeatRuleOf(s: Setup): ComplianceRepeatRule {
 const holidayOf = (s: Setup): HolidayRule => (s.holidayOn ? s.holidayMove : 'NONE');
 
 /** The "Setup Recurring Deadline" tab: create or edit a recurring definition, with a live preview. */
+/** The API's field names (a refusal's `path`) and the form fields that show them (CD-F10). */
+const FIELD_OF: Record<string, keyof Setup> = {
+  name: 'name',
+  description: 'description',
+  startOn: 'startOn',
+  interval: 'interval',
+  endAfterCount: 'endAfterCount',
+  endOn: 'endOn',
+  calendarEntryId: 'entryId',
+  agency: 'agency',
+  relatedForm: 'relatedForm',
+};
+
 export function RecurringSetup({
   editId,
   fromDeadline,
@@ -367,8 +380,12 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
   const options = { invalidate: [...COMPLIANCE_KEY] };
   const save = useApiMutation(async (asTemplate: boolean) => {
     const input = body(asTemplate);
+    // CD-F10 (Octavia, Oct 28): an edit never sends `isTemplate` (a definition does not change
+    // kind, and the update refuses the field), so Save Changes saves a valid edit.
+    const { isTemplate: _kind, ...changes } = input;
+    void _kind;
     const r = editId
-      ? await api.compliance.updateRecurrence(editId, input)
+      ? await api.compliance.updateRecurrence(editId, changes)
       : await api.compliance.createRecurrence(input);
     if (hasRule && !editId && !asTemplate) {
       await api.compliance.createRule({
@@ -415,7 +432,33 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
         setTemplateAsk(false);
         router.push(`/compliance/recurring/new?tab=manage&saved=${encodeURIComponent(r.name)}`);
       },
-      onError: (e) => setMessage({ text: errorMessage(e, COMPLIANCE_ERRORS), tone: 'error' }),
+      onError: (e) => {
+        // CD-F10: a refusal names its field, which takes the focus and keeps what was typed; any
+        // other failure says what happened, never "check the highlighted fields".
+        const details = e instanceof ApiRequestError ? (e.details ?? []) : [];
+        const shown: Partial<Record<keyof Setup, string>> = {};
+        for (const d of details) {
+          const field = FIELD_OF[d.path.split('.')[0] ?? ''];
+          if (field && !shown[field]) shown[field] = d.message;
+        }
+        if (Object.keys(shown).length) {
+          setErrors(shown);
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
+          );
+          return;
+        }
+        const detail =
+          e instanceof ApiRequestError && e.code === 'VALIDATION_FAILED'
+            ? (details[0]?.message ?? e.message)
+            : undefined;
+        setMessage({
+          text: detail
+            ? `The changes could not be saved: ${detail}`
+            : errorMessage(e, COMPLIANCE_ERRORS),
+          tone: 'error',
+        });
+      },
     });
   };
 
@@ -627,6 +670,7 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
                 value={s.agency}
                 maxLength={120}
                 onChange={(e) => set({ agency: e.target.value })}
+                {...(errors.agency ? { error: errors.agency } : {})}
               />
               <Label text="Jurisdiction" htmlFor="rs-juris">
                 <Selectbox
@@ -660,6 +704,7 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
                 value={s.relatedForm}
                 maxLength={60}
                 onChange={(e) => set({ relatedForm: e.target.value })}
+                {...(errors.relatedForm ? { error: errors.relatedForm } : {})}
               />
             </div>
             <div className="sm:col-span-2">
@@ -669,6 +714,7 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
                 rows={3}
                 maxLength={2000}
                 onChange={(e) => set({ description: e.target.value })}
+                {...(errors.description ? { error: errors.description } : {})}
               />
             </div>
           </Section>

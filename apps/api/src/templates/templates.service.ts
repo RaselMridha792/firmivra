@@ -40,6 +40,7 @@ import {
   canEdit,
   canShare,
   etagOf,
+  isAdmin,
   templateErrors,
   visibleTo,
 } from './templates.common.js';
@@ -142,6 +143,8 @@ export class TemplatesService {
     const subject = plainLine(input.subject) ?? null;
     const body = cleanBody(input.kind, input.body);
     if (body === '') throw templateErrors.invalid('body', 'Write the template');
+    // CM-F12: Owner and Admin activate; Staff save drafts (they ask an Owner or Admin).
+    if (status === 'ACTIVE' && !isAdmin(actor)) throw templateErrors.activateNotAllowed();
     if (status === 'ACTIVE' && SUBJECT_KINDS.has(input.kind) && !subject) {
       throw templateErrors.subjectRequired();
     }
@@ -248,6 +251,10 @@ export class TemplatesService {
           'sharedWithUserIds',
           'Choose “Selected people” to share with people',
         );
+      }
+      // CM-F12: making it active is an Owner's or Admin's; Staff keep editing an active one.
+      if (next.status === 'ACTIVE' && cur.status !== 'ACTIVE' && !isAdmin(actor)) {
+        throw templateErrors.activateNotAllowed();
       }
       if (next.status === 'ACTIVE' && SUBJECT_KINDS.has(kind) && !next.subject) {
         throw templateErrors.subjectRequired();

@@ -579,6 +579,8 @@ export const TemplateErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 403: the template is private or shared with others: its owner or an Owner or Admin changes it. */
   'NOT_THE_OWNER',
+  /** 403 (CM-F12): only an Owner or Admin makes a template Active; Staff save drafts. */
+  'ACTIVATE_NOT_ALLOWED',
   /** 409 (TP-F08): another template already stands for that task template, request list or intake. */
   'STRUCTURE_IN_USE',
   /** 409: the template is archived: restore it first. */

@@ -680,6 +680,13 @@ export function createTemplatesMock({
         categoryOk(input.kind, input.categoryId);
         uniqueName(input.kind, input.name);
         const status = input.status ?? 'DRAFT';
+        // CM-F12, as the API: only an Owner or Admin makes a template active.
+        if (status === 'ACTIVE' && role === 'STAFF')
+          throw fail(
+            403,
+            'ACTIVATE_NOT_ALLOWED',
+            'Only an Owner or an Admin can make a template active',
+          );
         const subject = input.subject ?? null;
         checkRules(input.kind, status, subject, input.includeInAutomations ?? false);
         const shares = (input.sharedWithUserIds ?? []).map((u) => {
@@ -733,6 +740,12 @@ export function createTemplatesMock({
         }
         const subject = input.subject === undefined ? r.d.subject : input.subject;
         const status = input.status ?? r.d.status;
+        if (status === 'ACTIVE' && r.d.status !== 'ACTIVE' && role === 'STAFF')
+          throw fail(
+            403,
+            'ACTIVATE_NOT_ALLOWED',
+            'Only an Owner or an Admin can make a template active',
+          );
         const auto = input.includeInAutomations ?? r.d.includeInAutomations;
         checkRules(kind, status, subject, auto);
         if (input.sharedWithUserIds) {

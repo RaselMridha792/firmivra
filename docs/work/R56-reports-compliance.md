@@ -22,5 +22,6 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 - Nov 4: #1245 `rasel/R56-ip-pdf-tax` (Rasel's follow-up to R55's #1230): the invoice PDF's Tax row; Recurring Invoices bills a schedule with its discount and tax.
 - Nov 4: #1249 `rasel/R56-rp-dates`: RP-F04 (one firm-day clock: Reports reload at the firm's midnight), F01 (the overview's range and comparison travel to a report and back), F16 (Custom Range on the overview and in the builder, its problems said in place).
 - Nov 4: #1250 `rasel/R56-cd-tasks`: CD-F01 (a deadline's Create Task makes one task per deadline and template, also without one, on R1's #1232 scope; View Task after).
-- Nov 4: `rasel/R56-cd-overview`: CD-F02 (ranges and the Tax Calendar on the effective due date; Upcoming is open-only, like its card), F03 (an at-risk client opens its own deadlines with the reason), F05 (the overview's state in the address; Add Deadline's Cancel and SH1's Back return to it).
+- Nov 4: #1255 `rasel/R56-cd-overview`: CD-F02 (ranges and the Tax Calendar on the effective due date; Upcoming is open-only, like its card), F03 (an at-risk client opens its own deadlines with the reason), F05 (the overview's state in the address; Add Deadline's Cancel and SH1's Back return to it).
+- Nov 4: `rasel/R56-cd-recurring`: CD-F10 (Save Changes no longer sends `isTemplate`, which the update refuses; a refusal names its field).
 - Laptop rules (lead, Nov 4): heavy commands through `F:/firmivra-tools/heavy.sh`; only Postgres runs locally (S3 and SMTP tests are CI's).
