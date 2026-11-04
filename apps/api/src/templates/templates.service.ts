@@ -1,11 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import type {
   BulkTemplatesResult,
   ImportTemplateResult,
+  LinkedTemplateKind,
   MessageTemplateDetail,
   MessageTemplateKind,
   RenderedTemplate,
+  TemplateStructureOptions,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -25,6 +27,12 @@ import type {
 } from './template-input.js';
 import { TemplateReadService, automationCount } from './template-read.service.js';
 import { TemplateRenderService } from './template-render.service.js';
+import {
+  linkedTemplates,
+  type StructureInput,
+  structureData,
+  structureOf,
+} from './template-structures.js';
 import {
   AUTOMATION_KINDS,
   PLAIN_KINDS,
@@ -55,7 +63,7 @@ const plainLine = (s: string | null | undefined) =>
   s === null || s === undefined ? s : stripTags(s).trim() || null;
 
 /** What a new template is made from (the form, an import or a starter). */
-export interface NewTemplate {
+export interface NewTemplate extends StructureInput {
   kind: MessageTemplateKind;
   name: string;
   categoryId?: string | null;
@@ -153,6 +161,7 @@ export class TemplatesService {
     await this.checkMembers(tx, businessId, shares);
     const name = stripTags(input.name).trim();
     await this.uniqueName(tx, businessId, input.kind, name);
+    const structured = await structureData(tx, businessId, input.kind, input);
     const row = await tx.messageTemplate.create({
       data: {
         businessId,
@@ -168,6 +177,7 @@ export class TemplatesService {
         tags: input.tags ?? [],
         includeInAutomations,
         starterKey: input.starterKey ?? null,
+        ...structured,
         ownerUserId: actor.userId,
         updatedByUserId: actor.userId,
       },
@@ -181,6 +191,7 @@ export class TemplatesService {
         name,
         subject,
         body,
+        structure: structured.structure,
         savedByUserId: actor.userId,
       },
     });
@@ -190,6 +201,16 @@ export class TemplatesService {
       });
     }
     return row.id;
+  }
+
+  /** TP-F08: the module templates of a kind a library template can stand for (the editor's list). */
+  structureOptions(
+    businessId: string,
+    kind: LinkedTemplateKind,
+  ): Promise<TemplateStructureOptions> {
+    return this.inFirm(businessId, async (tx) => ({
+      items: await linkedTemplates(tx, businessId, kind),
+    }));
   }
 
   // ---------- Change ----------
@@ -243,8 +264,21 @@ export class TemplatesService {
       }
       if (next.name !== cur.name) await this.uniqueName(tx, businessId, kind, next.name, id);
 
+      // TP-F08: the structure columns; a changed structure is a new version, as text is.
+      const structured = await structureData(tx, businessId, kind, body, id);
+      const structureAfter =
+        structured.structure === undefined
+          ? (cur.structure ?? Prisma.DbNull)
+          : structured.structure;
+      const structureChanged =
+        structured.structure !== undefined &&
+        JSON.stringify(structureAfter === Prisma.DbNull ? null : structureAfter) !==
+          JSON.stringify(cur.structure ?? null);
       const textChanged =
-        next.name !== cur.name || next.subject !== cur.subject || next.body !== cur.body;
+        next.name !== cur.name ||
+        next.subject !== cur.subject ||
+        next.body !== cur.body ||
+        structureChanged;
       const disruptive =
         textChanged ||
         (cur.status === 'ACTIVE' && next.status !== 'ACTIVE') ||
@@ -268,6 +302,7 @@ export class TemplatesService {
           tags: next.tags,
           categoryId: next.categoryId,
           includeInAutomations,
+          ...structured,
           version,
           updatedByUserId: actor.userId,
         },
@@ -281,6 +316,7 @@ export class TemplatesService {
             name: next.name,
             subject: next.subject,
             body: next.body,
+            structure: structureAfter as Prisma.InputJsonValue | typeof Prisma.DbNull,
             savedByUserId: actor.userId,
           },
         });
@@ -323,6 +359,9 @@ export class TemplatesService {
         status: 'DRAFT',
         access: 'PRIVATE',
         tags: src.tags,
+        // TP-F08: a Tax Workflow or Bookkeeping structure is copied; a module template link is
+        // not (one library template stands for it), so the copy chooses its own.
+        structure: structureOf(src.kind, src.structure),
       });
       return this.reader.detailIn(tx, businessId, actor, newId);
     });
@@ -470,12 +509,16 @@ export class TemplatesService {
       if (!old) throw notFound();
       if (old.name !== cur.name) await this.uniqueName(tx, businessId, cur.kind, old.name, id);
       const next = cur.version + 1;
+      // TP-F08: the structure the version had (a TAX_WORKFLOW or BOOKKEEPING one).
+      const restored =
+        old.structure === null ? Prisma.DbNull : (old.structure as Prisma.InputJsonValue);
       await tx.messageTemplate.update({
         where: { id },
         data: {
           name: old.name,
           subject: old.subject,
           body: old.body,
+          structure: restored,
           version: next,
           updatedByUserId: actor.userId,
         },
@@ -488,6 +531,7 @@ export class TemplatesService {
           name: old.name,
           subject: old.subject,
           body: old.body,
+          structure: restored,
           savedByUserId: actor.userId,
         },
       });

@@ -22,6 +22,7 @@ import {
   type OkResponse,
   type RenderedTemplate,
   type StarterTemplatesStatus,
+  type TemplateStructureOptions,
   type TemplateAttachment,
   TemplateAttachmentId,
   type TemplatesSummary,
@@ -49,6 +50,7 @@ import {
   PreviewBody,
   SharesBody,
   StartAttachmentBody,
+  StructureOptionsQ,
   TemplatesQuery,
   TestSendBody,
   UpdateTemplateBody,
@@ -96,6 +98,15 @@ export class TemplatesController {
   @Get('starters')
   startersStatus(@CurrentTenant() tenant: TenantContext): Promise<StarterTemplatesStatus> {
     return this.starters.status(tenant.businessId);
+  }
+
+  /** TP-F08: the firm's task templates, request lists or intake templates a template can stand for. */
+  @Get('structure-options')
+  structureOptions(
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(StructureOptionsQ)) query: z.output<typeof StructureOptionsQ>,
+  ): Promise<TemplateStructureOptions> {
+    return this.templates.structureOptions(tenant.businessId, query.kind);
   }
 
   @Post('starters')

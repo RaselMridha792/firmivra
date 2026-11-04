@@ -14,6 +14,7 @@ import {
   StartTemplateAttachmentRequest as StartAttachmentContract,
   TemplateCategoriesQuery as CategoriesQueryContract,
   TestSendTemplateRequest as TestSendContract,
+  TemplateStructureOptionsQuery as StructureOptionsContract,
   UpdateMessageTemplateRequest as UpdateContract,
   UpdateTemplateCategoryRequest as UpdateCategoryContract,
 } from '@firmivra/types';
@@ -39,6 +40,7 @@ export const SharesBody = clean(SharesContract);
 export const BulkBody = clean(BulkContract);
 export const PreviewBody = clean(PreviewContract);
 export const TestSendBody = clean(TestSendContract);
+export const StructureOptionsQ = clean(StructureOptionsContract);
 export const ImportBody = clean(ImportContract);
 export const StartAttachmentBody = clean(StartAttachmentContract);
 export const CategoriesQuery = clean(CategoriesQueryContract);

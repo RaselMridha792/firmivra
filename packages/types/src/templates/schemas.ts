@@ -127,6 +127,59 @@ export const MessageTemplateRow = z.object({
 });
 export type MessageTemplateRow = z.infer<typeof MessageTemplateRow>;
 
+/**
+ * TP-F08: a Tax Workflow template's checklist by section (by return or service type). Kept in
+ * `message_templates.structure`; the API checks it with this shape.
+ */
+export const TaxWorkflowStructure = z.strictObject({
+  sections: z
+    .array(
+      z.strictObject({
+        title: text(120),
+        items: z.array(text(300)).min(1, 'Add at least one step').max(50),
+      }),
+    )
+    .min(1, 'Add at least one section')
+    .max(20),
+});
+export type TaxWorkflowStructure = z.infer<typeof TaxWorkflowStructure>;
+
+export const BookkeepingFrequency = z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY']);
+export type BookkeepingFrequency = z.infer<typeof BookkeepingFrequency>;
+
+/** TP-F08: a Bookkeeping template's recurring document requests, close checklist and client updates. */
+export const BookkeepingStructure = z
+  .strictObject({
+    documentRequests: z
+      .array(z.strictObject({ title: text(120), frequency: BookkeepingFrequency }))
+      .max(30),
+    closeChecklist: z.array(text(300)).max(50),
+    clientUpdates: z.array(text(300)).max(20),
+  })
+  .refine(
+    (o) => o.documentRequests.length + o.closeChecklist.length + o.clientUpdates.length > 0,
+    'Add at least one step',
+  );
+export type BookkeepingStructure = z.infer<typeof BookkeepingStructure>;
+
+export const TemplateStructure = z.union([TaxWorkflowStructure, BookkeepingStructure]);
+export type TemplateStructure = z.infer<typeof TemplateStructure>;
+
+/** The kinds whose structure is their module's own template (TP-F08). */
+export const LinkedTemplateKind = z.enum(['TASK', 'DOCUMENT_REQUEST', 'INTAKE_ORGANIZER']);
+export type LinkedTemplateKind = z.infer<typeof LinkedTemplateKind>;
+
+/** The module template a TASK, DOCUMENT_REQUEST or INTAKE_ORGANIZER template stands for. */
+export const LinkedModuleTemplate = z.object({
+  kind: LinkedTemplateKind,
+  id: z.uuid(),
+  /** The task template's or request list's name; an intake template is named for its service. */
+  name: z.string(),
+  /** What it holds, in order: checklist items, requested documents, or the organizer's forms. */
+  steps: z.array(z.string()),
+});
+export type LinkedModuleTemplate = z.infer<typeof LinkedModuleTemplate>;
+
 export const MessageTemplateDetail = MessageTemplateRow.extend({
   previewText: z.string().nullable(),
   body: z.string(),
@@ -141,6 +194,10 @@ export const MessageTemplateDetail = MessageTemplateRow.extend({
   createdAt: DateTime,
   /** Send the version back on a save: 409 SAVE_CONFLICT when someone saved after it was loaded. */
   etag: z.string(),
+  /** TP-F08: for TASK, DOCUMENT_REQUEST and INTAKE_ORGANIZER, the module template it stands for. */
+  linkedTemplate: LinkedModuleTemplate.nullable(),
+  /** TP-F08: for TAX_WORKFLOW and BOOKKEEPING, their structure. */
+  structure: TemplateStructure.nullable(),
 });
 export type MessageTemplateDetail = z.infer<typeof MessageTemplateDetail>;
 
@@ -206,6 +263,16 @@ const templateFields = {
   tags: Tags.optional(),
   /** Offered to Automations: only an ACTIVE template of a kind automations support. */
   includeInAutomations: z.boolean().optional(),
+  /**
+   * TP-F08: the module template a TASK (task template), DOCUMENT_REQUEST (request list) or
+   * INTAKE_ORGANIZER (intake template) template stands for; only on its own kind (400), one of the
+   * firm's (404), and not one another template already stands for (409 STRUCTURE_IN_USE).
+   */
+  taskTemplateId: z.uuid().nullable().optional(),
+  documentRequestTemplateId: z.uuid().nullable().optional(),
+  intakeTemplateId: z.uuid().nullable().optional(),
+  /** TP-F08: a TAX_WORKFLOW template's TaxWorkflowStructure, a BOOKKEEPING one's BookkeepingStructure. */
+  structure: TemplateStructure.nullable().optional(),
 };
 
 /** POST /business/templates: Save Draft, or Save Template. The caller becomes the owner. */
@@ -482,6 +549,19 @@ export const InstallStartersResult = z.object({
 });
 export type InstallStartersResult = z.infer<typeof InstallStartersResult>;
 
+/** GET /business/templates/structure-options?kind=: the module templates a template can stand for. */
+export const TemplateStructureOptionsQuery = z.strictObject({ kind: LinkedTemplateKind });
+export type TemplateStructureOptionsQuery = z.input<typeof TemplateStructureOptionsQuery>;
+export const TemplateStructureOptions = z.object({
+  items: z.array(
+    LinkedModuleTemplate.extend({
+      /** The template that already stands for it (one per module template), or null. */
+      usedByTemplateId: z.uuid().nullable(),
+    }),
+  ),
+});
+export type TemplateStructureOptions = z.infer<typeof TemplateStructureOptions>;
+
 export const TemplateErrorCode = z.enum([
   /** 409: the name is used (a category in the kind, a template, a custom field's key). */
   'DUPLICATE_NAME',
@@ -499,6 +579,8 @@ export const TemplateErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 403: the template is private or shared with others: its owner or an Owner or Admin changes it. */
   'NOT_THE_OWNER',
+  /** 409 (TP-F08): another template already stands for that task template, request list or intake. */
+  'STRUCTURE_IN_USE',
   /** 409: the template is archived: restore it first. */
   'TEMPLATE_ARCHIVED',
   /** 409: a custom merge field is used by templates, or the key is a built-in one. */

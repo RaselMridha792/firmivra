@@ -40,6 +40,8 @@ import {
   TestSendTemplateRequest,
   UpdateMessageTemplateRequest,
   UpdateTemplateCategoryRequest,
+  TemplateStructureOptions,
+  TemplateStructureOptionsQuery,
 } from './schemas.js';
 
 const TEMPLATES = '/business/templates';
@@ -188,6 +190,14 @@ export function createTemplatesClient(request: ApiRequest) {
       ),
     starters: async (): Promise<StarterTemplatesStatus> =>
       request(StarterTemplatesStatus, `${TEMPLATES}/starters`),
+    /** TP-F08: the firm's task templates, request lists or intake templates a template can stand for. */
+    structureOptions: async (
+      query: TemplateStructureOptionsQuery,
+    ): Promise<TemplateStructureOptions> =>
+      request(
+        TemplateStructureOptions,
+        `${TEMPLATES}/structure-options${toQuery(parseInput(TemplateStructureOptionsQuery, query))}`,
+      ),
     installStarters: async (): Promise<InstallStartersResult> =>
       request(InstallStartersResult, `${TEMPLATES}/starters`, post()),
 

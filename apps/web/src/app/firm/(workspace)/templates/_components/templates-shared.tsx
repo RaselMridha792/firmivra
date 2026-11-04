@@ -256,6 +256,7 @@ export const TEMPLATE_ERRORS: Record<string, string> = {
   FIELD_IN_USE: 'Templates still use this field.',
   TEST_SEND_REFUSED: 'The test could not be sent.',
   FORBIDDEN: 'Your role cannot do this.',
+  STRUCTURE_IN_USE: 'Another template already stands for that one. Choose another.',
 };
 
 export const gold =

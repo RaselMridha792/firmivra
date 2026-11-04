@@ -38,6 +38,13 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
+import {
+  type StructureDraft,
+  StructurePanel,
+  draftOf,
+  hasStructure,
+  structurePayload,
+} from './structure-panel';
 import { PreviewDialog } from './template-dialogs';
 import {
   AUTOMATION_KINDS,
@@ -76,8 +83,10 @@ interface Form {
   shared: string[];
   automations: boolean;
   tags: string[];
+  /** TP-F08: the structured kinds' structure (null for the others). */
+  structure: StructureDraft | null;
 }
-const blank = (): Form => ({
+const blank = (kind: MessageTemplateKind): Form => ({
   name: '',
   categoryId: '',
   status: 'DRAFT',
@@ -87,6 +96,7 @@ const blank = (): Form => ({
   shared: [],
   automations: false,
   tags: [],
+  structure: draftOf(kind),
 });
 /** TP-F06: why a file was not attached, in words the user can act on. */
 const MAX_FILES = 10;
@@ -114,6 +124,7 @@ const fromDetail = (d: MessageTemplateDetail): Form => ({
   shared: d.sharedWith.map((m) => m.userId),
   automations: d.includeInAutomations,
   tags: d.tags,
+  structure: draftOf(d.kind, d),
 });
 
 /** /templates/new and /templates/[id]/edit. */
@@ -156,9 +167,9 @@ function Editor({
   const router = useRouter();
   const meta = kindOf(kind);
   const [saved, setSaved] = useState<MessageTemplateDetail | undefined>(initial);
-  const [form, setForm] = useState<Form>(() => (initial ? fromDetail(initial) : blank()));
+  const [form, setForm] = useState<Form>(() => (initial ? fromDetail(initial) : blank(kind)));
   const [baseline, setBaseline] = useState(() =>
-    JSON.stringify(initial ? fromDetail(initial) : blank()),
+    JSON.stringify(initial ? fromDetail(initial) : blank(kind)),
   );
   const [errors, setErrors] = useState<Partial<Record<'name' | 'subject' | 'body', string>>>({});
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -225,6 +236,7 @@ function Editor({
       sharedWithUserIds: form.access === 'SELECTED' ? form.shared : [],
       tags: form.tags,
       includeInAutomations: eligible ? form.automations : false,
+      ...structurePayload(kind, form.structure),
     };
     if (saved) {
       return api.templates.update(saved.id, {
@@ -246,6 +258,7 @@ function Editor({
           const next = {
             ...form,
             status: d.status === 'ACTIVE' ? ('ACTIVE' as const) : ('DRAFT' as const),
+            structure: draftOf(d.kind, d),
           };
           setForm(next);
           setBaseline(JSON.stringify(next));
@@ -533,6 +546,16 @@ function Editor({
           </ul>
         </aside>
       </div>
+
+      {form.structure && hasStructure(kind) ? (
+        <StructurePanel
+          kind={kind}
+          templateId={saved?.id}
+          value={form.structure}
+          onChange={(structure) => set({ structure })}
+          disabled={saved?.status === 'ARCHIVED'}
+        />
+      ) : null}
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className={card} aria-label="Attachments" data-testid="attachments">
