@@ -9,11 +9,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 **Design (trigger selectors):** the engine polls: each event has a loader in `automations/matching.ts` that reads the firm's records and keys each occurrence, so a run never repeats. Change events (status changed, submitted, converted) bind to the source module's own audit entries (`audit_logs`, firm-scoped, indexed by firm and time): one occurrence per audit row, read from the rule version's start. No event is invented: an event without a real audit action or record date stays unlisted (AU-Y02 default).
 
 **PRs (one line each):**
-- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03) and the Clients, Leads, Intake Forms and Documents selectors (AU-F08 to F11). In progress.
+- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03); Clients, Leads, Intake Forms and Documents events (AU-F08 to F11). Committed; PR when a slot frees.
+- AU triggers 2 (`rasel/R55-au-triggers-2`, stacked): Tax Returns, Tax Planning and Business Advisory events (AU-F12 to F14). AU-F15 Custom stays empty: no custom field or date exists to change, and its manual confirmation comes with AU-F29 to F33.
+
+**Not listed (no real source, AU-Y02 default):** client status changed (nothing changes a client's status after creation), client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
-- AU-F28 Rule Owner: no column needed. `automation_rules.owner_user_id` already exists (R38's migration, FK to memberships), and the engine acts as that member (`automations-read.service.ts` `actingMember`). Asked whether R55 may build AU-F28 on it with no schema change; not started.
-- AU-F29 to F33: R1's `manual_confirmation_enabled` on `automation_settings` is merged; waiting for Rasel's word before starting.
+- AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).
+- AU-F29, F30 and F33: start on main's `automation_settings.manual_confirmation_enabled` (lead, Nov 4). AU-F31 and F32 wait for R1's `automation_event_confirmations` migration and its Deploy dev.
 
 ## Invoices & Payments (Octavia's review of Oct 27, section A): IP-F01 to F05, F12, F13
 

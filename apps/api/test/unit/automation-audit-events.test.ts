@@ -12,6 +12,7 @@ const FIRM = '01900000-0000-7000-8000-000000000001';
 const CLIENT = '01900000-0000-7000-8000-0000000000c1';
 const INTAKE = '01900000-0000-7000-8000-0000000000a1';
 const DOC = '01900000-0000-7000-8000-0000000000d1';
+const RETURN = '01900000-0000-7000-8000-0000000000e1';
 const at = new Date('2026-11-04T15:00:00Z');
 
 type Row = { id: string; action: string; entityType: string; entityId: string; metadata: object };
@@ -54,6 +55,19 @@ function txOf(rows: Row[]) {
             status: 'SUBMITTED',
             form: { title: '2026 Individual Organizer (fake)' },
             engagement: { clientId: CLIENT, client: { accountType: 'INDIVIDUAL' } },
+          },
+        ]),
+    },
+    taxReturn: {
+      findMany: () =>
+        Promise.resolve([
+          {
+            id: RETURN,
+            clientId: CLIENT,
+            taxYear: 2025,
+            formType: '1040',
+            workflowStatus: 'ACCEPTED',
+            client: { accountType: 'INDIVIDUAL' },
           },
         ]),
     },
@@ -113,6 +127,27 @@ describe('audit-sourced trigger events', () => {
     const hits = await load('client.assignment_changed', rows);
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({ occurrence: rows[1]!.id, label: 'Jamie Sample' });
+  });
+
+  it('a status change carries the new and previous status, for Accepted or Rejected conditions', async () => {
+    const rows = [
+      audit('tax_return.status_changed', 'tax_return', RETURN, {
+        from: 'TRANSMITTED',
+        to: 'ACCEPTED',
+      }),
+    ];
+    const [hit] = await load('tax_return.status_changed', rows);
+    expect(hit).toMatchObject({
+      recordKind: 'tax_return',
+      clientId: CLIENT,
+      label: '1040 2025',
+      fields: {
+        newStatus: 'ACCEPTED',
+        previousStatus: 'TRANSMITTED',
+        workflowStatus: 'ACCEPTED',
+        taxYear: 2025,
+      },
+    });
   });
 
   it('one run key per audit row, and nothing for a record that is gone', async () => {

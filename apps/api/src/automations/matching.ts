@@ -311,7 +311,51 @@ const LOADERS: Record<string, Loader> = {
       fields: { clientType: types.get(p.clientId) ?? null },
     }));
   },
-  // AU-F08 to F11: the changes the source modules record in their audit log.
+  // AU-F12: a return not yet transmitted, by its filing due date.
+  'tax_return.due': async (tx, s) => {
+    const rows = await tx.taxReturn.findMany({
+      where: {
+        businessId: s.businessId,
+        archivedAt: null,
+        dueOn: { not: null },
+        workflowStatus: {
+          in: [
+            'IN_PREPARATION',
+            'WAITING_ON_CLIENT',
+            'READY_FOR_REVIEW',
+            'READY_FOR_SIGNATURE',
+            'READY_TO_FILE',
+          ],
+        },
+        ...(s.recordId ? { id: s.recordId } : {}),
+      },
+      select: {
+        id: true,
+        clientId: true,
+        taxYear: true,
+        formType: true,
+        workflowStatus: true,
+        dueOn: true,
+        client: { select: { accountType: true } },
+      },
+      orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
+      take: s.limit ?? LIMIT,
+    });
+    return rows.map((r) => ({
+      recordKind: 'tax_return',
+      recordId: r.id,
+      clientId: r.clientId,
+      label: `${r.formType ?? 'Tax return'} ${r.taxYear}`,
+      at: r.dueOn,
+      occurrence: dayOf(r.dueOn!),
+      fields: {
+        clientType: r.client.accountType,
+        workflowStatus: r.workflowStatus,
+        taxYear: r.taxYear,
+      },
+    }));
+  },
+  // AU-F08 to F14: the changes the source modules record in their audit log.
   ...Object.fromEntries(
     Object.entries(AUDIT_EVENTS).map(([code, spec]) => [
       code,

@@ -1845,7 +1845,7 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
         .send({}),
     );
 
-  it('lists the Clients, Leads, Intake Forms and Documents events, each with a real source', async () => {
+  it('lists each module’s events, each with a real source', async () => {
     const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
     const codes = (module: string) =>
       catalog.events.filter((e) => e.module === module).map((e) => e.code);
@@ -1860,6 +1860,16 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
     );
     expect(codes('DOCUMENTS')).toEqual(
       expect.arrayContaining(['document.requested', 'document.uploaded', 'document.approved']),
+    );
+    // AU-F12 to F14.
+    expect(codes('TAX_RETURNS')).toEqual(
+      expect.arrayContaining(['tax_return.status_changed', 'tax_return.due']),
+    );
+    expect(codes('TAX_PLANNING')).toEqual(
+      expect.arrayContaining(['tax_plan.status_changed', 'tax_plan.shared']),
+    );
+    expect(codes('BUSINESS_ADVISORY')).toEqual(
+      expect.arrayContaining(['advisory.engagement_created', 'advisory_plan.status_changed']),
     );
     // No event the product can't observe: a client's status never changes after it is set.
     expect(catalog.events.map((e) => e.code)).not.toContain('client.status_changed');
