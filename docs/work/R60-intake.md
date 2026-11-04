@@ -42,7 +42,8 @@ for Rasel's answer (Needs from others).
   described by the same text). Unit tests (the open and close rules, placement, markup), a story,
   and a browser check against Storybook (14 of 14).
 - [ ] High: CM-F05, CM-F03, CM-F06, CM-F12; TP-F18, TP-F06, TP-F04.
-- [ ] The rest of CM-F01 to F18 and TP-F01 to F18 (TP-F08 after R1's migration).
+- [ ] The rest of CM-F01 to F18 and TP-F01 to F18 (TP-F08: R1's `r1_template_structures` is on
+  `main`, #1246; the lead cleared it on Nov 4).
 - [ ] Help icons in Communications and Templates (CM, TP-F02).
 
 ### Messages (section B of `docs/specs/review-2026-10-27/CHANGE-LIST.md`)
@@ -158,15 +159,19 @@ Progress (Communications, Oct 28 review):
   one).
 
 Progress (Templates, Oct 28 review):
-- Editor PR, branch `rasel/R60-templates-editor`: TP-F04 (Preview renders the unsaved subject and
+- Editor, #1248 (merged): TP-F04 (Preview renders the unsaved subject and
   content; a test still sends the saved one), TP-F05 (Cancel and the breadcrumb ask Stay or
   Discard; the shared Back bar asks too), TP-F06 (the three steps pass locally on s3mock with a
   valid 70-byte PNG and a 1,441-byte PDF; the editor names the real reason instead of "Something
   went wrong", refuses a wrong type or size in words, and each file can be downloaded), TP-F11 (an
   active template with Include in Automations goes to Draft; the choice stays, unused, since
   automations offer and run active templates only).
-- TP-F18 (the 48 starters): not a seed question (lead, Nov 4). They are in code
-  (`template-starters.ts`, installed by key); next PR: why LVP showed none, fixed in code.
+- Starters PR, branch `rasel/R60-templates-starters`: TP-F18. LVP showed none because the
+  Overview offered Install only to a firm with no templates at all (LVP had two); Owners and Admins
+  now see it whenever some are missing. The 48 follow the guide by name, kind and category, each
+  with its purpose; one list in `packages/types` (`STARTER_TEMPLATES`) for the API and the mock.
+  The first Finish of setup installs them (`SettingsService.finishSetup`, a one-off exception to
+  owned paths the lead gave on Nov 4).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
