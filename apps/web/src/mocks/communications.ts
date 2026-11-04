@@ -366,9 +366,26 @@ export function createCommunicationsMock({
       providerHealthy: true,
     },
   ];
+  // Dev-only fixture states for browser checks (`?mockState=email-off` or `sms-off`: that channel
+  // is not connected, CM-F04); this does not add an API contract.
+  const off = () =>
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('mockState');
+  const notConnected = (channel: 'EMAIL' | 'SMS', what: string) => ({
+    channel,
+    ready: false,
+    reason: `Connect ${what}`,
+    route: 'INTEGRATIONS' as const,
+    senderCount: 0,
+  });
   const readiness = () => [
-    { channel: 'EMAIL' as const, ready: true, reason: null, route: null, senderCount: 1 },
-    { channel: 'SMS' as const, ready: true, reason: null, route: null, senderCount: 1 },
+    off() === 'email-off'
+      ? notConnected('EMAIL', 'an email provider to send emails')
+      : { channel: 'EMAIL' as const, ready: true, reason: null, route: null, senderCount: 1 },
+    off() === 'sms-off'
+      ? notConnected('SMS', 'an SMS provider to send text messages')
+      : { channel: 'SMS' as const, ready: true, reason: null, route: null, senderCount: 1 },
     { channel: 'ANNOUNCEMENT' as const, ready: true, reason: null, route: null, senderCount: 0 },
   ];
 
