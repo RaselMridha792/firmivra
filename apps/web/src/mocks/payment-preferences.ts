@@ -13,7 +13,12 @@ import { mockDelay } from '../lib/mock';
 
 /** Every option off, as the API answers a firm that never saved (IP-F13). */
 const defaults = (): PaymentPreferences => ({
-  invoiceDefaults: { invoicePrefix: 'INV-', defaultTerms: 'net_14', defaultMemo: null },
+  invoiceDefaults: {
+    invoicePrefix: 'INV-',
+    defaultTerms: 'net_14',
+    defaultMemo: null,
+    customTermDays: [],
+  },
   reminders: {
     sendReminders: false,
     reminderDaysBefore: 3,
@@ -71,7 +76,12 @@ export function createPaymentPreferencesMock(
       await guard();
       const { updatedAt, ...sections } = UpdatePaymentPreferencesRequest.parse(body);
       fresh(updatedAt);
-      prefs = { ...sections, updatedAt: new Date().toISOString() };
+      const days = [...sections.invoiceDefaults.customTermDays].sort((a, b) => a - b);
+      prefs = {
+        ...sections,
+        invoiceDefaults: { ...sections.invoiceDefaults, customTermDays: days },
+        updatedAt: new Date().toISOString(),
+      };
       return structuredClone(prefs);
     },
     reset: async (body) => {
