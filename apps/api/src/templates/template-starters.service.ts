@@ -11,7 +11,8 @@ import { TemplatesService } from './templates.service.js';
  * The 48 starter templates (template-starters.ts). Installing adds the ones a firm does not have
  * (matched by starterKey, so repeating it adds nothing), Active and shared with the team, each in
  * a category of its kind that is made when missing. An archived starter counts as installed: the
- * firm chose to put it away. Owner and Admin install them (the route says so).
+ * firm chose to put it away. Owner and Admin install them (the route says so). Only today's keys
+ * count: a starter from the earlier list stays an ordinary template of the firm (TP-F18).
  */
 @Injectable()
 export class TemplateStartersService {
@@ -25,11 +26,13 @@ export class TemplateStartersService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
+  private readonly keys = STARTERS.map((s) => s.key);
+
   status(businessId: string): Promise<StarterTemplatesStatus> {
     return this.inFirm(businessId, async (tx) => ({
       available: STARTERS.length,
       installed: await tx.messageTemplate.count({
-        where: { businessId, starterKey: { not: null } },
+        where: { businessId, starterKey: { in: this.keys } },
       }),
     }));
   }
@@ -41,7 +44,7 @@ export class TemplateStartersService {
       const have = new Set(
         (
           await tx.messageTemplate.findMany({
-            where: { businessId, starterKey: { not: null } },
+            where: { businessId, starterKey: { in: this.keys } },
             select: { starterKey: true },
           })
         ).map((t) => t.starterKey),
@@ -55,6 +58,7 @@ export class TemplateStartersService {
           kind: s.kind,
           name,
           categoryId,
+          description: s.description,
           subject: s.subject ?? null,
           body: s.body,
           status: 'ACTIVE',
