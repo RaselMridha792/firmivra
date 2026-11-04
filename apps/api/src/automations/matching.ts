@@ -1,5 +1,6 @@
 import type { TxClient } from '@firmivra/db';
 import { liveClient } from '../tasks/task-common.js';
+import { AUDIT_EVENTS, clientTypes, loadAuditEvent } from './audit-events.js';
 import type { FieldValue } from './logic.js';
 
 // The records an event can start a rule for. Each event reads the firm's own tables (the
@@ -57,6 +58,15 @@ const daysBetween = (today: string, d: Date) =>
   Math.floor((Date.parse(`${today}T00:00:00Z`) - d.getTime()) / DAY);
 
 const clientSelect = { id: true, accountType: true, displayName: true } as const;
+/** A lead still being worked (R37's pipeline): not a draft and not closed. */
+const OPEN_LEAD = [
+  'SUBMITTED',
+  'IN_REVIEW',
+  'CONTACTED',
+  'IN_FOLLOW_UP',
+  'APPOINTMENT_SCHEDULED',
+  'QUALIFIED',
+] as const;
 
 type Loader = (tx: TxClient, scope: Scope) => Promise<Candidate[]>;
 
@@ -211,7 +221,107 @@ const LOADERS: Record<string, Loader> = {
       fields: { clientType: a.client.accountType, locationKind: a.locationKind },
     }));
   },
+  // AU-F09: an open lead's next follow-up (its type and time), before or after it.
+  'lead.follow_up_due': async (tx, s) => {
+    const rows = await tx.lead.findMany({
+      where: {
+        businessId: s.businessId,
+        status: { in: [...OPEN_LEAD] },
+        archivedAt: null,
+        nextActionAt: { not: null },
+        ...(s.recordId ? { id: s.recordId } : {}),
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        source: true,
+        clientId: true,
+        nextActionAt: true,
+        nextActionType: true,
+      },
+      orderBy: [{ nextActionAt: 'asc' }, { id: 'asc' }],
+      take: s.limit ?? LIMIT,
+    });
+    return rows.map((l) => ({
+      recordKind: 'lead',
+      recordId: l.id,
+      clientId: l.clientId,
+      label: `${l.firstName} ${l.lastName}`.trim(),
+      at: l.nextActionAt,
+      occurrence: l.nextActionAt!.toISOString(),
+      fields: { stage: l.status, source: l.source, followUpType: l.nextActionType },
+    }));
+  },
+  // AU-F10: a form the client hasn't finished, by its due date.
+  'intake.due': async (tx, s) => {
+    const rows = await tx.intake.findMany({
+      where: {
+        businessId: s.businessId,
+        status: { in: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'] },
+        dueOn: { not: null },
+        ...(s.recordId ? { id: s.recordId } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        dueOn: true,
+        form: { select: { title: true } },
+        engagement: { select: { clientId: true, client: { select: { accountType: true } } } },
+      },
+      orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
+      take: s.limit ?? LIMIT,
+    });
+    return rows.map((i) => ({
+      recordKind: 'intake',
+      recordId: i.id,
+      clientId: i.engagement?.clientId ?? null,
+      label: i.form.title,
+      at: i.dueOn,
+      occurrence: dayOf(i.dueOn!),
+      fields: { clientType: i.engagement?.client.accountType ?? null, status: i.status },
+    }));
+  },
+  // AU-F11: a document request still open (not submitted or completed), by its due date.
+  'document.request_due': async (tx, s) => {
+    const rows = await tx.documentRequestPacket.findMany({
+      where: {
+        businessId: s.businessId,
+        status: 'OPEN',
+        dueOn: { not: null },
+        ...(s.recordId ? { id: s.recordId } : {}),
+      },
+      select: { id: true, title: true, dueOn: true, clientId: true },
+      orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
+      take: s.limit ?? LIMIT,
+    });
+    const types = await clientTypes(
+      tx,
+      s.businessId,
+      rows.map((p) => p.clientId),
+    );
+    return rows.map((p) => ({
+      recordKind: 'document_request',
+      recordId: p.id,
+      clientId: p.clientId,
+      label: p.title,
+      at: p.dueOn,
+      occurrence: dayOf(p.dueOn!),
+      fields: { clientType: types.get(p.clientId) ?? null },
+    }));
+  },
+  // AU-F08 to F11: the changes the source modules record in their audit log.
+  ...Object.fromEntries(
+    Object.entries(AUDIT_EVENTS).map(([code, spec]) => [
+      code,
+      (tx: TxClient, s: Scope) => loadAuditEvent(tx, spec, s),
+    ]),
+  ),
 };
+
+/** The events that have a loader: every event in the catalog must be one (no event without a source). */
+export const LOADED_EVENTS: ReadonlySet<string> = new Set(Object.keys(LOADERS));
 
 /** The candidates an event has now whose timing has come (conditions are tested by the caller). */
 export async function loadCandidates(
