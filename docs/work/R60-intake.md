@@ -36,7 +36,7 @@ change. One page per PR, at most 3 open, `main` merged into a stacked PR after t
 MSG-F18 to F22 (contact panel and thread menu) wait until this is done; Add to Client Timeline waits
 for Rasel's answer (Needs from others).
 
-- [ ] **Help icon**, branch `rasel/R60-help-tip`: `HelpTip` in `packages/ui` (the info icon with a
+- [x] **Help icon**, #1236 (merged as `1fe4b4a3`): `HelpTip` in `packages/ui` (the info icon with a
   short explainer on hover, keyboard focus and tap; Escape, a press elsewhere or moving away closes
   it; drawn above the page, in its dialog when in one, inside the window at 375 px; the icon is
   described by the same text). Unit tests (the open and close rules, placement, markup), a story,
@@ -145,11 +145,16 @@ Needs from others (Rasel):
   categories) and installing them at business setup, so there is one source. Rasel's call.
 
 Progress (Communications, Oct 28 review):
-- Composer PR, branch `rasel/R60-comms-composer`: CM-F05 (an announcement chooses its clients below
+- Composer, #1242 (merged as `0677a8cf`): CM-F05 (an announcement chooses its clients below
   Show From and Show Until; only clients with an active portal login count, as in New Message),
   F06 (Back, the breadcrumb and Cancel ask Save Draft, Discard or Keep Editing), F07 (Last saved in
   the firm's time zone; a refused save says why), F09 (a backwards window is refused on Show Until,
   shown at once; a past window is the checklist's).
+- Overview, #1243 (branch `rasel/R60-comms-overview`, `main` merged in after #1242): CM-F01 (the KPI cards
+  open Sent History filtered to all, emails or texts), F02 (Segments & Lists says how to build an
+  audience), F03 (Choose Recipients picks or starts a draft and opens it with its chooser; Manage
+  Segments stays apart), F04 (a channel that is not connected links Owners and Admins to
+  Integrations, whose Back returns; Staff are told to ask one).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

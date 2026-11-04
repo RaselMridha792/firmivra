@@ -1672,16 +1672,22 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
               (query.tab !== 'favorites' || r.favorite) &&
               (!term || r.name.toLowerCase().includes(term)),
           )
+          // RP-F12: sorted as the API sorts (name or last change, either way).
+          .sort(
+            (a, b) =>
+              (query.sort === 'name'
+                ? a.name.localeCompare(b.name)
+                : a.updatedAt.localeCompare(b.updatedAt)) * (query.direction === 'asc' ? 1 : -1),
+          )
           .map(
             ({
               definition: _d,
               sharedRoles: _s,
               sharedWith: _w,
-              canEdit: _c,
               createdAt: _ca,
               etag: _e,
               ...row
-            }) => (void [_d, _s, _w, _c, _ca, _e], row),
+            }) => (void [_d, _s, _w, _ca, _e], row),
           );
         return page(list, query.page, query.pageSize);
       }),

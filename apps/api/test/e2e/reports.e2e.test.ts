@@ -986,6 +986,32 @@ describe('saved reports', () => {
     );
     expect(await list('tab=all', people.ownerB).catch(() => [])).toEqual(expect.any(Array));
   });
+
+  it('the list sorts by name or last change, and says who may change each (RP-F12, Octavia Oct 28)', async () => {
+    const tag = mark('Sort');
+    const b = await saveReport({ name: `${tag} b`, visibility: 'COMPANY' });
+    const a = await saveReport({ name: `${tag} a`, visibility: 'COMPANY' });
+    const list = async (query: string, who: Who = people.ownerA) =>
+      SavedReportPage.parse(
+        ok(await call('get', `/reports/saved?search=${encodeURIComponent(tag)}${query}`, who)),
+      );
+    expect((await list('&sort=name&direction=asc')).items.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect((await list('&sort=name&direction=desc')).items.map((r) => r.id)).toEqual([b.id, a.id]);
+    // The newest change first by default.
+    const owner = await list('');
+    expect(owner.items.map((r) => r.id)).toEqual([a.id, b.id]);
+    expect(owner.items.every((r) => r.canEdit)).toBe(true);
+    // Staff open the firm's report but may not change another's: Save As and Duplicate only.
+    expect((await list('', people.staffA)).items.map((r) => [r.id, r.canEdit])).toEqual([
+      [a.id, false],
+      [b.id, false],
+    ]);
+    expectError(
+      await call('get', '/reports/saved?sort=owner', people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
 });
 
 describe('exports', () => {

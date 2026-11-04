@@ -31,8 +31,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { ChannelNotice } from './channel-notice';
 import { CommunicationMenu } from './communication-actions';
 import {
   CHANNELS,
@@ -79,26 +80,39 @@ interface RailItem {
   href?: string;
 }
 
-type Create = (channel: CommunicationRow['channel'], templateId?: string) => Promise<void>;
+type Channel = CommunicationRow['channel'];
+type Create = (channel: Channel, templateId?: string, chooseRecipients?: boolean) => Promise<void>;
+const kpiLink =
+  'block h-full w-full rounded-xl text-left hover:ring-2 hover:ring-action focus-visible:outline-2 focus-visible:outline-focus';
 
 /** /communications: the overview and the lists behind its tabs. */
 export function CommunicationsScreen() {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>('overview');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [picker, setPicker] = useState<'template' | 'draft'>();
+  const [picker, setPicker] = useState<'template' | 'draft' | 'recipients'>();
+  /** CM-F01: the channel a KPI card opened Sent History with. */
+  const [listChannel, setListChannel] = useState<Channel | ''>('');
+  /** CM-F04: a channel that could not start because it is not connected. */
+  const [blocked, setBlocked] = useState<Channel>();
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const overview = useApiQuery([...COMM_KEY, 'overview'], () => api.communications.overview());
   const o = overview.data;
   const canCreate = o?.canCreate ?? false;
 
-  const create: Create = async (channel, templateId) => {
+  const create: Create = async (channel, templateId, chooseRecipients = false) => {
+    setBlocked(undefined);
     try {
       const c = await api.communications.create({ channel, ...(templateId ? { templateId } : {}) });
-      router.push(`/communications/${c.id}/edit`);
+      router.push(`/communications/${c.id}/edit${chooseRecipients ? '?recipients=1' : ''}`);
     } catch (e) {
-      notice(errorMessage(e, COMM_ERRORS), 'error');
+      if (errorCode(e) === 'CHANNEL_UNAVAILABLE') setBlocked(channel);
+      else notice(errorMessage(e, COMM_ERRORS), 'error');
     }
+  };
+  const openSent = (channel: Channel | '') => {
+    setListChannel(channel);
+    setTab('sent');
   };
 
   const emails = useApiQuery([...COMM_KEY, 'count', 'EMAIL'], () =>
@@ -231,12 +245,13 @@ export function CommunicationsScreen() {
       onClick: () => void create('ANNOUNCEMENT'),
     },
     {
+      // CM-F03: recipients belong to a draft, so this picks or starts one (Manage Segments is apart).
       title: 'Choose Recipients',
       text: 'Select from segments, lists, or custom filters.',
       icon: UsersThree,
       tone: 'blue' as const,
-      needsCreate: false,
-      onClick: toTab('segments'),
+      needsCreate: true,
+      onClick: () => setPicker('recipients'),
     },
   ];
   const rail: RailItem[] = [
@@ -333,6 +348,13 @@ export function CommunicationsScreen() {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      {blocked ? (
+        <ChannelNotice
+          channel={blocked}
+          from="/communications"
+          onDismiss={() => setBlocked(undefined)}
+        />
+      ) : null}
 
       <nav
         aria-label="Communication views"
@@ -356,7 +378,10 @@ export function CommunicationsScreen() {
               type="button"
               role="tab"
               aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setTab(t.id);
+                setListChannel('');
+              }}
               className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
             >
               {t.label}
@@ -410,41 +435,54 @@ export function CommunicationsScreen() {
               className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
               data-testid="comm-kpis"
             >
+              {/* CM-F01: each card opens Sent History with its filter set. */}
               <li>
-                <KpiCard
-                  icon={EnvelopeSimple}
-                  tone="blue"
-                  value={o?.kpis.sent ?? '—'}
-                  label="Total Sent"
-                  loading={overview.isPending}
-                />
+                <button type="button" className={kpiLink} onClick={() => openSent('')}>
+                  <KpiCard
+                    icon={EnvelopeSimple}
+                    tone="blue"
+                    value={o?.kpis.sent ?? '—'}
+                    label="Total Sent"
+                    loading={overview.isPending}
+                  />
+                  <span className="sr-only">: open Sent History</span>
+                </button>
               </li>
               <li>
-                <KpiCard
-                  icon={ChatCircleDots}
-                  tone="purple"
-                  value={emails.data?.total ?? '—'}
-                  label="Emails Sent"
-                  loading={emails.isPending && !emails.isError}
-                />
+                <button type="button" className={kpiLink} onClick={() => openSent('EMAIL')}>
+                  <KpiCard
+                    icon={ChatCircleDots}
+                    tone="purple"
+                    value={emails.data?.total ?? '—'}
+                    label="Emails Sent"
+                    loading={emails.isPending && !emails.isError}
+                  />
+                  <span className="sr-only">: open Sent History, emails only</span>
+                </button>
               </li>
               <li>
-                <KpiCard
-                  icon={DeviceMobile}
-                  tone="green"
-                  value={texts.data?.total ?? '—'}
-                  label="Texts Sent"
-                  loading={texts.isPending && !texts.isError}
-                />
+                <button type="button" className={kpiLink} onClick={() => openSent('SMS')}>
+                  <KpiCard
+                    icon={DeviceMobile}
+                    tone="green"
+                    value={texts.data?.total ?? '—'}
+                    label="Texts Sent"
+                    loading={texts.isPending && !texts.isError}
+                  />
+                  <span className="sr-only">: open Sent History, texts only</span>
+                </button>
               </li>
               <li>
-                <KpiCard
-                  icon={UsersThree}
-                  tone="amber"
-                  value={o?.kpis.recipientsReached ?? '—'}
-                  label="Total Recipients"
-                  loading={overview.isPending}
-                />
+                <button type="button" className={kpiLink} onClick={() => openSent('')}>
+                  <KpiCard
+                    icon={UsersThree}
+                    tone="amber"
+                    value={o?.kpis.recipientsReached ?? '—'}
+                    label="Total Recipients"
+                    loading={overview.isPending}
+                  />
+                  <span className="sr-only">: open Sent History, each with its recipients</span>
+                </button>
               </li>
             </ul>
             <section className={card} aria-label="Recent communications" data-testid="recent">
@@ -686,7 +724,9 @@ export function CommunicationsScreen() {
         <SegmentsPanel canManage={o?.canManageSegments ?? false} onNotice={notice} />
       ) : (
         <ListPanel
+          key={`${tab}:${listChannel}`}
           tab={tab as CommunicationTab}
+          initialChannel={listChannel}
           columns={columns}
           canManage={canCreate}
           onNotice={notice}
@@ -699,24 +739,34 @@ export function CommunicationsScreen() {
           onPick={(kind, id) => void create(kind, id)}
         />
       ) : null}
-      {picker === 'draft' ? <DraftPicker onClose={() => setPicker(undefined)} /> : null}
+      {picker === 'draft' || picker === 'recipients' ? (
+        <DraftPicker
+          forRecipients={picker === 'recipients'}
+          canCreate={canCreate}
+          onNewEmail={() => void create('EMAIL', undefined, true)}
+          onClose={() => setPicker(undefined)}
+        />
+      ) : null}
     </div>
   );
 }
 
 function ListPanel({
   tab,
+  initialChannel = '',
   columns,
   canManage,
   onNotice,
 }: {
   tab: CommunicationTab;
+  /** The Type a KPI card opened it with (CM-F01). */
+  initialChannel?: string;
   columns: Column<CommunicationRow>[];
   canManage: boolean;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
   const [search, setSearch] = useState('');
-  const [channel, setChannel] = useState('');
+  const [channel, setChannel] = useState(initialChannel);
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const term = useDeferredValue(search.trim());
@@ -882,19 +932,43 @@ function TemplatePicker({
   );
 }
 
-function DraftPicker({ onClose }: { onClose: () => void }) {
+/**
+ * Resume Draft, or (CM-F03, `forRecipients`) the draft that Choose Recipients is for: it opens with
+ * its chooser open, and a new email can be started for it. Nothing is sent from here.
+ */
+function DraftPicker({
+  forRecipients = false,
+  canCreate = false,
+  onNewEmail,
+  onClose,
+}: {
+  forRecipients?: boolean;
+  canCreate?: boolean;
+  onNewEmail?: () => void;
+  onClose: () => void;
+}) {
   const list = useApiQuery([...COMM_KEY, 'draft-picker'], () =>
     api.communications.list({ tab: 'drafts', page: 1, pageSize: 20 }),
   );
   return (
     <Modal
       open
-      title="Resume Draft"
+      title={forRecipients ? 'Choose Recipients' : 'Resume Draft'}
+      subtitle={
+        forRecipients
+          ? 'Recipients belong to a draft. Pick the draft they are for, or start a new email.'
+          : undefined
+      }
       onClose={onClose}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Cancel
-        </Button>
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          {forRecipients && canCreate && onNewEmail ? (
+            <Button onClick={onNewEmail}>Start a New Email</Button>
+          ) : null}
+        </>
       }
     >
       <ul className="max-h-80 overflow-auto" data-testid="draft-picker">
@@ -906,7 +980,10 @@ function DraftPicker({ onClose }: { onClose: () => void }) {
             className="flex items-center gap-3 border-t border-divider py-2 first:border-t-0"
           >
             <ChannelTile channel={r.channel} size="sm" />
-            <Link href={`/communications/${r.id}/edit`} className="min-w-0 flex-1">
+            <Link
+              href={`/communications/${r.id}/edit${forRecipients ? '?recipients=1' : ''}`}
+              className="min-w-0 flex-1"
+            >
               <span className="block truncate text-sm font-medium text-link">{r.name}</span>
               <span className="block text-xs text-muted">Edited {dayText(r.updatedAt)}</span>
             </Link>
