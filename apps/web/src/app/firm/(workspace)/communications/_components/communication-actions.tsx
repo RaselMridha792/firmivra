@@ -1,7 +1,7 @@
 'use client';
 
 import type { CommunicationRow } from '@firmivra/types';
-import { ActionMenu, type ActionMenuItem, Button, Input, Modal } from '@firmivra/ui';
+import { ActionMenu, type ActionMenuItem, Button, Checkbox, Input, Modal } from '@firmivra/ui';
 import {
   Archive,
   ArrowCounterClockwise,
@@ -19,6 +19,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { COMM_ERRORS, COMM_KEY, hrefOf } from './communications-shared';
@@ -116,6 +117,10 @@ export function SaveTemplateDialog({
 }) {
   const [value, setValue] = useState(name);
   const [busy, setBusy] = useState(false);
+  // CM-F12: an Owner or Admin can save it Active, so Use Template offers it at once.
+  const { role } = useFirm();
+  const canActivate = role === 'OWNER' || role === 'ADMIN';
+  const [activate, setActivate] = useState(canActivate);
   return (
     <Modal
       open
@@ -132,8 +137,16 @@ export function SaveTemplateDialog({
             onClick={async () => {
               setBusy(true);
               try {
-                await api.communications.saveAsTemplate(id, { name: value.trim() });
-                onNotice('Saved to Templates.', 'success');
+                await api.communications.saveAsTemplate(id, {
+                  name: value.trim(),
+                  ...(canActivate && activate ? { activate: true } : {}),
+                });
+                onNotice(
+                  canActivate && activate
+                    ? 'Saved to Templates as Active. Use Template offers it now.'
+                    : 'Saved to Templates as a draft.',
+                  'success',
+                );
                 onClose();
               } catch (e) {
                 onNotice(errorMessage(e, COMM_ERRORS), 'error');
@@ -146,7 +159,20 @@ export function SaveTemplateDialog({
         </>
       }
     >
-      <Input label="Template name" value={value} onChange={(e) => setValue(e.target.value)} />
+      <div className="flex flex-col gap-3">
+        <Input label="Template name" value={value} onChange={(e) => setValue(e.target.value)} />
+        {canActivate ? (
+          <Checkbox
+            label="Activate it now, so Use Template offers it"
+            checked={activate}
+            onChange={(e) => setActivate(e.target.checked)}
+          />
+        ) : (
+          <p className="text-sm text-muted" data-testid="activate-note">
+            It is saved as a draft. Ask an Owner or Admin to activate it in Templates.
+          </p>
+        )}
+      </div>
     </Modal>
   );
 }

@@ -594,6 +594,33 @@ describe('changes, versions and the etag', () => {
     );
   });
 
+  it('Owner and Admin activate; Staff save drafts and keep editing an active one (CM-F12)', async () => {
+    expectError(
+      await call('post', '/templates', people.staffA, {
+        kind: 'EMAIL',
+        name: mark('Staff active'),
+        subject: 'S',
+        body: 'x',
+        status: 'ACTIVE',
+      }),
+      403,
+      'ACTIVATE_NOT_ALLOWED',
+    );
+    const t = await make({ subject: 'S', access: 'TEAM' }, people.staffA);
+    expectError(
+      await patchT(t.id, { etag: t.etag, status: 'ACTIVE' }, people.staffA),
+      403,
+      'ACTIVATE_NOT_ALLOWED',
+    );
+    const active = detail(await patchT(t.id, { etag: t.etag, status: 'ACTIVE' }, people.adminA));
+    expect(active.status).toBe('ACTIVE');
+    // Staff still change the words of the active template, which stays active.
+    const edited = detail(
+      await patchT(t.id, { etag: active.etag, subject: 'Better subject' }, people.staffA),
+    );
+    expect(edited).toMatchObject({ status: 'ACTIVE', subject: 'Better subject' });
+  });
+
   it('an active email needs a subject; as a draft its automation choice stays, unused (TP-F11)', async () => {
     const t = await make({ subject: 'Hello' });
     const active = detail(
