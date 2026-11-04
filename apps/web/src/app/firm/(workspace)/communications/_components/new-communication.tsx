@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
+import { ChannelNotice } from './channel-notice';
 import { COMM_ERRORS, quiet } from './communications-shared';
 
 const NAMES = { EMAIL: 'Bulk Email', SMS: 'Bulk Text Message', ANNOUNCEMENT: 'Announcement' };
@@ -25,6 +26,7 @@ export function NewCommunication({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string>();
+  const [blocked, setBlocked] = useState(false);
   const [starting, setStarting] = useState(false);
   const startedRef = useRef(false);
   const start = () => {
@@ -37,13 +39,23 @@ export function NewCommunication({
       .catch((e: unknown) => {
         startedRef.current = false;
         setStarting(false);
-        setError(errorMessage(e, COMM_ERRORS));
+        if (errorCode(e) === 'CHANNEL_UNAVAILABLE') setBlocked(true);
+        else setError(errorMessage(e, COMM_ERRORS));
       });
   };
   const startRef = useRef(start);
   useEffect(() => {
     if (templateId) startRef.current();
   }, [templateId]);
+  if (blocked)
+    return (
+      <div className="flex max-w-xl flex-col gap-3">
+        <ChannelNotice channel={channel} from={`/communications/new?channel=${channel}`} />
+        <Link href="/communications" className="text-sm font-medium text-link">
+          ← Back to Communications
+        </Link>
+      </div>
+    );
   if (error)
     return (
       <div className="flex flex-col gap-3">

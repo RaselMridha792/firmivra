@@ -93,6 +93,9 @@ describe('seed', () => {
       // Octavia's TX-F19 (Oct 26): a return has no validation issues until a reviewer raises one,
       // never seeded.
       'tax_return_validation_issues',
+      // Octavia's AU-F31 (Oct 29): none until a member confirms an external event by hand; the
+      // synthetic QA seed on dev adds them (Rasel's card), not this local seed.
+      'automation_event_confirmations',
     ];
     const empty: string[] = [];
     for (const t of tables) {

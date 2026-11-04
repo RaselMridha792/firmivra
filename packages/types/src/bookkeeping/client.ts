@@ -59,6 +59,10 @@ import {
   BookkeepingTransactionPage,
   ListBookkeepingTransactionsQuery,
 } from './transactions.js';
+import {
+  BookkeepingReconciliationItems,
+  ClearBookkeepingReconciliationItemsRequest,
+} from './reconciliation-items.js';
 
 const BASE = '/business/bookkeeping';
 const client = (id: string) => `${BASE}/clients/${parseInput(BookkeepingClientId, id)}`;
@@ -322,6 +326,19 @@ export function createBookkeepingClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateBookkeepingReconciliationRequest, body),
       }),
+    /** BK-R01: the lines this reconciliation can clear, with the figures they give. */
+    reconciliationItems: async (id: string): Promise<BookkeepingReconciliationItems> =>
+      request(BookkeepingReconciliationItems, `${recon(id)}/items`),
+    /** BK-R01: mark lines cleared, or not; the cleared balance and difference follow. */
+    clearReconciliationItems: async (
+      id: string,
+      body: ClearBookkeepingReconciliationItemsRequest,
+    ): Promise<BookkeepingReconciliation> =>
+      request(
+        BookkeepingReconciliation,
+        `${recon(id)}/items`,
+        post(parseInput(ClearBookkeepingReconciliationItemsRequest, body)),
+      ),
     markReconciliationReady: async (id: string): Promise<BookkeepingReconciliation> =>
       request(BookkeepingReconciliation, `${recon(id)}/ready`, post({})),
     approveReconciliation: async (id: string): Promise<BookkeepingReconciliation> =>

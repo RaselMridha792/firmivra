@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DUE_SOON_DAYS,
+  invoiceTaxCents,
   invoiceTotals,
   isInvoiceOverdue,
   lineAmountCents,
@@ -41,12 +42,40 @@ describe('amounts (the database computes them; these preview them)', () => {
         lines: [{ unitAmountCents: 40_000 }, { quantity: 2.5, unitAmountCents: 2_000 }],
         discountCents: 5_000,
       }),
-    ).toEqual({ lineAmountsCents: [40_000, 5_000], subtotalCents: 45_000, totalCents: 40_000 });
+    ).toEqual({
+      lineAmountsCents: [40_000, 5_000],
+      subtotalCents: 45_000,
+      taxableSubtotalCents: 0,
+      taxCents: 0,
+      totalCents: 40_000,
+    });
     expect(invoiceTotals({ lines: [] })).toEqual({
       lineAmountsCents: [],
       subtotalCents: 0,
+      taxableSubtotalCents: 0,
+      taxCents: 0,
       totalCents: 0,
     });
+  });
+
+  it("adds the firm's tax on the taxable lines after the discount's share, as the database does", () => {
+    // 10,000 taxable of 15,000, less 1,500: 10,000 x 13,500 x 8.25% / 15,000 = 742.5, half up.
+    expect(
+      invoiceTotals({
+        lines: [{ unitAmountCents: 10_000, taxable: true }, { unitAmountCents: 5_000 }],
+        discountCents: 1_500,
+        taxRateBps: 825,
+      }),
+    ).toMatchObject({ taxableSubtotalCents: 10_000, taxCents: 743, totalCents: 14_243 });
+    // No rate, or nothing taxable: no tax.
+    expect(
+      invoiceTotals({ lines: [{ unitAmountCents: 10_000, taxable: true }], taxRateBps: 0 })
+        .taxCents,
+    ).toBe(0);
+    expect(invoiceTaxCents(0, 10_000, 0, 825)).toBe(0);
+    // The largest invoice keeps whole cents (no float rounding): $999,999.99 at 10%.
+    expect(invoiceTaxCents(99_999_999, 99_999_999, 0, 1_000)).toBe(10_000_000);
+    expect(invoiceTaxCents(99_999_999, 99_999_999, 1, 999)).toBe(9_990_000);
   });
 });
 

@@ -59,7 +59,7 @@ test('Detail: cards, chart, table, quick range and settings', async ({ page }) =
 test('Detail: More Filters, export, save and schedule', async ({ page }) => {
   await page.goto(`${base}/revenue-summary`);
   await page.getByRole('button', { name: /More Filters/ }).click();
-  await page.getByRole('button', { name: '+ Add Filter' }).click();
+  await page.getByRole('button', { name: 'Add Filter', exact: true }).click();
   await page.getByTestId('more-filters').getByLabel('Field').selectOption({ label: 'Status' });
   await page.getByTestId('more-filters').getByLabel('Value').selectOption('SUCCEEDED');
   await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
@@ -125,6 +125,93 @@ test('Library: recent, saved and scheduled reports', async ({ page }) => {
   );
   await page.getByRole('tab', { name: 'Saved Reports' }).click();
   await expect(page.getByRole('heading', { name: /No saved reports yet/ })).toBeVisible();
+});
+
+test('Filters fit their field: money in dollars, a bad value named before Apply (RP-F02, F10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  await page.getByRole('button', { name: /More Filters/ }).click();
+  const dialog = page.getByTestId('more-filters');
+  await page.getByRole('button', { name: 'Add Filter', exact: true }).click();
+  await dialog.getByLabel('Field').selectOption({ label: 'Amount' });
+  await dialog.getByLabel('Condition').selectOption({ label: 'Greater Than' });
+  await dialog.getByLabel('Value ($)').fill('abc');
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog.getByText('Enter an amount in dollars, like 500 or 500.50.')).toBeVisible();
+  await expect(dialog.getByLabel('Value ($)')).toHaveAttribute('aria-invalid', 'true');
+  await page.screenshot({ path: test.info().outputPath('more-filters.png') });
+  await dialog.getByLabel('Value ($)').fill('500');
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText(
+    'Amount greater than $500.00',
+  );
+  await expect(page.getByTestId('run-error')).toHaveCount(0);
+
+  // The builder: the same rows; a filter that does not fit stays out of the preview, said in place.
+  await page.goto(`${base}/builder`);
+  const step = page.getByTestId('step-3');
+  await step.getByRole('button', { name: 'Add Filter', exact: true }).click();
+  await step.getByLabel('Field').selectOption({ label: 'Amount' });
+  await step.getByLabel('Condition').selectOption({ label: 'Greater Than' });
+  await step.getByLabel('Value ($)').fill('abc');
+  await expect(step.getByText('Enter an amount in dollars, like 500 or 500.50.')).toBeVisible();
+  await expect(step.getByText('One filter is not in the preview until fixed.')).toBeVisible();
+  await expect(page.getByText(/The preview could not run/)).toHaveCount(0);
+  await step.getByLabel('Value ($)').fill('500');
+  await expect(step.getByText('One filter is not in the preview until fixed.')).toHaveCount(0);
+  await expect(page.getByTestId('preview')).not.toContainText('Loading…');
+  await page.screenshot({ path: test.info().outputPath('builder-filters.png'), fullPage: true });
+});
+
+test('A saved report reopens as saved; Save Changes keeps it; Back returns to the library (RP-F03, F06, F12, F13)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const settings = page.getByTestId('report-settings');
+  await settings.getByLabel('Chart Type').selectOption({ label: 'Line Chart' });
+  await page.getByRole('switch', { name: 'Show comparison period' }).click();
+  await page.getByRole('switch', { name: 'Show data labels' }).click();
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByTestId('save-dialog').getByLabel('Report name').fill('Line View');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  // RP-F06: it opens as it was saved, not with the page's defaults.
+  await expect(settings.getByLabel('Chart Type')).toHaveValue('LINE');
+  await expect(page.getByRole('switch', { name: 'Show comparison period' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Show data labels' })).toBeChecked();
+  // RP-F13: its owner saves changes on the same report; Save As makes a new one.
+  await settings.getByLabel('Chart Type').selectOption({ label: 'Area Chart' });
+  const url = page.url();
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Changes saved.')).toBeVisible();
+  expect(page.url()).toBe(url);
+  await expect(page.getByRole('button', { name: 'Save As' })).toBeVisible();
+
+  // RP-F12: the library finds it by name, with its owner and status; RP-F03: Back comes here.
+  // In mock mode a saved report lives in the page: go by its link, not a reload.
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Saved Reports' })
+    .click();
+  await page.getByTestId('library-filters').getByLabel('Search').fill('Line View');
+  await expect(page).toHaveURL(/q=Line\+View/);
+  const table = page.getByRole('table', { name: 'Saved reports' });
+  await expect(table).toContainText('Line View');
+  await expect(table).toContainText('Active');
+  await page.screenshot({ path: test.info().outputPath('library.png') });
+  await table.getByRole('link', { name: 'Line View' }).click();
+  await expect(settings.getByLabel('Chart Type')).toHaveValue('AREA');
+  await page.screenshot({ path: test.info().outputPath('saved-report.png') });
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Report Library');
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(/\/reports\/library\?tab=saved&q=Line\+View$/);
+  await expect(page.getByRole('tab', { name: 'Saved Reports' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {
