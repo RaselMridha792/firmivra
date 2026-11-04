@@ -587,6 +587,11 @@ export const SavedReportRow = z.object({
   lastRunAt: DateTime.nullable(),
   scheduleCount: z.number().int(),
   updatedAt: DateTime,
+  /**
+   * The caller may change, rename or archive it (its owner, or an Owner or Admin); the others get
+   * Save As and Duplicate only (RP-F12, F13, Octavia Oct 28).
+   */
+  canEdit: z.boolean(),
 });
 export type SavedReportRow = z.infer<typeof SavedReportRow>;
 
@@ -595,8 +600,6 @@ export const SavedReportDetail = SavedReportRow.extend({
   /** SELECTED: the firm roles (OWNER, ADMIN, STAFF) and the people it is shared with. */
   sharedRoles: z.array(z.enum(['OWNER', 'ADMIN', 'STAFF'])),
   sharedWith: z.array(PersonRef),
-  /** The caller may change it (its owner, or an Owner or Admin). */
-  canEdit: z.boolean(),
   createdAt: DateTime,
   /** Send it back on a change: 409 SAVE_CONFLICT when someone saved after it was loaded. */
   etag: z.string(),
@@ -609,6 +612,9 @@ export const SavedReportsQuery = z.strictObject({
   tab: z.enum(['all', 'mine', 'shared', 'favorites']).optional().default('all'),
   includeArchived: z.union([z.boolean(), z.stringbool()]).optional(),
   search: SearchText.optional(),
+  /** RP-F12 (Octavia, Oct 28): the library's sort, newest change first by default. */
+  sort: z.enum(['updatedAt', 'name']).optional().default('updatedAt'),
+  direction: z.enum(['asc', 'desc']).optional().default('desc'),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
 });

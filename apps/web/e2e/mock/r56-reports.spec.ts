@@ -165,6 +165,55 @@ test('Filters fit their field: money in dollars, a bad value named before Apply 
   await page.screenshot({ path: test.info().outputPath('builder-filters.png'), fullPage: true });
 });
 
+test('A saved report reopens as saved; Save Changes keeps it; Back returns to the library (RP-F03, F06, F12, F13)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const settings = page.getByTestId('report-settings');
+  await settings.getByLabel('Chart Type').selectOption({ label: 'Line Chart' });
+  await page.getByRole('switch', { name: 'Show comparison period' }).click();
+  await page.getByRole('switch', { name: 'Show data labels' }).click();
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByTestId('save-dialog').getByLabel('Report name').fill('Line View');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  // RP-F06: it opens as it was saved, not with the page's defaults.
+  await expect(settings.getByLabel('Chart Type')).toHaveValue('LINE');
+  await expect(page.getByRole('switch', { name: 'Show comparison period' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Show data labels' })).toBeChecked();
+  // RP-F13: its owner saves changes on the same report; Save As makes a new one.
+  await settings.getByLabel('Chart Type').selectOption({ label: 'Area Chart' });
+  const url = page.url();
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(page.getByText('Changes saved.')).toBeVisible();
+  expect(page.url()).toBe(url);
+  await expect(page.getByRole('button', { name: 'Save As' })).toBeVisible();
+
+  // RP-F12: the library finds it by name, with its owner and status; RP-F03: Back comes here.
+  // In mock mode a saved report lives in the page: go by its link, not a reload.
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Saved Reports' })
+    .click();
+  await page.getByTestId('library-filters').getByLabel('Search').fill('Line View');
+  await expect(page).toHaveURL(/q=Line\+View/);
+  const table = page.getByRole('table', { name: 'Saved reports' });
+  await expect(table).toContainText('Line View');
+  await expect(table).toContainText('Active');
+  await page.screenshot({ path: test.info().outputPath('library.png') });
+  await table.getByRole('link', { name: 'Line View' }).click();
+  await expect(settings.getByLabel('Chart Type')).toHaveValue('AREA');
+  await page.screenshot({ path: test.info().outputPath('saved-report.png') });
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Report Library');
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(/\/reports\/library\?tab=saved&q=Line\+View$/);
+  await expect(page.getByRole('tab', { name: 'Saved Reports' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {

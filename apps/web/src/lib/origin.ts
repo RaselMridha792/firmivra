@@ -50,6 +50,8 @@ const LABELS: Record<string, string> = {
 
 /** "Payroll", "Bookkeeping"…: the place the origin path belongs to. */
 export function originLabel(origin: string): string {
+  // RP-F03: a report opened from the library goes back to that tab and page.
+  if (/^\/reports\/library(?:[/?#]|$)/.test(origin)) return 'Report Library';
   const first = origin.split(/[/?#]/)[1] ?? '';
   return LABELS[first] ?? 'Previous Page';
 }
