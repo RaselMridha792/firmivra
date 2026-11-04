@@ -383,6 +383,7 @@ export function createComplianceMock({
               ? d.archived
               : !d.archived &&
                 (q.tab !== 'COMPLETED' || d.status === 'COMPLETED') &&
+                (q.tab !== 'UPCOMING' || OPEN.includes(d.status)) &&
                 (q.tab !== 'RECURRING' || d.recurring),
           )
           .filter(

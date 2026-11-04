@@ -40,6 +40,7 @@ import {
   displayStatusOf,
   displayStatusWhere,
   dueBetween,
+  effectiveBetween,
   effectiveDue,
   errors,
   isoDay,
@@ -87,13 +88,16 @@ function rangeOf(range: ComplianceDateRange, today: Date): { from: Date | null; 
 }
 
 const tabWhere = (tab: ListQuery['tab']): Where =>
-  tab === 'COMPLETED'
-    ? { archivedAt: null, status: 'COMPLETED' }
-    : tab === 'RECURRING'
-      ? { archivedAt: null, recurrenceId: { not: null } }
-      : tab === 'ARCHIVED'
-        ? { archivedAt: { not: null } }
-        : { archivedAt: null };
+  tab === 'UPCOMING'
+    ? // CD-F02: what is still to do: open, so never Completed or Not Applicable.
+      { archivedAt: null, status: { in: [...OPEN_STATUSES] } }
+    : tab === 'COMPLETED'
+      ? { archivedAt: null, status: 'COMPLETED' }
+      : tab === 'RECURRING'
+        ? { archivedAt: null, recurrenceId: { not: null } }
+        : tab === 'ARCHIVED'
+          ? { archivedAt: { not: null } }
+          : { archivedAt: null };
 
 const sortOf = (
   sort: ListQuery['sort'],
@@ -158,9 +162,7 @@ export class ComplianceDeadlinesService {
     const to = explicit ? (q.to ? parseDay(q.to) : null) : named.to;
     const and: Where[] = [{ businessId }, reachWhere(actor), { client: { archivedAt: null } }];
     and.push(tabWhere(q.tab));
-    if (from || to) {
-      and.push({ dueOn: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } });
-    }
+    if (from || to) and.push(effectiveBetween(from, to));
     if (q.type) and.push({ type: q.type });
     if (q.status) and.push(displayStatusWhere(q.status, today, dueSoonDays));
     if (q.clientId) and.push({ clientId: q.clientId });
@@ -480,7 +482,8 @@ export class ComplianceDeadlinesService {
         archivedAt: null,
         status: { notIn: ['CANCELLED', 'NOT_APPLICABLE'] },
         client: { archivedAt: null },
-        dueOn: { gte: utc(y, m - 1, 1), lte: utc(y, m, 0) },
+        // CD-F02: a deadline sits on its effective date (the extended one when filed).
+        ...effectiveBetween(utc(y, m - 1, 1), utc(y, m, 0)),
         ...(q.type ? { type: q.type } : {}),
         ...(q.clientId ? { clientId: q.clientId } : {}),
         ...(q.assignedUserId ? { assignedUserId: q.assignedUserId } : {}),
@@ -494,8 +497,9 @@ export class ComplianceDeadlinesService {
     const days = new Map<string, ComplianceCalendarMonth['days'][number]>();
     for (const r of rows.slice(0, CALENDAR_CAP)) {
       const row = toRow(r, today, settings.dueSoonDays);
-      const entry = days.get(row.dueOn) ?? {
-        date: row.dueOn,
+      const on = row.extendedDueOn ?? row.dueOn;
+      const entry = days.get(on) ?? {
+        date: on,
         counts: { upcoming: 0, overdue: 0, dueSoon: 0, completed: 0 },
         deadlines: [],
       };
@@ -511,7 +515,7 @@ export class ComplianceDeadlinesService {
         displayStatus: s,
         clientName: row.client.displayName,
       });
-      days.set(row.dueOn, entry);
+      days.set(on, entry);
     }
     await this.audit.log('compliance.calendar.viewed', { type: 'compliance' }, { month });
     return {

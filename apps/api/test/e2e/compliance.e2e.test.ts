@@ -996,6 +996,45 @@ describe('status actions', () => {
     expect(await auditActions(d.id)).toContain('compliance.deadline.reassigned');
   });
 
+  it('ranges use the effective due date; Upcoming is open deadlines only, like its card (CD-F02, Octavia Oct 28)', async () => {
+    const tag = `Basis ${run}`;
+    const extended = await mkDeadline({ name: `${tag} extended`, dueOn: plus(5) });
+    const done = await mkDeadline({ name: `${tag} done`, dueOn: plus(5) });
+    // Due in 5 days, an extension filed to day 40 (Octavia's 12 Nov and 12 Dec).
+    await asOwner(ids.firmA, (tx) =>
+      tx.complianceDeadline.updateMany({
+        where: { id: { in: [extended.id, done.id] } },
+        data: { extensionFiledOn: at(0), extendedDueOn: at(40) },
+      }),
+    );
+    expect((await act(done.id, 'complete')).status).toBeLessThan(300);
+    const names = async (q: string) =>
+      exact(
+        ComplianceDeadlinePage,
+        await call(
+          'get',
+          `/compliance/deadlines?search=${encodeURIComponent(tag)}&${q}`,
+          people.ownerA,
+        ),
+      )
+        .items.map((x) => x.name)
+        .sort();
+    expect(await names('range=NEXT_7_DAYS')).toEqual([]);
+    expect(await names('range=NEXT_30_DAYS')).toEqual([]);
+    expect(await names('range=NEXT_90_DAYS')).toEqual([`${tag} done`, `${tag} extended`]);
+    // Upcoming leaves the completed one out (as its card does); All keeps it.
+    expect(await names('tab=UPCOMING&range=NEXT_90_DAYS')).toEqual([`${tag} extended`]);
+    expect(await names('tab=ALL&range=ALL')).toHaveLength(2);
+    // The Tax Calendar puts it on its extended date.
+    const month = plus(40).slice(0, 7);
+    const cal = exact(
+      ComplianceCalendarMonth,
+      await call('get', `/compliance/deadlines/calendar?month=${month}`, people.ownerA),
+    );
+    const onDay = cal.days.find((x) => x.date === plus(40));
+    expect(onDay?.deadlines.map((x) => x.id)).toEqual(expect.arrayContaining([extended.id]));
+  });
+
   it('archives a deadline: it leaves the lists and takes no more changes', async () => {
     const d = await mkDeadline({ name: `Archive me ${run}` });
     const archived = exact(ComplianceDeadline, await act(d.id, 'archive'));
@@ -1546,7 +1585,9 @@ describe('the overview, lists, calendar and exports', () => {
       'Overdue return',
       'Payroll filing',
     ]);
-    expect(names(await list(`?from=${plus(10)}`))).toEqual(['Monthly books']);
+    // CD-F02: ranges are on the effective date, so the return due 20 days ago and extended to
+    // day 30 is in from day 10 on.
+    expect(names(await list(`?from=${plus(10)}`))).toEqual(['Extended return', 'Monthly books']);
     expect(names(await list('?type=PAYROLL'))).toEqual(['Payroll filing']);
     expect(names(await list(`?clientId=${k.alpha}`))).toEqual([
       'Extended return',

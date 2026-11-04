@@ -43,6 +43,8 @@ describe('withOrigin', () => {
     expect(originLabel('/bookkeeping')).toBe('Bookkeeping');
     expect(originLabel('/tax-returns/x')).toBe('Tax Returns');
     expect(originLabel('/somewhere-else')).toBe('Previous Page');
+    // CD-F05: Add Deadline's way back to the list.
+    expect(originLabel('/compliance?tab=all&range=ALL&type=OTHER')).toBe('Compliance & Deadlines');
     // RP-F03: the Report Library, with its tab and page.
     expect(originLabel('/reports/library?tab=saved&page=2')).toBe('Report Library');
     expect(originLabel('/reports/library-x')).toBe('Reports');
