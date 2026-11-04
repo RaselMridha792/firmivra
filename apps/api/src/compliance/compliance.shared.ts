@@ -285,6 +285,14 @@ const onOrBefore = (d: Date): Where => ({
   OR: [{ extendedDueOn: { lte: d } }, { extendedDueOn: null, dueOn: { lte: d } }],
 });
 
+/**
+ * CD-F02 (Octavia, Oct 28): every date range (the list's, the Tax Calendar's) is on the effective
+ * due date, the extended date when an extension was filed, as the KPIs already were.
+ */
+export const effectiveBetween = (from: Date | null, to: Date | null): Where => ({
+  AND: [...(from ? [onOrAfter(from)] : []), ...(to ? [onOrBefore(to)] : [])],
+});
+
 /** Overdue: open and past its (extended) date. */
 export const overdueWhere = (today: Date): Where => ({
   status: { in: [...OPEN_STATUSES] },
