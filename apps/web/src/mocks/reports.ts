@@ -1092,7 +1092,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     const sys = SYSTEM.find((s) => s.source === src.meta.key)?.key ?? 'revenue-summary';
     if (k && k.deltaPercent !== null)
       out.push({
-        key: `${k.key}-change`,
+        key: `${src.meta.key}-${k.key}-change`,
         message: `${k.label} is ${k.deltaPercent >= 0 ? 'up' : 'down'} ${Math.abs(k.deltaPercent)}% compared to the previous period.`,
         metric: k.key,
         value: k.deltaPercent,
@@ -1107,7 +1107,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       const top = vals.indexOf(Math.max(...vals));
       if (total > 0)
         out.push({
-          key: 'top-group',
+          key: `top-group-${src.meta.key}`,
           message: `${bd.labels[top]} makes up ${Math.round((vals[top]! / total) * 100)}% of ${src.meta.label.toLowerCase()} this period.`,
           metric: 'share',
           value: Math.round((vals[top]! / total) * 100),

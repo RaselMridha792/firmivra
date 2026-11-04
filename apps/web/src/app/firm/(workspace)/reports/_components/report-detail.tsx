@@ -37,6 +37,8 @@ import { errorMessage } from '../../../../../lib/errors';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
+import { CustomRangeDialog } from './report-date-controls';
+import { datesFrom } from './report-dates';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
 import { FilterRows } from './report-filters';
 import {
@@ -86,13 +88,20 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const target = UUID.test(reportId)
     ? ({ kind: 'SAVED', id: reportId } as const)
     : ({ kind: 'SYSTEM', key: reportId } as const);
-  const [preset, setPreset] = useState<string>();
-  const [fixed, setFixed] = useState<{ from: string; to: string }>();
+  // RP-F01 (Octavia, Oct 28): opened from the overview, the report starts on its range and
+  // comparison (they come in the address), not on its own defaults.
+  const linked = datesFrom(params);
+  const [preset, setPreset] = useState<string | undefined>(
+    linked?.rule === 'ROLLING' ? linked.preset : undefined,
+  );
+  const [fixed, setFixed] = useState<{ from: string; to: string } | undefined>(
+    linked?.rule === 'FIXED' ? { from: linked.from, to: linked.to } : undefined,
+  );
   // RP-F06 (Octavia, Oct 28): a control left alone is the report's own setting, so a saved report
   // reopens as it was saved (comparison, chart, labels, tax, range); a quick report still opens
   // compared with the same period last year.
   const [compare, setCompare] = useState<string | undefined>(
-    target.kind === 'SYSTEM' ? 'SAME_PERIOD_LAST_YEAR' : undefined,
+    linked?.compare ?? (target.kind === 'SYSTEM' ? 'SAME_PERIOD_LAST_YEAR' : undefined),
   );
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
@@ -372,7 +381,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             ))}
           </div>
         </div>
-        <Link href="/reports" className={outlined}>
+        {/* RP-F01: back to the overview as it was (its range and comparison), when it opened this. */}
+        <Link href={from && /^\/reports(\?|$)/.test(from) ? from : '/reports'} className={outlined}>
           ← Back to Reports
         </Link>
       </header>
@@ -833,7 +843,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         />
       ) : null}
       {dialog === 'custom' ? (
-        <CustomRange
+        <CustomRangeDialog
+          initial={shownFixed}
           onClose={() => setDialog(undefined)}
           onApply={(f) => {
             setFixed(f);
@@ -855,55 +866,6 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         />
       ) : null}
     </div>
-  );
-}
-
-function CustomRange({
-  onClose,
-  onApply,
-}: {
-  onClose: () => void;
-  onApply: (f: { from: string; to: string }) => void;
-}) {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  return (
-    <Modal
-      open
-      title="Custom Range"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button disabled={!from || !to || from > to} onClick={() => onApply({ from, to })}>
-            Apply
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3 sm:grid-cols-2" data-testid="custom-range">
-        <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-          From
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-          To
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-          />
-        </label>
-      </div>
-    </Modal>
   );
 }
 
