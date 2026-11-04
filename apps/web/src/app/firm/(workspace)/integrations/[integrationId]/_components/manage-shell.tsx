@@ -107,13 +107,15 @@ export function ManageHeader({
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="flex items-center gap-2 text-2xl font-bold text-heading">
-                {detail?.provider.name ?? 'Integration unavailable'}
+              <div className="flex items-center gap-2">
+                <h1 className="flex items-center gap-2 text-2xl font-bold text-heading">
+                  {detail?.provider.name ?? 'Integration unavailable'}
+                </h1>
                 <HelpTip topic="Managing a connection">
                   Sync Settings sets what syncs and how often; Data Mapping matches its fields to
                   Firmivra&apos;s; Sync History and Troubleshooting list each sync and error.
                 </HelpTip>
-              </h1>
+              </div>
               {detail ? (
                 <ConnectionBadge status={detail.status} large />
               ) : (

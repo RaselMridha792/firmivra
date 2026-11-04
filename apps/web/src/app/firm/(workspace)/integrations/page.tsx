@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { readListQuery } from '../../../../lib/list-query';
-import { IntegrationsScreen, OVERVIEW_VIEW } from './_components/integrations-screen';
+import { IntegrationsScreen } from './_components/integrations-screen';
+import { OVERVIEW_VIEW } from './_components/list-views';
 
 export const metadata: Metadata = { title: 'Integrations' };
 

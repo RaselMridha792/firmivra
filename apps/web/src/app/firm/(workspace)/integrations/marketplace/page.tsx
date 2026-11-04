@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { readListQuery } from '../../../../../lib/list-query';
-import { MarketplaceScreen, MARKETPLACE_VIEW } from './_components/marketplace-screen';
+import { MARKETPLACE_VIEW } from '../_components/list-views';
+import { MarketplaceScreen } from './_components/marketplace-screen';
 
 export const metadata: Metadata = { title: 'Add integration' };
 

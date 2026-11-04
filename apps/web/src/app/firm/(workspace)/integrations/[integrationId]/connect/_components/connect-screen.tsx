@@ -208,13 +208,15 @@ function SetupForm({
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="flex items-center gap-2 text-3xl font-bold text-heading">
-                {provider?.name ?? 'Connect Integration'}
+              <div className="flex items-center gap-2">
+                <h1 className="flex items-center gap-2 text-3xl font-bold text-heading">
+                  {provider?.name ?? 'Connect Integration'}
+                </h1>
                 <HelpTip topic="Setting up an integration">
                   You choose the environment, the records it may access and the sync direction
                   before you connect, and review each choice in the steps that follow.
                 </HelpTip>
-              </h1>
+              </div>
               <Badge tone={connection ? 'success' : 'neutral'} dot>
                 {connection ? 'Connected' : 'Not Connected'}
               </Badge>

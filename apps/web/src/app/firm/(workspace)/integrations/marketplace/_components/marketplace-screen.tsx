@@ -31,12 +31,11 @@ import {
   PlugsConnected,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { mergeListQuery, writeListQuery } from '../../../../../../lib/list-query';
 import { IntegrationsOrigin } from '../../_components/integrations-origin';
-
-/** IN-F02: the Marketplace's view in its address, so Cancel and Back return to it as it was. */
-export const MARKETPLACE_VIEW = { search: '', category: '', sort: 'popular', view: 'grid' };
+import { MARKETPLACE_VIEW } from '../../_components/list-views';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -46,10 +45,18 @@ import { categories, categoryOptions, categoryLabel } from './marketplace-shared
 import { RequestIntegrationModal } from './request-integration-modal';
 
 export function MarketplaceScreen({
-  initial = MARKETPLACE_VIEW,
+  initial: fromServer = MARKETPLACE_VIEW,
 }: {
   initial?: typeof MARKETPLACE_VIEW;
 }) {
+  // The address as it is now: a client-side Back reopens the list with what was written there.
+  const params = useSearchParams();
+  const initial = {
+    search: params.get('search') ?? fromServer.search,
+    category: params.get('category') ?? fromServer.category,
+    sort: params.get('sort') ?? fromServer.sort,
+    view: params.get('view') ?? fromServer.view,
+  };
   const { firm } = useFirm();
   const [search, setSearch] = useState(initial.search);
   const [category, setCategory] = useState(
@@ -167,13 +174,15 @@ export function MarketplaceScreen({
             >
               <div className="mb-3 flex items-center gap-2">
                 <Info weight="fill" className="size-8 shrink-0 text-action" />
-                <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
-                  Don&apos;t see the integration you need?
+                <div className="flex items-center gap-2">
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
+                    Don&apos;t see the integration you need?
+                  </h2>
                   <HelpTip topic="Requesting an integration">
                     Your request is saved for the Firmivra team to review; nothing is sent to the
                     provider.
                   </HelpTip>
-                </h2>
+                </div>
               </div>
               <p className="mb-4 text-sm text-muted">
                 Request a new integration and we&apos;ll let you know when it&apos;s available.
@@ -242,16 +251,18 @@ export function MarketplaceScreen({
             ) : null}
             <section data-testid="marketplace-featured" aria-labelledby="featured-integrations">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <h2
-                  id="featured-integrations"
-                  className="flex items-center gap-2 text-base font-bold text-heading"
-                >
-                  Featured Integrations
+                <div className="flex items-center gap-2">
+                  <h2
+                    id="featured-integrations"
+                    className="flex items-center gap-2 text-base font-bold text-heading"
+                  >
+                    Featured Integrations
+                  </h2>
                   <HelpTip topic="The catalog">
                     Every provider Firmivra lists. Connect opens its setup, where you choose what it
                     may access; a provider that is not available yet can&apos;t be connected.
                   </HelpTip>
-                </h2>
+                </div>
                 <Button
                   variant="ghost"
                   className="min-h-8 !px-1 !py-0 text-xs"

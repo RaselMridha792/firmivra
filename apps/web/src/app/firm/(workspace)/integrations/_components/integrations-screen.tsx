@@ -24,6 +24,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
@@ -35,8 +36,7 @@ import { categoryLabel } from '../marketplace/_components/marketplace-shared';
 import { mergeListQuery, writeListQuery } from '../../../../../lib/list-query';
 import { IntegrationsOrigin } from './integrations-origin';
 
-/** IN-F02: the overview's view in its address, so Cancel and Back return to it as it was. */
-export const OVERVIEW_VIEW = { tab: 'all', search: '', category: '', environment: 'LIVE' };
+import { OVERVIEW_VIEW } from './list-views';
 const TABS: readonly string[] = ['all', 'connected', 'available', 'attention'];
 
 function SummaryCard({
@@ -65,10 +65,18 @@ function SummaryCard({
 }
 
 export function IntegrationsScreen({
-  initial = OVERVIEW_VIEW,
+  initial: fromServer = OVERVIEW_VIEW,
 }: {
   initial?: typeof OVERVIEW_VIEW;
 }) {
+  // The address as it is now: a client-side Back reopens the list with what was written there.
+  const params = useSearchParams();
+  const initial = {
+    tab: params.get('tab') ?? fromServer.tab,
+    search: params.get('search') ?? fromServer.search,
+    category: params.get('category') ?? fromServer.category,
+    environment: params.get('environment') ?? fromServer.environment,
+  };
   const [tab, setTab] = useState<IntegrationTab>(
     TABS.includes(initial.tab) ? (initial.tab as IntegrationTab) : 'all',
   );
@@ -145,13 +153,13 @@ export function IntegrationsScreen({
       <div data-testid="integrations-screen" className="flex min-w-0 flex-col gap-4">
         <header className="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-4 bg-navigation px-4 py-5 text-on-action md:-ml-6 md:px-6">
           <div>
-            <h1 className="flex items-center gap-2 text-3xl font-bold">
-              Integrations
+            <div className="flex items-center gap-2">
+              <h1 className="flex items-center gap-2 text-3xl font-bold">Integrations</h1>
               <HelpTip topic="Integrations overview">
                 The cards count your integrations by state (connected, needing attention and
                 available) and show when a connected integration was last checked.
               </HelpTip>
-            </h1>
+            </div>
             <p className="mt-1 text-base">Connect and manage the tools that power your business.</p>
           </div>
           <div className="flex max-w-full items-center gap-3 rounded-lg border border-control-border p-3 text-xs">
@@ -327,15 +335,17 @@ export function IntegrationsScreen({
             data-testid="integration-health"
             className="flex flex-col !rounded-lg !bg-subtle !p-3"
           >
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
-              <Heartbeat weight="fill" className="size-6 text-action" />
-              Integration Health
+            <div className="flex items-center gap-2">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
+                <Heartbeat weight="fill" className="size-6 text-action" />
+                Integration Health
+              </h2>
               <HelpTip topic="Integration health">
                 What your connected integrations last reported: working connections, authorization
                 problems, failed syncs and records waiting. With nothing connected, nothing has been
                 checked.
               </HelpTip>
-            </h2>
+            </div>
             {nothingConnected ? (
               <p className="mb-2 text-xs text-muted">No connected integrations to check yet.</p>
             ) : null}
