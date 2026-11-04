@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
@@ -20,7 +21,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { LIVE_TASK } from '../tasks/task-common.js';
+import { LIVE_TASK, lockKey } from '../tasks/task-common.js';
 import {
   checkAssignee,
   isUniqueViolation,
@@ -562,9 +563,11 @@ export class ComplianceDeadlineActionsService {
   }
 
   /**
-   * One task of a deadline, from a template (once: the database holds one task per deadline and
-   * template, so asking again finds the first). The task is the deadline's client's and due on the
-   * deadline's date; it never marks the deadline filed.
+   * One task of a deadline, from a template or none (once: CD-F01, Octavia Oct 28). The task gets
+   * a fixed key from the deadline and the template (R1's r1_task_deadline_scope), so a double-click,
+   * refresh, retry or concurrent request finds the first task, under the key's lock. A task that
+   * was unlinked from the deadline gives its key up and a new one is made. The task is the
+   * deadline's client's and due on the deadline's date; it never marks the deadline filed.
    */
   private async makeTask(
     tx: TxClient,
@@ -592,6 +595,19 @@ export class ComplianceDeadlineActionsService {
       settings.taskTemplates.find((t) => t.type === d.type)?.taskTemplateId ??
       null;
     const template = templateId ? await this.requireTemplate(tx, businessId, templateId) : null;
+    const key = deadlineTaskKey(deadlineId, template?.id ?? null);
+    await lockKey(tx, businessId, key);
+    const keyed = await tx.task.findFirst({
+      where: { businessId, idempotencyKey: key },
+      select: { id: true, deadlineId: true },
+    });
+    if (keyed?.deadlineId === deadlineId) return keyed.id;
+    if (keyed)
+      await tx.task.update({
+        where: { businessId_id: { businessId, id: keyed.id } },
+        data: { idempotencyKey: null, idempotencyScope: null },
+      });
+    // A task made from the template before keys (Oct 29) still counts.
     if (template) {
       const existing = await tx.task.findFirst({
         where: { businessId, deadlineId, templateId: template.id, ...LIVE_TASK },
@@ -615,6 +631,8 @@ export class ComplianceDeadlineActionsService {
           deadlineId,
           templateId: template?.id ?? null,
           createdByUserId: actor.userId,
+          idempotencyKey: key,
+          idempotencyScope: deadlineTaskScope(deadlineId),
         },
         select: { id: true },
       });
@@ -626,9 +644,15 @@ export class ComplianceDeadlineActionsService {
       );
       return task.id;
     } catch (error) {
-      if (isUniqueViolation(error) && template) {
+      if (isUniqueViolation(error)) {
         const existing = await tx.task.findFirst({
-          where: { businessId, deadlineId, templateId: template.id, ...LIVE_TASK },
+          where: {
+            businessId,
+            OR: [
+              { idempotencyKey: key },
+              ...(template ? [{ deadlineId, templateId: template.id, ...LIVE_TASK }] : []),
+            ],
+          },
           select: { id: true },
         });
         if (existing) return existing.id;
@@ -1089,3 +1113,18 @@ export class ComplianceDeadlineActionsService {
     return mapComplianceDbError(error);
   }
 }
+
+/**
+ * CD-F01: the fixed key of a deadline's task from a template (or none): a name-based uuid of the
+ * two, the same on every request (R1's r1_task_deadline_scope).
+ */
+export function deadlineTaskKey(deadlineId: string, templateId: string | null): string {
+  const h = createHash('sha256')
+    .update(`deadline-task:${deadlineId.toLowerCase()}:${templateId?.toLowerCase() ?? 'none'}`)
+    .digest('hex');
+  const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** The scope kept beside that key: the deadline in the URL, as ids are stored. */
+export const deadlineTaskScope = (deadlineId: string) => `deadline:${deadlineId.toLowerCase()}`;
