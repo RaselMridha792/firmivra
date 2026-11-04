@@ -383,7 +383,7 @@ function Builder({
                 options={catalog.modules.map((m) => ({ value: m.module, label: m.label }))}
               />
               <Select
-                label="Trigger Type *"
+                label="Trigger Event *"
                 value={f.event}
                 onChange={(e) => {
                   const next = catalog.events.find((x) => x.code === e.target.value);
