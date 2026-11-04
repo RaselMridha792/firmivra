@@ -126,7 +126,23 @@ interface Contact {
   unsubscribed: boolean;
   invalid: boolean;
   noPhone: boolean;
+  /** No active portal login: an announcement cannot reach them (CM-F05); never a lead's. */
+  noPortal: boolean;
 }
+
+/** Why a contact cannot get the channel, as the API decides it; null when they can. */
+const reasonOf = (c: Contact, channel: 'EMAIL' | 'SMS' | 'ANNOUNCEMENT') =>
+  channel === 'ANNOUNCEMENT'
+    ? c.noPortal
+      ? ('MISSING_CHANNEL' as const)
+      : null
+    : c.unsubscribed
+      ? ('UNSUBSCRIBED' as const)
+      : c.invalid
+        ? ('INVALID' as const)
+        : channel === 'SMS' && c.noPhone
+          ? ('MISSING_CHANNEL' as const)
+          : null;
 const SEG_DEFS: [
   string,
   string,
@@ -310,6 +326,7 @@ export function createCommunicationsMock({
       unsubscribed: i % 17 === 5,
       invalid: i % 23 === 7,
       noPhone: i % 29 === 3,
+      noPortal: i % 7 === 2,
     });
   }
   for (let i = 0; i < 30; i += 1) {
@@ -322,6 +339,7 @@ export function createCommunicationsMock({
       unsubscribed: i % 13 === 4,
       invalid: i % 19 === 2,
       noPhone: i % 11 === 6,
+      noPortal: true,
     });
   }
   const byId = new Map(contacts.map((c) => [c.id, c]));
@@ -398,11 +416,10 @@ export function createCommunicationsMock({
     const selected = [...ids].map((x) => byId.get(x)).filter((c): c is Contact => !!c);
     const manual = selected.filter((c) => excluded.has(c.id));
     const live = selected.filter((c) => !excluded.has(c.id));
-    const unsub = live.filter((c) => c.unsubscribed).length;
-    const invalid = live.filter((c) => !c.unsubscribed && c.invalid).length;
-    const missing = live.filter(
-      (c) => !c.unsubscribed && !c.invalid && channel === 'SMS' && c.noPhone,
-    ).length;
+    const why = live.map((c) => reasonOf(c, channel));
+    const unsub = why.filter((w) => w === 'UNSUBSCRIBED').length;
+    const invalid = why.filter((w) => w === 'INVALID').length;
+    const missing = why.filter((w) => w === 'MISSING_CHANNEL').length;
     const chips = [
       ...r.audience.segmentIds.map((sid) => ({
         kind: 'SEGMENT' as const,
@@ -642,14 +659,7 @@ export function createCommunicationsMock({
     const excluded = new Set([...r.audience.excludeClientIds, ...r.audience.excludeLeadIds]);
     for (const x of ids) {
       const c = byId.get(x);
-      if (
-        c &&
-        !excluded.has(c.id) &&
-        !c.unsubscribed &&
-        !c.invalid &&
-        !(r.d.channel === 'SMS' && c.noPhone)
-      )
-        eligible.push(c);
+      if (c && !excluded.has(c.id) && !reasonOf(c, r.d.channel)) eligible.push(c);
     }
     const sentAt = r.d.sentAt ?? nowIso();
     r.recipients = eligible.map((c, i) => {
@@ -1078,6 +1088,19 @@ export function createCommunicationsMock({
         const r = find(communicationId);
         conflict(r, input.etag);
         editable(r);
+        // As the API: a window that ends before it starts is refused, on Show Until, before any change.
+        const starts =
+          input.publishStartsAt === undefined ? r.d.publishStartsAt : input.publishStartsAt;
+        const ends = input.publishEndsAt === undefined ? r.d.publishEndsAt : input.publishEndsAt;
+        if (starts && ends && new Date(ends) <= new Date(starts))
+          throw new ApiRequestError(
+            400,
+            'VALIDATION_FAILED',
+            'The request is not valid',
+            undefined,
+            undefined,
+            [{ path: 'publishEndsAt', message: 'The end must be after the start' }],
+          );
         if (input.channel && input.channel !== r.d.channel) {
           channelOk(input.channel);
           if (
@@ -1298,14 +1321,8 @@ export function createCommunicationsMock({
               label: c.name,
               secondary: c.email,
               count: null,
-              eligible: !c.unsubscribed && !c.invalid && !(r.d.channel === 'SMS' && c.noPhone),
-              ineligibleReason: c.unsubscribed
-                ? ('UNSUBSCRIBED' as const)
-                : c.invalid
-                  ? ('INVALID' as const)
-                  : r.d.channel === 'SMS' && c.noPhone
-                    ? ('MISSING_CHANNEL' as const)
-                    : null,
+              eligible: !reasonOf(c, r.d.channel),
+              ineligibleReason: reasonOf(c, r.d.channel),
             }));
         }
         return {
