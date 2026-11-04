@@ -139,10 +139,11 @@ Needs from others (Rasel):
   and nothing reads `add_to_timeline`.
 - **Message Templates (F07)** opens the Portal Message library with Back to Messages (accepted).
   One library page for the three message kinds would need a change in Templates (not R60's).
-- **TP-F18, the 48 starter templates** (Octavia's Oct 28 Templates review): Rasel's order is seed
-  rows, so they wait for whoever owns the seed. R1's check (#1234) recommends instead reconciling
-  them into `apps/api/src/templates/template-starters.ts` (48 starters today, other names and
-  categories) and installing them at business setup, so there is one source. Rasel's call.
+- **TP-F06 on dev** (R1): a template's three upload steps pass locally against s3mock, with the
+  same storage and PUT as Documents. Octavia's "Something went wrong" was the editor hiding the code;
+  it now names it. If a dev upload still fails, "The file could not be sent to storage" means the
+  browser's PUT to the documents bucket got no answer (CORS for the app's host, or a per-firm KMS
+  key); R1 to check the bucket and the API log at that time. No code change is known to be needed.
 
 Progress (Communications, Oct 28 review):
 - Composer, #1242 (merged as `0677a8cf`): CM-F05 (an announcement chooses its clients below
@@ -150,11 +151,22 @@ Progress (Communications, Oct 28 review):
   F06 (Back, the breadcrumb and Cancel ask Save Draft, Discard or Keep Editing), F07 (Last saved in
   the firm's time zone; a refused save says why), F09 (a backwards window is refused on Show Until,
   shown at once; a past window is the checklist's).
-- Overview, #1243 (branch `rasel/R60-comms-overview`, `main` merged in after #1242): CM-F01 (the KPI cards
-  open Sent History filtered to all, emails or texts), F02 (Segments & Lists says how to build an
-  audience), F03 (Choose Recipients picks or starts a draft and opens it with its chooser; Manage
-  Segments stays apart), F04 (a channel that is not connected links Owners and Admins to
-  Integrations, whose Back returns; Staff are told to ask one).
+- Overview, #1243 (merged): CM-F01 (the KPI cards open Sent History filtered to all, emails or
+  texts), F02 (Segments & Lists says how to build an audience), F03 (Choose Recipients picks or
+  starts a draft and opens it with its chooser; Manage Segments stays apart), F04 (a channel that is
+  not connected links Owners and Admins to Integrations, whose Back returns; Staff are told to ask
+  one).
+
+Progress (Templates, Oct 28 review):
+- Editor PR, branch `rasel/R60-templates-editor`: TP-F04 (Preview renders the unsaved subject and
+  content; a test still sends the saved one), TP-F05 (Cancel and the breadcrumb ask Stay or
+  Discard; the shared Back bar asks too), TP-F06 (the three steps pass locally on s3mock with a
+  valid 70-byte PNG and a 1,441-byte PDF; the editor names the real reason instead of "Something
+  went wrong", refuses a wrong type or size in words, and each file can be downloaded), TP-F11 (an
+  active template with Include in Automations goes to Draft; the choice stays, unused, since
+  automations offer and run active templates only).
+- TP-F18 (the 48 starters): not a seed question (lead, Nov 4). They are in code
+  (`template-starters.ts`, installed by key); next PR: why LVP showed none, fixed in code.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
