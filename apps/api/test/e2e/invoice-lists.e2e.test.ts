@@ -3,7 +3,7 @@
 // firm's calendar; Recurring Invoices lists the firm's schedules. Staff see their clients' only.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PaymentPage, RecurringInvoiceList } from '@firmivra/types';
+import { PaymentPage, RecurringInvoiceList, invoiceTotals } from '@firmivra/types';
 import { expectOk, nyDay, startInvoiceApp } from './invoice-setup.js';
 
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
@@ -94,6 +94,13 @@ describe('View All Payments (IP-F17)', () => {
 
 describe('Recurring Invoices (IP-F17)', () => {
   it('lists the schedules with their amount and next send day, in reach', async () => {
+    // The later one also has a discount and the firm's tax on its lines (R55's IP-F03).
+    const rate = await t.inScope(t.ids.firmA, async (tx) =>
+      tx.invoiceTaxRate.create({
+        data: { businessId: t.ids.firmA, name: `Fake State Tax ${t.run}`, rateBps: 825 },
+        select: { id: true },
+      }),
+    );
     const make = (clientId: string, name: string, next: number, everyThreeWeeks = false) =>
       t.inScope(t.ids.firmA, async (tx) => {
         const r = await tx.recurringInvoice.create({
@@ -101,6 +108,7 @@ describe('Recurring Invoices (IP-F17)', () => {
             businessId: t.ids.firmA,
             clientId,
             name,
+            ...(everyThreeWeeks ? { discountCents: 1_000, taxRateId: rate.id } : {}),
             ...(everyThreeWeeks
               ? { frequency: 'CUSTOM', intervalCount: 3, intervalUnit: 'WEEK' }
               : { frequency: 'MONTHLY' }),
@@ -115,6 +123,7 @@ describe('Recurring Invoices (IP-F17)', () => {
             description: 'Fake monthly bookkeeping',
             quantity: 2,
             unitAmountCents: 15_000,
+            taxable: everyThreeWeeks,
           },
         });
         return r.id;
@@ -138,7 +147,17 @@ describe('Recurring Invoices (IP-F17)', () => {
     expect(list.items[1]).toMatchObject({
       frequency: 'CUSTOM',
       interval: { count: 3, unit: 'WEEK' },
+      // As Create Invoice's summary: 30,000 less 1,000, plus 8.25% of 29,000 (2,392.5, rounded
+      // half away from zero) = 31,393.
+      amountCents: 31_393,
     });
+    expect(
+      invoiceTotals({
+        lines: [{ quantity: 2, unitAmountCents: 15_000, taxable: true }],
+        discountCents: 1_000,
+        taxRateBps: 825,
+      }).totalCents,
+    ).toBe(31_393);
     const staff = RecurringInvoiceList.parse(
       expectOk(await t.firm('get', '/recurring', t.people.staffA)).body,
     );
