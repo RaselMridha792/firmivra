@@ -35,6 +35,7 @@ import { useEffect, useState, type MouseEvent } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
 import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
@@ -213,7 +214,9 @@ function ComposerForm({
       ? FIELD_ERRORS.publishEndsAt
       : undefined;
 
-  // CM-F06: closing or reloading the tab with unsaved changes asks first (the browser's own words).
+  // CM-F06: the shared Back bar (SH1, a composer opened with ?from=) asks first too, and closing or
+  // reloading the tab asks in the browser's own words.
+  useUnsavedChanges(dirty && !readOnly);
   useEffect(() => {
     if (!dirty || readOnly) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
