@@ -95,6 +95,8 @@ export async function syncDraftRecurrence(
     taxRateId: row.taxRateId,
     assignedUserId: row.assignedTo?.userId ?? null,
     templateId: row.template?.id ?? null,
+    // IP-F04: the later invoices reach the client the same way.
+    delivery: row.emailClient ? ('EMAIL_AND_PORTAL' as const) : ('PORTAL' as const),
   };
   let id: string;
   if (current) {

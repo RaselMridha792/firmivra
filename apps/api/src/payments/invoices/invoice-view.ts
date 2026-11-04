@@ -123,6 +123,10 @@ export const invoiceSelect = {
   notesToClient: true,
   internalNote: true,
   recurring: { select: recurringSelect },
+  // IP-F04
+  emailClient: true,
+  allowTip: true,
+  requirePaymentBeforeDue: true,
   // IP-F03
   taxRateId: true,
   taxRateBps: true,
@@ -313,6 +317,7 @@ export const amountDetail = (row: InvoiceRow) => ({
           cents: row.taxCents,
         },
   attachments: shownAttachments(row),
+  requirePaymentBeforeDue: row.requirePaymentBeforeDue,
   amountPaidCents: money(row).amountPaidCents,
   refundedCents: money(row).refundedCents,
 });
@@ -367,6 +372,8 @@ export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null 
     assignedTo: row.assignedTo ? ref(row.assignedTo) : null,
     template: row.template,
     taxRateId: row.taxRateId,
+    emailClient: row.emailClient,
+    allowTip: row.allowTip,
   };
 }
 
