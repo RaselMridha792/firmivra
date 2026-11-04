@@ -38,10 +38,14 @@ export function datesFrom(params: { get(name: string): string | null }): DateSta
   if (range === 'custom') {
     const from = params.get('start') ?? '';
     const to = params.get('end') ?? '';
-    return DAY.test(from) && DAY.test(to) && from <= to ? { rule: 'FIXED', from, to, ...c } : undefined;
+    return DAY.test(from) && DAY.test(to) && from <= to
+      ? { rule: 'FIXED', from, to, ...c }
+      : undefined;
   }
   if (range && PRESETS.has(range)) return { rule: 'ROLLING', preset: range, ...c };
-  return compare && COMPARES.has(compare) ? { rule: 'ROLLING', preset: 'this_year', ...c } : undefined;
+  return compare && COMPARES.has(compare)
+    ? { rule: 'ROLLING', preset: 'this_year', ...c }
+    : undefined;
 }
 
 /** The address parameters of a date state (merged into a link's query). */
