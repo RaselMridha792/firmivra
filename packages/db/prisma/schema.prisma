@@ -942,29 +942,30 @@ model Business {
   departments          Department[]
 
   // R38 work modules.
-  taskTypes                TaskType[]
-  complianceSettings       ComplianceSettings[]
-  automationSettings       AutomationSettings[]
-  bookkeepingSettings      BookkeepingSettings[]
-  intakeSettings           IntakeSettings?
-  intakeTemplates          IntakeTemplate[]
-  staffJobTitles           StaffJobTitle[]
-  staffWorkSchedules       StaffWorkSchedule[]
-  staffSecurityDefaults    StaffSecurityDefaults?
-  firmLicenses             FirmLicense[]
-  documentFolders          DocumentFolder[]
-  firmOffices              FirmOffice[]
-  firmOfficeServices       FirmOfficeService[]
-  firmOfficeHours          FirmOfficeHours[]
-  firmOfficeActions        FirmOfficeAction[]
-  customRoles              CustomRole[]
-  customRolePermissions    CustomRolePermission[]
-  documentLinks            DocumentLink[]
-  documentLinkCodes        DocumentLinkCode[]
-  appointmentSettings      AppointmentSettings?
-  tags                     Tag[]
-  documentRequestTemplates DocumentRequestTemplate[]
-  documentSettings         DocumentSettings?
+  taskTypes                    TaskType[]
+  complianceSettings           ComplianceSettings[]
+  automationSettings           AutomationSettings[]
+  automationEventConfirmations AutomationEventConfirmation[]
+  bookkeepingSettings          BookkeepingSettings[]
+  intakeSettings               IntakeSettings?
+  intakeTemplates              IntakeTemplate[]
+  staffJobTitles               StaffJobTitle[]
+  staffWorkSchedules           StaffWorkSchedule[]
+  staffSecurityDefaults        StaffSecurityDefaults?
+  firmLicenses                 FirmLicense[]
+  documentFolders              DocumentFolder[]
+  firmOffices                  FirmOffice[]
+  firmOfficeServices           FirmOfficeService[]
+  firmOfficeHours              FirmOfficeHours[]
+  firmOfficeActions            FirmOfficeAction[]
+  customRoles                  CustomRole[]
+  customRolePermissions        CustomRolePermission[]
+  documentLinks                DocumentLink[]
+  documentLinkCodes            DocumentLinkCode[]
+  appointmentSettings          AppointmentSettings?
+  tags                         Tag[]
+  documentRequestTemplates     DocumentRequestTemplate[]
+  documentSettings             DocumentSettings?
 
   /// R0 stage A: null until a subscription is set (no backfill for existing firms).
   platformFirmSubscription  PlatformFirmSubscription?
@@ -1115,42 +1116,43 @@ model Membership {
   offlinePaymentsVoided   OfflinePayment[] @relation("OfflinePaymentVoidedBy")
 
   // Firm Sign.
-  esignConsentPublished   EsignConsentVersion[]    @relation("EsignConsentPublishedBy")
-  esignRole               EsignMemberRole?         @relation("EsignMemberRole")
-  esignTemplates          EsignTemplate[]          @relation("EsignTemplateOwner")
-  esignTemplateVersions   EsignTemplateVersion[]   @relation("EsignTemplateVersionSavedBy")
-  esignRequestsSent       EsignRequest[]           @relation("EsignRequestSender")
-  esignRequestsVoided     EsignRequest[]           @relation("EsignRequestVoidedBy")
-  esignRecipients         EsignRecipient[]         @relation("EsignRecipientStaff")
-  esignEmails             EsignEmail[]             @relation("EsignEmailMember")
-  esignUploads            EsignPendingUpload[]     @relation("EsignUploadMember")
-  esignKioskLock          EsignKioskLock?          @relation("EsignKioskLock")
-  esignBulkBatches        EsignBulkBatch[]         @relation("EsignBulkCreatedBy")
-  invoiceAttachments      InvoiceAttachment[]
-  recurringAssigned       RecurringInvoice[]       @relation("RecurringAssignedTo")
-  recurringCreated        RecurringInvoice[]       @relation("RecurringCreatedBy")
-  servicesUpdated         Service[]                @relation("ServiceUpdatedBy")
-  packagesUpdated         ServicePackage[]         @relation("PackageUpdatedBy")
-  threadsAssigned         MessageThread[]          @relation("MessageThreadAssignedTo")
-  threadMutes             MessageThreadMute[]
-  messageSignature        MessageSignature?
-  messageSettingsAssignee MessageSettings[]        @relation("MessageSettingsAssignee")
-  messageSettingsChanged  MessageSettings[]        @relation("MessageSettingsChangedBy")
-  outboundAssigned        OutboundMessage[]        @relation("OutboundAssignedTo")
-  outboundCreated         OutboundMessage[]        @relation("OutboundCreatedBy")
-  outboundFiles           OutboundMessageFile[]
-  portalVisibilityChanged PortalModuleVisibility[]
-  portalLocks             ClientPortalLock[]
-  portalActivity          ClientPortalActivity[]
-  portalRecentClients     PortalRecentClient[]
-  brandVersions           BusinessBrandVersion[]
-  brandProfileChanged     BusinessBrandProfile[]
-  complianceDeadlines     ComplianceDeadline[]
-  complianceRecurrences   ComplianceRecurrence[]
-  automationRules         AutomationRule[]
-  bookkeepingProfiles     BookkeepingProfile[]
-  taxPlans                TaxPlan[]
-  taxOpportunities        TaxOpportunity[]
+  esignConsentPublished        EsignConsentVersion[]         @relation("EsignConsentPublishedBy")
+  esignRole                    EsignMemberRole?              @relation("EsignMemberRole")
+  esignTemplates               EsignTemplate[]               @relation("EsignTemplateOwner")
+  esignTemplateVersions        EsignTemplateVersion[]        @relation("EsignTemplateVersionSavedBy")
+  esignRequestsSent            EsignRequest[]                @relation("EsignRequestSender")
+  esignRequestsVoided          EsignRequest[]                @relation("EsignRequestVoidedBy")
+  esignRecipients              EsignRecipient[]              @relation("EsignRecipientStaff")
+  esignEmails                  EsignEmail[]                  @relation("EsignEmailMember")
+  esignUploads                 EsignPendingUpload[]          @relation("EsignUploadMember")
+  esignKioskLock               EsignKioskLock?               @relation("EsignKioskLock")
+  esignBulkBatches             EsignBulkBatch[]              @relation("EsignBulkCreatedBy")
+  invoiceAttachments           InvoiceAttachment[]
+  recurringAssigned            RecurringInvoice[]            @relation("RecurringAssignedTo")
+  recurringCreated             RecurringInvoice[]            @relation("RecurringCreatedBy")
+  servicesUpdated              Service[]                     @relation("ServiceUpdatedBy")
+  packagesUpdated              ServicePackage[]              @relation("PackageUpdatedBy")
+  threadsAssigned              MessageThread[]               @relation("MessageThreadAssignedTo")
+  threadMutes                  MessageThreadMute[]
+  messageSignature             MessageSignature?
+  messageSettingsAssignee      MessageSettings[]             @relation("MessageSettingsAssignee")
+  messageSettingsChanged       MessageSettings[]             @relation("MessageSettingsChangedBy")
+  outboundAssigned             OutboundMessage[]             @relation("OutboundAssignedTo")
+  outboundCreated              OutboundMessage[]             @relation("OutboundCreatedBy")
+  outboundFiles                OutboundMessageFile[]
+  portalVisibilityChanged      PortalModuleVisibility[]
+  portalLocks                  ClientPortalLock[]
+  portalActivity               ClientPortalActivity[]
+  portalRecentClients          PortalRecentClient[]
+  brandVersions                BusinessBrandVersion[]
+  brandProfileChanged          BusinessBrandProfile[]
+  complianceDeadlines          ComplianceDeadline[]
+  complianceRecurrences        ComplianceRecurrence[]
+  automationRules              AutomationRule[]
+  automationEventConfirmations AutomationEventConfirmation[]
+  bookkeepingProfiles          BookkeepingProfile[]
+  taxPlans                     TaxPlan[]
+  taxOpportunities             TaxOpportunity[]
 
   // Staff management (R35).
   departmentsHeaded Department[]       @relation("DepartmentHead")
@@ -3005,6 +3007,7 @@ model Client {
   complianceDeadlines            ComplianceDeadline[]
   complianceApplicabilityRecords ComplianceApplicabilityRecord[]
   automationRuns                 AutomationRun[]
+  automationEventConfirmations   AutomationEventConfirmation[]
   taxPlans                       TaxPlan[]
   taxSavingsScenarios            TaxSavingsScenario[]
   taxOpportunities               TaxOpportunity[]
@@ -3527,55 +3530,56 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  esignRequest                EsignRequest?                @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
-  esignFinalOf                EsignRequest?                @relation("EsignFinalDocument")
-  esignCertificateOf          EsignRequest?                @relation("EsignCertificateDocument")
-  engagement                  Engagement                   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category                    DocumentCategory?            @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request                     DocumentRequest?             @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload                  LeadUpload?                  @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  intake                      Intake?                      @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
-  reports                     EngagementReport[]
-  messageAttachments          MessageAttachment[]
-  invoiceAttachments          InvoiceAttachment[]
-  taxReturns                  TaxReturn[]
-  taskAttachments             TaskAttachment[]
-  complianceDeadlineDocuments ComplianceDeadlineDocument[]
-  bookkeepingReconciliations  BookkeepingReconciliation[]
-  taxPlanDocuments            TaxPlanDocument[]
+  esignRequest                 EsignRequest?                 @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  esignFinalOf                 EsignRequest?                 @relation("EsignFinalDocument")
+  esignCertificateOf           EsignRequest?                 @relation("EsignCertificateDocument")
+  engagement                   Engagement                    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category                     DocumentCategory?             @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request                      DocumentRequest?              @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload                   LeadUpload?                   @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake                       Intake?                       @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  reports                      EngagementReport[]
+  messageAttachments           MessageAttachment[]
+  invoiceAttachments           InvoiceAttachment[]
+  taxReturns                   TaxReturn[]
+  taskAttachments              TaskAttachment[]
+  complianceDeadlineDocuments  ComplianceDeadlineDocument[]
+  automationEventConfirmations AutomationEventConfirmation[]
+  bookkeepingReconciliations   BookkeepingReconciliation[]
+  taxPlanDocuments             TaxPlanDocument[]
   // R37 (Documents module): folder, details, review, validity, versions, archive and trash.
   /// Organisation only, never access. A FIRM folder takes no client-visible document.
-  folderId                    String?                      @map("folder_id") @db.Uuid
+  folderId                     String?                       @map("folder_id") @db.Uuid
   /// One line, up to 500 characters.
-  description                 String?
+  description                  String?
   /// Up to 20, each 1 to 40 characters, none twice (ignoring case).
-  tags                        String[]                     @default([])
+  tags                         String[]                      @default([])
   /// Null: no review needed. VERIFIED and COMPLETED carry who and when (CHECK).
-  reviewStatus                DocumentReviewStatus?        @map("review_status")
-  reviewerUserId              String?                      @map("reviewer_user_id") @db.Uuid
-  reviewedAt                  DateTime?                    @map("reviewed_at") @db.Timestamptz(3)
-  reviewedByUserId            String?                      @map("reviewed_by_user_id") @db.Uuid
+  reviewStatus                 DocumentReviewStatus?         @map("review_status")
+  reviewerUserId               String?                       @map("reviewer_user_id") @db.Uuid
+  reviewedAt                   DateTime?                     @map("reviewed_at") @db.Timestamptz(3)
+  reviewedByUserId             String?                       @map("reviewed_by_user_id") @db.Uuid
   /// When the document itself stops being valid (a license, an ID). Not retention: nothing is
   /// deleted by it.
-  expiresOn                   DateTime?                    @map("expires_on") @db.Date
+  expiresOn                    DateTime?                     @map("expires_on") @db.Date
   /// The upload's "Notify client" choice, kept for the moment the scan result arrives.
-  notifyClient                Boolean                      @default(false) @map("notify_client")
+  notifyClient                 Boolean                       @default(false) @map("notify_client")
   // R37: versions. A replacement of this document has the same client, engagement and
   // direction and is numbered after it (a chain); set on insert only. The old one is marked
   // superseded by the database once the replacement is CLEAN.
-  replacesId                  String?                      @map("replaces_id") @db.Uuid
-  versionNo                   Int                          @default(1) @map("version_no")
-  supersededAt                DateTime?                    @map("superseded_at") @db.Timestamptz(3)
-  archivedAt                  DateTime?                    @map("archived_at") @db.Timestamptz(3)
+  replacesId                   String?                       @map("replaces_id") @db.Uuid
+  versionNo                    Int                           @default(1) @map("version_no")
+  supersededAt                 DateTime?                     @map("superseded_at") @db.Timestamptz(3)
+  archivedAt                   DateTime?                     @map("archived_at") @db.Timestamptz(3)
   /// Reversible; the purge stays under the retention and legal-hold delete rules.
-  trashedAt                   DateTime?                    @map("trashed_at") @db.Timestamptz(3)
-  folder                      DocumentFolder?              @relation(fields: [businessId, folderId], references: [businessId, id], onDelete: Restrict)
-  reviewer                    Membership?                  @relation("DocumentReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
-  reviewedBy                  Membership?                  @relation("DocumentReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
-  documentShares              DocumentShare[]
-  taxReturnApprovals          TaxReturnApproval[]
-  taxReturnAuthorizations     TaxReturnAuthorization[]
-  taxReturnDocuments          TaxReturnDocument[]
+  trashedAt                    DateTime?                     @map("trashed_at") @db.Timestamptz(3)
+  folder                       DocumentFolder?               @relation(fields: [businessId, folderId], references: [businessId, id], onDelete: Restrict)
+  reviewer                     Membership?                   @relation("DocumentReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewedBy                   Membership?                   @relation("DocumentReviewedBy", fields: [businessId, reviewedByUserId], references: [businessId, userId], onDelete: Restrict)
+  documentShares               DocumentShare[]
+  taxReturnApprovals           TaxReturnApproval[]
+  taxReturnAuthorizations      TaxReturnAuthorization[]
+  taxReturnDocuments           TaxReturnDocument[]
 
   // Target of message attachments.
   /// R0 stage C1
@@ -10054,6 +10058,50 @@ model AutomationSettings {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("automation_settings")
+}
+
+/// R1 (Oct 29, AU-F31 and AU-F32): an external event a member reported by hand (Manual Event
+/// Confirmation), one row per occurrence (no bulk), with the provider evidence that may come later
+/// for the same occurrence. occurrenceKey is the engine's key for it (automation_runs.
+/// source_event_key: event code, record id, occurrence), so a rule runs once for it whichever comes
+/// first. The manual part never changes and the provider part is set once (SQL only); never
+/// deleted. Manually Confirmed and Integration Verified are told apart by which part is set.
+model AutomationEventConfirmation {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  businessId         String           @map("business_id") @db.Uuid
+  sourceModule       AutomationModule @map("source_module")
+  /// The module's event code, e.g. "tax_return.accepted" (the API checks it), up to 100 characters.
+  eventCode          String           @map("event_code")
+  /// The record the event is about (its kind, e.g. "tax_return", and id), as ids only.
+  recordKind         String           @map("record_kind")
+  recordId           String           @map("record_id") @db.Uuid
+  occurrenceKey      String           @map("occurrence_key")
+  /// The client the record belongs to, when it has one.
+  clientId           String?          @map("client_id") @db.Uuid
+  confirmedByUserId  String           @map("confirmed_by_user_id") @db.Uuid
+  confirmedAt        DateTime         @default(now()) @map("confirmed_at") @db.Timestamptz(3)
+  /// The acknowledgment or reference of the known outcome, up to 200 characters.
+  reference          String?
+  /// Up to 500 characters; never a password, token, SSN or bank number.
+  note               String?
+  /// A document of the firm kept as evidence: it cannot be deleted while this row names it.
+  evidenceDocumentId String?          @map("evidence_document_id") @db.Uuid
+  /// Provider evidence for the same occurrence (AU-F32): all three together, set once.
+  providerVerifiedAt DateTime?        @map("provider_verified_at") @db.Timestamptz(3)
+  /// The integration's code (the Integrations module's).
+  providerCode       String?          @map("provider_code")
+  providerReference  String?          @map("provider_reference")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business         Business   @relation(fields: [businessId], references: [id])
+  client           Client?    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  confirmedBy      Membership @relation(fields: [businessId, confirmedByUserId], references: [businessId, userId], onDelete: Restrict)
+  evidenceDocument Document?  @relation(fields: [businessId, evidenceDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, occurrenceKey])
+  @@index([businessId, recordKind, recordId])
+  @@map("automation_event_confirmations")
 }
 
 /// A firm's Bookkeeping settings (the Bookkeeping Settings button): the defaults new bookkeeping
