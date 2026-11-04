@@ -67,7 +67,7 @@ test('Builder: validation, a full rule, the live review and activation', async (
   await expect(page.getByTestId('builder-title')).toHaveText('Create Automation Rule');
   await page.getByTestId('save-activate').click();
   await expect(page.getByText('Enter the rule name')).toBeVisible();
-  await page.getByLabel('Trigger Type *').selectOption({ label: 'Deadline Approaching' });
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
   await page.getByLabel('When *').selectOption('BEFORE');
   await page.getByLabel('Before *').fill('14');
   await page.getByRole('button', { name: 'Add Condition' }).click();
@@ -91,7 +91,7 @@ test('Builder: validation, a full rule, the live review and activation', async (
 
 test('Builder: an action with no template blocks activation', async ({ page }) => {
   await page.goto(`${base}/new`);
-  await page.getByLabel('Trigger Type *').selectOption({ label: 'Deadline Approaching' });
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
   await page.getByRole('button', { name: 'Add Action' }).click();
   await page.getByLabel('Action 1', { exact: true }).selectOption('SEND_EMAIL');
   await page.getByLabel('Rule Name *').fill('Needs a template');
