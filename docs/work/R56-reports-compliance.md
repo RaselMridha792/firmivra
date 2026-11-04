@@ -20,5 +20,6 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 - Nov 4: #1241 `rasel/R56-rp-filters`: RP-F02, F09 (typed operators, value boxes by type, Clear All, client suggestions, column drag), F10, F20, F07's parity test.
 - Nov 4: #1244 `rasel/R56-rp-saved`: RP-F06 (a saved report reopens as saved; Save takes the screen), F13 (Save Changes and Save As), F12 (library search, category, show, sort, Owner, Status, permitted row actions), F03 (the library's state in the address; SH1's Back returns to it).
 - Nov 4: #1245 `rasel/R56-ip-pdf-tax` (Rasel's follow-up to R55's #1230): the invoice PDF's Tax row; Recurring Invoices bills a schedule with its discount and tax.
-- Nov 4: `rasel/R56-rp-dates`: RP-F04 (one firm-day clock: Reports reload at the firm's midnight), F01 (the overview's range and comparison travel to a report and back), F16 (Custom Range on the overview and in the builder, its problems said in place).
+- Nov 4: #1249 `rasel/R56-rp-dates`: RP-F04 (one firm-day clock: Reports reload at the firm's midnight), F01 (the overview's range and comparison travel to a report and back), F16 (Custom Range on the overview and in the builder, its problems said in place).
+- Nov 4: `rasel/R56-cd-tasks`: CD-F01 (a deadline's Create Task makes one task per deadline and template, also without one, on R1's #1232 scope; View Task after).
 - Laptop rules (lead, Nov 4): heavy commands through `F:/firmivra-tools/heavy.sh`; only Postgres runs locally (S3 and SMTP tests are CI's).

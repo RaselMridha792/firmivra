@@ -151,6 +151,8 @@ export const ComplianceDeadlineTask = z.object({
   status: TaskStatus,
   dueOn: ComplianceDay.nullable(),
   assignedTo: MemberRef.nullable(),
+  /** Made by this deadline's Create Task (CD-F01): asking again returns it, not a second one. */
+  madeHere: z.boolean(),
 });
 export type ComplianceDeadlineTask = z.infer<typeof ComplianceDeadlineTask>;
 

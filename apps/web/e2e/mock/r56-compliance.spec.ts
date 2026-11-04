@@ -99,6 +99,22 @@ test('Detail: complete a deadline, then reopen it', async ({ page }) => {
   await expect(page.getByText('Deadline reopened.')).toBeVisible();
 });
 
+test('Create Task makes one task, then View Task opens it (CD-F01)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/${FIRST}`);
+  const tasks = page.getByTestId('detail-tasks');
+  await tasks.getByRole('button', { name: 'Create Task' }).click();
+  await expect(page.getByText('Task created.')).toBeVisible();
+  await expect(tasks.getByRole('button', { name: 'Create Task' })).toHaveCount(0);
+  await expect(tasks.getByRole('link', { name: 'View Task' })).toHaveAttribute(
+    'href',
+    /^\/tasks\/[0-9a-f-]{36}$/,
+  );
+  await expect(tasks.getByRole('listitem')).toHaveCount(1);
+  await tasks.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('create-task.png') });
+});
+
 test('Bulk: select rows and change the status', async ({ page }) => {
   await page.goto(base);
   await page.getByRole('tab', { name: 'All Deadlines' }).click();

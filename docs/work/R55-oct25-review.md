@@ -9,11 +9,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 **Design (trigger selectors):** the engine polls: each event has a loader in `automations/matching.ts` that reads the firm's records and keys each occurrence, so a run never repeats. Change events (status changed, submitted, converted) bind to the source module's own audit entries (`audit_logs`, firm-scoped, indexed by firm and time): one occurrence per audit row, read from the rule version's start. No event is invented: an event without a real audit action or record date stays unlisted (AU-Y02 default).
 
 **PRs (one line each):**
-- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03) and the Clients, Leads, Intake Forms and Documents selectors (AU-F08 to F11). In progress.
+- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03); Clients, Leads, Intake Forms and Documents events (AU-F08 to F11). Committed; PR when a slot frees.
+- AU triggers 2 (`rasel/R55-au-triggers-2`, stacked): Tax Returns, Tax Planning and Business Advisory events (AU-F12 to F14). AU-F15 Custom stays empty: no custom field or date exists to change, and its manual confirmation comes with AU-F29 to F33.
+
+**Not listed (no real source, AU-Y02 default):** client status changed (nothing changes a client's status after creation), client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
-- AU-F28 Rule Owner: no column needed. `automation_rules.owner_user_id` already exists (R38's migration, FK to memberships), and the engine acts as that member (`automations-read.service.ts` `actingMember`). Asked whether R55 may build AU-F28 on it with no schema change; not started.
-- AU-F29 to F33: R1's `manual_confirmation_enabled` on `automation_settings` is merged; waiting for Rasel's word before starting.
+- AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).
+- AU-F29, F30 and F33: start on main's `automation_settings.manual_confirmation_enabled` (lead, Nov 4). AU-F31 and F32 wait for R1's `automation_event_confirmations` migration and its Deploy dev.
 
 ## Invoices & Payments (Octavia's review of Oct 27, section A): IP-F01 to F05, F12, F13
 
@@ -46,13 +49,14 @@ Rasel's two approved additions are merged: Custom frequency (#1217, wired in F05
    - **Require payment before due date** (`require_payment_before_due`): shown only while that setting is on. The client's invoice shows "Please pay before the due date, {date}." while it can be paid; Pay Now stays where it is. No blocking, no extra email.
    - Tip or before-due turned on while the setting is off is 409 OPTION_NOT_ENABLED; a draft keeps one it already has.
    - Not wired: the mockup's "Include attached files with invoice" (`include_attachments`); choosing files (IP-F03) already is that choice. Rasel's word if the box should show.
-3. **IP-F12** (Rasel, Oct 29: build as planned; receipts only when Automatic Receipts is on or Send Receipt is ticked; the firm's own notice stays). Local branch `rasel/R55-ip-f12-receipts`, stacked on F04; no PR until a slot frees (max 3). Plan, no schema change:
+3. **IP-F12** (Rasel, Oct 29: build as planned; receipts only when Automatic Receipts is on or Send Receipt is ticked; the firm's own notice stays). Done Oct 29 on local branch `rasel/R55-ip-f12-receipts`, stacked on F04; no PR until a slot frees (max 3). No schema change:
    - **Deposit accounts** (`deposit_accounts`: name 1 to 80, unique per firm, one default, archive only): `GET/POST /business/settings/payment-preferences/deposit-accounts`, `PUT .../:id`, `POST .../:id/archive`, Owner and Admin, audited, as tax rates and templates are. Settings > Payments gets a "Deposit accounts" card.
    - **Record Payment**: `depositAccountId` (a live account of the firm, 404 otherwise; preselected default; the empty state links to Settings) and `sendReceipt` (left out: the firm's `autoReceipts`; the box starts from it). `OfflinePayment` gains `depositAccount {id, name}` and `receiptSentAt`; the invoice's payments and Recent Payments show "Deposited To".
    - **Receipts**: `payment.received` keeps going to the firm (audience staff). The client's copy (audience client) goes only after the payment succeeded (offline: recorded; Stripe: the webhook's success) and only when `sendReceipt`/`autoReceipts` says so; a `RECEIPT_SENT` invoice event (with `payment_id` or `offline_payment_id`) is written in the same step under an advisory lock on the payment, so a retried request or webhook never sends a second automatic one. A replayed record (same idempotency key) sends nothing.
-   - **Manual Send/Resend**: `POST /business/invoices/:id/receipts {paymentId | offlinePaymentId}` (Owner and Admin): a succeeded Stripe payment or a live offline one (409 otherwise), always sends, writes `RECEIPT_SENT`, audited. The invoice page shows "Receipt sent {date}" and Send Receipt or Resend Receipt per payment.
+   - **Manual Send/Resend**: `POST /business/invoices/:id/payments/:paymentId/receipts` and `.../offline-payments/:offlinePaymentId/receipts` (Owner and Admin; the id in the path, as refunds and voids, so the isolation suite maps each): a succeeded Stripe payment or a live offline one (409 otherwise), always sends, writes `RECEIPT_SENT`, audited. The invoice page shows "Receipt sent {date}" and Send Receipt or Resend Receipt per payment.
    - **This changes a current email**: today every recorded payment and every Stripe success emails the client automatically; after F12 only with Automatic Receipts on (off by default) or the box ticked. Rasel approved (Oct 29).
-   - Tests: e2e (deposit accounts, record with an account, receipts gating and dedupe, Stripe gating, manual resend, voided 409), isolation (`depositAccountId`, `paymentId`, `offlinePaymentId` and the new routes), mock spec.
+   - Record Payment answers the invoice after the receipt step, so `receiptSentAt` shows at once.
+   - Tests: e2e `invoice-receipts` (deposit accounts, record with an account, receipts gating and dedupe, Stripe gating and a retried webhook, manual resend, voided 409), isolation (`depositAccountId` and the new routes), mock spec `r55-invoice-receipts`. Locally the isolation suite still flags only file downloads and exports against s3mock (environment).
    - R56's #1222 changes `record-payment.tsx`, and #1221 and #1222 change `invoice-detail.tsx` and `mocks/invoices.ts`: merge `origin/main` after they land.
 
 **Schema for Rasel's card:** none needed. Optional: flip `payment_settings`' column defaults (`auto_receipts`, `send_reminders`, `notify_overdue`, `auto_apply_payments`) to false so the database agrees with "nothing on by default"; the API already writes every field.

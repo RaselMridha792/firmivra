@@ -676,6 +676,46 @@ describe('creating and reading deadlines', () => {
     expect(await auditActions(d.id)).toContain('compliance.deadline.task-created');
   });
 
+  it('makes one task per deadline and template, also without one: repeats find it (CD-F01, Octavia Oct 28)', async () => {
+    const d = await mkDeadline({});
+    const add = (body: object = {}) =>
+      call('post', `/compliance/deadlines/${d.id}/tasks`, people.ownerA, body);
+    // A double-click, a refresh and a retry, three at once and one after: one task.
+    const burst = await Promise.all([add(), add(), add()]);
+    const after = exact(ComplianceDeadline, await add());
+    const first = after.tasks.filter((t) => t.madeHere);
+    expect(after.tasks).toHaveLength(1);
+    expect(first).toHaveLength(1);
+    for (const r of burst)
+      expect(exact(ComplianceDeadline, r).tasks.map((t) => t.id)).toEqual([first[0]!.id]);
+    expect(
+      (await auditActions(d.id)).filter((x) => x === 'compliance.deadline.task-created'),
+    ).toHaveLength(1);
+    const row = await asOwner(ids.firmA, (tx) =>
+      tx.task.findFirstOrThrow({ where: { id: first[0]!.id } }),
+    );
+    expect(row.idempotencyScope).toBe(`deadline:${d.id.toLowerCase()}`);
+    // Another template is another task; asking for it again finds it.
+    const withTemplate = exact(ComplianceDeadline, await add({ templateId: s.tpl }));
+    expect(withTemplate.tasks).toHaveLength(2);
+    expect(exact(ComplianceDeadline, await add({ templateId: s.tpl })).tasks).toHaveLength(2);
+    // Unlinked from the deadline, the task gives its key up: Create Task makes a new one.
+    expect(
+      (await call('delete', `/compliance/deadlines/${d.id}/tasks/${first[0]!.id}`, people.ownerA))
+        .status,
+    ).toBeLessThan(300);
+    const again = exact(ComplianceDeadline, await add());
+    const second = again.tasks.find((t) => t.madeHere && t.title === first[0]!.title);
+    expect(second?.id).toBeDefined();
+    expect(second?.id).not.toBe(first[0]!.id);
+    // Another firm reaches none of it.
+    expectError(
+      await call('post', `/compliance/deadlines/${d.id}/tasks`, people.ownerB, {}, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
   it('reads one deadline in full, and hides it from other firms and from staff who do not reach it', async () => {
     const d = await mkDeadline({ agency: 'IRS' });
     expect(await get(d.id)).toEqual(d);

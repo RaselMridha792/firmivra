@@ -79,6 +79,8 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
   const addTask = useApiMutation(() => api.compliance.addTask(id), options);
   const note = query.isPending ? 'Loading…' : 'This deadline is not available right now.';
   const open = d ? ['UPCOMING', 'IN_PROGRESS', 'WAITING_ON_CLIENT'].includes(d.status) : false;
+  // CD-F01: the task this deadline's Create Task made (asking again returns it).
+  const made = d?.tasks.find((t) => t.madeHere);
   const btn = subtle;
 
   return (
@@ -346,15 +348,24 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
             ) : (
               <p className={quiet}>{d ? 'No tasks are linked.' : note}</p>
             )}
-            {d && open ? (
+            {/* CD-F01: one task per deadline; once made, View Task opens it, and the action
+                waits while a request runs. */}
+            {d && made ? (
+              <Link href={`/tasks/${made.id}`} className={`${btn} mt-3`}>
+                <ListChecks aria-hidden weight="fill" className="size-4" /> View Task
+              </Link>
+            ) : d && open ? (
               <button
                 type="button"
                 className={`${btn} mt-3`}
+                disabled={addTask.isPending}
+                aria-busy={addTask.isPending}
                 onClick={() =>
                   addTask.mutate(undefined, { onSuccess: done('Task created.'), onError: fail })
                 }
               >
-                <ListChecks aria-hidden weight="fill" className="size-4" /> Create Task
+                <ListChecks aria-hidden weight="fill" className="size-4" />{' '}
+                {addTask.isPending ? 'Creating Task…' : 'Create Task'}
               </button>
             ) : null}
           </Card>

@@ -395,7 +395,7 @@ export async function firstByKey(
  * running every check again before it blocks on a unique index, or making a record in the other
  * table, whose index would not stop it.
  */
-async function lockKey(tx: TxClient, businessId: string, key: string): Promise<void> {
+export async function lockKey(tx: TxClient, businessId: string, key: string): Promise<void> {
   const name = `task-key:${businessId.toLowerCase()}:${key.toLowerCase()}`;
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${name}, 0))`;
 }

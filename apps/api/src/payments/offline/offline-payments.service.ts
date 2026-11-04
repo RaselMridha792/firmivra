@@ -20,7 +20,7 @@ import {
   providerUnavailable,
   withStripeHold,
 } from '../checkout/checkout-sessions.js';
-import { InvoiceNotices } from '../invoices/invoice-notices.js';
+import { InvoiceReceipts } from '../invoices/invoice-receipts.js';
 import {
   conflict,
   firmToday,
@@ -90,7 +90,7 @@ export class OfflinePaymentsService {
     @Inject(STRIPE_GATEWAY) private readonly stripe: StripeGateway | null,
     private readonly invoices: InvoicesService,
     private readonly audit: AuditService,
-    private readonly notices: InvoiceNotices,
+    private readonly receipts: InvoiceReceipts,
   ) {}
 
   private inActor<T>(businessId: string, actor: ClientsActor, fn: (tx: TxClient) => Promise<T>) {
@@ -120,7 +120,7 @@ export class OfflinePaymentsService {
     id: string,
     body: RecordBody,
   ): Promise<Invoice> {
-    let recorded = false;
+    let recorded: string | null = null;
     // One at a time with Pay Now and cancel of this invoice (checkout-sessions.ts, oneAtATime).
     const invoice = await oneAtATime(businessId, id, () =>
       this.inActor(businessId, actor, async (tx) => {
@@ -146,6 +146,16 @@ export class OfflinePaymentsService {
         if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
         if (processing(current)) throw paymentInProgress();
         if (body.amountCents > money(current).balanceDueCents) throw tooLarge();
+        // IP-F12: Deposit To, one of the firm's live accounts.
+        if (
+          body.depositAccountId &&
+          !(await tx.depositAccount.findFirst({
+            where: { businessId, id: body.depositAccountId, archivedAt: null },
+            select: { id: true },
+          }))
+        ) {
+          throw notFound();
+        }
         // One live record of a check number per invoice, any case (offline_payments_one_live_check).
         if (body.method === 'CHECK' && body.reference) {
           const number = body.reference.toUpperCase();
@@ -177,6 +187,7 @@ export class OfflinePaymentsService {
             note: body.note ?? null,
             idempotencyKey: body.idempotencyKey,
             recordedByUserId: actor.userId,
+            depositAccountId: body.depositAccountId ?? null,
           },
           select: { id: true },
         });
@@ -184,7 +195,12 @@ export class OfflinePaymentsService {
           tx,
           'invoice.offline_payment_recorded',
           { type: 'invoice', id },
-          { offlinePaymentId: payment.id, method: body.method, amountCents: body.amountCents },
+          {
+            offlinePaymentId: payment.id,
+            method: body.method,
+            amountCents: body.amountCents,
+            depositAccountId: body.depositAccountId ?? null,
+          },
         );
         if ((await paidCents(tx, id)) >= current.totalCents) {
           await tx.invoice.update({
@@ -198,7 +214,7 @@ export class OfflinePaymentsService {
             { totalCents: current.totalCents, offlinePaymentId: payment.id },
           );
         }
-        recorded = true;
+        recorded = payment.id;
         return invoiceOf(
           tx,
           businessId,
@@ -216,7 +232,18 @@ export class OfflinePaymentsService {
       }
       throw mapped(error);
     });
-    if (recorded) await this.notices.send('payment.received', businessId, id, actor.userId);
+    // After it committed: the firm's notice, and the client's receipt when asked (IP-F12). A
+    // retry with the same key recorded nothing and sends nothing.
+    if (recorded) {
+      await this.receipts.afterPayment(
+        businessId,
+        id,
+        { offlinePaymentId: recorded },
+        { sendReceipt: body.sendReceipt, actorUserId: actor.userId },
+      );
+      // With the receipt's time, when one went.
+      return this.invoices.get(businessId, actor, id);
+    }
     return invoice;
   }
 
