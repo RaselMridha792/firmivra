@@ -267,6 +267,9 @@ export const cases: CaseModule['cases'] = {
     body: { cadence: 'QUARTERLY' },
   },
   [`GET ${BASE}/clients/:id`]: { params: client },
+  // BK-T01: the read side of the ledger.
+  [`GET ${BASE}/clients/:id/transactions`]: { params: client },
+  [`GET ${BASE}/clients/:id/categories`]: { params: client },
   [`PATCH ${BASE}/clients/:id`]: {
     params: client,
     bodyIds: { reviewerUserId: 'adminUser' },

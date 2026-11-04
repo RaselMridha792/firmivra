@@ -382,7 +382,7 @@ export function RecordPayment() {
             Recent Payments
           </h2>
           {inv ? (
-            <Link href={`/invoices/${inv.id}#payments`} className={`${outlined} min-h-9!`}>
+            <Link href="/invoices/payments" className={`${outlined} min-h-9!`}>
               View All Payments
             </Link>
           ) : null}

@@ -539,6 +539,7 @@ export function ClientMenu({
           service: 'Bookkeeping',
         }),
     },
+    { label: 'View Terms', icon: FileText, onSelect: go(`/bookkeeping/clients/${row.id}/terms`) },
     {
       label: 'View Documents',
       icon: FolderOpen,
