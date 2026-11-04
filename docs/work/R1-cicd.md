@@ -79,6 +79,48 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
 
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
+**Needs from Rasel (Nov 4).** Done: the four Oct 29 migrations (#1232, #1233, #1238, #1246) are applied on dev, and the QA seed code is merged (#1254). Nothing below starts without Rasel's own word in R1's window; a decision relayed by another session is not enough.
+
+1. **Run the QA seed on dev once.** Needs `aws sso login --profile firmivra-dev`. In Git Bash from the repo root, at main `19d19a225` or later. Rasel checks each command first:
+   ```
+   export AWS_PROFILE=firmivra-dev MSYS_NO_PATHCONV=1
+   REG=778127141557.dkr.ecr.us-east-1.amazonaws.com
+   # 1. Snapshot first.
+   DB=$(aws rds describe-db-instances --query "DBInstances[?starts_with(DBInstanceIdentifier,'firmivra-dev')].DBInstanceIdentifier" --output text)
+   aws rds create-db-snapshot --db-instance-identifier "$DB" --db-snapshot-identifier firmivra-dev-pre-qa-seed-20261104
+   aws rds wait db-snapshot-available --db-snapshot-identifier firmivra-dev-pre-qa-seed-20261104
+   # 2. The seed image: the demo-seed-task stage, built from the deployed commit and tagged, outside CDK.
+   aws ecr get-login-password | docker login --username AWS --password-stdin "$REG"
+   docker build -f packages/db/Dockerfile --target demo-seed-task --build-arg BASE_REGISTRY="$REG/ecr-public" -t "$REG/firmivra-dev-migrate:qa-seed-19d19a22" .
+   docker push "$REG/firmivra-dev-migrate:qa-seed-19d19a22"
+   # 3. A new revision of firmivra-dev-demo-seed with that image, then one run with the seed-qa command.
+   # The network values come from firmivra-dev-app's outputs (TaskSubnets, MigrateSecurityGroup), as for the demo seed.
+   aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-demo-seed:<NEW_REVISION> \
+     --capacity-provider-strategy capacityProvider=FARGATE,weight=1 \
+     --network-configuration "awsvpcConfiguration={subnets=[<TASK_SUBNETS>],securityGroups=[<MIGRATE_SG>],assignPublicIp=ENABLED}" \
+     --overrides '{"containerOverrides":[{"name":"migrate","command":["node","scripts/seed-qa-task.mjs"]}]}' \
+     --started-by qa-seed
+   aws ecs wait tasks-stopped --cluster firmivra-dev-cluster --tasks <TASK_ARN>   # exit code 0; log in /firmivra/dev/migrate
+   ```
+   - It seeds `lvp` and reports `test-firm-b` as missing if dev has no such firm. Creating it there is a separate decision, because a new firm also gets its own KMS key from the firm-key sweep.
+   - Deregister that task definition revision afterwards.
+2. **The QA seed's follow-ups** (listed in #1254), one card each:
+   - the dev Cognito test logins (Super Admin, Owner, Admin and Staff on `test-firm-b`, and a portal client). Credentials go only to `F:/firmivra-private/`;
+   - a fixture document file in the dev bucket;
+   - a dummy integration secret;
+   - template fixtures, after TP-F18's starters;
+   - AU-F31 confirmations, after R55's event codes;
+   - invoice fixtures.
+3. **The queue the lead session relayed (Nov 4), to confirm item by item:**
+   - the seed extended with PENDING firm applications and Super Admin sales records;
+   - Locations: `firm_offices` columns, plus PRT-1 and PRT-3;
+   - one migration with the client timeline (MSG-F16), L8, A9, PAY-3, SM12 and SEC-6;
+   - SEC-2, SEC-4 and SEC-5. These change the Cognito pools, so R1 shows the `cdk diff` and commands first;
+   - then OV-20, DB-6, and the intake and appointment sending jobs (I8, I9, A7, A8).
+4. **TP-F06 (Octavia's valid PNG and PDF fail on dev):**
+   - The code shows no gap: the bucket allows PUT from the three sites, the API role may write under `tenant/*`, and dev has no tag-based read deny.
+   - The cause is in the dev API log line `Template attachment storage call failed: <error name>` at the time of her attempt. Reading it needs the login above (read-only).
+
 **Needs from Rasel (Oct 29): fixtures and schema for Octavia's Oct 28 reviews.** This is a read-only check, and nothing is built. Each item waits for Rasel's own card before any `packages/db` or seed change.
 
 How the fixtures would reach dev:
