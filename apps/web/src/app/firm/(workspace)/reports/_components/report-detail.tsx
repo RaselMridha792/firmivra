@@ -1,6 +1,11 @@
 'use client';
 
-import { ApiRequestError, type ReportResult } from '@firmivra/types';
+import {
+  ApiRequestError,
+  type ReportDefinitionView,
+  type ReportFilterCondition,
+  type ReportResult,
+} from '@firmivra/types';
 import {
   ActionMenu,
   Button,
@@ -23,13 +28,17 @@ import {
   Printer,
   Funnel,
 } from '@phosphor-icons/react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
+import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
+import { FilterRows } from './report-filters';
 import {
   BarChart,
   CATEGORY_META,
@@ -51,6 +60,17 @@ import {
 } from './reports-shared';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** More Filters as typed and as sent (only rows that fit are ever applied). */
+interface Extra {
+  rows: FilterDraft[];
+  conditions: ReportFilterCondition[];
+}
+const NO_EXTRA: Extra = { rows: [], conditions: [] };
+/** A run's result, or why it could not run with the last result of this report kept (RP-F02). */
+interface Run {
+  result: ReportResult | undefined;
+  error: unknown;
+}
 const QUICK = ['last_7_days', 'last_30_days', 'this_month', 'this_year', 'last_year'] as const;
 const CHARTS = [
   { value: 'AUTO', label: 'Automatic' },
@@ -62,24 +82,30 @@ const CHARTS = [
 /** /reports/[reportId]: one report (a quick report by key, or a saved one by id) with its controls. */
 export function ReportDetail({ reportId }: { reportId: string }) {
   const router = useRouter();
+  const params = useSearchParams();
   const target = UUID.test(reportId)
     ? ({ kind: 'SAVED', id: reportId } as const)
     : ({ kind: 'SYSTEM', key: reportId } as const);
   const [preset, setPreset] = useState<string>();
   const [fixed, setFixed] = useState<{ from: string; to: string }>();
-  const [compare, setCompare] = useState<string>('SAME_PERIOD_LAST_YEAR');
+  // RP-F06 (Octavia, Oct 28): a control left alone is the report's own setting, so a saved report
+  // reopens as it was saved (comparison, chart, labels, tax, range); a quick report still opens
+  // compared with the same period last year.
+  const [compare, setCompare] = useState<string | undefined>(
+    target.kind === 'SYSTEM' ? 'SAME_PERIOD_LAST_YEAR' : undefined,
+  );
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
-  const [chartType, setChartType] = useState('AUTO');
+  const [chartType, setChartType] = useState<string>();
   // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
   const [groupBy, setGroupBy] = useState('');
-  const [labels, setLabels] = useState(false);
-  const [tax, setTax] = useState(false);
+  const [labels, setLabels] = useState<boolean>();
+  const [tax, setTax] = useState<boolean>();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{ id: string; descending: boolean }>();
   const [hidden, setHidden] = useState<string[]>([]);
-  const [extra, setExtra] = useState<{ field: string; op: string; value: string }[]>([]);
+  const [extra, setExtra] = useState<Extra>(NO_EXTRA);
   const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
@@ -102,31 +128,58 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           },
         }
       : {}),
-    ...(extra.length
-      ? {
-          extraFilters: {
-            conditions: extra.map((c) => ({ field: c.field, op: c.op as never, value: c.value })),
-          },
-        }
-      : {}),
+    ...(extra.conditions.length ? { extraFilters: { conditions: extra.conditions } } : {}),
     ...(term ? { search: term } : {}),
     ...(sort ? { sort: { field: sort.id, descending: sort.descending } } : {}),
     ...(groupBy ? { breakdownBy: groupBy } : {}),
-    chartType: chartType as never,
-    showDataLabels: labels,
-    includeTaxRevenue: tax,
+    ...(chartType ? { chartType: chartType as never } : {}),
+    ...(labels === undefined ? {} : { showDataLabels: labels }),
+    ...(tax === undefined ? {} : { includeTaxRevenue: tax }),
     page,
     pageSize: 10,
   };
-  const q = useApiQuery([...RP_KEY, 'run', JSON.stringify(req)], () => api.reports.run(req));
+  const client = useQueryClient();
+  const q = useQuery({
+    queryKey: [...RP_KEY, 'run', JSON.stringify(req)],
+    queryFn: async (): Promise<Run> => {
+      try {
+        return { result: await api.reports.run(req), error: null };
+      } catch (error) {
+        // RP-F02 (Octavia, Oct 28): settings the report cannot run with keep its last results
+        // on screen with the reason, and every control stays to change them.
+        const mine = `{"target":${JSON.stringify(target)}`;
+        const last = client
+          .getQueryCache()
+          .findAll({ queryKey: [...RP_KEY, 'run'] })
+          .filter((x) => {
+            const run = x.state.data as Run | undefined;
+            return (
+              String(x.queryKey[RP_KEY.length + 1]).startsWith(mine) && !!run?.result && !run.error
+            );
+          })
+          .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0];
+        return { result: (last?.state.data as Run | undefined)?.result, error };
+      }
+    },
+    placeholderData: keepPreviousData,
+  });
   const services = useApiQuery([...RP_KEY, 'services'], () =>
     api.reports.lookups({ kind: 'SERVICE_CATEGORY' }),
   );
   const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
-  const r: ReportResult | undefined = q.data;
+  // RP-F13: a saved report's owner (or an Owner or Admin) may save changes on it.
+  const savedOne = useApiQuery([...RP_KEY, 'saved-one', reportId], () =>
+    target.kind === 'SAVED' ? api.reports.savedReport(reportId) : Promise.resolve(null),
+  );
+  const r: ReportResult | undefined = q.data?.result;
+  const runError = q.data?.error ?? null;
+  const reason = runError
+    ? ((runError instanceof ApiRequestError ? runError.details?.[0]?.message : undefined) ??
+      errorMessage(runError, RP_ERRORS))
+    : '';
   const meta = r ? (CATEGORY_META[r.category] ?? CATEGORY_META['FINANCIAL']!) : undefined;
 
-  if (q.isError)
+  if ((q.isError || runError) && !r)
     return (
       <div className="flex flex-col gap-3" data-testid="report-error">
         <Link href="/reports" className="text-sm font-medium text-link">
@@ -209,9 +262,73 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         ? r.definition.compareTo
         : 'NONE'
       : 'NONE');
-  const presetValue = fixed
+  // A saved fixed range shows as Custom Range with its dates (RP-F06), never as This Year.
+  const ownDate = r?.definition.date;
+  const shownFixed = fixed ?? (!preset && ownDate?.rule === 'FIXED' ? ownDate : undefined);
+  const presetValue = shownFixed
     ? 'custom'
-    : (preset ?? (r?.definition.date.rule === 'ROLLING' ? r.definition.date.preset : 'this_year'));
+    : (preset ?? (ownDate?.rule === 'ROLLING' ? ownDate.preset : 'this_year'));
+  const shownChart = chartType ?? r?.definition.chartType ?? 'AUTO';
+  const shownLabels = labels ?? r?.definition.showDataLabels ?? false;
+  const shownTax = tax ?? r?.definition.includeTaxRevenue ?? false;
+  // RP-F03: opened from the library, the page's Back (SH1's bar above it, "Back to Report
+  // Library") and its Saved Reports crumb return to that tab, page, search and filters.
+  const from = safeOrigin(params.get(ORIGIN_PARAM));
+  // RP-F13: Save Changes keeps the report's id; Save As makes a new one.
+  const canSaveChanges = !!savedOne.data?.canEdit && !savedOne.data.archived;
+  const saveChanges = async () => {
+    const definition = screenDefinition();
+    if (!definition || !savedOne.data) return;
+    try {
+      await api.reports.updateSaved(savedOne.data.id, {
+        definition: definition as never,
+        etag: savedOne.data.etag,
+      });
+      await client.invalidateQueries({ queryKey: [...RP_KEY] });
+      notice('Changes saved.', 'success');
+    } catch (e) {
+      const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
+      notice(detail ?? errorMessage(e, RP_ERRORS), 'error');
+    }
+  };
+  /**
+   * What the screen shows, as a definition (RP-F06): the range, comparison, chart, labels and tax
+   * in effect, the table's sort, the columns not hidden and the More Filters too.
+   */
+  function screenDefinition(): ReportDefinitionView | undefined {
+    if (!r) return undefined;
+    const d = r.definition;
+    const locked = new Set((src?.fields ?? []).filter((f) => f.locked).map((f) => f.key));
+    const columns = d.columns.filter((c) => locked.has(c) || !hidden.includes(c));
+    const sortable = sort && src?.fields.some((f) => f.key === sort.id && f.sortable);
+    const added = extra.conditions as ReportDefinitionView['filters']['conditions'];
+    const filters: ReportDefinitionView['filters'] = !added.length
+      ? d.filters
+      : d.filters.logic === 'AND' || d.filters.conditions.length === 0
+        ? { ...d.filters, logic: 'AND', conditions: [...d.filters.conditions, ...added] }
+        : // An OR report keeps its own conditions together, and the added ones apply to all.
+          {
+            logic: 'AND',
+            conditions: added,
+            groups: [{ logic: 'OR', conditions: d.filters.conditions }, ...d.filters.groups],
+          };
+    // The controls themselves, not the last result: a change still loading is saved too.
+    return {
+      ...d,
+      columns: columns.length ? columns : d.columns,
+      filters,
+      ...(sortable ? { sortBy: sort.id, sortDescending: sort.descending } : {}),
+      ...(fixed
+        ? { date: { rule: 'FIXED' as const, ...fixed } }
+        : preset
+          ? { date: { rule: 'ROLLING' as const, preset: preset as never } }
+          : {}),
+      ...(compare && src?.supportsComparison ? { compareTo: compare as never } : {}),
+      chartType: shownChart as never,
+      showDataLabels: shownLabels,
+      includeTaxRevenue: shownTax,
+    };
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="report-detail">
@@ -223,7 +340,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <span aria-hidden className="text-muted">
               ›
             </span>
-            <Link href="/reports/library?tab=saved">Saved Reports</Link>
+            <Link href={from?.startsWith('/reports/library') ? from : '/reports/library?tab=saved'}>
+              Saved Reports
+            </Link>
           </>
         ) : null}
         {meta ? (
@@ -260,6 +379,37 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      {runError ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-danger-soft p-3 text-sm text-danger"
+          data-testid="run-error"
+        >
+          <span>
+            The report could not run with these settings: {reason} It still shows the last results.
+          </span>
+          <span className="flex gap-4">
+            <button
+              type="button"
+              className="font-medium text-link"
+              onClick={() => setDialog('filters')}
+            >
+              Edit Filters
+            </button>
+            <button
+              type="button"
+              className="font-medium text-link"
+              onClick={() => {
+                setExtra(NO_EXTRA);
+                setSearch('');
+                setPage(1);
+              }}
+            >
+              Clear All
+            </button>
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-w-0 flex-col gap-4">
@@ -281,7 +431,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               }}
               options={[
                 ...PRESETS.map((p) => ({ value: p.value, label: p.label })),
-                { value: 'custom', label: fixed ? rangeText(fixed) : 'Custom Range…' },
+                { value: 'custom', label: shownFixed ? rangeText(shownFixed) : 'Custom Range…' },
               ]}
             />
             <Select
@@ -325,10 +475,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               onClick={() => setDialog('filters')}
             >
               <Funnel aria-hidden weight="fill" className="size-4" /> More Filters
-              {extra.length ? ` (${extra.length})` : ''}
+              {extra.rows.length ? ` (${extra.rows.length})` : ''}
             </button>
           </section>
-          {r && r.chips.length + extra.length > 0 ? (
+          {r && r.chips.length + extra.rows.length > 0 ? (
             <ul className="flex flex-wrap items-center gap-2" aria-label="Active filters">
               {r.chips.map((c) => (
                 <li
@@ -338,12 +488,15 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                   {c.label} {c.value}
                 </li>
               ))}
-              {extra.length ? (
+              {extra.rows.length ? (
                 <li>
                   <button
                     type="button"
                     className="text-sm font-medium text-link"
-                    onClick={() => setExtra([])}
+                    onClick={() => {
+                      setExtra(NO_EXTRA);
+                      setPage(1);
+                    }}
                   >
                     Clear All
                   </button>
@@ -536,13 +689,24 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               <button type="button" className={subtle} onClick={() => window.print()}>
                 <Printer aria-hidden weight="bold" className="size-4" /> Print
               </button>
+              {canSaveChanges ? (
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!r}
+                  onClick={() => void saveChanges()}
+                >
+                  <Bookmark aria-hidden weight="bold" className="size-4" /> Save Changes
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={subtle}
                 disabled={!r}
                 onClick={() => setDialog('save')}
               >
-                <Bookmark aria-hidden weight="bold" className="size-4" /> Save Report
+                <Bookmark aria-hidden weight="bold" className="size-4" />{' '}
+                {target.kind === 'SAVED' ? 'Save As' : 'Save Report'}
               </button>
               <button
                 type="button"
@@ -574,9 +738,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               ))}
               <button
                 type="button"
-                aria-pressed={!!fixed}
+                aria-pressed={!!shownFixed}
                 onClick={() => setDialog('custom')}
-                className={`min-h-9 rounded-control border px-2 text-xs font-medium ${fixed ? 'border-action bg-action text-on-action' : 'border-border text-heading hover:bg-canvas'}`}
+                className={`min-h-9 rounded-control border px-2 text-xs font-medium ${shownFixed ? 'border-action bg-action text-on-action' : 'border-border text-heading hover:bg-canvas'}`}
               >
                 Custom Range
               </button>
@@ -591,7 +755,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <h2 className="font-display text-lg font-bold text-heading">Report Settings</h2>
             <Select
               label="Chart Type"
-              value={chartType}
+              value={shownChart}
               onChange={(e) => setChartType(e.target.value)}
               options={CHARTS}
             />
@@ -608,12 +772,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             </label>
             <label className="flex items-center justify-between gap-3 text-sm text-heading">
               Show Data Labels
-              <Toggle label="Show data labels" checked={labels} onChange={setLabels} />
+              <Toggle label="Show data labels" checked={shownLabels} onChange={setLabels} />
             </label>
             {src?.supportsTaxToggle ? (
               <label className="flex items-center justify-between gap-3 text-sm text-heading">
                 Include Tax in Revenue
-                <Toggle label="Include tax in revenue" checked={tax} onChange={setTax} />
+                <Toggle label="Include tax in revenue" checked={shownTax} onChange={setTax} />
               </label>
             ) : null}
           </section>
@@ -651,7 +815,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
       {dialog === 'save' && r ? (
         <SaveReportDialog
-          definition={r.definition}
+          definition={screenDefinition() ?? r.definition}
           defaultName={r.title}
           onClose={() => setDialog(undefined)}
           onSaved={(id) => {
@@ -681,7 +845,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {dialog === 'filters' ? (
         <MoreFilters
           fields={(src?.fields ?? []).filter((f) => f.filterable)}
-          value={extra}
+          value={extra.rows}
           onClose={() => setDialog(undefined)}
           onApply={(v) => {
             setExtra(v);
@@ -749,17 +913,28 @@ function MoreFilters({
   onClose,
   onApply,
 }: {
-  fields: {
-    key: string;
-    label: string;
-    type: string;
-    options: { value: string; label: string }[];
-  }[];
-  value: { field: string; op: string; value: string }[];
+  fields: readonly FilterField[];
+  value: FilterDraft[];
   onClose: () => void;
-  onApply: (v: { field: string; op: string; value: string }[]) => void;
+  onApply: (v: Extra) => void;
 }) {
   const [rows, setRows] = useState(value);
+  const [showAll, setShowAll] = useState(false);
+  // RP-F02: Apply sends only filters that fit; otherwise each says what to fix and the first takes
+  // the focus, and the report stays as it was.
+  const apply = () => {
+    const { conditions, problems } = conditionsOf(fields, rows);
+    if (problems.some(Boolean)) {
+      setShowAll(true);
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLElement>('[data-testid="more-filters"] [aria-invalid="true"]')
+          ?.focus(),
+      );
+      return;
+    }
+    onApply({ rows, conditions });
+  };
   return (
     <Modal
       open
@@ -771,92 +946,13 @@ function MoreFilters({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => onApply(rows.filter((r) => r.field))}>Apply</Button>
+          <Button onClick={apply}>Apply</Button>
         </>
       }
     >
       <div className="flex flex-col gap-3" data-testid="more-filters">
         {rows.length === 0 ? <p className={quiet}>No extra filters.</p> : null}
-        {rows.map((r, i) => {
-          const f = fields.find((x) => x.key === r.field);
-          return (
-            <div
-              key={`${r.field}-${i}`}
-              className="grid items-end gap-2 sm:grid-cols-[1fr_8rem_1fr_auto]"
-            >
-              <Select
-                label="Field"
-                value={r.field}
-                onChange={(e) =>
-                  setRows(
-                    rows.map((x, j) =>
-                      j === i ? { field: e.target.value, op: 'IS', value: '' } : x,
-                    ),
-                  )
-                }
-                options={fields.map((x) => ({ value: x.key, label: x.label }))}
-              />
-              <Select
-                label="Is"
-                value={r.op}
-                onChange={(e) =>
-                  setRows(rows.map((x, j) => (j === i ? { ...x, op: e.target.value } : x)))
-                }
-                options={
-                  f && (f.type === 'MONEY' || f.type === 'NUMBER')
-                    ? [
-                        { value: 'GREATER_THAN', label: 'above' },
-                        { value: 'LESS_THAN', label: 'below' },
-                      ]
-                    : [
-                        { value: 'IS', label: 'is' },
-                        { value: 'IS_NOT', label: 'is not' },
-                        { value: 'CONTAINS', label: 'contains' },
-                      ]
-                }
-              />
-              {f && f.options.length ? (
-                <Select
-                  label="Value"
-                  value={r.value}
-                  onChange={(e) =>
-                    setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                  }
-                  options={[{ value: '', label: 'Choose…' }, ...f.options]}
-                />
-              ) : (
-                <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-                  Value
-                  <input
-                    value={r.value}
-                    onChange={(e) =>
-                      setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                    }
-                    className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-                  />
-                </label>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove filter ${i + 1}`}
-                onClick={() => setRows(rows.filter((_, j) => j !== i))}
-                className="min-h-10 px-2 text-sm font-medium text-danger"
-              >
-                Remove
-              </button>
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="w-fit text-sm font-medium text-link"
-          disabled={!fields[0]}
-          onClick={() =>
-            fields[0] && setRows([...rows, { field: fields[0].key, op: 'IS', value: '' }])
-          }
-        >
-          + Add Filter
-        </button>
+        <FilterRows fields={fields} rows={rows} onChange={setRows} showAll={showAll} />
       </div>
     </Modal>
   );

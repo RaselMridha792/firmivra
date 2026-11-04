@@ -91,6 +91,10 @@ export async function syncDraftRecurrence(
     paymentTerms: row.paymentTerms,
     discountCents: row.discountCents,
     notesToClient: row.notesToClient,
+    // IP-F03: the same tax rate, staff and template as the invoice it starts from.
+    taxRateId: row.taxRateId,
+    assignedUserId: row.assignedTo?.userId ?? null,
+    templateId: row.template?.id ?? null,
   };
   let id: string;
   if (current) {
@@ -118,6 +122,7 @@ export async function syncDraftRecurrence(
       description: l.description,
       quantity: l.quantity,
       unitAmountCents: l.unitAmountCents,
+      taxable: l.taxable,
       sortOrder: i,
     })),
   });

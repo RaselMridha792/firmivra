@@ -457,6 +457,49 @@ Rasel (Oct 26, evening): up to THREE PRs open at once (the review thread merges 
 
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs, or open a tab by its address when no state is needed. Wait for selects that load their options (`toBeEnabled`). A label substring also matches buttons and sections ("Remove document", "Service Package"): use `getByRole('textbox', { name, exact: true })`. Playwright's dev server rewrites `apps/web/.next/mock/dev/types`: delete it before `tsc`. After merging main: rebuild `packages/types`, `pnpm --filter @firmivra/db build`, `prisma generate`, `prisma migrate deploy` on `firmivra_r56`.
 
+## Handoff for a fresh R56 (Oct 28)
+
+Rasel's rules are as on Oct 27 (below): at most three PRs open; `origin/main` merged in before each opens; target `main`; each PR number, exact title and full head sha at 8 of 8 green; after each merge, merge `origin/main` into the remaining open and waiting branches; only the changed files' specs; no Co-Authored-By or "Generated with" lines; never force-push. Rasel (Oct 28): the Deploy dev run takes about 15 minutes after each merge; do not open a PR that needs a migration without his tap (none of the waiting branches has one). If usage runs low, stop at a safe point, commit, and log the next step in `R56-invoices-payments.md`.
+
+**Merged since Oct 27 evening:** #1189 (SH6), #1190 (SH7), #1192 (SH8), #1196 (module fixes), #1197 (the migration that lets a closed-period ledger line be cleared), #1200 (SH9), #1201 (SH10), #1205 (r56-communications clicks Start), #1207 (IP-F20, F22), #1208 (IP-F23, F24), #1212 (IP-F06), #1214 (IP-F07), #1218 (IP-F08), #1221 (IP-F09), #1228 (BK-E01).
+
+**Open:** **#1222** `rasel/R56-ip-routes` (IP-F17, and the screenshots in `apps/web/e2e/screenshots/r56-invoices-payments/`; it also shows R1's custom recurring schedule, #1217). Rasel (Oct 29): open no new PR until one merges. The invoice e2e keep report files in memory (`MemoryReportFiles` in `invoice-setup.ts`): CI has no S3. After the lowest squashes, the next ones conflict in the files it touched (on Oct 28: `invoices.service.ts`, `r56-invoices.spec.ts`, `R56-invoices-payments.md`). Where main's copy equals the squashed branch's tip (`git rev-parse origin/main:<file>` against the tip), keep the branch's (`git checkout --ours`); the merged tree then equals the branch's old one. That holds only when the branch already contains the squashed branch's final tip (`git merge-base --is-ancestor <tip> HEAD`). If not, merge that tip in first, and resolve its conflicts hunk by hunk (keep each hunk's ours side, not the whole file): `git checkout --ours` takes the whole file and drops the other side's cleanly merged lines (Oct 29: it dropped R55's #1224 recurrence from `invoices.service.ts` on ip-routes before the push; redone). Then check `git diff --numstat origin/main HEAD` equals the branch's own diff against the tip it merged.
+
+**Waiting, open in this order** (each PR title is its branch's own commit subject; "Builds on #N" while the lower one is open): `rasel/R56-bookkeeping-transactions` (Terms is merged, so on main by itself), then this branch, `rasel/R56-bookkeeping-reconciliation`. Each is stacked on the one before, with main merged in on Oct 28. Their titles are in the Oct 27 handoff below. The reconciliation request is merged as #1197, so its body says so.
+
+**Merging the Bookkeeping stack (Oct 28):**
+- The R files and `mocks/bookkeeping.ts` conflict with SH9 and SH10: keep main's lines plus the branch's own.
+- `bookkeeping.e2e.test.ts` gets a new `describe` at its end on several branches. Keep both, and close the first one (`  });\n});`) before the second starts.
+
+**Local test notes:**
+- The Pay Now "two clicks at once" e2e (`invoice-checkout`) waits at most 1 s for the first click's row. It can fail when 16 files run at once on this laptop; it passes alone and in CI.
+- Run the invoice e2e files with `--maxWorkers=4`.
+- The isolation suite's positive control fails locally only on the file and export cases (scanner, S3).
+
+**Proposed, not yet given (#1223, Oct 28):** `docs/specs/review-2026-10-28/CHANGE-LIST.md` proposes R56 for Reports and Compliance & Deadlines (39 F items: `REPORTS.md`, `COMPLIANCE.md`), "Rasel decides", after the open Invoices & Payments PRs. Wait for Rasel's word.
+
+**Next, after the queue:** BK-T01's engines, then Advisory B4 to B12 and B15 (as in the Oct 27 handoff). IP-F01 to F05, F12 and F13 are R60's (do not touch the Create Invoice page files). R60's one-line editor change for a scheduled invoice is under Needs in `R56-invoices-payments.md`.
+
+## Handoff for a fresh R56 (Oct 27, evening)
+
+Rasel (Oct 27): at most THREE PRs open at once; open the next as soon as one merges. Before opening each, merge current `origin/main` (never rebase, never force-push) and target `main`; tell Rasel each PR number and full head sha at 8 of 8 green. After each merge, merge `origin/main` into the next waiting branch. Run only the specs of changed files. No ultracode or workflows. No Co-Authored-By lines. SH10 is Owner and Admin only (approved).
+
+**Merged since Oct 26:** #1168 (SH1), #1173 (SH3), #1174 (SH4), #1182 (SH5), #1184 (zero tolerance). R1's #1177 (zero reconciliation tolerance) and #1188 (`engagements.catalog_service_id`) are on main.
+
+**Open (three, the limit), CI 8 of 8, waiting for review:** **#1189** SH6 `rasel/R56-shared-appointment` (8c7789bbc), **#1190** SH7 `rasel/R56-shared-connection` (98442cf01), **#1192** SH8 `rasel/R56-shared-cohorts` (c029a241d). Each shows the lower ones' commits until they squash.
+
+**Waiting, open in this order** (each body: IDs, what and why, what R60 reuses, screenshots for new screens, tests, How to test, Checklist; "Builds on #N" while the lower one is open):
+1. `rasel/R56-module-fixes`: `fix: Bookkeeping checklist typing, Assign, custom Report Due period, Missing Documents wording and client activity; Payroll Runs columns (BK-D03 to D06, A01, PY-F09) (R56)`.
+2. `rasel/R56-shared-plans` (SH9, on the module fixes and main; head 4a6c0f3b3): `feat: Payroll and Bookkeeping plans are chosen from Services & Pricing and saved by id (SH9) (R56)`. The plan endpoint takes `{ catalogServiceId }`; Add Client takes `catalogServiceId`; another firm's service is 404 (e2e).
+3. `rasel/R56-billing-stop` (SH10, on the module fixes; da27d4046): `feat: Stop Future Billing on a client's Payroll or Bookkeeping service, separate from Pause (SH10) (R56)`.
+4. `rasel/R56-bookkeeping-terms` (BK-E01; 2b7da6d3d): `feat: Bookkeeping Terms page with its six areas, on the Terms API: versions, pricing, scope, agreement, notices and history (BK-E01) (R56)`. Screenshots in `apps/web/e2e/screenshots/r56-bookkeeping-terms/`.
+5. `rasel/R56-bookkeeping-transactions` (BK-T01 read side, on Terms; aae0ce332): `feat: Bookkeeping Transactions: the ledger's read API and the tab's grid, views, search and filters (BK-T01 structure) (R56)`. Screenshots in `.../r56-bookkeeping-transactions/`.
+6. `rasel/R56-bookkeeping-reconciliation` (BK-R01 structure, on Transactions; 22d6b4dce): `feat: Bookkeeping reconciliation clears ledger lines, works out the difference and approves only at zero (BK-R01 structure) (R56)`. Its request for Rasel (clearing a line dated in a closed period) is under Needs in `R56-bookkeeping.md`.
+
+**Next:** BK-T01's engines on the read API (categorize, one or bulk; split, parts adding up to the total; transfer match; exclude with a reason; attach a receipt; refunds, chargebacks and settlements as their own events on `bookkeeping_refunds`, `bookkeeping_settlements`, `bookkeeping_settlement_items`; each write audited, e2e and isolation cases); reconciliation exceptions for unmatched, refund and settlement lines come with them. Then Advisory B4 to B12 (B4 can use `/calendar/new?clientId=&engagementId=`), and B15 (R1's #1160 is merged).
+
+**Gotchas from Oct 27:** a role name matches by substring ("Unclear All" matches "Clear All"): pass `exact: true`. A controlled checkbox that saves on change does not flip until the refetch: show the wanted state at once (the reconciliation page keeps a `pending` map). `Date.UTC` months start at 0. A select that loads its options: wait for `toBeEnabled` before counting them. Locally the isolation suite fails only file-download and export cases (scanner, S3); CI runs it.
+
 **Gotchas:** in-memory mocks reset on a full page load: navigate client-side in specs. `pnpm exec playwright test` under load sometimes times out one Payroll test; it passes alone. Python edits with regex escapes go in a script file; when a replacement misses, use Edit.
 
 **Needs for Rasel (Oct 26, SH9):** done: R1's #1188 added `engagements.catalog_service_id`; SH9 now saves the plan by id.
