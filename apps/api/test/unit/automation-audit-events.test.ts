@@ -150,6 +150,35 @@ describe('audit-sourced trigger events', () => {
     });
   });
 
+  it('a service record takes the client the module wrote on the row (payroll, bookkeeping)', async () => {
+    const run = '01900000-0000-7000-8000-0000000000f1';
+    const rows = [
+      audit('payroll.run.submitted', 'payroll_run', run, {
+        clientId: CLIENT,
+        payrollClientId: run,
+      }),
+      // A row without a client of this firm starts nothing.
+      audit('payroll.run.submitted', 'payroll_run', run, { payrollClientId: run }),
+    ];
+    const hits = await load('payroll.run_submitted', rows);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      recordKind: 'payroll_run',
+      recordId: run,
+      clientId: CLIENT,
+      label: 'Jamie Sample',
+      fields: { clientType: 'INDIVIDUAL' },
+    });
+    const moved = await load('bookkeeping.status_changed', [
+      audit('bookkeeping.client.status_changed', 'bookkeeping_client', run, {
+        clientId: CLIENT,
+        from: 'ON_TRACK',
+        to: 'OVERDUE',
+      }),
+    ]);
+    expect(moved[0]?.fields).toMatchObject({ newStatus: 'OVERDUE', previousStatus: 'ON_TRACK' });
+  });
+
   it('one run key per audit row, and nothing for a record that is gone', async () => {
     const gone = '01900000-0000-7000-8000-0000000000ff';
     const rows = [
