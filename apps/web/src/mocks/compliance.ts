@@ -231,6 +231,7 @@ export function createComplianceMock({
         status: 'OPEN',
         dueOn: plus(input.dueOn, -3),
         assignedTo: d.assignedTo,
+        madeHere: true,
       });
     }
     store.deadlines.unshift(d);
@@ -544,16 +545,15 @@ export function createComplianceMock({
         const input = parseInput(CreateDeadlineTaskRequest, body);
         const d = find(deadlineId);
         needOpen(d);
-        const title = input.title ?? `Prepare ${d.name}`;
-        if (d.tasks.some((t) => t.title === title)) {
-          throw fail(409, 'DUPLICATE', 'A task like this already exists for this deadline.');
-        }
+        // CD-F01: as the API, one task per deadline (and template): asking again returns it.
+        if (d.tasks.some((t) => t.madeHere)) return view(d);
         d.tasks.push({
           id: id('5a00'),
-          title,
+          title: input.title ?? `Prepare ${d.name}`,
           status: 'OPEN',
           dueOn: plus(effectiveDue(d), -3),
           assignedTo: d.assignedTo,
+          madeHere: true,
         });
         return touch(d);
       }),
@@ -570,6 +570,7 @@ export function createComplianceMock({
           status: 'OPEN',
           dueOn: null,
           assignedTo: d.assignedTo,
+          madeHere: false,
         });
         return touch(d);
       }),

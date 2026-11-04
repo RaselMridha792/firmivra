@@ -155,6 +155,7 @@ export const detailInclude = {
       title: true,
       status: true,
       dueOn: true,
+      idempotencyScope: true,
       assignedMember: { select: { userId: true, user: { select: { name: true } } } },
     },
   },
@@ -250,6 +251,7 @@ export async function toDetail(
       title: t.title,
       status: t.status,
       dueOn: day(t.dueOn),
+      madeHere: t.idempotencyScope === `deadline:${d.id.toLowerCase()}`,
       assignedTo: t.assignedMember
         ? { userId: t.assignedMember.userId, name: t.assignedMember.user.name }
         : null,

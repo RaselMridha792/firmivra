@@ -337,6 +337,7 @@ describe('api.invoices (firm)', () => {
         },
       ],
       refundableCents: 12_500,
+      receiptSentAt: at,
     };
     const invoice = {
       id,
@@ -398,6 +399,8 @@ describe('api.invoices (firm)', () => {
           voidedAt: at,
           voidedBy: { userId: id, name: 'Fake Owner' },
           voidReason: 'Wrong invoice',
+          depositAccount: { id, name: 'Operating (fake)' },
+          receiptSentAt: null,
         },
       ],
       cancelReason: null,
