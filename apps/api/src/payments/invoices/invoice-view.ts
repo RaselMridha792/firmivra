@@ -123,6 +123,31 @@ export const invoiceSelect = {
   notesToClient: true,
   internalNote: true,
   recurring: { select: recurringSelect },
+  // IP-F03
+  taxRateId: true,
+  taxRateBps: true,
+  taxableSubtotalCents: true,
+  taxCents: true,
+  taxRate: { select: { name: true } },
+  assignedTo: { select: { userId: true, user: { select: { name: true } } } },
+  template: { select: { id: true, name: true } },
+  attachments: {
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: {
+      document: {
+        select: {
+          id: true,
+          fileName: true,
+          contentType: true,
+          sizeBytes: true,
+          direction: true,
+          scanStatus: true,
+          trashedAt: true,
+          archivedAt: true,
+        },
+      },
+    },
+  },
   createdAt: true,
   updatedAt: true,
   client: { select: { id: true, displayName: true } },
@@ -136,6 +161,7 @@ export const invoiceSelect = {
       quantity: true,
       unitAmountCents: true,
       amountCents: true,
+      taxable: true,
     },
   },
   payments: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: paymentSelect },
@@ -220,7 +246,29 @@ const lineOf = (l: InvoiceRow['lines'][number]) => ({
   quantity: Number(l.quantity.toString()),
   unitAmountCents: l.unitAmountCents,
   amountCents: l.amountCents,
+  taxable: l.taxable,
 });
+
+/**
+ * IP-F03: the attached files the client may still see: one the firm has since trashed or
+ * archived (or one a later scan blocked) is left out for both sides.
+ */
+const shownAttachments = (row: InvoiceRow) =>
+  row.attachments
+    .map((a) => a.document)
+    .filter(
+      (d) =>
+        d.direction !== 'INTERNAL' &&
+        d.scanStatus === 'CLEAN' &&
+        d.trashedAt === null &&
+        d.archivedAt === null,
+    )
+    .map((d) => ({
+      documentId: d.id,
+      fileName: d.fileName,
+      contentType: d.contentType,
+      sizeBytes: d.sizeBytes,
+    }));
 
 export function toPayment(p: PaymentRow): InvoicePayment {
   return {
@@ -255,6 +303,16 @@ export const amountDetail = (row: InvoiceRow) => ({
   lines: row.lines.map(lineOf),
   subtotalCents: row.subtotalCents,
   discountCents: row.discountCents,
+  tax:
+    row.taxRateId === null
+      ? null
+      : {
+          name: row.taxRate?.name ?? 'Tax',
+          rateBps: row.taxRateBps,
+          taxableSubtotalCents: row.taxableSubtotalCents,
+          cents: row.taxCents,
+        },
+  attachments: shownAttachments(row),
   amountPaidCents: money(row).amountPaidCents,
   refundedCents: money(row).refundedCents,
 });
@@ -306,6 +364,9 @@ export function toInvoice(row: InvoiceRow, today: string, sentAt: string | null 
     notesToClient: row.notesToClient,
     internalNote: row.internalNote,
     recurring: toRecurrence(row.recurring),
+    assignedTo: row.assignedTo ? ref(row.assignedTo) : null,
+    template: row.template,
+    taxRateId: row.taxRateId,
   };
 }
 

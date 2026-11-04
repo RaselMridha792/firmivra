@@ -107,13 +107,27 @@ export const records: CaseModule['records'] = {
 export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/invoices': {
     params: {},
-    bodyIds: { clientId: 'client', engagementId: 'engagement' },
+    // IP-F03: the tax rate, Assigned Staff, template and attached files are the firm's own too.
+    bodyIds: {
+      clientId: 'client',
+      engagementId: 'engagement',
+      taxRateId: 'invoiceTaxRate',
+      assignedUserId: 'staffUser',
+      templateId: 'invoiceTemplate',
+      documentIds: 'document',
+    },
     body: { lines: [{ description: 'Fake service', unitAmountCents: 5_000 }], dueOn: day(20) },
   },
   'GET /api/v1/business/invoices/:id': { params: { id: 'invoice' } },
   'PUT /api/v1/business/invoices/:id': {
     params: { id: 'invoice' },
-    bodyIds: { engagementId: 'engagement' },
+    bodyIds: {
+      engagementId: 'engagement',
+      taxRateId: 'invoiceTaxRate',
+      assignedUserId: 'staffUser',
+      templateId: 'invoiceTemplate',
+      documentIds: 'document',
+    },
     body: { lines: [{ description: 'Fake service', unitAmountCents: 5_000 }], dueOn: day(20) },
   },
   // Found, but a draft with no lines has nothing to pay.
