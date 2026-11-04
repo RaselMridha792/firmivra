@@ -27,13 +27,16 @@ test('TP-F18: the Email library holds the guide’s client emails in their categ
 });
 
 test('TP-F18: appointments, payments and leads carry the guide’s names', async ({ page }) => {
-  for (const [slug, name] of [
+  const cases: [string, string][] = [
     ['appointment', 'Appointment Reminder — 24 Hours'],
     ['invoice-payment', 'Payment Overdue — Final Reminder'],
     ['lead-follow-up', 'Lead Follow-Up — No Response'],
-  ]) {
+  ];
+  for (const [slug, name] of cases) {
     await page.goto(`${base}/library/${slug}`);
-    await page.getByRole('searchbox', { name: 'Search templates' }).fill(name.split(' — ')[0]!);
+    await page
+      .getByRole('searchbox', { name: 'Search templates' })
+      .fill(name.split(' — ')[0] ?? name);
     await expect(page.getByTestId('library-table')).toContainText(name);
   }
 });
