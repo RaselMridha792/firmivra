@@ -52,6 +52,29 @@ function fit(text: string, font: PDFFont, size: number, width: number): string {
   return `${cut}...`;
 }
 
+/**
+ * The amounts at the foot of the PDF, as label, cents and bold: Subtotal, Discount, Tax (R55's
+ * IP-F03 rate on the taxable lines), Total, Paid and Balance due. Subtotal - Discount + Tax is the
+ * Total, as on the invoice page; the tax is worded as the client's portal words it.
+ */
+export function pdfTotals(
+  invoice: Pick<
+    Invoice,
+    'subtotalCents' | 'discountCents' | 'tax' | 'totalCents' | 'amountPaidCents' | 'balanceDueCents'
+  >,
+): (readonly [string, number, boolean])[] {
+  return [
+    ['Subtotal', invoice.subtotalCents, false],
+    ...(invoice.discountCents > 0 ? [['Discount', -invoice.discountCents, false] as const] : []),
+    ...(invoice.tax
+      ? [[`Tax (${invoice.tax.rateBps / 100}%)`, invoice.tax.cents, false] as const]
+      : []),
+    ['Total', invoice.totalCents, true],
+    ...(invoice.amountPaidCents > 0 ? [['Paid', -invoice.amountPaidCents, false] as const] : []),
+    ['Balance due', invoice.balanceDueCents, true],
+  ];
+}
+
 export async function renderInvoicePdf(invoice: Invoice, firmName: string): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(winAnsi(`Invoice ${invoice.number}`));
@@ -138,14 +161,7 @@ export async function renderInvoicePdf(invoice: Invoice, firmName: string): Prom
 
   // The amounts.
   y -= 6;
-  const totals: (readonly [string, number, boolean])[] = [
-    ['Subtotal', invoice.subtotalCents, false],
-    ...(invoice.discountCents > 0 ? [['Discount', -invoice.discountCents, false] as const] : []),
-    ['Total', invoice.totalCents, true],
-    ...(invoice.amountPaidCents > 0 ? [['Paid', -invoice.amountPaidCents, false] as const] : []),
-    ['Balance due', invoice.balanceDueCents, true],
-  ];
-  for (const [label, cents, strong] of totals) {
+  for (const [label, cents, strong] of pdfTotals(invoice)) {
     const font = strong ? bold : regular;
     page.drawText(label, { x: right - 200, y, size: 10, font, color: strong ? NAVY : GREY });
     writeRight(money(cents), right, strong ? 11 : 10, font);
