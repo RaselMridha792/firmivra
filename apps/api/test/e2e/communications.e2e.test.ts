@@ -646,6 +646,29 @@ describe('campaigns', () => {
         })
       ).id;
     });
+    // The portal (CM-F05): Pat One has an active login, Pat Two only an invitation.
+    const users = { p1: randomUUID(), p2: randomUUID() };
+    await asOwner({ kind: 'platform' }, async (tx) => {
+      for (const [k, id] of Object.entries(users))
+        await tx.user.create({
+          data: { id, cognitoSub: id, pool: 'CLIENT', email: `${k}-${run}@portal.test`, name: k },
+        });
+    });
+    await inFirm('a', async (tx) => {
+      for (const [k, status] of [
+        ['p1', 'ACTIVE'],
+        ['p2', 'INVITED'],
+      ] as const)
+        await tx.clientAccount.create({
+          data: {
+            businessId: firms.a,
+            userId: users[k],
+            clientId: people2[k],
+            email: `${k}-${run}@portal.test`,
+            status,
+          },
+        });
+    });
   });
 
   it('is not ready until a provider is connected, then lists its sender', async () => {
@@ -1071,18 +1094,64 @@ describe('campaigns', () => {
     expect(detailOf(await call('post', `/${d.id}/cancel`, ownerA, {})).status).toBe('CANCELLED');
   });
 
-  it('publishes an announcement to the eligible clients at once', async () => {
+  it('publishes an announcement to the chosen clients who have the portal, at once (CM-F05)', async () => {
+    // Pat One has an active portal login, Pat Two only an invitation, Pat Three none.
     const d = await draft({ channel: 'ANNOUNCEMENT', name: mark('News') });
     await edit(d.id, { subject: 'Office closed Friday', body: '<p>Closed.</p>' });
-    ok(await audienceOf(d.id, { clientIds: [people2.p1, people2.p3] }));
+    const review = async () =>
+      CommunicationReview.parse(ok(await call('get', `/${d.id}/review`, ownerA)));
+    // Nobody chosen yet: Review says so and Send stays off.
+    expect((await review()).checks.map((c) => c.code)).toContain('NO_RECIPIENTS');
+
+    const summary = AudienceSummary.parse(
+      ok(
+        await audienceOf(d.id, {
+          clientIds: [people2.p1, people2.p2, people2.p3],
+          leadIds: [leadSame],
+        }),
+      ),
+    );
+    // Only the client with the portal can see it; the others are left out, never counted.
+    expect(summary).toMatchObject({ selectedCount: 4, finalCount: 1 });
+    expect(summary.autoExcluded.missingChannel).toBe(3);
+    const candidates = AudienceCandidatePage.parse(
+      ok(await call('get', `/audience/candidates?communicationId=${d.id}&search=Pat`, ownerA)),
+    );
+    const reason = (id: string) => candidates.items.find((c) => c.id === id)?.ineligibleReason;
+    expect([reason(people2.p1), reason(people2.p2), reason(people2.p3)]).toEqual([
+      null,
+      'MISSING_CHANNEL',
+      'MISSING_CHANNEL',
+    ]);
+    expect((await review()).checks.map((c) => c.code)).not.toContain('NO_RECIPIENTS');
+
+    // CM-F09: a window that ends before it starts is refused on Show Until; one already over
+    // saves, and the checklist blocks it.
+    const start = Date.now() + 86_400_000;
+    const backwards = await edit(d.id, {
+      publishStartsAt: new Date(start).toISOString(),
+      publishEndsAt: new Date(start - 3_600_000).toISOString(),
+    });
+    expectError(backwards, 400, 'VALIDATION_FAILED');
+    expect(backwards.body).toMatchObject({
+      error: { code: 'VALIDATION_FAILED', details: [{ path: 'publishEndsAt' }] },
+    });
+    ok(
+      await edit(d.id, {
+        publishStartsAt: new Date(Date.now() - 7_200_000).toISOString(),
+        publishEndsAt: new Date(Date.now() - 3_600_000).toISOString(),
+      }),
+    );
+    expect((await review()).checks.map((c) => c.code)).toContain('ANNOUNCEMENT_WINDOW_INVALID');
+    ok(await edit(d.id, { publishStartsAt: null, publishEndsAt: null }));
+
     const sent = detailOf(
       await call('post', `/${d.id}/send`, ownerA, {
         idempotencyKey: key(),
         etag: (await getDetail(d.id)).etag,
       }),
     );
-    // An announcement needs no email address: both clients get it in the portal.
-    expect(sent).toMatchObject({ status: 'SENT', finalCount: 2, sender: null });
+    expect(sent).toMatchObject({ status: 'SENT', finalCount: 1, sender: null });
     expect(sent.sentAt).not.toBeNull();
     const list = CommunicationPage.parse(ok(await call('get', '/?tab=announcements', ownerA)));
     expect(list.items.map((r) => r.id)).toContain(d.id);

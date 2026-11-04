@@ -1,18 +1,17 @@
 'use client';
 
 import type { BookkeepingPeriod, BookkeepingReconciliation } from '@firmivra/types';
-import { Button, Input, Modal, Select, Table, Toast, type Column } from '@firmivra/ui';
+import { Button, Input, Modal, Table, Toast, type Column } from '@firmivra/ui';
 import { Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { useAct, type Notice } from './bookkeeping-actions';
 import {
-  BK_ERRORS,
   BK_KEY,
   PeriodPill,
+  ReconPill,
   card,
   dayText,
   money,
@@ -22,176 +21,9 @@ import {
   quiet,
   subtle,
 } from './bookkeeping-shared';
+import { ReasonDialog, ReconDialog, cents, dollars } from './recon-parts';
 import { ReportMenu } from './report-actions';
 import { reportColumns } from './workspace-tabs';
-
-const RECON_LABEL = {
-  IN_PROGRESS: 'In Progress',
-  READY_FOR_REVIEW: 'Ready for Review',
-  APPROVED: 'Approved',
-  REOPENED: 'Reopened',
-} as const;
-const cents = (v: string) => Math.round(Number(v.replace(/[$,\s]/g, '')) * 100);
-const dollars = (c: number) => (c / 100).toFixed(2);
-
-function ReasonDialog({
-  title,
-  confirm,
-  onConfirm,
-  onClose,
-}: {
-  title: string;
-  confirm: string;
-  onConfirm: (reason: string) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  return (
-    <Modal
-      open
-      title={title}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !reason.trim()}
-            onClick={async () => {
-              setBusy(true);
-              await onConfirm(reason.trim());
-              onClose();
-            }}
-          >
-            {confirm}
-          </Button>
-        </>
-      }
-    >
-      <Input label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-    </Modal>
-  );
-}
-
-function ReconDialog({
-  p,
-  existing,
-  onClose,
-  onNotice,
-}: {
-  p: BookkeepingPeriod;
-  existing?: BookkeepingReconciliation;
-  onClose: () => void;
-  onNotice: Notice;
-}) {
-  const act = useAct(onNotice);
-  const accounts = [
-    ...(existing ? [{ id: existing.account.id, name: existing.account.name }] : []),
-    ...p.accountsWithoutReconciliation,
-  ];
-  const [account, setAccount] = useState(accounts[0]?.id ?? '');
-  const [start, setStart] = useState(existing?.statementStart ?? p.periodStart);
-  const [end, setEnd] = useState(existing?.statementEnd ?? p.periodEnd);
-  const [begin, setBegin] = useState(existing ? dollars(existing.beginningBalanceCents) : '');
-  const [ending, setEnding] = useState(existing ? dollars(existing.endingBalanceCents) : '');
-  const [cleared, setCleared] = useState(existing ? dollars(existing.clearedBalanceCents) : '');
-  const [error, setError] = useState<string>();
-  const diff = ending && cleared ? cents(ending) - cents(cleared) : null;
-  return (
-    <Modal
-      open
-      title={existing ? 'Reconciliation' : 'Reconcile an Account'}
-      subtitle={p.label}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!account || !begin || !ending}
-            onClick={async () => {
-              try {
-                const body = {
-                  statementStart: start,
-                  statementEnd: end,
-                  beginningBalanceCents: cents(begin),
-                  endingBalanceCents: cents(ending),
-                  ...(cleared ? { clearedBalanceCents: cents(cleared) } : {}),
-                };
-                if (existing) await api.bookkeeping.saveReconciliation(existing.id, body);
-                else
-                  await api.bookkeeping.createReconciliation(p.id, { accountId: account, ...body });
-                await act(async () => undefined, 'Reconciliation saved.');
-                onClose();
-              } catch (e) {
-                setError(errorMessage(e, BK_ERRORS));
-              }
-            }}
-          >
-            Save Progress
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3" data-testid="recon-dialog">
-        <Select
-          label="Account"
-          value={account}
-          disabled={!!existing}
-          onChange={(e) => setAccount(e.target.value)}
-          options={
-            accounts.length
-              ? accounts.map((a) => ({ value: a.id, label: a.name }))
-              : [{ value: '', label: 'Every account is reconciled' }]
-          }
-        />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Input
-            label="Statement starts"
-            type="date"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-          />
-          <Input
-            label="Statement ends"
-            type="date"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-          />
-          <Input
-            label="Beginning balance ($)"
-            value={begin}
-            onChange={(e) => setBegin(e.target.value)}
-          />
-          <Input
-            label="Ending balance ($)"
-            value={ending}
-            onChange={(e) => setEnding(e.target.value)}
-          />
-          <Input
-            label="Cleared balance ($)"
-            value={cleared}
-            onChange={(e) => setCleared(e.target.value)}
-          />
-        </div>
-        <p className="rounded-lg bg-canvas p-3 text-sm text-heading" data-testid="recon-diff">
-          Difference:{' '}
-          <span className={diff === 0 ? 'font-semibold text-success' : 'font-semibold text-danger'}>
-            {diff === null ? '—' : money(diff)}
-          </span>
-        </p>
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
 
 function FiguresDialog({
   p,
@@ -269,11 +101,7 @@ function FiguresDialog({
 export function PeriodScreen({ id }: { id: string }) {
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<
-    | 'figures'
-    | 'recon'
-    | 'reopen'
-    | { recon: BookkeepingReconciliation }
-    | { reopenRecon: BookkeepingReconciliation }
+    'figures' | 'recon' | 'reopen' | { reopenRecon: BookkeepingReconciliation }
   >();
   const notice: Notice = (text, tone) => setMessage({ text, tone });
   const act = useAct(notice);
@@ -317,17 +145,19 @@ export function PeriodScreen({ id }: { id: string }) {
         </span>
       ),
     },
-    { id: 'st', label: 'Status', cell: (r) => RECON_LABEL[r.status] },
+    { id: 'st', label: 'Status', cell: (r) => <ReconPill status={r.status} /> },
   ];
   const reconMenu = (r: BookkeepingReconciliation) => {
     const btn = 'text-sm font-medium text-link disabled:opacity-50';
     return (
       <span className="flex flex-wrap justify-end gap-3">
-        {(r.status === 'IN_PROGRESS' || r.status === 'REOPENED') && !closed ? (
-          <button type="button" className={btn} onClick={() => setDialog({ recon: r })}>
-            Edit
-          </button>
-        ) : null}
+        <Link
+          href={`/bookkeeping/reconciliations/${r.id}`}
+          className={btn}
+          aria-label={`Open the reconciliation of ${r.account.name}`}
+        >
+          Open
+        </Link>
         {(r.status === 'IN_PROGRESS' || r.status === 'REOPENED') && !closed ? (
           <button
             type="button"
@@ -600,17 +430,7 @@ export function PeriodScreen({ id }: { id: string }) {
       {dialog === 'figures' ? (
         <FiguresDialog p={p} onClose={() => setDialog(undefined)} onNotice={notice} />
       ) : null}
-      {dialog === 'recon' ? (
-        <ReconDialog p={p} onClose={() => setDialog(undefined)} onNotice={notice} />
-      ) : null}
-      {typeof dialog === 'object' && 'recon' in dialog ? (
-        <ReconDialog
-          p={p}
-          existing={dialog.recon}
-          onClose={() => setDialog(undefined)}
-          onNotice={notice}
-        />
-      ) : null}
+      {dialog === 'recon' ? <ReconDialog p={p} onClose={() => setDialog(undefined)} /> : null}
       {dialog === 'reopen' ? (
         <ReasonDialog
           title="Reopen this period"
