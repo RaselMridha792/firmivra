@@ -23,6 +23,7 @@ import { ArrowLeft, Flag, Gear, Info, Lightbulb, Plus, Trash } from '@phosphor-i
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -70,6 +71,8 @@ interface Form {
   calendar: boolean;
   expires: boolean;
   expiresOn: string;
+  /** AU-F28: the Owner or Admin responsible for the rule; '' keeps the default (the creator). */
+  ownerUserId: string;
 }
 let counter = 0;
 const key = () => `k${(counter += 1)}`;
@@ -98,6 +101,7 @@ const blank = (): Form => ({
   calendar: false,
   expires: false,
   expiresOn: '',
+  ownerUserId: '',
 });
 const fromDetail = (d: AutomationRuleDetail): Form => {
   const v = d.definition;
@@ -109,6 +113,7 @@ const fromDetail = (d: AutomationRuleDetail): Form => {
     enabled: d.status === 'ACTIVE',
     expires: d.expiresOn !== null,
     expiresOn: d.expiresOn ?? '',
+    ownerUserId: d.owner?.userId ?? '',
     ...(v
       ? {
           module: v.trigger.module,
@@ -193,6 +198,13 @@ function Builder({
   const set = (change: Partial<Form>) => setF((cur) => ({ ...cur, ...change }));
   const team = useApiQuery([...AUTOMATIONS_KEY, 'members'], () => api.team.list());
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
+  // AU-F28: a rule's owner is an active Owner or Admin; only they change it.
+  const { role } = useFirm();
+  const canOwn = role === 'OWNER' || role === 'ADMIN';
+  const owners = members.filter((m) => m.role === 'OWNER' || m.role === 'ADMIN');
+  const ownerName =
+    owners.find((m) => m.user.id === f.ownerUserId)?.user.name ??
+    (saved?.owner?.userId === f.ownerUserId ? saved.owner?.name : undefined);
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
@@ -236,6 +248,7 @@ function Builder({
       category: f.category,
       priority: f.priority,
       expiresOn: f.expires && f.expiresOn ? f.expiresOn : null,
+      ...(canOwn && f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
     };
     let rule: AutomationRuleDetail;
     if (saved) {
@@ -683,7 +696,27 @@ function Builder({
                   { value: 'LOW', label: 'Low' },
                 ]}
               />
+              <Select
+                label="Rule Owner"
+                value={f.ownerUserId}
+                disabled={!canOwn}
+                onChange={(e) => set({ ownerUserId: e.target.value })}
+                options={[
+                  ...(f.ownerUserId
+                    ? []
+                    : [{ value: '', label: canOwn ? 'You (the rule’s creator)' : 'Not set' }]),
+                  ...owners.map((m) => ({ value: m.user.id, label: m.user.name })),
+                  ...(f.ownerUserId && !owners.some((m) => m.user.id === f.ownerUserId)
+                    ? [{ value: f.ownerUserId, label: ownerName ?? 'Current owner' }]
+                    : []),
+                ]}
+              />
             </div>
+            <p className="mt-1 text-xs text-muted">
+              {canOwn
+                ? 'The Owner or Admin responsible for this rule; its actions run as them.'
+                : 'Only an Owner or Admin sets the rule’s owner.'}
+            </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <Checkbox
                 label="Enable rule (runs automatically when active)"
@@ -792,6 +825,10 @@ function Builder({
               </dd>
               <dt className="text-text">Category:</dt>
               <dd className="text-heading">{catalogModule(f.category)}</dd>
+              <dt className="text-text">Rule Owner:</dt>
+              <dd className="text-heading">
+                {ownerName ?? (f.ownerUserId ? 'Current owner' : canOwn ? 'You' : 'Not set')}
+              </dd>
               <dt className="text-text">Priority:</dt>
               <dd className="flex items-center gap-1 text-heading">
                 <Flag
