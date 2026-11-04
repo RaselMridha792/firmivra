@@ -1,12 +1,26 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { INVOICE_ERRORS, PaymentMethodKey } from '@firmivra/types';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import {
+  INVOICE_ERRORS,
+  lineAmountCents,
+  PaymentMethodKey,
+  STANDARD_PAYMENT_TERMS,
+} from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
+  AddInvoiceHistoryRequest,
   CancelInvoiceRequest,
   CorrectInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
+  InvoiceHistory,
+  InvoiceHistoryItem,
   InvoiceList,
+  InvoicePdfLink,
+  ListPaymentsQuery,
+  PaymentPage,
+  PaymentRow,
+  RecurringInvoiceList,
   ListInvoicesQuery,
   PaymentMethodsSummary,
   UpdateInvoiceRequest,
@@ -32,7 +46,10 @@ import {
   withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
+import { REPORT_FILES, type ReportFiles } from '../../reports/report-files.js';
+import { checkDraftExtras, writeAttachments } from './invoice-extras.js';
 import { InvoiceNotices } from './invoice-notices.js';
+import { renderInvoicePdf } from './invoice-pdf.js';
 import { endDraftRecurrence, startRecurrence, syncDraftRecurrence } from './invoice-recurrence.js';
 import {
   conflict,
@@ -61,6 +78,27 @@ export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed
 
 const DAY = 86_400_000;
 
+const historySelect = {
+  id: true,
+  type: true,
+  body: true,
+  createdAt: true,
+  actor: { select: { userId: true, user: { select: { name: true } } } },
+} as const;
+const toHistoryItem = (r: {
+  id: string;
+  type: string;
+  body: string | null;
+  createdAt: Date;
+  actor: { userId: string; user: { name: string } } | null;
+}): InvoiceHistoryItem => ({
+  id: r.id,
+  type: r.type,
+  body: r.body,
+  actor: r.actor ? { userId: r.actor.userId, name: r.actor.user.name } : null,
+  createdAt: r.createdAt.toISOString(),
+});
+
 /**
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
  * every invoice; Staff only read those of clients assigned to them (others 404) and the routes
@@ -74,6 +112,7 @@ export class InvoicesService {
     private readonly audit: AuditService,
     private readonly notices: InvoiceNotices,
     @Inject(STRIPE_GATEWAY) private readonly stripe: StripeGateway | null,
+    @Inject(REPORT_FILES) private readonly files: ReportFiles,
   ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -326,8 +365,20 @@ export class InvoicesService {
    * Writes a draft's fields and lines. The discount goes on last, after the lines made the
    * subtotal, so the database's `total = subtotal - discount >= 0` holds after every statement.
    */
-  private async writeDraft(tx: TxClient, businessId: string, id: string, body: DraftBody) {
+  private async writeDraft(
+    tx: TxClient,
+    businessId: string,
+    id: string,
+    body: DraftBody,
+    actorUserId: string,
+  ) {
     const where = { businessId_id: { businessId, id } };
+    await this.checkTerms(tx, businessId, id, body.paymentTerms ?? null);
+    const current = await tx.invoice.findUniqueOrThrow({
+      where,
+      select: { clientId: true, taxRateId: true, templateId: true },
+    });
+    await checkDraftExtras(tx, businessId, current, body);
     await tx.invoice.update({ where, data: { discountCents: 0 } });
     await tx.invoiceLine.deleteMany({ where: { businessId, invoiceId: id } });
     await tx.invoiceLine.createMany({
@@ -337,6 +388,7 @@ export class InvoicesService {
         description: l.description,
         quantity: l.quantity,
         unitAmountCents: l.unitAmountCents,
+        taxable: l.taxable,
         sortOrder: i,
       })),
     });
@@ -344,6 +396,9 @@ export class InvoicesService {
       where,
       data: {
         engagementId: body.engagementId ?? null,
+        taxRateId: body.taxRateId ?? null,
+        assignedUserId: body.assignedUserId ?? null,
+        templateId: body.templateId ?? null,
         discountCents: body.discountCents,
         dueOn: toDate(body.dueOn),
         scheduledFor: body.scheduledFor ? toDate(body.scheduledFor) : null,
@@ -352,6 +407,7 @@ export class InvoicesService {
         internalNote: body.internalNote ?? null,
       },
     });
+    await writeAttachments(tx, businessId, id, body.documentIds, actorUserId);
   }
 
   /** IP-F05: the draft's schedule follows its Recurring settings (see invoice-recurrence.ts). */
@@ -365,6 +421,26 @@ export class InvoicesService {
     const row = await this.load(tx, businessId, actor, id);
     const { today } = await firmToday(tx, businessId);
     await syncDraftRecurrence(tx, this.audit, businessId, actor.userId, row, body.recurring, today);
+  }
+
+  /**
+   * Terms a firm's own list (`custom_term_days`) no longer has are 409 TERMS_NOT_OFFERED, except
+   * the ones the draft already carries.
+   */
+  private async checkTerms(tx: TxClient, businessId: string, id: string, terms: string | null) {
+    if (terms === null || (STANDARD_PAYMENT_TERMS as readonly string[]).includes(terms)) return;
+    const settings = await tx.paymentSettings.findUnique({
+      where: { businessId },
+      select: { customTermDays: true },
+    });
+    const draft = await tx.invoice.findUnique({
+      where: { businessId_id: { businessId, id } },
+      select: { paymentTerms: true },
+    });
+    const own = (settings?.customTermDays ?? []).map((d) => `net_${d}`);
+    if (!own.includes(terms) && draft?.paymentTerms !== terms) {
+      throw conflict('TERMS_NOT_OFFERED', INVOICE_ERRORS.TERMS_NOT_OFFERED);
+    }
   }
 
   /**
@@ -396,7 +472,7 @@ export class InvoicesService {
           },
           select: { id: true },
         });
-        await this.writeDraft(tx, businessId, id, body);
+        await this.writeDraft(tx, businessId, id, body, actor.userId);
         await this.writeRecurrence(tx, businessId, actor, id, body);
         const row = await this.load(tx, businessId, actor, id);
         await this.audit.logIn(
@@ -437,7 +513,7 @@ export class InvoicesService {
           throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
         }
       }
-      await this.writeDraft(tx, businessId, id, body);
+      await this.writeDraft(tx, businessId, id, body, actor.userId);
       await this.writeRecurrence(tx, businessId, actor, id, body);
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
@@ -448,6 +524,247 @@ export class InvoicesService {
       );
       return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
     });
+  }
+
+  /**
+   * IP-F17 (Octavia, Oct 27): View All Payments: every payment in the range on the firm's
+   * calendar, Stripe's (confirmed, less confirmed refunds) and recorded ones (voided ones marked),
+   * newest first. Staff see their clients' only.
+   */
+  async payments(
+    businessId: string,
+    actor: ClientsActor,
+    q: z.output<typeof ListPaymentsQuery>,
+  ): Promise<PaymentPage> {
+    const result = await this.inFirm(businessId, async (tx) => {
+      const { timeZone, today } = await firmToday(tx, businessId);
+      const from = q.from ?? `${today.slice(0, 4)}-01-01`;
+      const to = q.to ?? today;
+      const reach = { client: this.reach(actor) };
+      const widen = (d: string, days: number) =>
+        new Date(Date.parse(`${d}T00:00:00Z`) + days * DAY);
+      const invoiceRef = {
+        select: { id: true, number: true, client: { select: { id: true, displayName: true } } },
+      } as const;
+      const online = await tx.payment.findMany({
+        where: {
+          businessId,
+          status: { in: ['SUCCEEDED', 'REFUNDED'] },
+          paidAt: { gte: widen(from, -1), lt: widen(to, 2) },
+          invoice: reach,
+        },
+        select: {
+          id: true,
+          amountCents: true,
+          methodType: true,
+          paidAt: true,
+          status: true,
+          refunds: { where: { status: 'SUCCEEDED' }, select: { amountCents: true } },
+          invoice: invoiceRef,
+        },
+      });
+      const recorded = await tx.offlinePayment.findMany({
+        where: {
+          businessId,
+          receivedOn: { gte: toDate(from), lte: toDate(to) },
+          invoice: reach,
+        },
+        select: {
+          id: true,
+          amountCents: true,
+          method: true,
+          receivedOn: true,
+          voidedAt: true,
+          invoice: invoiceRef,
+        },
+      });
+      const rows: PaymentRow[] = [];
+      for (const p of online) {
+        const on = p.paidAt ? dateIn(timeZone, p.paidAt) : null;
+        if (!on || on < from || on > to) continue;
+        const refunded = p.refunds.reduce((s, r) => s + r.amountCents, 0);
+        rows.push({
+          id: p.id,
+          source: 'STRIPE',
+          invoice: { id: p.invoice.id, number: p.invoice.number },
+          client: p.invoice.client,
+          method:
+            p.methodType === 'card' ? 'CARD' : p.methodType === 'us_bank_account' ? 'ACH' : 'OTHER',
+          amountCents: p.amountCents - refunded,
+          receivedOn: on,
+          status: p.status === 'REFUNDED' || refunded >= p.amountCents ? 'REFUNDED' : 'RECEIVED',
+        });
+      }
+      for (const p of recorded) {
+        rows.push({
+          id: p.id,
+          source: 'RECORDED',
+          invoice: { id: p.invoice.id, number: p.invoice.number },
+          client: p.invoice.client,
+          method: p.method,
+          amountCents: p.amountCents,
+          receivedOn: day(p.receivedOn)!,
+          status: p.voidedAt ? 'VOIDED' : 'RECEIVED',
+        });
+      }
+      const term = q.search?.toLowerCase();
+      const found = rows
+        .filter(
+          (r) =>
+            !term ||
+            r.invoice.number.toLowerCase().includes(term) ||
+            r.client.displayName.toLowerCase().includes(term),
+        )
+        .sort((a, b) => b.receivedOn.localeCompare(a.receivedOn) || b.id.localeCompare(a.id));
+      return {
+        items: found.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
+        total: found.length,
+        page: q.page,
+        pageSize: q.pageSize,
+        from,
+        to,
+        receivedCents: found
+          .filter((r) => r.status === 'RECEIVED')
+          .reduce((s, r) => s + r.amountCents, 0),
+      };
+    });
+    await this.audit.log(
+      'invoices.payments_listed',
+      { type: 'invoice' },
+      { from: result.from, to: result.to, count: result.items.length },
+    );
+    return result;
+  }
+
+  /** IP-F17: the recurring invoice schedules, the next to send first (read only; IP-F18 makes them). */
+  async recurring(businessId: string, actor: ClientsActor): Promise<RecurringInvoiceList> {
+    const items = await this.inFirm(businessId, async (tx) => {
+      const rows = await tx.recurringInvoice.findMany({
+        where: { businessId, client: this.reach(actor) },
+        orderBy: [{ nextSendOn: { sort: 'asc', nulls: 'last' } }, { name: 'asc' }, { id: 'asc' }],
+        take: 200,
+        select: {
+          id: true,
+          name: true,
+          frequency: true,
+          intervalCount: true,
+          intervalUnit: true,
+          nextSendOn: true,
+          status: true,
+          autoSend: true,
+          autopay: true,
+          client: { select: { id: true, displayName: true } },
+          lines: { select: { quantity: true, unitAmountCents: true } },
+        },
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        client: r.client,
+        frequency: r.frequency,
+        interval:
+          r.frequency === 'CUSTOM' && r.intervalCount && r.intervalUnit
+            ? { count: r.intervalCount, unit: r.intervalUnit }
+            : null,
+        nextSendOn: day(r.nextSendOn),
+        status: r.status,
+        amountCents: r.lines.reduce(
+          (s, l) => s + lineAmountCents(Number(l.quantity), l.unitAmountCents),
+          0,
+        ),
+        autoSend: r.autoSend,
+        autopay: r.autopay,
+      }));
+    });
+    await this.audit.log('invoices.recurring_listed', { type: 'invoice' }, { count: items.length });
+    return { items };
+  }
+
+  /** IP-F09: the invoice's history: what the firm wrote and logged, newest first. */
+  async history(businessId: string, actor: ClientsActor, id: string): Promise<InvoiceHistory> {
+    const items = await this.inFirm(businessId, async (tx) => {
+      await this.load(tx, businessId, actor, id);
+      const rows = await tx.invoiceEvent.findMany({
+        where: { businessId, invoiceId: id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 100,
+        select: historySelect,
+      });
+      return rows.map(toHistoryItem);
+    });
+    await this.audit.log(
+      'invoice.history_viewed',
+      { type: 'invoice', id },
+      { count: items.length },
+    );
+    return { items };
+  }
+
+  /** IP-F09: Add Note or Log Activity: firm only, kept in the invoice's history and audited. */
+  async addHistory(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof AddInvoiceHistoryRequest>,
+  ): Promise<InvoiceHistoryItem> {
+    return this.inFirm(businessId, async (tx) => {
+      const invoice = await this.load(tx, businessId, actor, id);
+      const row = await tx.invoiceEvent.create({
+        data: {
+          businessId,
+          invoiceId: id,
+          type: body.type,
+          actorKind: 'STAFF',
+          actorUserId: actor.userId,
+          body: body.body,
+        },
+        select: historySelect,
+      });
+      await this.audit.logIn(
+        tx,
+        body.type === 'NOTE' ? 'invoice.note_added' : 'invoice.activity_logged',
+        { type: 'invoice', id },
+        { clientId: invoice.clientId, length: body.body.length },
+      );
+      return toHistoryItem(row);
+    });
+  }
+
+  /**
+   * IP-F09: the invoice as a PDF under the firm's own prefix, behind a 5-minute link. What the
+   * client is billed only; the firm's notes and history never go on it.
+   */
+  async pdf(businessId: string, actor: ClientsActor, id: string): Promise<InvoicePdfLink> {
+    const { invoice, firm } = await this.inFirm(businessId, async (tx) => {
+      const row = await this.load(tx, businessId, actor, id);
+      const business = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { name: true },
+      });
+      const { today } = await firmToday(tx, businessId);
+      return { invoice: await invoiceOf(tx, businessId, row, today), firm: business.name };
+    });
+    const bytes = await renderInvoicePdf(invoice, firm);
+    const key = `tenant/${businessId}/reports/invoice-${randomUUID()}.pdf`;
+    let url: string;
+    try {
+      await this.files.put(key, bytes, 'application/pdf');
+      url = await this.files.presignDownload({
+        key,
+        fileName: `${invoice.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`,
+        contentType: 'application/pdf',
+      });
+    } catch {
+      throw new HttpException(
+        {
+          code: 'FILE_STORE_UNAVAILABLE',
+          message: 'The file could not be saved. Try again shortly.',
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    await this.audit.log('invoice.pdf_exported', { type: 'invoice', id });
+    return { url, expiresAt: new Date(Date.now() + 300_000).toISOString() };
   }
 
   /**

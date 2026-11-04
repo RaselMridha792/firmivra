@@ -47,6 +47,12 @@ import {
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
   UpdateMessageThreadRequest,
+  ConfirmUploadRequest,
+  OUTBOUND_FILES_MAX,
+  type OutboundRelated,
+  OutboundRelatedOptionsQuery,
+  type OutboundFile,
+  StartOutboundFileRequest,
   type LeadMessage,
   type LeadMessageThread,
   type LeadMessageThreadDetail,
@@ -373,6 +379,11 @@ interface OutboundRow {
   scheduledFor: string | null;
   clientIds: string[];
   leadIds: string[];
+  /** MSG-F13, F16: the record it is about and who owns the conversations. */
+  related: OutboundRelated | null;
+  assignedUserId: string | null;
+  /** MSG-F12: its files (clean at once in mock mode). */
+  files: OutboundFile[];
   /** After the send: what happened to each person. */
   results: Map<
     string,
@@ -451,6 +462,26 @@ function leadCopy(
   return t.id;
 }
 
+/** MSG-F13: Jamie's own records a message can be about (synthetic). */
+function relatedFor(clientId: string): OutboundRelated[] {
+  if (clientId !== firstClientId) return [];
+  return [
+    { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
+    { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
+    { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },
+  ];
+}
+/** MSG-F16: the firm's active members. */
+const assigneesOf = () =>
+  teamFixtures()
+    .filter((m) => m.status === 'ACTIVE')
+    .map((m) => ({
+      userId: m.user.id,
+      name: m.user.name,
+      // As the API's legacyFirmRole: the newer roles own conversations as Staff.
+      role: m.role === 'OWNER' || m.role === 'ADMIN' ? m.role : ('STAFF' as const),
+    }));
+
 /** An in-memory `api.messages.outbound`; nothing is sent anywhere. */
 function createOutboundMock(role: MockFirmRole, me: { userId: string; name: string }) {
   const leadsMock = createLeadPipelineMock({ role });
@@ -514,9 +545,15 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       subject: r.subject,
       body: r.body,
       templateId: r.templateId,
+      related: r.related ? { ...r.related } : null,
+      assignedTo:
+        assigneesOf()
+          .filter((m) => m.userId === r.assignedUserId)
+          .map((m) => ({ userId: m.userId, name: m.name }))[0] ?? null,
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
+      files: r.files.map((f) => ({ ...f })),
       counts: { total: recipients.length, canReceive: can, cannotReceive: recipients.length - can },
       createdBy: { ...r.createdBy },
       editable,
@@ -525,6 +562,38 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };
+  };
+  /** MSG-F13, F16, as the API checks them on every save. */
+  const extrasOf = (b: {
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
+    clientIds: string[];
+    leadIds: string[];
+  }) => {
+    const clientIds = [...new Set(b.clientIds)];
+    let related: OutboundRelated | null = null;
+    if (b.related) {
+      if (clientIds.length !== 1)
+        throw fail(400, 'RELATED_NEEDS_ONE_CLIENT', 'Related To is for a message to one client');
+      const want = b.related;
+      related =
+        relatedFor(clientIds[0]!).find((x) => x.type === want.type && x.id === want.id) ?? null;
+      if (!related) throw notFound();
+    }
+    if (b.assignedUserId) {
+      const m = assigneesOf().find((x) => x.userId === b.assignedUserId);
+      if (!m) throw notFound();
+      if (
+        m.role === 'STAFF' &&
+        (b.leadIds.length > 0 || clientIds.some((c) => !STAFF_CLIENTS.includes(c)))
+      )
+        throw fail(
+          400,
+          'ASSIGNEE_CANNOT_REACH',
+          'This staff member does not work with everyone you chose',
+        );
+    }
+    return { related, assignedUserId: b.assignedUserId ?? null };
   };
   const find = (id: string) => {
     const r = outboundRows.find(
@@ -544,7 +613,14 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       throw fail(400, 'SUBJECT_REQUIRED', 'An email needs a subject');
     if ((await shape(r)).counts.canReceive === 0)
       throw fail(409, 'NO_RECIPIENTS', 'Nobody you chose can receive it on this channel.');
+    if (r.files.length > 0 && r.channel !== 'PORTAL')
+      throw fail(409, 'FILES_NEED_PORTAL', FILES_NEED_PORTAL);
   };
+  /** MSG-F12: tickets not confirmed yet, by token. */
+  const uploads = new Map<
+    string,
+    { outboundId: string; file: Omit<OutboundFile, 'id' | 'status' | 'createdAt'> }
+  >();
   /** The merge fields each person gets, as the API fills them (MSG-F15). */
   const fillFor = (p: MockPerson, text: string) => {
     const [first = '', ...rest] = p.name.split(' ');
@@ -581,10 +657,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     subject?: string | null;
     body: string;
     templateId?: string | null;
+    related?: { type: OutboundRelated['type']; id: string } | null;
+    assignedUserId?: string | null;
     clientIds: string[];
     leadIds: string[];
   }): Promise<OutboundRow> => {
     await people(b.clientIds, b.leadIds);
+    const extras = extrasOf(b);
     const at = stamp();
     const r: OutboundRow = {
       id: id('0199b6e4', next()),
@@ -596,6 +675,8 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       scheduledFor: null,
       clientIds: [...new Set(b.clientIds)],
       leadIds: [...new Set(b.leadIds)],
+      ...extras,
+      files: [],
       results: new Map(),
       createdBy: { ...me },
       createdAt: at,
@@ -688,6 +769,12 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           severity: 'WARN',
           message: `${m.counts.cannotReceive} of ${m.counts.total} cannot receive it on this channel and will be skipped.`,
         });
+      if (m.files.length > 0 && m.channel !== 'PORTAL')
+        checks.push({
+          code: 'FILES_NEED_PORTAL',
+          severity: 'BLOCK',
+          message: `${FILES_NEED_PORTAL}.`,
+        });
       if (!checks.some((c) => c.severity === 'BLOCK'))
         checks.push({ code: 'READY', severity: 'OK', message: 'Ready to send.' });
       return {
@@ -721,10 +808,13 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         r.subject = b.subject ?? null;
         r.body = b.body;
         r.templateId = b.templateId ?? null;
+        Object.assign(r, extrasOf(b));
         r.updatedAt = stamp();
         return shape(r);
       }
       const next = await insert(b);
+      next.files = r.files;
+      r.files = [];
       r.status = 'CANCELED';
       r.canceledAt = now();
       r.updatedAt = stamp();
@@ -752,14 +842,26 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
             clientId: p.id,
             engagementId: null,
             subject: r.subject?.trim() || 'A message from your firm',
-            related: null,
+            related: r.related ? { type: r.related.type, id: r.related.id } : null,
             repliesEnabled: true,
             automated: false,
             archivedAt: null,
             createdAt: now(),
           };
           s().threads.push(t);
-          addMessage(t, staff(me), fillFor(p, r.body).text);
+          addMessage(
+            t,
+            staff(me),
+            fillFor(p, r.body).text,
+            r.files.map((f) => ({
+              kind: 'FILE' as const,
+              id: f.id,
+              fileName: f.fileName,
+              contentType: f.contentType,
+              sizeBytes: f.sizeBytes,
+              status: f.status,
+            })),
+          );
           threadId = t.id;
         } else if (r.channel !== 'PORTAL') {
           // A lead's email or text is kept in the lead's own thread (the Leads tab).
@@ -786,6 +888,69 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+    relatedOptions: async (query: OutboundRelatedOptionsQuery) => {
+      await mockDelay();
+      const { clientId } = parseInput(OutboundRelatedOptionsQuery, query);
+      await people([clientId], []);
+      return { items: relatedFor(clientId).map((x) => ({ ...x })) };
+    },
+    assignees: async () => (await mockDelay(), { items: assigneesOf() }),
+    startFile: async (outboundId: string, body: StartOutboundFileRequest) => {
+      await mockDelay();
+      const b = parseInput(StartOutboundFileRequest, body);
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      const { allowedAttachmentTypes, attachmentMaxMb } = settingsOf();
+      const ending = b.fileName.toLowerCase().split('.').pop() ?? '';
+      if (!(allowedAttachmentTypes as readonly string[]).includes(ending))
+        throw fail(400, 'ATTACHMENT_TYPE', `Messages Settings don't allow .${ending} files`);
+      if (b.sizeBytes > attachmentMaxMb * 1024 * 1024)
+        throw fail(400, 'ATTACHMENT_TOO_LARGE', `A file is at most ${attachmentMaxMb} MB`);
+      if (r.files.length >= OUTBOUND_FILES_MAX)
+        throw fail(400, 'TOO_MANY_FILES', `A message carries at most ${OUTBOUND_FILES_MAX} files`);
+      const n = next();
+      uploads.set(`mock-message-file-${n}`, {
+        outboundId,
+        file: { fileName: b.fileName, contentType: b.contentType, sizeBytes: b.sizeBytes },
+      });
+      return {
+        uploadToken: `mock-message-file-${n}`,
+        method: 'PUT' as const,
+        url: `mock:message-file/${n}`,
+        headers: { 'content-type': b.contentType },
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+      };
+    },
+    confirmFile: async (outboundId: string, body: ConfirmUploadRequest) => {
+      await mockDelay();
+      const { uploadToken } = parseInput(ConfirmUploadRequest, body);
+      const pending = uploads.get(uploadToken);
+      const r = find(outboundId);
+      if (pending?.outboundId !== outboundId)
+        throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Add it again.');
+      uploads.delete(uploadToken);
+      // Mock mode scans at once, as SCAN_MODE=local.
+      const file: OutboundFile = {
+        id: id('0199b6e9', next()),
+        ...pending.file,
+        status: 'READY',
+        createdAt: now(),
+      };
+      r.files.push(file);
+      r.updatedAt = stamp();
+      return { ...file };
+    },
+    removeFile: async (outboundId: string, fileId: string) => {
+      await mockDelay();
+      const r = find(outboundId);
+      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED')
+        throw fail(409, 'NOT_EDITABLE', 'This message was already sent or canceled.');
+      if (!r.files.some((f) => f.id === fileId)) throw notFound();
+      r.files = r.files.filter((f) => f.id !== fileId);
+      r.updatedAt = stamp();
+      return { ok: true as const };
+    },
     cancel: async (outboundId: string, body: CancelOutboundRequest) => {
       await mockDelay();
       const { version } = parseInput(CancelOutboundRequest, body);
@@ -797,6 +962,21 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
       r.updatedAt = stamp();
       return shape(r);
     },
+  };
+}
+
+const FILES_NEED_PORTAL =
+  'Files go to clients through their portal. Choose Portal, or remove the files';
+
+/** A file New Message sent (MSG-F12), as the API links it: only once it reached a client. */
+function sentFileLink(fileId: string) {
+  const sent = outboundRows.some(
+    (r) => r.status === 'SENT' && r.files.some((f) => f.id === fileId),
+  );
+  if (!sent) throw notFound();
+  return {
+    url: `data:text/plain;charset=utf-8,${encodeURIComponent('Mock message file')}`,
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
   };
 }
 
@@ -956,7 +1136,8 @@ export function createMessagesMock(
         if (d.sizeBytes > attachmentMaxMb * 1024 * 1024)
           throw fail(400, 'ATTACHMENT_TOO_LARGE', `${d.fileName} is over ${attachmentMaxMb} MB`);
         files.push({
-          documentId: d.id,
+          kind: 'DOCUMENT',
+          id: d.id,
           fileName: d.fileName,
           contentType: d.contentType,
           sizeBytes: d.sizeBytes,
@@ -983,6 +1164,7 @@ export function createMessagesMock(
       mark(t, 'CLIENT_TO_FIRM', false);
       return firmThread(t);
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
     unreadCount: async () => {
       await mockDelay();
       const byClient = new Map<string, number>();
@@ -1225,6 +1407,7 @@ export function createMyMessagesMock(): MyMessagesClient {
       await mockDelay();
       return { count: mine().reduce((sum, t) => sum + myThread(t).unreadCount, 0) };
     },
+    fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
   };
 }
 

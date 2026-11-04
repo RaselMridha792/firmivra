@@ -107,13 +107,27 @@ export const records: CaseModule['records'] = {
 export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/invoices': {
     params: {},
-    bodyIds: { clientId: 'client', engagementId: 'engagement' },
+    // IP-F03: the tax rate, Assigned Staff, template and attached files are the firm's own too.
+    bodyIds: {
+      clientId: 'client',
+      engagementId: 'engagement',
+      taxRateId: 'invoiceTaxRate',
+      assignedUserId: 'staffUser',
+      templateId: 'invoiceTemplate',
+      documentIds: 'document',
+    },
     body: { lines: [{ description: 'Fake service', unitAmountCents: 5_000 }], dueOn: day(20) },
   },
   'GET /api/v1/business/invoices/:id': { params: { id: 'invoice' } },
   'PUT /api/v1/business/invoices/:id': {
     params: { id: 'invoice' },
-    bodyIds: { engagementId: 'engagement' },
+    bodyIds: {
+      engagementId: 'engagement',
+      taxRateId: 'invoiceTaxRate',
+      assignedUserId: 'staffUser',
+      templateId: 'invoiceTemplate',
+      documentIds: 'document',
+    },
     body: { lines: [{ description: 'Fake service', unitAmountCents: 5_000 }], dueOn: day(20) },
   },
   // Found, but a draft with no lines has nothing to pay.
@@ -122,6 +136,14 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },
   },
+  // IP-F09: an invoice's history (notes, logged activity) and its PDF (the suite has no file
+  // store, so found and then 503, as the intake PDF).
+  'GET /api/v1/business/invoices/:id/history': { params: { id: 'invoice' } },
+  'POST /api/v1/business/invoices/:id/history': {
+    params: { id: 'invoice' },
+    body: { type: 'NOTE', body: 'Fake note' },
+  },
+  'GET /api/v1/business/invoices/:id/pdf': { params: { id: 'openInvoice' }, expect: 503 },
   // IP-F08: an open invoice's due date, later (not yet dispatched, so no reason is needed).
   'POST /api/v1/business/invoices/:id/correct': {
     params: { id: 'openInvoice' },

@@ -26,6 +26,7 @@ import {
   primary,
   quiet,
 } from './bookkeeping-shared';
+import { ReconciliationPanel } from './reconciliation-panel';
 import { ReportMenu } from './report-actions';
 
 const REPORT_TYPES = [
@@ -173,51 +174,52 @@ export function PeriodsTab({ w, onNotice }: { w: BookkeepingClientWorkspace; onN
     { id: 'net', label: 'Net Profit', cell: (p) => moneyWhole(p.netProfitCents) },
   ];
   return (
-    <section
-      className={`${card} flex flex-col gap-3`}
-      aria-label="Periods"
-      data-testid="periods-tab"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-display text-lg font-bold text-heading">
-          Periods &amp; Reconciliation
-        </h2>
-        <button type="button" className={outlined} onClick={() => setAdding(true)}>
-          <Plus aria-hidden weight="bold" className="size-4" /> Add Period
-        </button>
-      </div>
-      <div className="relative">
-        <Table
-          rows={list.data?.items ?? []}
-          columns={columns}
-          rowKey={(p) => p.id}
-          caption="Periods"
-          dense
-          noun="periods"
-          pageSize={12}
-          loading={list.isPending}
-          emptyTitle={list.isError ? 'Periods are not available' : 'No periods yet'}
-          emptyText={
-            list.isError
-              ? 'We could not load the periods. Try again in a moment.'
-              : 'Add the first period to start the close.'
-          }
-          server={{
-            page: list.data?.page ?? 1,
-            total: list.data?.total ?? 0,
-            hasNext: (list.data?.page ?? 1) * 12 < (list.data?.total ?? 0),
-            hasPrevious: (list.data?.page ?? 1) > 1,
-            onNext: () => setPage(page + 1),
-            onPrevious: () => setPage(Math.max(1, page - 1)),
-            onPage: (n: number) => setPage(n),
-            onSort: () => undefined,
-          }}
-        />
-      </div>
-      {adding ? (
-        <AddPeriodDialog w={w} onClose={() => setAdding(false)} onNotice={onNotice} />
-      ) : null}
-    </section>
+    <div className="flex min-w-0 flex-col gap-4">
+      <ReconciliationPanel w={w} />
+      <section
+        className={`${card} flex flex-col gap-3`}
+        aria-label="Periods"
+        data-testid="periods-tab"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display text-lg font-bold text-heading">Periods</h2>
+          <button type="button" className={outlined} onClick={() => setAdding(true)}>
+            <Plus aria-hidden weight="bold" className="size-4" /> Add Period
+          </button>
+        </div>
+        <div className="relative">
+          <Table
+            rows={list.data?.items ?? []}
+            columns={columns}
+            rowKey={(p) => p.id}
+            caption="Periods"
+            dense
+            noun="periods"
+            pageSize={12}
+            loading={list.isPending}
+            emptyTitle={list.isError ? 'Periods are not available' : 'No periods yet'}
+            emptyText={
+              list.isError
+                ? 'We could not load the periods. Try again in a moment.'
+                : 'Add the first period to start the close.'
+            }
+            server={{
+              page: list.data?.page ?? 1,
+              total: list.data?.total ?? 0,
+              hasNext: (list.data?.page ?? 1) * 12 < (list.data?.total ?? 0),
+              hasPrevious: (list.data?.page ?? 1) > 1,
+              onNext: () => setPage(page + 1),
+              onPrevious: () => setPage(Math.max(1, page - 1)),
+              onPage: (n: number) => setPage(n),
+              onSort: () => undefined,
+            }}
+          />
+        </div>
+        {adding ? (
+          <AddPeriodDialog w={w} onClose={() => setAdding(false)} onNotice={onNotice} />
+        ) : null}
+      </section>
+    </div>
   );
 }
 

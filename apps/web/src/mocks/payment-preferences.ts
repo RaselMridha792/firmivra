@@ -13,7 +13,12 @@ import { mockDelay } from '../lib/mock';
 
 /** Every option off, as the API answers a firm that never saved (IP-F13). */
 const defaults = (): PaymentPreferences => ({
-  invoiceDefaults: { invoicePrefix: 'INV-', defaultTerms: 'net_14', defaultMemo: null },
+  invoiceDefaults: {
+    invoicePrefix: 'INV-',
+    defaultTerms: 'net_14',
+    defaultMemo: null,
+    customTermDays: [],
+  },
   reminders: {
     sendReminders: false,
     reminderDaysBefore: 3,
@@ -35,6 +40,11 @@ const defaults = (): PaymentPreferences => ({
   updatedAt: null,
 });
 
+/** The latest mock's live tax rates and templates, for the invoice mock (IP-F03). */
+let live: { taxes: () => InvoiceTaxRate[]; templates: () => InvoiceTemplateView[] } | undefined;
+export const mockLiveTaxRate = (id: string) => live?.taxes().find((t) => t.id === id);
+export const mockLiveTemplate = (id: string) => live?.templates().find((t) => t.id === id);
+
 /** `api.paymentPreferences` in mock mode (synthetic), with the API's stale-save check. */
 export function createPaymentPreferencesMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
@@ -42,6 +52,7 @@ export function createPaymentPreferencesMock(
   let prefs = defaults();
   let taxes: InvoiceTaxRate[] = [];
   let templates: InvoiceTemplateView[] = [];
+  live = { taxes: () => taxes, templates: () => templates };
   let n = 0;
   const id = () => `01a1a000-0000-7000-8000-${String(++n).padStart(12, '0')}`;
   const guard = async () => {
@@ -71,7 +82,12 @@ export function createPaymentPreferencesMock(
       await guard();
       const { updatedAt, ...sections } = UpdatePaymentPreferencesRequest.parse(body);
       fresh(updatedAt);
-      prefs = { ...sections, updatedAt: new Date().toISOString() };
+      const days = [...sections.invoiceDefaults.customTermDays].sort((a, b) => a - b);
+      prefs = {
+        ...sections,
+        invoiceDefaults: { ...sections.invoiceDefaults, customTermDays: days },
+        updatedAt: new Date().toISOString(),
+      };
       return structuredClone(prefs);
     },
     reset: async (body) => {

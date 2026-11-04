@@ -41,7 +41,9 @@ import {
   BookkeepingReasonRequest,
   type BookkeepingReconciliation,
   BookkeepingReconciliationId,
+  type BookkeepingReconciliationItems,
   type BookkeepingReconciliationList,
+  ClearBookkeepingReconciliationItemsRequest,
   BookkeepingReopenRequest,
   BookkeepingReportId,
   type BookkeepingReportPage,
@@ -58,6 +60,9 @@ import {
   CreateBookkeepingReconciliationRequest,
   DeliverBookkeepingReportRequest,
   LogBookkeepingActivityRequest,
+  ListBookkeepingTransactionsQuery,
+  type BookkeepingCategoryList,
+  type BookkeepingTransactionPage,
   SaveBookkeepingSettingsRequest,
   UpdateBookkeepingAccountRequest,
   UpdateBookkeepingClientRequest,
@@ -82,6 +87,7 @@ import { BookkeepingClientsService } from './bookkeeping-clients.service.js';
 import { BookkeepingConnectionsService } from './bookkeeping-connections.service.js';
 import { BookkeepingPeriodsService } from './bookkeeping-periods.service.js';
 import { BookkeepingReportsService } from './bookkeeping-reports.service.js';
+import { BookkeepingTransactionsService } from './bookkeeping-transactions.service.js';
 
 const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
 const clientId = pipe(BookkeepingClientId);
@@ -108,6 +114,7 @@ const csv = (text: string) =>
 @Roles(...FIRM_STAFF)
 export class BookkeepingController {
   constructor(
+    private readonly ledger: BookkeepingTransactionsService,
     private readonly clients: BookkeepingClientsService,
     private readonly connections: BookkeepingConnectionsService,
     private readonly periods: BookkeepingPeriodsService,
@@ -368,6 +375,27 @@ export class BookkeepingController {
     return this.connections.syncRuns(tenant.businessId, actorOf(auth, tenant), id, q);
   }
 
+  /** BK-T01: the client's transactions, newest first, with the counts by status. */
+  @Get('clients/:id/transactions')
+  transactions(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Query(pipe(ListBookkeepingTransactionsQuery))
+    q: z.output<typeof ListBookkeepingTransactionsQuery>,
+  ): Promise<BookkeepingTransactionPage> {
+    return this.ledger.list(tenant.businessId, actorOf(auth, tenant), id, q);
+  }
+
+  @Get('clients/:id/categories')
+  categories(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+  ): Promise<BookkeepingCategoryList> {
+    return this.ledger.categories(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   @Get('clients/:id/accounts')
   accounts(
     @CurrentAuth() auth: AuthContext,
@@ -558,6 +586,34 @@ export class BookkeepingController {
     body: z.output<typeof UpdateBookkeepingReconciliationRequest>,
   ): Promise<BookkeepingReconciliation> {
     return this.periods.saveReconciliation(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** BK-R01: the lines this reconciliation can clear, with the figures they give. */
+  @Get('reconciliations/:id/items')
+  reconciliationItems(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reconciliationId) id: string,
+  ): Promise<BookkeepingReconciliationItems> {
+    return this.periods.reconciliationItems(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** BK-R01: mark lines cleared, or not. */
+  @Post('reconciliations/:id/items')
+  @HttpCode(200)
+  clearReconciliationItems(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reconciliationId) id: string,
+    @Body(pipe(ClearBookkeepingReconciliationItemsRequest))
+    body: z.output<typeof ClearBookkeepingReconciliationItemsRequest>,
+  ): Promise<BookkeepingReconciliation> {
+    return this.periods.clearReconciliationItems(
+      tenant.businessId,
+      actorOf(auth, tenant),
+      id,
+      body,
+    );
   }
 
   @Post('reconciliations/:id/ready')

@@ -613,7 +613,12 @@ function Conversation({
                 {m.body}
               </p>
               {/* MSG-F12: the message's files, opened through Documents once checked. */}
-              <MessageFiles files={m.attachments} open={(id) => api.documents.download(id)} />
+              <MessageFiles
+                files={m.attachments}
+                open={(f) =>
+                  f.kind === 'FILE' ? api.messages.fileDownload(f.id) : api.documents.download(f.id)
+                }
+              />
               <span className="mt-0.5 text-xs text-muted">
                 {m.sender.name} · {day(m.createdAt)}
                 {/* MSG-F10: every conversation message is a portal message. */}

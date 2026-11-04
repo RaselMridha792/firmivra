@@ -31,6 +31,7 @@ export {
   type ActionMenuProps,
   type ActionMenuSection,
 } from './action-menu';
+export { HelpTip, type HelpTipProps } from './help-tip';
 export { Tabs, type TabItem, type TabsVariant } from './tabs';
 export { Toast, Skeleton, EmptyState } from './states';
 export { Stepper, type StepItem } from './stepper';

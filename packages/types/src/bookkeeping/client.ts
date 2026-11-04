@@ -54,6 +54,15 @@ import {
   UpdateBookkeepingReconciliationRequest,
   UpdateBookkeepingReportRequest,
 } from './schemas.js';
+import {
+  BookkeepingCategoryList,
+  BookkeepingTransactionPage,
+  ListBookkeepingTransactionsQuery,
+} from './transactions.js';
+import {
+  BookkeepingReconciliationItems,
+  ClearBookkeepingReconciliationItemsRequest,
+} from './reconciliation-items.js';
 
 const BASE = '/business/bookkeeping';
 const client = (id: string) => `${BASE}/clients/${parseInput(BookkeepingClientId, id)}`;
@@ -207,6 +216,18 @@ export function createBookkeepingClient(request: ApiRequest) {
     // Accounts
     accounts: async (id: string): Promise<BookkeepingAccountList> =>
       request(BookkeepingAccountList, `${client(id)}/accounts`),
+    /** BK-T01: the client's transactions, newest first, with the tabs' counts. */
+    transactions: async (
+      id: string,
+      query: ListBookkeepingTransactionsQuery = {},
+    ): Promise<BookkeepingTransactionPage> =>
+      request(
+        BookkeepingTransactionPage,
+        `${client(id)}/transactions${toQuery(parseInput(ListBookkeepingTransactionsQuery, query))}`,
+      ),
+    /** BK-T01: the categories the client's transactions are filed under. */
+    categories: async (id: string): Promise<BookkeepingCategoryList> =>
+      request(BookkeepingCategoryList, `${client(id)}/categories`),
     addAccount: async (
       id: string,
       body: AddBookkeepingAccountRequest,
@@ -305,6 +326,19 @@ export function createBookkeepingClient(request: ApiRequest) {
         method: 'PATCH',
         body: parseInput(UpdateBookkeepingReconciliationRequest, body),
       }),
+    /** BK-R01: the lines this reconciliation can clear, with the figures they give. */
+    reconciliationItems: async (id: string): Promise<BookkeepingReconciliationItems> =>
+      request(BookkeepingReconciliationItems, `${recon(id)}/items`),
+    /** BK-R01: mark lines cleared, or not; the cleared balance and difference follow. */
+    clearReconciliationItems: async (
+      id: string,
+      body: ClearBookkeepingReconciliationItemsRequest,
+    ): Promise<BookkeepingReconciliation> =>
+      request(
+        BookkeepingReconciliation,
+        `${recon(id)}/items`,
+        post(parseInput(ClearBookkeepingReconciliationItemsRequest, body)),
+      ),
     markReconciliationReady: async (id: string): Promise<BookkeepingReconciliation> =>
       request(BookkeepingReconciliation, `${recon(id)}/ready`, post({})),
     approveReconciliation: async (id: string): Promise<BookkeepingReconciliation> =>

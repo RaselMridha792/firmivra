@@ -20,12 +20,15 @@ import {
   BookkeepingActivityList,
   BookkeepingClientPage,
   BookkeepingClientWorkspace,
+  BookkeepingTransactionPage,
+  BookkeepingCategoryList,
   BookkeepingConnection,
   BookkeepingConnectionList,
   BookkeepingOverview,
   BookkeepingPeriod,
   BookkeepingPeriodList,
   BookkeepingReconciliation,
+  BookkeepingReconciliationItems,
   BookkeepingReconciliationList,
   BookkeepingReportPage,
   BookkeepingReportRow,
@@ -64,6 +67,7 @@ const clients = {
   recon: '',
   reports: '',
   rules: '',
+  ledger: '',
 };
 
 let app: INestApplication;
@@ -297,7 +301,7 @@ beforeAll(async () => {
     });
     clients.other = await mk('Fake Walker Properties', { assignedUserId: people.staffA.id });
     clients.bare = await mk('Fake Bare Client');
-    for (const key of ['conn', 'close', 'recon', 'reports', 'rules'] as const) {
+    for (const key of ['conn', 'close', 'recon', 'reports', 'rules', 'ledger'] as const) {
       clients[key] = await mk(`Fake ${key} client`, { assignedUserId: people.staffA.id });
     }
   });
@@ -2559,6 +2563,350 @@ describe('settings', () => {
       expectError(await call('put', '/settings', people.ownerA, bad), 400, 'VALIDATION_FAILED');
     }
     expect(await auditActions(ids.firmA)).toBeDefined();
+  });
+});
+
+describe('transactions and categories (BK-T01, read side)', () => {
+  it('lists the ledger newest first, with search, filters and counts; Staff only their clients', async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const account = await mkAccount(bk);
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const category = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingCategory.create({
+        data: { ...A, name: 'Fake Office Supplies', type: 'EXPENSE' },
+        select: { id: true },
+      }),
+    );
+    await asOwner(ids.firmA, async (tx) => {
+      for (const [date, payee, cents, status] of [
+        ['2026-09-02', 'Fake Paper Co', 4200, 'CATEGORIZED'],
+        ['2026-09-15', 'Fake Coffee Roasters', 1850, 'UNCATEGORIZED'],
+        ['2026-10-01', 'Fake Landlord LLC', 120000, 'NEEDS_REVIEW'],
+      ] as const) {
+        await tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId: account.id,
+            transactionDate: new Date(`${date}T00:00:00.000Z`),
+            description: `Fake ${payee} payment`,
+            payee,
+            amountCents: cents,
+            direction: 'DEBIT',
+            status,
+            source: 'MANUAL',
+            ...(status === 'CATEGORIZED' ? { categoryId: category.id } : {}),
+          },
+        });
+      }
+    });
+
+    const page = exact(
+      BookkeepingTransactionPage,
+      await call('get', `/clients/${bk}/transactions`, people.staffA),
+    );
+    expect(page.items.map((r) => r.payee)).toEqual([
+      'Fake Landlord LLC',
+      'Fake Coffee Roasters',
+      'Fake Paper Co',
+    ]);
+    expect(page.counts).toMatchObject({ all: 3, uncategorized: 1, needsReview: 1, categorized: 1 });
+    expect(page.items[2]).toMatchObject({
+      category: { id: category.id, name: 'Fake Office Supplies' },
+      account: { id: account.id },
+      splitCount: 0,
+      hasReceipt: false,
+      cleared: false,
+    });
+    const searched = exact(
+      BookkeepingTransactionPage,
+      await call('get', `/clients/${bk}/transactions?search=coffee`, people.ownerA),
+    );
+    expect(searched.items.map((r) => r.payee)).toEqual(['Fake Coffee Roasters']);
+    expect(searched.counts.all).toBe(3);
+    const ranged = exact(
+      BookkeepingTransactionPage,
+      await call(
+        'get',
+        `/clients/${bk}/transactions?status=CATEGORIZED&from=2026-09-01&to=2026-09-30`,
+        people.ownerA,
+      ),
+    );
+    expect(ranged.total).toBe(1);
+    expectError(
+      await call('get', `/clients/${bk}/transactions?from=nope`, people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(await call('get', `/clients/${bk}/transactions`, people.staff2A), 404, 'NOT_FOUND');
+    expectError(
+      await call('get', `/clients/${bk}/transactions`, people.ownerB, undefined, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+
+    const categories = exact(
+      BookkeepingCategoryList,
+      await call('get', `/clients/${bk}/categories`, people.staffA),
+    );
+    expect(categories.items).toEqual([
+      { id: category.id, name: 'Fake Office Supplies', type: 'EXPENSE', active: true },
+    ]);
+    expect(await auditActions(bk)).toEqual(
+      expect.arrayContaining(['bookkeeping.transactions.listed', 'bookkeeping.categories.listed']),
+    );
+  });
+});
+
+describe('reconciliation from the ledger (BK-R01)', () => {
+  it('clears ledger lines, works out the cleared balance, difference and exceptions, and approves only at zero', async () => {
+    const bk = await bkFor(clients.ledger);
+    const p = await mkPeriod(bk);
+    await call('post', `/periods/${p.id}/start`, people.staffA, {});
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const bank = await mkAccount(bk, { name: 'Fake ledger checking', type: 'BANK' });
+    const card = await mkAccount(bk, { name: 'Fake ledger card', type: 'CREDIT_CARD' });
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const at = (offset: number) =>
+      new Date(Date.parse(`${p.periodStart}T00:00:00.000Z`) + offset * 86_400_000);
+    const line = (
+      accountId: string,
+      offset: number,
+      cents: number,
+      direction: 'DEBIT' | 'CREDIT',
+      extra: object = {},
+    ) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId,
+            transactionDate: at(offset),
+            description: `Fake line ${offset}`,
+            amountCents: cents,
+            direction,
+            source: 'MANUAL',
+            ...extra,
+          },
+          select: { id: true },
+        }),
+      );
+    const deposit = await line(bank.id, 0, 50_000, 'CREDIT');
+    const rent = await line(bank.id, 4, 20_000, 'DEBIT');
+    const unsure = await line(bank.id, 9, 5_000, 'DEBIT', {
+      status: 'NEEDS_REVIEW',
+      duplicateOfId: rent.id,
+    });
+    const excluded = await line(bank.id, 11, 1_000, 'DEBIT', {
+      status: 'EXCLUDED',
+      excludedReason: 'Fake personal charge',
+    });
+    const later = await line(bank.id, 60, 3_000, 'DEBIT');
+    const onCard = await line(card.id, 2, 700, 'DEBIT');
+
+    const recons = `/periods/${p.id}/reconciliations`;
+    const start = {
+      accountId: bank.id,
+      statementStart: p.periodStart,
+      statementEnd: p.periodEnd,
+      beginningBalanceCents: 100_000,
+      endingBalanceCents: 125_000,
+    };
+    // Typed cleared figures are refused once the account has ledger lines.
+    expectError(
+      await call('post', recons, people.staffA, { ...start, clearedBalanceCents: 125_000 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', recons, people.staffA, start),
+      201,
+    );
+    expect(r).toMatchObject({
+      clearedCount: 0,
+      clearedBalanceCents: 100_000,
+      differenceCents: 25_000,
+      exceptionsCount: 1,
+    });
+    const items = `/reconciliations/${r.id}/items`;
+    const listed = exact(BookkeepingReconciliationItems, await call('get', items, people.staffA));
+    // Oldest first; the excluded line and the line after the statement end are not offered.
+    expect(listed.items.map((i) => i.id)).toEqual([deposit.id, rent.id, unsure.id]);
+    expect(listed.items.map((i) => i.effectCents)).toEqual([50_000, -20_000, -5_000]);
+    // A probable duplicate is an exception; a line still to categorize is not.
+    expect(listed.items.map((i) => i.exception)).toEqual([null, null, 'DUPLICATE']);
+    expect(listed).toMatchObject({ fromLedger: true, truncated: false, differenceCents: 25_000 });
+
+    const clear = (transactionIds: string[], cleared = true, who: Who = people.staffA) =>
+      call('post', items, who, { transactionIds, cleared });
+    expect(exact(BookkeepingReconciliation, await clear([deposit.id, rent.id]))).toMatchObject({
+      clearedCount: 2,
+      clearedBalanceCents: 130_000,
+      differenceCents: -5_000,
+    });
+    expectError(await clear([excluded.id]), 409, 'RECON_STATE');
+    expectError(await clear([later.id]), 409, 'RECON_STATE');
+    expectError(await clear([onCard.id]), 409, 'NOT_THIS_CLIENTS');
+    expectError(await clear([randomUUID()]), 409, 'NOT_THIS_CLIENTS');
+    expectError(await clear([rent.id, rent.id]), 400, 'VALIDATION_FAILED');
+    expectError(await clear([deposit.id], true, people.staff2A), 404, 'NOT_FOUND');
+    expectError(
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, { clearedCount: 9 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    // A difference blocks approval, and a reconciliation in review cannot change.
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_DIFFERENCE',
+    );
+    expectError(await clear([unsure.id]), 409, 'RECON_STATE');
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: the rent cheque is outstanding',
+    });
+
+    expect(exact(BookkeepingReconciliation, await clear([unsure.id]))).toMatchObject({
+      clearedCount: 3,
+      differenceCents: 0,
+    });
+    // Cleared lines cannot fall after a new statement end.
+    expectError(
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, {
+        statementEnd: at(5).toISOString().slice(0, 10),
+      }),
+      409,
+      'RECON_STATE',
+    );
+    // An open exception blocks approval at zero; once resolved, the zero difference approves.
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_STATE',
+    );
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.update({
+        where: { id: unsure.id },
+        data: { duplicateOfId: null },
+      }),
+    );
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      ),
+    ).toMatchObject({ status: 'APPROVED', differenceCents: 0, exceptionsCount: 0 });
+
+    // Unclearing works the figures back out (after a reopen).
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: recheck the deposit',
+    });
+    expect(exact(BookkeepingReconciliation, await clear([deposit.id], false))).toMatchObject({
+      clearedCount: 2,
+      clearedBalanceCents: 75_000,
+      differenceCents: 50_000,
+    });
+
+    // Firm B cannot see or change firm A's reconciliation.
+    expectError(await call('get', items, people.ownerB, undefined, ids.firmB), 404, 'NOT_FOUND');
+    expectError(
+      await call(
+        'post',
+        items,
+        people.ownerB,
+        { transactionIds: [deposit.id], cleared: true },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expect(await auditActions(r.id)).toEqual(
+      expect.arrayContaining([
+        'bookkeeping.reconciliation.items_listed',
+        'bookkeeping.reconciliation.items_cleared',
+        'bookkeeping.reconciliation.items_uncleared',
+      ]),
+    );
+  });
+  it("clears an outstanding line from a closed month in the next month's reconciliation (Rasel, Oct 27)", async () => {
+    const bk = await bkFor(clients.ledger);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const bank = await mkAccount(bk, { name: 'Fake outstanding checking', type: 'BANK' });
+    const first = await mkPeriod(bk);
+    const next = await mkPeriod(bk);
+    const cheque = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.create({
+        data: {
+          ...A,
+          accountId: bank.id,
+          transactionDate: new Date(`${first.periodEnd}T00:00:00.000Z`),
+          description: 'Fake outstanding cheque',
+          amountCents: 8_000,
+          direction: 'DEBIT',
+          source: 'MANUAL',
+        },
+        select: { id: true },
+      }),
+    );
+    // The first month closes with the cheque outstanding.
+    await asOwner(ids.firmA, async (tx) => {
+      const stamp = new Date();
+      await tx.bookkeepingCloseItem.updateMany({
+        where: { periodId: first.id },
+        data: { completedAt: stamp, completedByUserId: people.ownerA.id },
+      });
+      const set = (data: object) => tx.bookkeepingPeriod.update({ where: { id: first.id }, data });
+      await set({ status: 'IN_PROGRESS' });
+      await set({ status: 'READY_FOR_REVIEW', readyForReviewAt: stamp });
+      await set({ status: 'APPROVED', approvedAt: stamp });
+      await set({ status: 'CLOSED', closedAt: stamp });
+    });
+    await call('post', `/periods/${next.id}/start`, people.staffA, {});
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', `/periods/${next.id}/reconciliations`, people.staffA, {
+        accountId: bank.id,
+        statementStart: next.periodStart,
+        statementEnd: next.periodEnd,
+        beginningBalanceCents: 50_000,
+        endingBalanceCents: 42_000,
+      }),
+      201,
+    );
+    const listed = exact(
+      BookkeepingReconciliationItems,
+      await call('get', `/reconciliations/${r.id}/items`, people.staffA),
+    );
+    expect(listed.items.map((i) => i.id)).toEqual([cheque.id]);
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/items`, people.staffA, {
+          transactionIds: [cheque.id],
+          cleared: true,
+        }),
+      ),
+    ).toMatchObject({ clearedCount: 1, clearedBalanceCents: 42_000, differenceCents: 0 });
+    // Nothing else on the closed month's line changes.
+    await expect(
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.update({ where: { id: cheque.id }, data: { amountCents: 1 } }),
+      ),
+    ).rejects.toThrow(/closed and locked/);
   });
 });
 
