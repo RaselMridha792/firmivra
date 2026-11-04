@@ -252,6 +252,8 @@ describe('Firm onboarding, from application to an active firm', () => {
       'setup.step_completed',
       'setup.step_completed',
       'setup.finished',
+      // The first Finish installs the starter templates (TP-F18): one row, the count only.
+      'message_template.starters_installed',
     ]);
     expect(JSON.stringify(firmRows)).not.toMatch(/1234567|Owner-password/);
     // The activation token is in no audit row, of the platform or the firm.

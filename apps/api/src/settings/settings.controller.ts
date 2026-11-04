@@ -19,6 +19,8 @@ import {
   Roles,
 } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { TemplatesModule } from '../templates/templates.module.js';
+import { actorOf } from '../workspaces/common.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
@@ -89,8 +91,11 @@ export class SettingsController {
 
   @Post('setup/complete')
   @HttpCode(200)
-  finishSetup(@CurrentTenant() tenant: TenantContext): Promise<FirmSetup> {
-    return this.settings.finishSetup(tenant.businessId);
+  finishSetup(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<FirmSetup> {
+    return this.settings.finishSetup(tenant.businessId, actorOf(auth, tenant));
   }
 
   @Get('legal/:kind')
@@ -123,7 +128,8 @@ export class SettingsController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule, PortalInfoModule],
+  // TemplatesModule: the first Finish installs the starter templates (TP-F18).
+  imports: [FieldEncryptionModule, PortalInfoModule, TemplatesModule],
   controllers: [
     SettingsController,
     SettingsOverviewController,

@@ -23,7 +23,9 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { TemplateStartersService } from '../templates/template-starters.service.js';
 import {
   type FieldContext,
   FieldEncryption,
@@ -94,6 +96,7 @@ export class SettingsService {
     private readonly audit: AuditService,
     private readonly fieldEncryption: FieldEncryption,
     @Inject(ENV) private readonly env: Env,
+    private readonly starters: TemplateStartersService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -206,8 +209,12 @@ export class SettingsService {
     return setup;
   }
 
-  /** Finish: needs every step; the firm becomes Active. Repeating returns the first finish. */
-  async finishSetup(businessId: string): Promise<FirmSetup> {
+  /**
+   * Finish: needs every step; the firm becomes Active. Repeating returns the first finish. The
+   * first finish also installs the 48 starter templates (TP-F18; idempotent by key, as the
+   * Templates Overview's Install): a failure there is logged and leaves the finish as it is.
+   */
+  async finishSetup(businessId: string, actor?: ClientsActor): Promise<FirmSetup> {
     const { setup, changed } = await this.inFirm(businessId, async (tx) => {
       const row = await this.lockSetup(tx, businessId);
       const steps = stepsOf(row.progress);
@@ -232,6 +239,11 @@ export class SettingsService {
       return { setup: toSetup(steps, setupCompletedAt), changed: true };
     });
     if (changed) await this.audit.log('setup.finished', { type: 'business', id: businessId });
+    if (changed && actor) {
+      await this.starters.install(businessId, actor).catch((error: unknown) => {
+        this.logger.warn(`Starter templates not installed at setup: ${(error as Error).name}`);
+      });
+    }
     return setup;
   }
 
