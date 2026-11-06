@@ -1,11 +1,11 @@
 'use client';
 
 import type { ComplianceRecurrence } from '@firmivra/types';
-import { ActionMenu, Badge, type Column, Table, Toast } from '@firmivra/ui';
+import { ActionMenu, Badge, type Column, Input, Table, Toast } from '@firmivra/ui';
 import { Archive, DotsThreeVertical, PencilSimple, Pause, Play, Stop } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -13,7 +13,9 @@ import {
   COMPLIANCE_ERRORS,
   COMPLIANCE_KEY,
   RECURRENCE_TONE,
+  Selectbox,
   TYPE_LABEL,
+  TYPE_OPTIONS,
   dayText,
   frequencyText,
 } from './compliance-shared';
@@ -29,13 +31,30 @@ export function RecurringList({
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
-  const list = useApiQuery([...COMPLIANCE_KEY, 'recurrences', templates, page], () =>
-    api.compliance.recurrences({
-      ...(templates === undefined ? {} : { templates }),
-      page,
-      pageSize: 10,
-    }),
+  // CD-F13 (Octavia, Oct 28): search, status (active, paused, ended), type, and definitions or
+  // templates, as the API filters them.
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
+  const [status, setStatus] = useState('');
+  const [type, setType] = useState('');
+  const [kind, setKind] = useState('');
+  const onlyTemplates = templates ?? (kind === '' ? undefined : kind === 'templates');
+  const list = useApiQuery(
+    [...COMPLIANCE_KEY, 'recurrences', onlyTemplates, page, term, status, type],
+    () =>
+      api.compliance.recurrences({
+        ...(onlyTemplates === undefined ? {} : { templates: onlyTemplates }),
+        ...(term ? { search: term } : {}),
+        ...(status ? { status: status as ComplianceRecurrence['status'] } : {}),
+        ...(type ? { type: type as ComplianceRecurrence['type'] } : {}),
+        page,
+        pageSize: 10,
+      }),
   );
+  const filter = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setPage(1);
+  };
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const options = { invalidate: [...COMPLIANCE_KEY] };
   const done = (text: string) => () => setMessage({ text, tone: 'success' });
@@ -133,6 +152,55 @@ export function RecurringList({
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      <div className="flex flex-wrap items-end gap-3" data-testid="recurring-filters">
+        <div className="w-64">
+          <Input
+            label="Search"
+            hideLabel
+            type="search"
+            maxLength={100}
+            placeholder="Search name, agency or form"
+            value={search}
+            onChange={(e) => filter(setSearch)(e.target.value)}
+          />
+        </div>
+        <div className="w-40">
+          <Selectbox
+            label="Status"
+            value={status}
+            onChange={filter(setStatus)}
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'PAUSED', label: 'Paused' },
+              { value: 'ENDED', label: 'Ended' },
+              { value: 'ARCHIVED', label: 'Archived' },
+            ]}
+          />
+        </div>
+        <div className="w-48">
+          <Selectbox
+            label="Type"
+            value={type}
+            onChange={filter(setType)}
+            options={[{ value: '', label: 'All Types' }, ...TYPE_OPTIONS]}
+          />
+        </div>
+        {templates === undefined ? (
+          <div className="w-60">
+            <Selectbox
+              label="Kind"
+              value={kind}
+              onChange={filter(setKind)}
+              options={[
+                { value: '', label: 'Definitions and Templates' },
+                { value: 'definitions', label: 'Definitions' },
+                { value: 'templates', label: 'Templates' },
+              ]}
+            />
+          </div>
+        ) : null}
+      </div>
       <div className="relative">
         <Table
           rows={rows}

@@ -168,22 +168,42 @@ export class ComplianceCalendarsService {
     q: z.output<typeof ComplianceCalendarsQuery>,
   ): Promise<ComplianceCalendarPage> {
     const db = this.tenantPrisma.db;
+    const settings = await loadSettings(txOf(db), businessId);
+    const today = todayOf();
+    // CD-F13 (Octavia, Oct 28): verified within the firm's stale-calendar limit, before it, never.
+    const limit = addDays(today, -settings.staleCalendarDays);
+    const verified: Prisma.ComplianceCalendarWhereInput =
+      q.verification === 'CURRENT'
+        ? { verifiedAt: { gte: limit } }
+        : q.verification === 'OUT_OF_DATE'
+          ? { verifiedAt: { lt: limit } }
+          : q.verification === 'NEVER'
+            ? { verifiedAt: null }
+            : {};
     const where: Prisma.ComplianceCalendarWhereInput = {
       businessId,
       ...(q.status ? { status: q.status } : {}),
       ...(q.family ? { family: q.family } : {}),
       ...(q.year ? { effectiveYear: q.year } : {}),
       ...(q.state ? { state: q.state } : {}),
+      ...(q.jurisdiction ? { jurisdiction: q.jurisdiction } : {}),
+      ...verified,
       ...(q.search
         ? {
             OR: [
               { name: { contains: q.search, mode: 'insensitive' } },
               { authority: { contains: q.search, mode: 'insensitive' } },
+              // An entry's form ("1065"), in this firm's calendar.
+              {
+                entries: {
+                  some: { businessId, form: { contains: q.search, mode: 'insensitive' } },
+                },
+              },
             ],
           }
         : {}),
     };
-    const [rows, total, settings] = await Promise.all([
+    const [rows, total] = await Promise.all([
       db.complianceCalendar.findMany({
         where,
         orderBy: [
@@ -196,14 +216,12 @@ export class ComplianceCalendarsService {
         take: q.pageSize,
       }),
       db.complianceCalendar.count({ where }),
-      loadSettings(txOf(db), businessId),
     ]);
     const counts = await this.counts(
       txOf(db),
       businessId,
       rows.map((r) => r.id),
     );
-    const today = todayOf();
     return {
       items: rows.map((r) =>
         this.rowOf(

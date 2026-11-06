@@ -4,6 +4,7 @@ import { SearchText, text } from '../clients/text.js';
 import {
   ApplicabilityDecision,
   ApplicabilityOutcome,
+  ClientStatus,
   ComplianceLogKind,
   DeadlineFrequency,
   DeadlineType,
@@ -368,8 +369,8 @@ const ruleFields = {
   /** The client's state (the profile's), two letters. */
   states: z.array(RuleState).max(60).optional().default([]),
   services: z.array(ServiceKind).max(10).optional().default([]),
-  /** Clients with one of these statuses (for example INACTIVE) never match. */
-  excludeStatuses: z.array(text(60)).max(20).optional().default([]),
+  /** Clients with one of these statuses (for example INACTIVE) never match (CD-F13: real statuses only). */
+  excludeStatuses: z.array(ClientStatus).max(6).optional().default([]),
   priorYearLiabilityOverCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
   /** Anything else (election, fiscal year end, payroll or sales tax registration); needs staff review while the client has no such data. */
   criteria: Criteria.optional().default({}),
@@ -398,7 +399,7 @@ export const UpdateApplicabilityRuleRequest = z
     entityTypes: z.array(text(60)).max(30),
     states: z.array(RuleState).max(60),
     services: z.array(ServiceKind).max(10),
-    excludeStatuses: z.array(text(60)).max(20),
+    excludeStatuses: z.array(ClientStatus).max(6),
     priorYearLiabilityOverCents: ruleFields.priorYearLiabilityOverCents,
     criteria: Criteria,
     active: z.boolean(),

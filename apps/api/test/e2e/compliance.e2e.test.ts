@@ -1975,6 +1975,90 @@ describe('the overview, lists, calendar and exports', () => {
     );
     expect(await auditActions(k.alpha!, ids.firmC)).toContain('compliance.client.viewed');
   });
+
+  it('filters by tax year, source, jurisdiction, priority, recurring and unassigned, in this firm only (CD-F04, Octavia Oct 28)', async () => {
+    const recurrence = await asOwner(ids.firmC, (tx) =>
+      tx.complianceRecurrence.findFirstOrThrow({
+        where: { businessId: ids.firmC, name: 'Active recurrence' },
+      }),
+    );
+    const change = (key: string, data: Record<string, unknown>) =>
+      asOwner(ids.firmC, (tx) => tx.complianceDeadline.update({ where: { id: dl[key]! }, data }));
+    // Firm D has a deadline that matches every filter: it never shows in firm C.
+    const elsewhere = await asOwner(ids.firmD, async (tx) => {
+      const client = await tx.client.findFirstOrThrow({ where: { businessId: ids.firmD } });
+      return tx.complianceDeadline.create({
+        data: {
+          businessId: ids.firmD,
+          clientId: client.id,
+          name: 'Firm D return',
+          type: 'TAX_FILING',
+          dueOn: at(4),
+          taxYear: 2030,
+          source: 'GOVERNMENT',
+          jurisdiction: 'STATE',
+          priority: 'HIGH',
+          relatedForm: '1120-S',
+        },
+      });
+    });
+    try {
+      await change('d1', { taxYear: 2030, source: 'GOVERNMENT', jurisdiction: 'FEDERAL' });
+      await change('d6', {
+        taxYear: 2030,
+        source: 'GOVERNMENT',
+        jurisdiction: 'STATE',
+        relatedForm: '1120-S',
+      });
+      await change('d3', { recurrenceId: recurrence.id });
+      expect(names(await list('?taxYear=2030')).sort()).toEqual(['Overdue return', 'Sales tax']);
+      expect(names(await list('?source=GOVERNMENT')).sort()).toEqual([
+        'Overdue return',
+        'Sales tax',
+      ]);
+      expect((await list('?source=FIRM')).total).toBe(6);
+      expect(names(await list('?jurisdiction=STATE'))).toEqual(['Sales tax']);
+      expect(names(await list('?taxYear=2030&jurisdiction=FEDERAL'))).toEqual(['Overdue return']);
+      expect(names(await list('?priority=HIGH')).sort()).toEqual(['Estimate', 'Sales tax']);
+      expect(names(await list('?recurring=true'))).toEqual(['Monthly books']);
+      expect((await list('?recurring=false')).total).toBe(7);
+      const unassigned = await list('?unassigned=true&pageSize=100');
+      expect(unassigned.total).toBe(7);
+      expect(names(unassigned)).not.toContain('Estimate');
+      // The search finds the form as well.
+      expect(names(await list('?search=1120-s'))).toEqual(['Sales tax']);
+      // Combined with the others, and nothing of firm D's.
+      expect(
+        names(await list(`?taxYear=2030&priority=HIGH&source=GOVERNMENT&from=${plus(0)}`)),
+      ).toEqual(['Sales tax']);
+      expect(names(await list('?taxYear=2030&priority=HIGH', ids.firmD))).toEqual([
+        'Firm D return',
+      ]);
+      expect((await list('?taxYear=2031&recurring=true')).total).toBe(0);
+      for (const q of [
+        '?taxYear=1999',
+        '?taxYear=twenty',
+        '?source=NOPE',
+        '?jurisdiction=CITY',
+        '?priority=URGENT',
+        '?recurring=maybe',
+        '?unassigned=1',
+      ]) {
+        expectError(
+          await call('get', `/compliance/deadlines${q}`, people.ownerA, undefined, ids.firmC),
+          400,
+          'VALIDATION_FAILED',
+        );
+      }
+    } finally {
+      await change('d1', { taxYear: null, source: 'FIRM', jurisdiction: null });
+      await change('d6', { taxYear: null, source: 'FIRM', jurisdiction: null, relatedForm: null });
+      await change('d3', { recurrenceId: null });
+      await asOwner(ids.firmD, (tx) =>
+        tx.complianceDeadline.delete({ where: { id: elsewhere.id } }),
+      );
+    }
+  });
 });
 
 describe('the calendar library', () => {
@@ -2456,6 +2540,37 @@ describe('the calendar library', () => {
       (await call('patch', '/compliance/settings', people.ownerA, { staleCalendarDays: 90 }))
         .status,
     ).toBe(200);
+  });
+
+  it('lists by jurisdiction, by how long ago it was verified and by an entry form, in this firm only (CD-F13, Octavia Oct 28)', async () => {
+    const q = async (query: string, who: Who = people.staffA, firm = ids.firmA) =>
+      exact(ComplianceCalendarPage, await cal(`?${query}&pageSize=100`, who, firm)).items;
+    const idsOf = (items: { id: string }[]) => items.map((c) => c.id);
+    const named = encodeURIComponent(authority);
+    const limit = Date.now() - 90 * DAY;
+    const old = await q(`verification=OUT_OF_DATE&search=${named}`);
+    expect(idsOf(old)).toContain(v1.id);
+    expect(old.every((c) => c.verifiedAt !== null && Date.parse(c.verifiedAt) < limit)).toBe(true);
+    const never = await q(`verification=NEVER&search=${named}`);
+    expect(never.map((c) => c.authority)).toContain(`${authority} draft`);
+    expect(never.every((c) => c.verifiedAt === null)).toBe(true);
+    const current = await q(`verification=CURRENT&search=${named}`);
+    expect(idsOf(current)).not.toContain(v1.id);
+    expect(
+      current.every((c) => c.verifiedAt !== null && Date.parse(c.verifiedAt) >= limit - DAY),
+    ).toBe(true);
+    expect(idsOf(await q(`jurisdiction=FEDERAL&search=${named}`))).toContain(v1.id);
+    expect(idsOf(await q(`jurisdiction=LOCAL&search=${named}`))).toEqual([]);
+    // An entry's form: Form 1065 is in v1; the draft has Form 1040 only.
+    const byForm = await q('search=1065');
+    expect(idsOf(byForm)).toContain(v1.id);
+    expect(byForm.map((c) => c.authority)).not.toContain(`${authority} draft`);
+    // Firm B finds none of firm A's.
+    expect(await q('search=1065', people.ownerB, ids.firmB)).toEqual([]);
+    expect(await q('verification=OUT_OF_DATE', people.ownerB, ids.firmB)).toEqual([]);
+    for (const bad of ['verification=OLD', 'jurisdiction=CITY']) {
+      expectError(await cal(`?${bad}`), 400, 'VALIDATION_FAILED');
+    }
   });
 
   it("is firm A's: firm B cannot read, change, compare or publish it", async () => {
@@ -3017,6 +3132,8 @@ describe('applicability rules and suggestions', () => {
       { name: '' },
       { states: ['XX'] },
       { states: ['Georgia'] },
+      { excludeStatuses: ['Dissolved'] },
+      { excludeStatuses: ['inactive'] },
       { services: ['NOPE'] },
       { entityTypes: Array.from({ length: 31 }, (_, i) => `E${i}`) },
       { priorYearLiabilityOverCents: -1 },
@@ -3067,6 +3184,7 @@ describe('applicability rules and suggestions', () => {
     expect(back.version).toBe(4);
     expectError(await patch({}), 400, 'VALIDATION_FAILED');
     expectError(await patch({ states: ['XX'] }), 400, 'VALIDATION_FAILED');
+    expectError(await patch({ excludeStatuses: ['Dissolved'] }), 400, 'VALIDATION_FAILED');
     expectError(
       await patch({ target: { kind: 'CALENDAR_ENTRY', id: entry } }),
       400,
