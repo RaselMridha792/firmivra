@@ -48,6 +48,11 @@ describe('withOrigin', () => {
     // RP-F03: the Report Library, with its tab and page.
     expect(originLabel('/reports/library?tab=saved&page=2')).toBe('Report Library');
     expect(originLabel('/reports/library-x')).toBe('Reports');
+    // CD-F16: a record opened from Compliance's Logs goes back to the setup page's tab.
+    expect(originLabel('/compliance/recurring/new?tab=logs&logq=Form')).toBe(
+      'Recurring Deadline Setup',
+    );
+    expect(originLabel('/compliance/recurring-x')).toBe('Compliance & Deadlines');
     // RP-F01: the overview, with its range and comparison.
     expect(originLabel('/reports?range=last_month&compare=NONE')).toBe('Reports');
   });

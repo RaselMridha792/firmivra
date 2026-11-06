@@ -19,10 +19,12 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
@@ -86,16 +88,20 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
   // CD-F01: the task this deadline's Create Task made (asking again returns it).
   const made = d?.tasks.find((t) => t.madeHere);
   const btn = subtle;
+  // Opened from another page (Logs, a client, Tasks), SH1's bar above says where Back goes.
+  const origin = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="deadline-detail">
-      <Link
-        href="/compliance"
-        className="flex w-fit items-center gap-2 text-sm font-medium text-link"
-      >
-        <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Compliance &amp;
-        Deadlines
-      </Link>
+      {origin ? null : (
+        <Link
+          href="/compliance"
+          className="flex w-fit items-center gap-2 text-sm font-medium text-link"
+        >
+          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Compliance &amp;
+          Deadlines
+        </Link>
+      )}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-bold text-heading" data-testid="deadline-title">

@@ -145,7 +145,7 @@ export function LogsTab() {
       data-testid="logs-tab"
     >
       <div className="mb-3 flex flex-wrap items-end gap-3">
-        <div className="w-64">
+        <div className="w-56">
           <Input
             label="Search"
             hideLabel
@@ -159,7 +159,7 @@ export function LogsTab() {
             }}
           />
         </div>
-        <div className="w-40">
+        <div className="w-36">
           <Selectbox
             label="Event"
             value={kind}
@@ -170,7 +170,7 @@ export function LogsTab() {
             ]}
           />
         </div>
-        <div className="w-36">
+        <div className="w-32">
           <Selectbox
             label="Result"
             value={outcome ?? ''}
@@ -183,7 +183,7 @@ export function LogsTab() {
             ]}
           />
         </div>
-        <div className="w-48">
+        <div className="w-40">
           <Selectbox
             label="By"
             value={by}
@@ -194,7 +194,7 @@ export function LogsTab() {
             ]}
           />
         </div>
-        <div className="w-40">
+        <div className="w-36">
           <Input
             label="From"
             type="date"
@@ -203,7 +203,7 @@ export function LogsTab() {
             onChange={(e) => go({ start: e.target.value })}
           />
         </div>
-        <div className="w-40">
+        <div className="w-36">
           <Input
             label="To"
             type="date"

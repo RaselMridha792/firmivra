@@ -415,6 +415,8 @@ test('Logs: search by record, dates before and after, the rule, and links to the
   // The record opens, and Back returns to the same filtered log.
   await logs.getByTestId('log-record').click();
   await expect(page).toHaveURL(new RegExp(`/compliance/${SECOND}`));
+  await expect(page.getByTestId('back-to-origin')).toContainText('Recurring Deadline Setup');
+  await expect(page.getByRole('link', { name: 'Back to Compliance & Deadlines' })).toHaveCount(0);
   // CD-F15: the deadline opens its own activity and, for Owners and Admins, its audit history.
   await expect(page.getByTestId('deadline-audit')).toHaveAttribute(
     'href',
@@ -428,6 +430,16 @@ test('Logs: search by record, dates before and after, the rule, and links to the
   await page.getByTestId('deadline-activity').click();
   await expect(page).toHaveURL(new RegExp(`tab=logs&logq=${SECOND}`));
   await expect(logs.getByTestId('log-record')).toHaveText('Form 941 Quarterly Payroll Return');
+  // The Audit Log opens filtered to what the link names.
+  await page.goto(`${base}/${SECOND}`);
+  await page.getByTestId('deadline-audit').click();
+  await expect(page).toHaveURL(/\/audit-log\?entityType=compliance_deadline/);
+  await expect(page.getByLabel('Record type')).toHaveValue('compliance_deadline');
+  await expect(page.getByLabel('Record id')).toHaveValue(SECOND);
+  await page.goto(`http://app.localhost:${port}/audit-log?action=compliance.`);
+  await expect(page.getByLabel('Action', { exact: true })).toHaveValue('compliance.');
+  await page.goto(`http://app.localhost:${port}/audit-log?entityType=Not%20Valid`);
+  await expect(page.getByLabel('Record type')).toHaveValue('');
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {
