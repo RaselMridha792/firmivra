@@ -19,7 +19,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1268 merged: the match count before any action (AU-F21); operators named per field, lists for Is any of (AU-F23). AU-F22 and the new operators (On, Within a Period, Does Not Contain) wait: each needs a field or operator the catalog does not have.
 - #1270 merged: Move up and down for actions (AU-F24); Add and Remove client tags by the firm's tag ids (part of AU-F27).
 - #1273 merged: Notify staff (part of AU-F27; bell only, the lead's one-off notifications exception) and the events with no client: Staff Management (AU-F19), Integrations (AU-F20), firm-wide Communications (AU-F18).
-- AU work (`rasel/R55-au-work`): loop detection knows the tag and assign actions, and an action that changes nothing records nothing (fix to #1270); Assign client (part of AU-F27).
+- #1276 merged: loop detection knows the tag and assign actions, and an action that changes nothing records nothing (fix to #1270); Assign client (part of AU-F27).
+- AU email (`rasel/R55-au-email`): Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 

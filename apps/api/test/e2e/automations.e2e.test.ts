@@ -36,6 +36,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { AUTOMATION_FILES, type AutomationFiles } from '../../src/automations/automation-files.js';
 import { AutomationEngine, quietUntil } from '../../src/automations/engine.service.js';
 import { attachProviderEvidence } from '../../src/automations/confirmations.service.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 class MemoryFiles implements AutomationFiles {
   readonly objects = new Map<string, Buffer>();
@@ -48,6 +49,7 @@ class MemoryFiles implements AutomationFiles {
   }
 }
 const files = new MemoryFiles();
+const outbox: NotifyMessage[] = [];
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -301,6 +303,14 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(AUTOMATION_FILES)
     .useValue(files)
+    // No mail server in tests: what Messages and the Notifier send is kept here.
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (m: NotifyMessage) => {
+        outbox.push(m);
+        return Promise.resolve();
+      },
+    })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -341,6 +351,7 @@ describe('the catalog', () => {
     expect(c.actions.map((a) => a.type)).toEqual([
       'CREATE_TASK',
       'SEND_CLIENT_MESSAGE',
+      'SEND_CLIENT_EMAIL',
       'ASSIGN_CLIENT',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
@@ -2514,5 +2525,113 @@ describe('Assign client, and actions that would start themselves (AU-F27)', () =
     ).toContain('LOOP_RISK');
     // On another event, the same actions are fine.
     expect(await codes(clientCreated([assign(adminA.id)]))).not.toContain('LOOP_RISK');
+  });
+});
+
+describe('Send client email, through Messages (AU-F25)', () => {
+  const email = (config: object) => ({ id: 'mail', type: 'SEND_CLIENT_EMAIL', config });
+  // A client with an active PRIMARY portal login: Messages' email to a client is the portal
+  // message with an email notice (the text stays in the portal), so it needs portal access.
+  const newClient = async (name: string, address: string) => {
+    const login = randomUUID();
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: login, cognitoSub: login, pool: 'CLIENT', email: `login-${address}`, name },
+      }),
+    );
+    return inFirm('a', async (tx) => {
+      const id = (
+        await tx.client.create({
+          data: { businessId: firms.a, displayName: name, email: address },
+          select: { id: true },
+        })
+      ).id;
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId: login,
+          clientId: id,
+          email: `login-${address}`,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      return id;
+    });
+  };
+
+  it('sends one email through Messages (its notice, the text in the portal); a client who opted out gets none', async () => {
+    const live = await createRule(
+      clientCreated([
+        email({ subject: 'Welcome, {{client.name}}', body: 'Hello from {{firm.name}}.' }),
+      ]),
+      { name: mark('Welcome email'), category: 'COMMUNICATIONS' },
+    );
+    ok(await activate(live.id));
+    const yes = `mail-yes-${run}@client.test`;
+    const no = `mail-no-${run}@client.test`;
+    const welcome = await newClient(`Mail yes ${run} (fake)`, yes);
+    const optedOut = await newClient(`Mail no ${run} (fake)`, no);
+    await inFirm('a', (tx) =>
+      tx.communicationConsent.create({
+        data: {
+          businessId: firms.a,
+          clientId: optedOut,
+          channel: 'EMAIL',
+          status: 'OPTED_OUT',
+          source: 'fake',
+        },
+      }),
+    );
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+    const page = await runs(`?ruleId=${live.id}`);
+    const of = async (clientId: string) =>
+      (await runDetail(page.items.find((r) => r.client?.id === clientId)!.id)).actions[0]!;
+
+    const sent = await of(welcome);
+    expect(sent, JSON.stringify(sent)).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'outbound_message' },
+    });
+    const message = await inFirm('a', (tx) =>
+      tx.outboundMessage.findFirstOrThrow({
+        where: { businessId: firms.a, id: sent.result!.id },
+        select: { channel: true, status: true, subject: true },
+      }),
+    );
+    expect(message).toMatchObject({
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject: `Welcome, Mail yes ${run} (fake)`,
+    });
+    expect(outbox.filter((m) => m.to === yes)).toHaveLength(1);
+    // The notice email never carries the text: it stays in the client's portal.
+    expect(JSON.stringify(outbox.filter((m) => m.to === yes))).not.toContain('Hello from');
+
+    // Messages' own consent check: nothing goes, and no draft is left behind.
+    expect(await of(optedOut)).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'NO_CONSENT',
+      retryable: false,
+    });
+    expect(outbox.filter((m) => m.to === no)).toHaveLength(0);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.outboundMessage.count({
+          where: {
+            businessId: firms.a,
+            status: { in: ['DRAFT', 'SCHEDULED'] },
+            recipients: { some: { clientId: optedOut } },
+          },
+        }),
+      ),
+    ).toBe(0);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+
+    // A template or a written email: neither, and it can't be turned on.
+    const empty = await createRule(clientCreated([email({ subject: 'Hi' })]), {
+      name: mark('Empty email'),
+    });
+    expectError(await activate(empty.id), 409, 'NOT_READY');
   });
 });

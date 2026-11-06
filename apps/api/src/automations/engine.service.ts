@@ -7,6 +7,7 @@ import { legacyFirmRole, requestContext, type TenantContext } from '../common/re
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
+import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
@@ -66,6 +67,7 @@ export class AutomationEngine {
     private readonly messages: MessagesService,
     private readonly notes: NotesService,
     private readonly notifier: Notifier,
+    private readonly outbound: OutboundMessagesService,
   ) {}
 
   /**
@@ -576,6 +578,79 @@ export class AutomationEngine {
               repliesEnabled: true,
             });
             return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Message sent' };
+          }
+          // AU-F25 Send client email: Messages' own outbound email (OutboundMessagesService), so
+          // every Messages rule holds: who can receive it (contact, consent, suppression, Staff
+          // reach), the firm's Messages settings and limits, the delivery log and the audit.
+          // Automations never sends an email itself.
+          case 'SEND_CLIENT_EMAIL': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            let subject = text('subject');
+            let body = text('body');
+            const templateId = typeof cfg.templateId === 'string' ? cfg.templateId : null;
+            if (templateId) {
+              const t = await this.inFirm(businessId, (tx) =>
+                tx.messageTemplate.findFirst({
+                  where: {
+                    businessId,
+                    id: templateId,
+                    kind: 'EMAIL',
+                    status: 'ACTIVE',
+                    includeInAutomations: true,
+                  },
+                  select: { subject: true, body: true },
+                }),
+              );
+              if (!t)
+                return {
+                  ok: false,
+                  code: 'TEMPLATE_UNAVAILABLE',
+                  retryable: false,
+                  detail: 'The email template is not active',
+                };
+              subject ??= t.subject ? fill(t.subject, values) : undefined;
+              body ??= fill(t.body, values);
+            }
+            const draft = await this.outbound.create(businessId, actor, {
+              channel: 'EMAIL',
+              subject: (subject || `A message from ${values['firm.name']}`).slice(0, 200),
+              body: (body ?? '').slice(0, 10_000) || 'Hello',
+              templateId,
+              clientIds: [run.clientId as string],
+              leadIds: [],
+            });
+            // Messages says who can't receive it (no email, no consent, suppressed...): nothing
+            // is sent, and the draft is canceled rather than left behind.
+            if (draft.counts.canReceive === 0) {
+              const reason = draft.recipients[0]?.reason ?? 'NO_CONTACT';
+              await this.outbound.cancel(businessId, actor, draft.id, draft.updatedAt);
+              return {
+                ok: false,
+                code: reason,
+                retryable: false,
+                detail: `Messages can't email this client (${reason.toLowerCase().replace(/_/g, ' ')})`,
+              };
+            }
+            const sent = await this.outbound.send(businessId, actor, draft.id, draft.updatedAt);
+            if (sent.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'SEND_FAILED',
+                retryable: false,
+                detail: 'Messages could not send the email; its delivery log has the reason',
+              };
+            return {
+              ok: true,
+              kind: 'outbound_message',
+              id: sent.id,
+              detail: sent.status === 'SENT' ? 'Email sent' : 'Email queued by Messages',
+            };
           }
           // AU-F27 Notify staff: a bell item only, for members of this firm (the Notifier leaves out
           // a Staff member who can't see the client); never an email, a text or the client.
