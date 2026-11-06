@@ -162,7 +162,7 @@ describe('words, conditions and timing', () => {
         ],
         'ANY',
       ),
-    ).toBe('Client type is BUSINESS or Source is set');
+    ).toBe('Client type is Business or Source is set');
   });
 
   it('tests a record against conditions', () => {

@@ -1,7 +1,17 @@
 'use client';
 
 import type { AutomationRunRow, AutomationRunsQuery } from '@firmivra/types';
-import { Button, type Column, KpiCard, Modal, Select, Table, Textarea, Toast } from '@firmivra/ui';
+import {
+  Button,
+  type Column,
+  KpiCard,
+  Modal,
+  Select,
+  Table,
+  Tabs,
+  Textarea,
+  Toast,
+} from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -34,6 +44,14 @@ import {
   subtle,
 } from './automations-shared';
 
+/** AU-F02: All Activity, Successful, Failed, Skipped and Pending; the Status select's values. */
+const ACTIVITY_TABS = [
+  { id: 'all', label: 'All Activity' },
+  { id: 'success', label: 'Successful' },
+  { id: 'failed', label: 'Failed' },
+  { id: 'skipped', label: 'Skipped' },
+  { id: 'pending', label: 'Pending' },
+];
 const RANGES = [
   { value: '7', label: 'Last 7 Days' },
   { value: '30', label: 'Last 30 Days' },
@@ -205,6 +223,19 @@ export function LogsScreen({ ruleId }: { ruleId: string | undefined }) {
       </ul>
 
       <section className={card} aria-label="Run history">
+        {/* AU-F02: the activity tabs, the same filter as the Status select. */}
+        <div className="mb-3">
+          <Tabs
+            label="Activity"
+            variant="underline"
+            value={tab}
+            onChange={(id) => {
+              setTab(id as typeof tab);
+              setPage(1);
+            }}
+            items={ACTIVITY_TABS}
+          />
+        </div>
         <form
           aria-label="Log filters"
           className="mb-3 flex flex-wrap items-end gap-3"
