@@ -38,6 +38,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
+import { requestTemplateFixtures } from './document-library';
 import { teamFixtures } from './team';
 
 /**
@@ -260,6 +261,7 @@ export function createTemplatesMock({
       createdAt: at,
       etag: `e${next++}`,
       linkedTemplate: null,
+      linkedTemplateId: null,
       structure: null,
     };
     return {
@@ -451,18 +453,15 @@ export function createTemplatesMock({
       name: 'Return review',
       steps: ['Check income and deductions', 'Review with the client', 'Collect signatures'],
     },
-    {
-      kind: 'DOCUMENT_REQUEST',
-      id: id('7500'),
-      name: 'Individual tax documents',
-      steps: ['W-2 forms', '1099 forms', 'Prior-year return', 'Charitable receipts (optional)'],
-    },
-    {
-      kind: 'DOCUMENT_REQUEST',
-      id: id('7500'),
-      name: 'Monthly bookkeeping',
-      steps: ['Bank statements', 'Card statements', 'Receipts (optional)'],
-    },
+    // The Documents mock's own request templates, so Use opens Create Request with one chosen.
+    ...requestTemplateFixtures()
+      .slice(0, 2)
+      .map((t): LinkedModuleTemplate => ({
+        kind: 'DOCUMENT_REQUEST',
+        id: t.id,
+        name: t.name,
+        steps: t.items.map((i) => (i.required ? i.title : `${i.title} (optional)`)),
+      })),
     {
       kind: 'INTAKE_ORGANIZER',
       id: id('7500'),
@@ -485,6 +484,7 @@ export function createTemplatesMock({
       );
     if (moduleTemplateId === null) {
       r.d.linkedTemplate = null;
+      r.d.linkedTemplateId = null;
       return;
     }
     const m = MODULE_TEMPLATES.find((x) => x.id === moduleTemplateId && x.kind === r.d.kind);
@@ -492,6 +492,7 @@ export function createTemplatesMock({
     if (recs.some((o) => o.d.id !== r.d.id && o.d.linkedTemplate?.id === moduleTemplateId))
       throw fail(409, 'STRUCTURE_IN_USE', 'Another template already stands for this one');
     r.d.linkedTemplate = m;
+    r.d.linkedTemplateId = m.id;
   };
   /** As the API: a structure only on Tax Workflow and Bookkeeping, of their shape. */
   const applyStructure = (r: Pick<Rec, 'd'>, input: { structure?: unknown }) => {
