@@ -26,6 +26,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { BackToWorkflow } from '../../settings/workflow/_components/back-to-workflow';
+import { ConfirmEventDialog } from './confirm-event-dialog';
 import { DuplicateDialog, ImportDialog, RuleMenu, SettingsDialog } from './automation-dialogs';
 import {
   AUTOMATIONS_KEY,
@@ -75,7 +76,7 @@ export function AutomationsScreen({
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState<string>(initialCategory ?? '');
   const [page, setPage] = useState(1);
-  const [dialog, setDialog] = useState<'settings' | 'import' | 'duplicate'>();
+  const [dialog, setDialog] = useState<'settings' | 'import' | 'duplicate' | 'confirm'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
@@ -684,6 +685,11 @@ export function AutomationsScreen({
                       <Gear aria-hidden weight="fill" className="size-4" /> Automation Settings
                     </button>
                   ) : null}
+                  {/* AU-F31: one known external outcome, confirmed by hand. */}
+                  <button type="button" className={outlined} onClick={() => setDialog('confirm')}>
+                    <CheckCircle aria-hidden weight="fill" className="size-4" /> Confirm an External
+                    Event
+                  </button>
                 </div>
               </section>
             </div>
@@ -731,6 +737,16 @@ export function AutomationsScreen({
           onDone={() => {
             setDialog(undefined);
             notice('Settings saved.', 'success');
+          }}
+        />
+      ) : null}
+      {dialog === 'confirm' && catalog.data ? (
+        <ConfirmEventDialog
+          catalog={catalog.data}
+          onClose={() => setDialog(undefined)}
+          onDone={(message) => {
+            setDialog(undefined);
+            notice(message, 'success');
           }}
         />
       ) : null}

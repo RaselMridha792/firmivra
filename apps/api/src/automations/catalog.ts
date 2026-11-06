@@ -165,7 +165,7 @@ const change = (
   example: string,
   recordKind: string,
   conditionFields: AutomationConditionField[],
-): AutomationEvent => ({
+): EventDef => ({
   code,
   module,
   label,
@@ -176,7 +176,10 @@ const change = (
 });
 const PRIORITY = (key = 'priority') => field(key, 'Priority', 'STATUS', ['LOW', 'MEDIUM', 'HIGH']);
 
-export const EVENTS: AutomationEvent[] = [
+type EventDef = Omit<AutomationEvent, 'confirmation'> &
+  Partial<Pick<AutomationEvent, 'confirmation'>>;
+
+const EVENT_DEFS: EventDef[] = [
   {
     code: 'client.created',
     module: 'CLIENTS',
@@ -618,6 +621,62 @@ export const EVENTS: AutomationEvent[] = [
     ],
   },
 ];
+/**
+ * AU-F30 to F33: external outcomes a member may confirm by hand (Manual Event Confirmation, on in
+ * Automation Settings). No verified integration sends them yet, so Integration verified is not
+ * available. A confirmation only records the known fact: it never files, submits or pays.
+ */
+const confirmed = (
+  code: string,
+  module: AutomationEvent['module'],
+  label: string,
+  example: string,
+  recordKind: string,
+): EventDef => ({
+  code,
+  module,
+  label,
+  example,
+  recordKind,
+  timings: ['IMMEDIATE', 'AFTER'],
+  conditionFields: [CLIENT_TYPE],
+  confirmation: { integrationAvailable: false },
+});
+export const CONFIRMABLE_EVENTS: EventDef[] = [
+  confirmed(
+    'tax_return.accepted',
+    'TAX_RETURNS',
+    'Return accepted (confirmed)',
+    'When someone confirms the tax authority accepted a return',
+    'tax_return',
+  ),
+  confirmed(
+    'tax_return.rejected',
+    'TAX_RETURNS',
+    'Return rejected (confirmed)',
+    'When someone confirms the tax authority rejected a return',
+    'tax_return',
+  ),
+  confirmed(
+    'payroll.filing_confirmed',
+    'PAYROLL',
+    'Payroll filing confirmed',
+    'When someone confirms a payroll run’s filing was received',
+    'payroll_run',
+  ),
+  confirmed(
+    'deadline.filing_confirmed',
+    'COMPLIANCE_DEADLINES',
+    'Deadline filing confirmed',
+    'When someone confirms the filing for a deadline was received',
+    'deadline',
+  ),
+];
+
+export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
+  ...e,
+  confirmation: e.confirmation ?? null,
+}));
 export const eventOf = (code: string) => EVENTS.find((e) => e.code === code);
 
 export const VARIABLES = [

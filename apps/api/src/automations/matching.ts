@@ -1,6 +1,7 @@
 import type { TxClient } from '@firmivra/db';
 import { liveClient } from '../tasks/task-common.js';
 import { AUDIT_EVENTS, clientTypes, loadAuditEvent } from './audit-events.js';
+import { CONFIRMABLE_EVENTS } from './catalog.js';
 import type { FieldValue } from './logic.js';
 
 // The records an event can start a rule for. Each event reads the firm's own tables (the
@@ -35,6 +36,8 @@ export interface Scope {
   since: Date;
   recordId?: string;
   limit?: number;
+  /** AU-F30: a confirmable event's source (Manual confirmation when left out). */
+  source?: 'INTEGRATION_VERIFIED' | 'MANUAL' | 'EITHER';
 }
 
 const UNIT_MS = { MINUTE: 60_000, HOUR: 3_600_000, DAY: 86_400_000 } as const;
@@ -355,6 +358,13 @@ const LOADERS: Record<string, Loader> = {
       },
     }));
   },
+  // AU-F30 to F32: the external outcomes members confirmed (automation_event_confirmations).
+  ...Object.fromEntries(
+    CONFIRMABLE_EVENTS.map((e) => [
+      e.code,
+      (tx: TxClient, s: Scope) => loadConfirmed(tx, e.code, s),
+    ]),
+  ),
   // AU-F08 to F14: the changes the source modules record in their audit log.
   ...Object.fromEntries(
     Object.entries(AUDIT_EVENTS).map(([code, spec]) => [
@@ -363,6 +373,45 @@ const LOADERS: Record<string, Loader> = {
     ]),
   ),
 };
+
+/**
+ * The occurrences members confirmed for a confirmable event. Each row is one occurrence, keyed as
+ * the engine keys runs, so provider evidence added to it later (AU-F32) never starts a second run.
+ * Integration verified counts only rows with provider evidence, from when it arrived.
+ */
+async function loadConfirmed(tx: TxClient, event: string, s: Scope): Promise<Candidate[]> {
+  const verifiedOnly = s.source === 'INTEGRATION_VERIFIED';
+  const rows = await tx.automationEventConfirmation.findMany({
+    where: {
+      businessId: s.businessId,
+      eventCode: event,
+      ...(s.recordId ? { recordId: s.recordId } : {}),
+      ...(verifiedOnly
+        ? { providerVerifiedAt: { gte: s.since, lte: s.now } }
+        : { confirmedAt: { gte: s.since, lte: s.now } }),
+    },
+    select: {
+      recordKind: true,
+      recordId: true,
+      occurrenceKey: true,
+      clientId: true,
+      confirmedAt: true,
+      providerVerifiedAt: true,
+      client: { select: { displayName: true, accountType: true } },
+    },
+    orderBy: [{ confirmedAt: 'asc' }, { id: 'asc' }],
+    take: s.limit ?? LIMIT,
+  });
+  return rows.map((r) => ({
+    recordKind: r.recordKind,
+    recordId: r.recordId,
+    clientId: r.clientId,
+    label: r.client?.displayName ?? r.recordKind,
+    at: verifiedOnly ? r.providerVerifiedAt : r.confirmedAt,
+    occurrence: r.occurrenceKey.slice(`${event}:${r.recordId}:`.length),
+    fields: { clientType: r.client?.accountType ?? null },
+  }));
+}
 
 /** The events that have a loader: every event in the catalog must be one (no event without a source). */
 export const LOADED_EVENTS: ReadonlySet<string> = new Set(Object.keys(LOADERS));

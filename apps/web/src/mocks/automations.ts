@@ -34,6 +34,8 @@ import {
   UpdateAutomationRuleRequest,
   UpdateAutomationTemplateRequest,
   UseAutomationTemplateRequest,
+  type AutomationEventConfirmation,
+  ConfirmAutomationEventRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -296,7 +298,19 @@ const buildEvents = (): [
     ['SCHEDULED'],
     [],
   ],
+  // AU-F30: an external outcome a member confirms by hand, as the API's catalog has it.
+  [
+    'tax_return.accepted',
+    'TAX_RETURNS',
+    'Return accepted (confirmed)',
+    'When someone confirms the tax authority accepted a return',
+    'return accepted',
+    ['IMMEDIATE', 'AFTER'],
+    [],
+  ],
 ];
+/** AU-F30: the events a member confirms by hand; no verified integration sends them yet. */
+const CONFIRMABLE: readonly string[] = ['tax_return.accepted'];
 let eventCache: ReturnType<typeof buildEvents> | undefined;
 const events = () => (eventCache ??= buildEvents());
 const phraseOf = (code: string) => events().find((e) => e[0] === code)?.[4] ?? 'event';
@@ -502,6 +516,7 @@ const buildCatalog = (): AutomationCatalog => ({
     recordKind: module === 'COMPLIANCE_DEADLINES' ? 'deadline' : module.toLowerCase(),
     timings,
     conditionFields: [...clientFields(), ...extra],
+    confirmation: CONFIRMABLE.includes(code) ? { integrationAvailable: false } : null,
   })),
   actions: ACTIONS,
   variables: VARIABLES,
@@ -517,6 +532,7 @@ const viewOf = (d: Def): AutomationDefinitionView => ({
     timing: d.trigger.timing,
     offsetValue: d.trigger.offsetValue ?? null,
     offsetUnit: d.trigger.offsetUnit ?? null,
+    source: CONFIRMABLE.includes(d.trigger.event) ? (d.trigger.source ?? 'MANUAL') : null,
   },
   matchMode: d.matchMode,
   conditions: d.conditions.map((c) => ({
@@ -604,6 +620,8 @@ export function createAutomationsMock({
   const rules: Rec[] = [];
   const templates: Starter[] = [];
   const runs: AutomationRunDetail[] = [];
+  /** AU-F31: the outcomes confirmed by hand in this mock, newest first. */
+  const confirmations: AutomationEventConfirmation[] = [];
   let settings: AutomationSettingsView = {
     quietHours: { start: '20:00', end: '07:00' },
     defaultDedupeDays: 7,
@@ -613,6 +631,7 @@ export function createAutomationsMock({
     minutesSavedPerAction: 5,
     logRetentionDays: 365,
     timezone: 'America/New_York',
+    manualConfirmationEnabled: false,
     updatedAt: null,
   };
 
@@ -1856,6 +1875,39 @@ export function createAutomationsMock({
         };
       }),
     settings: () => run(() => settings),
+    // AU-F31, as the API: only with the switch on, once per occurrence, never in bulk.
+    confirmEvent: (body) =>
+      run(() => {
+        const b = parseInput(ConfirmAutomationEventRequest, body);
+        if (!settings.manualConfirmationEnabled)
+          throw fail(409, 'MANUAL_CONFIRMATION_OFF', 'Manual Event Confirmation is off.');
+        const key = `${b.event}:${b.recordId}:${b.occurrence}`;
+        if (confirmations.some((c) => `${c.event}:${c.recordId}:${c.occurrence}` === key))
+          throw fail(409, 'ALREADY_CONFIRMED', 'This occurrence is confirmed already.');
+        const ev = catalog().events.find((e) => e.code === b.event);
+        if (!ev?.confirmation) throw fail(400, 'VALIDATION_FAILED', 'Not a confirmable outcome.');
+        const row: AutomationEventConfirmation = {
+          id: crypto.randomUUID(),
+          event: b.event,
+          eventLabel: ev.label,
+          recordKind: ev.recordKind,
+          recordId: b.recordId,
+          occurrence: b.occurrence,
+          client: null,
+          confirmedBy: mockMe,
+          confirmedAt: nowIso(),
+          reference: b.reference ?? null,
+          note: b.note ?? null,
+          evidenceDocumentId: null,
+          providerEvidence: null,
+        };
+        confirmations.unshift(row);
+        return row;
+      }),
+    confirmations: (query) =>
+      run(() => ({
+        items: confirmations.filter((c) => !query?.recordId || c.recordId === query.recordId),
+      })),
     saveSettings: (body) =>
       run(() => {
         manage();

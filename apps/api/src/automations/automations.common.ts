@@ -29,6 +29,16 @@ export const autoErrors = {
     refusal('TOO_MANY_ROWS', 'There are too many runs to export; narrow the filter'),
   templateUnavailable: (message: string) => refusal('TEMPLATE_UNAVAILABLE', message),
   notAMember: () => refusal('NOT_A_MEMBER', 'That person is not an active member of the firm'),
+  manualConfirmationOff: () =>
+    refusal(
+      'MANUAL_CONFIRMATION_OFF',
+      'Manual Event Confirmation is off. An Owner or Admin turns it on in Automation Settings.',
+    ),
+  alreadyConfirmed: () =>
+    refusal(
+      'ALREADY_CONFIRMED',
+      'This occurrence is confirmed already; a confirmation never changes',
+    ),
   forbidden: () =>
     new ForbiddenException({ code: 'FORBIDDEN', message: 'You do not have access to this action' }),
   invalid: (path: string, message: string) =>

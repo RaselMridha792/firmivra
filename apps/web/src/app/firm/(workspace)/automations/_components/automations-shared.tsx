@@ -133,6 +133,9 @@ export const AUTOMATION_ERRORS: Record<string, string> = {
   TOO_MANY_ROWS: 'Too many rows to export. Narrow the filters.',
   TEMPLATE_UNAVAILABLE: 'That template is not available.',
   FORBIDDEN: 'Your role cannot do this.',
+  MANUAL_CONFIRMATION_OFF:
+    'Manual Event Confirmation is off. An Owner or Admin turns it on in Automation Settings.',
+  ALREADY_CONFIRMED: 'This occurrence is confirmed already; a confirmation can’t be changed.',
 };
 
 export const field =
