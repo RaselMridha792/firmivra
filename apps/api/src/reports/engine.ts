@@ -14,6 +14,7 @@ import type {
   ReportTableRow,
 } from '@firmivra/types';
 import type { Cell, Row, SourceDef } from './sources.js';
+import { MONEY_BASIS } from './sources.js';
 
 // The reporting engine: date ranges in the firm's time zone, filter evaluation, and the one
 // computation every KPI card, chart, table, export and schedule goes through. It is pure: rows
@@ -673,11 +674,12 @@ export function compute(input: ComputeInput): Computed {
     kpis.push(
       kpi(
         f.key,
-        `Total ${f.label}`,
+        // RP-F21: "Invoiced Total", never "Total Total".
+        f.label.toLowerCase().split(' ').includes('total') ? f.label : `Total ${f.label}`,
         f.type,
         sum(rows, f.key),
         previous ? sum(previous, f.key) : null,
-        null,
+        MONEY_BASIS[`${source.key}.${f.key}`] ?? null,
       ),
     );
   }
