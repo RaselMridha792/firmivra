@@ -21,7 +21,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1273 merged: Notify staff (part of AU-F27; bell only, the lead's one-off notifications exception) and the events with no client: Staff Management (AU-F19), Integrations (AU-F20), firm-wide Communications (AU-F18).
 - #1276 merged: loop detection knows the tag and assign actions, and an action that changes nothing records nothing (fix to #1270); Assign client (part of AU-F27).
 - #1278 merged: Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
-- #1280 (`rasel/R55-au-fields`): Tags and Assigned staff conditions on every client and lead event, with the firm's own tags and members as the choices (AU-F22, part).
+- #1280 merged: Tags and Assigned staff conditions on every client and lead event, with the firm's own tags and members as the choices (AU-F22, part).
 - AU requests (`rasel/R55-au-requests`): Request documents (AU-F27) through Documents' own request (DocumentRequestsService exported: the lead's one-off exception).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
