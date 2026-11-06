@@ -7,6 +7,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { PRESETS, RP_ERRORS, RP_KEY } from './reports-shared';
+import { ReportHelp } from './report-help';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 export const bodyOf = (d: ReportDefinitionView): ReportDefinitionBody =>
@@ -182,6 +183,9 @@ export function ScheduleReportDialog({
       }
     >
       <div className="flex flex-col gap-3" data-testid="schedule-dialog">
+        <p className="flex items-center gap-2 text-sm text-muted">
+          How schedules work <ReportHelp area="schedules" />
+        </p>
         <Input label="Schedule name" value={name} onChange={(e) => setName(e.target.value)} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Select

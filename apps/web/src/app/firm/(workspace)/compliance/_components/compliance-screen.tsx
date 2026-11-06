@@ -35,6 +35,7 @@ import { COMPLIANCE_KEY, STATUS_LABEL, TYPE_OPTIONS, outlined } from './complian
 import { ByClientView, ByTypeView, CalendarsView, TaxCalendarView } from './compliance-views';
 import { DeadlineTable } from './deadline-table';
 import { RecurringList } from './recurring-list';
+import { ComplianceHelp } from './compliance-help';
 
 type Tab = 'overview' | 'all' | 'client' | 'type' | 'calendars' | 'recurring' | 'completed';
 const TABS: { id: Tab; label: string }[] = [
@@ -266,8 +267,8 @@ export function ComplianceScreen() {
             <ShieldCheck aria-hidden weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">
-              Compliance &amp; Deadlines
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              Compliance &amp; Deadlines <ComplianceHelp area="overview" />
             </h1>
             <p className="text-base text-muted">Stay compliant. Never miss a deadline.</p>
           </div>
@@ -382,7 +383,8 @@ export function ComplianceScreen() {
           >
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-display text-base font-bold text-heading">
-                <Funnel aria-hidden weight="fill" className="size-5 text-action" /> Filters
+                <Funnel aria-hidden weight="fill" className="size-5 text-action" /> Filters{' '}
+                <ComplianceHelp area="filters" />
               </h2>
               <button
                 type="button"
