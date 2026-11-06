@@ -44,6 +44,22 @@ const ENTITY_TYPES = [
   'Partnership',
   'Nonprofit',
 ];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+// CD-F08 (Octavia, Oct 28): a specific month, a fiscal year's end and a custom period as well as
+// the year and its quarters. The period is the deadline's own text (up to 60 characters).
 const PERIODS = [
   'Annual',
   'Q1 (Jan – Mar)',
@@ -51,7 +67,14 @@ const PERIODS = [
   'Q3 (Jul – Sep)',
   'Q4 (Oct – Dec)',
   'Monthly',
+  ...MONTHS.map((m) => `Month of ${m}`),
+  ...MONTHS.map((m) => `Fiscal year ending ${m}`),
 ];
+const CUSTOM_PERIOD = '__custom__';
+/** Tax years from five ahead back to 2000 (amended and prior-year work). */
+const TAX_YEARS = Array.from({ length: new Date().getFullYear() + 5 - 2000 + 1 }, (_, i) =>
+  String(new Date().getFullYear() + 5 - i),
+);
 const JURISDICTIONS = [
   { value: '', label: 'Select jurisdiction' },
   { value: 'FEDERAL', label: 'Federal' },
@@ -193,7 +216,10 @@ export function DeadlineFormScreen({ id }: { id?: string }) {
       </div>
     );
   }
-  return <DeadlineForm key={id ?? 'new'} id={id} initial={deadline.data} />;
+  // The form starts again from the deadline after a Reopen (closed to open), never after a save:
+  // a save goes on to the deadline's page.
+  const open = !deadline.data || (STATUSES as readonly string[]).includes(deadline.data.status);
+  return <DeadlineForm key={`${id ?? 'new'}-${open}`} id={id} initial={deadline.data} />;
 }
 
 function Related({
@@ -302,10 +328,20 @@ function DeadlineForm({
   initial: ComplianceDeadline | undefined;
 }) {
   const router = useRouter();
+  // CD-F07 (Octavia, Oct 28): a closed deadline shows as it is (Completed, Not Applicable,
+  // Cancelled), read-only, with Reopen first; nothing about it changes by opening Edit.
+  const closed = !!initial && !(STATUSES as readonly string[]).includes(initial.status);
+  const reopen = useApiMutation(() => api.compliance.reopenDeadline(id ?? ''), {
+    invalidate: [...COMPLIANCE_KEY],
+  });
   // CD-F05 (Octavia, Oct 28): Cancel returns to the list it was opened from (its view, range and
   // filters), saving nothing.
   const origin = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
   const [f, setF] = useState<Form>(() => (initial ? fromDeadline(initial) : blank()));
+  // CD-F08: a saved period that is not one of the choices is a custom one, kept as written.
+  const [customPeriod, setCustomPeriod] = useState(
+    () => !!initial?.filingPeriod && !PERIODS.includes(initial.filingPeriod),
+  );
   const [saved] = useState<Form | undefined>(() => (initial ? fromDeadline(initial) : undefined));
   const [errors, setErrors] = useState<Partial<Record<keyof Form, string>>>({});
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -537,445 +573,488 @@ function DeadlineForm({
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
-
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-4">
-          <Section
-            step={1}
-            title="Deadline Information"
-            subtitle="Enter the main details for this deadline."
-            testId="sec-info"
+      {closed && initial ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-warning-soft p-3 text-sm text-heading"
+          data-testid="closed-banner"
+        >
+          <span>
+            This deadline is{' '}
+            <strong>{STATUS_LABEL[initial.status as keyof typeof STATUS_LABEL]}</strong>. Reopen it
+            to change it; until then it is shown as it was saved.
+          </span>
+          <Button
+            disabled={reopen.isPending}
+            onClick={() =>
+              reopen.mutate(undefined, {
+                onError: (e) =>
+                  setMessage({ text: errorMessage(e, COMPLIANCE_ERRORS), tone: 'error' }),
+              })
+            }
           >
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-              <Input
-                label="Deadline Name *"
-                value={f.name}
-                maxLength={200}
-                onChange={(e) => set({ name: e.target.value })}
-                {...(errors.name ? { error: errors.name } : {})}
-              />
-              <Label text="Deadline Type" required htmlFor="df-type">
-                <Selectbox
-                  id="df-type"
-                  label="Deadline Type"
-                  value={f.type}
-                  onChange={(v) => set({ type: v as DeadlineType })}
-                  options={TYPE_OPTIONS}
-                />
-              </Label>
-              <fieldset className="min-w-0">
-                <legend className="text-sm font-medium text-text">
-                  Source <span className="text-danger">*</span>
-                </legend>
-                {(Object.keys(SOURCE_LABEL) as DeadlineSource[]).map((s) => (
-                  <Radio
-                    key={s}
-                    name="source"
-                    label={SOURCE_LABEL[s]}
-                    checked={f.source === s}
-                    onChange={() => set({ source: s })}
-                    className="min-h-8"
-                  />
-                ))}
-              </fieldset>
-            </div>
-            <div className="mt-3">
-              <Textarea
-                label="Description"
-                value={f.description}
-                maxLength={2000}
-                rows={4}
-                onChange={(e) => set({ description: e.target.value })}
-              />
-              <p className="mt-1 text-right text-xs text-muted">
-                Characters: {f.description.length}/2000
-              </p>
-            </div>
-          </Section>
-
-          <Section
-            step={2}
-            title="Client & Filing Details"
-            subtitle="Link this deadline to a client and filing requirements."
-            testId="sec-client"
-          >
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Label text="Client" required htmlFor="df-client" error={errors.clientId}>
-                <Selectbox
-                  id="df-client"
-                  label="Client"
-                  value={f.clientId}
-                  disabled={Boolean(id)}
-                  onChange={(v) =>
-                    set({ clientId: v, engagementId: '', tasks: [], documents: [], links: [] })
-                  }
-                  options={[
-                    { value: '', label: 'Select client' },
-                    ...(initial && !clients.some((c) => c.id === initial.client.id)
-                      ? [{ value: initial.client.id, label: initial.client.displayName }]
-                      : []),
-                    ...clients.map((c) => ({ value: c.id, label: c.displayName })),
-                  ]}
-                />
-              </Label>
-              <Label text="Entity Type" htmlFor="df-entity">
-                <Selectbox
-                  id="df-entity"
-                  label="Entity Type"
-                  value={f.entityType}
-                  onChange={(v) => set({ entityType: v })}
-                  options={[
-                    { value: '', label: 'Select entity type' },
-                    ...ENTITY_TYPES.map((x) => ({ value: x, label: x })),
-                  ]}
-                />
-              </Label>
-              <Label text="Tax Year" htmlFor="df-year">
-                <Selectbox
-                  id="df-year"
-                  label="Tax Year"
-                  value={f.taxYear}
-                  onChange={(v) => set({ taxYear: v })}
-                  options={[
-                    { value: '', label: 'Select year' },
-                    ...[0, 1, 2, 3]
-                      .map((n) => String(new Date().getFullYear() + 1 - n))
-                      .map((x) => ({ value: x, label: x })),
-                  ]}
-                />
-              </Label>
-              <Label text="Filing Period" htmlFor="df-period">
-                <Selectbox
-                  id="df-period"
-                  label="Filing Period"
-                  value={f.filingPeriod}
-                  onChange={(v) => set({ filingPeriod: v })}
-                  options={[
-                    { value: '', label: 'Select period' },
-                    ...PERIODS.map((x) => ({ value: x, label: x })),
-                  ]}
-                />
-              </Label>
-              <Label text="Related To" htmlFor="df-related">
-                <Selectbox
-                  id="df-related"
-                  label="Related To"
-                  value={f.engagementId}
-                  onChange={(v) => set({ engagementId: v })}
-                  options={[
-                    { value: '', label: f.clientId ? 'None' : 'Choose a client first' },
-                    ...(engagements.data ?? []).map((x) => ({ value: x.id, label: x.title })),
-                  ]}
-                />
-              </Label>
-              <Input
-                label="Related Form (if applicable)"
-                value={f.relatedForm}
-                maxLength={60}
-                onChange={(e) => set({ relatedForm: e.target.value })}
-              />
-              <Input
-                label="Agency"
-                value={f.agency}
-                maxLength={120}
-                onChange={(e) => set({ agency: e.target.value })}
-              />
-              <Label text="Jurisdiction" htmlFor="df-juris">
-                <Selectbox
-                  id="df-juris"
-                  label="Jurisdiction"
-                  value={f.jurisdiction}
-                  onChange={(v) => set({ jurisdiction: v })}
-                  options={JURISDICTIONS}
-                />
-              </Label>
-              <Label text="State (if applicable)" htmlFor="df-state">
-                <Selectbox
-                  id="df-state"
-                  label="State"
-                  value={f.state}
-                  onChange={(v) => set({ state: v })}
-                  options={[
-                    { value: '', label: 'Select State' },
-                    ...COMPLIANCE_STATES.map((x) => ({ value: x, label: x })),
-                  ]}
-                />
-              </Label>
-            </div>
-          </Section>
-
-          <Section
-            step={3}
-            title="Dates & Reminders"
-            subtitle="Set the due date and reminder preferences."
-            testId="sec-dates"
-          >
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Input
-                label="Due Date *"
-                id="df-due"
-                type="date"
-                value={f.dueOn}
-                onChange={(e) => set({ dueOn: e.target.value })}
-                {...(errors.dueOn ? { error: errors.dueOn } : {})}
-              />
-              <Input
-                label="Due Time"
-                type="time"
-                value={f.dueTime}
-                onChange={(e) => set({ dueTime: e.target.value })}
-              />
-              <Label text="Priority" htmlFor="df-priority">
-                <Selectbox
-                  id="df-priority"
-                  label="Priority"
-                  value={f.priority}
-                  onChange={(v) => set({ priority: v as Form['priority'] })}
-                  options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                />
-              </Label>
-              <Label text="Status" htmlFor="df-status">
-                <Selectbox
-                  id="df-status"
-                  label="Status"
-                  value={f.status}
-                  onChange={(v) => set({ status: v as Form['status'] })}
-                  options={STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] }))}
-                />
-              </Label>
-            </div>
-            {f.source === 'GOVERNMENT' || f.statutoryDueOn ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <Input
-                  label="Statutory due date"
-                  type="date"
-                  value={f.statutoryDueOn}
-                  onChange={(e) => set({ statutoryDueOn: e.target.value })}
-                />
-                {overrideNeeded ? (
-                  <Textarea
-                    label="Reason for changing the statutory date *"
-                    value={f.overrideReason}
-                    rows={2}
-                    maxLength={500}
-                    onChange={(e) => set({ overrideReason: e.target.value })}
-                    {...(errors.overrideReason ? { error: errors.overrideReason } : {})}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-            <div className="mt-4 flex items-center gap-3">
-              <Toggle
-                label="Enable Reminders"
-                checked={f.remindersOn}
-                onChange={(on) =>
-                  set({
-                    remindersOn: on,
-                    reminders:
-                      on && f.reminders.length === 0 ? remindersToDrafts(defaults) : f.reminders,
-                  })
-                }
-              />
-              <span className="text-sm text-text">Enable Reminders</span>
-            </div>
-            {f.remindersOn ? (
-              <div className="mt-3">
-                <RemindersEditor value={f.reminders} onChange={(reminders) => set({ reminders })} />
-              </div>
-            ) : null}
-          </Section>
-
-          <Section
-            step={4}
-            title="Automation & Tasks"
-            subtitle="Automate next steps to keep work on track."
-            testId="sec-automation"
-          >
-            <div className="flex flex-col gap-3">
-              <div className="grid items-center gap-3 md:grid-cols-2">
-                <Checkbox
-                  label="Automatically create a task for this deadline"
-                  checked={f.createTask}
-                  disabled={Boolean(id)}
-                  onChange={(e) => set({ createTask: e.target.checked })}
-                />
-                {f.createTask && !id ? (
-                  <Selectbox
-                    label="Task template"
-                    value={f.taskTemplateId}
-                    onChange={(v) => set({ taskTemplateId: v })}
-                    options={[
-                      { value: '', label: 'No template' },
-                      ...(templates.data ?? []).map((t) => ({
-                        value: t.id,
-                        label: `Use template: ${t.name}`,
-                      })),
-                    ]}
-                  />
-                ) : null}
-              </div>
-              <div className="grid items-center gap-3 md:grid-cols-2">
-                <Checkbox
-                  label="Assign task to"
-                  checked={f.assignOn}
-                  onChange={(e) => set({ assignOn: e.target.checked })}
-                />
-                {f.assignOn ? (
-                  <Selectbox
-                    label="Assigned to"
-                    value={f.assignedUserId}
-                    onChange={(v) => set({ assignedUserId: v })}
-                    options={[
-                      { value: '', label: 'Choose a team member' },
-                      ...(initial?.assignedTo &&
-                      !members.some((m) => m.userId === initial.assignedTo?.userId)
-                        ? [{ value: initial.assignedTo.userId, label: initial.assignedTo.name }]
-                        : []),
-                      ...members.map((m) => ({ value: m.userId, label: m.name })),
-                    ]}
-                  />
-                ) : null}
-              </div>
-              <Checkbox
-                label="Create recurring deadline (set recurrence)"
-                checked={f.recurring}
-                onChange={(e) => set({ recurring: e.target.checked })}
-              />
-              <Checkbox
-                label="Add to client portal (visible to client)"
-                checked={f.clientVisible}
-                onChange={(e) => set({ clientVisible: e.target.checked })}
-              />
-            </div>
-          </Section>
+            Reopen
+          </Button>
         </div>
+      ) : null}
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <Section
-            step={5}
-            title="Additional Information"
-            subtitle="Add notes, documents, and internal details."
-            testId="sec-notes"
-          >
-            <div className="flex flex-col gap-3">
-              <Textarea
-                label="Internal Notes (not visible to client)"
-                value={f.internalNotes}
-                rows={3}
-                maxLength={5000}
-                onChange={(e) => set({ internalNotes: e.target.value })}
-              />
-              <div>
-                <Textarea
-                  label="Client-Facing Notes (optional)"
-                  value={f.clientNotes}
-                  rows={3}
-                  maxLength={2000}
-                  onChange={(e) => set({ clientNotes: e.target.value })}
+      <fieldset disabled={closed} className="min-w-0 disabled:opacity-80">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-4">
+            <Section
+              step={1}
+              title="Deadline Information"
+              subtitle="Enter the main details for this deadline."
+              testId="sec-info"
+            >
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                <Input
+                  label="Deadline Name *"
+                  value={f.name}
+                  maxLength={200}
+                  onChange={(e) => set({ name: e.target.value })}
+                  {...(errors.name ? { error: errors.name } : {})}
                 />
-                <p className="mt-1 text-xs text-muted">
-                  This deadline will be visible to the client if added to the portal.
+                <Label text="Deadline Type" required htmlFor="df-type">
+                  <Selectbox
+                    id="df-type"
+                    label="Deadline Type"
+                    value={f.type}
+                    onChange={(v) => set({ type: v as DeadlineType })}
+                    options={TYPE_OPTIONS}
+                  />
+                </Label>
+                <fieldset className="min-w-0">
+                  <legend className="text-sm font-medium text-text">
+                    Source <span className="text-danger">*</span>
+                  </legend>
+                  {(Object.keys(SOURCE_LABEL) as DeadlineSource[]).map((s) => (
+                    <Radio
+                      key={s}
+                      name="source"
+                      label={SOURCE_LABEL[s]}
+                      checked={f.source === s}
+                      onChange={() => set({ source: s })}
+                      className="min-h-8"
+                    />
+                  ))}
+                </fieldset>
+              </div>
+              <div className="mt-3">
+                <Textarea
+                  label="Description"
+                  value={f.description}
+                  maxLength={2000}
+                  rows={4}
+                  onChange={(e) => set({ description: e.target.value })}
+                />
+                <p className="mt-1 text-right text-xs text-muted">
+                  Characters: {f.description.length}/2000
                 </p>
               </div>
-            </div>
-          </Section>
+            </Section>
 
-          <Section step={3} title="Attachments (Optional)" testId="sec-attachments">
-            <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border bg-canvas p-5 text-center text-sm text-muted">
-              <CloudArrowUp aria-hidden weight="regular" className="size-8 text-action" />
-              <p>Uploading files here is not connected yet.</p>
-              <p>Add a document the client already has under Related Items.</p>
-            </div>
-          </Section>
-
-          <Section
-            step={6}
-            title="Related Items"
-            subtitle="Link to other records."
-            testId="sec-related"
-          >
-            <div className="flex flex-col gap-4">
-              <Related
-                title="Related Tasks"
-                action={
-                  <Adder
-                    label="Link Task"
-                    options={taskChoices}
-                    disabled={!f.clientId}
-                    onAdd={(x) => set({ tasks: [...f.tasks, x] })}
+            <Section
+              step={2}
+              title="Client & Filing Details"
+              subtitle="Link this deadline to a client and filing requirements."
+              testId="sec-client"
+            >
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Label text="Client" required htmlFor="df-client" error={errors.clientId}>
+                  <Selectbox
+                    id="df-client"
+                    label="Client"
+                    value={f.clientId}
+                    disabled={Boolean(id)}
+                    onChange={(v) =>
+                      set({ clientId: v, engagementId: '', tasks: [], documents: [], links: [] })
+                    }
+                    options={[
+                      { value: '', label: 'Select client' },
+                      ...(initial && !clients.some((c) => c.id === initial.client.id)
+                        ? [{ value: initial.client.id, label: initial.client.displayName }]
+                        : []),
+                      ...clients.map((c) => ({ value: c.id, label: c.displayName })),
+                    ]}
                   />
-                }
-              >
-                <Chips
-                  items={f.tasks}
-                  empty={f.clientId ? 'No tasks linked.' : 'Choose a client to link tasks.'}
-                  onRemove={(rid) => set({ tasks: f.tasks.filter((x) => x.id !== rid) })}
-                />
-              </Related>
-              <Related
-                title="Related Documents"
-                action={
-                  <Adder
-                    label="Add Document"
-                    options={docChoices}
-                    disabled={!f.clientId}
-                    onAdd={(x) => set({ documents: [...f.documents, x] })}
+                </Label>
+                <Label text="Entity Type" htmlFor="df-entity">
+                  <Selectbox
+                    id="df-entity"
+                    label="Entity Type"
+                    value={f.entityType}
+                    onChange={(v) => set({ entityType: v })}
+                    options={[
+                      { value: '', label: 'Select entity type' },
+                      ...ENTITY_TYPES.map((x) => ({ value: x, label: x })),
+                    ]}
                   />
-                }
-              >
-                <Chips
-                  items={f.documents}
-                  empty={f.clientId ? 'No documents added.' : 'Choose a client to add documents.'}
-                  onRemove={(rid) => set({ documents: f.documents.filter((x) => x.id !== rid) })}
+                </Label>
+                <Label text="Tax Year" htmlFor="df-year">
+                  <Selectbox
+                    id="df-year"
+                    label="Tax Year"
+                    value={f.taxYear}
+                    onChange={(v) => set({ taxYear: v })}
+                    options={[
+                      { value: '', label: 'Select year' },
+                      ...TAX_YEARS.map((x) => ({ value: x, label: x })),
+                      // A year saved before this list keeps showing.
+                      ...(f.taxYear && !TAX_YEARS.includes(f.taxYear)
+                        ? [{ value: f.taxYear, label: f.taxYear }]
+                        : []),
+                    ]}
+                  />
+                </Label>
+                <Label text="Filing Period" htmlFor="df-period">
+                  <Selectbox
+                    id="df-period"
+                    label="Filing Period"
+                    value={customPeriod ? CUSTOM_PERIOD : f.filingPeriod}
+                    onChange={(v) => {
+                      setCustomPeriod(v === CUSTOM_PERIOD);
+                      set({ filingPeriod: v === CUSTOM_PERIOD ? '' : v });
+                    }}
+                    options={[
+                      { value: '', label: 'Select period' },
+                      ...PERIODS.map((x) => ({ value: x, label: x })),
+                      { value: CUSTOM_PERIOD, label: 'Custom period…' },
+                    ]}
+                  />
+                </Label>
+                {customPeriod ? (
+                  <Input
+                    label="Custom period"
+                    value={f.filingPeriod}
+                    maxLength={60}
+                    placeholder="FY Jul 2025 – Jun 2026"
+                    onChange={(e) => set({ filingPeriod: e.target.value })}
+                  />
+                ) : null}
+                <Label text="Related To" htmlFor="df-related">
+                  <Selectbox
+                    id="df-related"
+                    label="Related To"
+                    value={f.engagementId}
+                    onChange={(v) => set({ engagementId: v })}
+                    options={[
+                      { value: '', label: f.clientId ? 'None' : 'Choose a client first' },
+                      ...(engagements.data ?? []).map((x) => ({ value: x.id, label: x.title })),
+                    ]}
+                  />
+                </Label>
+                <Input
+                  label="Related Form (if applicable)"
+                  value={f.relatedForm}
+                  maxLength={60}
+                  onChange={(e) => set({ relatedForm: e.target.value })}
                 />
-              </Related>
-              <Related title="Related Deadlines (Optional)">
-                <Selectbox
-                  label="Related deadline"
-                  value=""
-                  disabled={!f.clientId}
-                  onChange={(v) => {
-                    const item = linkChoices.find((x) => x.id === v);
-                    if (item) set({ links: [...f.links, item] });
-                  }}
-                  options={[
-                    { value: '', label: 'Select related deadline' },
-                    ...linkChoices.map((o) => ({ value: o.id, label: o.label })),
-                  ]}
+                <Input
+                  label="Agency"
+                  value={f.agency}
+                  maxLength={120}
+                  onChange={(e) => set({ agency: e.target.value })}
                 />
-                <Chips
-                  items={f.links}
-                  empty=""
-                  onRemove={(rid) => set({ links: f.links.filter((x) => x.id !== rid) })}
-                />
-              </Related>
-            </div>
-          </Section>
+                <Label text="Jurisdiction" htmlFor="df-juris">
+                  <Selectbox
+                    id="df-juris"
+                    label="Jurisdiction"
+                    value={f.jurisdiction}
+                    onChange={(v) => set({ jurisdiction: v })}
+                    options={JURISDICTIONS}
+                  />
+                </Label>
+                <Label text="State (if applicable)" htmlFor="df-state">
+                  <Selectbox
+                    id="df-state"
+                    label="State"
+                    value={f.state}
+                    onChange={(v) => set({ state: v })}
+                    options={[
+                      { value: '', label: 'Select State' },
+                      ...COMPLIANCE_STATES.map((x) => ({ value: x, label: x })),
+                    ]}
+                  />
+                </Label>
+              </div>
+            </Section>
 
-          <section
-            className="min-w-0 rounded-xl bg-success-soft p-4"
-            data-testid="deadline-summary"
-            aria-label="Deadline Summary"
-          >
-            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
-              <CalendarPlus aria-hidden weight="fill" className="size-5 text-success" /> Deadline
-              Summary
-            </h2>
-            <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 text-sm">
-              {summary.map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="text-text">{k}:</dt>
-                  <dd className="font-medium break-words text-heading">{v}</dd>
+            <Section
+              step={3}
+              title="Dates & Reminders"
+              subtitle="Set the due date and reminder preferences."
+              testId="sec-dates"
+            >
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Input
+                  label="Due Date *"
+                  id="df-due"
+                  type="date"
+                  value={f.dueOn}
+                  onChange={(e) => set({ dueOn: e.target.value })}
+                  {...(errors.dueOn ? { error: errors.dueOn } : {})}
+                />
+                <Input
+                  label="Due Time"
+                  type="time"
+                  value={f.dueTime}
+                  onChange={(e) => set({ dueTime: e.target.value })}
+                />
+                <Label text="Priority" htmlFor="df-priority">
+                  <Selectbox
+                    id="df-priority"
+                    label="Priority"
+                    value={f.priority}
+                    onChange={(v) => set({ priority: v as Form['priority'] })}
+                    options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                  />
+                </Label>
+                <Label text="Status" htmlFor="df-status">
+                  <Selectbox
+                    id="df-status"
+                    label="Status"
+                    value={f.status}
+                    onChange={(v) => set({ status: v as Form['status'] })}
+                    options={STATUSES.map((value) => ({ value, label: STATUS_LABEL[value] }))}
+                  />
+                </Label>
+              </div>
+              {f.source === 'GOVERNMENT' || f.statutoryDueOn ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <Input
+                    label="Statutory due date"
+                    type="date"
+                    value={f.statutoryDueOn}
+                    onChange={(e) => set({ statutoryDueOn: e.target.value })}
+                  />
+                  {overrideNeeded ? (
+                    <Textarea
+                      label="Reason for changing the statutory date *"
+                      value={f.overrideReason}
+                      rows={2}
+                      maxLength={500}
+                      onChange={(e) => set({ overrideReason: e.target.value })}
+                      {...(errors.overrideReason ? { error: errors.overrideReason } : {})}
+                    />
+                  ) : null}
                 </div>
-              ))}
-            </dl>
-          </section>
-        </div>
-      </div>
+              ) : null}
+              <div className="mt-4 flex items-center gap-3">
+                <Toggle
+                  label="Enable Reminders"
+                  checked={f.remindersOn}
+                  onChange={(on) =>
+                    set({
+                      remindersOn: on,
+                      reminders:
+                        on && f.reminders.length === 0 ? remindersToDrafts(defaults) : f.reminders,
+                    })
+                  }
+                />
+                <span className="text-sm text-text">Enable Reminders</span>
+              </div>
+              {f.remindersOn ? (
+                <div className="mt-3">
+                  <RemindersEditor
+                    value={f.reminders}
+                    onChange={(reminders) => set({ reminders })}
+                  />
+                </div>
+              ) : null}
+            </Section>
 
+            <Section
+              step={4}
+              title="Automation & Tasks"
+              subtitle="Automate next steps to keep work on track."
+              testId="sec-automation"
+            >
+              <div className="flex flex-col gap-3">
+                <div className="grid items-center gap-3 md:grid-cols-2">
+                  <Checkbox
+                    label="Automatically create a task for this deadline"
+                    checked={f.createTask}
+                    disabled={Boolean(id)}
+                    onChange={(e) => set({ createTask: e.target.checked })}
+                  />
+                  {f.createTask && !id ? (
+                    <Selectbox
+                      label="Task template"
+                      value={f.taskTemplateId}
+                      onChange={(v) => set({ taskTemplateId: v })}
+                      options={[
+                        { value: '', label: 'No template' },
+                        ...(templates.data ?? []).map((t) => ({
+                          value: t.id,
+                          label: `Use template: ${t.name}`,
+                        })),
+                      ]}
+                    />
+                  ) : null}
+                </div>
+                <div className="grid items-center gap-3 md:grid-cols-2">
+                  <Checkbox
+                    label="Assign task to"
+                    checked={f.assignOn}
+                    onChange={(e) => set({ assignOn: e.target.checked })}
+                  />
+                  {f.assignOn ? (
+                    <Selectbox
+                      label="Assigned to"
+                      value={f.assignedUserId}
+                      onChange={(v) => set({ assignedUserId: v })}
+                      options={[
+                        { value: '', label: 'Choose a team member' },
+                        ...(initial?.assignedTo &&
+                        !members.some((m) => m.userId === initial.assignedTo?.userId)
+                          ? [{ value: initial.assignedTo.userId, label: initial.assignedTo.name }]
+                          : []),
+                        ...members.map((m) => ({ value: m.userId, label: m.name })),
+                      ]}
+                    />
+                  ) : null}
+                </div>
+                <Checkbox
+                  label="Create recurring deadline (set recurrence)"
+                  checked={f.recurring}
+                  onChange={(e) => set({ recurring: e.target.checked })}
+                />
+                <Checkbox
+                  label="Add to client portal (visible to client)"
+                  checked={f.clientVisible}
+                  onChange={(e) => set({ clientVisible: e.target.checked })}
+                />
+              </div>
+            </Section>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-4">
+            <Section
+              step={5}
+              title="Additional Information"
+              subtitle="Add notes, documents, and internal details."
+              testId="sec-notes"
+            >
+              <div className="flex flex-col gap-3">
+                <Textarea
+                  label="Internal Notes (not visible to client)"
+                  value={f.internalNotes}
+                  rows={3}
+                  maxLength={5000}
+                  onChange={(e) => set({ internalNotes: e.target.value })}
+                />
+                <div>
+                  <Textarea
+                    label="Client-Facing Notes (optional)"
+                    value={f.clientNotes}
+                    rows={3}
+                    maxLength={2000}
+                    onChange={(e) => set({ clientNotes: e.target.value })}
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    This deadline will be visible to the client if added to the portal.
+                  </p>
+                </div>
+              </div>
+            </Section>
+
+            <Section step={3} title="Attachments (Optional)" testId="sec-attachments">
+              <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border bg-canvas p-5 text-center text-sm text-muted">
+                <CloudArrowUp aria-hidden weight="regular" className="size-8 text-action" />
+                <p>Uploading files here is not connected yet.</p>
+                <p>Add a document the client already has under Related Items.</p>
+              </div>
+            </Section>
+
+            <Section
+              step={6}
+              title="Related Items"
+              subtitle="Link to other records."
+              testId="sec-related"
+            >
+              <div className="flex flex-col gap-4">
+                <Related
+                  title="Related Tasks"
+                  action={
+                    <Adder
+                      label="Link Task"
+                      options={taskChoices}
+                      disabled={!f.clientId}
+                      onAdd={(x) => set({ tasks: [...f.tasks, x] })}
+                    />
+                  }
+                >
+                  <Chips
+                    items={f.tasks}
+                    empty={f.clientId ? 'No tasks linked.' : 'Choose a client to link tasks.'}
+                    onRemove={(rid) => set({ tasks: f.tasks.filter((x) => x.id !== rid) })}
+                  />
+                </Related>
+                <Related
+                  title="Related Documents"
+                  action={
+                    <Adder
+                      label="Add Document"
+                      options={docChoices}
+                      disabled={!f.clientId}
+                      onAdd={(x) => set({ documents: [...f.documents, x] })}
+                    />
+                  }
+                >
+                  <Chips
+                    items={f.documents}
+                    empty={f.clientId ? 'No documents added.' : 'Choose a client to add documents.'}
+                    onRemove={(rid) => set({ documents: f.documents.filter((x) => x.id !== rid) })}
+                  />
+                </Related>
+                <Related title="Related Deadlines (Optional)">
+                  <Selectbox
+                    label="Related deadline"
+                    value=""
+                    disabled={!f.clientId}
+                    onChange={(v) => {
+                      const item = linkChoices.find((x) => x.id === v);
+                      if (item) set({ links: [...f.links, item] });
+                    }}
+                    options={[
+                      { value: '', label: 'Select related deadline' },
+                      ...linkChoices.map((o) => ({ value: o.id, label: o.label })),
+                    ]}
+                  />
+                  <Chips
+                    items={f.links}
+                    empty=""
+                    onRemove={(rid) => set({ links: f.links.filter((x) => x.id !== rid) })}
+                  />
+                </Related>
+              </div>
+            </Section>
+
+            <section
+              className="min-w-0 rounded-xl bg-success-soft p-4"
+              data-testid="deadline-summary"
+              aria-label="Deadline Summary"
+            >
+              <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+                <CalendarPlus aria-hidden weight="fill" className="size-5 text-success" /> Deadline
+                Summary
+              </h2>
+              <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1 text-sm">
+                {summary.map(([k, v]) => (
+                  <div key={k} className="contents">
+                    <dt className="text-text">{k}:</dt>
+                    <dd className="font-medium break-words text-heading">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </div>
+        </div>
+      </fieldset>
       <footer className="flex flex-wrap items-center justify-between gap-3">
         <Link href={origin ?? (id ? `/compliance/${id}` : '/compliance')} className={subtle}>
           Cancel
@@ -1004,7 +1083,7 @@ function DeadlineForm({
           </button>
           <Button
             data-testid="deadline-save"
-            disabled={save.isPending}
+            disabled={save.isPending || closed}
             onClick={() => run(f.recurring ? 'recurring' : 'open')}
           >
             Save Deadline

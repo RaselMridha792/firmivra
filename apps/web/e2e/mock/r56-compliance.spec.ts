@@ -236,6 +236,31 @@ test('Recurring workspace: the tab follows the address, an import draft survives
   await expect(page.getByTestId('setup-summary')).not.toContainText('Every 1 months');
 });
 
+test('A completed deadline opens read-only with Reopen; years and periods go wider (CD-F07, F08)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/${FIRST}`);
+  await page.getByRole('button', { name: 'Complete', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Complete', exact: true }).click();
+  await expect(page.getByText('Deadline completed.')).toBeVisible();
+  // In mock mode the change lives in the page: Edit by its link, not a reload.
+  await page.getByRole('link', { name: 'Edit', exact: true }).first().click();
+  await expect(page.getByTestId('closed-banner')).toContainText('Completed');
+  await expect(page.getByTestId('deadline-save')).toBeDisabled();
+  await expect(page.getByLabel('Deadline Name').first()).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath('completed-read-only.png') });
+  await page.getByTestId('closed-banner').getByRole('button', { name: 'Reopen' }).click();
+  await expect(page.getByTestId('closed-banner')).toHaveCount(0);
+  await expect(page.getByTestId('deadline-save')).toBeEnabled();
+  // CD-F08: a prior year, a specific month and a custom period.
+  await expect(page.locator('#df-year option[value="2015"]')).toHaveCount(1);
+  await expect(page.locator('#df-period option[value="Month of March"]')).toHaveCount(1);
+  await page.locator('#df-period').selectOption('__custom__');
+  await page.getByLabel('Custom period').fill('FY Jul 2025 – Jun 2026');
+  await expect(page.getByLabel('Custom period')).toHaveValue('FY Jul 2025 – Jun 2026');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {
