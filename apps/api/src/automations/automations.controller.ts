@@ -2,6 +2,9 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from 
 import { z } from 'zod';
 import {
   type AutomationCatalog,
+  AutomationConfirmationList,
+  AutomationConfirmationsQuery,
+  AutomationEventConfirmation,
   type AutomationLogExport,
   type AutomationOverview,
   type AutomationPreview,
@@ -18,6 +21,7 @@ import {
   AutomationTemplateId,
   type AutomationTemplatePage,
   type AutomationVersionDetail,
+  ConfirmAutomationEventRequest,
   type ImportAutomationTemplateRequest,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -43,6 +47,7 @@ import {
   UpdateTemplateBody,
   UseTemplateBody,
 } from './automations-input.js';
+import { ConfirmationsService } from './confirmations.service.js';
 import { AutomationsOverviewService } from './overview.service.js';
 import { RulesService } from './rules.service.js';
 import { RunsService } from './runs.service.js';
@@ -74,6 +79,7 @@ export class AutomationsController {
     private readonly rules: RulesService,
     private readonly templates: TemplatesService,
     private readonly runs: RunsService,
+    private readonly confirmations: ConfirmationsService,
   ) {}
 
   @Get('overview')
@@ -430,5 +436,30 @@ export class AutomationsController {
   ): Promise<AutomationSettingsView> {
     const w = who(auth, tenant);
     return this.overviewService.saveSettings(w.businessId, w.tenant, w.userId, body);
+  }
+
+  // ----- Manual Event Confirmation (AU-F31 to F33) -----
+
+  /** One known external outcome for one record and occurrence; see ConfirmAutomationEventRequest. */
+  @Post('confirmations')
+  confirmEvent(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConfirmAutomationEventRequest))
+    body: Out<typeof ConfirmAutomationEventRequest>,
+  ): Promise<AutomationEventConfirmation> {
+    const w = who(auth, tenant);
+    return this.confirmations.confirm(w.businessId, w.tenant, w.userId, body);
+  }
+
+  @Get('confirmations')
+  listConfirmations(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(AutomationConfirmationsQuery))
+    query: Out<typeof AutomationConfirmationsQuery>,
+  ): Promise<AutomationConfirmationList> {
+    const w = who(auth, tenant);
+    return this.confirmations.list(w.businessId, w.tenant, w.userId, query);
   }
 }

@@ -105,6 +105,12 @@ export const AutomationEvent = z.object({
   /** Timing it supports: IMMEDIATE only, or before and after a date on the record, or scheduled. */
   timings: z.array(AutomationTiming),
   conditionFields: z.array(AutomationConditionField),
+  /**
+   * AU-F30: an external outcome (a return accepted, a filing confirmed) a member may confirm by
+   * hand (Manual Event Confirmation); null for an event the firm's own records show. With
+   * `integrationAvailable` false, no verified integration sends it yet.
+   */
+  confirmation: z.object({ integrationAvailable: z.boolean() }).nullable(),
 });
 export type AutomationEvent = z.infer<typeof AutomationEvent>;
 
@@ -166,6 +172,10 @@ const ConfigValue = z.union([
   z.null(),
 ]);
 
+/** AU-F30: where a confirmable event's outcome may come from. */
+export const AutomationEventSource = z.enum(['INTEGRATION_VERIFIED', 'MANUAL', 'EITHER']);
+export type AutomationEventSource = z.infer<typeof AutomationEventSource>;
+
 /** Step 1: what starts the rule. BEFORE and AFTER need an offset; IMMEDIATE and SCHEDULED have none. */
 export const AutomationTrigger = z
   .strictObject({
@@ -174,6 +184,12 @@ export const AutomationTrigger = z
     timing: AutomationTiming.optional().default('IMMEDIATE'),
     offsetValue: z.number().int().min(0).max(100_000).nullable().optional(),
     offsetUnit: OffsetUnit.nullable().optional(),
+    /**
+     * AU-F30, a confirmable event only: where the outcome comes from. Left out or null (a view
+     * sent back, as Duplicate and template export do): Manual confirmation for a confirmable
+     * event, none for any other. INTEGRATION_VERIFIED waits for a verified integration event.
+     */
+    source: AutomationEventSource.nullable().optional(),
   })
   .superRefine((t, ctx) => {
     const offset = t.timing === 'BEFORE' || t.timing === 'AFTER';
@@ -284,6 +300,8 @@ export const AutomationDefinitionView = z.object({
     timing: AutomationTiming,
     offsetValue: z.number().int().nullable(),
     offsetUnit: OffsetUnit.nullable(),
+    /** AU-F30: a confirmable event's source; null for any other event. */
+    source: AutomationEventSource.nullable(),
   }),
   matchMode: MatchMode,
   conditions: z.array(
@@ -810,6 +828,8 @@ export const AutomationSettingsView = z.object({
   minutesSavedPerAction: z.number().int(),
   logRetentionDays: z.number().int(),
   timezone: z.string(),
+  /** AU-F29: members may confirm external outcomes by hand. Off until an Owner or Admin turns it on. */
+  manualConfirmationEnabled: z.boolean(),
   updatedAt: DateTime.nullable(),
 });
 export type AutomationSettingsView = z.infer<typeof AutomationSettingsView>;
@@ -828,9 +848,65 @@ export const SaveAutomationSettingsRequest = z
     failureAlertUserIds: z.array(z.uuid()).max(20).optional(),
     minutesSavedPerAction: z.number().int().min(0).max(240).optional(),
     logRetentionDays: z.number().int().min(30).max(2_555).optional(),
+    /** AU-F29: Owner or Admin only (403 otherwise). */
+    manualConfirmationEnabled: z.boolean().optional(),
   })
   .refine((o) => Object.keys(o).length > 0, 'Change at least one field');
 export type SaveAutomationSettingsRequest = z.input<typeof SaveAutomationSettingsRequest>;
+
+// ---------- Manual Event Confirmation (AU-F31 to F33) ----------
+
+/**
+ * POST /business/automations/confirmations: a member reports one known external outcome (a return
+ * accepted, a filing confirmed) for one record and occurrence. Only while Manual Event
+ * Confirmation is on (409 MANUAL_CONFIRMATION_OFF); an Owner or Admin, or a member with that
+ * module's manage right. One per occurrence (409 ALREADY_CONFIRMED); never in bulk. It records the
+ * fact only: nothing is filed, submitted, charged or changed on the record.
+ */
+export const ConfirmAutomationEventRequest = z.strictObject({
+  /** A confirmable event of the catalog (`confirmation` not null). */
+  event: AutomationEventCode,
+  /** The record the outcome is about (a tax return, a payroll run, a deadline). */
+  recordId: z.uuid(),
+  /** What makes this occurrence: a tax year, a period, a filing date ("2025", "2026-04-15"). */
+  occurrence: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,59}$/, 'Use up to 60 letters, digits or - . _ : /'),
+  /** The known outcome's safe reference (an acknowledgment number); never credentials. */
+  reference: z.string().trim().min(1).max(200).optional(),
+  note: z.string().trim().min(1).max(500).optional(),
+  /** A document of the record's client, as evidence. */
+  evidenceDocumentId: z.uuid().optional(),
+});
+export type ConfirmAutomationEventRequest = z.input<typeof ConfirmAutomationEventRequest>;
+
+/** One confirmation: who confirmed what and when, and any provider evidence that came later. */
+export const AutomationEventConfirmation = z.object({
+  id: z.uuid(),
+  event: AutomationEventCode,
+  eventLabel: z.string(),
+  recordKind: z.string(),
+  recordId: z.uuid(),
+  occurrence: z.string(),
+  client: z.object({ id: z.uuid(), displayName: z.string() }).nullable(),
+  confirmedBy: MemberRef,
+  confirmedAt: DateTime,
+  reference: z.string().nullable(),
+  note: z.string().nullable(),
+  evidenceDocumentId: z.uuid().nullable(),
+  /** "Manually confirmed", never relabelled as provider evidence; this is added beside it. */
+  providerEvidence: z
+    .object({ verifiedAt: DateTime, provider: z.string(), reference: z.string() })
+    .nullable(),
+});
+export type AutomationEventConfirmation = z.infer<typeof AutomationEventConfirmation>;
+
+/** GET /business/automations/confirmations?recordId=: newest first, at most 100. */
+export const AutomationConfirmationsQuery = z.strictObject({ recordId: z.uuid().optional() });
+export type AutomationConfirmationsQuery = z.input<typeof AutomationConfirmationsQuery>;
+export const AutomationConfirmationList = z.object({ items: z.array(AutomationEventConfirmation) });
+export type AutomationConfirmationList = z.infer<typeof AutomationConfirmationList>;
 
 // ---------- Errors ----------
 
@@ -857,5 +933,9 @@ export const AutomationErrorCode = z.enum([
   'TOO_MANY_ROWS',
   /** 409: the template needs an integration or permission the firm does not have. */
   'TEMPLATE_UNAVAILABLE',
+  /** 409 (AU-F31): Manual Event Confirmation is off in Automation Settings. */
+  'MANUAL_CONFIRMATION_OFF',
+  /** 409 (AU-F31): this occurrence is confirmed already; a confirmation never changes. */
+  'ALREADY_CONFIRMED',
 ]);
 export type AutomationErrorCode = z.infer<typeof AutomationErrorCode>;

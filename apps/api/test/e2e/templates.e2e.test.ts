@@ -28,6 +28,7 @@ import {
   TemplateAttachment,
   TemplateBranding,
   TemplateCategory,
+  TemplateStructureOptions,
   TemplateCategoryList,
   TemplatesSummary,
   TemplateVersion,
@@ -1256,6 +1257,166 @@ describe('starter templates', () => {
         ok(await call('get', '/templates/starters', people.ownerB, undefined, 'b')),
       ).installed,
     ).toBe(0);
+  });
+});
+
+describe('structures (TP-F08)', () => {
+  const ids = {} as Record<'task' | 'taskB' | 'docs' | 'intake', string>;
+  let serviceName = '';
+  beforeAll(async () => {
+    await inFirm('a', async (tx) => {
+      ids.task = (
+        await tx.taskTemplate.create({
+          data: {
+            businessId: firms.a,
+            name: mark('Onboarding'),
+            checklist: [
+              { label: 'Confirm the details', required: true },
+              { label: 'Open the file', required: false },
+            ],
+          },
+        })
+      ).id;
+      ids.docs = (
+        await tx.documentRequestTemplate.create({
+          data: {
+            businessId: firms.a,
+            name: mark('Tax documents'),
+            items: {
+              create: [
+                { title: 'W-2 forms', required: true, sortOrder: 0 },
+                { title: 'Receipts', required: false, sortOrder: 1 },
+              ],
+            },
+          },
+        })
+      ).id;
+      serviceName = mark('Tax prep');
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind: 'ANNUAL_TAX', name: serviceName },
+      });
+      ids.intake = (
+        await tx.intakeTemplate.create({ data: { businessId: firms.a, serviceId: service.id } })
+      ).id;
+    });
+    await inFirm('b', async (tx) => {
+      ids.taskB = (
+        await tx.taskTemplate.create({ data: { businessId: firms.b, name: mark('Firm B task') } })
+      ).id;
+    });
+  });
+  const link = (
+    id: string,
+    moduleTemplateId: string | null,
+    etag: string,
+    who: Who = people.ownerA,
+  ) => call('put', `/templates/${id}/linked-template`, who, { moduleTemplateId, etag });
+
+  it('a Task, Document Request or Intake template stands for one of the firm’s own, and only one', async () => {
+    const t = await make({ kind: 'TASK', body: 'Follow the checklist' });
+    const linked = detail(await link(t.id, ids.task, t.etag));
+    expect(linked.linkedTemplate).toMatchObject({
+      kind: 'TASK',
+      id: ids.task,
+      steps: ['Confirm the details', 'Open the file'],
+    });
+    // The text and its version stay as they were.
+    expect(linked.version).toBe(t.version);
+    // One library template stands for each task template.
+    const other = await make({ kind: 'TASK', body: 'Another' });
+    expectError(await link(other.id, ids.task, other.etag), 409, 'STRUCTURE_IN_USE');
+    // Another firm's is not found, never told apart from none.
+    expectError(await link(other.id, ids.taskB, other.etag), 404, 'NOT_FOUND');
+    expectError(await link(other.id, randomUUID(), other.etag), 404, 'NOT_FOUND');
+    // Only those three kinds stand for one; a stale version is refused.
+    const email = await make({ subject: 'S' });
+    expectError(await link(email.id, ids.task, email.etag), 400, 'VALIDATION_FAILED');
+    expectError(await link(other.id, null, 'stale'), 409, 'SAVE_CONFLICT');
+
+    const options = TemplateStructureOptions.parse(
+      ok(await call('get', '/templates/structure-options?kind=TASK', people.staffA)),
+    );
+    expect(options.items.find((o) => o.id === ids.task)?.usedByTemplateId).toBe(t.id);
+    expect(options.items.map((o) => o.id)).not.toContain(ids.taskB);
+
+    const docs = await make({ kind: 'DOCUMENT_REQUEST', body: 'Please upload these' });
+    expect(detail(await link(docs.id, ids.docs, docs.etag)).linkedTemplate?.steps).toEqual([
+      'W-2 forms',
+      'Receipts (optional)',
+    ]);
+    const intake = await make({ kind: 'INTAKE_ORGANIZER', body: 'Please complete it' });
+    expect(detail(await link(intake.id, ids.intake, intake.etag)).linkedTemplate?.name).toBe(
+      `${serviceName} intake`,
+    );
+    // Cleared, the task template is free again.
+    const cleared = detail(await link(t.id, null, linked.etag));
+    expect(cleared.linkedTemplate).toBeNull();
+    expect(detail(await link(other.id, ids.task, other.etag)).linkedTemplate?.id).toBe(ids.task);
+    expect((await auditActions(t.id)).map((a) => a.action)).toContain('message_template.linked');
+  });
+
+  it('Tax Workflow and Bookkeeping keep a structure of their shape; each change is a version that keeps it', async () => {
+    const structure = { sections: [{ title: 'Income', items: ['W-2s', '1099s'] }] };
+    const t = await make({ kind: 'TAX_WORKFLOW', body: 'Our workflow', structure });
+    expect(t.structure).toEqual(structure);
+    expectError(
+      await call('post', '/templates', people.ownerA, {
+        kind: 'TAX_WORKFLOW',
+        name: mark('Empty'),
+        body: 'x',
+        structure: { sections: [] },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/templates', people.ownerA, {
+        kind: 'EMAIL',
+        name: mark('Not here'),
+        body: 'x',
+        structure,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    const changed = { sections: [...structure.sections, { title: 'Review', items: ['Sign'] }] };
+    const v2 = detail(await patchT(t.id, { etag: t.etag, structure: changed }));
+    expect(v2).toMatchObject({ version: 2, structure: changed });
+    const kept = await inFirm('a', (tx) =>
+      tx.messageTemplateVersion.findMany({
+        where: { templateId: t.id },
+        orderBy: { version: 'asc' },
+        select: { structure: true },
+      }),
+    );
+    expect(kept.map((v) => v.structure)).toEqual([structure, changed]);
+    // Restoring version 1 brings its structure back; a copy carries the structure.
+    const restored = detail(
+      await call('post', `/templates/${t.id}/versions/1/restore`, people.ownerA),
+    );
+    expect(restored.structure).toEqual(structure);
+    const copy = detail(await call('post', `/templates/${t.id}/duplicate`, people.ownerA), 201);
+    expect(copy.structure).toEqual(structure);
+
+    const books = {
+      documentRequests: [{ title: 'Bank statements', frequency: 'MONTHLY' }],
+      closeChecklist: ['Reconcile the accounts'],
+      clientUpdates: ['Your books are up to date'],
+    };
+    expect(
+      (await make({ kind: 'BOOKKEEPING', body: 'Monthly', structure: books })).structure,
+    ).toEqual(books);
+    expectError(
+      await call('post', '/templates', people.ownerA, {
+        kind: 'BOOKKEEPING',
+        name: mark('Nothing'),
+        body: 'x',
+        structure: { documentRequests: [], closeChecklist: [], clientUpdates: [] },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });
 

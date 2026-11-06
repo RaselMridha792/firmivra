@@ -4,6 +4,7 @@ import type {
   AutomationCondition,
   AutomationDefinition,
   AutomationDefinitionView,
+  AutomationEventSource,
   AutomationOperator,
 } from '@firmivra/types';
 import { actionOf, eventOf, OPERATORS, VARIABLE_KEYS } from './catalog.js';
@@ -37,6 +38,8 @@ export function structureProblems(def: Def): Detail[] {
       add('trigger.module', `This event belongs to ${event.module}`);
     if (!event.timings.includes(def.trigger.timing))
       add('trigger.timing', 'This event does not support this timing');
+    if (def.trigger.source && !event.confirmation)
+      add('trigger.source', 'Only a confirmed external outcome has a source to choose');
   }
   def.conditions.forEach((c, i) => {
     const at = `conditions.${i}`;
@@ -216,8 +219,15 @@ export interface Defaults {
   defaultDedupeDays: number;
 }
 
+/** AU-F30: a confirmable event's source (Manual confirmation by default); null for any other. */
+export function sourceOf(event: string, source: unknown): AutomationEventSource | null {
+  if (!eventOf(event)?.confirmation) return null;
+  return source === 'INTEGRATION_VERIFIED' || source === 'EITHER' ? source : 'MANUAL';
+}
+
 /** The shape a version stores: settings filled in with the firm's defaults, logging always on. */
 export function stored(def: Def, defaults: Defaults) {
+  const source = sourceOf(def.trigger.event, def.trigger.source);
   return {
     trigger: {
       module: def.trigger.module,
@@ -252,6 +262,8 @@ export function stored(def: Def, defaults: Defaults) {
       addToCalendar: def.settings.addToCalendar,
       quietHours: def.settings.quietHours ?? null,
       safetyThreshold: def.settings.safetyThreshold ?? null,
+      // The version's trigger columns hold no source; it travels with the settings.
+      ...(source ? { triggerSource: source } : {}),
     },
   };
 }
@@ -278,6 +290,7 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
       timing: v.timing,
       offsetValue: v.offsetValue,
       offsetUnit: v.offsetUnit,
+      source: sourceOf(v.triggerEvent, s.triggerSource),
     },
     matchMode: v.matchMode,
     conditions: (Array.isArray(v.conditions) ? v.conditions : []).map((c) => {
@@ -326,6 +339,7 @@ export function defOf(view: AutomationDefinitionView): Def {
       timing: view.trigger.timing,
       offsetValue: view.trigger.offsetValue,
       offsetUnit: view.trigger.offsetUnit,
+      ...(view.trigger.source ? { source: view.trigger.source } : {}),
     },
     matchMode: view.matchMode,
     conditions: view.conditions.map((c) => ({

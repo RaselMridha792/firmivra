@@ -170,6 +170,7 @@ export class AutomationsOverviewService {
       minutesSavedPerAction: ctx.settings.minutesSavedPerAction,
       logRetentionDays: ctx.settings.logRetentionDays,
       timezone: ctx.timezone,
+      manualConfirmationEnabled: ctx.settings.manualConfirmationEnabled,
       updatedAt: ctx.settings.updatedAt?.toISOString() ?? null,
     };
   }
@@ -190,6 +191,9 @@ export class AutomationsOverviewService {
   ): Promise<AutomationSettingsView> {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.manage) throw autoErrors.forbidden();
+      // AU-F29: only an Owner or Admin turns Manual Event Confirmation on or off.
+      if (body.manualConfirmationEnabled !== undefined && !ctx.perms.admin)
+        throw autoErrors.forbidden();
       const { tx } = ctx;
       if (body.failureAlertUserIds?.length) {
         const found = await tx.membership.findMany({
@@ -221,6 +225,9 @@ export class AutomationsOverviewService {
           ? { minutesSavedPerAction: body.minutesSavedPerAction }
           : {}),
         ...(body.logRetentionDays !== undefined ? { logRetentionDays: body.logRetentionDays } : {}),
+        ...(body.manualConfirmationEnabled !== undefined
+          ? { manualConfirmationEnabled: body.manualConfirmationEnabled }
+          : {}),
       };
       await tx.automationSettings.upsert({
         where: { businessId },
@@ -240,7 +247,17 @@ export class AutomationsOverviewService {
             'failureAlertUserIds',
             'minutesSavedPerAction',
             'logRetentionDays',
+            'manualConfirmationEnabled',
           ]),
+          ...(body.manualConfirmationEnabled !== undefined &&
+          body.manualConfirmationEnabled !== ctx.settings.manualConfirmationEnabled
+            ? {
+                manualConfirmation: {
+                  from: ctx.settings.manualConfirmationEnabled,
+                  to: body.manualConfirmationEnabled,
+                },
+              }
+            : {}),
         },
       );
       return this.settingsView(await this.read.ctx(tx, businessId, tenant, userId));

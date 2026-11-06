@@ -175,7 +175,7 @@ Progress (Templates, Oct 28 review):
   with its purpose; one list in `packages/types` (`STARTER_TEMPLATES`) for the API and the mock.
   The first Finish of setup installs them (`SettingsService.finishSetup`, a one-off exception to
   owned paths the lead gave on Nov 4).
-- Structures, #1265 (8 of 8): TP-F08 part 1 (Task, Document Request and Intake templates stand for
+- Structures, #1265 (merged as `df98ab73`): TP-F08 part 1 (Task, Document Request and Intake templates stand for
   their module's own template; Tax Workflow and Bookkeeping keep a versioned structure). Part 2,
   using the structure downstream, is next.
 - Library PR, branch `rasel/R60-templates-library`:

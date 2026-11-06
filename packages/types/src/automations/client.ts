@@ -31,6 +31,10 @@ import {
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
   SaveAutomationSettingsRequest,
+  AutomationConfirmationList,
+  AutomationConfirmationsQuery,
+  AutomationEventConfirmation,
+  ConfirmAutomationEventRequest,
   SaveRuleAsTemplateRequest,
   TestAutomationRuleRequest,
   UpdateAutomationRuleRequest,
@@ -237,6 +241,23 @@ export function createAutomationsClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(SaveAutomationSettingsRequest, body),
       }),
+
+    // ----- Manual Event Confirmation (AU-F31) -----
+    /** One known external outcome, confirmed by hand; see ConfirmAutomationEventRequest. */
+    confirmEvent: async (
+      body: ConfirmAutomationEventRequest,
+    ): Promise<AutomationEventConfirmation> =>
+      request(AutomationEventConfirmation, `${BASE}/confirmations`, {
+        method: 'POST',
+        body: parseInput(ConfirmAutomationEventRequest, body),
+      }),
+    confirmations: async (
+      query: AutomationConfirmationsQuery = {},
+    ): Promise<AutomationConfirmationList> =>
+      request(
+        AutomationConfirmationList,
+        `${BASE}/confirmations${toQuery(parseInput(AutomationConfirmationsQuery, query))}`,
+      ),
   };
 }
 export type AutomationsClient = ReturnType<typeof createAutomationsClient>;
