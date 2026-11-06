@@ -508,13 +508,14 @@ const VARIABLES = [
 
 const buildCatalog = (): AutomationCatalog => ({
   modules: MODULES.map(([module, label, destination]) => ({ module, label, destination })),
-  events: events().map(([code, module, label, example, , timings, extra]) => ({
+  events: events().map(([code, module, label, example, phrase, timings, extra]) => ({
     code,
     module,
     label,
     example,
     recordKind: module === 'COMPLIANCE_DEADLINES' ? 'deadline' : module.toLowerCase(),
     timings,
+    anchor: timings.includes('BEFORE') ? `the ${phrase}` : 'it happens',
     conditionFields: [...clientFields(), ...extra],
     confirmation: CONFIRMABLE.includes(code) ? { integrationAvailable: false } : null,
   })),
