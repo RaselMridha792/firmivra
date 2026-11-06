@@ -705,7 +705,9 @@ function Builder({
                           {matchQuery.data.sample.map((m) => (
                             <li key={`${m.recordKind}:${m.recordId}`}>
                               {m.label}
-                              {m.client && m.client.name !== m.label ? ` · ${m.client.name}` : ''}
+                              {m.client && !m.label.includes(m.client.name)
+                                ? ` · ${m.client.name}`
+                                : ''}
                             </li>
                           ))}
                         </ul>
