@@ -92,7 +92,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 - Branch from the latest `main`: `<name>/FIR-<issue number>-short-name`, for example `fahad/FIR-42-login-screen`.
 - Open a PR into `main`, one ticket or one page per PR, and fill in the PR template. UI PRs include the mockup next to a screenshot of the result.
 - CI must pass. Your pair pre-reviews first (Fahad + Tumit, Nahid + Arfan; all four build screens). Only Rasel approves and merges (squash).
-- A merge to `main` deploys to dev. Production deploys only from a `v*` tag that Rasel creates, after approval.
+- A merge to `main` deploys to dev, and prod follows by itself after every green Deploy dev run on `main` (Rasel, Oct 29). The repository variable `AUTO_DEPLOY_PROD` set to `false` stops that. Tags stay for rollbacks: a `v*` tag, which only Rasel creates, or a manual Deploy prod run, which only Rasel starts.
 - Never push to `main`, never force-push a branch someone else uses, never commit `.env`.
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
 - Do not add `Co-Authored-By: Claude` or "Generated with Claude Code" lines to commits or PR descriptions.
