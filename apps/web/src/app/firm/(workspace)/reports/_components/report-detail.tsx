@@ -39,6 +39,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { type FilterDraft, type FilterField, conditionsOf } from './filter-rules';
 import { CustomRangeDialog } from './report-date-controls';
 import { datesFrom } from './report-dates';
+import { unpack } from './report-drafts';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
 import { FilterRows } from './report-filters';
 import {
@@ -85,9 +86,16 @@ const CHARTS = [
 export function ReportDetail({ reportId }: { reportId: string }) {
   const router = useRouter();
   const params = useSearchParams();
-  const target = UUID.test(reportId)
-    ? ({ kind: 'SAVED', id: reportId } as const)
-    : ({ kind: 'SYSTEM', key: reportId } as const);
+  // RP-F14 (Octavia, Oct 28): `/reports/custom?d=` is the builder's unsaved definition, run in
+  // full with every control; it is saved (Save Report) before it is exported or scheduled.
+  const [unsaved] = useState(() =>
+    reportId === 'custom' ? (unpack(params.get('d')) as ReportDefinitionView | null) : null,
+  );
+  const target = unsaved
+    ? ({ kind: 'DEFINITION', definition: unsaved as never } as const)
+    : UUID.test(reportId)
+      ? ({ kind: 'SAVED', id: reportId } as const)
+      : ({ kind: 'SYSTEM', key: reportId } as const);
   // RP-F01 (Octavia, Oct 28): opened from the overview, the report starts on its range and
   // comparison (they come in the address), not on its own defaults.
   const linked = datesFrom(params);
@@ -263,7 +271,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     groupOptions.find((f) => f.label === r?.breakdown?.series[0]?.label)?.key ??
     groupOptions[0]?.key ??
     '';
-  const title = r ? `${r.title}` : 'Report';
+  const title = r
+    ? target.kind === 'DEFINITION'
+      ? (params.get('name') ?? '').trim() || r.title
+      : r.title
+    : 'Report';
   const compareValue =
     compare ??
     (r?.comparisonRange
@@ -628,9 +640,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                   },
                 ]}
               />
-              <button type="button" className={subtle} onClick={() => void exportAs('CSV')}>
-                <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export
-              </button>
+              {target.kind === 'DEFINITION' ? null : (
+                <button type="button" className={subtle} onClick={() => void exportAs('CSV')}>
+                  <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export
+                </button>
+              )}
             </div>
             <div className="relative">
               <Table
@@ -678,24 +692,31 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Report tools">
           <section className={card} aria-label="Report actions" data-testid="report-actions">
             <h2 className="mb-2 font-display text-lg font-bold text-heading">Report Actions</h2>
+            {target.kind === 'DEFINITION' ? (
+              <p className="mb-2 text-xs text-muted" data-testid="unsaved-note">
+                Not saved yet: save it to export or schedule it.
+              </p>
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
-              <ActionMenu
-                label="Export"
-                trigger={
-                  <span className="inline-flex items-center gap-2 px-1 text-sm font-semibold">
-                    <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export
-                  </span>
-                }
-                sections={[
-                  {
-                    items: [
-                      { label: 'CSV', onSelect: () => void exportAs('CSV') },
-                      { label: 'Excel (XLSX)', onSelect: () => void exportAs('XLSX') },
-                      { label: 'PDF', onSelect: () => void exportAs('PDF') },
-                    ],
-                  },
-                ]}
-              />
+              {target.kind === 'DEFINITION' ? null : (
+                <ActionMenu
+                  label="Export"
+                  trigger={
+                    <span className="inline-flex items-center gap-2 px-1 text-sm font-semibold">
+                      <DownloadSimple aria-hidden weight="bold" className="size-4" /> Export
+                    </span>
+                  }
+                  sections={[
+                    {
+                      items: [
+                        { label: 'CSV', onSelect: () => void exportAs('CSV') },
+                        { label: 'Excel (XLSX)', onSelect: () => void exportAs('XLSX') },
+                        { label: 'PDF', onSelect: () => void exportAs('PDF') },
+                      ],
+                    },
+                  ]}
+                />
+              )}
               <button type="button" className={subtle} onClick={() => window.print()}>
                 <Printer aria-hidden weight="bold" className="size-4" /> Print
               </button>
@@ -718,14 +739,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                 <Bookmark aria-hidden weight="bold" className="size-4" />{' '}
                 {target.kind === 'SAVED' ? 'Save As' : 'Save Report'}
               </button>
-              <button
-                type="button"
-                className={subtle}
-                disabled={!r}
-                onClick={() => setDialog('schedule')}
-              >
-                <CalendarBlank aria-hidden weight="bold" className="size-4" /> Schedule Report
-              </button>
+              {target.kind === 'DEFINITION' ? null : (
+                <button
+                  type="button"
+                  className={subtle}
+                  disabled={!r}
+                  onClick={() => setDialog('schedule')}
+                >
+                  <CalendarBlank aria-hidden weight="bold" className="size-4" /> Schedule Report
+                </button>
+              )}
             </div>
           </section>
           <section className={card} aria-label="Quick date range" data-testid="quick-range">
@@ -826,7 +849,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {dialog === 'save' && r ? (
         <SaveReportDialog
           definition={screenDefinition() ?? r.definition}
-          defaultName={r.title}
+          defaultName={title}
           onClose={() => setDialog(undefined)}
           onSaved={(id) => {
             setDialog(undefined);
@@ -834,7 +857,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           }}
         />
       ) : null}
-      {dialog === 'schedule' && r ? (
+      {dialog === 'schedule' && r && target.kind !== 'DEFINITION' ? (
         <ScheduleReportDialog
           target={target}
           defaultName={`${r.title} schedule`}

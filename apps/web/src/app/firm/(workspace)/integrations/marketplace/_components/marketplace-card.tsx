@@ -5,6 +5,7 @@ import { ActionMenu, Badge, Button, Card } from '@firmivra/ui';
 import { DotsThreeVertical } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useId } from 'react';
+import { useFromHere } from '../../_components/integrations-origin';
 import { actionLink, categoryLabel } from './marketplace-shared';
 
 export function integrationDestination(item: IntegrationCard): string {
@@ -102,6 +103,7 @@ export function MarketplaceAction({
   list?: boolean;
 }) {
   const reasonId = useId();
+  const fromHere = useFromHere();
   const connected = item.connections.length > 0;
   const reason =
     item.provider.comingSoon && !connected
@@ -129,7 +131,7 @@ export function MarketplaceAction({
   }
   return (
     <Link
-      href={integrationDestination(item)}
+      href={fromHere(integrationDestination(item))}
       className={
         actionLink +
         (featured ? ' !bg-action !text-on-action hover:!bg-action-hover ' : ' ') +

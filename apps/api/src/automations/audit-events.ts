@@ -2,7 +2,7 @@ import type { TxClient } from '@firmivra/db';
 import type { FieldValue } from './logic.js';
 import type { Candidate, Scope } from './matching.js';
 
-// AU-F08 to F14 (Octavia's Oct 28 review): events that are a change the source module already
+// AU-F08 to F18 (Octavia's Oct 28 review): events that are a change the source module already
 // records in its own audit log (a status changed, a form submitted, a lead converted). Each audit
 // row is one occurrence, so a rule runs once for it; nothing is inferred from a record's current
 // state. The record, its client and its label come from the module's own table, in the firm's
@@ -16,7 +16,15 @@ export interface AuditEvent {
   /** The source module's audit actions that are this event. */
   actions: readonly string[];
   /** The record the audit row is about (its entity type). */
-  entity: keyof typeof RESOLVERS;
+  entity: string;
+  /**
+   * How the record's client is found: from the module's own table (`RESOLVERS`), or (`meta`) from
+   * the client id the module wrote on the row, for records that belong to one client's service
+   * (a bookkeeping period, a payroll run).
+   */
+  via?: 'meta';
+  /** The record kind runs show, when it isn't the entity type. */
+  recordKind?: string;
   /** Only the rows whose metadata says so (a client update that changed the assignment). */
   when?: (meta: Meta) => boolean;
   /** What a condition can test from the row itself (a status change's old and new status). */
@@ -334,6 +342,85 @@ export const AUDIT_EVENTS: Record<string, AuditEvent> = {
   },
   'advisory_plan.finalized': { actions: ['advisory_plan.finalized'], entity: 'advisory_plan' },
   'advisory_plan.shared': { actions: ['advisory_plan.sent'], entity: 'advisory_plan' },
+  // Bookkeeping (AU-F16): the client's bookkeeping service and its periods, reconciliations,
+  // reports and accounting connection.
+  'bookkeeping.enrolled': {
+    actions: ['bookkeeping.client.added'],
+    entity: 'bookkeeping_client',
+    via: 'meta',
+  },
+  'bookkeeping.status_changed': {
+    actions: ['bookkeeping.client.status_changed'],
+    entity: 'bookkeeping_client',
+    via: 'meta',
+    fieldsOf: statusMove,
+  },
+  'bookkeeping.assignment_changed': {
+    actions: ['bookkeeping.client.assigned'],
+    entity: 'bookkeeping_client',
+    via: 'meta',
+  },
+  'bookkeeping.period_opened': {
+    actions: ['bookkeeping.period.created'],
+    entity: 'bookkeeping_period',
+    via: 'meta',
+  },
+  'bookkeeping.reconciliation_started': {
+    actions: ['bookkeeping.reconciliation.created'],
+    entity: 'bookkeeping_reconciliation',
+    via: 'meta',
+  },
+  'bookkeeping.report_ready': {
+    actions: ['bookkeeping.report.added'],
+    entity: 'bookkeeping_report',
+    via: 'meta',
+  },
+  'bookkeeping.connection_disconnected': {
+    actions: ['bookkeeping.connection.disconnected'],
+    entity: 'bookkeeping_connection',
+    via: 'meta',
+  },
+  // Payroll (AU-F17): recording a run's step never starts or submits a payroll run.
+  'payroll.enrolled': { actions: ['payroll.client.added'], entity: 'payroll_client', via: 'meta' },
+  'payroll.status_changed': {
+    actions: ['payroll.client.status_changed'],
+    entity: 'payroll_client',
+    via: 'meta',
+    fieldsOf: statusMove,
+  },
+  'payroll.run_created': { actions: ['payroll.run.created'], entity: 'payroll_run', via: 'meta' },
+  'payroll.run_ready': {
+    actions: ['payroll.run.marked_ready'],
+    entity: 'payroll_run',
+    via: 'meta',
+  },
+  'payroll.run_approved': { actions: ['payroll.run.approved'], entity: 'payroll_run', via: 'meta' },
+  'payroll.run_returned': { actions: ['payroll.run.reopened'], entity: 'payroll_run', via: 'meta' },
+  'payroll.run_submitted': {
+    actions: ['payroll.run.submitted'],
+    entity: 'payroll_run',
+    via: 'meta',
+  },
+  'payroll.run_completed': {
+    actions: ['payroll.run.completed'],
+    entity: 'payroll_run',
+    via: 'meta',
+  },
+  'payroll.report_ready': {
+    actions: ['payroll.report.added'],
+    entity: 'payroll_report',
+    via: 'meta',
+  },
+  // Communications (AU-F18), the client's own: an unsubscribe or a spam report is a consent
+  // change. Firm-wide sends have no client and wait for a staff-facing action (lead, Nov 4).
+  'communication.consent_changed': {
+    actions: ['communication_consent.set'],
+    entity: 'client',
+    fieldsOf: (m) => ({
+      channel: typeof m['channel'] === 'string' ? m['channel'] : null,
+      consentStatus: typeof m['status'] === 'string' ? m['status'] : null,
+    }),
+  },
 };
 
 const LIMIT = 2_000;
@@ -358,9 +445,10 @@ export async function loadAuditEvent(
   });
   const hits = rows.filter((r) => !spec.when || spec.when(metaOf(r.metadata)));
   if (hits.length === 0) return [];
-  const records = await RESOLVERS[spec.entity](tx, s.businessId, [
-    ...new Set(hits.map((r) => r.entityId!)),
-  ]);
+  if (spec.via === 'meta') return byMetaClient(tx, spec, s, hits);
+  const resolve = RESOLVERS[spec.entity as keyof typeof RESOLVERS];
+  if (!resolve) return [];
+  const records = await resolve(tx, s.businessId, [...new Set(hits.map((r) => r.entityId!))]);
   return hits.flatMap((r) => {
     const record = records.get(r.entityId!);
     if (!record) return [];
@@ -374,6 +462,41 @@ export async function loadAuditEvent(
         // One run per audit row: the same change is never acted on twice.
         occurrence: r.id,
         fields: { ...record.fields, ...(spec.fieldsOf?.(metaOf(r.metadata)) ?? {}) },
+      },
+    ];
+  });
+}
+
+/** A record of one client's service: its client is the id the module wrote on the row. */
+async function byMetaClient(
+  tx: TxClient,
+  spec: AuditEvent,
+  s: Scope,
+  hits: { id: string; entityId: string | null; metadata: unknown; createdAt: Date }[],
+): Promise<Candidate[]> {
+  const clientOf = (meta: Meta) => (typeof meta['clientId'] === 'string' ? meta['clientId'] : null);
+  const ids = hits.flatMap((r) => clientOf(metaOf(r.metadata)) ?? []);
+  const clients = new Map(
+    (
+      await tx.client.findMany({
+        where: { businessId: s.businessId, id: { in: [...new Set(ids)] } },
+        select: { id: true, displayName: true, accountType: true },
+      })
+    ).map((c) => [c.id, c]),
+  );
+  return hits.flatMap((r) => {
+    const meta = metaOf(r.metadata);
+    const client = clients.get(clientOf(meta) ?? '');
+    if (!client) return [];
+    return [
+      {
+        recordKind: spec.recordKind ?? spec.entity,
+        recordId: r.entityId!,
+        clientId: client.id,
+        label: client.displayName,
+        at: r.createdAt,
+        occurrence: r.id,
+        fields: { clientType: client.accountType, ...(spec.fieldsOf?.(meta) ?? {}) },
       },
     ];
   });
