@@ -14,6 +14,7 @@ import {
   draftsToReminders,
   remindersToDrafts,
 } from './deadline-dialogs';
+import { ComplianceHelp } from './compliance-help';
 
 interface Draft {
   dueSoonDays: string;
@@ -126,6 +127,9 @@ function SettingsForm({
       }
     >
       <div className="flex flex-col gap-4" data-testid="settings-form">
+        <p className="flex items-center gap-2 text-sm text-muted">
+          What these settings change <ComplianceHelp area="settings" />
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {number(
             'Due Soon (days)',
