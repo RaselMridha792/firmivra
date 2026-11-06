@@ -263,6 +263,21 @@ describe('loops, stored shapes and templates', () => {
     expect(produces(makesTask({ dueInDays: 1 }))).toEqual(['task.overdue']);
     expect(produces(makesTask())).toEqual(['task.overdue']);
     expect(produces([{ type: 'ADD_CLIENT_NOTE', config: {} }])).toEqual([]);
+    // A tag action changes tags; an assignment changes the assignee: a rule on that change with
+    // that action starts itself (and two such rules would undo each other forever).
+    expect(produces([{ type: 'ADD_CLIENT_TAGS', config: {} }])).toEqual(['client.tags_changed']);
+    expect(produces([{ type: 'REMOVE_CLIENT_TAGS', config: {} }])).toEqual(['client.tags_changed']);
+    expect(produces([{ type: 'ASSIGN_CLIENT', config: {} }])).toEqual([
+      'client.assignment_changed',
+    ]);
+    expect(
+      loopProblems(
+        node('a', 'client.tags_changed', [{ type: 'ADD_CLIENT_TAGS', config: {} }]),
+        [],
+        3,
+      ).map((p) => p.code),
+    ).toEqual(['LOOP_RISK']);
+    expect(produces([{ type: 'NOTIFY_STAFF', config: {} }])).toEqual([]);
     expect(loopProblems(node('a', 'task.overdue', makesTask()), [], 3).map((p) => p.code)).toEqual([
       'LOOP_RISK',
     ]);

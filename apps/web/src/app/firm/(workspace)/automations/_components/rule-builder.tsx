@@ -1308,7 +1308,7 @@ function ActionField({
         label={label}
         value={text}
         onChange={(e) => onChange(e.target.value || null)}
-        options={[{ value: '', label: 'Unassigned' }, ...members]}
+        options={[{ value: '', label: field.required ? 'Choose…' : 'Unassigned' }, ...members]}
       />
     );
   if (field.type === 'SELECT' || field.type === 'DATE_RULE')
