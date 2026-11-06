@@ -841,6 +841,31 @@ describe('saved reports', () => {
     );
     expect(changed.description).toBeNull();
     expect(changed.definition.groupBy).toBe('status');
+    // RP-F18 (Octavia, Oct 28): Table Only and KPI Only are kept and come back as saved.
+    const tableOnly = await saveReport({ definition: def({ chartType: 'TABLE' }) });
+    expect(tableOnly.definition.chartType).toBe('TABLE');
+    const kpiOnly = SavedReportDetail.parse(
+      ok(
+        await call('patch', `/reports/saved/${tableOnly.id}`, people.ownerA, {
+          etag: tableOnly.etag,
+          definition: def({ chartType: 'KPI' }),
+        }),
+      ),
+    );
+    expect(kpiOnly.definition.chartType).toBe('KPI');
+    expect(
+      SavedReportDetail.parse(
+        ok(await call('get', `/reports/saved/${tableOnly.id}`, people.ownerA)),
+      ).definition.chartType,
+    ).toBe('KPI');
+    expectError(
+      await call('post', '/reports/saved', people.ownerA, {
+        name: mark('Bad chart'),
+        definition: def({ chartType: 'RADAR' }),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
     expectError(
       await call('patch', `/reports/saved/${saved.id}`, people.ownerA, {
         etag: saved.etag,

@@ -12,6 +12,7 @@ describe('the builder draft in the address (RP-F14, F05, Octavia Oct 28)', () =>
       conds: [{ field: 'total', op: 'GREATER_THAN', value: '500', to: '', values: [] }],
       groupBy: 'status',
       totals: true,
+      chart: 'TABLE',
     };
     const text = pack(draft);
     expect(text).toMatch(/^[A-Za-z0-9_-]+$/);

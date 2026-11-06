@@ -333,6 +333,39 @@ test('Schedule shows the next run in the firm time zone, and revenue says what i
   await page.screenshot({ path: test.info().outputPath('schedule-next-run.png') });
 });
 
+test('A report shows as Table Only or KPI Only, as a line, without its legend; the builder keeps its display (RP-F18)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const type = page.getByTestId('chart-type');
+  await type.selectOption('TABLE');
+  await expect(page.getByTestId('report-table')).toBeVisible();
+  await expect(page.getByTestId('report-kpis')).toBeHidden();
+  await expect(page.getByTestId('report-chart')).toBeHidden();
+  await type.selectOption('KPI');
+  await expect(page.getByTestId('report-kpis')).toBeVisible();
+  await expect(page.getByTestId('report-table')).toBeHidden();
+  await type.selectOption('LINE');
+  await expect(page.getByTestId('chart-line')).toBeVisible();
+  await expect(page.getByTestId('report-table')).toBeVisible();
+  // The legend names this period and the comparison; it can be hidden.
+  await expect(page.getByTestId('chart-legend')).toBeVisible();
+  await page.getByRole('switch', { name: 'Show legend' }).click();
+  await expect(page.getByTestId('chart-legend')).toBeHidden();
+  await page.screenshot({ path: test.info().outputPath('line-chart.png') });
+
+  // The builder's display travels with the report it runs.
+  await page.goto(`${base}/builder`);
+  await page.getByLabel('Report Name').fill('Payments table');
+  await page.getByTestId('builder-display').selectOption('TABLE');
+  await page.getByRole('button', { name: 'Run Report' }).click();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+  await expect(page.getByTestId('report-table')).toBeVisible();
+  await expect(page.getByTestId('report-kpis')).toBeHidden();
+  await expect(page.getByTestId('chart-type')).toHaveValue('TABLE');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {
