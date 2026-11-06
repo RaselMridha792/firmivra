@@ -8,6 +8,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
+import { StructurePreview } from './structure-panel';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
   CLIENT: 'Client',
@@ -103,6 +104,7 @@ export function PreviewDialog({
             ) : null}
           </>
         )}
+        <StructurePreview templateId={template.id} kind={template.kind} />
         <div className="rounded-lg bg-canvas p-3">
           <h3 className="mb-2 text-sm font-semibold text-heading">Test Send</h3>
           {draft ? (

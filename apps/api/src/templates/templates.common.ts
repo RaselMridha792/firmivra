@@ -160,6 +160,7 @@ export function toRow(t: RowShape, names: Map<string, string>): MessageTemplateR
     favorite: t.favorites.length > 0,
     useCount: t._count.uses,
     updatedAt: t.updatedAt.toISOString(),
+    linkedTemplateId: t.taskTemplateId ?? t.documentRequestTemplateId ?? t.intakeTemplateId ?? null,
   };
 }
 

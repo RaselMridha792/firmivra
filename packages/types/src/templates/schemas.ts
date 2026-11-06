@@ -124,6 +124,11 @@ export const MessageTemplateRow = z.object({
   /** Real uses and sends; never a preview, a test or an edit. */
   useCount: z.number().int(),
   updatedAt: DateTime,
+  /**
+   * TP-F08: the module template a Task, Document Request or Intake template stands for (its task
+   * template, request template or intake template), which its Use opens; null for the other kinds.
+   */
+  linkedTemplateId: z.uuid().nullable(),
 });
 export type MessageTemplateRow = z.infer<typeof MessageTemplateRow>;
 
