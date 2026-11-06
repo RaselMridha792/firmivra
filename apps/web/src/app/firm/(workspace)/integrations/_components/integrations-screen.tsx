@@ -5,7 +5,7 @@ import {
   type IntegrationTab,
   type IntegrationEnvironment,
 } from '@firmivra/types';
-import { Button, Card, IconTile, Modal, SearchField, Select, Tabs } from '@firmivra/ui';
+import { Button, Card, IconTile, Modal, SearchField, Select, Tabs, HelpTip } from '@firmivra/ui';
 import {
   Heartbeat,
   ArrowRight,
@@ -24,20 +24,21 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { EnvironmentSwitch } from './environment-switch';
 import { ProviderCard } from './provider-card';
 import { dateLabel, linkClass } from './integration-shared';
 import { useApiQuery } from '../../../../../lib/query';
+import { categoryLabel } from '../marketplace/_components/marketplace-shared';
+import { mergeListQuery, writeListQuery } from '../../../../../lib/list-query';
+import { IntegrationsOrigin } from './integrations-origin';
 
-const categoryLabel = (value: string) =>
-  value
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' & ');
+import { OVERVIEW_VIEW } from './list-views';
+const TABS: readonly string[] = ['all', 'connected', 'available', 'attention'];
+
 function SummaryCard({
   icon,
   label,
@@ -63,11 +64,34 @@ function SummaryCard({
   );
 }
 
-export function IntegrationsScreen() {
-  const [tab, setTab] = useState<IntegrationTab>('all');
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
-  const [environment, setEnvironment] = useState<IntegrationEnvironment>('LIVE');
+export function IntegrationsScreen({
+  initial: fromServer = OVERVIEW_VIEW,
+}: {
+  initial?: typeof OVERVIEW_VIEW;
+}) {
+  // The address as it is now: a client-side Back reopens the list with what was written there.
+  const params = useSearchParams();
+  const initial = {
+    tab: params.get('tab') ?? fromServer.tab,
+    search: params.get('search') ?? fromServer.search,
+    category: params.get('category') ?? fromServer.category,
+    environment: params.get('environment') ?? fromServer.environment,
+  };
+  const [tab, setTab] = useState<IntegrationTab>(
+    TABS.includes(initial.tab) ? (initial.tab as IntegrationTab) : 'all',
+  );
+  const [search, setSearch] = useState(initial.search);
+  const [category, setCategory] = useState(
+    (IntegrationCategory.options as readonly string[]).includes(initial.category)
+      ? initial.category
+      : '',
+  );
+  const [environment, setEnvironment] = useState<IntegrationEnvironment>(
+    initial.environment === 'TEST' ? 'TEST' : 'LIVE',
+  );
+  const view = { tab, search, category, environment };
+  useEffect(() => writeListQuery(view, OVERVIEW_VIEW));
+  const here = `/integrations${mergeListQuery('', view, OVERVIEW_VIEW)}`;
   const [panel, setPanel] = useState<'health' | 'mapping' | 'activity' | null>(null);
   const overview = useApiQuery(['integrations', tab, search, category, environment], () =>
     api.integrations.overview({
@@ -87,9 +111,20 @@ export function IntegrationsScreen() {
   const mappingHref = mappingConnection
     ? `/integrations/${mappingConnection.id}/data-mapping`
     : null;
+  /** IN-F01: what the last check can honestly say; never success with nothing connected. */
+  const checkNote = !summary
+    ? 'No system check available'
+    : summary.connected + summary.needsAttention + summary.paused === 0
+      ? 'No connected integrations'
+      : !summary.lastCheckAt
+        ? 'Not checked yet'
+        : summary.allOperational
+          ? 'All systems operational'
+          : 'Some connections need attention';
+  const nothingConnected = checkNote === 'No connected integrations';
   const healthRows = [
     {
-      label: 'All systems operational',
+      label: 'Connections working',
       value: data ? data.health.operational : '—',
       icon: CheckCircle,
       tone: 'text-success',
@@ -114,344 +149,373 @@ export function IntegrationsScreen() {
     },
   ];
   return (
-    <div data-testid="integrations-screen" className="flex min-w-0 flex-col gap-4">
-      <header className="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-4 bg-navigation px-4 py-5 text-on-action md:-ml-6 md:px-6">
-        <div>
-          <h1 className="text-3xl font-bold">Integrations</h1>
-          <p className="mt-1 text-base">Connect and manage the tools that power your business.</p>
-        </div>
-        <div className="flex max-w-full items-center gap-3 rounded-lg border border-control-border p-3 text-xs">
-          <ShieldCheck weight="fill" className="size-8 shrink-0" />
+    <IntegrationsOrigin value={here}>
+      <div data-testid="integrations-screen" className="flex min-w-0 flex-col gap-4">
+        <header className="-mx-4 -mt-4 flex flex-wrap items-center justify-between gap-4 bg-navigation px-4 py-5 text-on-action md:-ml-6 md:px-6">
           <div>
-            <p>Your connections are encrypted and protected.</p>
-            <p className="mt-1 underline">Credentials and API keys are always masked.</p>
+            <div className="flex items-center gap-2">
+              <h1 className="flex items-center gap-2 text-3xl font-bold">Integrations</h1>
+              <HelpTip topic="Integrations overview">
+                The cards count your integrations by state (connected, needing attention and
+                available) and show when a connected integration was last checked.
+              </HelpTip>
+            </div>
+            <p className="mt-1 text-base">Connect and manage the tools that power your business.</p>
           </div>
-        </div>
-      </header>
-      <section
-        aria-label="Integration summary"
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-      >
-        <SummaryCard
-          icon={Plug}
-          label="Connected"
-          value={summary?.connected ?? 0}
-          note="Tools actively syncing"
-          tone="green"
-        />
-        <SummaryCard
-          icon={Warning}
-          label="Needs Attention"
-          value={summary?.needsAttention ?? 0}
-          note="Requires your action"
-          tone="red"
-        />
-        <SummaryCard
-          icon={GridFour}
-          label="Available"
-          value={summary?.available ?? 0}
-          note="Ready to connect"
-          tone="amber"
-        />
-        <SummaryCard
-          icon={Clock}
-          label="Last System Check"
-          value={dateLabel(summary?.lastCheckAt)}
-          note={
-            summary
-              ? summary.allOperational
-                ? 'All systems operational'
-                : 'Some connections need attention'
-              : 'No system check available'
-          }
-          tone="amber"
-        />
-      </section>
-      <div className="grid min-w-0 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_11rem_auto] 2xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
-        {/* The tabs take their own row below 2xl, so none is cut off. */}
-        <div className="min-w-0 overflow-x-auto lg:col-span-3 2xl:col-span-1">
-          <Tabs
-            variant="segmented"
-            label="Integration status"
-            value={tab}
-            onChange={(id) => setTab(id as IntegrationTab)}
-            items={[
-              { id: 'all', label: `All Integrations (${summary?.total ?? 0})` },
-              { id: 'connected', label: `Connected (${summary?.connected ?? 0})` },
-              { id: 'available', label: `Available (${summary?.available ?? 0})` },
-              { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? 0})` },
+          <div className="flex max-w-full items-center gap-3 rounded-lg border border-control-border p-3 text-xs">
+            <ShieldCheck weight="fill" className="size-8 shrink-0" />
+            <div>
+              <p>Your connections are encrypted and protected.</p>
+              <p className="mt-1 underline">Credentials and API keys are always masked.</p>
+            </div>
+          </div>
+        </header>
+        <section
+          aria-label="Integration summary"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        >
+          <SummaryCard
+            icon={Plug}
+            label="Connected"
+            value={summary?.connected ?? 0}
+            note="Tools actively syncing"
+            tone="green"
+          />
+          <SummaryCard
+            icon={Warning}
+            label="Needs Attention"
+            value={summary?.needsAttention ?? 0}
+            note="Requires your action"
+            tone="red"
+          />
+          <SummaryCard
+            icon={GridFour}
+            label="Available"
+            value={summary?.available ?? 0}
+            note="Ready to connect"
+            tone="amber"
+          />
+          <SummaryCard
+            icon={Clock}
+            label="Last System Check"
+            value={dateLabel(summary?.lastCheckAt)}
+            note={checkNote}
+            tone="amber"
+          />
+        </section>
+        <div className="grid min-w-0 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_11rem_auto] 2xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
+          {/* The tabs take their own row below 2xl, so none is cut off. */}
+          <div className="min-w-0 overflow-x-auto lg:col-span-3 2xl:col-span-1">
+            <Tabs
+              variant="segmented"
+              label="Integration status"
+              value={tab}
+              onChange={(id) => setTab(id as IntegrationTab)}
+              items={[
+                { id: 'all', label: `All Integrations (${summary?.total ?? 0})` },
+                { id: 'connected', label: `Connected (${summary?.connected ?? 0})` },
+                { id: 'available', label: `Available (${summary?.available ?? 0})` },
+                { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? 0})` },
+              ]}
+            />
+          </div>
+          <SearchField
+            label="Search integrations"
+            placeholder="Search integrations..."
+            minWidth="0"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Select
+            label="Integration category"
+            hideLabel
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            options={[
+              { value: '', label: 'All Categories' },
+              ...IntegrationCategory.options.map((value) => ({
+                value,
+                label: categoryLabel(value),
+              })),
             ]}
           />
+          <EnvironmentSwitch value={environment} onChange={setEnvironment} />
+          <HelpTip topic="Search, filters and Live or Test">
+            Search finds a provider by name or what it does; the category and tabs narrow the list.
+            Live and Test each show that environment&apos;s own connections.
+          </HelpTip>
         </div>
-        <SearchField
-          label="Search integrations"
-          placeholder="Search integrations..."
-          minWidth="0"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <Select
-          label="Integration category"
-          hideLabel
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          options={[
-            { value: '', label: 'All Categories' },
-            ...IntegrationCategory.options.map((value) => ({ value, label: categoryLabel(value) })),
-          ]}
-        />
-        <EnvironmentSwitch value={environment} onChange={setEnvironment} />
-      </div>
-      {overview.isPending || overview.isError ? (
-        <PageState query={overview}>{() => null}</PageState>
-      ) : null}
-      <section aria-label="Integration providers" className="flex min-w-0 flex-col gap-3">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {data?.items.slice(0, 4).map((item) => (
-            <ProviderCard key={item.provider.provider} item={item} canManage={data.canManage} />
-          ))}
-        </div>
-        <div className="grid min-w-0 gap-3 lg:grid-cols-5">
-          <div className="min-w-0 lg:col-span-4">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {data?.items.slice(4).map((item) => (
-                <ProviderCard key={item.provider.provider} item={item} canManage={data.canManage} />
-              ))}
-            </div>
-            {!data?.items.length ? (
-              <Card
-                data-testid="integrations-empty"
-                className="flex min-h-48 items-center justify-center text-center text-sm text-muted"
-              >
-                {overview.isPending
-                  ? 'Loading integrations...'
-                  : overview.isError
-                    ? 'Integrations will appear here when the connection is restored.'
-                    : search || category || tab !== 'all'
-                      ? 'No integrations match your filters.'
-                      : 'No integrations available yet.'}
-              </Card>
-            ) : null}
+        {overview.isPending || overview.isError ? (
+          <PageState query={overview}>{() => null}</PageState>
+        ) : null}
+        <section aria-label="Integration providers" className="flex min-w-0 flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {data?.items.slice(0, 4).map((item) => (
+              <ProviderCard key={item.provider.provider} item={item} canManage={data.canManage} />
+            ))}
           </div>
-          <Card
-            data-testid="add-integration"
-            className="flex flex-col gap-4 !rounded-lg !border-dashed !border-action !bg-subtle !p-4"
-          >
-            <div className="flex items-center gap-3">
-              <PuzzlePiece weight="fill" className="size-10 shrink-0 text-action" />
-              <div>
-                <h2 className="text-base font-bold text-heading">Add Integration</h2>
-                <p className="text-xs text-muted">Connect another tool to your firm</p>
+          <div className="grid min-w-0 gap-3 lg:grid-cols-5">
+            <div className="min-w-0 lg:col-span-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {data?.items.slice(4).map((item) => (
+                  <ProviderCard
+                    key={item.provider.provider}
+                    item={item}
+                    canManage={data.canManage}
+                  />
+                ))}
               </div>
-            </div>
-            <ul className="space-y-3 text-xs text-muted">
-              {[
-                'Browse available integrations',
-                'Request an integration',
-                'Custom API or webhook',
-              ].map((item) => (
-                <li className="flex items-center gap-2" key={item}>
-                  <CheckCircle weight="fill" className="size-5 shrink-0 text-gold" />
-                  {item}
-                </li>
-              ))}
-            </ul>
-            {data?.canManage ? (
-              <Link
-                className={`${linkClass} !bg-action !text-on-action`}
-                href="/integrations/marketplace"
-              >
-                <Plus weight="fill" />
-                Add Integration
-              </Link>
-            ) : (
-              <Button
-                className="w-full"
-                disabled
-                aria-label="Add Integration is unavailable while connection status is unknown"
-              >
-                <Plus weight="fill" />
-                Add Integration
-              </Button>
-            )}
-            <Link
-              className="text-center text-xs font-semibold text-link underline"
-              href="/integrations/marketplace"
-            >
-              View Integration Marketplace
-            </Link>
-          </Card>
-        </div>
-      </section>
-      <section aria-label="Integration insights" className="grid gap-3 lg:grid-cols-3">
-        <Card
-          data-testid="integration-health"
-          className="flex flex-col !rounded-lg !bg-subtle !p-3"
-        >
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
-            <Heartbeat weight="fill" className="size-6 text-action" />
-            Integration Health
-          </h2>
-          <ul className="mb-3 divide-y divide-divider">
-            {healthRows.map((row) => (
-              <li key={row.label} className="flex items-center gap-2 py-1.5 text-xs">
-                <row.icon weight="fill" className={`size-5 shrink-0 ${row.tone}`} />
-                <span className="flex-1">{row.label}</span>
-                <span>{row.value}</span>
-              </li>
-            ))}
-          </ul>
-          <Button
-            variant="outline"
-            className="mt-auto min-h-9 !py-1"
-            onClick={() => setPanel('health')}
-          >
-            View Health
-          </Button>
-        </Card>
-        <Card
-          data-testid="integration-mapping"
-          className="flex flex-col !rounded-lg !bg-subtle !p-3"
-        >
-          <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
-            <Database weight="fill" className="size-6 text-action" />
-            Data Mapping
-          </h2>
-          <p className="mb-2 text-xs text-muted">Manage how data flows between systems.</p>
-          <ul className="mb-3 divide-y divide-divider">
-            {data?.mapping.map((row) => (
-              <li key={row.scope} className="flex items-center gap-2 py-2 text-xs">
-                <LinkIcon weight="fill" className="size-4" />
-                <span className="flex-1">{row.label}</span>
-                <span className="text-muted">{row.mappedFields} fields mapped</span>
-                <CaretRight />
-              </li>
-            ))}
-          </ul>
-          {!data?.mapping.length ? (
-            <p className="mb-4 text-xs text-muted">
-              {overview.isError
-                ? 'Mapping status is unavailable until the connection is restored.'
-                : 'No fields mapped yet.'}
-            </p>
-          ) : null}
-          <Button
-            variant="outline"
-            className="mt-auto min-h-9 !py-1"
-            onClick={() => setPanel('mapping')}
-          >
-            Manage Mapping
-          </Button>
-        </Card>
-        <Card
-          data-testid="integration-activity"
-          className="flex flex-col !rounded-lg !bg-subtle !p-3"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
-              <Clock weight="fill" className="size-6 text-action" />
-              Recent Activity
-            </h2>
-            <Button
-              variant="ghost"
-              className="min-h-8 !px-1 !py-0 text-xs"
-              onClick={() => setPanel('activity')}
-            >
-              View All
-              <ArrowRight />
-            </Button>
-          </div>
-          <ul className="mb-3 divide-y divide-divider">
-            {data?.recent.slice(0, 5).map((event) => (
-              <li key={event.id} className="flex items-start gap-2 py-1.5 text-xs">
-                {event.ok ? (
-                  <CheckCircle weight="fill" className="size-5 shrink-0 text-success" />
-                ) : (
-                  <WarningCircle weight="fill" className="size-5 shrink-0 text-danger" />
-                )}
-                <span className="flex-1">{event.message}</span>
-                <time className="text-muted" dateTime={event.at}>
-                  {dateLabel(event.at)}
-                </time>
-              </li>
-            ))}
-          </ul>
-          {!data?.recent.length ? (
-            <p className="mb-4 text-xs text-muted">
-              {overview.isError
-                ? 'Activity is unavailable until the connection is restored.'
-                : 'No integration activity yet.'}
-            </p>
-          ) : null}
-          <Link className={`${linkClass} mt-auto`} href="/audit-log">
-            View Audit Log
-          </Link>
-        </Card>
-      </section>
-      <Modal
-        open={panel !== null}
-        title={
-          panel === 'health'
-            ? 'Integration Health'
-            : panel === 'mapping'
-              ? 'Data Mapping'
-              : 'Integration Activity'
-        }
-        onClose={() => setPanel(null)}
-      >
-        {panel === 'health' ? (
-          <ul className="space-y-3">
-            {healthRows.map((row) => (
-              <li key={row.label} className="flex justify-between gap-4 text-sm">
-                <span>{row.label}</span>
-                <span>{row.value}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {panel === 'mapping' ? (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">
-              Choose a connected integration to configure its field mapping.
-            </p>
-            {data?.items.flatMap((item) =>
-              item.connections.map((connection) => (
-                <Link
-                  key={connection.id}
-                  className={`${linkClass} mr-2`}
-                  href={`/integrations/${connection.id}/data-mapping`}
+              {!data?.items.length ? (
+                <Card
+                  data-testid="integrations-empty"
+                  className="flex min-h-48 items-center justify-center text-center text-sm text-muted"
                 >
-                  {item.provider.name}
-                  <CaretRight />
-                </Link>
-              )),
-            )}
-            {!mappingHref ? (
-              <p className="text-sm text-muted">Connect an integration before mapping fields.</p>
-            ) : null}
-          </div>
-        ) : null}
-        {panel === 'activity' ? (
-          <PageState
-            query={activity}
-            empty="No integration activity yet."
-            isEmpty={(result) => !result?.items.length}
-          >
-            {(result) => (
-              <ul className="space-y-3">
-                {result?.items.map((event) => (
-                  <li key={event.id} className="text-sm">
-                    <p>{event.message}</p>
-                    <time className="text-xs text-muted" dateTime={event.at}>
-                      {dateLabel(event.at)}
-                    </time>
+                  {overview.isPending
+                    ? 'Loading integrations...'
+                    : overview.isError
+                      ? 'Integrations will appear here when the connection is restored.'
+                      : search || category || tab !== 'all'
+                        ? 'No integrations match your filters.'
+                        : 'No integrations available yet.'}
+                </Card>
+              ) : null}
+            </div>
+            <Card
+              data-testid="add-integration"
+              className="flex flex-col gap-4 !rounded-lg !border-dashed !border-action !bg-subtle !p-4"
+            >
+              <div className="flex items-center gap-3">
+                <PuzzlePiece weight="fill" className="size-10 shrink-0 text-action" />
+                <div>
+                  <h2 className="text-base font-bold text-heading">Add Integration</h2>
+                  <p className="text-xs text-muted">Connect another tool to your firm</p>
+                </div>
+              </div>
+              <ul className="space-y-3 text-xs text-muted">
+                {[
+                  'Browse available integrations',
+                  'Request an integration',
+                  'Custom API or webhook',
+                ].map((item) => (
+                  <li className="flex items-center gap-2" key={item}>
+                    <CheckCircle weight="fill" className="size-5 shrink-0 text-gold" />
+                    {item}
                   </li>
                 ))}
               </ul>
-            )}
-          </PageState>
-        ) : null}
-      </Modal>
-    </div>
+              {data?.canManage ? (
+                <Link
+                  className={`${linkClass} !bg-action !text-on-action`}
+                  href="/integrations/marketplace"
+                >
+                  <Plus weight="fill" />
+                  Add Integration
+                </Link>
+              ) : (
+                <Button
+                  className="w-full"
+                  disabled
+                  aria-label="Add Integration is unavailable while connection status is unknown"
+                >
+                  <Plus weight="fill" />
+                  Add Integration
+                </Button>
+              )}
+              <Link
+                className="text-center text-xs font-semibold text-link underline"
+                href="/integrations/marketplace"
+              >
+                View Integration Marketplace
+              </Link>
+            </Card>
+          </div>
+        </section>
+        <section aria-label="Integration insights" className="grid gap-3 lg:grid-cols-3">
+          <Card
+            data-testid="integration-health"
+            className="flex flex-col !rounded-lg !bg-subtle !p-3"
+          >
+            <div className="flex items-center gap-2">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
+                <Heartbeat weight="fill" className="size-6 text-action" />
+                Integration Health
+              </h2>
+              <HelpTip topic="Integration health">
+                What your connected integrations last reported: working connections, authorization
+                problems, failed syncs and records waiting. With nothing connected, nothing has been
+                checked.
+              </HelpTip>
+            </div>
+            {nothingConnected ? (
+              <p className="mb-2 text-xs text-muted">No connected integrations to check yet.</p>
+            ) : null}
+            <ul className="mb-3 divide-y divide-divider">
+              {healthRows.map((row) => (
+                <li key={row.label} className="flex items-center gap-2 py-1.5 text-xs">
+                  <row.icon weight="fill" className={`size-5 shrink-0 ${row.tone}`} />
+                  <span className="flex-1">{row.label}</span>
+                  <span>{row.value}</span>
+                </li>
+              ))}
+            </ul>
+            <Button
+              variant="outline"
+              className="mt-auto min-h-9 !py-1"
+              onClick={() => setPanel('health')}
+            >
+              View Health
+            </Button>
+          </Card>
+          <Card
+            data-testid="integration-mapping"
+            className="flex flex-col !rounded-lg !bg-subtle !p-3"
+          >
+            <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
+              <Database weight="fill" className="size-6 text-action" />
+              Data Mapping
+            </h2>
+            <p className="mb-2 text-xs text-muted">Manage how data flows between systems.</p>
+            <ul className="mb-3 divide-y divide-divider">
+              {data?.mapping.map((row) => (
+                <li key={row.scope} className="flex items-center gap-2 py-2 text-xs">
+                  <LinkIcon weight="fill" className="size-4" />
+                  <span className="flex-1">{row.label}</span>
+                  <span className="text-muted">{row.mappedFields} fields mapped</span>
+                  <CaretRight />
+                </li>
+              ))}
+            </ul>
+            {!data?.mapping.length ? (
+              <p className="mb-4 text-xs text-muted">
+                {overview.isError
+                  ? 'Mapping status is unavailable until the connection is restored.'
+                  : 'No fields mapped yet.'}
+              </p>
+            ) : null}
+            <Button
+              variant="outline"
+              className="mt-auto min-h-9 !py-1"
+              onClick={() => setPanel('mapping')}
+            >
+              Manage Mapping
+            </Button>
+          </Card>
+          <Card
+            data-testid="integration-activity"
+            className="flex flex-col !rounded-lg !bg-subtle !p-3"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
+                <Clock weight="fill" className="size-6 text-action" />
+                Recent Activity
+              </h2>
+              <Button
+                variant="ghost"
+                className="min-h-8 !px-1 !py-0 text-xs"
+                onClick={() => setPanel('activity')}
+              >
+                View All
+                <ArrowRight />
+              </Button>
+            </div>
+            <ul className="mb-3 divide-y divide-divider">
+              {data?.recent.slice(0, 5).map((event) => (
+                <li key={event.id} className="flex items-start gap-2 py-1.5 text-xs">
+                  {event.ok ? (
+                    <CheckCircle weight="fill" className="size-5 shrink-0 text-success" />
+                  ) : (
+                    <WarningCircle weight="fill" className="size-5 shrink-0 text-danger" />
+                  )}
+                  <span className="flex-1">{event.message}</span>
+                  <time className="text-muted" dateTime={event.at}>
+                    {dateLabel(event.at)}
+                  </time>
+                </li>
+              ))}
+            </ul>
+            {!data?.recent.length ? (
+              <p className="mb-4 text-xs text-muted">
+                {overview.isError
+                  ? 'Activity is unavailable until the connection is restored.'
+                  : 'No integration activity yet.'}
+              </p>
+            ) : null}
+            <Link className={`${linkClass} mt-auto`} href="/audit-log">
+              View Audit Log
+            </Link>
+          </Card>
+        </section>
+        <Modal
+          open={panel !== null}
+          title={
+            panel === 'health'
+              ? 'Integration Health'
+              : panel === 'mapping'
+                ? 'Data Mapping'
+                : 'Integration Activity'
+          }
+          onClose={() => setPanel(null)}
+        >
+          {panel === 'health' && nothingConnected ? (
+            <p className="mb-3 text-sm text-muted">
+              No connected integrations: nothing has been checked yet. Health shows here once an
+              integration is connected and checked.
+            </p>
+          ) : null}
+          {panel === 'health' ? (
+            <ul className="space-y-3">
+              {healthRows.map((row) => (
+                <li key={row.label} className="flex justify-between gap-4 text-sm">
+                  <span>{row.label}</span>
+                  <span>{row.value}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {panel === 'mapping' ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted">
+                Choose a connected integration to configure its field mapping.
+              </p>
+              {data?.items.flatMap((item) =>
+                item.connections.map((connection) => (
+                  <Link
+                    key={connection.id}
+                    className={`${linkClass} mr-2`}
+                    href={`/integrations/${connection.id}/data-mapping`}
+                  >
+                    {item.provider.name}
+                    <CaretRight />
+                  </Link>
+                )),
+              )}
+              {!mappingHref ? (
+                <p className="text-sm text-muted">Connect an integration before mapping fields.</p>
+              ) : null}
+            </div>
+          ) : null}
+          {panel === 'activity' ? (
+            <PageState
+              query={activity}
+              empty="No integration activity yet."
+              isEmpty={(result) => !result?.items.length}
+            >
+              {(result) => (
+                <ul className="space-y-3">
+                  {result?.items.map((event) => (
+                    <li key={event.id} className="text-sm">
+                      <p>{event.message}</p>
+                      <time className="text-xs text-muted" dateTime={event.at}>
+                        {dateLabel(event.at)}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PageState>
+          ) : null}
+        </Modal>
+      </div>
+    </IntegrationsOrigin>
   );
 }

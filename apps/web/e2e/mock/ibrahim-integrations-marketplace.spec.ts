@@ -55,9 +55,10 @@ test('catalog search, category navigation, sorting, view modes and connected act
   const quickbooks = page
     .getByTestId('marketplace-integration')
     .filter({ hasText: 'QuickBooks Online' });
+  // IN-F02 (R55): the link carries the Marketplace it came from, for Cancel and Back.
   await expect(quickbooks.getByRole('link', { name: 'Manage', exact: true })).toHaveAttribute(
     'href',
-    `/integrations/${marketplaceConnectionId}`,
+    `/integrations/${marketplaceConnectionId}?from=%2Fintegrations%2Fmarketplace`,
   );
   await expect(quickbooks.getByRole('link', { name: 'Connect', exact: true })).toHaveCount(0);
   const payroll = page

@@ -142,7 +142,8 @@ export function integrationOverviewFixture(
       paused: 0,
       total: scoped.length,
       lastCheckAt: empty ? null : at,
-      allOperational: attention === 0,
+      // IN-F01, as the API: success only with a connection that was checked.
+      allOperational: connected > 0 && !empty && attention === 0,
     },
     items: scoped.filter(
       (card) =>
