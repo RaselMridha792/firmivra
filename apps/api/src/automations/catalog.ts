@@ -1035,8 +1035,20 @@ export const CONFIRMABLE_EVENTS: EventDef[] = [
   ),
 ];
 
+/**
+ * AU-F22: what a client's or a lead's record carries for conditions: its tags (by id) and its
+ * assigned member (by user id). The choices are the firm's own live tags and active members,
+ * filled in when the firm's catalog is served (`firmCatalog`); a value that is no longer one of
+ * them simply never matches.
+ */
+export const TAGS_FIELD = field('tags', 'Tags', 'LIST');
+export const ASSIGNEE_FIELD = field('assignedUserId', 'Assigned staff', 'STATUS');
+const PEOPLE_FIELDS = (recordKind: string) =>
+  recordKind === 'client' || recordKind === 'lead' ? [TAGS_FIELD, ASSIGNEE_FIELD] : [];
+
 export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
   ...e,
+  conditionFields: [...e.conditionFields, ...PEOPLE_FIELDS(e.recordKind)],
   anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
   hasClient: e.hasClient ?? true,

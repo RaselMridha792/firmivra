@@ -94,8 +94,11 @@ export class AutomationsController {
   }
 
   @Get('catalog')
-  catalog(): AutomationCatalog {
-    return this.overviewService.catalog();
+  catalog(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<AutomationCatalog> {
+    return this.overviewService.catalog(who(auth, tenant).businessId);
   }
 
   // ----- Rules -----

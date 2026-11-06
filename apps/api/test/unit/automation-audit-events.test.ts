@@ -44,7 +44,14 @@ function txOf(rows: Row[]) {
     client: {
       findMany: () =>
         Promise.resolve([
-          { id: CLIENT, displayName: 'Jamie Sample', accountType: 'INDIVIDUAL', status: 'ACTIVE' },
+          {
+            id: CLIENT,
+            displayName: 'Jamie Sample',
+            accountType: 'INDIVIDUAL',
+            status: 'ACTIVE',
+            assignedUserId: null,
+            tags: [],
+          },
         ]),
     },
     intake: {

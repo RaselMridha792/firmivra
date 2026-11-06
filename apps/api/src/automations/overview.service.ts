@@ -19,7 +19,7 @@ import {
   runInclude,
 } from './automations-read.service.js';
 import type { SettingsBody } from './automations-input.js';
-import { ACTIONS, EVENTS, MODULES, VARIABLES } from './catalog.js';
+import { ACTIONS, ASSIGNEE_FIELD, EVENTS, MODULES, TAGS_FIELD, VARIABLES } from './catalog.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 const DAY = 86_400_000;
@@ -47,14 +47,39 @@ export class AutomationsOverviewService {
     );
   }
 
-  catalog(): AutomationCatalog {
+  /**
+   * The catalog, with the firm's own choices where a field takes them (AU-F22): its live tags and
+   * its active members, read in the firm's scope. Never another firm's.
+   */
+  async catalog(businessId: string): Promise<AutomationCatalog> {
+    const { tags, members } = await this.read.inFirm(businessId, async (tx) => ({
+      tags: await tx.tag.findMany({
+        where: { businessId, archivedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      members: await tx.membership.findMany({
+        where: { businessId, status: 'ACTIVE' },
+        select: { userId: true, user: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    }));
+    const choices: Record<string, { value: string; label: string }[]> = {
+      [TAGS_FIELD.field]: tags.map((t) => ({ value: t.id, label: t.name })),
+      [ASSIGNEE_FIELD.field]: members.map((m) => ({ value: m.userId, label: m.user.name })),
+    };
     return {
       modules: Object.entries(MODULES).map(([module, m]) => ({
         module: module as AutomationCatalog['modules'][number]['module'],
         label: m.label,
         destination: m.destination,
       })),
-      events: EVENTS,
+      events: EVENTS.map((e) => ({
+        ...e,
+        conditionFields: e.conditionFields.map((f) =>
+          choices[f.field] ? { ...f, options: choices[f.field]! } : f,
+        ),
+      })),
       actions: ACTIONS,
       variables: VARIABLES,
     };
