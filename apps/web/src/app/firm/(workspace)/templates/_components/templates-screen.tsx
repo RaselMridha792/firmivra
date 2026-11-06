@@ -23,7 +23,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { TemplateMenu } from './template-actions';
+import { TemplateMenu, UseTemplate } from './template-actions';
 import {
   BrandingDialog,
   CategoriesDialog,
@@ -44,7 +44,6 @@ import {
   quiet,
   type KindMeta,
 } from './templates-shared';
-import { templateUseHref } from './use-template';
 
 const TABS = [
   { id: 'all', label: 'All Templates' },
@@ -388,29 +387,30 @@ export function TemplatesScreen() {
                   className="flex flex-wrap items-center gap-3 border-t border-divider py-2 text-sm first:border-t-0"
                 >
                   <KindTile kind={r.kind} size="sm" />
-                  <Link
-                    href={`/templates/${r.id}/edit`}
-                    className="min-w-0 flex-1 truncate font-medium text-link hover:underline"
-                  >
-                    {r.name}
-                  </Link>
+                  <span className="min-w-0 flex-1">
+                    <Link
+                      href={`/templates/${r.id}/edit`}
+                      className="block truncate font-medium text-link hover:underline"
+                    >
+                      {r.name}
+                    </Link>
+                    {/* TP-F15: the category and who updated it, at every width. */}
+                    <span className="block truncate text-xs text-muted" data-testid="recent-meta">
+                      {r.category?.name ?? 'Uncategorized'} · Updated by{' '}
+                      {r.updatedBy?.name ?? r.owner.name}
+                    </span>
+                  </span>
                   <span className="hidden w-28 shrink-0 text-text xl:block">
                     {kindOf(r.kind).noun}
                   </span>
                   <span className="hidden w-28 shrink-0 text-text lg:block">
                     {dayText(r.updatedAt)}
                   </span>
-                  <span className="hidden w-24 shrink-0 truncate text-text 2xl:block">
-                    {r.updatedBy?.name ?? r.owner.name}
-                  </span>
-                  {templateUseHref(r.kind, r.id) ? (
-                    <Link
-                      href={templateUseHref(r.kind, r.id)!}
-                      className="inline-flex min-h-9 items-center rounded-control bg-info-soft px-4 text-sm font-semibold text-action hover:bg-accent-soft"
-                    >
-                      Use<span className="sr-only"> {r.name}</span>
-                    </Link>
-                  ) : null}
+                  <UseTemplate
+                    row={r}
+                    onNotice={notice}
+                    className="inline-flex min-h-9 items-center rounded-control bg-info-soft px-4 text-sm font-semibold text-action hover:bg-accent-soft"
+                  />
                   <TemplateMenu row={r} onNotice={notice} />
                 </li>
               ))}

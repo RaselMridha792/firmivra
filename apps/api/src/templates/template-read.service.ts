@@ -124,6 +124,7 @@ export class TemplateReadService {
       and.push(q.status ? { status: q.status } : { status: { not: 'ARCHIVED' } });
       if (q.kind) and.push({ kind: q.kind });
       if (q.categoryId) and.push({ categoryId: q.categoryId });
+      if (q.uncategorized === true) and.push({ categoryId: null });
       if (q.ownerUserId) and.push({ ownerUserId: q.ownerUserId });
       if (q.tag) and.push({ tags: { has: q.tag } });
       if (q.automations === true) and.push({ includeInAutomations: true });

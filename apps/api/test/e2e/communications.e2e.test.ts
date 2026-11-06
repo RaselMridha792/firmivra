@@ -1706,6 +1706,36 @@ describe('test send, templates and files', () => {
     );
   });
 
+  it('an archived template can no longer be used (TP-F13)', async () => {
+    const d = await draft();
+    await edit(d.id, { subject: 'Kept', body: '<p>Kept body</p>' });
+    const t = MessageTemplateDetail.parse(
+      ok(
+        await call('post', `/${d.id}/save-as-template`, ownerA, {
+          name: mark('ToArchive'),
+          activate: true,
+        }),
+        201,
+      ),
+    );
+    const archived = await request(app.getHttpServer())
+      .post(`/api/v1/business/templates/${t.id}/archive`)
+      .set('x-business-id', firms.a)
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(ownerA.email)}`)
+      .send({});
+    expect(MessageTemplateDetail.parse(ok(archived)).status).toBe('ARCHIVED');
+    const other = await draft();
+    expectError(
+      await call('post', `/${other.id}/use-template`, ownerA, {
+        templateId: t.id,
+        etag: other.etag,
+      }),
+      409,
+      'TEMPLATE_NOT_ALLOWED',
+    );
+  });
+
   it('uploads a file in three steps, keeps the etag valid, and removes it', async () => {
     const d = await draft();
     const ticket = UploadPutTicket.parse(ok(await start(d.id, pdf)));
