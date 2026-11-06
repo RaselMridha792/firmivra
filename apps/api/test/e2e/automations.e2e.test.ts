@@ -2635,3 +2635,65 @@ describe('Send client email, through Messages (AU-F25)', () => {
     expectError(await activate(empty.id), 409, 'NOT_READY');
   });
 });
+
+describe('Tags and Assigned staff conditions on client and lead events (AU-F22)', () => {
+  it('offers the firm’s own tags and members, never another firm’s, and matches on them', async () => {
+    const tagIn = (firm: 'a' | 'b') =>
+      inFirm(
+        firm,
+        async (tx) =>
+          (
+            await tx.tag.create({
+              data: { businessId: firms[firm], name: `Field tag ${firm} ${run}` },
+            })
+          ).id,
+      );
+    const mine = await tagIn('a');
+    const theirs = await tagIn('b');
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const fieldsOf = (code: string) => catalog.events.find((e) => e.code === code)!.conditionFields;
+    for (const code of ['client.created', 'client.tags_changed', 'lead.created']) {
+      const tags = fieldsOf(code).find((f) => f.field === 'tags')!;
+      expect(tags.options.map((o) => o.value)).toContain(mine);
+      expect(tags.options.map((o) => o.value)).not.toContain(theirs);
+      const staff = fieldsOf(code).find((f) => f.field === 'assignedUserId')!;
+      expect(staff.options.map((o) => o.value)).toEqual(
+        expect.arrayContaining([ownerA.id, staffA.id]),
+      );
+      expect(staff.options.map((o) => o.value)).not.toContain(ownerB.id);
+    }
+    // Not on an event whose record is not a client's or a lead's.
+    expect(fieldsOf('invoice.overdue').some((f) => f.field === 'tags')).toBe(false);
+
+    // Only the new client with the tag and the Staff assignee starts the rule.
+    const live = await createRule(
+      clientCreated([note()], {
+        conditions: [
+          { field: 'tags', operator: 'INCLUDES', value: [mine] },
+          { field: 'assignedUserId', operator: 'IS', value: staffA.id },
+        ],
+        matchMode: 'ALL',
+      }),
+      { name: mark('Tagged and assigned') },
+    );
+    ok(await activate(live.id));
+    const make = (name: string, tagged: boolean, assignedUserId: string | null) =>
+      inFirm('a', async (tx) => {
+        const c = await tx.client.create({
+          data: { businessId: firms.a, displayName: `${name} ${run} (fake)`, assignedUserId },
+          select: { id: true },
+        });
+        if (tagged)
+          await tx.clientTag.create({
+            data: { businessId: firms.a, clientId: c.id, tagId: mine },
+          });
+        return c.id;
+      });
+    const both = await make('Both', true, staffA.id);
+    await make('Tag only', true, adminA.id);
+    await make('Staff only', false, staffA.id);
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    expect((await runs(`?ruleId=${live.id}`)).items[0]).toMatchObject({ client: { id: both } });
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
