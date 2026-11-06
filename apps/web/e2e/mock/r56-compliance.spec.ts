@@ -282,6 +282,112 @@ test('Help icons explain each area, and the setup tab follows the open tab (CD-F
   await expect(about('A deadline')).toBeVisible();
 });
 
+test('Search and From/To on the deadline list; the library and Manage filter too (CD-F04, F13)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The mock's days are UTC days, like these.
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const filters = page.getByTestId('filters');
+  const table = page.getByTestId('deadline-table');
+  await page.goto(`${base}?tab=all`);
+  // CD-F04: a search by name, client, agency or form, kept in the address.
+  await filters.getByLabel('Search').fill('1065');
+  await expect(page).toHaveURL(/q=1065/);
+  await expect(table).toContainText('Form 1065 Partnership Return');
+  await expect(table).not.toContainText('Annual Registration');
+  await filters.getByLabel('Search').fill('');
+  await expect(page).not.toHaveURL(/q=/);
+  // A custom From and To in place of a named range.
+  await filters.getByLabel('Date Range').selectOption('CUSTOM');
+  await expect(page).toHaveURL(/range=CUSTOM/);
+  await filters.getByLabel('From', { exact: true }).fill(day(5));
+  await expect(page).toHaveURL(/start=/);
+  await filters.getByLabel('To', { exact: true }).fill(day(13));
+  await expect(page).toHaveURL(/end=/);
+  await expect(table).toContainText('Monthly Bookkeeping Close');
+  await expect(table).toContainText('Form 1120-S S Corporation Return');
+  await expect(table).not.toContainText('Form 1065 Partnership Return');
+  await expect(table).not.toContainText('Form 2553 S Election');
+  await page.screenshot({ path: test.info().outputPath('custom-dates.png') });
+  // An end before the start says so; Reset clears the dates and the search.
+  await filters.getByLabel('To', { exact: true }).fill(day(2));
+  await expect(filters.getByText('The end date is before the start date')).toBeVisible();
+  await filters.getByRole('button', { name: 'Reset' }).click();
+  await expect(page.getByTestId('custom-dates')).toBeHidden();
+  await expect(page).not.toHaveURL(/start=|end=|range=CUSTOM/);
+  // A client typed in full (the browser suggests the names), and More filters.
+  await filters.getByLabel('Client', { exact: true }).fill('Jamie Sample');
+  await expect(page).toHaveURL(/client=/);
+  await filters.getByRole('button', { name: 'More filters' }).click();
+  await filters.getByLabel('Priority').selectOption('HIGH');
+  await expect(page).toHaveURL(/priority=HIGH/);
+  await expect(table).toContainText('Q3 Estimated Tax Payment');
+  await expect(table).not.toContainText('Q4 Estimated Tax Payment');
+  await expect(table).not.toContainText('Annual Registration');
+  // Combined with Unassigned there is none: the list says so.
+  await filters.getByLabel('Assigned To').fill('Unassigned');
+  await expect(page).toHaveURL(/assignee=none/);
+  await expect(table).toContainText('No deadlines');
+  await filters.getByRole('button', { name: 'Reset' }).click();
+  await expect(page).not.toHaveURL(/client=|priority=|assignee=/);
+  await expect(filters.getByLabel('Client', { exact: true })).toHaveValue('');
+
+  // CD-F13: the library by name or authority, state and year.
+  await page.goto(`${base}/recurring/new?tab=library`);
+  const library = page.getByTestId('calendar-library');
+  await library.getByLabel('Search').fill('north carolina');
+  await expect(library).toContainText('North Carolina Annual Report');
+  await expect(library).not.toContainText('IRS Employer Calendar');
+  await library.getByLabel('Search').fill('');
+  await library.getByLabel('State').selectOption('GA');
+  await expect(library).toContainText('Georgia Annual Registration');
+  await expect(library).not.toContainText('IRS Employer Calendar');
+  await page.screenshot({ path: test.info().outputPath('library.png') });
+  await library.getByLabel('State').selectOption('');
+  await library.getByLabel('Year').selectOption(String(new Date().getFullYear() - 1));
+  await expect(library).toContainText(`IRS Tax Calendar ${new Date().getFullYear() - 1}`);
+  await expect(library).not.toContainText('IRS Employer Calendar');
+
+  // CD-F13: Manage by status, kind (definitions or templates) and search.
+  await page
+    .getByRole('tablist', { name: 'Setup tabs' })
+    .getByRole('tab', { name: 'Manage Existing Recurring' })
+    .click();
+  const manage = page.getByTestId('manage-rows');
+  await manage.getByLabel('Status').selectOption('PAUSED');
+  await expect(manage).toContainText('Georgia Annual Registration');
+  await expect(manage).not.toContainText('Monthly Payroll Tax Deposit');
+  await manage.getByLabel('Status').selectOption('');
+  await manage.getByLabel('Kind').selectOption('templates');
+  await expect(manage).toContainText('Monthly Sales Tax Return');
+  await expect(manage).not.toContainText('Quarterly Payroll Return');
+  await manage.getByLabel('Kind').selectOption('');
+  await manage.getByLabel('Search').fill('941');
+  await expect(manage).toContainText('Quarterly Payroll Return (Form 941)');
+  await expect(manage).not.toContainText('Georgia Annual Registration');
+  await page.screenshot({ path: test.info().outputPath('manage.png') });
+
+  // CD-F13: a rule's states and excluded client statuses are chosen, never typed.
+  await page
+    .getByRole('tablist', { name: 'Setup tabs' })
+    .getByRole('tab', { name: 'Applicability Rules' })
+    .click();
+  await page.getByRole('button', { name: 'New Rule' }).click();
+  const form = page.getByTestId('rule-form');
+  await form.getByLabel('Rule name').fill('Georgia payroll, not on hold');
+  await form.getByLabel('Applies to a').selectOption('RECURRENCE');
+  await form
+    .getByLabel('Recurring deadline')
+    .selectOption({ label: 'Monthly Payroll Tax Deposit' });
+  await page.getByTestId('rule-states').getByLabel('GA', { exact: true }).check();
+  await page.getByTestId('rule-exclude').getByLabel('On Hold').check();
+  await expect(page.getByTestId('rule-states')).toContainText('1 chosen');
+  await page.screenshot({ path: test.info().outputPath('rule-dialog.png') });
+  await page.getByRole('button', { name: 'Save Rule' }).click();
+  await expect(page.getByTestId('rules-tab')).toContainText('excluding On Hold');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {
