@@ -227,4 +227,13 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { failureAlertUserIds: 'adminUser' },
     body: { failureAlertUserIds: [PLACEHOLDER], minutesSavedPerAction: 7 },
   },
+
+  // AU-F31: a confirmation names the firm's own record and evidence; Manual Event Confirmation is
+  // off by default, so firm P's own request is refused with 409 after its record is found.
+  [`POST ${BASE}/confirmations`]: {
+    params: {},
+    bodyIds: { recordId: 'taxReturn', evidenceDocumentId: 'document' },
+    body: { event: 'tax_return.accepted', occurrence: '2025' },
+    expect: 409,
+  },
 };

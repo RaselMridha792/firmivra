@@ -71,6 +71,8 @@ interface Form {
   calendar: boolean;
   expires: boolean;
   expiresOn: string;
+  /** AU-F30: a confirmed outcome's source. */
+  source: 'MANUAL' | 'EITHER' | 'INTEGRATION_VERIFIED';
   /** AU-F28: the Owner or Admin responsible for the rule; '' keeps the default (the creator). */
   ownerUserId: string;
 }
@@ -101,6 +103,7 @@ const blank = (): Form => ({
   calendar: false,
   expires: false,
   expiresOn: '',
+  source: 'MANUAL',
   ownerUserId: '',
 });
 const fromDetail = (d: AutomationRuleDetail): Form => {
@@ -113,6 +116,7 @@ const fromDetail = (d: AutomationRuleDetail): Form => {
     enabled: d.status === 'ACTIVE',
     expires: d.expiresOn !== null,
     expiresOn: d.expiresOn ?? '',
+    source: d.definition?.trigger.source ?? 'MANUAL',
     ownerUserId: d.owner?.userId ?? '',
     ...(v
       ? {
@@ -215,6 +219,7 @@ function Builder({
       event: f.event,
       timing: f.timing,
       ...(offset ? { offsetValue: Number(f.offsetValue), offsetUnit: f.offsetUnit } : {}),
+      ...(ev?.confirmation ? { source: f.source } : {}),
     },
     matchMode: f.matchMode,
     conditions: f.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })),
@@ -415,6 +420,36 @@ function Builder({
                   ...events.map((e) => ({ value: e.code, label: e.label })),
                 ]}
               />
+              {ev?.confirmation ? (
+                <fieldset className="flex flex-col gap-1 sm:col-span-2">
+                  <legend className="text-sm font-medium text-text">Outcome comes from</legend>
+                  {(
+                    [
+                      ['MANUAL', 'Manual confirmation'],
+                      ['EITHER', 'Either'],
+                      ['INTEGRATION_VERIFIED', 'Integration verified'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Radio
+                      key={value}
+                      name="trigger-source"
+                      label={label}
+                      value={value}
+                      checked={f.source === value}
+                      disabled={
+                        value === 'INTEGRATION_VERIFIED' && !ev.confirmation?.integrationAvailable
+                      }
+                      onChange={() => set({ source: value })}
+                    />
+                  ))}
+                  {!ev.confirmation.integrationAvailable ? (
+                    <p className="text-xs text-muted">
+                      Integration verified: not available yet, no verified integration sends this
+                      event.
+                    </p>
+                  ) : null}
+                </fieldset>
+              ) : null}
               <Select
                 label="When *"
                 value={f.timing}

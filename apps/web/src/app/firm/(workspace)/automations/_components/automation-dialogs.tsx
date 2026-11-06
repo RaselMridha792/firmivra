@@ -30,6 +30,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirm } from '../../../../../components/firm-context';
 import { AUTOMATIONS_KEY, AUTOMATION_ERRORS, quiet } from './automations-shared';
 
 /** The three-dot menu of a rule: Edit, Duplicate, Test, Pause or Activate, View Logs, Save as Template, Archive. */
@@ -283,6 +284,7 @@ export function SettingsDialog({ onClose, onDone }: { onClose: () => void; onDon
         minutes: String(s.minutesSavedPerAction),
         retention: String(s.logRetentionDays),
         alerts: s.failureAlertUsers.map((m) => m.userId),
+        manual: s.manualConfirmationEnabled,
       }}
       timezone={s.timezone}
       onClose={onClose}
@@ -306,12 +308,16 @@ function SettingsForm({
     minutes: string;
     retention: string;
     alerts: string[];
+    manual: boolean;
   };
   timezone: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [f, setF] = useState(initial);
+  // AU-F29: only an Owner or Admin turns Manual Event Confirmation on or off.
+  const { role } = useFirm();
+  const admin = role === 'OWNER' || role === 'ADMIN';
   const team = useApiQuery([...AUTOMATIONS_KEY, 'members'], () => api.team.list());
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
   const save = useApiMutation(
@@ -324,6 +330,7 @@ function SettingsForm({
         minutesSavedPerAction: Number(f.minutes),
         logRetentionDays: Number(f.retention),
         failureAlertUserIds: f.alerts,
+        ...(admin && f.manual !== initial.manual ? { manualConfirmationEnabled: f.manual } : {}),
       }),
     { invalidate: [...AUTOMATIONS_KEY] },
   );
@@ -395,6 +402,19 @@ function SettingsForm({
           {num('Safety threshold', 'threshold', 'Warn when more records than this match a rule.')}
           {num('Minutes saved per action', 'minutes', 'Used for the Time Saved card.')}
           {num('Keep logs (days)', 'retention', 'Between 30 and 2,555 days.')}
+        </div>
+        <div className="flex flex-col gap-1">
+          <Checkbox
+            label="Manual Event Confirmation"
+            checked={f.manual}
+            disabled={!admin}
+            onChange={(e) => setF({ ...f, manual: e.target.checked })}
+          />
+          <p className="text-xs text-muted">
+            {admin
+              ? 'Lets members confirm a known outcome by hand, such as a return accepted, one occurrence at a time. A confirmation never files, submits or pays anything.'
+              : 'Only an Owner or Admin turns this on or off.'}
+          </p>
         </div>
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-sm font-medium text-text">
