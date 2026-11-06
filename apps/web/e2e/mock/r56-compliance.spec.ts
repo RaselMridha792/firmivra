@@ -261,6 +261,27 @@ test('A completed deadline opens read-only with Reopen; years and periods go wid
   await expect(page.getByLabel('Custom period')).toHaveValue('FY Jul 2025 – Jun 2026');
 });
 
+test('Help icons explain each area, and the setup tab follows the open tab (CD-F17)', async ({
+  page,
+}) => {
+  await page.goto(base);
+  const about = (topic: string) => page.getByRole('button', { name: `About ${topic}` });
+  await about('Compliance overview').click();
+  await expect(page.getByTestId('help-tip')).toContainText('Deadlines that are still to do');
+  await page.keyboard.press('Escape');
+  await expect(about('Filters')).toBeVisible();
+  await page.goto(`${base}/recurring/new?tab=logs`);
+  await expect(page.getByTestId('tab-help')).toContainText('Logs');
+  await expect(about('Logs')).toBeVisible();
+  await page
+    .getByRole('tablist', { name: 'Setup tabs' })
+    .getByRole('tab', { name: 'Applicability Rules' })
+    .click();
+  await expect(about('Applicability rules')).toBeVisible();
+  await page.goto(`${base}/new`);
+  await expect(about('A deadline')).toBeVisible();
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {

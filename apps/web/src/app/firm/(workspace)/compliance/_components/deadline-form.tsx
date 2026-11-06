@@ -34,6 +34,7 @@ import {
   draftsToReminders,
   remindersToDrafts,
 } from './deadline-dialogs';
+import { ComplianceHelp } from './compliance-help';
 
 const ENTITY_TYPES = [
   'Sole Proprietor',
@@ -555,8 +556,8 @@ function DeadlineForm({
             <CalendarPlus aria-hidden weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">
-              {id ? 'Edit Deadline' : 'Add Deadline'}
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              {id ? 'Edit Deadline' : 'Add Deadline'} <ComplianceHelp area="form" />
             </h1>
             <p className="text-base text-muted">
               Create a new deadline for a client or edit an existing one.

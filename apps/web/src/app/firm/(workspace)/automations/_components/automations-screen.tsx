@@ -179,8 +179,7 @@ export function AutomationsScreen({
     {
       id: 'applies',
       label: 'Applies To',
-      className: 'hidden 2xl:table-cell',
-      cell: (r) => r.appliesTo,
+      cell: (r) => <span className="block min-w-40">{r.appliesTo}</span>,
     },
     {
       id: 'status',
