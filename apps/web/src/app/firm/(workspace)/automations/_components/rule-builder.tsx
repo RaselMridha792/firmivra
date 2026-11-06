@@ -1229,7 +1229,28 @@ function ActionField({
   const firmTags = useApiQuery(['automations', 'tag-choices', field.type === 'TAGS'], async () =>
     field.type === 'TAGS' ? api.tags.list() : { items: [] },
   );
+  const categories = useApiQuery(
+    ['automations', 'category-choices', field.type === 'DOCUMENT_CATEGORY'],
+    async () => (field.type === 'DOCUMENT_CATEGORY' ? api.documents.categories() : []),
+  );
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  if (field.type === 'DOCUMENT_CATEGORY') {
+    const rows = (categories.data ?? []).filter((c) => !c.archivedAt);
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          { value: '', label: 'No category' },
+          ...(text && !rows.some((c) => c.id === text)
+            ? [{ value: text, label: 'Archived category: choose again' }]
+            : []),
+          ...rows.map((c) => ({ value: c.id, label: c.name })),
+        ]}
+      />
+    );
+  }
   if (field.type === 'TAGS') {
     const chosen = Array.isArray(value) ? value : [];
     const rows = firmTags.data?.items ?? [];

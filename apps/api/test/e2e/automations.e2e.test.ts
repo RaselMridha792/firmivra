@@ -352,6 +352,7 @@ describe('the catalog', () => {
       'CREATE_TASK',
       'SEND_CLIENT_MESSAGE',
       'SEND_CLIENT_EMAIL',
+      'REQUEST_DOCUMENTS',
       'ASSIGN_CLIENT',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
@@ -2633,5 +2634,165 @@ describe('Send client email, through Messages (AU-F25)', () => {
       name: mark('Empty email'),
     });
     expectError(await activate(empty.id), 409, 'NOT_READY');
+  });
+});
+
+describe('Tags and Assigned staff conditions on client and lead events (AU-F22)', () => {
+  it('offers the firm’s own tags and members, never another firm’s, and matches on them', async () => {
+    const tagIn = (firm: 'a' | 'b') =>
+      inFirm(
+        firm,
+        async (tx) =>
+          (
+            await tx.tag.create({
+              data: { businessId: firms[firm], name: `Field tag ${firm} ${run}` },
+            })
+          ).id,
+      );
+    const mine = await tagIn('a');
+    const theirs = await tagIn('b');
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const fieldsOf = (code: string) => catalog.events.find((e) => e.code === code)!.conditionFields;
+    for (const code of ['client.created', 'client.tags_changed', 'lead.created']) {
+      const tags = fieldsOf(code).find((f) => f.field === 'tags')!;
+      expect(tags.options.map((o) => o.value)).toContain(mine);
+      expect(tags.options.map((o) => o.value)).not.toContain(theirs);
+      const staff = fieldsOf(code).find((f) => f.field === 'assignedUserId')!;
+      expect(staff.options.map((o) => o.value)).toEqual(
+        expect.arrayContaining([ownerA.id, staffA.id]),
+      );
+      expect(staff.options.map((o) => o.value)).not.toContain(ownerB.id);
+    }
+    // Not on an event whose record is not a client's or a lead's.
+    expect(fieldsOf('invoice.overdue').some((f) => f.field === 'tags')).toBe(false);
+
+    // Only the new client with the tag and the Staff assignee starts the rule.
+    const live = await createRule(
+      clientCreated([note()], {
+        conditions: [
+          { field: 'tags', operator: 'INCLUDES', value: [mine] },
+          { field: 'assignedUserId', operator: 'IS', value: staffA.id },
+        ],
+        matchMode: 'ALL',
+      }),
+      { name: mark('Tagged and assigned') },
+    );
+    ok(await activate(live.id));
+    const make = (name: string, tagged: boolean, assignedUserId: string | null) =>
+      inFirm('a', async (tx) => {
+        const c = await tx.client.create({
+          data: { businessId: firms.a, displayName: `${name} ${run} (fake)`, assignedUserId },
+          select: { id: true },
+        });
+        if (tagged)
+          await tx.clientTag.create({
+            data: { businessId: firms.a, clientId: c.id, tagId: mine },
+          });
+        return c.id;
+      });
+    const both = await make('Both', true, staffA.id);
+    await make('Tag only', true, adminA.id);
+    await make('Staff only', false, staffA.id);
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    expect((await runs(`?ruleId=${live.id}`)).items[0]).toMatchObject({ client: { id: both } });
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Request documents, through Documents (AU-F27)', () => {
+  const ask = (config: object) => ({ id: 'docs', type: 'REQUEST_DOCUMENTS', config });
+
+  it('asks under the client’s oldest open service of the kind; none open asks nothing; another firm’s category is refused', async () => {
+    const { serviceId, categoryId } = await inFirm('a', async (tx) => ({
+      serviceId: (
+        await tx.service.create({
+          data: { businessId: firms.a, kind: 'ANNUAL_TAX', name: `Annual ${run}` },
+        })
+      ).id,
+      categoryId: (
+        await tx.documentCategory.create({ data: { businessId: firms.a, name: `Wages ${run}` } })
+      ).id,
+    }));
+    const theirCategory = await inFirm(
+      'b',
+      async (tx) =>
+        (await tx.documentCategory.create({ data: { businessId: firms.b, name: `B ${run}` } })).id,
+    );
+    // Firm B's category is never one firm A's rule can use.
+    const foreign = await createRule(
+      clientCreated([ask({ serviceKind: 'ANNUAL_TAX', title: 'W-2', categoryId: theirCategory })]),
+      { name: mark('Foreign category') },
+    );
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+
+    const live = await createRule(
+      clientCreated([
+        ask({
+          serviceKind: 'ANNUAL_TAX',
+          title: 'W-2 for {{client.name}}',
+          categoryId,
+          dueInDays: 14,
+        }),
+      ]),
+      { name: mark('Ask for the W-2') },
+    );
+    ok(await activate(live.id));
+    const make = (name: string, status: 'ACTIVE' | 'COMPLETED' | null) =>
+      inFirm('a', async (tx) => {
+        const c = await tx.client.create({
+          data: { businessId: firms.a, displayName: `${name} ${run} (fake)` },
+          select: { id: true },
+        });
+        const engagement = status
+          ? (
+              await tx.engagement.create({
+                data: {
+                  businessId: firms.a,
+                  clientId: c.id,
+                  serviceId,
+                  title: 'Taxes (fake)',
+                  status,
+                  ...(status === 'COMPLETED' ? { completedAt: new Date() } : {}),
+                },
+                select: { id: true },
+              })
+            ).id
+          : null;
+        return { id: c.id, engagement };
+      });
+    const open = await make('Open service', 'ACTIVE');
+    const closed = await make('Closed service', 'COMPLETED');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+    const page = await runs(`?ruleId=${live.id}`);
+    const stepOf = async (clientId: string) =>
+      (await runDetail(page.items.find((r) => r.client?.id === clientId)!.id)).actions[0]!;
+
+    const asked = await stepOf(open.id);
+    expect(asked).toMatchObject({ status: 'SUCCESS', result: { kind: 'document_request' } });
+    const request = await inFirm('a', (tx) =>
+      tx.documentRequest.findFirstOrThrow({
+        where: { businessId: firms.a, id: asked.result!.id },
+        select: { engagementId: true, categoryId: true, title: true, dueOn: true },
+      }),
+    );
+    expect(request).toMatchObject({
+      engagementId: open.engagement,
+      categoryId,
+      title: `W-2 for Open service ${run} (fake)`,
+    });
+    expect(request.dueOn).not.toBeNull();
+
+    // Only a completed service: nothing is requested.
+    expect(await stepOf(closed.id)).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'NO_OPEN_SERVICE',
+      retryable: false,
+    });
+    expect(
+      await inFirm('a', (tx) =>
+        tx.documentRequest.count({ where: { businessId: firms.a, clientId: closed.id } }),
+      ),
+    ).toBe(0);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
   });
 });

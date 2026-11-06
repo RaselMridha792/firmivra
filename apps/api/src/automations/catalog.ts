@@ -1035,8 +1035,20 @@ export const CONFIRMABLE_EVENTS: EventDef[] = [
   ),
 ];
 
+/**
+ * AU-F22: what a client's or a lead's record carries for conditions: its tags (by id) and its
+ * assigned member (by user id). The choices are the firm's own live tags and active members,
+ * filled in when the firm's catalog is served (`firmCatalog`); a value that is no longer one of
+ * them simply never matches.
+ */
+export const TAGS_FIELD = field('tags', 'Tags', 'LIST');
+export const ASSIGNEE_FIELD = field('assignedUserId', 'Assigned staff', 'STATUS');
+const PEOPLE_FIELDS = (recordKind: string) =>
+  recordKind === 'client' || recordKind === 'lead' ? [TAGS_FIELD, ASSIGNEE_FIELD] : [];
+
 export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
   ...e,
+  conditionFields: [...e.conditionFields, ...PEOPLE_FIELDS(e.recordKind)],
   anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
   hasClient: e.hasClient ?? true,
@@ -1184,6 +1196,71 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: 'Merge fields like {{client.firstName}} are filled in.',
+      },
+    ],
+  },
+  {
+    type: 'REQUEST_DOCUMENTS',
+    module: 'DOCUMENTS',
+    label: 'Request documents',
+    description:
+      'Asks the client for a document through Documents, under their oldest open service of the kind you choose (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: true,
+    needsClient: true,
+    fields: [
+      {
+        key: 'serviceKind',
+        label: 'Service',
+        type: 'SELECT',
+        required: true,
+        choices: options([
+          'ANNUAL_TAX',
+          'QUARTERLY_TAX',
+          'BOOKKEEPING',
+          'PAYROLL',
+          'TAX_PLANNING',
+          'BUSINESS_DEVELOPMENT',
+          'OTHER',
+        ]),
+        templateKind: null,
+        help: 'The client’s oldest open service of this kind. With none open, nothing is requested and the step fails.',
+      },
+      {
+        key: 'title',
+        label: 'Document needed',
+        type: 'TEXT',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'What the client sees, for example “Your W-2 for {{date.today}}”.',
+      },
+      {
+        key: 'instructions',
+        label: 'Instructions',
+        type: 'LONG_TEXT',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'categoryId',
+        label: 'Category',
+        type: 'DOCUMENT_CATEGORY',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'dueInDays',
+        label: 'Due in (days)',
+        type: 'NUMBER',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'From the day the action runs.',
       },
     ],
   },

@@ -89,6 +89,8 @@ const LOADERS: Record<string, Loader> = {
         status: true,
         source: true,
         createdAt: true,
+        assignedUserId: true,
+        tags: { select: { tagId: true } },
       },
       orderBy: { createdAt: 'asc' },
       take: s.limit ?? LIMIT,
@@ -100,7 +102,13 @@ const LOADERS: Record<string, Loader> = {
       label: c.displayName,
       at: c.createdAt,
       occurrence: 'created',
-      fields: { clientType: c.accountType, status: c.status, source: c.source },
+      fields: {
+        clientType: c.accountType,
+        status: c.status,
+        source: c.source,
+        tags: c.tags.map((t) => t.tagId),
+        assignedUserId: c.assignedUserId,
+      },
     }));
   },
   'invoice.overdue': async (tx, s) => {
@@ -243,6 +251,8 @@ const LOADERS: Record<string, Loader> = {
         clientId: true,
         nextActionAt: true,
         nextActionType: true,
+        assignedUserId: true,
+        tags: { select: { tagId: true } },
       },
       orderBy: [{ nextActionAt: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
@@ -254,7 +264,13 @@ const LOADERS: Record<string, Loader> = {
       label: `${l.firstName} ${l.lastName}`.trim(),
       at: l.nextActionAt,
       occurrence: l.nextActionAt!.toISOString(),
-      fields: { stage: l.status, source: l.source, followUpType: l.nextActionType },
+      fields: {
+        stage: l.status,
+        source: l.source,
+        followUpType: l.nextActionType,
+        tags: l.tags.map((t) => t.tagId),
+        assignedUserId: l.assignedUserId,
+      },
     }));
   },
   // AU-F10: a form the client hasn't finished, by its due date.

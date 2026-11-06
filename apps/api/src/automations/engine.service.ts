@@ -8,6 +8,7 @@ import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
 import { OutboundMessagesService } from '../messages/outbound.service.js';
+import { DocumentRequestsService } from '../storage/document-requests.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
@@ -68,6 +69,7 @@ export class AutomationEngine {
     private readonly notes: NotesService,
     private readonly notifier: Notifier,
     private readonly outbound: OutboundMessagesService,
+    private readonly documentRequests: DocumentRequestsService,
   ) {}
 
   /**
@@ -763,6 +765,48 @@ export class AutomationEngine {
                 action.type === 'ADD_CLIENT_TAGS'
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
+            };
+          }
+          // AU-F27 Request documents: Documents' own request (DocumentRequestsService.create), so
+          // every Documents rule holds (reach, an open service, a live category, the client's bell
+          // item and email). The service is the client's oldest ACTIVE one of the chosen kind.
+          case 'REQUEST_DOCUMENTS': {
+            const clientId = run.clientId as string;
+            const kind = typeof cfg.serviceKind === 'string' ? cfg.serviceKind : null;
+            const engagement = kind
+              ? await this.inFirm(businessId, (tx) =>
+                  tx.engagement.findFirst({
+                    where: {
+                      businessId,
+                      clientId,
+                      status: 'ACTIVE',
+                      service: { kind: kind as never },
+                    },
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                    select: { id: true },
+                  }),
+                )
+              : null;
+            if (!engagement)
+              return {
+                ok: false,
+                code: 'NO_OPEN_SERVICE',
+                retryable: false,
+                detail: 'The client has no open service of that kind',
+              };
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : null;
+            const request = await this.documentRequests.create(businessId, actor, clientId, {
+              serviceId: engagement.id,
+              title: (text('title') ?? 'A document').slice(0, 200),
+              instructions: text('instructions')?.slice(0, 1000) || null,
+              categoryId: typeof cfg.categoryId === 'string' ? cfg.categoryId : null,
+              dueOn: days === null ? null : addDays(today, days),
+            });
+            return {
+              ok: true,
+              kind: 'document_request',
+              id: request.id,
+              detail: 'Document requested',
             };
           }
           // AU-F27 Assign or reassign work: the client's assigned member, as Clients changes it (the

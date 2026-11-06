@@ -230,6 +230,8 @@ export class DocumentsController {
     DocumentScanHandler,
   ],
   // Portal intake uploads (R11) use the same tickets, confirm and bucket.
-  exports: [UploadsService, DOCUMENT_STORAGE, ScanResultsService],
+  // Automations' Request documents (R55, the lead's one-off exception): the request keeps every
+  // Documents rule.
+  exports: [UploadsService, DOCUMENT_STORAGE, ScanResultsService, DocumentRequestsService],
 })
 export class DocumentsModule {}
