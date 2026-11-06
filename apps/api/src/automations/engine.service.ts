@@ -571,6 +571,71 @@ export class AutomationEngine {
             });
             return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Message sent' };
           }
+          // AU-F27: the firm's own tags, by id; one archived since the rule was saved fails the step.
+          case 'ADD_CLIENT_TAGS':
+          case 'REMOVE_CLIENT_TAGS': {
+            const wanted = [
+              ...new Set(
+                (Array.isArray(cfg.tagIds) ? cfg.tagIds : []).filter(
+                  (v): v is string => typeof v === 'string',
+                ),
+              ),
+            ];
+            const clientId = run.clientId as string;
+            const result = await this.inFirm(businessId, async (tx) => {
+              const tags = await tx.tag.findMany({
+                where: { businessId, archivedAt: null, id: { in: wanted } },
+                select: { id: true },
+              });
+              if (wanted.length === 0 || tags.length < wanted.length) return null;
+              const ids = tags.map((t) => t.id);
+              const changed =
+                action.type === 'ADD_CLIENT_TAGS'
+                  ? (
+                      await tx.clientTag.createMany({
+                        data: ids.map((tagId) => ({
+                          businessId,
+                          clientId,
+                          tagId,
+                          addedByUserId: actor.userId,
+                        })),
+                        skipDuplicates: true,
+                      })
+                    ).count
+                  : (
+                      await tx.clientTag.deleteMany({
+                        where: { businessId, clientId, tagId: { in: ids } },
+                      })
+                    ).count;
+              // As Clients' own tag change records it (so a rule on tag changes sees it).
+              await this.audit.logIn(
+                tx,
+                'client.tags_set',
+                { type: 'client', id: clientId },
+                action.type === 'ADD_CLIENT_TAGS'
+                  ? { added: changed, removed: 0 }
+                  : { added: 0, removed: changed },
+                { businessId, actorUserId: actor.userId },
+              );
+              return changed;
+            });
+            if (result === null)
+              return {
+                ok: false,
+                code: 'UNKNOWN_TAG',
+                retryable: false,
+                detail: 'A chosen tag was archived or is not one of the firm’s tags',
+              };
+            return {
+              ok: true,
+              kind: 'client',
+              id: clientId,
+              detail:
+                action.type === 'ADD_CLIENT_TAGS'
+                  ? `${result} tag(s) added`
+                  : `${result} tag(s) removed`,
+            };
+          }
           case 'ADD_CLIENT_NOTE': {
             const note = await this.notes.create(businessId, actor, run.clientId as string, {
               body: (text('body') ?? '').slice(0, 10_000),
