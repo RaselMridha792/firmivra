@@ -4,6 +4,7 @@ import {
   CreateMessageTemplateRequest as CreateContract,
   CreateTemplateCategoryRequest as CreateCategoryContract,
   ImportTemplateRequest as ImportContract,
+  StartTemplateImportRequest as StartImportContract,
   MergeTemplateCategoryRequest as MergeCategoryContract,
   MessageTemplatesQuery as QueryContract,
   PreviewTemplateRequest as PreviewContract,
@@ -44,6 +45,7 @@ export const TestSendBody = clean(TestSendContract);
 export const StructureOptionsQ = clean(StructureOptionsContract);
 export const SetLinkedBody = clean(SetLinkedContract);
 export const ImportBody = clean(ImportContract);
+export const StartImportBody = clean(StartImportContract);
 export const StartAttachmentBody = clean(StartAttachmentContract);
 export const CategoriesQuery = clean(CategoriesQueryContract);
 export const CreateCategoryBody = clean(CreateCategoryContract);

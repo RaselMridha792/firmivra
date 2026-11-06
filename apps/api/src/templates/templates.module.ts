@@ -14,6 +14,7 @@ import {
 } from './template-attachments.service.js';
 import { TemplateCategoriesService } from './template-categories.service.js';
 import { TemplateFieldsService } from './template-fields.service.js';
+import { TemplateImportFilesService, TemplateImportTokens } from './template-import-files.js';
 import { TemplateReadService } from './template-read.service.js';
 import { TemplateRenderService } from './template-render.service.js';
 import {
@@ -46,6 +47,12 @@ import { TemplatesService } from './templates.service.js';
     TemplateFieldsService,
     TemplateAttachmentsService,
     TemplateStartersService,
+    TemplateImportFilesService,
+    {
+      provide: TemplateImportTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new TemplateImportTokens(poolSecrets(env)),
+    },
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
     {

@@ -47,6 +47,7 @@ import {
   BulkBody,
   CreateTemplateBody,
   ImportBody,
+  StartImportBody,
   PreviewBody,
   SharesBody,
   StartAttachmentBody,
@@ -57,6 +58,7 @@ import {
   UpdateTemplateBody,
 } from './template-input.js';
 import { TemplateAttachmentsService } from './template-attachments.service.js';
+import { TemplateImportFilesService } from './template-import-files.js';
 import { TemplateReadService } from './template-read.service.js';
 import { TemplateStartersService } from './template-starters.service.js';
 import { TemplatesService } from './templates.service.js';
@@ -84,6 +86,7 @@ export class TemplatesController {
     private readonly templates: TemplatesService,
     private readonly attachments: TemplateAttachmentsService,
     private readonly starters: TemplateStartersService,
+    private readonly importFiles: TemplateImportFilesService,
   ) {}
 
   // ----- Library (static paths first) -----
@@ -128,6 +131,16 @@ export class TemplatesController {
     @Body(new ZodValidationPipe(BulkBody)) body: Out<typeof BulkBody>,
   ): Promise<BulkTemplatesResult> {
     return this.templates.bulk(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  /** TP-F16: step 1 of a Word document import; the file is read once on import, then deleted. */
+  @Post('import/uploads')
+  startImport(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(StartImportBody)) body: Out<typeof StartImportBody>,
+  ): Promise<UploadTicket> {
+    return this.importFiles.ticket(tenant.businessId, actorOf(auth, tenant), body);
   }
 
   @Post('import')

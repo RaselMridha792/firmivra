@@ -26,6 +26,7 @@ import type {
   UpdateTemplateBody,
 } from './template-input.js';
 import { TemplateReadService, automationCount } from './template-read.service.js';
+import { TemplateImportFilesService } from './template-import-files.js';
 import { TemplateRenderService } from './template-render.service.js';
 import {
   linkData,
@@ -95,6 +96,7 @@ export class TemplatesService {
     private readonly audit: AuditService,
     private readonly reader: TemplateReadService,
     private readonly renderer: TemplateRenderService,
+    private readonly importFiles: TemplateImportFilesService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -749,14 +751,27 @@ export class TemplatesService {
     const plain = PLAIN_KINDS.has(body.kind);
     let removed = 0;
     let text: string;
-    if (body.format === 'HTML') {
-      const clean = sanitize(body.content);
+    if (body.format === 'DOCX') {
+      // TP-F16: read once, converted, and the file deleted (also when the kind can't take it).
+      const html = await this.importFiles.html(businessId, actor, body.uploadToken ?? '');
+      if (plain) {
+        throw templateErrors.invalid(
+          'format',
+          'A Word document imports into a formatted template; use plain text for this kind',
+        );
+      }
+      const clean = sanitize(html);
+      removed = clean.removed;
+      text = clean.html;
+    } else if (body.format === 'HTML') {
+      const clean = sanitize(body.content ?? '');
       removed = clean.removed;
       text = plain ? toPlainText(clean.html) : clean.html;
     } else {
+      const content = body.content ?? '';
       text = plain
-        ? body.content
-        : body.content
+        ? content
+        : content
             .split(/\n{2,}/)
             .map((p) => `<p>${escapeHtml(p.trim()).replace(/\n/g, '<br>')}</p>`)
             .join('');

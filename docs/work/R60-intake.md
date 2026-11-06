@@ -211,6 +211,14 @@ Progress (Templates, Oct 28 review):
     sanitizers keep only left, center or right and the one button class.
   - TP-F16: mammoth in `apps/api`, for rich kinds only, under the existing upload cap, through the
     allowlist sanitizer; images are dropped, nothing is fetched and the DOCX is not stored.
+- Word import, branch `rasel/R60-template-docx`: TP-F16.
+  - Import Template takes a Word document for a formatted kind (not SMS or Task), up to the
+    module's 10 MB.
+  - It uploads in three steps (`business/templates/import/uploads`, the PUT, then the import with
+    its token) under `tenant/{firm}/template-imports/`.
+  - The API reads it once, converts it with mammoth (no network, images dropped), runs the
+    allowlist sanitizer, and deletes the file whatever happens.
+  - The result is always a private draft. Firm B and another member can't use the ticket.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
