@@ -1209,6 +1209,8 @@ export function createCommunicationsMock({
           lastUsedAt: null,
           createdAt: at,
           etag: `e${next++}`,
+          linkedTemplate: null,
+          structure: null,
         };
       }),
     preview: (communicationId, body = {}) =>
