@@ -222,6 +222,13 @@ Progress (Templates, Oct 28 review):
     keeps Back to the list, also when the draft can't start.
   - `lib/origin.ts` names them "Templates" and "Template Library" (as R56 did for Reports and
     Compliance).
+- Help icons, branch `rasel/R60-templates-help` (on TP-F01): TP-F02.
+  - The shared `HelpTip` on every functional area: the overview, views and kinds, Recent, Tools,
+    the library, its filters and categories.
+  - In the editor: writing it, Preview and Test Send, merge fields, structure, attachments, who can
+    use it, automations and versions. The Import, Merge Fields, Branding and Categories dialogs too.
+  - The text is in one file (`template-help.tsx`). No topic repeats a field's label, so a label
+    finds only its field.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

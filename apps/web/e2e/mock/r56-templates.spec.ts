@@ -32,7 +32,10 @@ test('Home: sixteen kinds with counts, recent templates, tools and tips', async 
     page.getByTestId('recent').getByRole('link', { name: /^Use / }).first(),
   ).toBeVisible();
   await expect(page.getByTestId('recent')).toContainText('Recent Templates');
-  await expect(page.getByTestId('tools').getByRole('button')).toHaveCount(4);
+  // Four tools, beside the Help icon (TP-F02, R60).
+  await expect(page.getByTestId('tools').getByRole('button', { name: /^(?!About )/ })).toHaveCount(
+    4,
+  );
   await expect(page.getByTestId('tips')).toContainText('merge fields');
 });
 
