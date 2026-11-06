@@ -561,7 +561,8 @@ export class ComplianceRulesService {
               calendarId: rule.calendarEntry?.calendarId ?? null,
               recurrenceId: rule.recurrenceId,
               message: 'A rule was run for a due date',
-              details: { ruleId: rule.id, ...result },
+              // CD-F16: the rule's version then, shown beside its name now.
+              details: { ruleId: rule.id, ruleVersion: rule.version, ...result },
               actorUserId: actor.userId,
             },
           });

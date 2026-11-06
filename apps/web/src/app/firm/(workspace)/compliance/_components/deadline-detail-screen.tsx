@@ -8,8 +8,10 @@ import {
   Bell,
   CalendarPlus,
   CheckCircle,
+  ClockCounterClockwise,
   Hourglass,
   ListChecks,
+  ListMagnifyingGlass,
   PencilSimple,
   Prohibit,
   Spinner,
@@ -18,6 +20,8 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
+import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -182,6 +186,24 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
             >
               <Archive aria-hidden weight="fill" className="size-4" /> Archive
             </button>
+            {/* CD-F15 (Octavia, Oct 28): its own events in the module Logs, and every change in
+                the firm's Audit Log (Owners and Admins). */}
+            <OriginLink
+              href={`/compliance/recurring/new?tab=logs&logq=${id}`}
+              className={btn}
+              data-testid="deadline-activity"
+            >
+              <ClockCounterClockwise aria-hidden weight="bold" className="size-4" /> Activity
+            </OriginLink>
+            <RequireRole roles={['OWNER', 'ADMIN']}>
+              <Link
+                href={`/audit-log?entityType=compliance_deadline&entityId=${id}`}
+                className={btn}
+                data-testid="deadline-audit"
+              >
+                <ListMagnifyingGlass aria-hidden weight="bold" className="size-4" /> Audit history
+              </Link>
+            </RequireRole>
           </div>
         ) : null}
       </header>

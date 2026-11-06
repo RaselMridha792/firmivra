@@ -58,6 +58,51 @@ const CLOSED: readonly string[] = CLOSED_STATUSES;
 /** Library and imported dates are statutory: moving one needs a reason and the Owner or an Admin. */
 const STATUTORY_SOURCES: readonly string[] = ['GOVERNMENT', 'IMPORTED'];
 
+/**
+ * CD-F16 (Octavia, Oct 28): an edit's audit keeps each changed field before and after, for the
+ * fields that are not free text (never the name, description or notes).
+ */
+const CHANGE_FIELDS = [
+  'type',
+  'source',
+  'entityType',
+  'taxYear',
+  'filingPeriod',
+  'relatedForm',
+  'agency',
+  'jurisdiction',
+  'state',
+  'dueOn',
+  'dueTime',
+  'paymentDueOn',
+  'priority',
+  'status',
+  'assignedUserId',
+  'clientVisible',
+  'engagementId',
+] as const;
+type Plain = string | number | boolean | null;
+const plain = (v: unknown, key: string): Plain => {
+  if (v === undefined || v === null) return null;
+  if (v instanceof Date) return key === 'dueTime' ? v.toISOString().slice(11, 16) : isoDay(v);
+  if (typeof v === 'string') return key.endsWith('Id') ? v.toLowerCase() : v;
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  return null;
+};
+export function changesOf(
+  current: Record<string, unknown>,
+  body: Partial<Record<string, unknown>>,
+): Record<string, { from: Plain; to: Plain }> {
+  const out: Record<string, { from: Plain; to: Plain }> = {};
+  for (const key of CHANGE_FIELDS) {
+    if (body[key] === undefined) continue;
+    const from = plain(current[key], key);
+    const to = plain(body[key], key);
+    if (from !== to) out[key] = { from, to };
+  }
+  return out;
+}
+
 const reminderRows = (businessId: string, deadlineId: string, reminders: Reminders) =>
   reminders.map((r) => ({
     businessId,
@@ -294,6 +339,8 @@ export class ComplianceDeadlineActionsService {
             ),
             dateMoved,
             overridden: moved,
+            // CD-F16 (Octavia, Oct 28): before and after, for the fields that are not free text.
+            changes: changesOf(current, body),
           },
         );
         return this.detail(tx, businessId, actor, id);
@@ -1100,7 +1147,8 @@ export class ComplianceDeadlineActionsService {
         outcome: 'SUCCESS',
         deadlineId,
         message: 'A government or imported due date was moved',
-        details: { daysMoved: days },
+        // CD-F16: the dates before and after (no reason: it is the firm's own words).
+        details: { daysMoved: days, from: statutory, to: dueOn },
         actorUserId: actor.userId,
       },
     });
