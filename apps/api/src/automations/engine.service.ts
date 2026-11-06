@@ -9,6 +9,7 @@ import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
 import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
@@ -70,6 +71,7 @@ export class AutomationEngine {
     private readonly notifier: Notifier,
     private readonly outbound: OutboundMessagesService,
     private readonly documentRequests: DocumentRequestsService,
+    private readonly intakeSend: IntakeSendService,
   ) {}
 
   /**
@@ -766,6 +768,46 @@ export class AutomationEngine {
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
             };
+          }
+          // AU-F27 Request intake: Intake Forms' own send (IntakeSendService.send), so every Intake
+          // rule holds (a published form, the client's open service for it, portal or email, the
+          // reminders and the audit). Its key is the run's and the action's: a retry replays the
+          // first send, never a second form.
+          case 'SEND_INTAKE': {
+            const formId = typeof cfg.formId === 'string' ? cfg.formId : null;
+            if (!formId)
+              return {
+                ok: false,
+                code: 'FORM_REQUIRED',
+                retryable: false,
+                detail: 'Choose an intake form',
+              };
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : null;
+            const hex = createHash('sha1').update(`intake:${run.id}:${action.id}`).digest('hex');
+            const idempotencyKey = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+            const sent = await this.intakeSend.send(
+              { businessId, role: member.role, kind: 'staff' },
+              member.userId,
+              {
+                idempotencyKey,
+                recipient: { kind: 'CLIENT', id: run.clientId as string },
+                formId,
+                channel: cfg.channel === 'EMAIL' ? 'EMAIL' : 'PORTAL',
+                subject: (text('subject') || 'A form from your firm').slice(0, 200),
+                message: (text('message') ?? '').slice(0, 500) || 'Please fill in this form.',
+                dueOn: days === null ? null : addDays(today, days),
+                allowSaveAndContinue: true,
+                sendMeCopy: false,
+              },
+            );
+            if (sent.delivery.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'DELIVERY_FAILED',
+                retryable: false,
+                detail: 'Intake Forms assigned the form but could not deliver it; resend it there',
+              };
+            return { ok: true, kind: 'intake', id: sent.form.id, detail: 'Intake form sent' };
           }
           // AU-F27 Request documents: Documents' own request (DocumentRequestsService.create), so
           // every Documents rule holds (reach, an open service, a live category, the client's bell
