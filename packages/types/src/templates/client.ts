@@ -229,8 +229,9 @@ export function createTemplatesClient(request: ApiRequest) {
       id: string,
       body: UpdateTemplateCategoryRequest,
     ): Promise<TemplateCategory> =>
+      // TP-F17: the API's route is PUT; a PATCH found no route (404, "We couldn't find that").
       request(TemplateCategory, category(id), {
-        method: 'PATCH',
+        method: 'PUT',
         body: parseInput(UpdateTemplateCategoryRequest, body),
       }),
     reorderCategories: async (

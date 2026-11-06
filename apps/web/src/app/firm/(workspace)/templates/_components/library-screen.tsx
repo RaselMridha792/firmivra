@@ -18,8 +18,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { TemplateMenu } from './template-actions';
-import { templateUseHref } from './use-template';
+import { TemplateMenu, UseTemplate } from './template-actions';
 import { CategoriesDialog, ImportDialog, PreviewDialog } from './template-dialogs';
 import {
   KindTile,
@@ -48,6 +47,9 @@ const SORTS: {
 ];
 
 /** /templates/library/[kind]: the library of one kind: categories, filters, the table and bulk actions. */
+/** The sidebar's Uncategorized: templates in no category (TP-F03). */
+const NONE = 'none';
+
 export function LibraryScreen({ slug }: { slug: string }) {
   const meta = kindBySlug(slug);
   const kind = meta?.kind ?? 'EMAIL';
@@ -60,7 +62,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [preview, setPreview] = useState<MessageTemplateRow>();
-  const [dialog, setDialog] = useState<'import' | 'categories' | 'category' | 'tag' | undefined>();
+  const [dialog, setDialog] = useState<
+    'import' | 'categories' | 'category' | 'tag' | 'archive' | undefined
+  >();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
@@ -68,7 +72,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
   const query: MessageTemplatesQuery = {
     tab: 'all',
     kind,
-    ...(categoryId ? { categoryId } : {}),
+    ...(categoryId === NONE ? { uncategorized: true } : categoryId ? { categoryId } : {}),
     ...(status ? { status: status as 'ACTIVE' } : {}),
     ...(owner ? { ownerUserId: owner } : {}),
     ...(tag ? { tag } : {}),
@@ -86,6 +90,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
     api.templates.list({ kind, pageSize: 100 }),
   );
   const team = useApiQuery([...TEMPLATES_KEY, 'members'], () => api.team.list());
+  const summary = useApiQuery([...TEMPLATES_KEY, 'summary'], () => api.templates.summary());
   const options = { invalidate: [...TEMPLATES_KEY] };
   const favorite = useApiMutation(
     (r: MessageTemplateRow) =>
@@ -108,7 +113,18 @@ export function LibraryScreen({ slug }: { slug: string }) {
     );
   }
   const categories = cats.data ?? [];
-  const total = categories.reduce((n, c) => n + c.templateCount, 0);
+  // TP-F03: All Categories counts every template of this kind, those in no category too, so the
+  // rows add up; the heading counts the categories.
+  const uncategorized =
+    summary.data?.uncategorized.find((u) => u.kind === kind)?.templateCount ?? 0;
+  const total = categories.reduce((n, c) => n + c.templateCount, 0) + uncategorized;
+  const sidebar = [
+    { id: '', name: 'All Categories', templateCount: total },
+    ...categories,
+    ...(uncategorized > 0
+      ? [{ id: NONE, name: 'Uncategorized', templateCount: uncategorized }]
+      : []),
+  ];
   const tags = [...new Set((everything.data?.items ?? []).flatMap((r) => r.tags))].sort();
   const rows = list.data?.items ?? [];
   const reset = () => {
@@ -131,12 +147,27 @@ export function LibraryScreen({ slug }: { slug: string }) {
       onError: (e) => notice(errorMessage(e, TEMPLATE_ERRORS), 'error'),
     });
 
+  const tagList = (r: MessageTemplateRow) =>
+    r.tags.length ? (
+      <span className="flex min-w-28 flex-wrap gap-1">
+        {r.tags.slice(0, 3).map((t) => (
+          <span key={t} className="rounded-md bg-warning-soft px-1.5 py-0.5 text-xs text-heading">
+            {t}
+          </span>
+        ))}
+      </span>
+    ) : (
+      '—'
+    );
+  // TP-F15: every field shows at every width without pushing the actions out of view. Below 2xl
+  // (1440 px included) the subject sits under the name, the tags under the category and the owner
+  // under who updated it; from 2xl they have the design's own columns.
   const columns: Column<MessageTemplateRow>[] = [
     {
       id: 'name',
       label: 'Template Name',
       cell: (r) => (
-        <span className="flex min-w-48 items-start gap-1">
+        <span className="flex min-w-44 items-start gap-1">
           <button
             type="button"
             aria-label={
@@ -167,6 +198,11 @@ export function LibraryScreen({ slug }: { slug: string }) {
             {r.description ? (
               <span className="block text-xs text-muted">{r.description}</span>
             ) : null}
+            {r.subject ? (
+              <span className="mt-0.5 block text-xs text-text 2xl:hidden" data-testid="row-subject">
+                <span className="text-muted">Subject:</span> {r.subject}
+              </span>
+            ) : null}
           </span>
         </span>
       ),
@@ -174,48 +210,53 @@ export function LibraryScreen({ slug }: { slug: string }) {
     {
       id: 'subject',
       label: 'Subject Line',
+      className: 'hidden 2xl:table-cell',
       cell: (r) => <span className="block min-w-40 text-xs text-text">{r.subject ?? '—'}</span>,
     },
     {
       id: 'category',
       label: 'Category',
-      cell: (r) =>
-        r.category ? (
-          <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-heading">
-            {r.category.name}
-          </span>
-        ) : (
-          '—'
-        ),
+      cell: (r) => (
+        <span className="flex flex-col items-start gap-1">
+          {r.category ? (
+            <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-heading">
+              {r.category.name}
+            </span>
+          ) : (
+            '—'
+          )}
+          {r.tags.length ? (
+            <span className="2xl:hidden" data-testid="row-tags">
+              <span className="sr-only">Tags: </span>
+              {tagList(r)}
+            </span>
+          ) : null}
+        </span>
+      ),
     },
     {
       id: 'tags',
       label: 'Tags',
       className: 'hidden 2xl:table-cell',
-      cell: (r) =>
-        r.tags.length ? (
-          <span className="flex min-w-28 flex-wrap gap-1">
-            {r.tags.slice(0, 3).map((t) => (
-              <span
-                key={t}
-                className="rounded-md bg-warning-soft px-1.5 py-0.5 text-xs text-heading"
-              >
-                {t}
-              </span>
-            ))}
-          </span>
-        ) : (
-          '—'
-        ),
+      cell: tagList,
     },
     {
       id: 'updated',
       label: 'Last Updated',
-      cell: (r) => <span className="whitespace-nowrap">{dayText(r.updatedAt)}</span>,
+      cell: (r) => (
+        <span className="block whitespace-nowrap">
+          {dayText(r.updatedAt)}
+          <span className="block text-xs text-muted" data-testid="updated-by">
+            by {r.updatedBy?.name ?? r.owner.name}
+          </span>
+          <span className="block text-xs text-muted 2xl:hidden">Owner: {r.owner.name}</span>
+        </span>
+      ),
     },
     {
       id: 'owner',
       label: 'Owner',
+      className: 'hidden 2xl:table-cell',
       cell: (r) => <span className="whitespace-nowrap">{r.owner.name}</span>,
     },
     { id: 'uses', label: 'Uses', cell: (r) => r.useCount },
@@ -282,9 +323,21 @@ export function LibraryScreen({ slug }: { slug: string }) {
 
       <div className="grid items-start gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
         <aside aria-label="Categories" className={card} data-testid="category-sidebar">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">Categories</h2>
+          <h2 className="mb-2 flex items-center justify-between gap-2 font-display text-lg font-bold text-heading">
+            Categories
+            <span
+              className="rounded-pill bg-canvas px-2 py-0.5 font-sans text-xs font-semibold text-heading"
+              data-testid="category-count"
+            >
+              {categories.length}
+              <span className="sr-only">
+                {' '}
+                {categories.length === 1 ? 'category' : 'categories'}
+              </span>
+            </span>
+          </h2>
           <ul className="flex flex-col gap-1">
-            {[{ id: '', name: 'All Categories', templateCount: total }, ...categories].map((c) => (
+            {sidebar.map((c) => (
               <li key={c.id || 'all'}>
                 <button
                   type="button"
@@ -302,6 +355,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
                   </span>
                   <span className="rounded-pill bg-canvas px-2 py-0.5 text-xs font-semibold text-heading">
                     {c.templateCount}
+                    <span className="sr-only"> templates</span>
                   </span>
                 </button>
               </li>
@@ -341,7 +395,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
                 className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
               />
             </label>
-            <div className="w-36">
+            <div className="w-40">
               <Select
                 label="Status"
                 hideLabel
@@ -351,7 +405,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
                   setPage(1);
                 }}
                 options={[
-                  { value: '', label: 'All Statuses' },
+                  { value: '', label: 'Non-archived' },
                   { value: 'ACTIVE', label: 'Active' },
                   { value: 'DRAFT', label: 'Draft' },
                   { value: 'ARCHIVED', label: 'Archived' },
@@ -418,8 +472,7 @@ export function LibraryScreen({ slug }: { slug: string }) {
                     label: 'Archive',
                     icon: Archive,
                     danger: true,
-                    onClick: () =>
-                      run({ action: 'ARCHIVE', ids: selected, confirm: true }, 'archived'),
+                    onClick: () => setDialog('archive'),
                   },
                 ]}
               />
@@ -456,19 +509,17 @@ export function LibraryScreen({ slug }: { slug: string }) {
                     type="button"
                     onClick={() => setPreview(r)}
                     aria-label={`Preview ${r.name}`}
+                    title="Preview"
                     className="inline-flex min-h-9 items-center gap-1 rounded-control border border-border bg-surface px-3 text-sm font-medium text-heading hover:bg-canvas"
                   >
-                    <Eye aria-hidden weight="fill" className="size-4" /> Preview
+                    <Eye aria-hidden weight="fill" className="size-4" />
+                    <span className="hidden 2xl:inline">Preview</span>
                   </button>
-                  {templateUseHref(r.kind, r.id) ? (
-                    <Link
-                      href={templateUseHref(r.kind, r.id)!}
-                      aria-label={`Use ${r.name}`}
-                      className="inline-flex min-h-9 items-center rounded-control bg-gold px-4 text-sm font-semibold text-on-action hover:opacity-90"
-                    >
-                      Use
-                    </Link>
-                  ) : null}
+                  <UseTemplate
+                    row={r}
+                    onNotice={notice}
+                    className="inline-flex min-h-9 items-center rounded-control bg-gold px-4 text-sm font-semibold text-on-action hover:opacity-90"
+                  />
                   <TemplateMenu row={r} onNotice={notice} />
                 </span>
               )}
@@ -502,6 +553,42 @@ export function LibraryScreen({ slug }: { slug: string }) {
       ) : null}
       {dialog === 'categories' ? (
         <CategoriesDialog initialKind={kind} onClose={() => setDialog(undefined)} />
+      ) : null}
+      {dialog === 'archive' ? (
+        <Modal
+          open
+          title={`Archive ${selected.length} template${selected.length === 1 ? '' : 's'}?`}
+          onClose={() => setDialog(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(undefined)}>
+                Keep
+              </Button>
+              <Button
+                disabled={bulk.isPending}
+                onClick={() => run({ action: 'ARCHIVE', ids: selected, confirm: true }, 'archived')}
+              >
+                Archive
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3 text-sm text-text" data-testid="bulk-archive">
+            <ul className="list-disc pl-5">
+              {rows
+                .filter((r) => selected.includes(r.id))
+                .map((r) => (
+                  <li key={r.id}>{r.name}</li>
+                ))}
+            </ul>
+            <p>
+              They leave the library and every template picker, so no one can use them in a new
+              message or automation; an active automation that uses one stops sending it. The
+              messages already sent and their versions stay, and Restore brings each back as a
+              draft. Templates you may not change are skipped.
+            </p>
+          </div>
+        </Modal>
       ) : null}
       {dialog === 'category' ? (
         <PickDialog

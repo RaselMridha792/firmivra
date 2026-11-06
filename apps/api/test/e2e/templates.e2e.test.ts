@@ -832,6 +832,32 @@ describe('the library', () => {
     );
     expect(other.recent.some((r) => names.includes(r.name))).toBe(false);
   });
+
+  it('Uncategorized lists only the templates in no category, so the counts add up (TP-F03)', async () => {
+    const tag = `unc${run}`;
+    const cat = TemplateCategory.parse(
+      ok(
+        await call('post', '/template-categories', people.ownerA, {
+          kind: 'EMAIL',
+          name: mark('Filed'),
+        }),
+        201,
+      ),
+    );
+    const filed = await make({ tags: [tag], categoryId: cat.id });
+    const loose = await make({ tags: [tag] });
+    const q = async (query: string) =>
+      MessageTemplatePage.parse(ok(await call('get', `/templates?${query}`, people.ownerA)));
+    const none = await q(`tag=${tag}&uncategorized=true`);
+    expect(none.items.map((i) => i.id)).toEqual([loose.id]);
+    expect((await q(`tag=${tag}&categoryId=${cat.id}`)).items.map((i) => i.id)).toEqual([filed.id]);
+    expect((await q(`tag=${tag}`)).total).toBe(2);
+    expectError(
+      await call('get', '/templates?uncategorized=maybe', people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
 });
 
 describe('bulk actions', () => {
