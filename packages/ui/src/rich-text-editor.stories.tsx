@@ -74,3 +74,22 @@ export const Email: Story = {
   },
   render: (args) => <Editor {...args} />,
 };
+
+/**
+ * A template's content (TP-F07): images, alignment, and a call-to-action button (an https link
+ * drawn as a button).
+ */
+export const Template: Story = {
+  args: {
+    label: 'Email Content',
+    required: true,
+    imageSizing: { minWidth: 24, maxWidth: 600 },
+    onInsertImage: () => Promise.resolve(PICTURE),
+    textAlign: true,
+    onInsertButton: () =>
+      Promise.resolve({ label: 'Upload Documents', href: 'https://portal.example.test/upload' }),
+    onChange: () => {},
+    value: `<p>Hi [Client First Name],</p><p style="text-align: center;">Please upload your documents.</p><p style="text-align: center;"><a class="fv-button" href="https://portal.example.test/upload">Upload Documents</a></p>`,
+  },
+  render: (args) => <Editor {...args} />,
+};
