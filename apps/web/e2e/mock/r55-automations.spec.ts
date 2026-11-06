@@ -26,6 +26,29 @@ test('the builder reads Trigger Event and takes a Rule Owner', async ({ page }) 
   await page.screenshot({ path: `${shots}/builder-owner.png` });
 });
 
+test('the trigger says when it runs, with an example in the firm’s time zone (AU-F04 to F07)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
+  await page.getByLabel('When *').selectOption('BEFORE');
+  await expect(page.getByLabel('When *').locator('option:checked')).toHaveText(
+    'Before the due date',
+  );
+  await page.getByLabel('Before *').fill('14');
+  await expect(page.getByTestId('trigger-sentence')).toContainText(
+    'Runs 14 days before the due date. For example, if the due date is',
+  );
+  await expect(page.getByTestId('trigger-timezone')).toHaveText(
+    "Times use your firm's time zone (America/New_York).",
+  );
+  await page.getByLabel('Before *').fill('-2');
+  await expect(page.getByText('Enter a whole number from 0 to 100,000')).toBeVisible();
+  await page.getByLabel('Before *').fill('14');
+  await page.screenshot({ path: `${shots}/builder-trigger.png` });
+});
+
 test('Logs: the activity tabs and the Status filter are one filter', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/logs`);
