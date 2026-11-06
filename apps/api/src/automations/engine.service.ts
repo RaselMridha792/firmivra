@@ -7,6 +7,7 @@ import { legacyFirmRole, requestContext, type TenantContext } from '../common/re
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
+import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day } from '../workspaces/common.js';
 import { actionOf } from './catalog.js';
@@ -63,6 +64,7 @@ export class AutomationEngine {
     private readonly tasks: TaskWriteService,
     private readonly messages: MessagesService,
     private readonly notes: NotesService,
+    private readonly notifier: Notifier,
   ) {}
 
   /**
@@ -463,21 +465,24 @@ export class AutomationEngine {
         if (!member) return { error: 'OWNER_UNAVAILABLE' as const };
         if (!mayAct(member.role, info.module)) return { error: 'NOT_PERMITTED' as const };
         const ctx = run.clientId ? await loadRecordContext(tx, businessId, run.clientId) : null;
-        if (!run.clientId || !ctx) return { error: 'NO_CLIENT' as const };
+        // AU-F18 to F20: only an action that needs no client (Notify staff) runs without one.
+        if (info.needsClient && (!run.clientId || !ctx)) return { error: 'NO_CLIENT' as const };
         const found = run.recordId ? await this.labelOf(tx, businessId, run, today) : '';
         const firm = await tx.business.findFirst({
           where: { id: businessId },
           select: { name: true },
         });
-        const client = await tx.client.findFirst({
-          where: { businessId, id: run.clientId },
-          select: { email: true, archivedAt: true, assignedUserId: true },
-        });
+        const client = run.clientId
+          ? await tx.client.findFirst({
+              where: { businessId, id: run.clientId },
+              select: { email: true, archivedAt: true, assignedUserId: true },
+            })
+          : null;
         return {
           member,
           values: {
-            'client.name': ctx.clientName,
-            'client.firstName': ctx.clientFirstName,
+            'client.name': ctx?.clientName ?? '',
+            'client.firstName': ctx?.clientFirstName ?? '',
             'firm.name': firm?.name ?? '',
             'record.label': found,
             'date.today': today,
@@ -570,6 +575,52 @@ export class AutomationEngine {
               repliesEnabled: true,
             });
             return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Message sent' };
+          }
+          // AU-F27 Notify staff: a bell item only, for members of this firm (the Notifier leaves out
+          // a Staff member who can't see the client); never an email, a text or the client.
+          case 'NOTIFY_STAFF': {
+            const chosen = (Array.isArray(cfg.memberUserIds) ? cfg.memberUserIds : []).filter(
+              (v): v is string => typeof v === 'string',
+            );
+            const eventKey = `automation.notice:${run.id}:${action.id}`;
+            const sent = await this.notifier.notify({
+              businessId,
+              event: 'automation.notice',
+              recordId: run.id,
+              eventKey,
+              ...(chosen.length > 0 ? { toUserIds: chosen } : {}),
+            });
+            if (sent.failed)
+              return {
+                ok: false,
+                code: 'NOTIFY_FAILED',
+                retryable: true,
+                detail: 'The notice could not be written',
+              };
+            // A retry after a write that went through finds its own items (the same key).
+            const reached =
+              sent.written > 0
+                ? sent.written
+                : await this.inFirm(businessId, (tx) =>
+                    tx.notification.count({ where: { businessId, eventKey } }),
+                  );
+            if (reached === 0)
+              return {
+                ok: false,
+                code: 'NO_RECIPIENT',
+                retryable: false,
+                detail: 'Nobody in the firm could receive this notice',
+              };
+            await this.inFirm(businessId, (tx) =>
+              this.audit.logIn(
+                tx,
+                'automation.notice_sent',
+                { type: 'automation_run', id: run.id },
+                { actionKey: action.id, recipients: reached },
+                { businessId, actorUserId: actor.userId },
+              ),
+            );
+            return { ok: true, kind: null, id: null, detail: `${reached} member(s) notified` };
           }
           // AU-F27: the firm's own tags, by id; one archived since the rule was saved fails the step.
           case 'ADD_CLIENT_TAGS':

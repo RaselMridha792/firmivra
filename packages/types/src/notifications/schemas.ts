@@ -57,6 +57,8 @@ export const NotificationTargetKind = z.enum([
   'client_account',
   'membership',
   'user',
+  /** An automation's run (Automations > Logs): the firm site only. */
+  'automation_run',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -113,6 +115,13 @@ export const NOTIFICATION_EVENTS = {
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
   /** A member accepted their invite (Owner and Admin; R2's invites): who can see client data. */
   'staff.joined': { category: 'ACCOUNT', kind: 'membership', to: 'staff' },
+  // ----- Automations (R55; the lead's one-off exception, Nov 6) -----
+  /**
+   * A rule's Notify staff action: a bell item only (no email or text), to the members the rule
+   * names or, by default, the client's assigned member and the Owners and Admins. It opens the
+   * run in Automations > Logs.
+   */
+  'automation.notice': { category: 'SERVICES', kind: 'automation_run', to: 'staff' },
 } as const satisfies Record<
   string,
   {
