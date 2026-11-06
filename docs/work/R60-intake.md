@@ -271,6 +271,17 @@ Progress (Messages):
   - Tests: API e2e `messages-workspace` and `messages` 28 of 28, isolation 19 of 19, mock
     `r60-messages-contact` 2 of 2 (twice) and every Messages spec.
   - Next: MSG-F18 Recent Activity (its own PR), and MSG-F21 once the lead answers Q3.
+- Nov 7: Recent Activity, branch `rasel/R60-messages-activity` (on the contact panel): MSG-F18.
+  - `GET business/message-threads/:id/activity`: the thread client's latest 10, newest first.
+  - Sources: messages, appointments, intake forms, invoices, documents and document requests, and
+    completed tasks.
+  - A module appears only when the member may view it (the guard's order: their own change, a
+    custom role, the role's grid). Staff see only their own clients, as in Messages.
+  - Each row opens the record's own page with Back to the thread; a message row opens its thread
+    in place. Firm Sign keeps its own roles, so it is left out.
+  - Tests: API e2e 31 of 31 (a member refused Invoices gets no invoice rows; another client's and
+    another firm's records never show), isolation 19 of 19, mock 3 of 3 and every Messages spec
+    36 of 36.
 
 ## Handoff (Oct 23): start here
 
