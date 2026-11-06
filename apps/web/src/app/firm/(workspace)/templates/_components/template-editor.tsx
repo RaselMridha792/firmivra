@@ -39,6 +39,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
+import { ArchiveDialog } from './template-actions';
 import { PreviewDialog } from './template-dialogs';
 import {
   AUTOMATION_KINDS,
@@ -165,6 +166,7 @@ function Editor({
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [preview, setPreview] = useState(false);
   const [impact, setImpact] = useState<string>();
+  const [archiving, setArchiving] = useState(false);
   const [tagText, setTagText] = useState('');
   const [fieldSearch, setFieldSearch] = useState('');
   const [group, setGroup] = useState<(typeof GROUPS)[number]['id']>('ALL');
@@ -268,14 +270,6 @@ function Editor({
   };
   const duplicate = useApiMutation(
     () => api.templates.duplicate((saved as MessageTemplateDetail).id),
-    options,
-  );
-  const archive = useApiMutation(
-    (confirm: boolean) =>
-      api.templates.archive(
-        (saved as MessageTemplateDetail).id,
-        confirm ? { confirmAutomationImpact: true } : {},
-      ),
     options,
   );
   const restoreVersion = useApiMutation(
@@ -833,15 +827,7 @@ function Editor({
                 <button
                   type="button"
                   className={`${subtle} text-danger`}
-                  onClick={() =>
-                    archive.mutate(false, {
-                      onSuccess: () => router.push(`/templates/library/${meta.slug}`),
-                      onError: (e) =>
-                        e instanceof ApiRequestError && e.code === 'AUTOMATION_IN_USE'
-                          ? setImpact(`archive:${e.message}`)
-                          : fail(e),
-                    })
-                  }
+                  onClick={() => setArchiving(true)}
                 >
                   Archive
                 </button>
@@ -905,7 +891,7 @@ function Editor({
       {impact ? (
         <Modal
           open
-          title={impact.startsWith('archive:') ? 'Archive template?' : 'Save changes?'}
+          title="Save changes?"
           subtitle={saved?.name}
           onClose={() => setImpact(undefined)}
           footer={
@@ -913,26 +899,25 @@ function Editor({
               <Button variant="secondary" onClick={() => setImpact(undefined)}>
                 Keep Editing
               </Button>
-              <Button
-                onClick={() =>
-                  impact.startsWith('archive:')
-                    ? archive.mutate(true, {
-                        onSuccess: () => router.push(`/templates/library/${meta.slug}`),
-                        onError: fail,
-                      })
-                    : doSave(form.status, true)
-                }
-              >
-                {impact.startsWith('archive:') ? 'Archive Anyway' : 'Save Anyway'}
-              </Button>
+              <Button onClick={() => doSave(form.status, true)}>Save Anyway</Button>
             </>
           }
         >
           <p role="alert" className="text-sm text-warning" data-testid="automation-warning">
-            {impact.replace('archive:', '')} Changing or archiving it affects what those automations
-            send.
+            {impact} Changing it affects what those automations send.
           </p>
         </Modal>
+      ) : null}
+      {archiving && saved ? (
+        <ArchiveDialog
+          template={saved}
+          onClose={() => setArchiving(false)}
+          onDone={() => {
+            // Archived: nothing is left to lose, so the unsaved-work question stays quiet.
+            setBaseline(JSON.stringify(form));
+            router.push(`/templates/library/${meta.slug}`);
+          }}
+        />
       ) : null}
     </div>
   );

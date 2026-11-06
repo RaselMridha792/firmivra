@@ -157,6 +157,8 @@ export const MessageTemplatesQuery = z.strictObject({
   tab: TemplateTab.optional().default('all'),
   kind: MessageTemplateKind.optional(),
   categoryId: z.uuid().optional(),
+  /** Only templates in no category: the library's Uncategorized (TP-F03). */
+  uncategorized: z.union([z.boolean(), z.stringbool()]).optional(),
   status: MessageTemplateStatus.optional(),
   ownerUserId: z.uuid().optional(),
   tag: Tag.optional(),

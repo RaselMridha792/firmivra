@@ -175,6 +175,20 @@ Progress (Templates, Oct 28 review):
   with its purpose; one list in `packages/types` (`STARTER_TEMPLATES`) for the API and the mock.
   The first Finish of setup installs them (`SettingsService.finishSetup`, a one-off exception to
   owned paths the lead gave on Nov 4).
+- Structures, #1265 (8 of 8): TP-F08 part 1 (Task, Document Request and Intake templates stand for
+  their module's own template; Tax Workflow and Bookkeeping keep a versioned structure). Part 2,
+  using the structure downstream, is next.
+- Library PR, branch `rasel/R60-templates-library`:
+  - TP-F17: rename sent `PATCH` while the API's route is `PUT`, hence "We couldn't find that".
+  - TP-F10: Archive asks first from the menu, the editor and bulk, with the name, its use and the
+    automations.
+  - TP-F12: the status filter's default reads Non-archived.
+  - TP-F13 and F14: Use stays in place, switched off for a draft or an archived template, and says
+    why. The API already refuses both (Communications, Messages, automations); an e2e test now
+    covers an archived one.
+  - TP-F15: tags and who updated show at every width, and Recent names the category.
+  - TP-F03: the sidebar heading counts categories, All Categories adds up, and Uncategorized lists
+    the loose ones (`uncategorized=true`).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

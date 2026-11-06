@@ -13,21 +13,24 @@ import {
   ShareNetwork,
   Star,
 } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { ApiRequestError } from '@firmivra/types';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewDialog } from './template-dialogs';
-import { TEMPLATES_KEY, TEMPLATE_ERRORS, quiet } from './templates-shared';
+import { TEMPLATES_KEY, TEMPLATE_ERRORS, dayText, quiet } from './templates-shared';
+import { blockedUseReason, templateUseHref } from './use-template';
 
 type Dialog = 'preview' | 'share' | 'archive';
 
 /**
  * The three-dot menu of one template: Edit, Preview, Activate (a draft, CM-F12), Duplicate, Share,
- * Favorite, Archive. Activate is an Owner's or Admin's; Staff see who can do it.
+ * Favorite, Archive. Activate is an Owner's or Admin's; Staff see who can do it. Archive asks first
+ * (TP-F10).
  */
 export function TemplateMenu({
   row,
@@ -38,7 +41,6 @@ export function TemplateMenu({
 }) {
   const router = useRouter();
   const [dialog, setDialog] = useState<Dialog>();
-  const [warn, setWarn] = useState<string>();
   const options = { invalidate: [...TEMPLATES_KEY] };
   const fail = (e: unknown) => onNotice(errorMessage(e, TEMPLATE_ERRORS), 'error');
   const duplicate = useApiMutation(() => api.templates.duplicate(row.id), options);
@@ -53,25 +55,6 @@ export function TemplateMenu({
     const t = await api.templates.get(row.id);
     return api.templates.update(row.id, { status: 'ACTIVE', etag: t.etag });
   }, options);
-  const archive = useApiMutation(
-    (confirm: boolean) =>
-      api.templates.archive(row.id, confirm ? { confirmAutomationImpact: true } : {}),
-    options,
-  );
-  const tryArchive = (confirm: boolean) =>
-    archive.mutate(confirm, {
-      onSuccess: () => {
-        setDialog(undefined);
-        setWarn(undefined);
-        onNotice(`${row.name} archived.`, 'success');
-      },
-      onError: (e) => {
-        if (e instanceof ApiRequestError && e.code === 'AUTOMATION_IN_USE') {
-          setWarn(e.message);
-          setDialog('archive');
-        } else fail(e);
-      },
-    });
   const item = (
     label: string,
     icon: typeof Eye,
@@ -121,7 +104,7 @@ export function TemplateMenu({
             onError: fail,
           }),
         )
-      : item('Archive', Archive, () => tryArchive(false), true),
+      : item('Archive', Archive, () => setDialog('archive'), true),
   ];
   return (
     <>
@@ -144,27 +127,145 @@ export function TemplateMenu({
         />
       ) : null}
       {dialog === 'archive' ? (
-        <Modal
-          open
-          title="Archive template?"
-          subtitle={row.name}
+        <ArchiveDialog
+          template={row}
           onClose={() => setDialog(undefined)}
-          footer={
-            <>
-              <Button variant="secondary" onClick={() => setDialog(undefined)}>
-                Keep
-              </Button>
-              <Button disabled={archive.isPending} onClick={() => tryArchive(true)}>
-                Archive Anyway
-              </Button>
-            </>
-          }
-        >
-          <p role="alert" className="text-sm text-warning" data-testid="automation-warning">
-            {warn} Archiving it can stop those automations from sending.
-          </p>
-        </Modal>
+          onDone={() => {
+            setDialog(undefined);
+            onNotice(`${row.name} archived.`, 'success');
+          }}
+        />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Archive, asked first (TP-F10): the template's name, what archiving does, how often it was used and
+ * the active automations that use it. Its versions and the messages already sent stay; Restore
+ * brings it back as a draft. Used by the row menu and the editor.
+ */
+export function ArchiveDialog({
+  template,
+  onClose,
+  onDone,
+}: {
+  template: Pick<MessageTemplateRow, 'id' | 'name'>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const detail = useApiQuery([...TEMPLATES_KEY, 'detail', template.id], () =>
+    api.templates.get(template.id),
+  );
+  const [warn, setWarn] = useState<string>();
+  const archive = useApiMutation(
+    (confirm: boolean) =>
+      api.templates.archive(template.id, confirm ? { confirmAutomationImpact: true } : {}),
+    { invalidate: [...TEMPLATES_KEY] },
+  );
+  const d = detail.data;
+  const automations = d?.automationCount ?? 0;
+  // The automations were shown (or the API named them since): this Archive is the confirmation.
+  const impact = automations > 0 || warn !== undefined;
+  // mutateAsync, not mutate's callbacks: the refetch after an archive drops the row, which can
+  // unmount this dialog (and its menu) first, and mutate's callbacks then never run.
+  const go = () =>
+    void archive.mutateAsync(impact).then(onDone, (e: unknown) => {
+      if (e instanceof ApiRequestError && e.code === 'AUTOMATION_IN_USE') setWarn(e.message);
+    });
+  const usage = detail.isPending
+    ? 'Checking where it is used…'
+    : !d
+      ? 'We could not check where it is used.'
+      : d.useCount === 0
+        ? 'It has not been used yet.'
+        : `Used ${d.useCount} time${d.useCount === 1 ? '' : 's'}${d.lastUsedAt ? `, last on ${dayText(d.lastUsedAt)}` : ''}.`;
+  const failed =
+    archive.isError &&
+    !(archive.error instanceof ApiRequestError && archive.error.code === 'AUTOMATION_IN_USE');
+  return (
+    <Modal
+      open
+      title="Archive template?"
+      subtitle={template.name}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Keep
+          </Button>
+          <Button disabled={archive.isPending || detail.isPending} onClick={go}>
+            {impact ? 'Archive Anyway' : 'Archive'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-sm text-text" data-testid="archive-dialog">
+        <p>
+          It leaves the library and every template picker, so no one can use it in a new message or
+          automation. The messages already sent with it and its versions stay, and Restore brings it
+          back as a draft.
+        </p>
+        <p data-testid="archive-usage">{usage}</p>
+        {impact ? (
+          <p role="alert" className="text-warning" data-testid="automation-warning">
+            {warn ?? `${automations} active automation${automations === 1 ? ' uses' : 's use'} it.`}{' '}
+            Archiving it stops them from sending it.
+          </p>
+        ) : null}
+        {failed ? (
+          <p role="alert" className="text-danger">
+            {errorMessage(archive.error, TEMPLATE_ERRORS)}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Use on a template's row: opens a Communications draft copied from an active Email or SMS
+ * template. A draft or an archived one keeps Use in place but switched off, with the reason on
+ * hover, for screen readers and on a press (TP-F13, TP-F14); the API refuses them too.
+ */
+export function UseTemplate({
+  row,
+  className,
+  onNotice,
+}: {
+  row: Pick<MessageTemplateRow, 'id' | 'name' | 'kind' | 'status'>;
+  className: string;
+  onNotice: (text: string, tone: 'success' | 'error') => void;
+}) {
+  const { role } = useFirm();
+  const reasonId = useId();
+  const href = templateUseHref(row.kind, row.id);
+  if (!href) return null;
+  const reason = blockedUseReason(row.status, role === 'OWNER' || role === 'ADMIN');
+  if (!reason) {
+    return (
+      <Link href={href} aria-label={`Use ${row.name}`} className={className}>
+        Use
+      </Link>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        aria-disabled="true"
+        aria-label={`Use ${row.name}`}
+        aria-describedby={reasonId}
+        title={reason}
+        onClick={() => onNotice(reason, 'error')}
+        data-testid="use-blocked"
+        className="inline-flex min-h-9 cursor-not-allowed items-center rounded-control border border-divider bg-canvas px-4 text-sm font-semibold text-muted"
+      >
+        Use
+      </button>
+      <span id={reasonId} hidden>
+        {reason}
+      </span>
     </>
   );
 }

@@ -207,6 +207,26 @@ describe('createTemplatesClient', () => {
     expect(JSON.stringify(f.calls)).not.toMatch(/businessId|x-business-id/i);
   });
 
+  it('renames a category with PUT, the route the API has (TP-F17)', async () => {
+    const f = fakeFetch({
+      id: '01a1a68d-f811-733c-a077-06446c5a6448',
+      kind: 'EMAIL',
+      name: 'Renamed',
+      description: null,
+      sortOrder: 0,
+      archived: false,
+      templateCount: 0,
+    });
+    const client = createTemplatesClient(createRequest({ fetch: f.fn, baseUrl: '/api/v1' }));
+    await client
+      .updateCategory('01a1a68d-f811-733c-a077-06446c5a6448', { name: 'Renamed' })
+      .catch(() => undefined);
+    expect(f.calls[0]?.url).toBe(
+      '/api/v1/business/template-categories/01a1a68d-f811-733c-a077-06446c5a6448',
+    );
+    expect(f.calls[0]?.init.method).toBe('PUT');
+  });
+
   it('refuses bad input before sending anything', async () => {
     const f = fakeFetch({});
     const client = createTemplatesClient(createRequest({ fetch: f.fn, baseUrl: '/api/v1' }));
