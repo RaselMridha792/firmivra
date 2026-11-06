@@ -414,10 +414,11 @@ export class ComplianceLibraryController {
 
   @Get('logs')
   logs(
+    @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Query(pipe(ComplianceLogsQuery)) q: z.output<typeof ComplianceLogsQuery>,
   ): Promise<ComplianceLogPage> {
-    return this.settings.logs(tenant.businessId, q);
+    return this.settings.logs(tenant.businessId, actorOf(auth, tenant), q);
   }
 
   @Get('settings')

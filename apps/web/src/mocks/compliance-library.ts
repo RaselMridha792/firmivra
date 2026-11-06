@@ -10,6 +10,7 @@ import {
   type ComplianceClient,
   type ComplianceDeadline,
   type ComplianceDiffEntry,
+  type ComplianceLog,
   ComplianceLogsQuery,
   type ComplianceRecurrence,
   ComplianceRecurrencesQuery,
@@ -478,10 +479,16 @@ export function seedLibrary(empty: boolean): Library {
     kind,
     outcome,
     message,
-    calendarId: c === 3 ? null : calId(c),
-    deadlineId: null,
+    calendarId: c === 3 || kind === 'OVERRIDE' ? null : calId(c),
+    // The override is about deadline 2 (Form 941), moved three days.
+    deadlineId: kind === 'OVERRIDE' ? uuid('2d00', 2) : null,
     recurrenceId: null,
-    details: {},
+    details:
+      kind === 'GENERATE'
+        ? { ruleId: rules[0]?.id ?? null, ruleVersion: 1, suggested: 3 }
+        : kind === 'OVERRIDE'
+          ? { daysMoved: 3, from: plus(today(), -7), to: plus(today(), -4) }
+          : {},
     actor: mockMe,
     createdAt: ago(days),
   }));
@@ -1292,17 +1299,54 @@ export function createLibraryMock(ctx: Context) {
     logs: (query = {}) =>
       run(() => {
         const q = parseInput(ComplianceLogsQuery, query);
-        return page(
-          store.logs.filter(
+        // CD-F16: the record and rule are looked up when read, as the API does.
+        const deadlineName = (id: string) => store.deadlines.find((d) => d.id === id)?.name ?? null;
+        const recordOf = (l: (typeof store.logs)[number]): ComplianceLog['record'] =>
+          l.deadlineId
+            ? { kind: 'DEADLINE', id: l.deadlineId, name: deadlineName(l.deadlineId) }
+            : l.recurrenceId
+              ? {
+                  kind: 'RECURRENCE',
+                  id: l.recurrenceId,
+                  name: store.recurrences.find((r) => r.id === l.recurrenceId)?.name ?? null,
+                }
+              : l.calendarId
+                ? {
+                    kind: 'CALENDAR',
+                    id: l.calendarId,
+                    name: store.calendars.find((c) => c.id === l.calendarId)?.name ?? null,
+                  }
+                : null;
+        const ruleOf = (l: (typeof store.logs)[number]): ComplianceLog['rule'] => {
+          const rule = store.rules.find((r) => r.id === l.details['ruleId']);
+          const version = l.details['ruleVersion'];
+          return rule
+            ? {
+                id: rule.id,
+                name: rule.name,
+                version: typeof version === 'number' ? version : null,
+              }
+            : null;
+        };
+        const term = q.search?.toLowerCase();
+        const rows = store.logs
+          .map((l) => ({ ...l, record: recordOf(l), rule: ruleOf(l) }))
+          .filter(
             (l) =>
               (!q.kind || l.kind === q.kind) &&
               (!q.outcome || l.outcome === q.outcome) &&
               (!q.calendarId || l.calendarId === q.calendarId) &&
+              (!q.deadlineId || l.deadlineId === q.deadlineId) &&
+              (!q.recurrenceId || l.recurrenceId === q.recurrenceId) &&
+              (!q.actorUserId || l.actor?.userId === q.actorUserId) &&
               (!q.from || l.createdAt.slice(0, 10) >= q.from) &&
-              (!q.to || l.createdAt.slice(0, 10) <= q.to),
-          ),
-          q,
-        );
+              (!q.to || l.createdAt.slice(0, 10) <= q.to) &&
+              (!term ||
+                (l.message ?? '').toLowerCase().includes(term) ||
+                (l.record?.name ?? '').toLowerCase().includes(term) ||
+                l.record?.id === term),
+          );
+        return page(rows, q);
       }),
     settings: () => run(() => store.settings),
     updateSettings: (body) =>

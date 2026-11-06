@@ -6,7 +6,7 @@ import {
   type ComplianceDeadline,
   type ComplianceDeadlineRow,
   type ComplianceDisplayStatus,
-  type ComplianceLog,
+  type ComplianceLogStored,
   type ComplianceRecurrence,
   type ComplianceSettings,
   type ComplianceSuggestion,
@@ -102,7 +102,7 @@ export interface Store {
   recurrences: ComplianceRecurrence[];
   rules: ComplianceApplicabilityRule[];
   suggestions: ComplianceSuggestion[];
-  logs: ComplianceLog[];
+  logs: ComplianceLogStored[];
   settings: ComplianceSettings;
   next: number;
 }

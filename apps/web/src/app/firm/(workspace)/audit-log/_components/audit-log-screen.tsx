@@ -3,12 +3,13 @@
 import type { AuditEntry } from '@firmivra/types';
 import { Avatar, Button, Card, EmptyState, Table, type Column } from '@firmivra/ui';
 import { DownloadSimple, ShieldCheck } from '@phosphor-icons/react';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { AuditLogFilters, type AuditFilters } from './audit-filters';
+import { AuditLogFilters, addressFilters, type AuditFilters } from './audit-filters';
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-US', {
@@ -125,7 +126,10 @@ const columns: Column<AuditEntry>[] = [
  * from the API and see the no-permission state. Read-only: nothing here changes the log.
  */
 export function AuditLogScreen() {
-  const [filters, setFilters] = useState<AuditFilters>({});
+  // A link can open the log already filtered: action, record type and record id (CD-F15).
+  const params = useSearchParams();
+  const [opened] = useState(() => addressFilters(params));
+  const [filters, setFilters] = useState<AuditFilters>(opened);
   // The cursors of the pages after the first, so Previous can step back.
   const [cursors, setCursors] = useState<string[]>([]);
   const cursor = cursors.at(-1);
@@ -186,6 +190,7 @@ export function AuditLogScreen() {
         {/* Outside the page state, so the typed filters stay while a page loads. */}
         <Card>
           <AuditLogFilters
+            initial={opened}
             onApply={(next) => {
               setFilters(next);
               setCursors([]);

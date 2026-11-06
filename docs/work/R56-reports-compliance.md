@@ -11,9 +11,14 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 - **RP-F12**: not fixed (#1208 made Saved Reports reachable; the library still has no search, filter, sort or Owner).
 - **RP-F13**: not fixed (Save always makes a new report; `PATCH /reports/saved/:id` exists, unused by the screen).
 
+## For Review 2: behaviour that changed
+
+- #1269 (CD-F13): the API refuses a rule's `excludeStatuses` that are not real client statuses (NEW, PENDING_DOCUMENTS, IN_PROGRESS, ACTIVE, ON_HOLD, INACTIVE), on create and on edit. Rules saved earlier with free text still read as before.
+- #1269 (CD-F13): Setup Recurring Deadline's "Exclude clients marked as tax-exempt" used to send "Tax-exempt" as a client status, which matched no client. It is now the criterion `notTaxExempt`, so the rule says staff must check it (no client field records tax-exempt).
+
 ## Needs from others
 
-- None yet.
+- **Audit Log page** (`apps/web/src/app/firm/(workspace)/audit-log/`, Tumit's page in PAGE-MAP; Rasel to route): CD-F15 links open `/audit-log?action=compliance.` (from Compliance Logs) and `/audit-log?entityType=compliance_deadline&entityId=<id>` (Audit history on a deadline). The screen keeps its filters in local state, so it opens unfiltered. Asked: read `action`, `entityType` and `entityId` from the address as its first filters (the API's `AuditLogQuery` already takes all three).
 
 ## Log
 
@@ -28,5 +33,6 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 - Nov 6: #1262 `rasel/R56-cd-workspace`: CD-F09 (the setup tab in the address, a history step), F11 (a custom interval of 0 claims no frequency; `frequencyText` in `schedule-text.ts`), F12 (the import tab stays mounted; leaving with a draft asks, Save imports it). Next: CD-F13, F04, F06 to F08, F14 to F17, then Reports RP-F17 to F21 (the High items of both are done).
 - Nov 6: #1263 `rasel/R56-help-icons`: RP-F22 and CD-F17 (R60's shared `HelpTip` in every Reports and Compliance area, the words in `report-help.tsx` and `compliance-help.tsx`; the setup page's icon follows the open tab).
 - Nov 6: #1266 `rasel/R56-cd-form`: CD-F07 (a closed deadline opens read-only, its real status shown, Reopen first), F08 (tax years from five ahead back to 2000; a month, a fiscal year end or a custom period; a saved period that is none of these stays as written).
-- Nov 6: `rasel/R56-cd-filters`: CD-F04 (the list's search, a custom From and To, tax year, priority, source, jurisdiction, recurring and Unassigned, all in the address; Client and Assigned To are searched by typing), F13 (the library by name, authority or form, year, state, jurisdiction and how long ago it was verified; Manage by search, status, type and kind; a rule's states and excluded client statuses are chosen, and the API refuses a status that does not exist). Next: CD-F06, F14 to F16, Y13, then Reports RP-F17 to F21.
+- Nov 6: #1269 `rasel/R56-cd-filters`: CD-F04 (the list's search, a custom From and To, tax year, priority, source, jurisdiction, recurring and Unassigned, all in the address; Client and Assigned To are searched by typing), F13 (the library by name, authority or form, year, state, jurisdiction and how long ago it was verified; Manage by search, status, type and kind; a rule's states and excluded client statuses are chosen, and the API refuses a status that does not exist). Next: CD-F06, F14 to F16, Y13, then Reports RP-F17 to F21.
+- Nov 6: `rasel/R56-cd-logs`: CD-F16 (Logs search by record name or ID, the person and dates, in the address; each row names its record where the viewer may open it, an override's dates before and after, a run's rule and version; an edit's audit keeps before and after for fields that are not free text), CD-F15 (Logs and a deadline link to the Audit Log, Owner and Admin; a deadline's Activity opens its own Logs). The Audit Log reading the address is under Needs from others.
 - Laptop rules (lead, Nov 4): heavy commands through `F:/firmivra-tools/heavy.sh`; only Postgres runs locally (S3 and SMTP tests are CI's).

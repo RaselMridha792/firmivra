@@ -10,6 +10,20 @@ import { TEAM } from '../../../setup/_components/shared';
 /** The filters a page of the log is asked with; paging adds the cursor. */
 export type AuditFilters = Omit<AuditLogQuery, 'cursor' | 'limit'>;
 
+/**
+ * The record filters a link brings in its address (CD-F15: Compliance opens
+ * `?action=compliance.` and `?entityType=compliance_deadline&entityId=<id>`), checked with the
+ * contract's own schema; anything it refuses is left out.
+ */
+export function addressFilters(params: { get: (key: string) => string | null }): AuditFilters {
+  const out: AuditFilters = {};
+  for (const key of ['action', 'entityType', 'entityId'] as const) {
+    const value = params.get(key)?.trim();
+    if (value && AuditLogQuery.safeParse({ [key]: value }).success) out[key] = value;
+  }
+  return out;
+}
+
 type Draft = Record<'from' | 'to' | 'action' | 'actorUserId' | 'entityType' | 'entityId', string>;
 const EMPTY: Draft = {
   from: '',
@@ -54,8 +68,20 @@ function toQuery(draft: Draft): { query: AuditFilters } | { errors: Partial<Draf
   return { errors };
 }
 
-export function AuditLogFilters({ onApply }: { onApply: (filters: AuditFilters) => void }) {
-  const [draft, setDraft] = useState<Draft>(EMPTY);
+export function AuditLogFilters({
+  initial = {},
+  onApply,
+}: {
+  /** The filters the page opened with (from its address). */
+  initial?: AuditFilters;
+  onApply: (filters: AuditFilters) => void;
+}) {
+  const [draft, setDraft] = useState<Draft>(() => ({
+    ...EMPTY,
+    action: initial.action ?? '',
+    entityType: initial.entityType ?? '',
+    entityId: initial.entityId ?? '',
+  }));
   const [errors, setErrors] = useState<Partial<Draft>>({});
   const team = useApiQuery(TEAM, () => api.team.list());
   const field = (name: keyof Draft) => ({
