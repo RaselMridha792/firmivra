@@ -36,6 +36,7 @@ import {
   UseAutomationTemplateRequest,
   type AutomationEventConfirmation,
   ConfirmAutomationEventRequest,
+  MatchAutomationRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -508,13 +509,14 @@ const VARIABLES = [
 
 const buildCatalog = (): AutomationCatalog => ({
   modules: MODULES.map(([module, label, destination]) => ({ module, label, destination })),
-  events: events().map(([code, module, label, example, , timings, extra]) => ({
+  events: events().map(([code, module, label, example, phrase, timings, extra]) => ({
     code,
     module,
     label,
     example,
     recordKind: module === 'COMPLIANCE_DEADLINES' ? 'deadline' : module.toLowerCase(),
     timings,
+    anchor: timings.includes('BEFORE') ? `the ${phrase}` : 'it happens',
     conditionFields: [...clientFields(), ...extra],
     confirmation: CONFIRMABLE.includes(code) ? { integrationAvailable: false } : null,
   })),
@@ -1596,6 +1598,21 @@ export function createAutomationsMock({
       run(() => {
         const input = parseInput(PreviewAutomationRequest, body);
         return previewOf(viewOf(input.definition));
+      }),
+    // AU-F21, as the API: the trigger and conditions alone; a count and a sample, nothing runs.
+    matches: (body) =>
+      run(() => {
+        const b = parseInput(MatchAutomationRequest, body);
+        const n = b.conditions.length === 0 ? 48 : Math.floor(48 / 2 ** b.conditions.length);
+        return {
+          matchCount: n,
+          sample: CLIENT_NAMES.slice(0, Math.min(b.sample, n)).map((name, i) => ({
+            recordKind: 'deadline',
+            recordId: uuid('2d00', i + 1),
+            label: `${labelOf(b.trigger.event)} · ${name}`,
+            client: { id: uuid('1d00', i + 1), name },
+          })),
+        };
       }),
     testRule: (ruleId, body = {}) =>
       run(() => {

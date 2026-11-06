@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AutomationCheck,
+  AutomationMatches,
   AutomationPreview,
   AutomationRuleDetail,
   AutomationRuleRow,
@@ -170,29 +171,43 @@ export class AutomationsReadService {
         path: null,
       });
 
-    // Templates a send action names.
+    // The firm's records an action names: its template, the person it assigns to, its tags.
     for (const [i, a] of def.actions.entries()) {
       const templateId = a.config.templateId;
-      if (typeof templateId !== 'string') continue;
-      const t = await tx.messageTemplate.findFirst({
-        where: { businessId, id: templateId },
-        select: { status: true, includeInAutomations: true },
-      });
-      const path = `actions.${i}.config.templateId`;
-      if (!t)
-        out.push({
-          code: 'MISSING_TEMPLATE',
-          severity: 'BLOCK',
-          message: 'The message template was not found',
-          path,
+      if (typeof templateId === 'string') {
+        const t = await tx.messageTemplate.findFirst({
+          where: { businessId, id: templateId },
+          select: { status: true, includeInAutomations: true },
         });
-      else if (t.status !== 'ACTIVE' || !t.includeInAutomations)
-        out.push({
-          code: 'MISSING_TEMPLATE',
-          severity: 'WARN',
-          message: 'The message template is not active or not offered to Automations',
-          path,
+        const path = `actions.${i}.config.templateId`;
+        if (!t)
+          out.push({
+            code: 'MISSING_TEMPLATE',
+            severity: 'BLOCK',
+            message: 'The message template was not found',
+            path,
+          });
+        else if (t.status !== 'ACTIVE' || !t.includeInAutomations)
+          out.push({
+            code: 'MISSING_TEMPLATE',
+            severity: 'WARN',
+            message: 'The message template is not active or not offered to Automations',
+            path,
+          });
+      }
+      const tagIds = a.config.tagIds;
+      if (Array.isArray(tagIds) && tagIds.length > 0) {
+        const live = await tx.tag.count({
+          where: { businessId, archivedAt: null, id: { in: tagIds } },
         });
+        if (live < new Set(tagIds).size)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'A chosen tag is not one of the firm’s live tags',
+            path: `actions.${i}.config.tagIds`,
+          });
+      }
       const assignee = a.config.assigneeUserId;
       if (typeof assignee === 'string') {
         const m = await this.actingMember(tx, businessId, assignee);
@@ -258,6 +273,55 @@ export class AutomationsReadService {
     for (const p of problems)
       out.push({ code: p.code, severity: 'BLOCK', message: p.message, path: null });
     return out;
+  }
+
+  /** AU-F21: the records a trigger and its conditions match now, and a sample of them. */
+  async matchSample(
+    ctx: AutoCtx,
+    def: Def,
+    sample: number,
+    since: Date,
+  ): Promise<AutomationMatches> {
+    const { tx, businessId } = ctx;
+    const found = await loadCandidates(
+      tx,
+      def.trigger.event,
+      {
+        timing: def.trigger.timing,
+        offsetValue: def.trigger.offsetValue ?? null,
+        offsetUnit: def.trigger.offsetUnit ?? null,
+      },
+      {
+        businessId,
+        now: new Date(),
+        today: ctx.today,
+        since,
+        ...(def.trigger.source ? { source: def.trigger.source } : {}),
+      },
+    );
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const clientIds = [
+      ...new Set(
+        hit
+          .slice(0, sample)
+          .map((c) => c.clientId)
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    const clients = await tx.client.findMany({
+      where: { businessId, id: { in: clientIds } },
+      select: { id: true, displayName: true },
+    });
+    const byId = new Map(clients.map((c) => [c.id, c.displayName]));
+    return {
+      matchCount: hit.length,
+      sample: hit.slice(0, sample).map((c) => ({
+        recordKind: c.recordKind,
+        recordId: c.recordId,
+        label: c.label,
+        client: c.clientId ? { id: c.clientId, name: byId.get(c.clientId) ?? '' } : null,
+      })),
+    };
   }
 
   /** A dry run: the matching count and sample, the planned actions, and the checks. Nothing is created or sent. */

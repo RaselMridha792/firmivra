@@ -395,10 +395,12 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
         entityTypes: s.entityType ? [s.entityType] : [],
         states: s.ruleState ? [s.ruleState as (typeof COMPLIANCE_STATES)[number]] : [],
         services: s.service ? [s.service as 'ANNUAL_TAX'] : [],
-        excludeStatuses: s.excludeExempt ? ['Tax-exempt'] : [],
+        // Tax-exempt is not a client status (CD-F13: a rule names real ones only), so staff check it.
+        excludeStatuses: [],
         priorYearLiabilityOverCents: s.onlyLiability ? 100_000 : null,
         criteria: {
           ...(s.onlyEstimated ? { estimatedTaxRequired: true } : {}),
+          ...(s.excludeExempt ? { notTaxExempt: true } : {}),
           ...(s.individuals ? { individualClients: true } : {}),
           ...(s.business ? { businessClients: true } : {}),
           ...(s.multiState ? { multiState: true } : {}),

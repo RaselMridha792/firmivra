@@ -385,7 +385,7 @@ export function seedLibrary(empty: boolean): Library {
       entityTypes: ['Partnership', 'Multi-member LLC'],
       states: [],
       services: ['ANNUAL_TAX'],
-      excludeStatuses: ['Dissolved'],
+      excludeStatuses: ['INACTIVE'],
       priorYearLiabilityOverCents: null,
       criteria: {},
       active: true,
@@ -731,6 +731,14 @@ export function createLibraryMock(ctx: Context) {
       run(() => {
         const q = parseInput(ComplianceCalendarsQuery, query);
         const term = q.search?.toLowerCase();
+        // CD-F13: verified within the firm's stale-calendar limit, before it, or never.
+        const limit = Date.now() - store.settings.staleCalendarDays * 86_400_000;
+        const age = (c: ComplianceCalendar) =>
+          c.verifiedAt === null
+            ? 'NEVER'
+            : Date.parse(c.verifiedAt) >= limit
+              ? 'CURRENT'
+              : 'OUT_OF_DATE';
         const rows = store.calendars
           .filter(
             (c) =>
@@ -738,9 +746,12 @@ export function createLibraryMock(ctx: Context) {
               (!q.family || c.family === q.family) &&
               (!q.year || c.effectiveYear === q.year) &&
               (!q.state || c.state === q.state) &&
+              (!q.jurisdiction || c.jurisdiction === q.jurisdiction) &&
+              (!q.verification || age(c) === q.verification) &&
               (!term ||
                 c.name.toLowerCase().includes(term) ||
-                c.authority.toLowerCase().includes(term)),
+                c.authority.toLowerCase().includes(term) ||
+                c.entries.some((e) => (e.form ?? '').toLowerCase().includes(term))),
           )
           .map(rowOf);
         return page(rows, q);

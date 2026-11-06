@@ -197,8 +197,24 @@ const change = (
 });
 const PRIORITY = (key = 'priority') => field(key, 'Priority', 'STATUS', ['LOW', 'MEDIUM', 'HIGH']);
 
-type EventDef = Omit<AutomationEvent, 'confirmation'> &
+type EventDef = Omit<AutomationEvent, 'confirmation' | 'anchor'> &
   Partial<Pick<AutomationEvent, 'confirmation'>>;
+
+/**
+ * AU-F04, F06: what a timing counts from, for the events with a date on their record (the date the
+ * loader measures from, matching.ts). Every other event counts from the moment it happens.
+ */
+const ANCHORS: Record<string, string> = {
+  'client.created': 'the client is added',
+  'invoice.overdue': 'the due date',
+  'deadline.approaching': 'the due date',
+  'task.overdue': 'the due date',
+  'appointment.upcoming': 'the start time',
+  'lead.follow_up_due': 'the follow-up time',
+  'intake.due': 'the due date',
+  'document.request_due': 'the due date',
+  'tax_return.due': 'the filing due date',
+};
 
 const EVENT_DEFS: EventDef[] = [
   {
@@ -845,6 +861,7 @@ export const CONFIRMABLE_EVENTS: EventDef[] = [
 
 export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
   ...e,
+  anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
 }));
 export const eventOf = (code: string) => EVENTS.find((e) => e.code === code);
@@ -949,6 +966,44 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: 'Merge fields like {{client.firstName}} are filled in.',
+      },
+    ],
+  },
+  {
+    type: 'ADD_CLIENT_TAGS',
+    module: 'CLIENTS',
+    label: 'Add client tags',
+    description: 'Adds your firm’s tags to the client (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    fields: [
+      {
+        key: 'tagIds',
+        label: 'Tags',
+        type: 'TAGS',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'Your firm’s tags. A tag archived later fails the step.',
+      },
+    ],
+  },
+  {
+    type: 'REMOVE_CLIENT_TAGS',
+    module: 'CLIENTS',
+    label: 'Remove client tags',
+    description: 'Removes those tags from the client (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    fields: [
+      {
+        key: 'tagIds',
+        label: 'Tags',
+        type: 'TAGS',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'Your firm’s tags. A tag archived later fails the step.',
       },
     ],
   },

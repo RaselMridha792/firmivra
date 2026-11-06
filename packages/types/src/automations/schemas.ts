@@ -104,6 +104,11 @@ export const AutomationEvent = z.object({
   recordKind: z.string(),
   /** Timing it supports: IMMEDIATE only, or before and after a date on the record, or scheduled. */
   timings: z.array(AutomationTiming),
+  /**
+   * AU-F04, F06: what Before and After count from, in words ("the due date", "the start time", "it
+   * happens"). Only an event with a known date on its record offers Before.
+   */
+  anchor: z.string(),
   conditionFields: z.array(AutomationConditionField),
   /**
    * AU-F30: an external outcome (a return accepted, a filing confirmed) a member may confirm by
@@ -128,6 +133,8 @@ export const AutomationActionField = z.object({
     'TEMPLATE',
     'MEMBER',
     'DATE_RULE',
+    /** The firm's live tags, by id (GET /business/tags): an array of up to 20. */
+    'TAGS',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),
@@ -566,11 +573,38 @@ export const PreviewAutomationRequest = z.strictObject({
   sample: z.number().int().min(0).max(25).optional().default(10),
 });
 export type PreviewAutomationRequest = z.input<typeof PreviewAutomationRequest>;
+/**
+ * POST .../rules/matches (AU-F21, the Conditions step): how many records the trigger and its
+ * conditions match right now, with a short sample, before any action is chosen. A count only:
+ * nothing is created, sent or logged. Create, Edit or Manage (403 otherwise).
+ */
+export const MatchAutomationRequest = z.strictObject({
+  trigger: AutomationTrigger,
+  matchMode: MatchMode.optional().default('ALL'),
+  conditions: z.array(AutomationCondition).max(20).optional().default([]),
+  sample: z.number().int().min(0).max(10).optional().default(5),
+});
+export type MatchAutomationRequest = z.input<typeof MatchAutomationRequest>;
+
 export const TestAutomationRuleRequest = z.strictObject({
   version: AutomationRuleVersionNumber.optional(),
   sample: z.number().int().min(0).max(25).optional().default(10),
 });
 export type TestAutomationRuleRequest = z.input<typeof TestAutomationRuleRequest>;
+
+/** AU-F21: the records a trigger and its conditions match now (ids and labels the caller may see). */
+export const AutomationMatches = z.object({
+  matchCount: z.number().int(),
+  sample: z.array(
+    z.object({
+      recordKind: z.string(),
+      recordId: z.uuid(),
+      label: z.string(),
+      client: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+    }),
+  ),
+});
+export type AutomationMatches = z.infer<typeof AutomationMatches>;
 
 export const AutomationPreview = z.object({
   /** The trigger in words, with the example. */

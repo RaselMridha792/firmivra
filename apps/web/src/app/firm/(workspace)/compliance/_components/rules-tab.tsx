@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  ClientStatus,
   ComplianceApplicabilityRule,
   ComplianceRuleEvaluation,
   ComplianceSuggestion,
@@ -26,7 +27,6 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import {
   COMPLIANCE_ERRORS,
   COMPLIANCE_KEY,
-  Label,
   Selectbox,
   dayText,
   quiet,
@@ -51,6 +51,15 @@ const SERVICES = [
   { value: 'PAYROLL', label: 'Payroll' },
   { value: 'TAX_PLANNING', label: 'Tax Planning' },
 ] as const;
+/** CD-F13 (Octavia, Oct 28): a client's statuses, chosen from the list rather than typed. */
+const CLIENT_STATUSES: Record<ClientStatus, string> = {
+  NEW: 'New Client',
+  PENDING_DOCUMENTS: 'Pending Docs',
+  IN_PROGRESS: 'In Progress',
+  ACTIVE: 'Active',
+  ON_HOLD: 'On Hold',
+  INACTIVE: 'Inactive',
+};
 
 const summaryOf = (r: ComplianceApplicabilityRule) =>
   [
@@ -62,7 +71,11 @@ const summaryOf = (r: ComplianceApplicabilityRule) =>
     r.priorYearLiabilityOverCents
       ? `prior-year liability over $${(r.priorYearLiabilityOverCents / 100).toLocaleString('en-US')}`
       : '',
-    r.excludeStatuses.length ? `excluding ${r.excludeStatuses.join(', ')}` : '',
+    r.excludeStatuses.length
+      ? `excluding ${r.excludeStatuses
+          .map((x) => CLIENT_STATUSES[x as ClientStatus] ?? x)
+          .join(', ')}`
+      : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -374,16 +387,17 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [targetId, setTargetId] = useState('');
   const [outcome, setOutcome] = useState<'APPLY' | 'SUGGEST'>('SUGGEST');
   const [entities, setEntities] = useState<string[]>([]);
-  const [states, setStates] = useState('');
+  const [states, setStates] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
-  const [exclude, setExclude] = useState('');
+  const [exclude, setExclude] = useState<ClientStatus[]>([]);
   const [liability, setLiability] = useState('');
   const [error, setError] = useState<string>();
   const calendars = useApiQuery([...COMPLIANCE_KEY, 'calendars', 'rule-target'], () =>
     api.compliance.calendars({ pageSize: 50 }),
   );
   const calendar = useApiQuery([...COMPLIANCE_KEY, 'calendar', calendarId], async () =>
-    calendarId ? api.compliance.getCalendar(calendarId) : undefined,
+    // A query never answers undefined (TanStack refuses it): null until a calendar is chosen.
+    calendarId ? api.compliance.getCalendar(calendarId) : null,
   );
   const recurrences = useApiQuery([...COMPLIANCE_KEY, 'recurrences', false, 'rule-target'], () =>
     api.compliance.recurrences({ templates: false, pageSize: 50 }),
@@ -395,17 +409,11 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         target: { kind, id: targetId },
         outcome,
         entityTypes: entities,
-        states: states
-          .split(/[,\s]+/)
-          .map((x) => x.toUpperCase())
-          .filter(Boolean) as (typeof COMPLIANCE_STATES)[number][],
+        states: states as (typeof COMPLIANCE_STATES)[number][],
         services: services as (
           'ANNUAL_TAX' | 'QUARTERLY_TAX' | 'BOOKKEEPING' | 'PAYROLL' | 'TAX_PLANNING'
         )[],
-        excludeStatuses: exclude
-          .split(',')
-          .map((x) => x.trim())
-          .filter(Boolean),
+        excludeStatuses: exclude,
         priorYearLiabilityOverCents: liability ? Math.round(Number(liability) * 100) : null,
         active: true,
       }),
@@ -520,14 +528,22 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             ))}
           </div>
         </fieldset>
-        <Label text="States (two-letter codes, e.g. GA, NC)" htmlFor="rule-states">
-          <input
-            id="rule-states"
-            value={states}
-            onChange={(e) => setStates(e.target.value)}
-            className="min-h-10 w-full rounded-control border border-border bg-surface px-3 text-sm"
-          />
-        </Label>
+        {/* CD-F13 (Octavia, Oct 28): states from the list, never typed codes. */}
+        <fieldset data-testid="rule-states">
+          <legend className="mb-1 text-sm font-medium text-text">
+            States (none means all){states.length ? `: ${states.length} chosen` : ''}
+          </legend>
+          <div className="grid max-h-40 grid-cols-3 gap-1 overflow-y-auto rounded-control border border-border p-2 sm:grid-cols-6">
+            {COMPLIANCE_STATES.map((code) => (
+              <Checkbox
+                key={code}
+                label={code}
+                checked={states.includes(code)}
+                onChange={() => setStates(flip(states, code))}
+              />
+            ))}
+          </div>
+        </fieldset>
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-text">Services</legend>
           <div className="grid gap-1 sm:grid-cols-2">
@@ -541,11 +557,21 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             ))}
           </div>
         </fieldset>
-        <Input
-          label="Exclude client statuses (comma separated)"
-          value={exclude}
-          onChange={(e) => setExclude(e.target.value)}
-        />
+        <fieldset data-testid="rule-exclude">
+          <legend className="mb-1 text-sm font-medium text-text">
+            Never for clients who are (none means any status)
+          </legend>
+          <div className="grid gap-1 sm:grid-cols-3">
+            {(Object.keys(CLIENT_STATUSES) as ClientStatus[]).map((v) => (
+              <Checkbox
+                key={v}
+                label={CLIENT_STATUSES[v]}
+                checked={exclude.includes(v)}
+                onChange={() => setExclude(flip(exclude, v) as ClientStatus[])}
+              />
+            ))}
+          </div>
+        </fieldset>
         <Input
           label="Only if prior-year tax liability is over ($)"
           type="number"

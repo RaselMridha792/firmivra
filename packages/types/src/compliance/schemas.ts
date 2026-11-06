@@ -285,6 +285,15 @@ export const ComplianceDeadlinesQuery = z
     mine: ComplianceQueryBool.optional(),
     /** Name, client, agency or form. */
     search: SearchText.optional(),
+    // CD-F04 (Octavia, Oct 28): the deadline's own stored fields.
+    taxYear: z.coerce.number().int().min(2000).max(2100).optional(),
+    source: DeadlineSource.optional(),
+    jurisdiction: JurisdictionLevel.optional(),
+    priority: TaskPriority.optional(),
+    /** true: made by a recurring definition; false: one-time. */
+    recurring: ComplianceQueryBool.optional(),
+    /** Deadlines with no one assigned. */
+    unassigned: ComplianceQueryBool.optional(),
     sort: ComplianceDeadlineSort.optional().default('dueOn'),
     direction: ComplianceDirection.optional().default('asc'),
     ...compliancePageQuery(25),

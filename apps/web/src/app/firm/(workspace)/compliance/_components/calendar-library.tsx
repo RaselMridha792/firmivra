@@ -1,6 +1,10 @@
 'use client';
 
-import type { ComplianceCalendarDiff, ComplianceCalendarRow } from '@firmivra/types';
+import {
+  COMPLIANCE_STATES,
+  type ComplianceCalendarDiff,
+  type ComplianceCalendarRow,
+} from '@firmivra/types';
 import { ActionMenu, Badge, Button, type Column, Input, Modal, Table, Toast } from '@firmivra/ui';
 import {
   Archive,
@@ -13,7 +17,7 @@ import {
   UploadSimple,
   Warning,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -40,19 +44,51 @@ const TONE = {
 const frame = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
 
 /** The "Calendar Library" tab: every version of every calendar, with verify, publish, rollback and compare. */
+/** CD-F13: calendar years from two ahead back to five before (each calendar is for one year). */
+const YEARS = Array.from({ length: 8 }, (_, i) => String(new Date().getFullYear() + 2 - i));
+
 export function CalendarLibrary() {
   const [status, setStatus] = useState('');
   const [family, setFamily] = useState('');
+  // CD-F13 (Octavia, Oct 28): search by name or authority, and the year and state filters.
+  const [search, setSearch] = useState('');
+  const term = useDeferredValue(search.trim());
+  const [year, setYear] = useState('');
+  const [state, setState] = useState('');
+  const [jurisdiction, setJurisdiction] = useState('');
+  const [verification, setVerification] = useState('');
   const [openId, setOpenId] = useState<string>();
   const [compare, setCompare] = useState<{ id: string; other: string } | null>(null);
   const [diff, setDiff] = useState<ComplianceCalendarDiff>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const list = useApiQuery([...COMPLIANCE_KEY, 'calendars', 'library', status, family], () =>
-    api.compliance.calendars({
-      ...(status ? { status: status as ComplianceCalendarRow['status'] } : {}),
-      ...(family ? { family: family as ComplianceCalendarRow['family'] } : {}),
-      pageSize: 50,
-    }),
+  const list = useApiQuery(
+    [
+      ...COMPLIANCE_KEY,
+      'calendars',
+      'library',
+      status,
+      family,
+      term,
+      year,
+      state,
+      jurisdiction,
+      verification,
+    ],
+    () =>
+      api.compliance.calendars({
+        ...(status ? { status: status as ComplianceCalendarRow['status'] } : {}),
+        ...(family ? { family: family as ComplianceCalendarRow['family'] } : {}),
+        ...(term ? { search: term } : {}),
+        ...(year ? { year: Number(year) } : {}),
+        ...(state ? { state: state as (typeof COMPLIANCE_STATES)[number] } : {}),
+        ...(jurisdiction
+          ? { jurisdiction: jurisdiction as ComplianceCalendarRow['jurisdiction'] }
+          : {}),
+        ...(verification
+          ? { verification: verification as 'CURRENT' | 'OUT_OF_DATE' | 'NEVER' }
+          : {}),
+        pageSize: 50,
+      }),
   );
   const rows = list.data?.items ?? [];
   const options = { invalidate: [...COMPLIANCE_KEY] };
@@ -176,6 +212,66 @@ export function CalendarLibrary() {
       ) : null}
       <section className={frame} aria-label="Calendar Library">
         <div className="mb-3 flex flex-wrap items-end gap-3">
+          <div className="w-64">
+            <Input
+              label="Search"
+              hideLabel
+              type="search"
+              maxLength={100}
+              placeholder="Search name, authority or form"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="w-32">
+            <Selectbox
+              label="Year"
+              value={year}
+              onChange={setYear}
+              options={[
+                { value: '', label: 'All Years' },
+                ...YEARS.map((y) => ({ value: y, label: y })),
+              ]}
+            />
+          </div>
+          <div className="w-32">
+            <Selectbox
+              label="State"
+              value={state}
+              onChange={setState}
+              options={[
+                { value: '', label: 'All States' },
+                ...COMPLIANCE_STATES.map((x) => ({ value: x, label: x })),
+              ]}
+            />
+          </div>
+          <div className="w-40">
+            <Selectbox
+              label="Jurisdiction"
+              value={jurisdiction}
+              onChange={setJurisdiction}
+              options={[
+                { value: '', label: 'All Jurisdictions' },
+                { value: 'FEDERAL', label: 'Federal' },
+                { value: 'STATE', label: 'State' },
+                { value: 'LOCAL', label: 'Local' },
+                { value: 'INTERNAL', label: 'Internal' },
+              ]}
+            />
+          </div>
+          <div className="w-56">
+            <Selectbox
+              label="Verification"
+              value={verification}
+              onChange={setVerification}
+              options={[
+                { value: '', label: 'Any Verification' },
+                { value: 'CURRENT', label: 'Verified recently' },
+                { value: 'OUT_OF_DATE', label: 'Verification out of date' },
+                { value: 'NEVER', label: 'Never verified' },
+              ]}
+            />
+          </div>
           <div className="w-44">
             <Selectbox
               label="Status"

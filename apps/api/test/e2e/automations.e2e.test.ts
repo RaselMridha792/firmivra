@@ -15,6 +15,7 @@ import {
   AutomationCatalog,
   AutomationConfirmationList,
   AutomationEventConfirmation,
+  AutomationMatches,
   AutomationLogExport,
   AutomationOverview,
   AutomationPreview,
@@ -340,6 +341,8 @@ describe('the catalog', () => {
     expect(c.actions.map((a) => a.type)).toEqual([
       'CREATE_TASK',
       'SEND_CLIENT_MESSAGE',
+      'ADD_CLIENT_TAGS',
+      'REMOVE_CLIENT_TAGS',
       'ADD_CLIENT_NOTE',
     ]);
     expect(c.actions.find((a) => a.type === 'SEND_CLIENT_MESSAGE')?.contactsClient).toBe(true);
@@ -2084,5 +2087,143 @@ describe('Rule Owner (AU-F28)', () => {
           JSON.stringify(r.metadata).includes('ownerUserId'),
       ),
     ).toBe(true);
+  });
+});
+
+describe('the Conditions step’s match count (AU-F21)', () => {
+  const count = (body: object, who: Who = ownerA) => call('post', '/rules/matches', who, body);
+
+  it('counts what the trigger and conditions match now, before any action, and runs nothing', async () => {
+    const runsBefore = await inFirm('a', (tx) =>
+      tx.automationRun.count({ where: { businessId: firms.a } }),
+    );
+    const trigger = { module: 'INVOICES_PAYMENTS', event: 'invoice.overdue' };
+    const all = AutomationMatches.parse(ok(await count({ trigger })));
+    expect(all.matchCount).toBeGreaterThanOrEqual(0);
+    expect(all.sample.length).toBeLessThanOrEqual(5);
+    // A condition nothing meets matches nothing.
+    const none = AutomationMatches.parse(
+      ok(
+        await count({
+          trigger,
+          conditions: [{ field: 'clientType', operator: 'IS', value: 'BUSINESS' }],
+          matchMode: 'ALL',
+        }),
+      ),
+    );
+    expect(none.matchCount).toBeLessThanOrEqual(all.matchCount);
+    // Checked against the catalog as a definition is; a read-only role may not.
+    expectError(
+      await count({ trigger: { module: 'CLIENTS', event: 'no.such_event' } }),
+      400,
+      'INVALID_DEFINITION',
+    );
+    expectError(await count({ trigger }, staffA), 403, 'FORBIDDEN');
+    expect(
+      await inFirm('a', (tx) => tx.automationRun.count({ where: { businessId: firms.a } })),
+    ).toBe(runsBefore);
+  });
+});
+
+describe('Add and remove client tags (AU-F27)', () => {
+  const tagRule = async (type: 'ADD_CLIENT_TAGS' | 'REMOVE_CLIENT_TAGS', tagIds: string[]) => {
+    const live = await createRule(clientCreated([{ id: 'tags', type, config: { tagIds } }]), {
+      name: mark(type),
+    });
+    ok(await activate(live.id));
+    return live;
+  };
+  const newTag = (firm: 'a' | 'b', name: string) =>
+    inFirm(
+      firm,
+      async (tx) => (await tx.tag.create({ data: { businessId: firms[firm], name } })).id,
+    );
+  const newClient = (name: string) =>
+    inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: { businessId: firms.a, displayName: name },
+            select: { id: true },
+          })
+        ).id,
+    );
+  const tagsOf = (clientId: string) =>
+    inFirm('a', async (tx) =>
+      (
+        await tx.clientTag.findMany({
+          where: { clientId },
+          select: { tag: { select: { name: true } } },
+        })
+      ).map((t) => t.tag.name),
+    );
+
+  it('adds and removes the firm’s own tags by id; an archived tag fails the step', async () => {
+    const vip = await newTag('a', `VIP ${run}`);
+    const gone = await newTag('a', `Gone ${run}`);
+    const add = await tagRule('ADD_CLIENT_TAGS', [vip]);
+    const stale = await tagRule('ADD_CLIENT_TAGS', [gone]);
+    // Archived after the rule was saved: the step fails, nothing is added.
+    await inFirm('a', (tx) =>
+      tx.tag.update({ where: { id: gone }, data: { archivedAt: new Date() } }),
+    );
+    const id = await newClient(`Tagged ${run} (fake)`);
+    expect(await engine.scanRule(firms.a, add.id)).toMatchObject({ started: 1 });
+    expect(await tagsOf(id)).toEqual([`VIP ${run}`]);
+    expect(await engine.scanRule(firms.a, stale.id)).toMatchObject({ started: 1 });
+    const failed = (await runs(`?ruleId=${stale.id}`)).items[0]!;
+    expect((await runDetail(failed.id)).actions[0]).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'UNKNOWN_TAG',
+    });
+    expect(await tagsOf(id)).toEqual([`VIP ${run}`]);
+    for (const r of [add, stale]) ok(await call('post', `/rules/${r.id}/pause`, ownerA, {}));
+
+    const remove = await tagRule('REMOVE_CLIENT_TAGS', [vip]);
+    const second = await newClient(`Tagged again ${run} (fake)`);
+    await inFirm('a', (tx) =>
+      tx.clientTag.create({ data: { businessId: firms.a, clientId: second, tagId: vip } }),
+    );
+    expect(await engine.scanRule(firms.a, remove.id)).toMatchObject({ started: 1 });
+    expect(await tagsOf(second)).toEqual([]);
+    // As Clients records a tag change: an audit entry on the client.
+    expect((await auditRows(second)).map((r) => r.action)).toContain('client.tags_set');
+    ok(await call('post', `/rules/${remove.id}/pause`, ownerA, {}));
+  });
+
+  it('never takes another firm’s tag or a name; an empty list is a setting still to fill', async () => {
+    const validate = async (definition: object) =>
+      AutomationPreview.parse(ok(await call('post', '/rules/validate', ownerA, { definition })));
+    const theirs = await newTag('b', `Firm B tag ${run}`);
+    const foreign = await createRule(
+      clientCreated([{ id: 'tags', type: 'ADD_CLIENT_TAGS', config: { tagIds: [theirs] } }]),
+      { name: mark('Foreign tag') },
+    );
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+    const checks = await validate(
+      clientCreated([{ id: 'tags', type: 'ADD_CLIENT_TAGS', config: { tagIds: [theirs] } }]),
+    );
+    expect(checks.checks.find((c) => c.path === 'actions.0.config.tagIds')).toMatchObject({
+      code: 'INVALID_ACTION_CONFIG',
+      severity: 'BLOCK',
+    });
+    for (const tagIds of [['VIP'], 'VIP'])
+      expect(
+        (
+          await call('post', '/rules', ownerA, {
+            name: mark('Bad tags'),
+            category: 'CLIENTS',
+            definition: clientCreated([
+              { id: 'tags', type: 'ADD_CLIENT_TAGS', config: { tagIds } },
+            ]),
+          })
+        ).status,
+      ).toBe(400);
+    const empty = await createRule(
+      clientCreated([{ id: 'tags', type: 'ADD_CLIENT_TAGS', config: { tagIds: [] } }]),
+      { name: mark('No tags yet') },
+    );
+    expectError(await activate(empty.id), 409, 'NOT_READY');
   });
 });
