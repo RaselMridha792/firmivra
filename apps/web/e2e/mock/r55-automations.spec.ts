@@ -70,6 +70,32 @@ test('Conditions: operators named for the field, several values, and the match c
   await page.screenshot({ path: `${shots}/builder-conditions.png` });
 });
 
+test('Actions move up and down with their settings, and a broken dependency clears (AU-F24)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  const add = page.getByRole('button', { name: 'Add Action' });
+  await add.click();
+  await add.click();
+  await page.getByLabel('Action 1', { exact: true }).selectOption({ index: 1 });
+  const second = await page.getByLabel('Action 2', { exact: true }).inputValue();
+  const first = await page.getByLabel('Action 1', { exact: true }).inputValue();
+  await page.getByLabel('Action 2 runs after').selectOption({ label: 'After action 1' });
+  await expect(page.getByRole('button', { name: 'Move action 1 up' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Move action 2 down' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Move action 2 up' }).click();
+  await expect(page.getByLabel('Action 1', { exact: true })).toHaveValue(second);
+  await expect(page.getByLabel('Action 2', { exact: true })).toHaveValue(first);
+  // It ran after the action now below it: that can't stand, so it cleared, and moving it back
+  // down doesn't bring it back.
+  await page.getByRole('button', { name: 'Move action 1 down' }).click();
+  await expect(page.getByLabel('Action 2', { exact: true })).toHaveValue(second);
+  await expect(page.getByLabel('Action 2 runs after')).toHaveValue('');
+  await page.getByTestId('step-actions').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/builder-actions.png` });
+});
+
 test('Logs: the activity tabs and the Status filter are one filter', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/logs`);

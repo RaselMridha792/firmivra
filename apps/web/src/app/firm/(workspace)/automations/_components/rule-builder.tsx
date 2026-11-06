@@ -19,7 +19,17 @@ import {
   Textarea,
   Toast,
 } from '@firmivra/ui';
-import { ArrowLeft, Flag, Gear, Info, Lightbulb, Plus, Trash } from '@phosphor-icons/react';
+import {
+  ArrowLeft,
+  Flag,
+  Gear,
+  Info,
+  Lightbulb,
+  Plus,
+  Trash,
+  ArrowUp,
+  ArrowDown,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -85,6 +95,24 @@ const actionId = (acts: Act[]) => {
   while (acts.some((a) => a.id === `a${n}`)) n += 1;
   return `a${n}`;
 };
+/** AU-F24: the actions with one moved from `from` to `to` (each keeps its id and settings). */
+const moved = <T extends { id: string; dependsOn: string }>(
+  list: T[],
+  from: number,
+  to: number,
+): T[] => {
+  if (to < 0 || to >= list.length) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item as T);
+  // An action may only wait for an earlier one: a dependency that no longer is, is cleared.
+  return next.map((a, i) =>
+    a.dependsOn && !next.slice(0, i).some((x) => x.id === a.dependsOn)
+      ? { ...a, dependsOn: '' }
+      : a,
+  );
+};
+
 const blank = (): Form => ({
   name: '',
   category: 'COMPLIANCE_DEADLINES',
@@ -727,7 +755,7 @@ function Builder({
                 return (
                   <div
                     key={a.id}
-                    className="grid gap-2 rounded-lg border border-divider p-3 lg:grid-cols-[14rem_1fr_11rem_auto]"
+                    className="grid gap-2 rounded-lg border border-divider p-3 lg:grid-cols-[14rem_1fr_11rem_auto_auto]"
                     data-testid="action-row"
                   >
                     <Select
@@ -767,6 +795,27 @@ function Builder({
                       onChange={(e) => setAct(a.id, { delay: e.target.value })}
                       options={DELAYS}
                     />
+                    {/* AU-F24: move it; its id, settings and dependency stay with it. */}
+                    <span className="flex items-center self-end">
+                      <button
+                        type="button"
+                        aria-label={`Move action ${i + 1} up`}
+                        disabled={i === 0}
+                        onClick={() => set({ actions: moved(f.actions, i, i - 1) })}
+                        className="inline-flex size-10 items-center justify-center rounded-lg text-action hover:bg-canvas disabled:text-muted"
+                      >
+                        <ArrowUp aria-hidden weight="bold" className="size-5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move action ${i + 1} down`}
+                        disabled={i === f.actions.length - 1}
+                        onClick={() => set({ actions: moved(f.actions, i, i + 1) })}
+                        className="inline-flex size-10 items-center justify-center rounded-lg text-action hover:bg-canvas disabled:text-muted"
+                      >
+                        <ArrowDown aria-hidden weight="bold" className="size-5" />
+                      </button>
+                    </span>
                     <button
                       type="button"
                       aria-label={`Delete action ${i + 1}`}
@@ -1163,7 +1212,42 @@ function ActionField({
           })
         : { items: [] },
   );
+  // Its own key: a field of another type caches an empty list here, never under ['tags'].
+  const firmTags = useApiQuery(['automations', 'tag-choices', field.type === 'TAGS'], async () =>
+    field.type === 'TAGS' ? api.tags.list() : { items: [] },
+  );
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  if (field.type === 'TAGS') {
+    const chosen = Array.isArray(value) ? value : [];
+    const rows = firmTags.data?.items ?? [];
+    return (
+      <fieldset className="flex flex-col gap-1">
+        <legend className="mb-1 text-sm font-medium">{label}</legend>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted">
+            {firmTags.isLoading ? 'Loading tags…' : 'Your firm has no tags yet.'}
+          </p>
+        ) : (
+          <span className="flex flex-wrap gap-x-3">
+            {rows.map((t) => (
+              <Checkbox
+                key={t.id}
+                label={t.name}
+                className="min-h-8 text-sm"
+                checked={chosen.includes(t.id)}
+                onChange={(e) =>
+                  onChange(e.target.checked ? [...chosen, t.id] : chosen.filter((x) => x !== t.id))
+                }
+              />
+            ))}
+          </span>
+        )}
+        {chosen.some((id) => !rows.some((t) => t.id === id)) && rows.length > 0 ? (
+          <p className="text-xs text-danger">A chosen tag was archived: choose again.</p>
+        ) : null}
+      </fieldset>
+    );
+  }
   if (field.type === 'TEMPLATE') {
     const rows = templates.data?.items ?? [];
     return (

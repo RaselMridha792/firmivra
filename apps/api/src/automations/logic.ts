@@ -117,6 +117,15 @@ export function structureProblems(def: Def): Detail[] {
         case 'MEMBER':
           if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) add(path, 'Choose one');
           break;
+        case 'TAGS':
+          if (
+            !Array.isArray(value) ||
+            value.length > 20 ||
+            new Set(value).size !== value.length ||
+            value.some((v) => typeof v !== 'string' || !/^[0-9a-f-]{36}$/i.test(v))
+          )
+            add(path, 'Choose one to 20 of your firm’s tags');
+          break;
         default:
           break;
       }
@@ -136,7 +145,10 @@ export function missingSettings(def: Def): Detail[] {
     for (const f of info.fields)
       if (
         f.required &&
-        (a.config[f.key] === undefined || a.config[f.key] === null || a.config[f.key] === '')
+        (a.config[f.key] === undefined ||
+          a.config[f.key] === null ||
+          a.config[f.key] === '' ||
+          (Array.isArray(a.config[f.key]) && (a.config[f.key] as unknown[]).length === 0))
       )
         out.push({ path: `actions.${i}.config.${f.key}`, message: `${f.label} is required` });
     if (a.type === 'SEND_CLIENT_MESSAGE' && !a.config.templateId && !a.config.body)
@@ -489,7 +501,7 @@ export function forTemplate(def: Def): Def {
     const config: Record<string, string | number | boolean | string[] | null> = {};
     for (const [key, value] of Object.entries(a.config)) {
       const f = info?.fields.find((x) => x.key === key);
-      if (f?.type === 'TEMPLATE' || f?.type === 'MEMBER') continue;
+      if (f?.type === 'TEMPLATE' || f?.type === 'MEMBER' || f?.type === 'TAGS') continue;
       if (typeof value === 'string' && SECRET.test(value)) continue;
       if (typeof value === 'string' && UUID.test(value))
         problems.push({
