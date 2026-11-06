@@ -249,6 +249,16 @@ Progress (Templates, Oct 28 review):
   - the member's own (`business/me/message-signature`).
   The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
   Signature. A missing one says why. It is text and formatting only and sends nothing.
+- Help icons, branch `rasel/R60-comms-help` (on CM-F11): the change list's Help icons for
+  Communications.
+  - The shared `HelpTip` on the overview (title, Start, Recent, Upcoming, Saved Templates, Grow
+    Your Reach), the lists and Segments & Lists.
+  - In the composer: writing it, type, recipients, message and personalization, the announcement
+    window, attachments, Delivery, Template, Preview and the checklist.
+  - Choose Recipients (audience and total), Review & Send, and the results (performance, actions,
+    recipient activity).
+  - The text is in one file (`communications-help.tsx`), checked against what each area does
+    (Save Draft, not autosave; the preview is of the saved draft).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

@@ -8,6 +8,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { HtmlFrame } from '../../templates/_components/html-preview';
+import { CommsHelp } from './communications-help';
 import {
   COMM_ERRORS,
   COMM_KEY,
@@ -73,6 +74,9 @@ export function ReviewDialog({
       }
     >
       <div className="flex flex-col gap-3" data-testid="review-dialog">
+        <p className="-mt-5 flex items-center gap-2 text-sm text-muted">
+          Check it once more before it goes out. <CommsHelp area="review" />
+        </p>
         {review.isPending ? <p className={quiet}>Checking…</p> : null}
         {review.isError ? <p className={quiet}>The review is not available right now.</p> : null}
         {r ? (

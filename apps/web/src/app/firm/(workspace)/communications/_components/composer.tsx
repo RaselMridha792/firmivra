@@ -40,6 +40,7 @@ import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
 import { HtmlFrame } from '../../templates/_components/html-preview';
 import { IMAGE_SIZING, useContentImages } from '../../templates/_components/content-tools';
+import { CommsHelp } from './communications-help';
 import { ClosingMenu } from './closing-menu';
 import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
@@ -384,7 +385,9 @@ function ComposerForm({
         : `Last saved ${savedAt(d.savedAt, d.timezone)}`;
   const recipients = (
     <div className="flex flex-col gap-1" data-testid="recipients-field">
-      <span className="text-sm font-medium text-heading">Recipients</span>
+      <span className="flex items-center gap-2 text-sm font-medium text-heading">
+        Recipients <CommsHelp area="recipients" />
+      </span>
       <div className="flex flex-wrap items-center gap-2 rounded-control border border-border p-2">
         {chips.length === 0 ? (
           <span className="px-1 text-sm text-muted">No recipients chosen yet</span>
@@ -459,8 +462,8 @@ function ComposerForm({
           <header className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="font-display text-3xl font-bold text-heading">
-                  Create New Communication
+                <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading">
+                  Create New Communication <CommsHelp area="composer" />
                 </h1>
                 <StatusPill status={d.status} />
               </div>
@@ -496,7 +499,9 @@ function ComposerForm({
       ) : null}
 
       <section className={card} aria-label="Communication type">
-        <h2 className="mb-2 text-sm font-semibold text-heading">Communication Type</h2>
+        <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-heading">
+          Communication Type <CommsHelp area="channel" />
+        </h2>
         <div
           role="tablist"
           aria-label="Communication type"
@@ -628,27 +633,34 @@ function ComposerForm({
             onNotice={notice}
           />
 
-          <Select
-            label="Personalize"
-            value=""
-            disabled={readOnly}
-            onChange={(e) => {
-              const f = e.target.value;
-              if (!f) return;
-              set({
-                body:
-                  channel === 'SMS'
-                    ? `${form.body}[${f}]`
-                    : /<\/p>\s*$/.test(form.body)
-                      ? form.body.replace(/<\/p>\s*$/, `[${f}]</p>`)
-                      : `${form.body}<p>[${f}]</p>`,
-              });
-            }}
-            options={[
-              { value: '', label: 'Insert Personalization Field' },
-              ...FIELDS.map((f) => ({ value: f, label: `[${f}]` })),
-            ]}
-          />
+          <div className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <Select
+                label="Personalize"
+                value=""
+                disabled={readOnly}
+                onChange={(e) => {
+                  const f = e.target.value;
+                  if (!f) return;
+                  set({
+                    body:
+                      channel === 'SMS'
+                        ? `${form.body}[${f}]`
+                        : /<\/p>\s*$/.test(form.body)
+                          ? form.body.replace(/<\/p>\s*$/, `[${f}]</p>`)
+                          : `${form.body}<p>[${f}]</p>`,
+                  });
+                }}
+                options={[
+                  { value: '', label: 'Insert Personalization Field' },
+                  ...FIELDS.map((f) => ({ value: f, label: `[${f}]` })),
+                ]}
+              />
+            </div>
+            <span className="flex h-10 items-center">
+              <CommsHelp area="message" />
+            </span>
+          </div>
           {d.mergeFields.unknown.length > 0 ? (
             <p
               role="alert"
@@ -661,7 +673,10 @@ function ComposerForm({
           ) : null}
 
           {channel === 'ANNOUNCEMENT' ? (
-            <div className="grid gap-3 sm:grid-cols-3" data-testid="announcement-window">
+            <div
+              className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+              data-testid="announcement-window"
+            >
               <Input
                 label="Show From"
                 type="datetime-local"
@@ -688,14 +703,20 @@ function ComposerForm({
                   ...(locations.data ?? []).map((l) => ({ value: l.key, label: l.label })),
                 ]}
               />
+              <span className="flex h-10 items-center self-end">
+                <CommsHelp area="window" />
+              </span>
             </div>
           ) : null}
           {channel === 'ANNOUNCEMENT' ? recipients : null}
 
           {channel !== 'SMS' ? (
             <div data-testid="attachments">
-              <h2 className="mb-2 text-sm font-medium text-heading">
-                Attachments <span className="font-normal text-muted">(Optional)</span>
+              <h2 className="mb-2 flex items-center gap-2 text-sm font-medium text-heading">
+                <span>
+                  Attachments <span className="font-normal text-muted">(Optional)</span>
+                </span>
+                <CommsHelp area="attachments" />
               </h2>
               <FileDropzone
                 label="Attachments"
@@ -768,7 +789,9 @@ function ComposerForm({
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Delivery and preview">
           {channel !== 'ANNOUNCEMENT' ? (
             <section className={card} aria-label="Delivery" data-testid="delivery">
-              <h2 className="mb-1 font-display text-lg font-bold text-heading">Delivery</h2>
+              <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-bold text-heading">
+                Delivery <CommsHelp area="delivery" />
+              </h2>
               <Radio
                 name="when"
                 label="Send Now"
@@ -819,7 +842,9 @@ function ComposerForm({
             </section>
           ) : null}
           <section className={card} aria-label="Template" data-testid="template-card">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Template</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Template <CommsHelp area="template" />
+            </h2>
             <div className="flex items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-2 text-sm text-heading">
                 <FileText aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
@@ -845,7 +870,9 @@ function ComposerForm({
           </section>
           <section className={card} aria-label="Message preview" data-testid="message-preview">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="font-display text-lg font-bold text-heading">Message Preview</h2>
+              <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+                Message Preview <CommsHelp area="preview" />
+              </h2>
               <div
                 className="flex overflow-hidden rounded-control border border-border"
                 role="group"
@@ -897,7 +924,9 @@ function ComposerForm({
             ) : null}
           </section>
           <section className={card} aria-label="Pre-send checklist" data-testid="checklist">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Pre-Send Checklist</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Pre-Send Checklist <CommsHelp area="checklist" />
+            </h2>
             {checks.length === 0 ? (
               <p className={quiet}>
                 {review.isError ? 'The checklist is not available right now.' : 'Checking…'}
