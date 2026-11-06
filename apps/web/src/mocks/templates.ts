@@ -30,6 +30,11 @@ import {
   type TemplateVersion,
   STARTER_TEMPLATES,
   type StarterTemplate,
+  BookkeepingStructure,
+  type LinkedModuleTemplate,
+  TaxWorkflowStructure,
+  TemplateStructureOptionsQuery,
+  SetLinkedTemplateRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -254,6 +259,8 @@ export function createTemplatesMock({
       lastUsedAt: v.uses ? at : null,
       createdAt: at,
       etag: `e${next++}`,
+      linkedTemplate: null,
+      structure: null,
     };
     return {
       d,
@@ -424,6 +431,87 @@ export function createTemplatesMock({
     return { ...row, favorite: r.favorite };
   };
   const detailOf = (r: Rec): MessageTemplateDetail => ({ ...r.d, favorite: r.favorite });
+
+  /** TP-F08: the firm's task templates, request lists and intake templates (synthetic). */
+  const MODULE_TEMPLATES: LinkedModuleTemplate[] = [
+    {
+      kind: 'TASK',
+      id: id('7500'),
+      name: 'New client onboarding',
+      steps: [
+        'Confirm contact details',
+        'Send the engagement letter',
+        'Request ID',
+        'Open the file',
+      ],
+    },
+    {
+      kind: 'TASK',
+      id: id('7500'),
+      name: 'Return review',
+      steps: ['Check income and deductions', 'Review with the client', 'Collect signatures'],
+    },
+    {
+      kind: 'DOCUMENT_REQUEST',
+      id: id('7500'),
+      name: 'Individual tax documents',
+      steps: ['W-2 forms', '1099 forms', 'Prior-year return', 'Charitable receipts (optional)'],
+    },
+    {
+      kind: 'DOCUMENT_REQUEST',
+      id: id('7500'),
+      name: 'Monthly bookkeeping',
+      steps: ['Bank statements', 'Card statements', 'Receipts (optional)'],
+    },
+    {
+      kind: 'INTAKE_ORGANIZER',
+      id: id('7500'),
+      name: 'Individual Tax Preparation intake',
+      steps: ['Individual tax organizer'],
+    },
+  ];
+  const LINKED_KINDS: readonly MessageTemplateKind[] = [
+    'TASK',
+    'DOCUMENT_REQUEST',
+    'INTAKE_ORGANIZER',
+  ];
+  /** As the API: PUT .../linked-template, on its kind, one of the firm's, used by one template. */
+  const linkTo = (r: Pick<Rec, 'd'>, moduleTemplateId: string | null) => {
+    if (!LINKED_KINDS.includes(r.d.kind))
+      throw fail(
+        400,
+        'VALIDATION_FAILED',
+        'Only a task, document request or intake template stands for one',
+      );
+    if (moduleTemplateId === null) {
+      r.d.linkedTemplate = null;
+      return;
+    }
+    const m = MODULE_TEMPLATES.find((x) => x.id === moduleTemplateId && x.kind === r.d.kind);
+    if (!m) throw fail(404, 'NOT_FOUND', 'That template was not found');
+    if (recs.some((o) => o.d.id !== r.d.id && o.d.linkedTemplate?.id === moduleTemplateId))
+      throw fail(409, 'STRUCTURE_IN_USE', 'Another template already stands for this one');
+    r.d.linkedTemplate = m;
+  };
+  /** As the API: a structure only on Tax Workflow and Bookkeeping, of their shape. */
+  const applyStructure = (r: Pick<Rec, 'd'>, input: { structure?: unknown }) => {
+    if (input.structure !== undefined) {
+      const shape =
+        r.d.kind === 'TAX_WORKFLOW'
+          ? TaxWorkflowStructure
+          : r.d.kind === 'BOOKKEEPING'
+            ? BookkeepingStructure
+            : null;
+      if (input.structure === null) r.d.structure = null;
+      else if (!shape)
+        throw fail(400, 'VALIDATION_FAILED', 'Only its own kind of template has this');
+      else {
+        const parsed = shape.safeParse(input.structure);
+        if (!parsed.success) throw fail(400, 'VALIDATION_FAILED', 'Check the structure');
+        r.d.structure = parsed.data;
+      }
+    }
+  };
   const categoryOk = (kind: MessageTemplateKind, categoryId: string | null | undefined) => {
     if (!categoryId) return null;
     const c = categories.find((x) => x.id === categoryId);
@@ -617,6 +705,7 @@ export function createTemplatesMock({
           days: 0,
         });
         r.d.previewText = input.previewText ?? null;
+        applyStructure(r, input);
         recs.unshift(r);
         return detailOf(r);
       }),
@@ -675,7 +764,9 @@ export function createTemplatesMock({
         if (input.access !== undefined) r.d.access = input.access;
         r.d.status = status;
         r.d.includeInAutomations = auto;
-        bump(r, changedText);
+        const structureBefore = JSON.stringify(r.d.structure);
+        applyStructure(r, input);
+        bump(r, changedText || JSON.stringify(r.d.structure) !== structureBefore);
         return detailOf(r);
       }),
     duplicate: (templateId) =>
@@ -948,6 +1039,27 @@ export function createTemplatesMock({
         });
         recs.unshift(r);
         return { template: detailOf(r), removed };
+      }),
+    setLinkedTemplate: (templateId, body) =>
+      run(() => {
+        const input = parseInput(SetLinkedTemplateRequest, body);
+        const r = find(templateId);
+        needEdit(r);
+        if (r.d.etag !== input.etag)
+          throw fail(409, 'SAVE_CONFLICT', 'Someone saved this template after you opened it.');
+        linkTo(r, input.moduleTemplateId);
+        r.d.etag = `e${next++}`;
+        return detailOf(r);
+      }),
+    structureOptions: (q) =>
+      run(() => {
+        const { kind } = parseInput(TemplateStructureOptionsQuery, q);
+        return {
+          items: MODULE_TEMPLATES.filter((m) => m.kind === kind).map((m) => ({
+            ...m,
+            usedByTemplateId: recs.find((r) => r.d.linkedTemplate?.id === m.id)?.d.id ?? null,
+          })),
+        };
       }),
     starters: () =>
       run(() => ({

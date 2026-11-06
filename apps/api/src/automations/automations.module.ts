@@ -12,6 +12,7 @@ import { TasksModule } from '../tasks/tasks.module.js';
 import { AUTOMATION_FILES, S3AutomationFiles } from './automation-files.js';
 import { AutomationJob } from './automation.job.js';
 import { AutomationsController } from './automations.controller.js';
+import { ConfirmationsService } from './confirmations.service.js';
 import { AutomationsReadService } from './automations-read.service.js';
 import { AutomationEngine } from './engine.service.js';
 import { AutomationsOverviewService } from './overview.service.js';
@@ -36,6 +37,7 @@ import { TemplatesService } from './templates.service.js';
     TemplatesService,
     RunsService,
     AutomationsOverviewService,
+    ConfirmationsService,
     NotesService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },

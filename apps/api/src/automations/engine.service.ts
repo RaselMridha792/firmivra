@@ -157,7 +157,13 @@ export class AutomationEngine {
         tx,
         v.triggerEvent,
         { timing: v.timing, offsetValue: v.offsetValue, offsetUnit: v.offsetUnit },
-        { businessId, now, today: ctx.today, since: v.createdAt },
+        {
+          businessId,
+          now,
+          today: ctx.today,
+          since: v.createdAt,
+          ...(view.trigger.source ? { source: view.trigger.source } : {}),
+        },
       );
       const hit = found.filter((c) =>
         matches(

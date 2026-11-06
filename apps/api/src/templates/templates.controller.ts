@@ -22,6 +22,7 @@ import {
   type OkResponse,
   type RenderedTemplate,
   type StarterTemplatesStatus,
+  type TemplateStructureOptions,
   type TemplateAttachment,
   TemplateAttachmentId,
   type TemplatesSummary,
@@ -49,6 +50,8 @@ import {
   PreviewBody,
   SharesBody,
   StartAttachmentBody,
+  SetLinkedBody,
+  StructureOptionsQ,
   TemplatesQuery,
   TestSendBody,
   UpdateTemplateBody,
@@ -96,6 +99,15 @@ export class TemplatesController {
   @Get('starters')
   startersStatus(@CurrentTenant() tenant: TenantContext): Promise<StarterTemplatesStatus> {
     return this.starters.status(tenant.businessId);
+  }
+
+  /** TP-F08: the firm's task templates, request lists or intake templates a template can stand for. */
+  @Get('structure-options')
+  structureOptions(
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(StructureOptionsQ)) query: z.output<typeof StructureOptionsQ>,
+  ): Promise<TemplateStructureOptions> {
+    return this.templates.structureOptions(tenant.businessId, query.kind);
   }
 
   @Post('starters')
@@ -174,6 +186,17 @@ export class TemplatesController {
     @Body(new ZodValidationPipe(UpdateTemplateBody)) body: Out<typeof UpdateTemplateBody>,
   ): Promise<MessageTemplateDetail> {
     return this.templates.update(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  /** TP-F08: the task template, request list or intake template it stands for (null: none). */
+  @Put(':id/linked-template')
+  setLinked(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SetLinkedBody)) body: Out<typeof SetLinkedBody>,
+  ): Promise<MessageTemplateDetail> {
+    return this.templates.setLinked(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Post(':id/duplicate')

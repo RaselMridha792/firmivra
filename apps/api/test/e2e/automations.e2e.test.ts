@@ -13,6 +13,8 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AutomationCatalog,
+  AutomationConfirmationList,
+  AutomationEventConfirmation,
   AutomationLogExport,
   AutomationOverview,
   AutomationPreview,
@@ -32,6 +34,7 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { AUTOMATION_FILES, type AutomationFiles } from '../../src/automations/automation-files.js';
 import { AutomationEngine, quietUntil } from '../../src/automations/engine.service.js';
+import { attachProviderEvidence } from '../../src/automations/confirmations.service.js';
 
 class MemoryFiles implements AutomationFiles {
   readonly objects = new Map<string, Buffer>();
@@ -1898,6 +1901,159 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
       recordKind: 'client',
       client: { id: clients.c2 },
     });
+  });
+});
+
+describe('Manual Event Confirmation (AU-F29 to F33)', () => {
+  const settings = (who: Who) => call('get', '/settings', who);
+  const confirm = (body: object, who: Who = ownerA) => call('post', '/confirmations', who, body);
+  const switchTo = async (on: boolean) =>
+    ok(await call('put', '/settings', ownerA, { manualConfirmationEnabled: on }));
+  const taxReturn = () =>
+    inFirm('a', async (tx) => {
+      const r = await tx.taxReturn.create({
+        data: {
+          businessId: firms.a,
+          clientId: clients.c1,
+          taxYear: 2025,
+          filingType: 'INDIVIDUAL',
+        },
+      });
+      return r.id;
+    });
+  const statusOf = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.taxReturn.findUniqueOrThrow({
+        where: { id },
+        select: { workflowStatus: true, status: true },
+      }),
+    );
+
+  it('the master switch: off by default, only an Owner or Admin changes it, audited', async () => {
+    expect(AutomationSettingsView.parse(ok(await settings(ownerA))).manualConfirmationEnabled).toBe(
+      false,
+    );
+    expectError(
+      await call('put', '/settings', staffA, { manualConfirmationEnabled: true }),
+      403,
+      'FORBIDDEN',
+    );
+    const on = AutomationSettingsView.parse(
+      ok(await call('put', '/settings', adminA, { manualConfirmationEnabled: true })),
+    );
+    expect(on.manualConfirmationEnabled).toBe(true);
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findFirst({
+        where: { action: 'automation_settings.updated' },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit?.metadata).toMatchObject({ manualConfirmation: { from: false, to: true } });
+    await switchTo(false);
+  });
+
+  it('confirms one occurrence once, only with the switch on, and changes nothing else', async () => {
+    const id = await taxReturn();
+    const body = {
+      event: 'tax_return.accepted',
+      recordId: id,
+      occurrence: '2025',
+      reference: 'ACK-0001',
+    };
+    // Off: refused (F29).
+    expectError(await confirm(body), 409, 'MANUAL_CONFIRMATION_OFF');
+    await switchTo(true);
+    // Not a confirmable event, an unknown record, a read-only role: refused.
+    expectError(await confirm({ ...body, event: 'client.archived' }), 400, 'VALIDATION_FAILED');
+    expect((await confirm({ ...body, recordId: randomUUID() })).status).toBe(404);
+    expect((await confirm(body, staffA)).status).toBe(403);
+    const before = await statusOf(id);
+    const made = AutomationEventConfirmation.parse(ok(await confirm(body), 201));
+    expect(made).toMatchObject({
+      event: 'tax_return.accepted',
+      recordKind: 'tax_return',
+      occurrence: '2025',
+      client: { id: clients.c1 },
+      confirmedBy: { userId: ownerA.id },
+      providerEvidence: null,
+    });
+    // One per occurrence, never twice (F31); a later year is its own occurrence.
+    expectError(await confirm(body), 409, 'ALREADY_CONFIRMED');
+    ok(await confirm({ ...body, occurrence: '2026' }), 201);
+    // F33: it only records the fact; the return's own status is untouched.
+    expect(await statusOf(id)).toEqual(before);
+    const list = AutomationConfirmationList.parse(
+      ok(await call('get', `/confirmations?recordId=${id}`, ownerA)),
+    );
+    expect(list.items.map((c) => c.occurrence).sort()).toEqual(['2025', '2026']);
+    await switchTo(false);
+  });
+
+  it('a rule on it runs once per occurrence; provider evidence later never reruns it (F30, F32)', async () => {
+    await switchTo(true);
+    const manual = await createRule(
+      { trigger: { module: 'TAX_RETURNS', event: 'tax_return.accepted' }, actions: [note()] },
+      { name: mark('Accepted'), category: 'TAX_RETURNS' },
+    );
+    const verified = await createRule(
+      {
+        trigger: {
+          module: 'TAX_RETURNS',
+          event: 'tax_return.accepted',
+          source: 'INTEGRATION_VERIFIED',
+        },
+        actions: [note()],
+      },
+      { name: mark('Verified only'), category: 'TAX_RETURNS' },
+    );
+    expect(manual.definition?.trigger.source).toBe('MANUAL');
+    expect(verified.definition?.trigger.source).toBe('INTEGRATION_VERIFIED');
+    for (const r of [manual, verified]) ok(await activate(r.id));
+    const id = await taxReturn();
+    const made = AutomationEventConfirmation.parse(
+      ok(await confirm({ event: 'tax_return.accepted', recordId: id, occurrence: '2025' }), 201),
+    );
+    expect(await engine.scanRule(firms.a, manual.id)).toMatchObject({ started: 1 });
+    // Integration verified waits for provider evidence.
+    expect(await engine.scanRule(firms.a, verified.id)).toMatchObject({ started: 0 });
+    const key = `tax_return.accepted:${id}:2025`;
+    const evidence = (reference: string) =>
+      inFirm('a', (tx) =>
+        attachProviderEvidence(tx, firms.a, key, {
+          provider: 'fake_efile',
+          reference,
+          verifiedAt: new Date(),
+        }),
+      );
+    expect(await evidence('PRV-1')).toBe(true);
+    // Set once: a second attempt changes nothing.
+    expect(await evidence('PRV-2')).toBe(false);
+    expect(await engine.scanRule(firms.a, manual.id)).toMatchObject({ started: 0 });
+    expect(await engine.scanRule(firms.a, verified.id)).toMatchObject({ started: 1 });
+    const again = AutomationConfirmationList.parse(
+      ok(await call('get', `/confirmations?recordId=${id}`, ownerA)),
+    ).items[0];
+    // The manual confirmation stays as it was; the evidence sits beside it.
+    expect(again).toMatchObject({
+      id: made.id,
+      confirmedBy: { userId: ownerA.id },
+      providerEvidence: { provider: 'fake_efile', reference: 'PRV-1' },
+    });
+    // A source on an event that has none is refused.
+    expectError(
+      await call('post', '/rules', ownerA, {
+        name: mark('x'),
+        category: 'CLIENTS',
+        definition: {
+          trigger: { module: 'CLIENTS', event: 'client.created', source: 'MANUAL' },
+          actions: [note()],
+        },
+      }),
+      400,
+      'INVALID_DEFINITION',
+    );
+    await switchTo(false);
   });
 });
 

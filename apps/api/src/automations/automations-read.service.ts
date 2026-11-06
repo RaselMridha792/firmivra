@@ -43,6 +43,8 @@ export interface AutoCtx {
     failureAlertUserIds: string[];
     minutesSavedPerAction: number;
     logRetentionDays: number;
+    /** AU-F29: off unless an Owner or Admin turned it on. */
+    manualConfirmationEnabled: boolean;
     updatedAt: Date | null;
   };
 }
@@ -100,6 +102,7 @@ export class AutomationsReadService {
         failureAlertUserIds: s?.failureAlertUserIds ?? [],
         minutesSavedPerAction: s?.minutesSavedPerAction ?? 5,
         logRetentionDays: s?.logRetentionDays ?? 365,
+        manualConfirmationEnabled: s?.manualConfirmationEnabled ?? false,
         updatedAt: s?.updatedAt ?? null,
       },
     };
