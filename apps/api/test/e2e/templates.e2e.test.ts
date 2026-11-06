@@ -39,6 +39,7 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { BUILT_IN_FIELDS } from '../../src/templates/merge-fields.js';
 import { STARTERS } from '../../src/templates/template-starters.js';
 
 // Strict, so a leaked field (businessId, an internal id) fails.
@@ -594,6 +595,33 @@ describe('changes, versions and the etag', () => {
     );
   });
 
+  it('Owner and Admin activate; Staff save drafts and keep editing an active one (CM-F12)', async () => {
+    expectError(
+      await call('post', '/templates', people.staffA, {
+        kind: 'EMAIL',
+        name: mark('Staff active'),
+        subject: 'S',
+        body: 'x',
+        status: 'ACTIVE',
+      }),
+      403,
+      'ACTIVATE_NOT_ALLOWED',
+    );
+    const t = await make({ subject: 'S', access: 'TEAM' }, people.staffA);
+    expectError(
+      await patchT(t.id, { etag: t.etag, status: 'ACTIVE' }, people.staffA),
+      403,
+      'ACTIVATE_NOT_ALLOWED',
+    );
+    const active = detail(await patchT(t.id, { etag: t.etag, status: 'ACTIVE' }, people.adminA));
+    expect(active.status).toBe('ACTIVE');
+    // Staff still change the words of the active template, which stays active.
+    const edited = detail(
+      await patchT(t.id, { etag: active.etag, subject: 'Better subject' }, people.staffA),
+    );
+    expect(edited).toMatchObject({ status: 'ACTIVE', subject: 'Better subject' });
+  });
+
   it('an active email needs a subject; as a draft its automation choice stays, unused (TP-F11)', async () => {
     const t = await make({ subject: 'Hello' });
     const active = detail(
@@ -1086,10 +1114,83 @@ describe('import', () => {
   });
 });
 
+/** TP-F18: the developer guide's section 8, name by name, with its kind and category. */
+const GUIDE: [string, string, string][] = [
+  ['New Client Welcome Email', 'EMAIL', 'Email / Client Communication'],
+  ['Existing Client Welcome Back', 'EMAIL', 'Email / Client Communication'],
+  ['Missing Documents Follow-Up', 'EMAIL', 'Email / Client Communication'],
+  ['Document Received Confirmation', 'EMAIL', 'Email / Client Communication'],
+  ['General Client Follow-Up', 'EMAIL', 'Email / Client Communication'],
+  ['Client Portal Invitation', 'EMAIL', 'Email / Client Communication'],
+  ['Tax Season Opening Announcement', 'EMAIL', 'Tax Season'],
+  ['Tax Organizer Ready', 'EMAIL', 'Tax Season'],
+  ['Tax Appointment Preparation', 'EMAIL', 'Tax Season'],
+  ['Tax Documents Still Needed', 'EMAIL', 'Tax Season'],
+  ['Tax Return Ready for Review', 'EMAIL', 'Tax Season'],
+  ['Tax Return Signature Request', 'EMAIL', 'Tax Season'],
+  ['Tax Return Filed Confirmation', 'EMAIL', 'Tax Season'],
+  ['Extension Filed Confirmation', 'EMAIL', 'Tax Season'],
+  ['Estimated Tax Payment Reminder', 'EMAIL', 'Tax Season'],
+  ['Appointment Confirmation', 'APPOINTMENT', 'Appointments'],
+  ['Appointment Reminder — 24 Hours', 'APPOINTMENT', 'Appointments'],
+  ['Appointment Reminder — 1 Hour', 'APPOINTMENT', 'Appointments'],
+  ['Appointment Rescheduled', 'APPOINTMENT', 'Appointments'],
+  ['Missed Appointment / No-Show Follow-Up', 'APPOINTMENT', 'Appointments'],
+  ['Post-Appointment Follow-Up', 'APPOINTMENT', 'Appointments'],
+  ['Invoice Issued', 'INVOICE_PAYMENT', 'Invoices & Payments'],
+  ['Payment Due Soon', 'INVOICE_PAYMENT', 'Invoices & Payments'],
+  ['Payment Overdue — First Notice', 'INVOICE_PAYMENT', 'Invoices & Payments'],
+  ['Payment Overdue — Final Reminder', 'INVOICE_PAYMENT', 'Invoices & Payments'],
+  ['Payment Received / Receipt', 'INVOICE_PAYMENT', 'Invoices & Payments'],
+  ['Monthly Bookkeeping Document Request', 'BOOKKEEPING', 'Bookkeeping'],
+  ['Bookkeeping Records Missing', 'BOOKKEEPING', 'Bookkeeping'],
+  ['Monthly Books Completed', 'BOOKKEEPING', 'Bookkeeping'],
+  ['Quarterly Bookkeeping Review', 'BOOKKEEPING', 'Bookkeeping'],
+  ['Year-End Bookkeeping Checklist', 'BOOKKEEPING', 'Bookkeeping'],
+  ['Payroll Information Reminder', 'PAYROLL', 'Payroll'],
+  ['Payroll Completed Notification', 'PAYROLL', 'Payroll'],
+  ['Payroll Document / Employee Info Request', 'PAYROLL', 'Payroll'],
+  ['New Lead First Response', 'LEAD_FOLLOW_UP', 'Leads'],
+  ['Lead Follow-Up — No Response', 'LEAD_FOLLOW_UP', 'Leads'],
+  ['Consultation Reminder', 'LEAD_FOLLOW_UP', 'Leads'],
+  ['Post-Consultation Follow-Up', 'LEAD_FOLLOW_UP', 'Leads'],
+  ['Engagement Agreement Sent', 'ENGAGEMENT_AGREEMENT', 'Engagement / Documents'],
+  ['Engagement Agreement Reminder', 'ENGAGEMENT_AGREEMENT', 'Engagement / Documents'],
+  ['Document Signature Request', 'EMAIL', 'Engagement / Documents'],
+  ['Secure Document Upload Request', 'DOCUMENT_REQUEST', 'Engagement / Documents'],
+  ['New Portal Message Notification', 'PORTAL_MESSAGE', 'Portal / Notices'],
+  ['Important Client Notice', 'LETTER_NOTICE', 'Portal / Notices'],
+  ['Monthly Tax & Business Newsletter', 'CAMPAIGN', 'Marketing / Campaign'],
+  ['Tax Deadline Reminder Campaign', 'CAMPAIGN', 'Marketing / Campaign'],
+  ['Service Announcement / New Service', 'CAMPAIGN', 'Marketing / Campaign'],
+  ['Standard Client Follow-Up Task Checklist', 'TASK', 'Internal / Workflow'],
+];
+
 describe('starter templates', () => {
-  it('are 48, install once, and are editable afterwards', async () => {
-    expect(STARTERS).toHaveLength(48);
+  it('are the guide’s 48, name by name, with nothing written in that merge fields supply (TP-F18)', () => {
+    expect(STARTERS.map((s) => [s.name, s.kind, s.category])).toEqual(GUIDE);
     expect(new Set(STARTERS.map((s) => s.key)).size).toBe(48);
+    for (const s of STARTERS) {
+      const words = `${s.subject ?? ''} ${s.body}`;
+      // No year, amount, phone number or link written in.
+      expect(words, s.name).not.toMatch(/\b20\d\d\b|\$\s?\d|\(\d{3}\)|https?:\/\//);
+      // Every [field] is one the templates know.
+      for (const [, field] of words.matchAll(/\[([^\]]+)\]/g)) {
+        expect(
+          BUILT_IN_FIELDS.map((f) => f.key),
+          `${s.name}: [${field}]`,
+        ).toContain(field);
+      }
+    }
+  });
+
+  it('are 48, install once, and are editable afterwards', async () => {
+    // A firm's own template, or a starter of the earlier list, leaves all 48 to add (TP-F18: the
+    // screen offered them only to a firm with no templates at all).
+    const own = await make({ name: mark('Own') });
+    await inFirm('a', (tx) =>
+      tx.messageTemplate.update({ where: { id: own.id }, data: { starterKey: 'email-thank-you' } }),
+    );
     const before = StarterTemplatesStatus.parse(
       ok(await call('get', '/templates/starters', people.staffA)),
     );
@@ -1111,9 +1212,12 @@ describe('starter templates', () => {
     const list = MessageTemplatePage.parse(
       ok(await call('get', '/templates?search=New Client Welcome&pageSize=100', people.staffA)),
     );
-    const welcome = list.items.find((i) => i.name === 'New Client Welcome');
+    const welcome = list.items.find((i) => i.name === 'New Client Welcome Email');
     expect(welcome).toMatchObject({ starter: true, status: 'ACTIVE', access: 'TEAM' });
-    expect(welcome?.category?.name).toBe('Onboarding');
+    expect(welcome?.category?.name).toBe('Email / Client Communication');
+    expect((await getT(welcome!.id)).description).toBe(
+      'Welcome, portal access, next steps and contact information.',
+    );
     const edited = await patchT(
       welcome!.id,
       { etag: (await getT(welcome!.id)).etag, subject: 'Hello there' },

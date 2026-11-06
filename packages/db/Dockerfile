@@ -35,6 +35,7 @@ RUN pnpm --filter @firmivra/db deploy --legacy /out
 #   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/seed-demo-task.mjs
 #   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/unseed-demo-task.mjs
 #   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/bootstrap-platform-org-task.mjs
+#   docker run ... -e APP_ENV=dev -e DB_HOST=... firmivra-demo-seed node scripts/seed-qa-task.mjs
 FROM build AS demo-seed-task
 WORKDIR /repo/packages/db
 ADD --chown=node:node https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem

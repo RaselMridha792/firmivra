@@ -1665,6 +1665,47 @@ describe('test send, templates and files', () => {
     expect(rows.map((r) => r.action)).toContain('communication.saved_as_template');
   });
 
+  it('saves it Active for an Owner, so another draft can use it at once; Staff save drafts (CM-F12)', async () => {
+    const d = await draft();
+    await edit(d.id, { subject: 'Reusable', body: '<p>Reusable body</p>' });
+    const use = async (templateId: string) => {
+      const other = await draft();
+      return call('post', `/${other.id}/use-template`, ownerA, {
+        templateId,
+        etag: other.etag,
+      });
+    };
+    // A draft template can't be used: what Octavia met ("No Active Templates").
+    const asDraft = MessageTemplateDetail.parse(
+      ok(await call('post', `/${d.id}/save-as-template`, ownerA, { name: mark('Draft') }), 201),
+    );
+    expect(asDraft.status).toBe('DRAFT');
+    expectError(await use(asDraft.id), 409, 'TEMPLATE_NOT_ALLOWED');
+    // Saved Active, it is used straight away.
+    const active = MessageTemplateDetail.parse(
+      ok(
+        await call('post', `/${d.id}/save-as-template`, ownerA, {
+          name: mark('Active'),
+          activate: true,
+        }),
+        201,
+      ),
+    );
+    expect(active.status).toBe('ACTIVE');
+    expect(CommunicationDetail.parse(ok(await use(active.id))).template?.id).toBe(active.id);
+    // Staff keep a draft and ask an Owner or Admin.
+    const mine = await draft({}, staffA);
+    await edit(mine.id, { subject: 'Mine', body: '<p>Mine</p>' }, staffA);
+    expectError(
+      await call('post', `/${mine.id}/save-as-template`, staffA, {
+        name: mark('Staff'),
+        activate: true,
+      }),
+      403,
+      'ACTIVATE_NOT_ALLOWED',
+    );
+  });
+
   it('uploads a file in three steps, keeps the etag valid, and removes it', async () => {
     const d = await draft();
     const ticket = UploadPutTicket.parse(ok(await start(d.id, pdf)));

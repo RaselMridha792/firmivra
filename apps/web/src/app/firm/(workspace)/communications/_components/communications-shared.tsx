@@ -102,6 +102,8 @@ export const COMM_ERRORS: Record<string, string> = {
   STILL_SENDING: 'It is sending now. Pause it instead.',
   EXPORT_NOT_ALLOWED: 'Your role cannot export results.',
   FORBIDDEN: 'Your role cannot do this.',
+  ACTIVATE_NOT_ALLOWED: 'Only an Owner or Admin can activate a template. Ask one to activate it.',
+  SUBJECT_REQUIRED: 'Add a subject line before activating the template.',
 };
 
 export const gold =

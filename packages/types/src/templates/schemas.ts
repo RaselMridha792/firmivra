@@ -499,6 +499,8 @@ export const TemplateErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 403: the template is private or shared with others: its owner or an Owner or Admin changes it. */
   'NOT_THE_OWNER',
+  /** 403 (CM-F12): only an Owner or Admin makes a template Active; Staff save drafts. */
+  'ACTIVATE_NOT_ALLOWED',
   /** 409: the template is archived: restore it first. */
   'TEMPLATE_ARCHIVED',
   /** 409: a custom merge field is used by templates, or the key is a built-in one. */

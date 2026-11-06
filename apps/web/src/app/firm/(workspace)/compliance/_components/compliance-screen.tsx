@@ -17,7 +17,9 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import {
@@ -76,17 +78,61 @@ const RANGES: { value: Filters['range']; label: string }[] = [
 
 /** /compliance: the overview, the other six views, the Tax Calendar and Settings. */
 export function ComplianceScreen() {
-  const [tab, setTab] = useState<Tab>('overview');
+  // CD-F03, F05 (Octavia, Oct 28): the view, date range, filters, sort and page live in the
+  // address, so Back from a client, a deadline or Add Deadline returns to exactly this list.
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const tab = (TABS.find((t) => t.id === params.get('tab'))?.id ?? 'overview') as Tab;
+  const filters: Filters = {
+    range:
+      RANGES.find((r) => r.value === params.get('range'))?.value ??
+      (tab === 'overview' ? 'NEXT_30_DAYS' : 'ALL'),
+    type: params.get('type') ?? '',
+    clientId: params.get('client') ?? '',
+    status: params.get('status') ?? '',
+    assignedUserId: params.get('assignee') ?? '',
+    agency: params.get('agency') ?? '',
+    mine: params.get('mine') === '1',
+  };
+  const date = params.get('date') ?? undefined;
+  const sort = {
+    sort: (params.get('sort') ?? 'dueOn') as NonNullable<ComplianceDeadlinesQuery['sort']>,
+    direction: (params.get('dir') === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc',
+  };
+  const page = Math.max(1, Number(params.get('page')) || 1);
+  /** One change to the address (every key at once, so none undoes another); page 1 unless set. */
+  const go = (over: Record<string, string | null>, push = false) => {
+    // The address as it is now, not as last drawn: two changes in a row never undo each other.
+    const next = new URLSearchParams(window.location.search);
+    for (const [k, v] of Object.entries(over)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, v);
+    }
+    if (!('page' in over)) next.delete('page');
+    const href = `${pathname}${next.toString() ? `?${next.toString()}` : ''}`;
+    if (push) router.push(href, { scroll: false });
+    else router.replace(href, { scroll: false });
+  };
+  const FILTER_KEYS = {
+    type: 'type',
+    clientId: 'client',
+    status: 'status',
+    assignedUserId: 'assignee',
+    agency: 'agency',
+  } as const;
+  const filterParams = (f: Partial<Filters>): Record<string, string | null> => ({
+    ...('range' in f ? { range: f.range ?? null } : {}),
+    ...Object.fromEntries(
+      Object.entries(FILTER_KEYS)
+        .filter(([k]) => k in f)
+        .map(([k, p]) => [p, (f[k as keyof typeof FILTER_KEYS] as string | undefined) || null]),
+    ),
+    ...('mine' in f ? { mine: f.mine ? '1' : null } : {}),
+  });
   const [taxCalendar, setTaxCalendar] = useState(false);
   const [settings, setSettings] = useState(false);
   const [message, setMessage] = useState<string>();
-  const [filters, setFilters] = useState<Filters>(BLANK);
-  const [date, setDate] = useState<string>();
-  const [sort, setSort] = useState<Pick<ComplianceDeadlinesQuery, 'sort' | 'direction'>>({
-    sort: 'dueOn',
-    direction: 'asc',
-  });
-  const [page, setPage] = useState(1);
   const { clients } = useClients();
   const { members } = useMembers();
   const summary = useApiQuery([...COMPLIANCE_KEY, 'summary'], () => api.compliance.summary());
@@ -98,18 +144,26 @@ export function ComplianceScreen() {
     ...new Set((agencies.data?.items ?? []).map((d) => d.agency).filter((a): a is string => !!a)),
   ].sort();
 
-  const choose = (next: Tab) => {
-    setTab(next);
+  /** Another view: a history step of its own, so browser Back returns to the view before. */
+  const choose = (next: Tab, change: Partial<Filters> = {}) => {
     setTaxCalendar(false);
-    setPage(1);
-    setFilters((f) => ({ ...f, range: next === 'overview' ? 'NEXT_30_DAYS' : 'ALL' }));
+    go(
+      {
+        tab: next === 'overview' ? null : next,
+        range: null,
+        date: null,
+        ...filterParams(change),
+      },
+      true,
+    );
   };
-  const set = (change: Partial<Filters>) => {
-    setFilters({ ...filters, ...change });
-    setPage(1);
-  };
+  // A changed filter ends the at-risk banner (CD-F03): the list is no longer that client's.
+  const set = (change: Partial<Filters>) => go({ ...filterParams(change), risk: null });
+  const risk = params.get('risk');
   const query: ComplianceDeadlinesQuery = {
-    tab: tab === 'completed' ? 'COMPLETED' : 'ALL',
+    // CD-F02 (Octavia, Oct 28): the overview's list is what is still to do (no Completed or Not
+    // Applicable), like its Upcoming card; every range is on the effective due date.
+    tab: tab === 'completed' ? 'COMPLETED' : tab === 'overview' ? 'UPCOMING' : 'ALL',
     range: filters.range,
     ...(filters.type
       ? { type: filters.type as NonNullable<ComplianceDeadlinesQuery['type']> }
@@ -125,11 +179,16 @@ export function ComplianceScreen() {
     ...sort,
     page,
   };
-  const onQuery = (change: Partial<ComplianceDeadlinesQuery>) => {
-    if (change.sort) setSort({ sort: change.sort, direction: change.direction ?? 'asc' });
-    if (change.page) setPage(Number(change.page));
-    else setPage(1);
-  };
+  const onQuery = (change: Partial<ComplianceDeadlinesQuery>) =>
+    go({
+      ...(change.sort
+        ? {
+            sort: change.sort === 'dueOn' ? null : change.sort,
+            dir: change.direction === 'desc' ? 'desc' : null,
+          }
+        : {}),
+      ...(change.page && Number(change.page) > 1 ? { page: String(change.page) } : {}),
+    });
   const showFilters = tab === 'overview' || tab === 'all' || tab === 'completed';
   const filterSelect = (
     label: string,
@@ -214,12 +273,12 @@ export function ComplianceScreen() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Link
+          <OriginLink
             href="/compliance/new"
             className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 text-base font-medium text-on-action hover:bg-action-hover"
           >
             <Plus aria-hidden weight="bold" className="size-5" /> Add Deadline
-          </Link>
+          </OriginLink>
           <button
             type="button"
             aria-pressed={taxCalendar}
@@ -272,10 +331,9 @@ export function ComplianceScreen() {
         {card('next30', Warning, 'red', 'Upcoming (Next 30 Days)', s?.kpis.next30Days, () =>
           choose('overview'),
         )}
-        {card('overdue', Warning, 'amber', 'Overdue', s?.kpis.overdue, () => {
-          choose('all');
-          setFilters({ ...BLANK, range: 'ALL', status: 'OVERDUE' });
-        })}
+        {card('overdue', Warning, 'amber', 'Overdue', s?.kpis.overdue, () =>
+          choose('all', { ...BLANK, range: 'ALL', status: 'OVERDUE' }),
+        )}
         {card(
           'done',
           CheckCircle,
@@ -329,11 +387,9 @@ export function ComplianceScreen() {
               <button
                 type="button"
                 className="text-sm font-medium text-link"
-                onClick={() => {
-                  setFilters({ ...BLANK, range: tab === 'overview' ? 'NEXT_30_DAYS' : 'ALL' });
-                  setDate(undefined);
-                  setPage(1);
-                }}
+                onClick={() =>
+                  go({ ...filterParams({ ...BLANK, range: undefined }), range: null, date: null })
+                }
               >
                 Reset
               </button>
@@ -371,6 +427,27 @@ export function ComplianceScreen() {
               <span className="text-sm text-text">Show only my deadlines</span>
             </div>
           </form>
+          {risk && filters.clientId ? (
+            <p
+              role="status"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-warning-soft p-3 text-sm text-heading"
+              data-testid="risk-banner"
+            >
+              <span>
+                <strong>
+                  {clients.find((c) => c.id === filters.clientId)?.displayName ?? 'This client'}
+                </strong>{' '}
+                is at risk: {risk}.
+              </span>
+              <button
+                type="button"
+                className="font-medium text-link"
+                onClick={() => go({ client: null, risk: null })}
+              >
+                Show all clients
+              </button>
+            </p>
+          ) : null}
           <section
             className="min-w-0 rounded-xl bg-surface p-4 shadow-md"
             aria-label={
@@ -385,11 +462,21 @@ export function ComplianceScreen() {
                 >
                   <CalendarCheck weight="fill" className="size-5" />
                 </span>
-                {tab === 'overview'
-                  ? 'Upcoming Deadlines'
-                  : tab === 'completed'
-                    ? 'Completed Deadlines'
-                    : 'All Deadlines'}
+                <span className="flex flex-col">
+                  {tab === 'overview'
+                    ? 'Upcoming Deadlines'
+                    : tab === 'completed'
+                      ? 'Completed Deadlines'
+                      : 'All Deadlines'}
+                  <span
+                    className="font-sans text-xs font-normal text-muted"
+                    data-testid="date-basis"
+                  >
+                    {tab === 'overview'
+                      ? 'Open deadlines only, by effective due date (the extended date when an extension was filed).'
+                      : 'Dates and ranges use the effective due date (the extended date when an extension was filed).'}
+                  </span>
+                </span>
               </h2>
               {tab === 'overview' ? (
                 <button
@@ -407,7 +494,7 @@ export function ComplianceScreen() {
                 <button
                   type="button"
                   className="text-link underline"
-                  onClick={() => setDate(undefined)}
+                  onClick={() => go({ date: null })}
                 >
                   Show all dates
                 </button>
@@ -436,7 +523,7 @@ export function ComplianceScreen() {
         <div className="grid gap-4 lg:grid-cols-3">
           <DeadlineCalendar
             selected={date}
-            onDate={setDate}
+            onDate={(d) => go({ date: d ?? null })}
             filters={{
               ...(filters.type ? { type: filters.type } : {}),
               ...(filters.clientId ? { clientId: filters.clientId } : {}),
@@ -450,6 +537,9 @@ export function ComplianceScreen() {
             loading={summary.isPending}
             failed={summary.isError}
             onAll={() => choose('client')}
+            viewHref={(clientId, reason) =>
+              `${pathname}?${new URLSearchParams({ tab: 'all', range: 'ALL', client: clientId, risk: reason }).toString()}`
+            }
           />
         </div>
       ) : null}

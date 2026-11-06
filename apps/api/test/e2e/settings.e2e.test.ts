@@ -355,6 +355,13 @@ describe('setup wizard', () => {
     expect((await setup('post', '/complete')).body).toEqual(finished);
     expect((await setup('put', '/steps/team')).body).toEqual(finished);
     expect(await auditRows(firms.pending.id, 'setup.finished')).toHaveLength(1);
+    // TP-F18: the first Finish installed the 48 starter templates; repeating added none.
+    expect(
+      (await call('get', '/templates/starters', people.ownerPending, firms.pending.id)).body,
+    ).toEqual({ available: 48, installed: 48 });
+    expect(await auditRows(firms.pending.id, 'message_template.starters_installed')).toHaveLength(
+      1,
+    );
   });
 
   it('saves at the same moment never fail: first steps, and Save Draft with Finish', async () => {

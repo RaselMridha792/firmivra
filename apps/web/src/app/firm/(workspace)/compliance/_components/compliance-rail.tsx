@@ -18,6 +18,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { OriginLink } from '../../../../../components/origin-link';
 import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -211,11 +212,14 @@ export function AtRiskCard({
   loading,
   failed,
   onAll,
+  viewHref,
 }: {
   summary?: ComplianceSummary;
   loading: boolean;
   failed: boolean;
   onAll: () => void;
+  /** CD-F03: the client's own deadlines, with the reason shown (not the generic client page). */
+  viewHref: (clientId: string, reason: string) => string;
 }) {
   const rows = summary?.atRiskClients ?? [];
   const why = (r: (typeof rows)[number]) =>
@@ -263,8 +267,8 @@ export function AtRiskCard({
                 </span>
               </div>
               <Link
-                href={`/clients/${r.client.id}`}
-                aria-label={`View ${r.client.displayName}`}
+                href={viewHref(r.client.id, why(r))}
+                aria-label={`View ${r.client.displayName}'s deadlines`}
                 className="inline-flex min-h-9 shrink-0 items-center rounded-control border border-action px-4 text-sm font-medium text-action hover:bg-accent-soft"
               >
                 View
@@ -283,9 +287,9 @@ export function QuickActions({ onBulk }: { onBulk: () => void }) {
     <section className={card} data-testid="card-quick" aria-label="Quick Actions">
       <CardHead icon={Lightning} title="Quick Actions" />
       <div className="grid grid-cols-2 gap-3">
-        <Link href="/compliance/new" className={outlined}>
+        <OriginLink href="/compliance/new" className={outlined}>
           <Plus aria-hidden weight="bold" className="size-4" /> Add Deadline
-        </Link>
+        </OriginLink>
         <Link href="/compliance/recurring/new" className={outlined}>
           <ArrowsClockwise aria-hidden weight="bold" className="size-4" /> Create Recurring
         </Link>

@@ -229,7 +229,17 @@ export type ComplianceDeadline = z.infer<typeof ComplianceDeadline>;
 
 // ---------- List ----------
 
-export const ComplianceDeadlineTab = z.enum(['ALL', 'COMPLETED', 'RECURRING', 'ARCHIVED']);
+/**
+ * UPCOMING (CD-F02, the overview's list): open deadlines only, never Completed or Not Applicable.
+ * ALL: every deadline that is not archived.
+ */
+export const ComplianceDeadlineTab = z.enum([
+  'ALL',
+  'UPCOMING',
+  'COMPLETED',
+  'RECURRING',
+  'ARCHIVED',
+]);
 export type ComplianceDeadlineTab = z.infer<typeof ComplianceDeadlineTab>;
 
 export const ComplianceDateRange = z.enum([
@@ -256,7 +266,8 @@ export const ComplianceDeadlineSort = z.enum([
 
 /**
  * GET /business/compliance/deadlines (and /export, which ignores page and pageSize). `from` and
- * `to` win over `range`. ALL shows every deadline that is not archived.
+ * `to` win over `range`; both are on the effective due date (the extended date when an extension
+ * was filed, CD-F02). ALL shows every deadline that is not archived.
  */
 export const ComplianceDeadlinesQuery = z
   .strictObject({
