@@ -2,10 +2,11 @@
 
 import { Button } from '@firmivra/ui';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { ChannelNotice } from './channel-notice';
 import { COMM_ERRORS, quiet } from './communications-shared';
 
@@ -25,6 +26,9 @@ export function NewCommunication({
   templateId?: string;
 }) {
   const router = useRouter();
+  // TP-F01: Use from a Templates list (`?from=`, SH1) keeps its Back to that list on the draft,
+  // and on this page when the draft can't start.
+  const from = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
   const [error, setError] = useState<string>();
   const [blocked, setBlocked] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -35,7 +39,10 @@ export function NewCommunication({
     setStarting(true);
     api.communications
       .create({ channel, ...(templateId ? { templateId } : {}) })
-      .then((c) => router.replace(`/communications/${c.id}/edit`))
+      .then((c) => {
+        const edit = `/communications/${c.id}/edit`;
+        router.replace(from ? withOrigin(edit, from) : edit);
+      })
       .catch((e: unknown) => {
         startedRef.current = false;
         setStarting(false);

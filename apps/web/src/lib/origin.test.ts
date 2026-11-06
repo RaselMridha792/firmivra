@@ -55,6 +55,12 @@ describe('withOrigin', () => {
     expect(originLabel('/compliance/recurring-x')).toBe('Compliance & Deadlines');
     // RP-F01: the overview, with its range and comparison.
     expect(originLabel('/reports?range=last_month&compare=NONE')).toBe('Reports');
+    // TP-F01: a template opened from a library or the Templates overview.
+    expect(originLabel('/templates/library/email?status=DRAFT&tag=VIP&sort=name')).toBe(
+      'Template Library',
+    );
+    expect(originLabel('/templates?view=mine&q=Fake')).toBe('Templates');
+    expect(originLabel('/templates/0199c0f0-3e00-7000-8000-000000000001/edit')).toBe('Templates');
   });
 });
 

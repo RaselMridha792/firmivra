@@ -13,10 +13,9 @@ import {
   ShareNetwork,
   Star,
 } from '@phosphor-icons/react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useId, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { ApiRequestError } from '@firmivra/types';
 import { errorMessage } from '../../../../../lib/errors';
@@ -39,7 +38,8 @@ export function TemplateMenu({
   row: Pick<MessageTemplateRow, 'id' | 'name' | 'kind' | 'status' | 'favorite'>;
   onNotice: (text: string, tone: 'success' | 'error') => void;
 }) {
-  const router = useRouter();
+  // TP-F01: Edit and a duplicate open with this list as their origin, so Cancel comes back to it.
+  const open = useOriginNavigate();
   const [dialog, setDialog] = useState<Dialog>();
   const options = { invalidate: [...TEMPLATES_KEY] };
   const fail = (e: unknown) => onNotice(errorMessage(e, TEMPLATE_ERRORS), 'error');
@@ -67,7 +67,7 @@ export function TemplateMenu({
     ...(danger ? { danger } : {}),
   });
   const items: ActionMenuItem[] = [
-    item('Edit', PencilSimple, () => router.push(`/templates/${row.id}/edit`)),
+    item('Edit', PencilSimple, () => open(`/templates/${row.id}/edit`)),
     item('Preview', Eye, () => setDialog('preview')),
     ...(row.status === 'DRAFT'
       ? [
@@ -89,7 +89,7 @@ export function TemplateMenu({
       : []),
     item('Duplicate', Copy, () =>
       duplicate.mutate(undefined, {
-        onSuccess: (d) => router.push(`/templates/${d.id}/edit`),
+        onSuccess: (d) => open(`/templates/${d.id}/edit`),
         onError: fail,
       }),
     ),
@@ -245,9 +245,10 @@ export function UseTemplate({
   if (!use) return null;
   if ('href' in use) {
     return (
-      <Link href={use.href} aria-label={`Use ${row.name}`} className={className}>
+      // TP-F01: the page Use opens offers Back to this list, also when it can't start.
+      <OriginLink href={use.href} aria-label={`Use ${row.name}`} className={className}>
         Use
-      </Link>
+      </OriginLink>
     );
   }
   const { reason } = use;

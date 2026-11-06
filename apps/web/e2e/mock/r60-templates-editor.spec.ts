@@ -11,7 +11,8 @@ const base = `http://app.localhost:${port}/templates`;
 const openReminder = async (page: Page) => {
   await page.goto(`${base}/library/email`);
   await page.getByRole('link', { name: 'Tax Season Reminder (2026)' }).first().click();
-  await page.waitForURL(/\/templates\/[^/]+\/edit$/);
+  // TP-F01: opened from the library, the editor knows the way back (`?from=`).
+  await page.waitForURL(/\/templates\/[^/]+\/edit\?from=%2Ftemplates%2Flibrary%2Femail$/);
   await expect(page.getByTestId('template-editor')).toBeVisible();
 };
 
