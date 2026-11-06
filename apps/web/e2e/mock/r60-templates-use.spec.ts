@@ -22,7 +22,12 @@ const link = async (page: Page, slug: string, name: string, picker: string, choi
   await page.waitForURL(/\/edit$/);
   await page.getByTestId('structure-panel').getByLabel(picker).selectOption({ label: choice });
   await page.getByTestId('save-template').click();
-  await expect(page.getByText('Template saved.').filter({ visible: true })).toBeVisible();
+  // A template an automation uses asks before a save (Save Anyway).
+  const saved = page.getByText('Template saved.').filter({ visible: true });
+  const anyway = page.getByRole('button', { name: 'Save Anyway' });
+  await expect(saved.or(anyway)).toBeVisible();
+  if (await anyway.isVisible()) await anyway.click();
+  await expect(saved).toBeVisible();
   await page.goBack();
   await expect(page.getByTestId('library-page')).toBeVisible();
 };
