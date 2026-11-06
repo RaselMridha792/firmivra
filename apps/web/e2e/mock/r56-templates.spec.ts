@@ -21,9 +21,13 @@ test('Home: sixteen kinds with counts, recent templates, tools and tips', async 
   );
   await expect(page.getByTestId('kind-cards').getByRole('listitem')).toHaveCount(16);
   await expect(page.getByTestId('kind-email')).toContainText('templates');
-  // Use opens a Communications draft: Email and SMS templates only (one of the five is another
-  // kind, a document request; the guide's Document Signature Request is an Email, TP-F18).
-  await expect(page.getByTestId('recent').getByRole('link', { name: /^Use / })).toHaveCount(4);
+  // Use opens a Communications draft: Email and SMS templates only. The newest is the draft
+  // "Private Draft Idea", whose Use is switched off (TP-F14); which kinds fill the other four
+  // varies, since several starters share a day.
+  await expect(page.getByTestId('recent').getByTestId('use-blocked')).toHaveCount(1);
+  await expect(
+    page.getByTestId('recent').getByRole('link', { name: /^Use / }).first(),
+  ).toBeVisible();
   await expect(page.getByTestId('recent')).toContainText('Recent Templates');
   await expect(page.getByTestId('tools').getByRole('button')).toHaveCount(4);
   await expect(page.getByTestId('tips')).toContainText('merge fields');

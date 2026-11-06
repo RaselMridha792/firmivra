@@ -640,6 +640,7 @@ export function createTemplatesMock({
               (query.tab === 'favorites' && r.favorite)) &&
             (!query.kind || r.d.kind === query.kind) &&
             (!query.categoryId || r.d.category?.id === query.categoryId) &&
+            (query.uncategorized !== true || !r.d.category) &&
             (!query.ownerUserId || r.d.owner.userId === query.ownerUserId) &&
             (!query.tag || r.d.tags.some((t) => t.toLowerCase() === query.tag!.toLowerCase())) &&
             (query.automations === undefined || r.d.includeInAutomations === query.automations) &&
@@ -859,11 +860,10 @@ export function createTemplatesMock({
             continue;
           }
           if (input.action === 'ARCHIVE') {
-            if (r.d.automationCount > 0) {
-              skipped.push({ id: tid, reason: 'Used by an automation.' });
-              continue;
-            }
+            // As the API: `confirm: true` is the confirmation, so one an automation uses is
+            // archived too (TP-F10's question says so first) and leaves the automations.
             r.d.status = 'ARCHIVED';
+            r.d.includeInAutomations = false;
           } else if (input.action === 'SET_CATEGORY') {
             try {
               const c = categoryOk(r.d.kind, input.categoryId);
