@@ -189,7 +189,7 @@ Progress (Templates, Oct 28 review):
   - TP-F15: tags and who updated show at every width, and Recent names the category.
   - TP-F03: the sidebar heading counts categories, All Categories adds up, and Uncategorized lists
     the loose ones (`uncategorized=true`).
-- TP-F08 part 2, branch `rasel/R60-template-use` (the lead's answers, Nov 7):
+- TP-F08 part 2, #1275 (merged; the lead's answers, Nov 7):
   - Each row carries `linkedTemplateId`.
   - Use on a Task template opens `/tasks/new?template=` with its task template.
   - Use on a Document Request template opens `/documents/requests/new?template=`, which adds that
@@ -200,6 +200,17 @@ Progress (Templates, Oct 28 review):
   - Tax Workflow and Bookkeeping keep Use off with the plain reason; no new flow (the lead logs
     "Tax Returns and Bookkeeping take a template" as a later item).
   - Preview shows the saved structure.
+- Merge groups, branch `rasel/R60-template-merge-groups`: TP-F09 (the editor's merge fields have
+  Tax and Staff groups, searchable, inserting at the focused field) and the new-template console
+  error ("Query data cannot be undefined": the detail query answered undefined for a new one).
+- The lead's answers (Nov 7), each a one-off exception to owned paths, stated in its PR:
+  - Images (TP-F07, CM-F08): `LeadsModule` exports `LeadEmailService`, and Templates and
+    Communications get their own ticket and confirm routes, guarded like each module's write
+    routes, with a firm B case.
+  - `packages/ui` RichTextEditor gains opt-in `textAlign` and `onInsertButton` (https only); the
+    sanitizers keep only left, center or right and the one button class.
+  - TP-F16: mammoth in `apps/api`, for rich kinds only, under the existing upload cap, through the
+    allowlist sanitizer; images are dropped, nothing is fetched and the DOCX is not stored.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
