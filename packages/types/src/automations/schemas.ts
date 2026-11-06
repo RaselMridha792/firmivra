@@ -116,6 +116,11 @@ export const AutomationEvent = z.object({
    * `integrationAvailable` false, no verified integration sends it yet.
    */
   confirmation: z.object({ integrationAvailable: z.boolean() }).nullable(),
+  /**
+   * False for an event about the firm itself (a team member, a connection, a firm-wide send): it
+   * has no client, so only an action that needs none (`needsClient` false) fits it.
+   */
+  hasClient: z.boolean(),
 });
 export type AutomationEvent = z.infer<typeof AutomationEvent>;
 
@@ -135,6 +140,8 @@ export const AutomationActionField = z.object({
     'DATE_RULE',
     /** The firm's live tags, by id (GET /business/tags): an array of up to 20. */
     'TAGS',
+    /** Members of the firm, by user id: an array of up to 20 (Notify staff's recipients). */
+    'MEMBERS',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),
@@ -155,6 +162,8 @@ export const AutomationActionTypeInfo = z.object({
   requiresIntegration: z.string().nullable(),
   /** Sends to a client: it respects consent, contact data, quiet hours and provider limits. */
   contactsClient: z.boolean(),
+  /** Acts for the record's client (a task, a message, a tag): an event with no client can't use it. */
+  needsClient: z.boolean(),
 });
 export type AutomationActionTypeInfo = z.infer<typeof AutomationActionTypeInfo>;
 

@@ -24,7 +24,9 @@ test('Home: sixteen kinds with counts, recent templates, tools and tips', async 
   // Use opens a Communications draft: Email and SMS templates only. The newest is the draft
   // "Private Draft Idea", whose Use is switched off (TP-F14); which kinds fill the other four
   // varies, since several starters share a day.
-  await expect(page.getByTestId('recent').getByTestId('use-blocked')).toHaveCount(1);
+  await expect(
+    page.getByTestId('recent').getByRole('button', { name: 'Use Private Draft Idea' }),
+  ).toHaveAttribute('aria-disabled', 'true');
   await expect(
     page.getByTestId('recent').getByRole('link', { name: /^Use / }).first(),
   ).toBeVisible();

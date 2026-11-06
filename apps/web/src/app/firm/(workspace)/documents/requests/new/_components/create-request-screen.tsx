@@ -182,6 +182,16 @@ export function CreateRequestScreen() {
     const t: RequestTemplate | undefined = templates.data?.find((x) => x.id === id);
     if (t) patch({ items: withTemplate(view.items, t) });
   };
+  // `?template=` (TP-F08, R60; a one-off exception to owned paths the lead gave on Nov 7): Use on
+  // a Document Request template in Templates opens this screen with the request template it stands
+  // for, added once as its Use Template adds it. Only the firm's own list is searched, so an
+  // unknown or another firm's id adds nothing; a saved draft (`?draft=`) keeps its own documents.
+  const templateParam = params.get('template');
+  const [templateApplied, setTemplateApplied] = useState(false);
+  if (templateParam && !draftId && !templateApplied && templates.data) {
+    setTemplateApplied(true);
+    addTemplate(templateParam);
+  }
 
   const today = todayIso();
   function verify(at: CheckPoint): DraftErrors {

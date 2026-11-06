@@ -1,6 +1,6 @@
 import type { TxClient } from '@firmivra/db';
 import { liveClient } from '../tasks/task-common.js';
-import { AUDIT_EVENTS, clientTypes, loadAuditEvent } from './audit-events.js';
+import { AUDIT_EVENTS, clientTypes, loadAuditEvent, providerName } from './audit-events.js';
 import { CONFIRMABLE_EVENTS } from './catalog.js';
 import type { FieldValue } from './logic.js';
 
@@ -358,6 +358,10 @@ const LOADERS: Record<string, Loader> = {
       },
     }));
   },
+  // AU-F20: the firm's syncs with a provider that finished, one occurrence per sync run.
+  'integration.sync_completed': (tx, s) => syncRuns(tx, s, ['SUCCEEDED', 'PARTIAL']),
+  'integration.sync_failed': (tx, s) => syncRuns(tx, s, ['FAILED']),
+  'integration.reauthorization_needed': (tx, s) => syncRuns(tx, s, ['FAILED'], REAUTHORIZE),
   // AU-F30 to F32: the external outcomes members confirmed (automation_event_confirmations).
   ...Object.fromEntries(
     CONFIRMABLE_EVENTS.map((e) => [
@@ -427,6 +431,49 @@ export async function loadCandidates(
   if (!load) return [];
   const rows = await load(tx, scope);
   return rows.filter((c) => timingHolds(timing, c.at, scope.now));
+}
+
+/** The sync errors only a new authorization fixes (integrations.service.ts marks them too). */
+const REAUTHORIZE = ['authorization_expired', 'authorization_revoked', 'permission_missing'];
+
+/**
+ * Sync runs that finished (Integrations' own worker sets the status and the time), not a connection
+ * test or a webhook delivery, which are runs of their own kind.
+ */
+async function syncRuns(
+  tx: TxClient,
+  s: Scope,
+  statuses: ('SUCCEEDED' | 'PARTIAL' | 'FAILED')[],
+  errorCodes?: string[],
+): Promise<Candidate[]> {
+  const rows = await tx.integrationSyncRun.findMany({
+    where: {
+      businessId: s.businessId,
+      status: { in: statuses },
+      entity: { notIn: ['test', 'webhook'] },
+      finishedAt: { gte: s.since, lte: s.now },
+      ...(errorCodes ? { errorCode: { in: errorCodes } } : {}),
+      ...(s.recordId ? { connectionId: s.recordId } : {}),
+    },
+    select: {
+      id: true,
+      connectionId: true,
+      status: true,
+      finishedAt: true,
+      connection: { select: { provider: true } },
+    },
+    orderBy: [{ finishedAt: 'asc' }, { id: 'asc' }],
+    take: s.limit ?? LIMIT,
+  });
+  return rows.map((r) => ({
+    recordKind: 'integration_connection',
+    recordId: r.connectionId,
+    clientId: null,
+    label: providerName(r.connection.provider),
+    at: r.finishedAt,
+    occurrence: r.id,
+    fields: { provider: r.connection.provider, syncStatus: r.status },
+  }));
 }
 
 /** What an action needs to write its words: the client's name and the record's label. */

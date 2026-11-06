@@ -23,7 +23,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewDialog } from './template-dialogs';
 import { TEMPLATES_KEY, TEMPLATE_ERRORS, dayText, quiet } from './templates-shared';
-import { blockedUseReason, templateUseHref } from './use-template';
+import { templateUse } from './use-template';
 
 type Dialog = 'preview' | 'share' | 'archive';
 
@@ -224,31 +224,33 @@ export function ArchiveDialog({
 }
 
 /**
- * Use on a template's row: opens a Communications draft copied from an active Email or SMS
- * template. A draft or an archived one keeps Use in place but switched off, with the reason on
- * hover, for screen readers and on a press (TP-F13, TP-F14); the API refuses them too.
+ * Use on a template's row (`templateUse`): an Email or SMS template opens a Communications draft
+ * copied from it; a Task, Document Request or Intake template starts its module's own task,
+ * request or send from the template it stands for (TP-F08). When it can't be used (a draft, an
+ * archived one, nothing chosen yet, Tax Workflow or Bookkeeping) Use stays in place switched off,
+ * with the reason on hover, for screen readers and on a press (TP-F13, TP-F14).
  */
 export function UseTemplate({
   row,
   className,
   onNotice,
 }: {
-  row: Pick<MessageTemplateRow, 'id' | 'name' | 'kind' | 'status'>;
+  row: Pick<MessageTemplateRow, 'id' | 'name' | 'kind' | 'status' | 'linkedTemplateId'>;
   className: string;
   onNotice: (text: string, tone: 'success' | 'error') => void;
 }) {
   const { role } = useFirm();
   const reasonId = useId();
-  const href = templateUseHref(row.kind, row.id);
-  if (!href) return null;
-  const reason = blockedUseReason(row.status, role === 'OWNER' || role === 'ADMIN');
-  if (!reason) {
+  const use = templateUse(row, role === 'OWNER' || role === 'ADMIN');
+  if (!use) return null;
+  if ('href' in use) {
     return (
-      <Link href={href} aria-label={`Use ${row.name}`} className={className}>
+      <Link href={use.href} aria-label={`Use ${row.name}`} className={className}>
         Use
       </Link>
     );
   }
+  const { reason } = use;
   return (
     <>
       <button

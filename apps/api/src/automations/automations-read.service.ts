@@ -208,6 +208,20 @@ export class AutomationsReadService {
             path: `actions.${i}.config.tagIds`,
           });
       }
+      // Notify staff's recipients: active members of this firm only (another firm's person never).
+      const memberIds = a.config.memberUserIds;
+      if (Array.isArray(memberIds) && memberIds.length > 0) {
+        const active = await tx.membership.count({
+          where: { businessId, status: 'ACTIVE', userId: { in: memberIds } },
+        });
+        if (active < new Set(memberIds).size)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'A person to notify is not an active member of the firm',
+            path: `actions.${i}.config.memberUserIds`,
+          });
+      }
       const assignee = a.config.assigneeUserId;
       if (typeof assignee === 'string') {
         const m = await this.actingMember(tx, businessId, assignee);

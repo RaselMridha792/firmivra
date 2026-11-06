@@ -178,7 +178,7 @@ Progress (Templates, Oct 28 review):
 - Structures, #1265 (merged as `df98ab73`): TP-F08 part 1 (Task, Document Request and Intake templates stand for
   their module's own template; Tax Workflow and Bookkeeping keep a versioned structure). Part 2,
   using the structure downstream, is next.
-- Library PR, branch `rasel/R60-templates-library`:
+- Library, #1271 (merged):
   - TP-F17: rename sent `PATCH` while the API's route is `PUT`, hence "We couldn't find that".
   - TP-F10: Archive asks first from the menu, the editor and bulk, with the name, its use and the
     automations.
@@ -189,6 +189,17 @@ Progress (Templates, Oct 28 review):
   - TP-F15: tags and who updated show at every width, and Recent names the category.
   - TP-F03: the sidebar heading counts categories, All Categories adds up, and Uncategorized lists
     the loose ones (`uncategorized=true`).
+- TP-F08 part 2, branch `rasel/R60-template-use` (the lead's answers, Nov 7):
+  - Each row carries `linkedTemplateId`.
+  - Use on a Task template opens `/tasks/new?template=` with its task template.
+  - Use on a Document Request template opens `/documents/requests/new?template=`, which adds that
+    request template's documents (a one-off exception to owned paths the lead gave; only the firm's
+    own list is searched).
+  - Use on an Intake template opens `/intake-forms/send?formId=`.
+  - Until one is chosen, Use says what is missing.
+  - Tax Workflow and Bookkeeping keep Use off with the plain reason; no new flow (the lead logs
+    "Tax Returns and Bookkeeping take a template" as a later item).
+  - Preview shows the saved structure.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

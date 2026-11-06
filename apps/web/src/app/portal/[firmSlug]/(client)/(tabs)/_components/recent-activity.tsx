@@ -64,7 +64,9 @@ function activityIcon(item: NotificationItem): { glyph: ActivityGlyph; color: st
       return { glyph: 'invoice', color: 'text-success' };
     case 'tax_return':
       return { glyph: 'return', color: portalIconTones.orange };
+    // 'automation_run' is staff-only (an automation's notice): never in the portal.
     case 'engagement':
+    case 'automation_run':
       return { glyph: 'service', color: 'text-firm-text' };
     case 'client_account':
     case 'membership':

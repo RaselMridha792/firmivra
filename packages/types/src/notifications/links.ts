@@ -20,6 +20,8 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   // The client's private notes never reach the firm; the member's own account has no page yet.
   client_note_reminder: null,
   user: null,
+  // By its own id (below): the run in Automations > Logs.
+  automation_run: null,
 };
 
 /** Portal pages, by kind, after `/{firmSlug}`. */
@@ -37,6 +39,7 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   // A sign-up waiting and the firm's team are the firm's business.
   client_account: null,
   membership: null,
+  automation_run: null,
 };
 
 /**
@@ -56,6 +59,9 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   }
   // An appointment opens that appointment (Octavia's N3); its page checks access again.
   if (kind === 'appointment') return `/calendar/${id}`;
+  // An automation's run opens in its log; the page loads it through the firm's own API (404 for
+  // a run of another firm, or of a client a Staff member isn't assigned to).
+  if (kind === 'automation_run') return `/automations/logs?run=${id}`;
   const page = FIRM[kind];
   if (typeof page !== 'function') return page;
   return clientId ? page(clientId) : null;
