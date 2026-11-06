@@ -19,6 +19,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -81,6 +82,11 @@ export function TemplatesScreen() {
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const summary = useApiQuery([...TEMPLATES_KEY, 'summary'], () => api.templates.summary());
   const starters = useApiQuery([...TEMPLATES_KEY, 'starters'], () => api.templates.starters());
+  // TP-F18: Owners and Admins add the ready-made templates whenever some are missing, not only in
+  // a firm with no templates at all (a firm with its own templates could never add them).
+  const { role } = useFirm();
+  const canInstall = role === 'OWNER' || role === 'ADMIN';
+  const missing = starters.data ? starters.data.available - starters.data.installed : 0;
   const s = summary.data;
   const filtering = tab !== 'all' || categoryId !== '' || term !== '' || showAll;
   const results = useApiQuery([...TEMPLATES_KEY, 'home-results', tab, categoryId, term, page], () =>
@@ -95,7 +101,6 @@ export function TemplatesScreen() {
   const install = useApiMutation(() => api.templates.installStarters(), {
     invalidate: [...TEMPLATES_KEY],
   });
-  const empty = s !== undefined && s.total === 0 && !filtering;
 
   const columns: Column<MessageTemplateRow>[] = [
     {
@@ -250,17 +255,20 @@ export function TemplatesScreen() {
         </div>
       </div>
 
-      {empty && (starters.data?.available ?? 0) > starters.data!.installed ? (
+      {canInstall && missing > 0 ? (
         <section
           className={`${card} flex flex-wrap items-center justify-between gap-3`}
           data-testid="starters-callout"
         >
           <div>
             <h2 className="font-display text-lg font-bold text-heading">
-              Start with {starters.data?.available} ready-made templates
+              {starters.data?.installed
+                ? `${missing} of ${starters.data.available} ready-made templates are not added yet`
+                : `Start with ${starters.data?.available} ready-made templates`}
             </h2>
             <p className="text-sm text-text">
-              Welcome emails, reminders, invoices and more. You can edit every one of them.
+              Welcome emails, tax season, appointments, invoices, bookkeeping, payroll, leads and
+              more, active and shared with your team. You can edit every one of them.
             </p>
           </div>
           <Button
@@ -272,7 +280,7 @@ export function TemplatesScreen() {
               })
             }
           >
-            Install starter templates
+            {starters.data?.installed ? 'Add the missing templates' : 'Install starter templates'}
           </Button>
         </section>
       ) : null}

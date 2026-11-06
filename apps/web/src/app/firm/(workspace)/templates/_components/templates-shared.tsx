@@ -252,6 +252,7 @@ export const TEMPLATE_ERRORS: Record<string, string> = {
   NOT_AUTOMATION_ELIGIBLE: 'This kind of template cannot be used in automations.',
   NOT_A_MEMBER: 'That person is not on your team.',
   NOT_THE_OWNER: 'Only the owner can change this template.',
+  ACTIVATE_NOT_ALLOWED: 'Only an Owner or Admin can activate a template. Ask one to activate it.',
   TEMPLATE_ARCHIVED: 'Restore the template before changing it.',
   FIELD_IN_USE: 'Templates still use this field.',
   TEST_SEND_REFUSED: 'The test could not be sent.',

@@ -153,6 +153,27 @@ const ADVISORY_STATUSES = [
   'ARCHIVED',
 ];
 const ADVISORY_FIELDS = [CLIENT_TYPE, statuses('status', 'Plan status', ADVISORY_STATUSES)];
+const move = (values: string[]) => [
+  CLIENT_TYPE,
+  statuses('newStatus', 'New status', values),
+  statuses('previousStatus', 'Previous status', values),
+];
+const BOOKKEEPING_MOVE = move([
+  'ON_TRACK',
+  'NEEDS_ATTENTION',
+  'MISSING_DOCUMENTS',
+  'OVERDUE',
+  'NOT_STARTED',
+]);
+const PAYROLL_MOVE = move([
+  'ON_TRACK',
+  'PROCESSING',
+  'ACTION_REQUIRED',
+  'PAST_DUE',
+  'NOT_STARTED',
+  'ON_HOLD',
+  'ARCHIVED',
+]);
 
 /**
  * AU-F08 to F14: an event that is a change the source module records (audit-events.ts): it runs
@@ -560,6 +581,155 @@ const EVENT_DEFS: EventDef[] = [
     'When a client is archived from the advisory program',
     'advisory_client',
     [CLIENT_TYPE],
+  ),
+  // ---------- Bookkeeping (AU-F16) ----------
+  change(
+    'bookkeeping.enrolled',
+    'BOOKKEEPING',
+    'Client enrolled in bookkeeping',
+    'When a client is added to bookkeeping',
+    'bookkeeping_client',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'bookkeeping.status_changed',
+    'BOOKKEEPING',
+    'Bookkeeping status changed',
+    'When a client’s bookkeeping moves to another status',
+    'bookkeeping_client',
+    BOOKKEEPING_MOVE,
+  ),
+  change(
+    'bookkeeping.assignment_changed',
+    'BOOKKEEPING',
+    'Bookkeeper assigned or changed',
+    'When a client’s bookkeeping is assigned to someone',
+    'bookkeeping_client',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'bookkeeping.period_opened',
+    'BOOKKEEPING',
+    'Bookkeeping period opened',
+    'When a new period is opened for a client',
+    'bookkeeping_period',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'bookkeeping.reconciliation_started',
+    'BOOKKEEPING',
+    'Reconciliation started',
+    'When a reconciliation is started for an account',
+    'bookkeeping_reconciliation',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'bookkeeping.report_ready',
+    'BOOKKEEPING',
+    'Bookkeeping report ready',
+    'When a report is added for a client',
+    'bookkeeping_report',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'bookkeeping.connection_disconnected',
+    'BOOKKEEPING',
+    'Accounting connection disconnected',
+    'When a client’s accounting connection is disconnected',
+    'bookkeeping_connection',
+    [CLIENT_TYPE],
+  ),
+  // ---------- Payroll (AU-F17): a step recorded here never runs or submits payroll ----------
+  change(
+    'payroll.enrolled',
+    'PAYROLL',
+    'Client enrolled in payroll',
+    'When a client is added to payroll',
+    'payroll_client',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.status_changed',
+    'PAYROLL',
+    'Payroll status changed',
+    'When a client’s payroll service moves to another status',
+    'payroll_client',
+    PAYROLL_MOVE,
+  ),
+  change(
+    'payroll.run_created',
+    'PAYROLL',
+    'Payroll run created',
+    'When a payroll run is started for a period',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.run_ready',
+    'PAYROLL',
+    'Payroll run ready for review',
+    'When a run is marked ready for review',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.run_approved',
+    'PAYROLL',
+    'Payroll run approved',
+    'When a reviewer approves a run',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.run_returned',
+    'PAYROLL',
+    'Payroll run returned',
+    'When a run is reopened for changes',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.run_submitted',
+    'PAYROLL',
+    'Payroll run submitted',
+    'When your team records that a run was submitted to the provider',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.run_completed',
+    'PAYROLL',
+    'Payroll run completed',
+    'When your team records that a run completed',
+    'payroll_run',
+    [CLIENT_TYPE],
+  ),
+  change(
+    'payroll.report_ready',
+    'PAYROLL',
+    'Payroll report ready',
+    'When a payroll report is added for a client',
+    'payroll_report',
+    [CLIENT_TYPE],
+  ),
+  // ---------- Communications (AU-F18), the client's own ----------
+  change(
+    'communication.consent_changed',
+    'COMMUNICATIONS',
+    'Client unsubscribed or messaging consent changed',
+    'When a client opts out, reports spam or opts back in, by email or text',
+    'client',
+    [
+      CLIENT_TYPE,
+      statuses('channel', 'Channel', ['EMAIL', 'SMS']),
+      statuses('consentStatus', 'Consent', [
+        'OPTED_IN',
+        'OPTED_OUT',
+        'BOUNCED',
+        'INVALID',
+        'COMPLAINED',
+      ]),
+    ],
   ),
   {
     code: 'invoice.overdue',

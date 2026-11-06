@@ -5,6 +5,7 @@ import { ActionMenu, type ActionMenuItem, Button, Checkbox, Modal } from '@firmi
 import {
   Archive,
   ArrowCounterClockwise,
+  CheckCircle,
   Copy,
   DotsThreeVertical,
   Eye,
@@ -14,6 +15,7 @@ import {
 } from '@phosphor-icons/react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { ApiRequestError } from '@firmivra/types';
 import { errorMessage } from '../../../../../lib/errors';
@@ -23,7 +25,10 @@ import { TEMPLATES_KEY, TEMPLATE_ERRORS, quiet } from './templates-shared';
 
 type Dialog = 'preview' | 'share' | 'archive';
 
-/** The three-dot menu of one template: Edit, Preview, Duplicate, Share, Favorite, Archive. */
+/**
+ * The three-dot menu of one template: Edit, Preview, Activate (a draft, CM-F12), Duplicate, Share,
+ * Favorite, Archive. Activate is an Owner's or Admin's; Staff see who can do it.
+ */
 export function TemplateMenu({
   row,
   onNotice,
@@ -42,6 +47,12 @@ export function TemplateMenu({
     options,
   );
   const restore = useApiMutation(() => api.templates.restore(row.id), options);
+  const { role } = useFirm();
+  const canActivate = role === 'OWNER' || role === 'ADMIN';
+  const activate = useApiMutation(async () => {
+    const t = await api.templates.get(row.id);
+    return api.templates.update(row.id, { status: 'ACTIVE', etag: t.etag });
+  }, options);
   const archive = useApiMutation(
     (confirm: boolean) =>
       api.templates.archive(row.id, confirm ? { confirmAutomationImpact: true } : {}),
@@ -75,6 +86,24 @@ export function TemplateMenu({
   const items: ActionMenuItem[] = [
     item('Edit', PencilSimple, () => router.push(`/templates/${row.id}/edit`)),
     item('Preview', Eye, () => setDialog('preview')),
+    ...(row.status === 'DRAFT'
+      ? [
+          canActivate
+            ? item('Activate', CheckCircle, () =>
+                activate.mutate(undefined, {
+                  onSuccess: () =>
+                    onNotice(`${row.name} is active and can be used now.`, 'success'),
+                  onError: fail,
+                }),
+              )
+            : {
+                ...item('Activate', CheckCircle, () =>
+                  onNotice('Ask an Owner or Admin to activate this template.', 'error'),
+                ),
+                restricted: 'Owner or Admin',
+              },
+        ]
+      : []),
     item('Duplicate', Copy, () =>
       duplicate.mutate(undefined, {
         onSuccess: (d) => router.push(`/templates/${d.id}/edit`),

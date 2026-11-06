@@ -126,8 +126,12 @@ export class IntegrationsReadService {
             .filter((d): d is Date => d !== null)
             .sort((a, b) => b.getTime() - a.getTime())[0]
             ?.toISOString() ?? null,
-        allOperational: !all.some((c) => c.status === 'NEEDS_ATTENTION'),
+        allOperational: false,
       };
+      // IN-F01: success only when something is connected, it was checked, and nothing needs
+      // attention; with no connections nothing was checked, so nothing is reported as working.
+      summary.allOperational =
+        summary.connected > 0 && summary.lastCheckAt !== null && summary.needsAttention === 0;
       const search = q.search?.toLowerCase();
       const items = all
         .filter((c) =>

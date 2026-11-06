@@ -245,6 +245,47 @@ test('The overview’s range and comparison go to a report and come back; Custom
   await expect(page.getByTestId('range')).toContainText('Oct 26, 2026');
 });
 
+test('Builder: Run Report opens the full report and Back finds the work; leaving asks first (RP-F05, F08, F14, F15)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // RP-F08: a KPI card opens its report.
+  await page.goto(base);
+  await page.getByTestId('kpi-link').first().click();
+  await expect(page).toHaveURL(/\/reports\/[a-z-]+\?range=this_year/);
+
+  await page.goto(`${base}/builder`);
+  const step3 = page.getByTestId('step-3');
+  await page.getByLabel('Report Name').fill('Big Invoices');
+  await step3.getByRole('button', { name: 'Add Filter', exact: true }).click();
+  // RP-F15: a new data source asks before it resets the filter; Cancel keeps everything.
+  const source = page.getByTestId('step-1').getByLabel('Data Source');
+  const before = await source.inputValue();
+  await source.selectOption({ index: 1 });
+  await expect(page.getByTestId('switch-resets')).toContainText('1 filters');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await expect(source).toHaveValue(before);
+  await expect(step3.getByTestId('filter-row-1')).toBeVisible();
+  // RP-F05: leaving with unsaved work asks Save, Discard or Keep Editing.
+  await page.getByRole('link', { name: '← Back to Reports' }).click();
+  await expect(page.getByTestId('unsaved-keep')).toBeVisible();
+  await page.getByTestId('unsaved-keep').click();
+  await expect(page).toHaveURL(/\/reports\/builder/);
+  // RP-F14: Run Report opens the full report of the unsaved definition, by its name.
+  await step3.getByLabel('Field').selectOption({ label: 'Amount' });
+  await step3.getByLabel('Condition').selectOption({ label: 'Greater Than' });
+  await step3.getByLabel('Value ($)').fill('500');
+  await page.getByRole('button', { name: 'Run Report' }).click();
+  await expect(page).toHaveURL(/\/reports\/custom\?d=/);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Big Invoices');
+  await expect(page.getByTestId('unsaved-note')).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('run-report.png') });
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(/\/reports\/builder\?d=/);
+  await expect(page.getByLabel('Report Name')).toHaveValue('Big Invoices');
+  await expect(step3.getByLabel('Value ($)')).toHaveValue('500');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {
