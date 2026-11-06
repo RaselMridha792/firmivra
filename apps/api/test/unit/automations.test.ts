@@ -278,6 +278,10 @@ describe('loops, stored shapes and templates', () => {
       ).map((p) => p.code),
     ).toEqual(['LOOP_RISK']);
     expect(produces([{ type: 'NOTIFY_STAFF', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'REQUEST_DOCUMENTS', config: {} }])).toEqual([
+      'document.requested',
+      'document.request_due',
+    ]);
     expect(loopProblems(node('a', 'task.overdue', makesTask()), [], 3).map((p) => p.code)).toEqual([
       'LOOP_RISK',
     ]);

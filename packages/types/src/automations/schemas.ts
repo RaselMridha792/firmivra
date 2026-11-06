@@ -142,6 +142,8 @@ export const AutomationActionField = z.object({
     'TAGS',
     /** Members of the firm, by user id: an array of up to 20 (Notify staff's recipients). */
     'MEMBERS',
+    /** One of the firm's live document categories, by id (GET /business/document-categories). */
+    'DOCUMENT_CATEGORY',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),
