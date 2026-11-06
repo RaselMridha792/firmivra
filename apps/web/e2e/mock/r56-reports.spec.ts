@@ -16,7 +16,7 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');
-  await page.getByLabel('Date range').selectOption('last_month');
+  await page.getByLabel('Date range', { exact: true }).selectOption('last_month');
   await expect(page.getByTestId('range')).toBeVisible();
 });
 
@@ -66,7 +66,7 @@ test('Detail: More Filters, export, save and schedule', async ({ page }) => {
   await expect(page.getByRole('button', { name: /More Filters \(1\)/ })).toBeVisible();
   await page
     .getByTestId('report-actions')
-    .getByRole('button', { name: /Export/ })
+    .getByRole('button', { name: 'Export', exact: true })
     .click();
   await page.getByRole('menuitem', { name: 'PDF' }).click();
   await expect(page.getByText(/Export ready/)).toBeVisible();
@@ -219,7 +219,7 @@ test('The overview’s range and comparison go to a report and come back; Custom
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(base);
-  await page.getByLabel('Date range').selectOption('last_month');
+  await page.getByLabel('Date range', { exact: true }).selectOption('last_month');
   await expect(page).toHaveURL(/range=last_month/);
   await page.getByLabel('Compare to').selectOption('NONE');
   await expect(page).toHaveURL(/\/reports\?range=last_month&compare=NONE$/);
@@ -230,10 +230,10 @@ test('The overview’s range and comparison go to a report and come back; Custom
   await expect(filters.getByLabel('Compare To')).toHaveValue('NONE');
   await page.getByRole('link', { name: '← Back to Reports' }).click();
   await expect(page).toHaveURL(/\/reports\?range=last_month&compare=NONE$/);
-  await expect(page.getByLabel('Date range')).toHaveValue('last_month');
+  await expect(page.getByLabel('Date range', { exact: true })).toHaveValue('last_month');
 
   // RP-F16: the overview's Custom Range, reversed dates named in place.
-  await page.getByLabel('Date range').selectOption('custom');
+  await page.getByLabel('Date range', { exact: true }).selectOption('custom');
   const custom = page.getByTestId('custom-range');
   await custom.getByLabel('From').fill('2026-10-26');
   await custom.getByLabel('To').fill('2026-10-24');
@@ -284,6 +284,27 @@ test('Builder: Run Report opens the full report and Back finds the work; leaving
   await expect(page).toHaveURL(/\/reports\/builder\?d=/);
   await expect(page.getByLabel('Report Name')).toHaveValue('Big Invoices');
   await expect(step3.getByLabel('Value ($)')).toHaveValue('500');
+});
+
+test('Help icons explain each area, on press and with Escape (RP-F22)', async ({ page }) => {
+  await page.goto(base);
+  const about = (topic: string) => page.getByRole('button', { name: `About ${topic}` });
+  await expect(about('Report cards')).toBeVisible();
+  await expect(about('Date range and comparison')).toBeVisible();
+  await expect(about('Report categories')).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await about('Report cards').click();
+  await expect(page.getByTestId('help-tip')).toContainText('Each card counts one thing');
+  await page.screenshot({ path: test.info().outputPath('help-tip.png') });
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('help-tip')).toHaveCount(0);
+  await page.goto(`${base}/revenue-summary`);
+  for (const topic of ['Filters', 'The table', 'Export and print', 'Charts', 'Insights'])
+    await expect(about(topic).first()).toBeVisible();
+  await page.goto(`${base}/builder`);
+  await expect(about('Fields, grouping and sorting').first()).toBeVisible();
+  await page.goto(`${base}/library`);
+  await expect(about('Saved reports and sharing')).toBeVisible();
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {

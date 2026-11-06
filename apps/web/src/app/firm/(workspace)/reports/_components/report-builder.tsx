@@ -50,6 +50,7 @@ import {
   RP_ERRORS,
   subtle,
 } from './reports-shared';
+import { ReportHelp } from './report-help';
 
 const section = (n: number, title: string) => (
   <h2 className="mb-3 flex items-center gap-3 font-display text-lg font-bold text-heading">
@@ -272,7 +273,10 @@ export function ReportBuilder() {
           </section>
 
           <section className={card} aria-label="Choose metrics and columns" data-testid="step-2">
-            {section(2, 'Choose Metrics & Columns')}
+            <div className="flex items-start justify-between gap-2">
+              {section(2, 'Choose Metrics & Columns')}
+              <ReportHelp area="fields" />
+            </div>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div>
                 <h3 className="mb-1 text-sm font-semibold text-heading">Available Fields</h3>
@@ -376,7 +380,10 @@ export function ReportBuilder() {
             aria-label="Set filters"
             data-testid="step-3"
           >
-            {section(3, 'Set Filters')}
+            <div className="flex items-start justify-between gap-2">
+              {section(3, 'Set Filters')}
+              <ReportHelp area="filters" />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Select
                 label="Date Range"
@@ -408,7 +415,10 @@ export function ReportBuilder() {
             aria-label="Group, sort and display options"
             data-testid="step-4"
           >
-            {section(4, 'Group, Sort & Display Options')}
+            <div className="flex items-start justify-between gap-2">
+              {section(4, 'Group, Sort & Display Options')}
+              <ReportHelp area="fields" />
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <Select
                 label="Group By"

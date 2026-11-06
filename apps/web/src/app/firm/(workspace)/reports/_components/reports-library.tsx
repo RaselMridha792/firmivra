@@ -21,6 +21,7 @@ import {
   card,
   dateTimeText,
 } from './reports-shared';
+import { ReportHelp } from './report-help';
 
 const TABS = [
   { id: 'recent', label: 'Recent Reports' },
@@ -255,7 +256,9 @@ export function ReportsLibrary() {
         </span>
         <span className="font-semibold text-heading">Library</span>
       </nav>
-      <h1 className="font-display text-3xl font-bold text-heading">Report Library</h1>
+      <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading">
+        Report Library <ReportHelp area="library" />
+      </h1>
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}

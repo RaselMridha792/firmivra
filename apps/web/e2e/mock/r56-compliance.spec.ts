@@ -208,6 +208,55 @@ test('Lists keep their place: a client at risk, Back, and Cancel from Add Deadli
   await expect(page.getByLabel('Date Range')).toHaveValue('ALL');
 });
 
+test('Recurring workspace: the tab follows the address, an import draft survives a tab, a 0 interval claims nothing (CD-F09, F11, F12)', async ({
+  page,
+}) => {
+  const tab = (name: string) =>
+    page.getByRole('tablist', { name: 'Setup tabs' }).getByRole('tab', { name });
+  // CD-F09: Logs stays after a reload; Back returns to Manage, with the address.
+  await page.goto(`${base}/recurring/new?tab=manage`);
+  await tab('Logs').click();
+  await expect(page).toHaveURL(/tab=logs/);
+  await page.reload();
+  await expect(tab('Logs')).toHaveAttribute('aria-selected', 'true');
+  await page.goBack();
+  await expect(page).toHaveURL(/tab=manage/);
+  await expect(tab('Manage Existing Recurring')).toHaveAttribute('aria-selected', 'true');
+  // CD-F12: an import draft is still there after another tab.
+  await tab('Import Government Calendar').click();
+  await page.getByLabel('Calendar name *').fill('Fake 2027 calendar');
+  await tab('Logs').click();
+  await tab('Import Government Calendar').click();
+  await expect(page.getByLabel('Calendar name *')).toHaveValue('Fake 2027 calendar');
+  // CD-F11: a custom interval of 0 claims no frequency.
+  await tab('Setup Recurring Deadline').click();
+  await page.locator('#rs-freq').selectOption('CUSTOM');
+  await page.getByLabel('Every (months)').fill('0');
+  await expect(page.getByTestId('setup-summary')).toContainText('Not set yet');
+  await expect(page.getByTestId('setup-summary')).not.toContainText('Every 1 months');
+});
+
+test('Help icons explain each area, and the setup tab follows the open tab (CD-F17)', async ({
+  page,
+}) => {
+  await page.goto(base);
+  const about = (topic: string) => page.getByRole('button', { name: `About ${topic}` });
+  await about('Compliance overview').click();
+  await expect(page.getByTestId('help-tip')).toContainText('Deadlines that are still to do');
+  await page.keyboard.press('Escape');
+  await expect(about('Filters')).toBeVisible();
+  await page.goto(`${base}/recurring/new?tab=logs`);
+  await expect(page.getByTestId('tab-help')).toContainText('Logs');
+  await expect(about('Logs')).toBeVisible();
+  await page
+    .getByRole('tablist', { name: 'Setup tabs' })
+    .getByRole('tab', { name: 'Applicability Rules' })
+    .click();
+  await expect(about('Applicability rules')).toBeVisible();
+  await page.goto(`${base}/new`);
+  await expect(about('A deadline')).toBeVisible();
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {

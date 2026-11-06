@@ -9,9 +9,10 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 **Design (trigger selectors):** the engine polls: each event has a loader in `automations/matching.ts` that reads the firm's records and keys each occurrence, so a run never repeats. Change events (status changed, submitted, converted) bind to the source module's own audit entries (`audit_logs`, firm-scoped, indexed by firm and time): one occurrence per audit row, read from the rule version's start. No event is invented: an event without a real audit action or record date stays unlisted (AU-Y02 default).
 
 **PRs (one line each):**
-- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03); Clients, Leads, Intake Forms and Documents events (AU-F08 to F11). Committed; PR when a slot frees.
+- AU triggers 1 (`rasel/R55-au-triggers`, from main): Trigger Event label (AU-F03); Clients, Leads, Intake Forms and Documents events (AU-F08 to F11). #1247.
 - AU triggers 2 (`rasel/R55-au-triggers-2`, stacked): Tax Returns, Tax Planning and Business Advisory events (AU-F12 to F14). AU-F15 Custom stays empty: no custom field or date exists to change, and its manual confirmation comes with AU-F29 to F33.
 - AU triggers 3 (`rasel/R55-au-triggers-3`, stacked): Bookkeeping and Payroll events (AU-F16, F17) and the client's Communications consent change (AU-F18, unsubscribe or spam report).
+- AU rules (`rasel/R55-au-rules`, stacked): Applies To at every width, in words (AU-F01); Logs activity tabs (AU-F02); Rule Owner in the builder, changed only by an Owner or Admin (AU-F28).
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
