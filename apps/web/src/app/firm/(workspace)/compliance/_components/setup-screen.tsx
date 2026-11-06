@@ -3,6 +3,7 @@
 import { Toast } from '@firmivra/ui';
 import { ArrowLeft, ArrowRight, ArrowsClockwise } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { CalendarImport } from './calendar-import';
 import { CalendarLibrary } from './calendar-library';
@@ -11,6 +12,7 @@ import { RecurringList } from './recurring-list';
 import { RecurringSetup } from './recurring-setup';
 import { RulesTab } from './rules-tab';
 import { outlined } from './compliance-shared';
+import { ComplianceHelp } from './compliance-help';
 
 type Tab = 'setup' | 'import' | 'library' | 'rules' | 'manage' | 'logs';
 const TABS: { id: Tab; label: string }[] = [
@@ -21,6 +23,16 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'manage', label: 'Manage Existing Recurring' },
   { id: 'logs', label: 'Logs' },
 ];
+
+/** Each tab's Help area (CD-F17). */
+const TAB_HELP = {
+  setup: 'recurrence',
+  import: 'import',
+  library: 'library',
+  rules: 'applicability',
+  manage: 'manage',
+  logs: 'logs',
+} as const;
 
 /** /compliance/recurring/new: Recurring Deadline & Government Calendar Setup, in six tabs. */
 export function SetupScreen({
@@ -34,8 +46,21 @@ export function SetupScreen({
   fromDeadline?: string | undefined;
   saved?: string | undefined;
 }) {
-  const first: Tab = (TABS.find((t) => t.id === tab)?.id ?? 'setup') as Tab;
-  const [current, setCurrent] = useState<Tab>(first);
+  // CD-F09 (Octavia, Oct 28): the tab is the address's (`?tab=`), and choosing one is a step in
+  // the history, so a reload keeps it and browser Back and Forward move the tab and address together.
+  const params = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const current = (TABS.find((t) => t.id === (params.get('tab') ?? tab))?.id ?? 'setup') as Tab;
+  const choose = (next: Tab) => {
+    const query = new URLSearchParams(window.location.search);
+    query.set('tab', next);
+    query.delete('saved');
+    if (next === 'import') setImportOpened(true);
+    router.push(`${pathname}?${query.toString()}`, { scroll: false });
+  };
+  // CD-F12: once opened, the import form stays (hidden) while other tabs show, keeping its draft.
+  const [importOpened, setImportOpened] = useState(current === 'import');
   const [message, setMessage] = useState<string | undefined>(saved ? `${saved} saved.` : undefined);
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="setup-page">
@@ -83,26 +108,32 @@ export function SetupScreen({
             type="button"
             role="tab"
             aria-selected={current === t.id}
-            onClick={() => setCurrent(t.id)}
+            onClick={() => choose(t.id)}
             className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${current === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
           >
             {t.label}
           </button>
         ))}
       </nav>
+      {/* CD-F17: what the open tab is for, its own Help. */}
+      <p className="-mt-2 flex items-center gap-2 text-sm text-muted" data-testid="tab-help">
+        {TABS.find((t) => t.id === current)?.label} <ComplianceHelp area={TAB_HELP[current]} />
+      </p>
       {current === 'setup' ? (
         <RecurringSetup
           {...(editId ? { editId } : {})}
           {...(fromDeadline ? { fromDeadline } : {})}
         />
       ) : null}
-      {current === 'import' ? (
-        <CalendarImport
-          onImported={(name) => {
-            setMessage(`${name} imported as a draft. Verify and publish it in the library.`);
-            setCurrent('library');
-          }}
-        />
+      {importOpened || current === 'import' ? (
+        <div hidden={current !== 'import'}>
+          <CalendarImport
+            onImported={(name) => {
+              setMessage(`${name} imported as a draft. Verify and publish it in the library.`);
+              choose('library');
+            }}
+          />
+        </div>
       ) : null}
       {current === 'library' ? <CalendarLibrary /> : null}
       {current === 'rules' ? <RulesTab /> : null}

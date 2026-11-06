@@ -251,6 +251,9 @@ export class RulesService {
       this.structure(body.definition);
       await this.read.requireMembers(ctx, body.definition.settings.notifyOnFailureUserIds);
       await this.nameFree(ctx, body.name);
+      // AU-F28: only an Owner or Admin names a rule's owner; theirs is the creator by default.
+      if (body.ownerUserId && body.ownerUserId !== userId && !ctx.perms.admin)
+        throw autoErrors.forbidden();
       const ownerUserId = body.ownerUserId ?? (ctx.perms.admin ? userId : null);
       await this.owner(ctx, ownerUserId);
       if (body.activate) {
@@ -321,6 +324,13 @@ export class RulesService {
       const { tx } = ctx;
       const rule = await this.editable(ctx, id, body.etag);
       if (body.name !== undefined) await this.nameFree(ctx, body.name, id);
+      // AU-F28: only an Owner or Admin changes who owns a rule.
+      if (
+        body.ownerUserId !== undefined &&
+        body.ownerUserId !== rule.ownerUserId &&
+        !ctx.perms.admin
+      )
+        throw autoErrors.forbidden();
       if (body.ownerUserId) await this.owner(ctx, body.ownerUserId);
       try {
         await tx.automationRule.update({

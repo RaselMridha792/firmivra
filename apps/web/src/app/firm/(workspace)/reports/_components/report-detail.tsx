@@ -61,6 +61,7 @@ import {
   rangeText,
   subtle,
 } from './reports-shared';
+import { ReportHelp } from './report-help';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** More Filters as typed and as sent (only rows that fit are ever applied). */
@@ -407,8 +408,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-danger-soft p-3 text-sm text-danger"
           data-testid="run-error"
         >
-          <span>
-            The report could not run with these settings: {reason} It still shows the last results.
+          <span className="flex items-center gap-2">
+            The report could not run with these settings: {reason} It still shows the last results.{' '}
+            <ReportHelp area="errors" />
           </span>
           <span className="flex gap-4">
             <button
@@ -499,6 +501,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               <Funnel aria-hidden weight="fill" className="size-4" /> More Filters
               {extra.rows.length ? ` (${extra.rows.length})` : ''}
             </button>
+            <span className="self-center">
+              <ReportHelp area="filters" />
+            </span>
           </section>
           {r && r.chips.length + extra.rows.length > 0 ? (
             <ul className="flex flex-wrap items-center gap-2" aria-label="Active filters">
@@ -555,8 +560,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
           <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             <section className={card} aria-label="Chart" data-testid="report-chart">
-              <h2 className="mb-3 font-display text-lg font-bold text-heading">
-                {title} Over Time
+              <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold text-heading">
+                {title} Over Time <ReportHelp area="charts" />
               </h2>
               {r?.chart ? (
                 <BarChart chart={r.chart} dataLabels={labels} />
@@ -605,7 +610,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             data-testid="report-table"
           >
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="mr-auto font-display text-lg font-bold text-heading">{title}</h2>
+              <h2 className="mr-auto flex items-center gap-2 font-display text-lg font-bold text-heading">
+                {title} <ReportHelp area="table" />
+              </h2>
               <label className="flex h-10 w-52 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
                 <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
                 <span className="sr-only">Search results</span>
@@ -691,7 +698,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
 
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Report tools">
           <section className={card} aria-label="Report actions" data-testid="report-actions">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Report Actions</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Report Actions <ReportHelp area="export" />
+            </h2>
             {target.kind === 'DEFINITION' ? (
               <p className="mb-2 text-xs text-muted" data-testid="unsaved-note">
                 Not saved yet: save it to export or schedule it.
@@ -752,7 +761,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             </div>
           </section>
           <section className={card} aria-label="Quick date range" data-testid="quick-range">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Quick Date Range</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Quick Date Range <ReportHelp area="dates" />
+            </h2>
             <div className="grid grid-cols-3 gap-2">
               {QUICK.map((p) => (
                 <button
@@ -785,7 +796,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             aria-label="Report settings"
             data-testid="report-settings"
           >
-            <h2 className="font-display text-lg font-bold text-heading">Report Settings</h2>
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Report Settings <ReportHelp area="charts" />
+            </h2>
             <Select
               label="Chart Type"
               value={shownChart}
@@ -816,7 +829,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           </section>
           <section className={card} aria-label="Insights" data-testid="report-insights">
             <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
-              <Lightbulb aria-hidden weight="fill" className="size-5 text-action" /> Insights
+              <Lightbulb aria-hidden weight="fill" className="size-5 text-action" /> Insights{' '}
+              <ReportHelp area="insights" />
             </h2>
             {r && r.insights.length === 0 ? (
               <p className={quiet}>No insights for this range.</p>
