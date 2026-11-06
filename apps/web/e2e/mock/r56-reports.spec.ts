@@ -366,6 +366,36 @@ test('A report shows as Table Only or KPI Only, as a line, without its legend; t
   await expect(page.getByTestId('chart-type')).toHaveValue('TABLE');
 });
 
+test('A row opens its record in the same tab, Back finds the report as left, and a row menu opens or copies (RP-F17)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const table = page.getByTestId('report-table');
+  // Page 2 of a search, then a row's invoice.
+  await table.getByPlaceholder('Search results...').fill('INV-10');
+  const link = table.getByTestId('row-link').first();
+  await expect(link).toHaveText(/^INV-10/);
+  const onPage1 = (await link.textContent()) ?? '';
+  await table.getByRole('button', { name: 'Page 2' }).click();
+  await expect(link).not.toHaveText(onPage1);
+  const number = (await link.textContent()) ?? '';
+  expect(number).toMatch(/^INV-10/);
+  // The row menu: open the invoice, or copy its number.
+  await table.getByRole('button', { name: `Actions for ${number}` }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open invoice' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Copy Invoice' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('row-menu.png') });
+  await page.keyboard.press('Escape');
+  await link.click();
+  await expect(page).toHaveURL(/\/invoices\/0199c3a0-0000-7000-8000-/);
+  // Back: the same search, page and row.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/reports\/revenue-summary\?.*view=/);
+  await expect(table.getByPlaceholder('Search results...')).toHaveValue('INV-10');
+  await expect(table.getByTestId('row-link').first()).toHaveText(number);
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {
