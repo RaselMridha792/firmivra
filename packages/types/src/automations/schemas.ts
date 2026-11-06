@@ -104,6 +104,11 @@ export const AutomationEvent = z.object({
   recordKind: z.string(),
   /** Timing it supports: IMMEDIATE only, or before and after a date on the record, or scheduled. */
   timings: z.array(AutomationTiming),
+  /**
+   * AU-F04, F06: what Before and After count from, in words ("the due date", "the start time", "it
+   * happens"). Only an event with a known date on its record offers Before.
+   */
+  anchor: z.string(),
   conditionFields: z.array(AutomationConditionField),
   /**
    * AU-F30: an external outcome (a return accepted, a filing confirmed) a member may confirm by

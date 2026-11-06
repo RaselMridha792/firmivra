@@ -28,6 +28,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewPanel, SaveTemplateDialog } from './automation-dialogs';
+import { triggerSentence } from './trigger-sentence';
 import {
   AUTOMATIONS_KEY,
   AUTOMATION_ERRORS,
@@ -212,6 +213,21 @@ function Builder({
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
+  // AU-F06: a whole number, 0 (at the anchor) to 100,000.
+  const offsetNumber = Number(f.offsetValue);
+  const offsetProblem =
+    offset &&
+    !(
+      f.offsetValue !== '' &&
+      Number.isInteger(offsetNumber) &&
+      offsetNumber >= 0 &&
+      offsetNumber <= 100_000
+    )
+      ? 'Enter a whole number from 0 to 100,000'
+      : undefined;
+  // AU-F07: the firm's time zone, which every timing uses.
+  const zone = useApiQuery([...AUTOMATIONS_KEY, 'settings'], () => api.automations.settings());
+  const timezone = zone.data?.timezone ?? '';
 
   const definition = (): AutomationDefinition => ({
     trigger: {
@@ -239,7 +255,7 @@ function Builder({
       addToCalendar: f.calendar,
     },
   });
-  const ready = f.event !== '' && f.actions.length > 0 && (!offset || Number(f.offsetValue) >= 0);
+  const ready = f.event !== '' && f.actions.length > 0 && !offsetProblem;
   const defKey = JSON.stringify(ready ? definition() : null);
   const preview = useApiQuery([...AUTOMATIONS_KEY, 'preview', defKey], async () =>
     ready ? api.automations.validate({ definition: definition(), sample: 5 }) : null,
@@ -459,8 +475,8 @@ function Builder({
                   value: t,
                   label: {
                     IMMEDIATE: 'Immediately',
-                    BEFORE: 'X days before',
-                    AFTER: 'X days after',
+                    BEFORE: `Before ${ev?.anchor ?? 'it happens'}`,
+                    AFTER: `After ${ev?.anchor ?? 'it happens'}`,
                     SCHEDULED: 'On a schedule',
                   }[t],
                 }))}
@@ -471,7 +487,10 @@ function Builder({
                     label={`${f.timing === 'BEFORE' ? 'Before' : 'After'} *`}
                     type="number"
                     min={0}
+                    max={100000}
+                    step={1}
                     value={f.offsetValue}
+                    error={offsetProblem}
                     onChange={(e) => set({ offsetValue: e.target.value })}
                   />
                   <Select
@@ -488,6 +507,15 @@ function Builder({
               ) : null}
             </div>
             {errors.event ? <p className="mt-1 text-xs text-danger">{errors.event}</p> : null}
+            {/* AU-F04, F07: the trigger in words with an example, in the firm's time zone. */}
+            {ev ? (
+              <p className="mt-3 text-sm text-text" data-testid="trigger-sentence">
+                {triggerSentence(ev, f, timezone)}
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-muted" data-testid="trigger-timezone">
+              Times use your firm&apos;s time zone{timezone ? ` (${timezone})` : ''}.
+            </p>
             {p ? (
               <p
                 className="mt-3 flex items-start gap-2 rounded-lg bg-info-soft p-3 text-sm text-info"
