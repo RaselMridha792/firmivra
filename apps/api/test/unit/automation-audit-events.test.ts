@@ -191,6 +191,13 @@ describe('audit-sourced trigger events', () => {
     expect(new Set(hits.map((c) => c.occurrence)).size).toBe(2);
   });
 
+  it('Before is offered only where the record has a date, and says which (AU-F06)', () => {
+    for (const e of EVENTS.filter((x) => x.timings.includes('BEFORE'))) {
+      expect(e.anchor, e.code).toMatch(/^the [a-z -]+(date|time)$/);
+    }
+    for (const e of EVENTS) expect(e.anchor.length, e.code).toBeGreaterThan(0);
+  });
+
   it('every event in the catalog has a loader, and every loader is in the catalog', () => {
     const listed = EVENTS.map((e) => e.code);
     expect(listed.filter((code) => !LOADED_EVENTS.has(code))).toEqual([]);

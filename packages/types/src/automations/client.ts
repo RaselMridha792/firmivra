@@ -31,6 +31,8 @@ import {
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
   SaveAutomationSettingsRequest,
+  AutomationMatches,
+  MatchAutomationRequest,
   AutomationConfirmationList,
   AutomationConfirmationsQuery,
   AutomationEventConfirmation,
@@ -232,6 +234,13 @@ export function createAutomationsClient(request: ApiRequest) {
         `${BASE}/runs/export`,
         post(parseInput(ExportAutomationLogsRequest, body)),
       ),
+
+    /** AU-F21: the Conditions step's match count and sample; nothing runs. */
+    matches: async (body: MatchAutomationRequest): Promise<AutomationMatches> =>
+      request(AutomationMatches, `${BASE}/rules/matches`, {
+        method: 'POST',
+        body: parseInput(MatchAutomationRequest, body),
+      }),
 
     // ----- Settings -----
     settings: async (): Promise<AutomationSettingsView> =>

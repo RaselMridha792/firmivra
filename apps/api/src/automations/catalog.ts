@@ -197,8 +197,24 @@ const change = (
 });
 const PRIORITY = (key = 'priority') => field(key, 'Priority', 'STATUS', ['LOW', 'MEDIUM', 'HIGH']);
 
-type EventDef = Omit<AutomationEvent, 'confirmation'> &
+type EventDef = Omit<AutomationEvent, 'confirmation' | 'anchor'> &
   Partial<Pick<AutomationEvent, 'confirmation'>>;
+
+/**
+ * AU-F04, F06: what a timing counts from, for the events with a date on their record (the date the
+ * loader measures from, matching.ts). Every other event counts from the moment it happens.
+ */
+const ANCHORS: Record<string, string> = {
+  'client.created': 'the client is added',
+  'invoice.overdue': 'the due date',
+  'deadline.approaching': 'the due date',
+  'task.overdue': 'the due date',
+  'appointment.upcoming': 'the start time',
+  'lead.follow_up_due': 'the follow-up time',
+  'intake.due': 'the due date',
+  'document.request_due': 'the due date',
+  'tax_return.due': 'the filing due date',
+};
 
 const EVENT_DEFS: EventDef[] = [
   {
@@ -845,6 +861,7 @@ export const CONFIRMABLE_EVENTS: EventDef[] = [
 
 export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
   ...e,
+  anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
 }));
 export const eventOf = (code: string) => EVENTS.find((e) => e.code === code);
