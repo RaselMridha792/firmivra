@@ -173,16 +173,37 @@ export function ReportsDashboard() {
           >
             {(d?.kpis ?? [null, null, null, null]).map((k, i) => (
               <li key={k?.key ?? i}>
-                <KpiCard
-                  icon={kpiIcons[i] ?? ChartBar}
-                  tone="blue"
-                  value={k ? kpiMoney(k) : '—'}
-                  label={k?.label ?? 'Loading'}
-                  loading={q.isPending}
-                  {...(k && kpiTrend(k)
-                    ? { trend: kpiTrend(k)!, ...(compareLabel ? { note: compareLabel } : {}) }
-                    : {})}
-                />
+                {(() => {
+                  const kpi = (
+                    <KpiCard
+                      icon={kpiIcons[i] ?? ChartBar}
+                      tone="blue"
+                      value={k ? kpiMoney(k) : '—'}
+                      label={k?.label ?? 'Loading'}
+                      loading={q.isPending}
+                      {...(k && kpiTrend(k)
+                        ? { trend: kpiTrend(k)!, ...(compareLabel ? { note: compareLabel } : {}) }
+                        : {})}
+                    />
+                  );
+                  // RP-F08 (Octavia, Oct 28): each card opens its report, on the overview's
+                  // range and comparison, and says what it counts.
+                  return k ? (
+                    <Link
+                      href={open(`/reports/${k.reportKey}`)}
+                      aria-label={`${k.label}: open the report`}
+                      className="block rounded-xl hover:opacity-90 focus-visible:outline-2 focus-visible:outline-focus"
+                      data-testid="kpi-link"
+                    >
+                      {kpi}
+                    </Link>
+                  ) : (
+                    kpi
+                  );
+                })()}
+                {k?.definition ? (
+                  <p className="mt-1 px-1 text-xs text-muted">{k.definition}</p>
+                ) : null}
               </li>
             ))}
           </ul>

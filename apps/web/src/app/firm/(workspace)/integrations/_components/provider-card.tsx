@@ -9,6 +9,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { dateLabel, linkClass } from './integration-shared';
+import { useFromHere } from './integrations-origin';
 
 const labels = {
   AVAILABLE: 'Available',
@@ -40,6 +41,7 @@ function ProviderLogo({ name }: { name: string }) {
 
 export function ProviderCard({ item, canManage }: { item: IntegrationCard; canManage: boolean }) {
   const router = useRouter();
+  const fromHere = useFromHere();
   const connection = item.connections[0];
   const [notice, setNotice] = useState('');
   const mutation = useApiMutation(
@@ -61,10 +63,11 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
     { invalidate: ['integrations'] },
   );
   const manageHref = `/integrations/${connection?.id ?? item.provider.provider}`;
-  const actionHref =
+  const actionHref = fromHere(
     connection && item.action !== 'RECONNECT'
       ? manageHref
-      : `/integrations/${item.provider.provider}/connect`;
+      : `/integrations/${item.provider.provider}/connect`,
+  );
   const secondaryAction =
     canManage && connection && item.status === 'CONNECTED'
       ? connection.syncMode === 'AUTO'

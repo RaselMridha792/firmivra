@@ -1,7 +1,17 @@
 'use client';
 
 import { ApiRequestError, type ReportDefinitionView } from '@firmivra/types';
-import { Checkbox, KpiCard, Select, Table, Toast, Toggle, type Column } from '@firmivra/ui';
+import {
+  Button,
+  Checkbox,
+  KpiCard,
+  Modal,
+  Select,
+  Table,
+  Toast,
+  Toggle,
+  type Column,
+} from '@firmivra/ui';
 import {
   ArrowDown,
   ArrowUp,
@@ -11,12 +21,15 @@ import {
   X,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
+import { UnsavedDialog, useUnsavedGuard } from '../../tasks/_components/unsaved-guard';
 import { type FilterDraft, conditionsOf } from './filter-rules';
+import { type BuilderDraft, draftFrom, pack } from './report-drafts';
 import { CustomRangeDialog } from './report-date-controls';
 import { SaveReportDialog, ScheduleReportDialog } from './report-dialogs';
 import { FilterRows } from './report-filters';
@@ -53,25 +66,59 @@ const section = (n: number, title: string) => (
 /** /reports/builder: Create Custom Report: type and data, columns, filters, grouping and a live preview. */
 export function ReportBuilder() {
   const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  // RP-F14 (Octavia, Oct 28): Back from the report Run Report opened brings the builder back as it
+  // was: its work is in the address (`?d=`), read once when the builder opens.
+  const [opened] = useState(() => draftFrom(params.get('d')));
   const sources = useApiQuery([...RP_KEY, 'sources'], () => api.reports.sources());
-  const [category, setCategory] = useState('FINANCIAL');
-  const [sourceKey, setSourceKey] = useState('');
-  const [name, setName] = useState('Custom Report');
-  const [columns, setColumns] = useState<string[]>([]);
+  const [category, setCategory] = useState(opened.category);
+  const [sourceKey, setSourceKey] = useState(opened.sourceKey);
+  const [name, setName] = useState(opened.name);
+  const [columns, setColumns] = useState<string[]>(opened.columns);
   const [fieldSearch, setFieldSearch] = useState('');
-  const [preset, setPreset] = useState('this_year');
+  const [preset, setPreset] = useState(opened.preset);
   // RP-F16: a Custom Range as on a report's page, kept as a fixed range when saved.
-  const [fixed, setFixed] = useState<{ from: string; to: string }>();
+  const [fixed, setFixed] = useState<{ from: string; to: string } | undefined>(opened.fixed);
   const [picking, setPicking] = useState(false);
-  const [conds, setConds] = useState<FilterDraft[]>([]);
+  const [conds, setConds] = useState<FilterDraft[]>(opened.conds);
   // RP-F09: a column dragged to a new place (the arrows do the same by keyboard).
   const [dragged, setDragged] = useState<string>();
-  const [groupBy, setGroupBy] = useState('');
-  const [sortBy, setSortBy] = useState('');
-  const [desc, setDesc] = useState(true);
-  const [totals, setTotals] = useState(false);
-  const [pct, setPct] = useState(false);
-  const [compare, setCompare] = useState(false);
+  const [groupBy, setGroupBy] = useState(opened.groupBy);
+  const [sortBy, setSortBy] = useState(opened.sortBy);
+  const [desc, setDesc] = useState(opened.desc);
+  const [totals, setTotals] = useState(opened.totals);
+  const [pct, setPct] = useState(opened.pct);
+  const [compare, setCompare] = useState(opened.compare);
+  // RP-F15: a change of data source that would reset fields and filters asks first.
+  const [switching, setSwitching] = useState<{ category: string; sourceKey: string }>();
+  const draft: BuilderDraft = {
+    name,
+    category,
+    sourceKey,
+    columns,
+    preset,
+    fixed,
+    conds,
+    groupBy,
+    sortBy,
+    desc,
+    totals,
+    pct,
+    compare,
+  };
+  // RP-F05: unsaved work asks Save, Discard or Keep Editing before a link or a close loses it.
+  const guard = useUnsavedGuard(draft);
+  const resetsSomething = columns.length > 0 || conds.length > 0 || !!groupBy || !!sortBy;
+  const switchTo = (next: { category: string; sourceKey: string }) => {
+    setCategory(next.category);
+    setSourceKey(next.sourceKey);
+    setColumns([]);
+    setGroupBy('');
+    setSortBy('');
+    setConds([]);
+    setSwitching(undefined);
+  };
   const [dialog, setDialog] = useState<'save' | 'schedule'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [tick, setTick] = useState(0);
@@ -192,12 +239,9 @@ export function ReportBuilder() {
               label="Report Category"
               value={category}
               onChange={(e) => {
-                setCategory(e.target.value);
-                setSourceKey('');
-                setColumns([]);
-                setGroupBy('');
-                setSortBy('');
-                setConds([]);
+                const next = { category: e.target.value, sourceKey: '' };
+                if (resetsSomething) setSwitching(next);
+                else switchTo(next);
               }}
               options={Object.entries(CATEGORY_META)
                 .filter(([k]) => all.some((s) => s.category === k))
@@ -207,11 +251,9 @@ export function ReportBuilder() {
               label="Data Source"
               value={src?.key ?? ''}
               onChange={(e) => {
-                setSourceKey(e.target.value);
-                setColumns([]);
-                setGroupBy('');
-                setSortBy('');
-                setConds([]);
+                const next = { category, sourceKey: e.target.value };
+                if (resetsSomething) setSwitching(next);
+                else switchTo(next);
               }}
               options={
                 inCategory.length
@@ -508,13 +550,25 @@ export function ReportBuilder() {
               className={outlined}
               disabled={!definition}
               onClick={() => {
-                setTick(tick + 1);
-                notice('Report run.', 'success');
-                void (
-                  definition &&
-                  api.reports.run({
-                    target: { kind: 'DEFINITION', definition: definition as never },
-                  })
+                // RP-F14: the full report of this unsaved definition, with every control; the
+                // builder's address keeps its work so Back finds it as it was.
+                const d = definition && pack(definition);
+                const here = pack(draft);
+                if (!d || !here) {
+                  notice(
+                    'This report is too large to open from the builder. Save it first.',
+                    'error',
+                  );
+                  return;
+                }
+                const builder = `${pathname}?d=${here}`;
+                router.replace(builder, { scroll: false });
+                guard.allow();
+                router.push(
+                  withOrigin(
+                    `/reports/custom?d=${d}&name=${encodeURIComponent(name.slice(0, 120))}`,
+                    builder,
+                  ),
                 );
               }}
             >
@@ -555,7 +609,10 @@ export function ReportBuilder() {
           definition={definition}
           defaultName={name}
           onClose={() => setDialog(undefined)}
-          onSaved={(id) => router.push(`/reports/${id}`)}
+          onSaved={(id) => {
+            guard.allow();
+            router.push(`/reports/${id}`);
+          }}
         />
       ) : null}
       {dialog === 'schedule' && definition ? (
@@ -568,6 +625,31 @@ export function ReportBuilder() {
           }}
         />
       ) : null}
+      {switching ? (
+        <Modal
+          open
+          title="Change the data source?"
+          subtitle="The fields and filters of this report belong to its data source."
+          onClose={() => setSwitching(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setSwitching(undefined)}>
+                Cancel
+              </Button>
+              <Button onClick={() => switchTo(switching)}>Change and Reset</Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">These will be reset:</p>
+          <ul className="mt-2 list-disc pl-5 text-sm text-text" data-testid="switch-resets">
+            {columns.length ? <li>{columns.length} chosen columns</li> : null}
+            {conds.length ? <li>{conds.length} filters</li> : null}
+            {groupBy ? <li>the grouping</li> : null}
+            {sortBy ? <li>the sort</li> : null}
+          </ul>
+        </Modal>
+      ) : null}
+      <UnsavedDialog guard={guard} onSave={() => setDialog('save')} saving={false} />
     </div>
   );
 }
