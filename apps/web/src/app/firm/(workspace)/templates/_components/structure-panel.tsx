@@ -372,3 +372,83 @@ function BooksParts({
     </div>
   );
 }
+
+const STRUCTURED: readonly MessageTemplateKind[] = [
+  'TASK',
+  'DOCUMENT_REQUEST',
+  'INTAKE_ORGANIZER',
+  'TAX_WORKFLOW',
+  'BOOKKEEPING',
+];
+const OFTEN: Record<BookkeepingFrequency, string> = {
+  MONTHLY: 'monthly',
+  QUARTERLY: 'quarterly',
+  YEARLY: 'yearly',
+};
+
+/** One titled list of steps in the read-only structure. */
+function StepList({ title, steps }: { title: string; steps: string[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div>
+      <h4 className="text-sm font-semibold text-heading">{title}</h4>
+      <ol className="mt-1 list-decimal pl-5 text-sm text-text">
+        {steps.map((s, n) => (
+          <li key={`${n}-${s}`}>{s}</li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * TP-F08: the saved structure, read-only, in the Preview of a structured kind: what a Task,
+ * Document Request or Intake template stands for with its steps, or a Tax Workflow's sections and
+ * a Bookkeeping template's parts. Null for the other kinds.
+ */
+export function StructurePreview({
+  templateId,
+  kind,
+}: {
+  templateId: string;
+  kind: MessageTemplateKind;
+}) {
+  const structured = STRUCTURED.includes(kind);
+  const detail = useApiQuery([...TEMPLATES_KEY, 'detail', templateId], () =>
+    api.templates.get(templateId),
+  );
+  if (!structured) return null;
+  const d = detail.data;
+  const s = d?.structure;
+  return (
+    <section
+      aria-label="Saved structure"
+      className="flex flex-col gap-3 rounded-lg border border-divider bg-surface p-3"
+      data-testid="preview-structure"
+    >
+      <h3 className="text-sm font-semibold text-heading">Structure</h3>
+      {!d ? (
+        <p className={quiet}>
+          {detail.isError ? 'The structure is not available right now.' : 'Loading…'}
+        </p>
+      ) : d.linkedTemplate ? (
+        <StepList title={d.linkedTemplate.name} steps={d.linkedTemplate.steps} />
+      ) : s && 'sections' in s ? (
+        s.sections.map((x, n) => (
+          <StepList key={`${n}-${x.title}`} title={x.title} steps={x.items} />
+        ))
+      ) : s ? (
+        <>
+          <StepList
+            title="Recurring document requests"
+            steps={s.documentRequests.map((r) => `${r.title} (${OFTEN[r.frequency]})`)}
+          />
+          <StepList title="Close checklist" steps={s.closeChecklist} />
+          <StepList title="Client updates" steps={s.clientUpdates} />
+        </>
+      ) : (
+        <p className={quiet}>No structure yet. Add it under Structure in the editor.</p>
+      )}
+    </section>
+  );
+}

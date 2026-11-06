@@ -317,7 +317,7 @@ const events = () => (eventCache ??= buildEvents());
 const phraseOf = (code: string) => events().find((e) => e[0] === code)?.[4] ?? 'event';
 const labelOf = (code: string) => events().find((e) => e[0] === code)?.[2] ?? code;
 
-const ACTIONS: AutomationActionTypeInfo[] = [
+const ACTIONS: Omit<AutomationActionTypeInfo, 'needsClient'>[] = [
   {
     type: 'CREATE_TASK',
     module: 'TASKS',
@@ -519,8 +519,10 @@ const buildCatalog = (): AutomationCatalog => ({
     anchor: timings.includes('BEFORE') ? `the ${phrase}` : 'it happens',
     conditionFields: [...clientFields(), ...extra],
     confirmation: CONFIRMABLE.includes(code) ? { integrationAvailable: false } : null,
+    // The firm's own events (a team member, a connection) have no client.
+    hasClient: module !== 'STAFF_MANAGEMENT' && module !== 'INTEGRATIONS',
   })),
-  actions: ACTIONS,
+  actions: ACTIONS.map((a) => ({ ...a, needsClient: a.type !== 'NOTIFY_STAFF' })),
   variables: VARIABLES,
 });
 let catalogCache: AutomationCatalog | undefined;

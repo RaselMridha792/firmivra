@@ -62,14 +62,20 @@ const fromDays = (days: string) =>
   days ? new Date(Date.now() - Number(days) * 86_400_000).toISOString().slice(0, 10) : undefined;
 
 /** /automations/logs: every run, filters, the run's details with its action log, and the rule behind it. */
-export function LogsScreen({ ruleId }: { ruleId: string | undefined }) {
+export function LogsScreen({
+  ruleId,
+  runId,
+}: {
+  ruleId: string | undefined;
+  runId?: string | undefined;
+}) {
   const [range, setRange] = useState('30');
   const [rule, setRule] = useState(ruleId ?? '');
   const [tab, setTab] = useState<NonNullable<AutomationRunsQuery['tab']>>('all');
   const [module, setModule] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [picked, setPicked] = useState<string>();
+  const [picked, setPicked] = useState<string | undefined>(runId);
   const [dialog, setDialog] = useState<'settings' | 'rerun'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());

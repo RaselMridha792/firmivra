@@ -81,6 +81,9 @@ export function structureProblems(def: Def): Detail[] {
       add(`${at}.dependsOn`, 'Depend on an earlier action of this rule');
     const info = actionOf(a.type);
     if (!info) return add(`${at}.type`, 'This action is not in the catalog');
+    // AU-F18 to F20: an event about the firm itself has no client to act for.
+    if (event && !event.hasClient && info.needsClient)
+      add(`${at}.type`, 'This event has no client: choose an action that needs none');
     for (const [key, value] of Object.entries(a.config)) {
       const f = info.fields.find((x) => x.key === key);
       if (!f) {
@@ -125,6 +128,15 @@ export function structureProblems(def: Def): Detail[] {
             value.some((v) => typeof v !== 'string' || !/^[0-9a-f-]{36}$/i.test(v))
           )
             add(path, 'Choose one to 20 of your firm’s tags');
+          break;
+        case 'MEMBERS':
+          if (
+            !Array.isArray(value) ||
+            value.length > 20 ||
+            new Set(value).size !== value.length ||
+            value.some((v) => typeof v !== 'string' || !/^[0-9a-f-]{36}$/i.test(v))
+          )
+            add(path, 'Choose up to 20 members of your firm');
           break;
         default:
           break;
@@ -501,7 +513,13 @@ export function forTemplate(def: Def): Def {
     const config: Record<string, string | number | boolean | string[] | null> = {};
     for (const [key, value] of Object.entries(a.config)) {
       const f = info?.fields.find((x) => x.key === key);
-      if (f?.type === 'TEMPLATE' || f?.type === 'MEMBER' || f?.type === 'TAGS') continue;
+      if (
+        f?.type === 'TEMPLATE' ||
+        f?.type === 'MEMBER' ||
+        f?.type === 'TAGS' ||
+        f?.type === 'MEMBERS'
+      )
+        continue;
       if (typeof value === 'string' && SECRET.test(value)) continue;
       if (typeof value === 'string' && UUID.test(value))
         problems.push({

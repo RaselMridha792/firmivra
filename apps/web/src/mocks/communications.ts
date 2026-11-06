@@ -1210,6 +1210,7 @@ export function createCommunicationsMock({
           createdAt: at,
           etag: `e${next++}`,
           linkedTemplate: null,
+          linkedTemplateId: null,
           structure: null,
         };
       }),

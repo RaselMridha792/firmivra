@@ -54,6 +54,13 @@ export interface NotifyEventInput {
    * category (their preference, off unless chosen).
    */
   channels?: { inApp: boolean; email: boolean; sms: boolean };
+  /**
+   * Only for an event in CHOSEN_RECIPIENT_EVENTS (an automation's notice): the members the rule
+   * names, instead of the record's usual recipients. Only ACTIVE members of this firm are reached;
+   * on a record of a client, a member other than an Owner or Admin only if assigned to the client
+   * (q27). Up to 20 user ids.
+   */
+  toUserIds?: readonly string[];
 }
 
 /** What `notify` did: the bell items written, and `failed` when the database step failed. */
@@ -72,6 +79,11 @@ export interface NotifyResult {
  */
 export const DIRECTIONAL_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
   'message.received',
+]);
+
+/** Events whose caller may name the members to reach (`toUserIds`): a rule's Notify staff. */
+export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
+  'automation.notice',
 ]);
 
 /** A programming error in the call (unknown event, bad id, a side the event never reaches). */
@@ -219,6 +231,14 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     });
     return r && { clientId: null, values: { name: short(r.user.name) } };
   },
+  // An automation's run: the rule's name (the firm's own words) and the run's client, if any.
+  automation_run: async (tx, businessId, id) => {
+    const r = await tx.automationRun.findFirst({
+      where: { businessId, id },
+      select: { clientId: true, rule: { select: { name: true } } },
+    });
+    return r && { clientId: r.clientId, values: { title: short(r.rule.name) } };
+  },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>
     Promise.resolve({ clientId: null, values: {}, personUserId: id.toLowerCase() }),
@@ -297,6 +317,7 @@ async function recipientsOf(
   businessId: string,
   sides: Side[],
   record: RecordInfo,
+  chosen?: readonly string[],
 ): Promise<{ recipients: Recipient[]; clientName: string | null }> {
   const out: Recipient[] = [];
   let clientName: string | null = null;
@@ -341,19 +362,37 @@ async function recipientsOf(
     }
     // q27 (Rasel, Oct 8): news about a client goes to its assigned member AND every Owner and
     // Admin; a record without a client to the Owners and Admins; a personal one to that person.
-    const members = record.personUserId
+    // A rule's chosen members (CHOSEN_RECIPIENT_EVENTS): this firm's ACTIVE members only, and for
+    // a client's record only those who may see the client (its assignee, an Owner or an Admin).
+    const managers = { role: { in: ['OWNER' as const, 'ADMIN' as const] } };
+    const members = chosen
       ? await tx.membership.findMany({
-          where: { ...active, userId: record.personUserId },
-          select: memberSelect,
-        })
-      : await tx.membership.findMany({
           where: {
             ...active,
-            OR: [{ role: { in: ['OWNER', 'ADMIN'] } }, ...(assigned ? [{ userId: assigned }] : [])],
+            userId: { in: [...chosen] },
+            ...(record.clientId
+              ? { OR: [managers, ...(assigned ? [{ userId: assigned }] : [])] }
+              : {}),
           },
           select: memberSelect,
           orderBy: { createdAt: 'asc' },
-        });
+        })
+      : record.personUserId
+        ? await tx.membership.findMany({
+            where: { ...active, userId: record.personUserId },
+            select: memberSelect,
+          })
+        : await tx.membership.findMany({
+            where: {
+              ...active,
+              OR: [
+                { role: { in: ['OWNER', 'ADMIN'] } },
+                ...(assigned ? [{ userId: assigned }] : []),
+              ],
+            },
+            select: memberSelect,
+            orderBy: { createdAt: 'asc' },
+          });
     members.map(asStaff);
   }
   return { recipients: out, clientName };
@@ -399,6 +438,15 @@ export class Notifier {
       throw new NotificationInputError(`${event} only reaches the ${def.to} side`);
     }
     const sides: Side[] = audience === 'both' ? ['client', 'staff'] : [audience];
+    const chosen = input.toUserIds;
+    if (chosen !== undefined) {
+      if (!CHOSEN_RECIPIENT_EVENTS.has(event))
+        throw new NotificationInputError(`${event}: the recipients are not the caller's to choose`);
+      if (chosen.length === 0 || chosen.length > 20)
+        throw new NotificationInputError(`${event}: name 1 to 20 members`);
+      if (chosen.some((id) => typeof id !== 'string' || !UUID.test(id)))
+        throw new NotificationInputError(`${event}: ids must be UUIDs`);
+    }
     const what = `${event} for ${def.kind} ${recordId.toLowerCase()}`;
     const bell = input.channels?.inApp ?? true;
     const mail = EMAIL_EVENTS.has(event) && (input.channels?.email ?? true);
@@ -419,7 +467,13 @@ export class Notifier {
       written = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const record = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
         if (!record) return [];
-        const { recipients, clientName } = await recipientsOf(tx, businessId, sides, record);
+        const { recipients, clientName } = await recipientsOf(
+          tx,
+          businessId,
+          sides,
+          record,
+          chosen?.map((id) => id.toLowerCase()),
+        );
         const actorId = input.actorUserId?.toLowerCase();
         // The client who acted gets no bell item but keeps the email copy (a confirmation), once:
         // a retried call with the same eventKey sends it again only if nothing was written before.

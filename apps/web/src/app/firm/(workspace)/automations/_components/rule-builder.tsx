@@ -241,6 +241,8 @@ function Builder({
     (saved?.owner?.userId === f.ownerUserId ? saved.owner?.name : undefined);
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
+  // AU-F18 to F20: an event about the firm itself (no client) takes only actions that need none.
+  const fitting = catalog.actions.filter((x) => ev?.hasClient !== false || !x.needsClient);
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
   // AU-F06: a whole number, 0 (at the anchor) to 100,000.
   const offsetNumber = Number(f.offsetValue);
@@ -689,7 +691,11 @@ function Builder({
                 );
               })}
               {f.conditions.length === 0 ? (
-                <p className="text-sm text-muted">No conditions: it applies to all clients.</p>
+                <p className="text-sm text-muted">
+                  {ev?.hasClient === false
+                    ? 'No conditions: it applies every time it happens.'
+                    : 'No conditions: it applies to all clients.'}
+                </p>
               ) : null}
               <button
                 type="button"
@@ -762,7 +768,14 @@ function Builder({
                       label={`Action ${i + 1}`}
                       value={a.type}
                       onChange={(e) => setAct(a.id, { type: e.target.value, config: {} })}
-                      options={catalog.actions.map((x) => ({ value: x.type, label: x.label }))}
+                      options={[...fitting, ...(info && !fitting.includes(info) ? [info] : [])].map(
+                        (x) => ({ value: x.type, label: x.label }),
+                      )}
+                      error={
+                        info && !fitting.includes(info)
+                          ? 'This event has no client: choose an action that needs none'
+                          : undefined
+                      }
                     />
                     <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
                       {(info?.fields ?? []).map((fld) => (
@@ -843,7 +856,7 @@ function Builder({
                       ...f.actions,
                       {
                         id: actionId(f.actions),
-                        type: catalog.actions[0]?.type ?? 'CREATE_TASK',
+                        type: fitting[0]?.type ?? 'CREATE_TASK',
                         config: {},
                         delay: '0',
                         dependsOn: '',
@@ -1245,6 +1258,30 @@ function ActionField({
         {chosen.some((id) => !rows.some((t) => t.id === id)) && rows.length > 0 ? (
           <p className="text-xs text-danger">A chosen tag was archived: choose again.</p>
         ) : null}
+      </fieldset>
+    );
+  }
+  if (field.type === 'MEMBERS') {
+    const chosen = Array.isArray(value) ? value : [];
+    return (
+      <fieldset className="flex flex-col gap-1">
+        <legend className="mb-1 text-sm font-medium">{label}</legend>
+        <span className="flex flex-wrap gap-x-3">
+          {members.map((m) => (
+            <Checkbox
+              key={m.value}
+              label={m.label}
+              className="min-h-8 text-sm"
+              checked={chosen.includes(m.value)}
+              onChange={(e) =>
+                onChange(
+                  e.target.checked ? [...chosen, m.value] : chosen.filter((x) => x !== m.value),
+                )
+              }
+            />
+          ))}
+        </span>
+        {field.help ? <p className="text-xs text-muted">{field.help}</p> : null}
       </fieldset>
     );
   }

@@ -197,8 +197,28 @@ const change = (
 });
 const PRIORITY = (key = 'priority') => field(key, 'Priority', 'STATUS', ['LOW', 'MEDIUM', 'HIGH']);
 
-type EventDef = Omit<AutomationEvent, 'confirmation' | 'anchor'> &
-  Partial<Pick<AutomationEvent, 'confirmation'>>;
+type EventDef = Omit<AutomationEvent, 'confirmation' | 'anchor' | 'hasClient'> &
+  Partial<Pick<AutomationEvent, 'confirmation' | 'hasClient'>>;
+
+/** AU-F18 to F20: a change about the firm itself (a team member, a connection, a send): no client. */
+const firmEvent = (...args: Parameters<typeof change>): EventDef => ({
+  ...change(...args),
+  hasClient: false,
+});
+const ROLES = [
+  'OWNER',
+  'ADMIN',
+  'MANAGER',
+  'STAFF',
+  'BOOKKEEPER',
+  'TAX_PREPARER',
+  'CLIENT_SUPPORT',
+  'BUSINESS_CONSULTANT',
+  'READ_ONLY',
+];
+const ROLE = statuses('role', 'Role', ROLES);
+const PROVIDER = field('provider', 'Provider', 'TEXT');
+const CHANNEL = statuses('channel', 'Channel', ['EMAIL', 'SMS', 'ANNOUNCEMENT']);
 
 /**
  * AU-F04, F06: what a timing counts from, for the events with a date on their record (the date the
@@ -747,6 +767,162 @@ const EVENT_DEFS: EventDef[] = [
       ]),
     ],
   ),
+  // ---------- AU-F18 to F20: the firm's own events, with no client ----------
+  // Each is a change the source module records in its audit log (audit-events.ts), or a sync run
+  // that finished (matching.ts). Only an action that needs no client (Notify staff) fits them. A
+  // trigger only tells: it never grants or changes anyone's rights.
+  firmEvent(
+    'staff.invited',
+    'STAFF_MANAGEMENT',
+    'Team member invited',
+    'When someone is invited to join the firm',
+    'membership',
+    [ROLE],
+  ),
+  firmEvent(
+    'staff.invitation_accepted',
+    'STAFF_MANAGEMENT',
+    'Invitation accepted',
+    'When an invited person joins the firm',
+    'membership',
+    [ROLE],
+  ),
+  firmEvent(
+    'staff.role_changed',
+    'STAFF_MANAGEMENT',
+    'Role changed',
+    'When a team member’s role changes',
+    'membership',
+    [statuses('newRole', 'New role', ROLES), statuses('previousRole', 'Previous role', ROLES)],
+  ),
+  firmEvent(
+    'staff.permissions_changed',
+    'STAFF_MANAGEMENT',
+    'Permissions changed',
+    'When a team member’s permissions are saved or overridden',
+    'membership',
+    [ROLE],
+  ),
+  firmEvent(
+    'staff.team_changed',
+    'STAFF_MANAGEMENT',
+    'Team assignment changed',
+    'When the members of a team change',
+    'team',
+    [],
+  ),
+  firmEvent(
+    'staff.deactivated',
+    'STAFF_MANAGEMENT',
+    'Team member deactivated',
+    'When a team member is deactivated',
+    'membership',
+    [ROLE],
+  ),
+  firmEvent(
+    'staff.reactivated',
+    'STAFF_MANAGEMENT',
+    'Team member reactivated',
+    'When a deactivated team member is reactivated',
+    'membership',
+    [ROLE],
+  ),
+  firmEvent(
+    'integration.connected',
+    'INTEGRATIONS',
+    'Connection established',
+    'When the firm connects a provider',
+    'integration_connection',
+    [PROVIDER],
+  ),
+  firmEvent(
+    'integration.reconnected',
+    'INTEGRATIONS',
+    'Connection recovered',
+    'When the firm reconnects a provider',
+    'integration_connection',
+    [PROVIDER],
+  ),
+  firmEvent(
+    'integration.disconnected',
+    'INTEGRATIONS',
+    'Connection disconnected',
+    'When the firm disconnects a provider',
+    'integration_connection',
+    [PROVIDER],
+  ),
+  firmEvent(
+    'integration.sync_completed',
+    'INTEGRATIONS',
+    'Sync completed',
+    'When a sync with a provider finishes, in full or in part',
+    'integration_connection',
+    [PROVIDER, statuses('syncStatus', 'Result', ['SUCCEEDED', 'PARTIAL'])],
+  ),
+  firmEvent(
+    'integration.sync_failed',
+    'INTEGRATIONS',
+    'Sync failed',
+    'When a sync with a provider fails',
+    'integration_connection',
+    [PROVIDER],
+  ),
+  firmEvent(
+    'integration.reauthorization_needed',
+    'INTEGRATIONS',
+    'Reauthentication required',
+    'When a sync fails because the provider’s authorization expired, was revoked or lacks a permission',
+    'integration_connection',
+    [PROVIDER],
+  ),
+  firmEvent(
+    'communication.draft_created',
+    'COMMUNICATIONS',
+    'Communication draft created',
+    'When someone creates an email, text or announcement draft',
+    'communication',
+    [CHANNEL],
+  ),
+  firmEvent(
+    'communication.scheduled',
+    'COMMUNICATIONS',
+    'Communication scheduled',
+    'When a communication is scheduled to send',
+    'communication',
+    [CHANNEL],
+  ),
+  firmEvent(
+    'communication.sent',
+    'COMMUNICATIONS',
+    'Communication sent or announcement published',
+    'When a campaign starts sending or an announcement is published',
+    'communication',
+    [CHANNEL],
+  ),
+  firmEvent(
+    'communication.delivered',
+    'COMMUNICATIONS',
+    'Communication delivered',
+    'When the last message of a campaign has gone out (some may have failed)',
+    'communication',
+    [CHANNEL],
+  ),
+  firmEvent(
+    'communication.failed',
+    'COMMUNICATIONS',
+    'Communication failed',
+    'When a scheduled send can’t start, or not one message of a campaign went out',
+    'communication',
+    [CHANNEL],
+  ),
+  firmEvent(
+    'communication.announcement_expired',
+    'COMMUNICATIONS',
+    'Announcement expired',
+    'When a published announcement stops showing',
+    'communication',
+    [CHANNEL],
+  ),
   {
     code: 'invoice.overdue',
     module: 'INVOICES_PAYMENTS',
@@ -863,6 +1039,7 @@ export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].
   ...e,
   anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
+  hasClient: e.hasClient ?? true,
 }));
 export const eventOf = (code: string) => EVENTS.find((e) => e.code === code);
 
@@ -883,6 +1060,7 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     description: 'Makes a task for the client, through the Tasks module.',
     requiresIntegration: null,
     contactsClient: false,
+    needsClient: true,
     fields: [
       {
         key: 'title',
@@ -939,6 +1117,7 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
       'Sends a portal message to the client (with the portal’s own notice), through the Messages module.',
     requiresIntegration: null,
     contactsClient: true,
+    needsClient: true,
     fields: [
       {
         key: 'templateId',
@@ -976,6 +1155,7 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     description: 'Adds your firm’s tags to the client (AU-F27).',
     requiresIntegration: null,
     contactsClient: false,
+    needsClient: true,
     fields: [
       {
         key: 'tagIds',
@@ -995,6 +1175,7 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     description: 'Removes those tags from the client (AU-F27).',
     requiresIntegration: null,
     contactsClient: false,
+    needsClient: true,
     fields: [
       {
         key: 'tagIds',
@@ -1014,6 +1195,7 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     description: 'Adds an internal note to the client’s record.',
     requiresIntegration: null,
     contactsClient: false,
+    needsClient: true,
     fields: [
       {
         key: 'body',
@@ -1023,6 +1205,27 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: null,
+      },
+    ],
+  },
+  {
+    type: 'NOTIFY_STAFF',
+    module: 'COMMUNICATIONS',
+    label: 'Notify staff',
+    description:
+      'Puts a notice in the bell of members of your firm (no email or text). It names the rule and the client, and opens the run (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: false,
+    fields: [
+      {
+        key: 'memberUserIds',
+        label: 'Notify',
+        type: 'MEMBERS',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'Left empty: the client’s assigned member and the Owners and Admins (only the Owners and Admins when there is no client). A member who can’t see the client is skipped.',
       },
     ],
   },

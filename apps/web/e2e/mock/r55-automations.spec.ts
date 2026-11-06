@@ -96,6 +96,22 @@ test('Actions move up and down with their settings, and a broken dependency clea
   await page.screenshot({ path: `${shots}/builder-actions.png` });
 });
 
+test('an event with no client offers only Notify staff, with the members to notify (AU-F19, F27)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await page.getByLabel('Trigger Category *').selectOption({ label: 'Staff Management' });
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Team Member Added' });
+  await expect(page.getByText('No conditions: it applies every time it happens.')).toBeVisible();
+  await page.getByRole('button', { name: 'Add Action' }).click();
+  const action = page.getByLabel('Action 1', { exact: true });
+  // Only the action that needs no client: a task or a client message has nobody to act for.
+  await expect(action.locator('option')).toHaveText(['Send internal notification']);
+  await page.getByTestId('step-actions').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/builder-notify.png` });
+});
+
 test('Logs: the activity tabs and the Status filter are one filter', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/logs`);

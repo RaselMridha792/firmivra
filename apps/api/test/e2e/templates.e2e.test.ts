@@ -1322,6 +1322,18 @@ describe('structures (TP-F08)', () => {
     });
     // The text and its version stay as they were.
     expect(linked.version).toBe(t.version);
+    expect(linked.linkedTemplateId).toBe(ids.task);
+    // The list row carries it too: its Use starts a task from that task template (part 2).
+    const rows = MessageTemplatePage.parse(
+      ok(
+        await call(
+          'get',
+          `/templates?kind=TASK&search=${encodeURIComponent(t.name)}`,
+          people.ownerA,
+        ),
+      ),
+    );
+    expect(rows.items.find((r) => r.id === t.id)?.linkedTemplateId).toBe(ids.task);
     // One library template stands for each task template.
     const other = await make({ kind: 'TASK', body: 'Another' });
     expectError(await link(other.id, ids.task, other.etag), 409, 'STRUCTURE_IN_USE');
@@ -1351,6 +1363,7 @@ describe('structures (TP-F08)', () => {
     // Cleared, the task template is free again.
     const cleared = detail(await link(t.id, null, linked.etag));
     expect(cleared.linkedTemplate).toBeNull();
+    expect(cleared.linkedTemplateId).toBeNull();
     expect(detail(await link(other.id, ids.task, other.etag)).linkedTemplate?.id).toBe(ids.task);
     expect((await auditActions(t.id)).map((a) => a.action)).toContain('message_template.linked');
   });
