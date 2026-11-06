@@ -12,6 +12,7 @@ import { COMPLIANCE_STATES } from '@firmivra/types';
 import { Badge, Button, Input, Toast } from '@firmivra/ui';
 import { DownloadSimple, Plus, X } from '@phosphor-icons/react';
 import { useState } from 'react';
+import { UnsavedDialog, useUnsavedGuard } from '../../tasks/_components/unsaved-guard';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
@@ -137,6 +138,18 @@ export function CalendarImport({ onImported }: { onImported: (name: string) => v
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [diff, setDiff] = useState<ComplianceCalendarDiff>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
+  // CD-F12 (Octavia, Oct 28): the draft stays while the other tabs are open (the page keeps this
+  // tab); leaving the page with it asks first, and Save imports it as a draft.
+  const guard = useUnsavedGuard({
+    family,
+    authority,
+    jurisdiction,
+    state,
+    year,
+    name,
+    sourceUrl,
+    entries,
+  });
   const setEntry = (key: string, change: Partial<EntryDraft>) =>
     setEntries(entries.map((e) => (e.key === key ? { ...e, ...change } : e)));
 
@@ -185,6 +198,16 @@ export function CalendarImport({ onImported }: { onImported: (name: string) => v
     invalidate: [...COMPLIANCE_KEY],
   });
 
+  const importDraft = () => {
+    if (!check()) return;
+    save.mutate(undefined, {
+      onSuccess: (c) => {
+        guard.rebase();
+        onImported(c.name);
+      },
+      onError: fail,
+    });
+  };
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="calendar-import">
       {message ? (
@@ -390,21 +413,12 @@ export function CalendarImport({ onImported }: { onImported: (name: string) => v
         >
           Preview Import
         </button>
-        <Button
-          data-testid="import-save"
-          disabled={save.isPending}
-          onClick={() => {
-            if (!check()) return;
-            save.mutate(undefined, {
-              onSuccess: (c) => onImported(c.name),
-              onError: fail,
-            });
-          }}
-        >
+        <Button data-testid="import-save" disabled={save.isPending} onClick={importDraft}>
           <DownloadSimple aria-hidden weight="bold" className="mr-2 inline size-4" /> Import as
           Draft
         </Button>
       </footer>
+      <UnsavedDialog guard={guard} onSave={importDraft} saving={save.isPending} />
     </div>
   );
 }
