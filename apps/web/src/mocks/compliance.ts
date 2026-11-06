@@ -457,7 +457,10 @@ export function createComplianceMock({
         });
         if (assignedUserId !== undefined) d.assignedTo = memberOf(assignedUserId);
         if (overridden)
-          log('OVERRIDE', 'SUCCESS', `Date changed on ${d.name}.`, { deadlineId: d.id });
+          log('OVERRIDE', 'SUCCESS', `Date changed on ${d.name}.`, {
+            deadlineId: d.id,
+            details: { from: d.statutoryDueOn, to: dueOn },
+          });
         return touch(d);
       }),
     startDeadline: (deadlineId) =>

@@ -54,6 +54,8 @@ const LABELS: Record<string, string> = {
 export function originLabel(origin: string): string {
   // RP-F03: a report opened from the library goes back to that tab and page.
   if (/^\/reports\/library(?:[/?#]|$)/.test(origin)) return 'Report Library';
+  // CD-F16: a record opened from Compliance's Logs or Manage goes back to that tab.
+  if (/^\/compliance\/recurring(?:[/?#]|$)/.test(origin)) return 'Recurring Deadline Setup';
   const first = origin.split(/[/?#]/)[1] ?? '';
   return LABELS[first] ?? 'Previous Page';
 }

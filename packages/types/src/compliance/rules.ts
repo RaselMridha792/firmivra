@@ -541,6 +541,12 @@ export const ComplianceLogsQuery = z
     kind: ComplianceLogKind.optional(),
     outcome: LogOutcome.optional(),
     calendarId: z.uuid().optional(),
+    // CD-F16 (Octavia, Oct 28): one record, who did it, and a search.
+    deadlineId: z.uuid().optional(),
+    recurrenceId: z.uuid().optional(),
+    actorUserId: z.uuid().optional(),
+    /** The affected record's name or ID, or the event's text. */
+    search: SearchText.optional(),
     from: ComplianceDay.optional(),
     to: ComplianceDay.optional(),
     ...compliancePageQuery(25),
@@ -559,12 +565,27 @@ export const ComplianceLog = z.object({
   calendarId: z.uuid().nullable(),
   deadlineId: z.uuid().nullable(),
   recurrenceId: z.uuid().nullable(),
-  /** Ids and counts only. */
+  /** Ids, counts and dates only (an override's dates before and after; a run's rule version). */
   details: z.record(z.string(), z.unknown()),
+  /**
+   * CD-F16: the record it is about (a deadline, else a recurring definition, else a calendar). The
+   * name is null where the viewer may not open it: a Staff member's deadlines are their clients'.
+   */
+  record: z
+    .object({
+      kind: z.enum(['DEADLINE', 'RECURRENCE', 'CALENDAR']),
+      id: z.uuid(),
+      name: z.string().nullable(),
+    })
+    .nullable(),
+  /** The rule a Generate ran: its name now and its version then. */
+  rule: z.object({ id: z.uuid(), name: z.string(), version: Int.nullable() }).nullable(),
   actor: MemberRef.nullable(),
   createdAt: ComplianceDateTime,
 });
 export type ComplianceLog = z.infer<typeof ComplianceLog>;
+/** A log as kept: its record and rule are looked up when read. */
+export type ComplianceLogStored = Omit<ComplianceLog, 'record' | 'rule'>;
 
 export const ComplianceLogPage = z.object({
   items: z.array(ComplianceLog).max(100),

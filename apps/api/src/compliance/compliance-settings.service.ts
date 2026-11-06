@@ -11,7 +11,13 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE, TenantPrisma } from '../database/database.module.js';
 import { memberNames } from '../workspaces/common.js';
-import { loadSettings, memberRefOf, txOf } from './compliance.mappers.js';
+import {
+  type ComplianceActor,
+  loadSettings,
+  memberRefOf,
+  reachWhere,
+  txOf,
+} from './compliance.mappers.js';
 import { errors, inFirm, parseDay, addDays } from './compliance.shared.js';
 
 /**
@@ -78,14 +84,41 @@ export class ComplianceSettingsService {
 
   async logs(
     businessId: string,
+    actor: ComplianceActor,
     q: z.output<typeof ComplianceLogsQuery>,
   ): Promise<ComplianceLogPage> {
     const db = this.tenantPrisma.db;
+    const reach = reachWhere(actor);
+    // CD-F16 (Octavia, Oct 28): a record's ID, or its name or the event's text. A deadline's name
+    // is searched only among the deadlines the viewer reaches.
+    const term = q.search;
+    const byId =
+      !!term && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(term);
+    const contains = { contains: term ?? '', mode: 'insensitive' as const };
     const where: Prisma.ComplianceLogWhereInput = {
       businessId,
       ...(q.kind ? { kind: q.kind } : {}),
       ...(q.outcome ? { outcome: q.outcome } : {}),
       ...(q.calendarId ? { calendarId: q.calendarId } : {}),
+      ...(q.deadlineId ? { deadlineId: q.deadlineId } : {}),
+      ...(q.recurrenceId ? { recurrenceId: q.recurrenceId } : {}),
+      ...(q.actorUserId ? { actorUserId: q.actorUserId.toLowerCase() } : {}),
+      ...(term
+        ? {
+            OR: byId
+              ? [
+                  { deadlineId: term.toLowerCase() },
+                  { recurrenceId: term.toLowerCase() },
+                  { calendarId: term.toLowerCase() },
+                ]
+              : [
+                  { message: contains },
+                  { calendar: { is: { name: contains } } },
+                  { recurrence: { is: { name: contains } } },
+                  { deadline: { is: { AND: [reach, { name: contains }] } } },
+                ],
+          }
+        : {}),
       ...(q.from || q.to
         ? {
             createdAt: {
@@ -109,6 +142,59 @@ export class ComplianceSettingsService {
       businessId,
       rows.map((r) => r.actorUserId),
     );
+    // The records' names: a deadline's only where the viewer reaches it.
+    const idsOf = (pick: (r: (typeof rows)[number]) => string | null) => [
+      ...new Set(rows.map(pick).filter((x): x is string => !!x)),
+    ];
+    const detailsOf = (r: (typeof rows)[number]) => (r.details ?? {}) as Record<string, unknown>;
+    const ruleIds = idsOf((r) => {
+      const id = detailsOf(r)['ruleId'];
+      return typeof id === 'string' ? id : null;
+    });
+    const [deadlines, recurrences, calendars, rules] = await Promise.all([
+      db.complianceDeadline.findMany({
+        where: { AND: [{ businessId, id: { in: idsOf((r) => r.deadlineId) } }, reach] },
+        select: { id: true, name: true },
+      }),
+      db.complianceRecurrence.findMany({
+        where: { businessId, id: { in: idsOf((r) => r.recurrenceId) } },
+        select: { id: true, name: true },
+      }),
+      db.complianceCalendar.findMany({
+        where: { businessId, id: { in: idsOf((r) => r.calendarId) } },
+        select: { id: true, name: true },
+      }),
+      db.complianceApplicabilityRule.findMany({
+        where: { businessId, id: { in: ruleIds } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const named = (list: { id: string; name: string }[]) =>
+      new Map(list.map((x) => [x.id, x.name]));
+    const deadlineName = named(deadlines);
+    const recurrenceName = named(recurrences);
+    const calendarName = named(calendars);
+    const ruleName = named(rules);
+    const recordOf = (r: (typeof rows)[number]): ComplianceLog['record'] =>
+      r.deadlineId
+        ? { kind: 'DEADLINE', id: r.deadlineId, name: deadlineName.get(r.deadlineId) ?? null }
+        : r.recurrenceId
+          ? {
+              kind: 'RECURRENCE',
+              id: r.recurrenceId,
+              name: recurrenceName.get(r.recurrenceId) ?? null,
+            }
+          : r.calendarId
+            ? { kind: 'CALENDAR', id: r.calendarId, name: calendarName.get(r.calendarId) ?? null }
+            : null;
+    const ruleOf = (r: (typeof rows)[number]): ComplianceLog['rule'] => {
+      const d = detailsOf(r);
+      const id = typeof d['ruleId'] === 'string' ? d['ruleId'] : null;
+      const name = id ? ruleName.get(id) : undefined;
+      if (!id || name === undefined) return null;
+      const version = d['ruleVersion'];
+      return { id, name, version: typeof version === 'number' ? version : null };
+    };
     const items: ComplianceLog[] = rows.map((r) => ({
       id: r.id,
       kind: r.kind,
@@ -117,7 +203,9 @@ export class ComplianceSettingsService {
       calendarId: r.calendarId,
       deadlineId: r.deadlineId,
       recurrenceId: r.recurrenceId,
-      details: (r.details ?? {}) as Record<string, unknown>,
+      details: detailsOf(r),
+      record: recordOf(r),
+      rule: ruleOf(r),
       actor: memberRefOf(names, r.actorUserId),
       createdAt: r.createdAt.toISOString(),
     }));

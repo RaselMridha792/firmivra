@@ -863,6 +863,69 @@ describe('moving a government date', () => {
       ).dueOn,
     ).toBe('2031-06-11');
   });
+
+  it('Logs name the record where the viewer may open it, show the dates before and after, and find it by ID, name or person (CD-F16, Octavia Oct 28)', async () => {
+    const moved = async (over: object) =>
+      exact(
+        ComplianceDeadline,
+        await call(
+          'post',
+          '/compliance/deadlines',
+          people.adminA,
+          gov({ dueOverrideReason: 'Fake reason', ...over }),
+        ),
+        201,
+      );
+    const own = await moved({ name: `Logged own ${run}` });
+    const other = await moved({ clientId: s.c2, name: `Logged other ${run}` });
+    const logs = async (query: string, who: Who = people.ownerA, firm = ids.firmA) =>
+      exact(ComplianceLogPage, await call('get', `/compliance/logs${query}`, who, undefined, firm))
+        .items;
+    const [byId] = await logs(`?search=${own.id}`);
+    expect(byId).toMatchObject({
+      kind: 'OVERRIDE',
+      deadlineId: own.id,
+      record: { kind: 'DEADLINE', id: own.id, name: `Logged own ${run}` },
+      details: { from: '2031-04-15', to: '2031-04-20', daysMoved: 5 },
+      rule: null,
+      actor: { userId: people.adminA.id },
+    });
+    expect(JSON.stringify(byId)).not.toContain('Fake reason');
+    expect((await logs(`?deadlineId=${other.id}`)).map((l) => l.record?.name)).toEqual([
+      `Logged other ${run}`,
+    ]);
+    expect(
+      (await logs(`?search=${encodeURIComponent(`logged own ${run}`)}`)).map((l) => l.deadlineId),
+    ).toEqual([own.id]);
+    expect(
+      (await logs(`?actorUserId=${people.adminA.id}&kind=OVERRIDE&pageSize=100`)).map(
+        (l) => l.deadlineId,
+      ),
+    ).toEqual(expect.arrayContaining([own.id, other.id]));
+    expect(await logs(`?actorUserId=${people.staff2A.id}&search=${own.id}`)).toEqual([]);
+    // A Staff member sees the names of their own clients' deadlines only, and cannot find the
+    // other by its name.
+    const staff = await logs('?kind=OVERRIDE&pageSize=100', people.staffA);
+    expect(staff.find((l) => l.deadlineId === own.id)?.record?.name).toBe(`Logged own ${run}`);
+    expect(staff.find((l) => l.deadlineId === other.id)?.record).toEqual({
+      kind: 'DEADLINE',
+      id: other.id,
+      name: null,
+    });
+    expect(
+      await logs(`?search=${encodeURIComponent(`logged other ${run}`)}`, people.staffA),
+    ).toEqual([]);
+    // Firm B finds none of firm A's.
+    expect(await logs(`?search=${own.id}`, people.ownerB, ids.firmB)).toEqual([]);
+    expect(await logs(`?deadlineId=${own.id}`, people.ownerB, ids.firmB)).toEqual([]);
+    for (const bad of ['?actorUserId=x', '?deadlineId=x', `?search=${'x'.repeat(101)}`]) {
+      expectError(
+        await call('get', `/compliance/logs${bad}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+  });
 });
 
 describe('editing a deadline', () => {
@@ -906,9 +969,23 @@ describe('editing a deadline', () => {
     const row = await asOwner(ids.firmA, (tx) =>
       tx.auditLog.findFirstOrThrow({
         where: { entityId: d.id, action: 'compliance.deadline.updated' },
+        orderBy: { createdAt: 'asc' },
       }),
     );
     expect(JSON.stringify(row.metadata)).not.toContain('Old notes');
+    // CD-F16 (Octavia, Oct 28): before and after, for the fields that are not free text.
+    const changes = (row.metadata as { changes: Record<string, unknown> }).changes;
+    expect(changes).toMatchObject({
+      priority: { to: 'LOW' },
+      dueTime: { from: null, to: '16:45' },
+      paymentDueOn: { from: null, to: plus(50) },
+      status: { to: 'IN_PROGRESS' },
+      taxYear: { from: null, to: 2029 },
+    });
+    for (const key of ['name', 'description', 'internalNotes', 'clientNotes']) {
+      expect(changes).not.toHaveProperty(key);
+    }
+    expect(JSON.stringify(changes)).not.toContain('Renamed deadline');
   });
 
   it('refuses an empty change, the client, a closed status change and an archived deadline', async () => {
@@ -3316,7 +3393,8 @@ describe('applicability rules and suggestions', () => {
     expect(logs.items[0]).toMatchObject({
       kind: 'GENERATE',
       outcome: 'SUCCESS',
-      details: { ruleId: rule.id, suggested: 0 },
+      details: { ruleId: rule.id, ruleVersion: expect.any(Number), suggested: 0 },
+      rule: { id: rule.id, name: expect.any(String), version: expect.any(Number) },
     });
     expect(await auditActions(rule.id)).toContain('compliance.suggestions.generated');
   });
