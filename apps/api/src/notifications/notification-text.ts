@@ -174,6 +174,11 @@ const TEXT: Record<NotificationEvent, Writer> = {
   'staff.joined': (p) => ({
     title: 'New team member',
     body: `${text(p, 'name') ?? 'A new member'} joined the team.`,
+  }), // A rule's Notify staff (R55): the rule's name is the firm's own words; the client's name when
+  // the run has a client.
+  'automation.notice': (p) => ({
+    title: 'Automation notice',
+    body: forClient(p, text(p, 'title') ?? 'A rule ran.'),
   }),
 };
 

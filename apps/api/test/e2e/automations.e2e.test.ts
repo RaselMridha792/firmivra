@@ -344,6 +344,7 @@ describe('the catalog', () => {
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
       'ADD_CLIENT_NOTE',
+      'NOTIFY_STAFF',
     ]);
     expect(c.actions.find((a) => a.type === 'SEND_CLIENT_MESSAGE')?.contactsClient).toBe(true);
     expect(c.variables.map((v) => v.key)).toContain('client.firstName');
@@ -2225,5 +2226,205 @@ describe('Add and remove client tags (AU-F27)', () => {
       { name: mark('No tags yet') },
     );
     expectError(await activate(empty.id), 409, 'NOT_READY');
+  });
+});
+
+describe('Notify staff, and the firm’s own events with no client (AU-F18 to F20, F27)', () => {
+  const tell = (config: object = {}) => ({ id: 'tell', type: 'NOTIFY_STAFF', config });
+  const business = async (
+    method: Method,
+    path: string,
+    who: Who,
+    body?: object,
+    firm: 'a' | 'b' = 'a',
+  ) => {
+    const req = request(app.getHttpServer())
+      [method](`/api/v1/business${path}`)
+      .set('x-business-id', firms[firm])
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`);
+    return body === undefined ? req : req.send(body);
+  };
+  const notices = (runId: string) =>
+    inFirm('a', (tx) =>
+      tx.notification.findMany({
+        where: { businessId: firms.a, type: 'automation.notice', entityId: runId },
+        select: { recipientUserId: true },
+      }),
+    );
+  const validate = async (definition: object) =>
+    AutomationPreview.parse(ok(await call('post', '/rules/validate', ownerA, { definition })));
+
+  it('a role change notifies the Owners and Admins by default; never Staff, never another firm', async () => {
+    const live = await createRule(
+      { trigger: { module: 'STAFF_MANAGEMENT', event: 'staff.role_changed' }, actions: [tell()] },
+      { name: mark('Role watch'), category: 'STAFF_MANAGEMENT' },
+    );
+    expect(AutomationRuleDetail.parse(ok(await activate(live.id))).status).toBe('ACTIVE');
+    // A new member of firm A, whose role the Owner changes through Team.
+    const newcomer = { id: randomUUID(), email: `r55u-new-${run}@r55.test` };
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: newcomer.id,
+          cognitoSub: newcomer.id,
+          pool: 'STAFF',
+          email: newcomer.email,
+          name: `Fake R55u newcomer ${run}`,
+        },
+      }),
+    );
+    const membershipId = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.membership.create({
+            data: {
+              businessId: firms.a,
+              userId: newcomer.id,
+              role: 'BOOKKEEPER',
+              status: 'ACTIVE',
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    ok(await business('patch', `/team/${membershipId}`, ownerA, { role: 'STAFF' }));
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const run1 = (await runs(`?ruleId=${live.id}`)).items[0]!;
+    const detail = await runDetail(run1.id);
+    expect(detail.actions[0]).toMatchObject({ status: 'SUCCESS', detail: '2 member(s) notified' });
+    // The Owner and the Admin; no Staff member, and nobody of firm B.
+    expect((await notices(run1.id)).map((n) => n.recipientUserId).sort()).toEqual(
+      [ownerA.id, adminA.id].sort(),
+    );
+    // The bell item: the rule's name, opening the run in Automations > Logs.
+    const bell = ok(await business('get', '/me/notifications', adminA)) as {
+      items: { title: string; body: string; target: { kind: string; id: string } }[];
+    };
+    expect(bell.items.find((n) => n.target.id === run1.id)).toMatchObject({
+      title: 'Automation notice',
+      body: live.name,
+      target: { kind: 'automation_run', id: run1.id },
+    });
+    expect((await auditRows(run1.id)).map((r) => r.action)).toContain('automation.notice_sent');
+    // The link's page loads the run through the firm's own API: firm B gets 404.
+    expect((await call('get', `/runs/${run1.id}`, ownerB, undefined, 'b')).status).toBe(404);
+    const theirs = ok(await business('get', '/me/notifications', ownerB, undefined, 'b')) as {
+      items: { target: { id: string } }[];
+    };
+    expect(theirs.items.some((n) => n.target.id === run1.id)).toBe(false);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+
+  it('chosen members: this firm’s active members only, and on a client’s run only those who may see the client', async () => {
+    // Firm B's Owner is never someone firm A can notify.
+    const foreign = clientCreated([tell({ memberUserIds: [ownerB.id] })]);
+    expect(
+      (await validate(foreign)).checks.find((c) => c.path === 'actions.0.config.memberUserIds'),
+    ).toMatchObject({ code: 'INVALID_ACTION_CONFIG', severity: 'BLOCK' });
+    const blocked = await createRule(foreign, { name: mark('Foreign notice') });
+    expectError(await activate(blocked.id), 409, 'NOT_READY');
+
+    const live = await createRule(
+      clientCreated([tell({ memberUserIds: [staffA.id, preparerA.id, adminA.id] })]),
+      { name: mark('New client notice') },
+    );
+    ok(await activate(live.id));
+    // A client assigned to the Staff member: they and the Admin see it; the preparer doesn't.
+    const clientId = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `Notice client ${run} (fake)`,
+              assignedUserId: staffA.id,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const run1 = (await runs(`?ruleId=${live.id}`)).items.find((r) => r.client?.id === clientId)!;
+    expect((await notices(run1.id)).map((n) => n.recipientUserId).sort()).toEqual(
+      [staffA.id, adminA.id].sort(),
+    );
+    const bell = ok(await business('get', '/me/notifications', staffA)) as {
+      items: { body: string; target: { id: string } }[];
+    };
+    expect(bell.items.find((n) => n.target.id === run1.id)?.body).toBe(
+      `Notice client ${run} (fake): ${live.name}`,
+    );
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+
+  it('an event with no client refuses an action that needs one; finished syncs are events', async () => {
+    expectError(
+      await call('post', '/rules', ownerA, {
+        name: mark('Task for nobody'),
+        category: 'STAFF_MANAGEMENT',
+        definition: {
+          trigger: { module: 'STAFF_MANAGEMENT', event: 'staff.deactivated' },
+          actions: [note()],
+        },
+      }),
+      400,
+      'INVALID_DEFINITION',
+    );
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const events = (module: string) => catalog.events.filter((e) => e.module === module);
+    for (const module of ['STAFF_MANAGEMENT', 'INTEGRATIONS'])
+      expect(events(module).every((e) => !e.hasClient)).toBe(true);
+    expect(catalog.events.find((e) => e.code === 'communication.sent')?.hasClient).toBe(false);
+    expect(catalog.events.find((e) => e.code === 'communication.consent_changed')?.hasClient).toBe(
+      true,
+    );
+
+    const failed = await createRule(
+      { trigger: { module: 'INTEGRATIONS', event: 'integration.sync_failed' }, actions: [tell()] },
+      { name: mark('Sync failed'), category: 'INTEGRATIONS' },
+    );
+    const reauth = await createRule(
+      {
+        trigger: { module: 'INTEGRATIONS', event: 'integration.reauthorization_needed' },
+        actions: [tell()],
+      },
+      { name: mark('Reauthorize'), category: 'INTEGRATIONS' },
+    );
+    for (const r of [failed, reauth]) ok(await activate(r.id));
+    // The sync worker's results: one expired authorization in each firm, and a connection test
+    // in firm A, which is not a sync.
+    for (const firm of ['a', 'b'] as const)
+      await inFirm(firm, async (tx) => {
+        const c = await tx.integrationConnection.create({
+          data: {
+            businessId: firms[firm],
+            // A synthetic provider: an earlier test has the firm's real ones (one per provider).
+            provider: 'r55_sync_fake',
+            status: 'NEEDS_ATTENTION',
+            statusReason: 'authorization_expired',
+          },
+          select: { id: true },
+        });
+        for (const entity of firm === 'a' ? ['invoices', 'test'] : ['invoices'])
+          await tx.integrationSyncRun.create({
+            data: {
+              businessId: firms[firm],
+              connectionId: c.id,
+              entity,
+              status: 'FAILED',
+              errorCode: 'authorization_expired',
+              finishedAt: new Date(),
+            },
+          });
+      });
+    for (const r of [failed, reauth])
+      expect(await engine.scanRule(firms.a, r.id)).toMatchObject({ started: 1 });
+    const one = (await runs(`?ruleId=${reauth.id}`)).items[0]!;
+    expect(one).toMatchObject({ recordKind: 'integration_connection', client: null });
+    expect((await runDetail(one.id)).actions[0]).toMatchObject({ status: 'SUCCESS' });
+    for (const r of [failed, reauth]) ok(await call('post', `/rules/${r.id}/pause`, ownerA, {}));
   });
 });

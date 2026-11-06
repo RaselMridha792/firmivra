@@ -1,4 +1,5 @@
 import type { TxClient } from '@firmivra/db';
+import { PROVIDERS } from '../integrations/catalog.js';
 import type { FieldValue } from './logic.js';
 import type { Candidate, Scope } from './matching.js';
 
@@ -49,6 +50,10 @@ export async function clientTypes(
   });
   return new Map(rows.map((c) => [c.id, c.accountType]));
 }
+
+/** A provider's name as Integrations shows it ("QuickBooks Online"), or its code. */
+export const providerName = (code: string) =>
+  PROVIDERS.find((p) => p.provider === code)?.name ?? code;
 
 const changed = (field: string) => (meta: Meta) =>
   Array.isArray(meta['fields']) && (meta['fields'] as unknown[]).includes(field);
@@ -247,6 +252,44 @@ const RESOLVERS = {
       ]),
     );
   }) satisfies Resolver,
+  // AU-F19, F20, F18: the firm's own records, with no client.
+  membership: (async (tx, businessId, ids) => {
+    const rows = await tx.membership.findMany({
+      where: { businessId, id: { in: ids } },
+      select: { id: true, role: true, user: { select: { name: true } } },
+    });
+    return new Map(
+      rows.map((m) => [m.id, { clientId: null, label: m.user.name, fields: { role: m.role } }]),
+    );
+  }) satisfies Resolver,
+  team: (async (tx, businessId, ids) => {
+    const rows = await tx.team.findMany({
+      where: { businessId, id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    return new Map(rows.map((t) => [t.id, { clientId: null, label: t.name, fields: {} }]));
+  }) satisfies Resolver,
+  integration_connection: (async (tx, businessId, ids) => {
+    const rows = await tx.integrationConnection.findMany({
+      where: { businessId, id: { in: ids } },
+      select: { id: true, provider: true },
+    });
+    return new Map(
+      rows.map((c) => [
+        c.id,
+        { clientId: null, label: providerName(c.provider), fields: { provider: c.provider } },
+      ]),
+    );
+  }) satisfies Resolver,
+  communication: (async (tx, businessId, ids) => {
+    const rows = await tx.communication.findMany({
+      where: { businessId, id: { in: ids } },
+      select: { id: true, name: true, channel: true },
+    });
+    return new Map(
+      rows.map((c) => [c.id, { clientId: null, label: c.name, fields: { channel: c.channel } }]),
+    );
+  }) satisfies Resolver,
 };
 
 /** The audit-sourced events, by event code. */
@@ -412,7 +455,7 @@ export const AUDIT_EVENTS: Record<string, AuditEvent> = {
     via: 'meta',
   },
   // Communications (AU-F18), the client's own: an unsubscribe or a spam report is a consent
-  // change. Firm-wide sends have no client and wait for a staff-facing action (lead, Nov 4).
+  // change. Firm-wide sends are below, with the firm's other events that have no client.
   'communication.consent_changed': {
     actions: ['communication_consent.set'],
     entity: 'client',
@@ -420,6 +463,50 @@ export const AUDIT_EVENTS: Record<string, AuditEvent> = {
       channel: typeof m['channel'] === 'string' ? m['channel'] : null,
       consentStatus: typeof m['status'] === 'string' ? m['status'] : null,
     }),
+  },
+  // Staff Management (AU-F19): the Team and Staff modules' own entries. A trigger only tells:
+  // it never grants or changes anyone's rights.
+  'staff.invited': { actions: ['membership.invited'], entity: 'membership' },
+  'staff.invitation_accepted': { actions: ['membership.activated'], entity: 'membership' },
+  'staff.role_changed': {
+    actions: ['membership.role_changed'],
+    entity: 'membership',
+    fieldsOf: (m) => ({
+      newRole: typeof m['to'] === 'string' ? m['to'] : null,
+      previousRole: typeof m['from'] === 'string' ? m['from'] : null,
+    }),
+  },
+  'staff.permissions_changed': {
+    actions: ['staff.permissions_saved', 'staff.permissions_overridden'],
+    entity: 'membership',
+  },
+  'staff.team_changed': { actions: ['team.members_set'], entity: 'team' },
+  'staff.deactivated': { actions: ['membership.deactivated'], entity: 'membership' },
+  'staff.reactivated': { actions: ['staff.reactivated'], entity: 'membership' },
+  // Integrations (AU-F20): the firm's own connect, reconnect and disconnect. Syncs are in
+  // matching.ts (the sync runs themselves).
+  'integration.connected': { actions: ['integration.connected'], entity: 'integration_connection' },
+  'integration.reconnected': {
+    actions: ['integration.reconnected'],
+    entity: 'integration_connection',
+  },
+  'integration.disconnected': {
+    actions: ['integration.disconnected'],
+    entity: 'integration_connection',
+  },
+  // Communications (AU-F18), firm-wide: the Communications module's own entries. No opens or
+  // clicks (the review says not to add them).
+  'communication.draft_created': { actions: ['communication.created'], entity: 'communication' },
+  'communication.scheduled': { actions: ['communication.scheduled'], entity: 'communication' },
+  'communication.sent': { actions: ['communication.sent'], entity: 'communication' },
+  'communication.delivered': { actions: ['communication.finished'], entity: 'communication' },
+  'communication.failed': {
+    actions: ['communication.failed', 'communication.schedule_failed'],
+    entity: 'communication',
+  },
+  'communication.announcement_expired': {
+    actions: ['communication.expired'],
+    entity: 'communication',
   },
 };
 

@@ -8,6 +8,7 @@ import {
   type DocumentStorage,
   S3DocumentStorage,
 } from '../storage/document-storage.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { TasksModule } from '../tasks/tasks.module.js';
 import { AUTOMATION_FILES, S3AutomationFiles } from './automation-files.js';
 import { AutomationJob } from './automation.job.js';
@@ -27,7 +28,7 @@ import { TemplatesService } from './templates.service.js';
  * Log exports live under tenant/<business>/automations/ in the documents bucket.
  */
 @Module({
-  imports: [MessagesModule, TasksModule],
+  imports: [MessagesModule, TasksModule, NotificationsModule],
   controllers: [AutomationsController],
   providers: [
     AutomationsReadService,

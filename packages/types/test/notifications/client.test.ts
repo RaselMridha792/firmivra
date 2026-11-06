@@ -235,6 +235,11 @@ describe('notification links', () => {
     expect(notificationLink(target('appointment', clientId), firm)).toBe(`/calendar/${id}`);
     expect(notificationLink(target('client_account'), firm)).toBe('/sign-ups');
     expect(notificationLink(target('membership'), firm)).toBe('/team');
+    expect(notificationLink(target('automation_run'), firm)).toBe(`/automations/logs?run=${id}`);
+    expect(notificationLink(target('automation_run', clientId), firm)).toBe(
+      `/automations/logs?run=${id}`,
+    );
+    expect(notificationLink(target('automation_run'), portal)).toBeNull();
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');
     expect(notificationLink(target('client_note_reminder'), portal)).toBe('/lvp/messages');
