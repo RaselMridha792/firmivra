@@ -463,6 +463,11 @@ describe('quick reports and the run path', () => {
     });
     expect(r.table.totals).toEqual({ amount: 5_000 });
     expect(r.kpis.find((k) => k.key === 'amount')?.value).toBe(5_000);
+    // RP-F21 (Octavia, Oct 28): Revenue Summary says it counts collected payments.
+    expect(r.kpis.find((k) => k.key === 'amount')).toMatchObject({
+      label: 'Total Amount Collected',
+      definition: expect.stringContaining('Collected: payments received'),
+    });
     expect(r.kpis.find((k) => k.key === 'count')?.value).toBe(r.table.total);
     expect(r.chart?.series[0]?.values.reduce<number>((a, b) => a + (b ?? 0), 0)).toBe(5_000);
     expect(r.chart?.money).toBe(true);
@@ -667,7 +672,7 @@ describe('quick reports and the run path', () => {
     );
     expect(numbers(between)).toEqual([`INV-A-${run}-2`]);
     expect(between.chips).toEqual([
-      { field: 'total', label: 'Total', value: 'between $25.00 and $75.00' },
+      { field: 'total', label: 'Invoiced Total', value: 'between $25.00 and $75.00' },
     ]);
     // RP-F02: "abc" is refused with the condition's path (the screen keeps the report and the
     // filter), in the definition and in More Filters alike.
@@ -686,6 +691,12 @@ describe('quick reports and the run path', () => {
     expect(numbers(searched)).toEqual([`INV-A-${run}-2`]);
     expect(searched.kpis.find((k) => k.key === 'count')?.value).toBe(1);
     expect(searched.kpis.find((k) => k.key === 'total')?.value).toBe(5_000);
+    // RP-F21: an invoice total is invoiced, and is never called "Total Total".
+    expect(searched.kpis.find((k) => k.key === 'total')).toMatchObject({
+      label: 'Invoiced Total',
+      definition: expect.stringContaining('Invoiced: the invoices issued'),
+    });
+    expect(searched.kpis.map((k) => k.label)).not.toContain('Total Total');
   });
 
   it('refuses a definition the data source does not allow, and a restricted one', async () => {
@@ -1079,7 +1090,7 @@ describe('exports', () => {
     expect(row.s3Key).toMatch(new RegExp(`^tenant/${firms.a}/reports/[0-9a-f-]+\\.csv$`));
     expect(row.sensitive).toBe(true);
     const csv = files.objects.get(row.s3Key!)!.toString('utf8');
-    expect(csv).toContain('"Invoice","Client","Amount","Paid Date"');
+    expect(csv).toContain('"Invoice","Client","Amount Collected","Paid Date"');
     expect(csv).toContain('"Riley Example (fake)","50.00"');
     expect(csv.trim().split('\r\n').at(-1)).toMatch(/^"Total","","50.00",""$/);
 
@@ -1234,7 +1245,7 @@ describe('Excel and PDF exports (IP-F23, Octavia Oct 27)', () => {
     for (const text of [
       'Invoice',
       'Client',
-      'Amount',
+      'Amount Collected',
       'Paid Date',
       'Riley Example (fake)',
       'Total',

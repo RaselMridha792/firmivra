@@ -116,6 +116,22 @@ const field = (
 
 const link = (kind: ReportRowLink['kind'], id: string): ReportRowLink => ({ kind, id });
 
+/**
+ * RP-F21 (Octavia's Reports review, Oct 28): what a money total counts, by source and field, said
+ * on its KPI. Revenue Summary is collected payments; invoice reports are invoiced amounts (the
+ * defaults until Octavia confirms, RP-Y04).
+ */
+export const MONEY_BASIS: Readonly<Record<string, string>> = {
+  'invoices_payments.subtotal':
+    'Invoiced: the invoices issued in the range, by invoice date, paid or not, before tax.',
+  'invoices_payments.tax': 'Invoiced: the tax on the invoices issued in the range.',
+  'invoices_payments.total':
+    'Invoiced: the invoices issued in the range, by invoice date, paid or not, tax included.',
+  'payments_received.amount':
+    'Collected: payments received in the range, by paid date, including any tax they paid; tips are apart.',
+  'payments_received.tip': 'Collected: tips paid with payments received in the range.',
+};
+
 // ---------- Clients ----------
 
 const clients: SourceDef = {
@@ -200,9 +216,10 @@ const invoices: SourceDef = {
     field('number', 'Invoice Number', 'TEXT', { locked: true, groupable: false }),
     field('client', 'Client', 'TEXT'),
     field('status', 'Status', 'STATUS', { options: InvoiceStatus.options }),
-    field('subtotal', 'Subtotal', 'MONEY'),
-    field('tax', 'Tax', 'MONEY'),
-    field('total', 'Total', 'MONEY'),
+    // RP-F21: invoice amounts are invoiced (by invoice date, paid or not).
+    field('subtotal', 'Invoiced Subtotal', 'MONEY'),
+    field('tax', 'Invoiced Tax', 'MONEY'),
+    field('total', 'Invoiced Total', 'MONEY'),
     field('issuedOn', 'Invoice Date', 'DATE', { groupable: false }),
     field('dueOn', 'Due Date', 'DATE', { groupable: false }),
     field('paidOn', 'Paid Date', 'DATE', { groupable: false }),
@@ -319,8 +336,9 @@ const payments: SourceDef = {
     field('client', 'Client', 'TEXT'),
     field('service', 'Service', 'TEXT'),
     field('status', 'Status', 'STATUS', { options: PaymentStatus.options }),
-    field('amount', 'Amount', 'MONEY'),
-    field('tip', 'Tip', 'MONEY'),
+    // RP-F21: payments are collected (by paid date).
+    field('amount', 'Amount Collected', 'MONEY'),
+    field('tip', 'Tips Collected', 'MONEY'),
     field('method', 'Payment Method', 'TEXT'),
     field('processor', 'Processor', 'TEXT'),
     field('paidOn', 'Paid Date', 'DATE', { groupable: false }),

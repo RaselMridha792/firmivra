@@ -2,12 +2,13 @@
 
 import type { ReportDefinitionBody, ReportDefinitionView } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
-import { useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { PRESETS, RP_ERRORS, RP_KEY } from './reports-shared';
 import { ReportHelp } from './report-help';
+import { schedulePreview } from './schedule-preview';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
 export const bodyOf = (d: ReportDefinitionView): ReportDefinitionBody =>
@@ -97,6 +98,16 @@ type Target =
   | { kind: 'SAVED'; id: string }
   | { kind: 'NEW'; definition: ReportDefinitionView; name: string };
 
+/** The current minute, kept fresh while a dialog is open (a preview that names "next"). */
+function useMinute(): number {
+  const subscribe = useCallback((onChange: () => void) => {
+    const timer = window.setInterval(onChange, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const snapshot = () => Math.floor(Date.now() / 60_000) * 60_000;
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
 /** Schedule Report: when it runs, what it covers, who gets it and how. */
 export function ScheduleReportDialog({
   target,
@@ -127,11 +138,29 @@ export function ScheduleReportDialog({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const mails = emails.split(/[\s,;]+/).filter(Boolean);
+  // RP-F19 (Octavia's Reports review, Oct 28): the next run, with the schedules' own rules, in the
+  // firm's named time zone, recomputed as the frequency, day, month and time change.
+  const settings = useApiQuery([...RP_KEY, 'settings'], () => api.reports.settings());
+  const zone = settings.data?.timezone ?? 'America/New_York';
+  const minute = useMinute();
+  const preview = schedulePreview(
+    {
+      frequency,
+      weekday: frequency === 'WEEKLY' ? Number(weekday) : null,
+      dayOfMonth: ['MONTHLY', 'QUARTERLY', 'ANNUAL'].includes(frequency)
+        ? Number(dayOfMonth)
+        : null,
+      monthOfYear: frequency === 'ANNUAL' ? Number(month) : null,
+      runTime: time,
+    },
+    zone,
+    new Date(minute),
+  );
   return (
     <Modal
       open
       title="Schedule Report"
-      subtitle="The report is run for you at the firm's time zone."
+      subtitle={`The report runs in your firm's time zone, ${zone}.`}
       onClose={onClose}
       footer={
         <>
@@ -246,6 +275,19 @@ export function ScheduleReportDialog({
             options={PRESETS.map((p) => ({ value: p.value, label: p.label }))}
           />
         </div>
+        <p
+          role="status"
+          data-testid="next-run"
+          className={`rounded-lg p-3 text-sm ${'text' in preview ? 'bg-info-soft text-heading' : 'bg-warning-soft text-warning'}`}
+        >
+          {'text' in preview ? (
+            <>
+              <strong>Next run:</strong> {preview.text}
+            </>
+          ) : (
+            preview.problem
+          )}
+        </p>
         <fieldset className="flex flex-wrap gap-4">
           <legend className="mb-1 text-sm font-semibold text-heading">Formats</legend>
           {['PDF', 'XLSX', 'CSV'].map((f) => (
