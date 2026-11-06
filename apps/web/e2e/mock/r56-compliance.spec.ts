@@ -442,6 +442,30 @@ test('Logs: search by record, dates before and after, the rule, and links to the
   await expect(page.getByLabel('Record type')).toHaveValue('');
 });
 
+test('A rule names federal tax classifications, an LLC by its election, and says so (CD-F14)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/recurring/new?tab=rules`);
+  const rules = page.getByTestId('rules-tab');
+  // A rule saved with classifications reads them in words.
+  await expect(rules).toContainText('Partnership, Multi-member LLC');
+  await page.getByRole('button', { name: 'New Rule' }).click();
+  const form = page.getByTestId('rule-form');
+  await form.getByLabel('Rule name').fill('S corporation returns');
+  await form.getByLabel('Applies to a').selectOption('RECURRENCE');
+  await form
+    .getByLabel('Recurring deadline')
+    .selectOption({ label: 'Monthly Payroll Tax Deposit' });
+  const entities = page.getByTestId('rule-entities');
+  await expect(entities.getByRole('checkbox')).toHaveCount(11);
+  await entities.getByLabel('S corporation', { exact: true }).check();
+  await expect(form).toContainText('a rule for S corporations also applies to an LLC');
+  await page.screenshot({ path: test.info().outputPath('rule-classifications.png') });
+  await page.getByRole('button', { name: 'Save Rule' }).click();
+  await expect(rules).toContainText('S corporation');
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {
