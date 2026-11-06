@@ -44,6 +44,7 @@ import {
   SegmentFieldList,
   SegmentMemberPage,
   SegmentMembersQuery,
+  SegmentPeopleQuery,
   SegmentPage,
   SegmentPreview,
   SegmentsQuery,
@@ -318,6 +319,12 @@ export function createCommunicationsClient(request: ApiRequest) {
       request(
         SegmentMemberPage,
         `${segment(id)}/members${toQuery(parseInput(SegmentMembersQuery, query))}`,
+      ),
+    /** CM-F18: the people a member may add to a list, by name, within their reach. */
+    segmentPeople: async (query: SegmentPeopleQuery = {}): Promise<SegmentMemberPage> =>
+      request(
+        SegmentMemberPage,
+        `${BASE}/segments/people${toQuery(parseInput(SegmentPeopleQuery, query))}`,
       ),
     setSegmentMembers: async (id: string, body: SetSegmentMembersRequest): Promise<SegmentDetail> =>
       request(SegmentDetail, `${segment(id)}/members`, {

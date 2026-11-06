@@ -29,6 +29,7 @@ import {
   SaveAsTemplateRequest,
   ScheduleCommunicationRequest,
   SegmentMembersQuery,
+  SegmentPeopleQuery,
   SegmentsQuery,
   type SegmentDetail,
   type SendCheck,
@@ -414,7 +415,8 @@ export function createCommunicationsMock({
         ? criteria.conditions.map(condText).join(' and ') || 'Everyone'
         : null,
       memberCount: m.length,
-      lastRefreshedAt: type === 'DYNAMIC' ? at : null,
+      // As the API: made now, so evaluated now (a list's members too).
+      lastRefreshedAt: at,
       usedBy: 0,
       owner: mockMe,
       archived: false,
@@ -1823,10 +1825,14 @@ export function createCommunicationsMock({
         if (input.audience !== undefined) s.d.audience = input.audience;
         if (input.criteria !== undefined) {
           const conds = (input.criteria.conditions ?? []) as Cond[];
-          s.d.criteria = { logic: 'AND', conditions: conds, groups: [] } as never;
-          s.d.criteriaSummary = conds.map(condText).join(' and ') || 'Everyone';
-          s.d.lastRefreshedAt = nowIso();
+          const logic = input.criteria.logic ?? 'AND';
+          s.d.criteria = { logic, conditions: conds, groups: input.criteria.groups ?? [] } as never;
+          s.d.criteriaSummary =
+            conds.map(condText).join(logic === 'OR' ? ' or ' : ' and ') || 'Everyone';
         }
+        // CM-F13: as the API, Last Refreshed moves only when who belongs is evaluated again.
+        if (input.criteria !== undefined || input.audience !== undefined)
+          s.d.lastRefreshedAt = nowIso();
         s.d.etag = `e${next++}`;
         s.d.updatedAt = nowIso();
         return { ...s.d, memberCount: segCount(s) };
@@ -1838,13 +1844,16 @@ export function createCommunicationsMock({
         for (const c of conds)
           if (!FIELDS.some((f) => f.field === c.field))
             throw fail(400, 'INVALID_CRITERIA', `${c.field} is not a field you can filter by.`);
+        // CM-F15: all of the rules narrow the group; any of them widens it (synthetic).
+        const any = input.criteria.logic === 'OR';
+        const narrow = any ? Math.min(conds.length, 1) : Math.min(conds.length, 4);
         const pool = contacts.filter(
           (c) =>
             (input.audience === 'LEADS'
               ? c.kind === 'LEAD'
               : input.audience === 'CLIENTS'
                 ? c.kind === 'CLIENT'
-                : true) && c.index % 2 ** Math.min(conds.length, 4) === 0,
+                : true) && c.index % 2 ** narrow === 0,
         );
         const eligible = pool.filter(
           (c) => !c.unsubscribed && !c.invalid && !(input.channel === 'SMS' && c.noPhone),
@@ -1855,7 +1864,7 @@ export function createCommunicationsMock({
           sample: pool
             .slice(0, input.sample)
             .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email })),
-          criteriaSummary: conds.map(condText).join(' and ') || 'Everyone',
+          criteriaSummary: conds.map(condText).join(any ? ' or ' : ' and ') || 'Everyone',
           calculatedAt: nowIso(),
         };
       }),
@@ -1867,6 +1876,29 @@ export function createCommunicationsMock({
         const term = query.search?.toLowerCase();
         const rows = members(s)
           .filter((c) => !term || `${c.name} ${c.email}`.toLowerCase().includes(term))
+          .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email }));
+        return {
+          items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
+          total: rows.length,
+          page: query.page,
+          pageSize: query.pageSize,
+        };
+      }),
+    // CM-F18: the people a member may add to a list, by name.
+    segmentPeople: (q = {}) =>
+      run(() => {
+        const query = parseInput(SegmentPeopleQuery, q);
+        const term = query.search?.toLowerCase();
+        const rows = contacts
+          .filter(
+            (c) =>
+              (query.audience === 'LEADS'
+                ? c.kind === 'LEAD'
+                : query.audience === 'CLIENTS'
+                  ? c.kind === 'CLIENT'
+                  : true) &&
+              (!term || c.name.toLowerCase().includes(term)),
+          )
           .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email }));
         return {
           items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
@@ -1889,6 +1921,7 @@ export function createCommunicationsMock({
           ...input.clientIds.map((x) => ({ kind: 'CLIENT' as const, id: x })),
           ...input.leadIds.map((x) => ({ kind: 'LEAD' as const, id: x })),
         ];
+        s.d.lastRefreshedAt = nowIso();
         s.d.etag = `e${next++}`;
         s.d.updatedAt = nowIso();
         return { ...s.d, memberCount: segCount(s) };

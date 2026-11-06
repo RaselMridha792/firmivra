@@ -23,6 +23,7 @@ import {
   CreateSegmentRequest,
   PreviewSegmentRequest,
   SegmentMembersQuery,
+  SegmentPeopleQuery,
   SegmentsQuery,
   SetConsentRequest,
   SetSegmentMembersRequest,
@@ -54,6 +55,7 @@ export const CreateSegmentBody = clean(CreateSegmentRequest);
 export const UpdateSegmentBody = clean(UpdateSegmentRequest);
 export const PreviewSegmentBody = clean(PreviewSegmentRequest);
 export const SegmentMembersQ = clean(SegmentMembersQuery);
+export const SegmentPeopleQ = clean(SegmentPeopleQuery);
 export const SetSegmentMembersBody = clean(SetSegmentMembersRequest);
 export const SetConsentBody = clean(SetConsentRequest);
 export const ConsentQ = clean(ConsentQuery);

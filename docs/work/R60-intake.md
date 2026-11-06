@@ -233,6 +233,15 @@ Progress (Templates, Oct 28 review):
     address. The dashboard card, bells and notices keep the plain `body`. This is a one-off
     exception the lead gave for `client-portal/portal-announcements.ts` and the portal's
     announcement card.
+- Segments, branch `rasel/R60-comms-segments` (stacked on #1286): CM-F13 to F18.
+  - Owner and Last Refreshed columns. The API now stamps Last Refreshed only when the rules, the
+    audience or a list's members change, never on a rename, and the dialog sends only what
+    changed.
+  - Match all or any of the rules (saved rule groups are kept).
+  - The live count with "at" time, an example of who matches and the summary.
+  - A saved segment's rules are edited in place; view-only roles see the exact reason.
+  - View Members adds and removes a list's people by name through the new `GET segments/people`
+    (within the member's reach, masked), saved together with `PUT .../members` (audited).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
