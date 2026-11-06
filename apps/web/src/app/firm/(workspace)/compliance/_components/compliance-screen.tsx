@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComplianceDeadlinesQuery } from '@firmivra/types';
-import { KpiCard, Select, Toast, Toggle } from '@firmivra/ui';
+import { Input, KpiCard, Select, Toast, Toggle } from '@firmivra/ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -31,7 +31,15 @@ import {
 } from './compliance-rail';
 import { useClients, useMembers } from './compliance-data';
 import { SettingsDialog } from './compliance-settings';
-import { COMPLIANCE_KEY, STATUS_LABEL, TYPE_OPTIONS, outlined } from './compliance-shared';
+import {
+  COMPLIANCE_KEY,
+  PRIORITY_LABEL,
+  SOURCE_LABEL,
+  STATUS_LABEL,
+  TYPE_OPTIONS,
+  outlined,
+} from './compliance-shared';
+import { TypeAheadFilter } from './type-ahead';
 import { ByClientView, ByTypeView, CalendarsView, TaxCalendarView } from './compliance-views';
 import { DeadlineTable } from './deadline-table';
 import { RecurringList } from './recurring-list';
@@ -56,6 +64,18 @@ interface Filters {
   assignedUserId: string;
   agency: string;
   mine: boolean;
+  /** CD-F04: name, client, agency or form. */
+  search: string;
+  /** CD-F04: a custom From and To (YYYY-MM-DD) in place of a named range. */
+  start: string;
+  end: string;
+  /** CD-F04: the deadline's own fields (More filters). */
+  taxYear: string;
+  priority: string;
+  source: string;
+  jurisdiction: string;
+  /** 'yes' made by a recurring definition, 'no' one-time. */
+  recurring: string;
 }
 const BLANK: Filters = {
   range: 'NEXT_30_DAYS',
@@ -65,7 +85,29 @@ const BLANK: Filters = {
   assignedUserId: '',
   agency: '',
   mine: false,
+  search: '',
+  start: '',
+  end: '',
+  taxYear: '',
+  priority: '',
+  source: '',
+  jurisdiction: '',
+  recurring: '',
 };
+/** The Assigned To choice for deadlines with no one assigned. */
+const UNASSIGNED = 'none';
+const JURISDICTIONS = { FEDERAL: 'Federal', STATE: 'State', LOCAL: 'Local', INTERNAL: 'Internal' };
+/** Tax years from two ahead back to 2000. */
+const TAX_YEARS = Array.from({ length: new Date().getFullYear() + 2 - 2000 + 1 }, (_, i) =>
+  String(new Date().getFullYear() + 2 - i),
+);
+/** A value from the address that is one of the choices, or none. */
+const oneOf = (v: string | null, choices: readonly string[]) => (v && choices.includes(v) ? v : '');
+const MORE: (keyof Filters)[] = ['taxYear', 'priority', 'source', 'jurisdiction', 'recurring'];
+/** The Date Range choice that shows From and To. */
+const CUSTOM = 'CUSTOM';
+const NO_DATES = { start: '', end: '' };
+const dayOf = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
 const RANGES: { value: Filters['range']; label: string }[] = [
   { value: 'ALL', label: 'All Dates' },
   { value: 'NEXT_7_DAYS', label: 'Next 7 Days' },
@@ -95,7 +137,19 @@ export function ComplianceScreen() {
     assignedUserId: params.get('assignee') ?? '',
     agency: params.get('agency') ?? '',
     mine: params.get('mine') === '1',
+    search: params.get('q') ?? '',
+    start: dayOf(params.get('start')),
+    end: dayOf(params.get('end')),
+    taxYear: oneOf(params.get('year'), TAX_YEARS),
+    priority: oneOf(params.get('priority'), Object.keys(PRIORITY_LABEL)),
+    source: oneOf(params.get('source'), Object.keys(SOURCE_LABEL)),
+    jurisdiction: oneOf(params.get('jurisdiction'), Object.keys(JURISDICTIONS)),
+    recurring: oneOf(params.get('recurring'), ['yes', 'no']),
   };
+  // CD-F04 (Octavia, Oct 28): a custom From and To, kept in the address like the named ranges
+  // ("from" there is the way back, so they are start and end).
+  const custom = params.get('range') === CUSTOM || !!filters.start || !!filters.end;
+  const badDates = !!filters.start && !!filters.end && filters.start > filters.end;
   const date = params.get('date') ?? undefined;
   const sort = {
     sort: (params.get('sort') ?? 'dueOn') as NonNullable<ComplianceDeadlinesQuery['sort']>,
@@ -121,6 +175,14 @@ export function ComplianceScreen() {
     status: 'status',
     assignedUserId: 'assignee',
     agency: 'agency',
+    search: 'q',
+    start: 'start',
+    end: 'end',
+    taxYear: 'year',
+    priority: 'priority',
+    source: 'source',
+    jurisdiction: 'jurisdiction',
+    recurring: 'recurring',
   } as const;
   const filterParams = (f: Partial<Filters>): Record<string, string | null> => ({
     ...('range' in f ? { range: f.range ?? null } : {}),
@@ -134,6 +196,19 @@ export function ComplianceScreen() {
   const [taxCalendar, setTaxCalendar] = useState(false);
   const [settings, setSettings] = useState(false);
   const [message, setMessage] = useState<string>();
+  // What is typed shows at once; the address (and the list) follows it.
+  const [term, setTerm] = useState(filters.search);
+  const [dates, setDates] = useState({ start: filters.start, end: filters.end });
+  const moreSet = MORE.filter((k) => filters[k]).length;
+  const [more, setMore] = useState(moreSet > 0);
+  const risk = params.get('risk');
+  // An at-risk client's link is a new list (no search or dates): the fields start again from it.
+  const [riskShown, setRiskShown] = useState(risk);
+  if (riskShown !== risk) {
+    setRiskShown(risk);
+    setTerm(filters.search);
+    setDates({ start: filters.start, end: filters.end });
+  }
   const { clients } = useClients();
   const { members } = useMembers();
   const summary = useApiQuery([...COMPLIANCE_KEY, 'summary'], () => api.compliance.summary());
@@ -148,11 +223,16 @@ export function ComplianceScreen() {
   /** Another view: a history step of its own, so browser Back returns to the view before. */
   const choose = (next: Tab, change: Partial<Filters> = {}) => {
     setTaxCalendar(false);
+    // Each view starts on its own date range; a card's filters replace the search as well.
+    setDates(NO_DATES);
+    if ('search' in change) setTerm(change.search ?? '');
     go(
       {
         tab: next === 'overview' ? null : next,
         range: null,
         date: null,
+        start: null,
+        end: null,
         ...filterParams(change),
       },
       true,
@@ -160,12 +240,12 @@ export function ComplianceScreen() {
   };
   // A changed filter ends the at-risk banner (CD-F03): the list is no longer that client's.
   const set = (change: Partial<Filters>) => go({ ...filterParams(change), risk: null });
-  const risk = params.get('risk');
   const query: ComplianceDeadlinesQuery = {
     // CD-F02 (Octavia, Oct 28): the overview's list is what is still to do (no Completed or Not
     // Applicable), like its Upcoming card; every range is on the effective due date.
     tab: tab === 'completed' ? 'COMPLETED' : tab === 'overview' ? 'UPCOMING' : 'ALL',
-    range: filters.range,
+    range: custom ? 'ALL' : filters.range,
+    ...(filters.search.trim() ? { search: filters.search.trim() } : {}),
     ...(filters.type
       ? { type: filters.type as NonNullable<ComplianceDeadlinesQuery['type']> }
       : {}),
@@ -173,10 +253,37 @@ export function ComplianceScreen() {
       ? { status: filters.status as NonNullable<ComplianceDeadlinesQuery['status']> }
       : {}),
     ...(filters.clientId ? { clientId: filters.clientId } : {}),
-    ...(filters.assignedUserId ? { assignedUserId: filters.assignedUserId } : {}),
+    ...(filters.assignedUserId === UNASSIGNED
+      ? { unassigned: true }
+      : filters.assignedUserId
+        ? { assignedUserId: filters.assignedUserId }
+        : {}),
     ...(filters.agency ? { agency: filters.agency } : {}),
     ...(filters.mine ? { mine: true } : {}),
-    ...(date ? { from: date, to: date } : {}),
+    ...(filters.taxYear ? { taxYear: Number(filters.taxYear) } : {}),
+    ...(filters.priority
+      ? { priority: filters.priority as NonNullable<ComplianceDeadlinesQuery['priority']> }
+      : {}),
+    ...(filters.source
+      ? { source: filters.source as NonNullable<ComplianceDeadlinesQuery['source']> }
+      : {}),
+    ...(filters.jurisdiction
+      ? {
+          jurisdiction: filters.jurisdiction as NonNullable<
+            ComplianceDeadlinesQuery['jurisdiction']
+          >,
+        }
+      : {}),
+    ...(filters.recurring ? { recurring: filters.recurring === 'yes' } : {}),
+    // A day picked on the calendar wins; an end before the start is not sent (its field says so).
+    ...(date
+      ? { from: date, to: date }
+      : custom
+        ? {
+            ...(filters.start ? { from: filters.start } : {}),
+            ...(filters.end && !badDates ? { to: filters.end } : {}),
+          }
+        : {}),
     ...sort,
     page,
   };
@@ -389,22 +496,76 @@ export function ComplianceScreen() {
               <button
                 type="button"
                 className="text-sm font-medium text-link"
-                onClick={() =>
-                  go({ ...filterParams({ ...BLANK, range: undefined }), range: null, date: null })
-                }
+                onClick={() => {
+                  setTerm('');
+                  setDates(NO_DATES);
+                  go({ ...filterParams({ ...BLANK, range: undefined }), range: null, date: null });
+                }}
               >
                 Reset
               </button>
             </div>
-            {filterSelect('Date Range', 'range', RANGES)}
+            <Input
+              label="Search"
+              type="search"
+              maxLength={100}
+              placeholder="Deadline, client or form"
+              value={term}
+              onChange={(e) => {
+                setTerm(e.target.value);
+                set({ search: e.target.value.trim() });
+              }}
+            />
+            <Select
+              label="Date Range"
+              value={custom ? CUSTOM : filters.range}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v !== CUSTOM) setDates(NO_DATES);
+                go(
+                  v === CUSTOM
+                    ? { range: CUSTOM, date: null, risk: null }
+                    : { range: v, start: null, end: null, date: null, risk: null },
+                );
+              }}
+              options={[...RANGES, { value: CUSTOM, label: 'Custom Dates' }]}
+            />
+            {custom ? (
+              <div className="flex flex-col gap-2" data-testid="custom-dates">
+                <Input
+                  label="From"
+                  type="date"
+                  value={dates.start}
+                  max={dates.end || undefined}
+                  onChange={(e) => {
+                    setDates((d) => ({ ...d, start: e.target.value }));
+                    go({ range: CUSTOM, start: e.target.value, date: null, risk: null });
+                  }}
+                />
+                <Input
+                  label="To"
+                  type="date"
+                  value={dates.end}
+                  min={dates.start || undefined}
+                  error={badDates ? 'The end date is before the start date' : undefined}
+                  onChange={(e) => {
+                    setDates((d) => ({ ...d, end: e.target.value }));
+                    go({ range: CUSTOM, end: e.target.value, date: null, risk: null });
+                  }}
+                />
+              </div>
+            ) : null}
             {filterSelect('Deadline Type', 'type', [
               { value: '', label: 'All Types' },
               ...TYPE_OPTIONS,
             ])}
-            {filterSelect('Client', 'clientId', [
-              { value: '', label: 'All Clients' },
-              ...clients.map((c) => ({ value: c.id, label: c.displayName })),
-            ])}
+            <TypeAheadFilter
+              label="Client"
+              placeholder="All Clients"
+              value={filters.clientId}
+              options={clients.map((c) => ({ value: c.id, label: c.displayName }))}
+              onPick={(v) => set({ clientId: v })}
+            />
             {filterSelect('Status', 'status', [
               { value: '', label: 'All Statuses' },
               ...(Object.keys(STATUS_LABEL) as (keyof typeof STATUS_LABEL)[]).map((value) => ({
@@ -412,14 +573,54 @@ export function ComplianceScreen() {
                 label: STATUS_LABEL[value],
               })),
             ])}
-            {filterSelect('Assigned To', 'assignedUserId', [
-              { value: '', label: 'All Team Members' },
-              ...members.map((m) => ({ value: m.userId, label: m.name })),
-            ])}
+            <TypeAheadFilter
+              label="Assigned To"
+              placeholder="All Team Members"
+              value={filters.assignedUserId}
+              options={[
+                { value: UNASSIGNED, label: 'Unassigned' },
+                ...members.map((m) => ({ value: m.userId, label: m.name })),
+              ]}
+              onPick={(v) => set({ assignedUserId: v })}
+            />
             {filterSelect('Agency', 'agency', [
               { value: '', label: 'All Agencies' },
               ...agencyOptions.map((a) => ({ value: a, label: a })),
             ])}
+            <button
+              type="button"
+              aria-expanded={more}
+              aria-controls="more-filters"
+              className="self-start text-sm font-medium text-link"
+              onClick={() => setMore(!more)}
+            >
+              {more ? 'Fewer filters' : `More filters${moreSet ? ` (${moreSet})` : ''}`}
+            </button>
+            {more ? (
+              <div id="more-filters" className="flex flex-col gap-3" data-testid="more-filters">
+                {filterSelect('Tax Year', 'taxYear', [
+                  { value: '', label: 'All Tax Years' },
+                  ...TAX_YEARS.map((y) => ({ value: y, label: y })),
+                ])}
+                {filterSelect('Priority', 'priority', [
+                  { value: '', label: 'All Priorities' },
+                  ...Object.entries(PRIORITY_LABEL).map(([value, label]) => ({ value, label })),
+                ])}
+                {filterSelect('Source', 'source', [
+                  { value: '', label: 'All Sources' },
+                  ...Object.entries(SOURCE_LABEL).map(([value, label]) => ({ value, label })),
+                ])}
+                {filterSelect('Jurisdiction', 'jurisdiction', [
+                  { value: '', label: 'All Jurisdictions' },
+                  ...Object.entries(JURISDICTIONS).map(([value, label]) => ({ value, label })),
+                ])}
+                {filterSelect('Recurring', 'recurring', [
+                  { value: '', label: 'Recurring and One-Time' },
+                  { value: 'yes', label: 'Recurring Only' },
+                  { value: 'no', label: 'One-Time Only' },
+                ])}
+              </div>
+            ) : null}
             <div className="flex items-center gap-3 pt-1">
               <Toggle
                 label="Show only my deadlines"
@@ -529,7 +730,9 @@ export function ComplianceScreen() {
             filters={{
               ...(filters.type ? { type: filters.type } : {}),
               ...(filters.clientId ? { clientId: filters.clientId } : {}),
-              ...(filters.assignedUserId ? { assignedUserId: filters.assignedUserId } : {}),
+              ...(filters.assignedUserId && filters.assignedUserId !== UNASSIGNED
+                ? { assignedUserId: filters.assignedUserId }
+                : {}),
               ...(filters.mine ? { mine: true } : {}),
             }}
           />

@@ -396,8 +396,17 @@ export function createComplianceMock({
               (!q.assignedUserId || d.assignedTo?.userId === q.assignedUserId) &&
               (!q.agency || d.agency === q.agency) &&
               (!q.mine || d.assignedTo?.userId === mockMe.userId) &&
+              // CD-F04: as the API filters them.
+              (q.taxYear === undefined || d.taxYear === q.taxYear) &&
+              (!q.source || d.source === q.source) &&
+              (!q.jurisdiction || d.jurisdiction === q.jurisdiction) &&
+              (!q.priority || d.priority === q.priority) &&
+              (q.recurring === undefined || d.recurring === q.recurring) &&
+              (!q.unassigned || !d.assignedTo) &&
               (!term ||
                 d.name.toLowerCase().includes(term) ||
+                (d.relatedForm ?? '').toLowerCase().includes(term) ||
+                (d.agency ?? '').toLowerCase().includes(term) ||
                 d.client.displayName.toLowerCase().includes(term)),
           );
         const key = {

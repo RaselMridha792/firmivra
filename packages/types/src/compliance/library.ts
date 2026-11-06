@@ -102,13 +102,23 @@ export const ComplianceCalendar = ComplianceCalendarRow.extend({
 export type ComplianceCalendar = z.infer<typeof ComplianceCalendar>;
 
 /** GET /business/compliance/calendars. */
+/**
+ * How long ago a calendar was verified, against the firm's stale-calendar limit (Settings):
+ * CURRENT within it, OUT_OF_DATE before it, NEVER not verified.
+ */
+export const ComplianceVerificationAge = z.enum(['CURRENT', 'OUT_OF_DATE', 'NEVER']);
+export type ComplianceVerificationAge = z.infer<typeof ComplianceVerificationAge>;
+
 export const ComplianceCalendarsQuery = z.strictObject({
   status: CalendarStatus.optional(),
   family: CalendarFamily.optional(),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   state: ComplianceStateCode.optional(),
-  /** Name or authority. */
+  /** Name, authority or the form of one of its entries. */
   search: SearchText.optional(),
+  // CD-F13 (Octavia, Oct 28): jurisdiction and how long ago it was verified.
+  jurisdiction: JurisdictionLevel.optional(),
+  verification: ComplianceVerificationAge.optional(),
   ...compliancePageQuery(25),
 });
 export type ComplianceCalendarsQuery = z.input<typeof ComplianceCalendarsQuery>;

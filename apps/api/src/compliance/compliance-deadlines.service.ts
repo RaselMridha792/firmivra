@@ -152,6 +152,12 @@ export class ComplianceDeadlinesService {
       | 'agency'
       | 'mine'
       | 'search'
+      | 'taxYear'
+      | 'source'
+      | 'jurisdiction'
+      | 'priority'
+      | 'recurring'
+      | 'unassigned'
     >,
     today: Date,
     dueSoonDays: number,
@@ -169,6 +175,15 @@ export class ComplianceDeadlinesService {
     if (q.assignedUserId) and.push({ assignedUserId: q.assignedUserId });
     if (q.agency) and.push({ agency: { equals: q.agency, mode: 'insensitive' } });
     if (q.mine) and.push({ assignedUserId: actor.userId.toLowerCase() });
+    // CD-F04 (Octavia, Oct 28): the deadline's own fields.
+    if (q.taxYear !== undefined) and.push({ taxYear: q.taxYear });
+    if (q.source) and.push({ source: q.source });
+    if (q.jurisdiction) and.push({ jurisdiction: q.jurisdiction });
+    if (q.priority) and.push({ priority: q.priority });
+    if (q.recurring !== undefined) {
+      and.push({ recurrenceId: q.recurring ? { not: null } : null });
+    }
+    if (q.unassigned) and.push({ assignedUserId: null });
     if (q.search) {
       and.push({
         OR: [
