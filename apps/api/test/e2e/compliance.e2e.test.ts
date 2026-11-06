@@ -3723,3 +3723,192 @@ describe('who sees what in firm B', () => {
     expect((await get(a.id)).archived).toBe(false);
   });
 });
+
+// CD-Y13 (Octavia, Oct 28): every Compliance route, who may call it and who may not, server-side;
+// and a second business never reaches the first's records, by URL or by a body that names them.
+describe('permission matrix and another business (CD-Y13, Octavia Oct 28)', () => {
+  type Method = 'get' | 'post' | 'patch' | 'put' | 'delete';
+  /** Who may call a route: S Staff, Admin and Owner; M Owner and Admin only. */
+  type Route = [Method, string, 'S' | 'M', object?];
+  const r: Record<string, string> = {};
+
+  beforeAll(async () => {
+    r.deadline = (await mkDeadline({ name: name('matrix') })).id;
+    r.other = (await mkDeadline({ name: name('matrix other') })).id;
+    const cal = await mkCalendar({ authority: `Fake matrix ${run}` });
+    r.calendar = cal.id;
+    r.entry = cal.entries[0]!.id;
+    r.calendar2 = (await mkCalendar({ authority: `Fake matrix two ${run}` })).id;
+    r.recurrence = exact(
+      ComplianceRecurrence,
+      await call('post', '/compliance/recurrences', people.ownerA, {
+        name: name('matrix recurrence'),
+        type: 'PAYROLL',
+        frequency: 'MONTHLY',
+        repeatRule: { dayOfMonth: 15 },
+        startOn: plus(-100),
+      }),
+      201,
+    ).id;
+    r.rule = exact(
+      ComplianceApplicabilityRule,
+      await call('post', '/compliance/applicability-rules', people.ownerA, {
+        name: name('matrix rule'),
+        target: { kind: 'RECURRENCE', id: r.recurrence },
+      }),
+      201,
+    ).id;
+    const found = (await call('get', '/compliance/suggestions?pageSize=1', people.ownerA)).body as {
+      items: { id: string }[];
+    };
+    r.suggestion = found.items[0]?.id ?? randomUUID();
+  });
+
+  // Each route with a body that passes validation, so a refusal is the role's or the firm's.
+  const routes = (): Route[] => {
+    const d = `/compliance/deadlines/${r.deadline}`;
+    const c = `/compliance/calendars/${r.calendar}`;
+    const rec = `/compliance/recurrences/${r.recurrence}`;
+    const rule = `/compliance/applicability-rules/${r.rule}`;
+    const sug = `/compliance/suggestions/${r.suggestion}`;
+    return [
+      ['get', '/compliance/deadlines', 'S'],
+      ['get', '/compliance/deadlines/summary', 'S'],
+      ['get', '/compliance/deadlines/at-risk', 'S'],
+      ['get', '/compliance/deadlines/by-client', 'S'],
+      ['get', '/compliance/deadlines/calendar', 'S'],
+      ['get', '/compliance/deadlines/export', 'S'],
+      ['post', '/compliance/deadlines', 'S', {}],
+      ['post', '/compliance/deadlines/bulk', 'S', {}],
+      ['get', d, 'S'],
+      ['patch', d, 'S', { priority: 'LOW' }],
+      ['post', `${d}/in-progress`, 'S'],
+      ['post', `${d}/waiting-on-client`, 'S'],
+      ['post', `${d}/complete`, 'S', {}],
+      ['post', `${d}/reopen`, 'S'],
+      ['post', `${d}/not-applicable`, 'S', { reason: 'Fake reason' }],
+      ['post', `${d}/reassign`, 'S', { assignedUserId: null }],
+      ['post', `${d}/extension`, 'S', { filedOn: plus(0), extendedDueOn: plus(90) }],
+      ['put', `${d}/reminders`, 'S', { reminders: [] }],
+      ['post', `${d}/tasks`, 'S', {}],
+      ['post', `${d}/tasks/link`, 'S', { taskId: randomUUID() }],
+      ['delete', `${d}/tasks/${randomUUID()}`, 'S'],
+      ['post', `${d}/documents`, 'S', { documentId: randomUUID() }],
+      ['delete', `${d}/documents/${randomUUID()}`, 'S'],
+      ['post', `${d}/links`, 'S', { relatedDeadlineId: r.other }],
+      ['delete', `${d}/links/${r.other}`, 'S'],
+      ['post', `${d}/save-as-template`, 'M', { name: 'Fake template' }],
+      ['post', `${d}/archive`, 'S'],
+      ['get', `/clients/${s.c1}/compliance`, 'S'],
+      ['get', '/compliance/calendars', 'S'],
+      ['post', '/compliance/calendars', 'M', {}],
+      ['post', '/compliance/calendars/import-preview', 'M', {}],
+      ['get', c, 'S'],
+      ['patch', c, 'M', { name: 'Fake calendar name' }],
+      ['get', `${c}/compare/${r.calendar2}`, 'M'],
+      [
+        'post',
+        `${c}/entries`,
+        'M',
+        { ruleKind: 'FIXED_DATE', name: 'Fake entry', type: 'TAX_FILING', dueOn: '2031-05-15' },
+      ],
+      ['patch', `${c}/entries/${r.entry}`, 'M', { name: 'Fake entry name' }],
+      ['post', `${c}/verify`, 'M'],
+      ['post', `${c}/publish`, 'M'],
+      ['post', `${c}/rollback`, 'M'],
+      ['delete', `${c}/entries/${r.entry}`, 'M'],
+      ['post', `${c}/archive`, 'M'],
+      ['get', '/compliance/recurrences', 'S'],
+      ['post', '/compliance/recurrences', 'M', {}],
+      ['post', '/compliance/recurrences/preview', 'S', {}],
+      ['get', rec, 'S'],
+      ['patch', rec, 'M', { description: 'Fake description' }],
+      ['post', `${rec}/pause`, 'S'],
+      ['post', `${rec}/resume`, 'S'],
+      ['get', '/compliance/applicability-rules', 'S'],
+      ['post', '/compliance/applicability-rules', 'M', {}],
+      ['get', rule, 'S'],
+      ['patch', rule, 'M', { name: 'Fake rule name' }],
+      ['post', `${rule}/evaluate`, 'M'],
+      ['get', '/compliance/suggestions', 'S'],
+      ['post', '/compliance/suggestions', 'S', {}],
+      ['post', `${sug}/confirm`, 'S', {}],
+      ['post', `${sug}/dismiss`, 'S', { reason: 'Fake reason' }],
+      ['get', '/compliance/logs', 'S'],
+      ['get', '/compliance/settings', 'S'],
+      ['patch', '/compliance/settings', 'M', {}],
+      ['post', `${rec}/end`, 'M'],
+      ['post', `${rec}/archive`, 'M'],
+    ];
+  };
+  const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+
+  it("a second business never reaches the first's records: by URL, in its lists, or named in its own requests", async () => {
+    // Firm B's owner, in firm B, with firm A's IDs in the address: not found, nothing changed.
+    for (const [method, path, , body] of routes().filter(([, p]) => UUID.test(p))) {
+      expectError(await call(method, path, people.ownerB, body, ids.firmB), 404, 'NOT_FOUND');
+    }
+    expect((await get(r.deadline!)).priority).not.toBe('LOW');
+    // Firm B's lists hold none of them.
+    for (const path of [
+      '/compliance/deadlines?pageSize=100',
+      '/compliance/calendars?pageSize=100',
+      '/compliance/recurrences?pageSize=100',
+      '/compliance/applicability-rules?pageSize=100',
+      '/compliance/suggestions?pageSize=100',
+      '/compliance/logs?pageSize=100',
+    ]) {
+      const res = await call('get', path, people.ownerB, undefined, ids.firmB);
+      expect(res.status, path).toBe(200);
+      for (const id of Object.values(r)) expect(JSON.stringify(res.body), path).not.toContain(id);
+    }
+    // Firm B's own deadline, naming firm A's records in its bodies.
+    const own = await mkDeadline({ clientId: s.b1 }, people.ownerB, ids.firmB);
+    const b = `/compliance/deadlines/${own.id}`;
+    for (const [method, path, body] of [
+      ['post', `${b}/links`, { relatedDeadlineId: r.deadline }],
+      ['post', '/compliance/deadlines/bulk', { ids: [own.id, r.deadline], action: 'ARCHIVE' }],
+      [
+        'post',
+        '/compliance/deadlines',
+        { clientId: s.c1, name: 'Fake', type: 'TAX_FILING', dueOn: plus(5) },
+      ],
+      [
+        'post',
+        '/compliance/applicability-rules',
+        { name: 'Fake rule', target: { kind: 'RECURRENCE', id: r.recurrence } },
+      ],
+    ] as [Method, string, object][]) {
+      expectError(await call(method, path, people.ownerB, body, ids.firmB), 404, 'NOT_FOUND');
+    }
+    // A document or task of firm A's gets the very answer an unknown one gets: nothing tells
+    // firm B that it exists.
+    for (const [path, key, theirs] of [
+      [`${b}/documents`, 'documentId', s.doc1],
+      [`${b}/tasks/link`, 'taskId', s.task1],
+    ] as [string, string, string][]) {
+      const named = await call('post', path, people.ownerB, { [key]: theirs }, ids.firmB);
+      const unknown = await call('post', path, people.ownerB, { [key]: randomUUID() }, ids.firmB);
+      expect([named.status, codeOf(named)], path).toEqual([unknown.status, codeOf(unknown)]);
+      expect(named.status, path).toBe(409);
+      expect(JSON.stringify(named.body)).not.toContain(theirs);
+    }
+    expect((await get(own.id, people.ownerB, ids.firmB)).archived).toBe(false);
+  });
+
+  it('every route: signed out 401, a client 403, another firm 404, Staff 403 on Owner-and-Admin routes; the allowed role gets past the check', async () => {
+    for (const [method, path, who, body] of routes()) {
+      const label = `${method} ${path}`;
+      expect((await call(method, path, undefined, body)).status, label).toBe(401);
+      expect((await call(method, path, people.clientA, body)).status, label).toBe(403);
+      expectError(await call(method, path, people.ownerB, body), 404, 'NOT_FOUND');
+      if (who === 'M') {
+        expectError(await call(method, path, people.staffA, body), 403, 'FORBIDDEN');
+      }
+      // Allowed: Staff on Staff routes (their own client's records), Admin on the rest. The
+      // answer may still refuse the body or the state, never the role.
+      const allowed = await call(method, path, who === 'M' ? people.adminA : people.staffA, body);
+      expect([401, 403], `${label} ${allowed.status}`).not.toContain(allowed.status);
+    }
+  });
+});
