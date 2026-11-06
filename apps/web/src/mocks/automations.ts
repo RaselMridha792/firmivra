@@ -36,6 +36,7 @@ import {
   UseAutomationTemplateRequest,
   type AutomationEventConfirmation,
   ConfirmAutomationEventRequest,
+  MatchAutomationRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -1597,6 +1598,21 @@ export function createAutomationsMock({
       run(() => {
         const input = parseInput(PreviewAutomationRequest, body);
         return previewOf(viewOf(input.definition));
+      }),
+    // AU-F21, as the API: the trigger and conditions alone; a count and a sample, nothing runs.
+    matches: (body) =>
+      run(() => {
+        const b = parseInput(MatchAutomationRequest, body);
+        const n = b.conditions.length === 0 ? 48 : Math.floor(48 / 2 ** b.conditions.length);
+        return {
+          matchCount: n,
+          sample: CLIENT_NAMES.slice(0, Math.min(b.sample, n)).map((name, i) => ({
+            recordKind: 'deadline',
+            recordId: uuid('2d00', i + 1),
+            label: `${labelOf(b.trigger.event)} · ${name}`,
+            client: { id: uuid('1d00', i + 1), name },
+          })),
+        };
       }),
     testRule: (ruleId, body = {}) =>
       run(() => {

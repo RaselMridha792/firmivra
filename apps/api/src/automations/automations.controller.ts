@@ -5,6 +5,7 @@ import {
   AutomationConfirmationList,
   AutomationConfirmationsQuery,
   AutomationEventConfirmation,
+  AutomationMatches,
   type AutomationLogExport,
   type AutomationOverview,
   type AutomationPreview,
@@ -34,6 +35,7 @@ import {
   ExportBody,
   ImportBody,
   PauseBody,
+  MatchBody,
   PreviewBody,
   RerunBody,
   RulesQuery,
@@ -116,6 +118,18 @@ export class AutomationsController {
   ): Promise<AutomationRuleDetail> {
     const w = who(auth, tenant);
     return this.rules.create(w.businessId, w.tenant, w.userId, body);
+  }
+
+  /** AU-F21: the Conditions step's match count and sample, before any action is chosen. */
+  @Post('rules/matches')
+  @HttpCode(200)
+  matches(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(MatchBody)) body: Out<typeof MatchBody>,
+  ): Promise<AutomationMatches> {
+    const w = who(auth, tenant);
+    return this.rules.matches(w.businessId, w.tenant, w.userId, body);
   }
 
   @Post('rules/validate')

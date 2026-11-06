@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import type {
+  AutomationMatches,
   AutomationPreview,
   AutomationRuleDetail,
   AutomationRulePage,
@@ -26,6 +27,7 @@ import type {
   ActivateBody,
   CreateRuleBody,
   PauseBody,
+  MatchBody,
   PreviewBody,
   RulesQuery,
   SaveDefinitionBody,
@@ -630,6 +632,30 @@ export class RulesService {
         body.sample,
         new Date(Date.now() - 7 * DAY),
       );
+    });
+  }
+
+  /**
+   * AU-F21: what the trigger and its conditions match now, before any action is chosen. Checked
+   * against the catalog as a definition is; nothing runs or is logged.
+   */
+  matches(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    body: Out<typeof MatchBody>,
+  ): Promise<AutomationMatches> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.write) throw autoErrors.forbidden();
+      const def = {
+        trigger: body.trigger,
+        matchMode: body.matchMode,
+        conditions: body.conditions,
+        actions: [],
+        settings: { notifyOnFailureUserIds: [], logAll: true, addToCalendar: false },
+      } as unknown as Def;
+      this.structure(def);
+      return this.read.matchSample(ctx, def, body.sample, new Date(Date.now() - 7 * DAY));
     });
   }
 

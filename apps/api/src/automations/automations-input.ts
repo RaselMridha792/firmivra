@@ -8,6 +8,7 @@ import {
   ExportAutomationLogsRequest,
   ImportAutomationTemplateRequest,
   PauseAutomationRuleRequest,
+  MatchAutomationRequest,
   PreviewAutomationRequest,
   RerunAutomationRequest,
   SaveAutomationDefinitionRequest,
@@ -48,6 +49,7 @@ export const SaveDefinitionBody = clean(SaveAutomationDefinitionRequest);
 export const ActivateBody = clean(ActivateAutomationRuleRequest);
 export const PauseBody = clean(PauseAutomationRuleRequest);
 export const PreviewBody = clean(PreviewAutomationRequest);
+export const MatchBody = clean(MatchAutomationRequest);
 export const TestBody = clean(TestAutomationRuleRequest);
 export const SaveAsTemplateBody = clean(SaveRuleAsTemplateRequest);
 export const TemplatesQuery = clean(AutomationTemplatesQuery);

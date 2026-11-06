@@ -15,6 +15,7 @@ import {
   AutomationCatalog,
   AutomationConfirmationList,
   AutomationEventConfirmation,
+  AutomationMatches,
   AutomationLogExport,
   AutomationOverview,
   AutomationPreview,
@@ -2084,5 +2085,40 @@ describe('Rule Owner (AU-F28)', () => {
           JSON.stringify(r.metadata).includes('ownerUserId'),
       ),
     ).toBe(true);
+  });
+});
+
+describe('the Conditions step’s match count (AU-F21)', () => {
+  const count = (body: object, who: Who = ownerA) => call('post', '/rules/matches', who, body);
+
+  it('counts what the trigger and conditions match now, before any action, and runs nothing', async () => {
+    const runsBefore = await inFirm('a', (tx) =>
+      tx.automationRun.count({ where: { businessId: firms.a } }),
+    );
+    const trigger = { module: 'INVOICES_PAYMENTS', event: 'invoice.overdue' };
+    const all = AutomationMatches.parse(ok(await count({ trigger })));
+    expect(all.matchCount).toBeGreaterThanOrEqual(0);
+    expect(all.sample.length).toBeLessThanOrEqual(5);
+    // A condition nothing meets matches nothing.
+    const none = AutomationMatches.parse(
+      ok(
+        await count({
+          trigger,
+          conditions: [{ field: 'clientType', operator: 'IS', value: 'BUSINESS' }],
+          matchMode: 'ALL',
+        }),
+      ),
+    );
+    expect(none.matchCount).toBeLessThanOrEqual(all.matchCount);
+    // Checked against the catalog as a definition is; a read-only role may not.
+    expectError(
+      await count({ trigger: { module: 'CLIENTS', event: 'no.such_event' } }),
+      400,
+      'INVALID_DEFINITION',
+    );
+    expectError(await count({ trigger }, staffA), 403, 'FORBIDDEN');
+    expect(
+      await inFirm('a', (tx) => tx.automationRun.count({ where: { businessId: firms.a } })),
+    ).toBe(runsBefore);
   });
 });

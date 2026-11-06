@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AutomationCheck,
+  AutomationMatches,
   AutomationPreview,
   AutomationRuleDetail,
   AutomationRuleRow,
@@ -258,6 +259,55 @@ export class AutomationsReadService {
     for (const p of problems)
       out.push({ code: p.code, severity: 'BLOCK', message: p.message, path: null });
     return out;
+  }
+
+  /** AU-F21: the records a trigger and its conditions match now, and a sample of them. */
+  async matchSample(
+    ctx: AutoCtx,
+    def: Def,
+    sample: number,
+    since: Date,
+  ): Promise<AutomationMatches> {
+    const { tx, businessId } = ctx;
+    const found = await loadCandidates(
+      tx,
+      def.trigger.event,
+      {
+        timing: def.trigger.timing,
+        offsetValue: def.trigger.offsetValue ?? null,
+        offsetUnit: def.trigger.offsetUnit ?? null,
+      },
+      {
+        businessId,
+        now: new Date(),
+        today: ctx.today,
+        since,
+        ...(def.trigger.source ? { source: def.trigger.source } : {}),
+      },
+    );
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const clientIds = [
+      ...new Set(
+        hit
+          .slice(0, sample)
+          .map((c) => c.clientId)
+          .filter((x): x is string => !!x),
+      ),
+    ];
+    const clients = await tx.client.findMany({
+      where: { businessId, id: { in: clientIds } },
+      select: { id: true, displayName: true },
+    });
+    const byId = new Map(clients.map((c) => [c.id, c.displayName]));
+    return {
+      matchCount: hit.length,
+      sample: hit.slice(0, sample).map((c) => ({
+        recordKind: c.recordKind,
+        recordId: c.recordId,
+        label: c.label,
+        client: c.clientId ? { id: c.clientId, name: byId.get(c.clientId) ?? '' } : null,
+      })),
+    };
   }
 
   /** A dry run: the matching count and sample, the planned actions, and the checks. Nothing is created or sent. */
