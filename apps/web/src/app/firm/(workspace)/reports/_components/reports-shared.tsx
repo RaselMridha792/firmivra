@@ -107,24 +107,75 @@ export const kpiTrend = (k: ReportKpi, badWhenUp = false): KpiTrend | undefined 
   };
 };
 
-/** Paired bars for a chart's series (this period, and the comparison when there is one). */
+/**
+ * Paired bars for a chart's series (this period, and the comparison when there is one), or (RP-F18)
+ * a line or an area over them; the legend can be hidden.
+ */
 export function BarChart({
   chart,
   height = 'h-40',
   labels = true,
   dataLabels = false,
+  kind = 'BAR',
+  legend = true,
 }: {
   chart: ReportChart;
   height?: string;
   labels?: boolean;
   dataLabels?: boolean;
+  kind?: 'BAR' | 'LINE' | 'AREA';
+  legend?: boolean;
 }) {
   const all = chart.series.flatMap((s) => s.values.map((v) => v ?? 0));
   const max = Math.max(1, ...all);
   const fmt = (v: number) => (chart.money ? moneyWhole(v) : v.toLocaleString('en-US'));
+  const n = chart.labels.length;
+  // A line or area: x at each period's centre, y from the top (100 is the axis).
+  const points = (values: (number | null)[]) =>
+    values.map((v, i) => `${((i + 0.5) / Math.max(1, n)) * 100},${100 - ((v ?? 0) / max) * 100}`);
   return (
     <div>
+      {kind !== 'BAR' ? (
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className={`w-full ${height} border-b border-divider`}
+          role="img"
+          aria-label="Chart"
+          data-testid={`chart-${kind.toLowerCase()}`}
+        >
+          {chart.series.map((s) => {
+            const line = points(s.values);
+            const tone = s.comparison ? 'text-chart-blue/40' : 'text-action';
+            return (
+              <g key={s.key} className={tone}>
+                {kind === 'AREA' && line.length ? (
+                  <polygon
+                    points={[
+                      `${(0.5 / Math.max(1, n)) * 100},100`,
+                      ...line,
+                      `${((n - 0.5) / Math.max(1, n)) * 100},100`,
+                    ].join(' ')}
+                    fill="currentColor"
+                    fillOpacity={0.2}
+                  />
+                ) : null}
+                <polyline
+                  points={line.join(' ')}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                >
+                  <title>{s.label}</title>
+                </polyline>
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
       <ul
+        hidden={kind !== 'BAR'}
         className={`flex ${height} items-end gap-1.5 border-b border-divider`}
         role="img"
         aria-label="Chart"
@@ -160,8 +211,8 @@ export function BarChart({
           ))}
         </ul>
       ) : null}
-      {chart.series.length > 1 ? (
-        <p className="mt-2 flex gap-4 text-xs text-muted">
+      {legend && chart.series.length > 1 ? (
+        <p className="mt-2 flex gap-4 text-xs text-muted" data-testid="chart-legend">
           {chart.series.map((s) => (
             <span key={s.key} className="flex items-center gap-1">
               <span

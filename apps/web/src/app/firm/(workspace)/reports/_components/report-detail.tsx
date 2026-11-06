@@ -62,6 +62,8 @@ import {
   subtle,
 } from './reports-shared';
 import { ReportHelp } from './report-help';
+import { choiceOf, drawingOf, partsOf } from './chart-display';
+import { ChartSelect } from './chart-select';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** More Filters as typed and as sent (only rows that fit are ever applied). */
@@ -76,12 +78,6 @@ interface Run {
   error: unknown;
 }
 const QUICK = ['last_7_days', 'last_30_days', 'this_month', 'this_year', 'last_year'] as const;
-const CHARTS = [
-  { value: 'AUTO', label: 'Automatic' },
-  { value: 'BAR', label: 'Column Chart' },
-  { value: 'LINE', label: 'Line Chart' },
-  { value: 'AREA', label: 'Area Chart' },
-];
 
 /** /reports/[reportId]: one report (a quick report by key, or a saved one by id) with its controls. */
 export function ReportDetail({ reportId }: { reportId: string }) {
@@ -115,6 +111,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
   const [chartType, setChartType] = useState<string>();
+  const [legend, setLegend] = useState(true);
   // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
   const [groupBy, setGroupBy] = useState('');
   const [labels, setLabels] = useState<boolean>();
@@ -291,6 +288,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     ? 'custom'
     : (preset ?? (ownDate?.rule === 'ROLLING' ? ownDate.preset : 'this_year'));
   const shownChart = chartType ?? r?.definition.chartType ?? 'AUTO';
+  // RP-F18 (Octavia, Oct 28): Table Only and KPI Only show one part; Line and Area draw as such
+  // where they fit; the legend can be hidden (on this screen: no saved field holds it yet).
+  const display = choiceOf(shownChart);
+  const facts = { periods: r?.chart?.labels.length ?? 0, kpis: r?.kpis.length ?? 0 };
+  const parts = partsOf(display);
   const shownLabels = labels ?? r?.definition.showDataLabels ?? false;
   const shownTax = tax ?? r?.definition.includeTaxRevenue ?? false;
   // RP-F03: opened from the library, the page's Back (SH1's bar above it, "Back to Report
@@ -533,6 +535,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           ) : null}
 
           <ul
+            hidden={!parts.kpis}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
             data-testid="report-kpis"
           >
@@ -558,13 +561,21 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             ))}
           </ul>
 
-          <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div
+            hidden={!parts.chart}
+            className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+          >
             <section className={card} aria-label="Chart" data-testid="report-chart">
               <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold text-heading">
                 {title} Over Time <ReportHelp area="charts" />
               </h2>
               {r?.chart ? (
-                <BarChart chart={r.chart} dataLabels={labels} />
+                <BarChart
+                  chart={r.chart}
+                  dataLabels={labels}
+                  kind={drawingOf(display, facts)}
+                  legend={legend}
+                />
               ) : (
                 <p className={quiet}>
                   {q.isPending ? 'Loading…' : 'There is no data in this range.'}
@@ -591,7 +602,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               {r?.breakdown ? (
                 <DonutChart
                   size="md"
-                  legend
+                  legend={legend}
                   showPercent
                   segments={ringOf(r.breakdown).segments}
                   centerValue={ringOf(r.breakdown).center}
@@ -605,6 +616,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           </div>
 
           <section
+            hidden={!parts.table}
             className={`${card} flex flex-col gap-3`}
             aria-label="Report table"
             data-testid="report-table"
@@ -799,12 +811,17 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
               Report Settings <ReportHelp area="charts" />
             </h2>
-            <Select
+            <ChartSelect
               label="Chart Type"
-              value={shownChart}
-              onChange={(e) => setChartType(e.target.value)}
-              options={CHARTS}
+              value={display}
+              facts={facts}
+              onChange={setChartType}
+              testId="chart-type"
             />
+            <label className="flex items-center justify-between gap-3 text-sm text-heading">
+              Show Legend
+              <Toggle label="Show legend" checked={legend} onChange={setLegend} />
+            </label>
             <label className="flex items-center justify-between gap-3 text-sm text-heading">
               Show Comparison Period
               <Toggle

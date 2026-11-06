@@ -51,6 +51,7 @@ import {
   subtle,
 } from './reports-shared';
 import { ReportHelp } from './report-help';
+import { ChartSelect } from './chart-select';
 
 const section = (n: number, title: string) => (
   <h2 className="mb-3 flex items-center gap-3 font-display text-lg font-bold text-heading">
@@ -91,6 +92,8 @@ export function ReportBuilder() {
   const [totals, setTotals] = useState(opened.totals);
   const [pct, setPct] = useState(opened.pct);
   const [compare, setCompare] = useState(opened.compare);
+  // RP-F18 (Octavia, Oct 28): how the report shows, saved with it.
+  const [chart, setChart] = useState(opened.chart);
   // RP-F15: a change of data source that would reset fields and filters asks first.
   const [switching, setSwitching] = useState<{ category: string; sourceKey: string }>();
   const draft: BuilderDraft = {
@@ -107,6 +110,7 @@ export function ReportBuilder() {
     totals,
     pct,
     compare,
+    chart,
   };
   // RP-F05: unsaved work asks Save, Discard or Keep Editing before a link or a close loses it.
   const guard = useUnsavedGuard(draft);
@@ -149,7 +153,7 @@ export function ReportBuilder() {
         showPercentage: pct,
         compareTo: compare ? 'PREVIOUS_PERIOD' : 'NONE',
         date: fixed ? { rule: 'FIXED', ...fixed } : { rule: 'ROLLING', preset: preset as never },
-        chartType: 'AUTO',
+        chartType: chart as ReportDefinitionView['chartType'],
         showDataLabels: false,
         includeTaxRevenue: false,
       }
@@ -450,6 +454,18 @@ export function ReportBuilder() {
                   { value: 'desc', label: 'Descending' },
                   { value: 'asc', label: 'Ascending' },
                 ]}
+              />
+            </div>
+            <div className="max-w-xs">
+              <ChartSelect
+                label="Display"
+                value={chart}
+                facts={{
+                  periods: preview.data?.chart?.labels.length ?? 0,
+                  kpis: preview.data?.kpis.length ?? 0,
+                }}
+                onChange={setChart}
+                testId="builder-display"
               />
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-heading">
