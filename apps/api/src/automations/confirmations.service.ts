@@ -131,22 +131,18 @@ export class ConfirmationsService {
           isGridFirmRole(role as never) &&
           roleCan(role as never, module, 'MANAGE'));
       if (!allowed) throw autoErrors.forbidden();
-      // The record first (another firm's is 404), then the switch.
+      // Another firm's record or document is 404 before anything else; then the switch; then
+      // the evidence must be the record's client's.
       const clientId = await clientOfRecord(tx, businessId, event.recordKind, body.recordId);
+      const evidence = body.evidenceDocumentId
+        ? await tx.document.findFirst({
+            where: { businessId, id: body.evidenceDocumentId, trashedAt: null, archivedAt: null },
+            select: { clientId: true },
+          })
+        : null;
+      if (body.evidenceDocumentId && !evidence) throw notFound();
       if (!ctx.settings.manualConfirmationEnabled) throw autoErrors.manualConfirmationOff();
-      if (body.evidenceDocumentId) {
-        const doc = await tx.document.findFirst({
-          where: {
-            businessId,
-            id: body.evidenceDocumentId,
-            clientId,
-            trashedAt: null,
-            archivedAt: null,
-          },
-          select: { id: true },
-        });
-        if (!doc) throw notFound();
-      }
+      if (evidence && evidence.clientId !== clientId) throw notFound();
       const occurrenceKey = `${event.code}:${body.recordId}:${body.occurrence}`;
       const known = await tx.automationEventConfirmation.findFirst({
         where: { businessId, occurrenceKey },

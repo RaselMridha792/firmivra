@@ -185,10 +185,11 @@ export const AutomationTrigger = z
     offsetValue: z.number().int().min(0).max(100_000).nullable().optional(),
     offsetUnit: OffsetUnit.nullable().optional(),
     /**
-     * AU-F30, a confirmable event only: where the outcome comes from. Left out: Manual
-     * confirmation. INTEGRATION_VERIFIED waits for a verified integration event.
+     * AU-F30, a confirmable event only: where the outcome comes from. Left out or null (a view
+     * sent back, as Duplicate and template export do): Manual confirmation for a confirmable
+     * event, none for any other. INTEGRATION_VERIFIED waits for a verified integration event.
      */
-    source: AutomationEventSource.optional(),
+    source: AutomationEventSource.nullable().optional(),
   })
   .superRefine((t, ctx) => {
     const offset = t.timing === 'BEFORE' || t.timing === 'AFTER';
