@@ -40,6 +40,7 @@ import {
   quiet,
   rangeText,
 } from './reports-shared';
+import { ReportHelp } from './report-help';
 
 const hrefOf = (i: ReportInsight, dates: DateState) =>
   i.target.kind === 'REPORT'
@@ -104,7 +105,9 @@ export function ReportsDashboard() {
             <ChartBar weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-3xl font-bold text-heading sm:text-4xl">Reports</h1>
+            <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading sm:text-4xl">
+              Reports <ReportHelp area="metrics" />
+            </h1>
             <p className="text-base text-muted">
               Gain insights, track performance, and make informed decisions.
             </p>
@@ -139,6 +142,9 @@ export function ReportsDashboard() {
               options={COMPARE.map((p) => ({ value: p.value, label: p.label }))}
             />
           </div>
+          <span className="self-center">
+            <ReportHelp area="dates" />
+          </span>
           {/* IP-F24: the reports the firm saved, each opened from the list. */}
           <Link
             href="/reports/library?tab=saved"
@@ -280,7 +286,9 @@ export function ReportsDashboard() {
             </Link>
           </section>
           <section className={card} aria-label="Quick reports" data-testid="quick-reports">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Quick Reports</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Quick Reports <ReportHelp area="categories" />
+            </h2>
             <ul>
               {(d?.quickReports ?? []).map((r: ReportCatalogItem) => (
                 <li key={r.key}>
@@ -305,7 +313,9 @@ export function ReportsDashboard() {
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-3">
         <section className={card} aria-label="Recent reports" data-testid="recent">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold text-heading">Recent Reports</h2>
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Recent Reports <ReportHelp area="library" />
+            </h2>
             <Link href="/reports/library?tab=recent" className={linkBtn}>
               View All
             </Link>
@@ -341,7 +351,9 @@ export function ReportsDashboard() {
         </section>
         <section className={card} aria-label="Scheduled reports" data-testid="scheduled">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold text-heading">Scheduled Reports</h2>
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Scheduled Reports <ReportHelp area="schedules" />
+            </h2>
             <Link href="/reports/library?tab=scheduled" className={linkBtn}>
               View All
             </Link>
@@ -375,7 +387,7 @@ export function ReportsDashboard() {
         <section className={card} aria-label="Insights and opportunities" data-testid="insights">
           <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
             <Lightbulb aria-hidden weight="fill" className="size-5 text-action" /> Insights &amp;
-            Opportunities
+            Opportunities <ReportHelp area="insights" />
           </h2>
           {d && d.insights.length === 0 ? (
             <p className={quiet}>There are no insights for this range yet.</p>

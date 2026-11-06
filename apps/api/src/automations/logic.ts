@@ -184,12 +184,14 @@ export function appliesTo(
   if (conditions.length === 0) return 'All records';
   const e = eventOf(event);
   const parts = conditions.map((c) => {
-    const label = e?.conditionFields.find((f) => f.field === c.field)?.label ?? c.field;
+    const f = e?.conditionFields.find((x) => x.field === c.field);
+    // AU-F01: a choice reads as its label ("Business"), not its code.
+    const word = (v: unknown) => f?.options.find((o) => o.value === v)?.label ?? String(v);
     const value =
       c.value === undefined
         ? ''
-        : ` ${Array.isArray(c.value) ? c.value.join(', ') : String(c.value)}`;
-    return `${label} ${OPERATOR_WORDS[c.operator]}${value}`;
+        : ` ${Array.isArray(c.value) ? c.value.map(word).join(', ') : word(c.value)}`;
+    return `${f?.label ?? c.field} ${OPERATOR_WORDS[c.operator]}${value}`;
   });
   return parts.join(matchMode === 'ANY' ? ' or ' : ' and ');
 }

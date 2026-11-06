@@ -573,7 +573,7 @@ describe('rules and their versions', () => {
     );
     expect(v2.currentVersion).toBe(2);
     expect(v2.versions.map((v) => v.version)).toEqual([2, 1]);
-    expect(v2.appliesTo).toBe('Client type is BUSINESS');
+    expect(v2.appliesTo).toBe('Client type is Business');
     expect(v2.definition?.settings).toMatchObject({
       preventDuplicatesDays: 30,
       quietHours: { start: '21:00', end: '07:00' },
@@ -2054,5 +2054,35 @@ describe('Manual Event Confirmation (AU-F29 to F33)', () => {
       'INVALID_DEFINITION',
     );
     await switchTo(false);
+  });
+});
+
+describe('Rule Owner (AU-F28)', () => {
+  it('is the creator by default, an Owner or Admin by choice, and its change is audited', async () => {
+    const mine = await createRule(clientCreated(), { name: mark('Owned') });
+    expect(mine.owner?.userId).toBe(ownerA.id);
+    const theirs = await createRule(clientCreated(), {
+      name: mark('Owned by admin'),
+      ownerUserId: adminA.id,
+    });
+    expect(theirs.owner?.userId).toBe(adminA.id);
+
+    const moved = AutomationRuleDetail.parse(
+      ok(
+        await call('patch', `/rules/${theirs.id}`, adminA, {
+          ownerUserId: ownerA.id,
+          etag: theirs.etag,
+        }),
+      ),
+    );
+    expect(moved.owner).toMatchObject({ userId: ownerA.id });
+    const rows = await auditRows(theirs.id);
+    expect(
+      rows.some(
+        (r) =>
+          r.action === 'automation_rule.updated' &&
+          JSON.stringify(r.metadata).includes('ownerUserId'),
+      ),
+    ).toBe(true);
   });
 });
