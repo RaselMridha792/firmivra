@@ -168,6 +168,11 @@ export function missingSettings(def: Def): Detail[] {
         path: `actions.${i}.config.body`,
         message: 'Choose a template or write the message',
       });
+    if (a.type === 'SEND_CLIENT_EMAIL' && !a.config.templateId && !a.config.body)
+      out.push({
+        path: `actions.${i}.config.body`,
+        message: 'Choose an email template or write the email',
+      });
   });
   return out;
 }
