@@ -40,6 +40,7 @@ import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
 import { HtmlFrame } from '../../templates/_components/html-preview';
 import { IMAGE_SIZING, useContentImages } from '../../templates/_components/content-tools';
+import { ClosingMenu } from './closing-menu';
 import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
 import { ReviewDialog } from './review-dialog';
@@ -612,6 +613,20 @@ function ComposerForm({
               ) : null}
             </div>
           )}
+          {/* CM-F11: a reusable closing, the firm's or the member's own, added at the end. */}
+          <ClosingMenu
+            channel={channel}
+            disabled={readOnly}
+            onInsert={(closing) =>
+              set({
+                body:
+                  channel === 'SMS'
+                    ? `${form.body.trimEnd()}${form.body.trim() ? '\n\n' : ''}${closing}`
+                    : `${form.body}${closing}`,
+              })
+            }
+            onNotice={notice}
+          />
 
           <Select
             label="Personalize"
