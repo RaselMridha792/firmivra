@@ -49,6 +49,27 @@ test('the trigger says when it runs, with an example in the firm’s time zone (
   await page.screenshot({ path: `${shots}/builder-trigger.png` });
 });
 
+test('Conditions: operators named for the field, several values, and the match count (AU-F21, F23)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
+  await expect(page.getByTestId('condition-matches')).toContainText('records match right now');
+  await page.getByRole('button', { name: 'Add Condition' }).click();
+  const operator = page.getByLabel('Condition 1 operator');
+  await expect(operator.locator('option')).toContainText(['Is', 'Is not']);
+  await operator.selectOption({ label: 'Is any of' });
+  await page
+    .getByRole('group', { name: 'Condition 1 values' })
+    .getByRole('checkbox')
+    .first()
+    .check();
+  await expect(page.getByTestId('condition-matches')).toContainText('A count only; nothing runs.');
+  await page.getByTestId('step-conditions').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/builder-conditions.png` });
+});
+
 test('Logs: the activity tabs and the Status filter are one filter', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/logs`);

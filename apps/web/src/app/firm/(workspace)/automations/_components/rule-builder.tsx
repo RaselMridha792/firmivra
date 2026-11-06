@@ -29,6 +29,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewPanel, SaveTemplateDialog } from './automation-dialogs';
 import { triggerSentence } from './trigger-sentence';
+import { operatorLabel, takesList, takesNoValue } from './operator-labels';
 import {
   AUTOMATIONS_KEY,
   AUTOMATION_ERRORS,
@@ -238,7 +239,13 @@ function Builder({
       ...(ev?.confirmation ? { source: f.source } : {}),
     },
     matchMode: f.matchMode,
-    conditions: f.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value })),
+    conditions: f.conditions.map((c) =>
+      takesNoValue(c.operator)
+        ? { field: c.field, operator: c.operator }
+        : takesList(c.operator)
+          ? { field: c.field, operator: c.operator, value: c.value.split(',').filter(Boolean) }
+          : { field: c.field, operator: c.operator, value: c.value },
+    ),
     actions: f.actions.map((a) => ({
       id: a.id,
       type: a.type,
@@ -257,6 +264,14 @@ function Builder({
   });
   const ready = f.event !== '' && f.actions.length > 0 && !offsetProblem;
   const defKey = JSON.stringify(ready ? definition() : null);
+  // AU-F21: the trigger and conditions alone, counted as they change.
+  const matchBody = ev
+    ? { trigger: definition().trigger, matchMode: f.matchMode, conditions: definition().conditions }
+    : null;
+  const matchQuery = useApiQuery(
+    [...AUTOMATIONS_KEY, 'matches', JSON.stringify(matchBody)],
+    async () => (matchBody && !offsetProblem ? api.automations.matches(matchBody) : null),
+  );
   const preview = useApiQuery([...AUTOMATIONS_KEY, 'preview', defKey], async () =>
     ready ? api.automations.validate({ definition: definition(), sample: 5 }) : null,
   );
@@ -579,15 +594,44 @@ function Builder({
                       label={`Condition ${i + 1} operator`}
                       hideLabel
                       value={c.operator}
-                      onChange={(e) =>
-                        setCond(c.key, { operator: e.target.value as AutomationOperator })
-                      }
+                      onChange={(e) => {
+                        const next = e.target.value as AutomationOperator;
+                        // A value that no longer fits the operator is cleared.
+                        const keep =
+                          !takesNoValue(next) && takesList(next) === takesList(c.operator);
+                        setCond(c.key, { operator: next, ...(keep ? {} : { value: '' }) });
+                      }}
                       options={(def?.operators ?? ['IS']).map((o) => ({
                         value: o,
-                        label: o.toLowerCase().replace(/_/g, ' '),
+                        label: operatorLabel(o, def?.type ?? 'TEXT'),
                       }))}
                     />
-                    {def && def.options.length > 0 ? (
+                    {takesNoValue(c.operator) ? (
+                      <span className="text-xs text-muted">No value needed</span>
+                    ) : def && def.options.length > 0 && takesList(c.operator) ? (
+                      <fieldset className="flex flex-wrap gap-x-3">
+                        <legend className="sr-only">{`Condition ${i + 1} values`}</legend>
+                        {def.options.map((o) => {
+                          const chosen = c.value.split(',').filter(Boolean);
+                          return (
+                            <Checkbox
+                              key={o.value}
+                              label={o.label}
+                              className="min-h-8 text-sm"
+                              checked={chosen.includes(o.value)}
+                              onChange={(e) =>
+                                setCond(c.key, {
+                                  value: (e.target.checked
+                                    ? [...chosen, o.value]
+                                    : chosen.filter((x) => x !== o.value)
+                                  ).join(','),
+                                })
+                              }
+                            />
+                          );
+                        })}
+                      </fieldset>
+                    ) : def && def.options.length > 0 ? (
                       <Select
                         label={`Condition ${i + 1} value`}
                         hideLabel
@@ -641,6 +685,37 @@ function Builder({
               >
                 <Plus aria-hidden weight="bold" className="size-4" /> Add Condition
               </button>
+              {/* AU-F21: how many records match now, and a few of them; nothing runs. */}
+              {ev && !offsetProblem ? (
+                <div className="rounded-lg bg-canvas p-3 text-sm" data-testid="condition-matches">
+                  {matchQuery.isPending ? (
+                    <p className="text-muted">Counting matching records…</p>
+                  ) : matchQuery.isError || !matchQuery.data ? (
+                    <p className="text-muted">The match count is not available right now.</p>
+                  ) : (
+                    <>
+                      <p className="font-medium text-heading">
+                        {matchQuery.data.matchCount === 1
+                          ? '1 record matches right now.'
+                          : `${matchQuery.data.matchCount} records match right now.`}{' '}
+                        <span className="font-normal text-muted">A count only; nothing runs.</span>
+                      </p>
+                      {matchQuery.data.sample.length > 0 ? (
+                        <ul className="mt-1 list-disc pl-5 text-text">
+                          {matchQuery.data.sample.map((m) => (
+                            <li key={`${m.recordKind}:${m.recordId}`}>
+                              {m.label}
+                              {m.client && !m.label.includes(m.client.name)
+                                ? ` · ${m.client.name}`
+                                : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
             </div>
           </section>
 
