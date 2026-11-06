@@ -22,6 +22,7 @@ import {
   toRow,
   visibleTo,
 } from './templates.common.js';
+import { linkedOf, structureOf } from './template-structures.js';
 
 type Query = z.output<typeof TemplatesQuery>;
 
@@ -226,6 +227,9 @@ export class TemplateReadService {
       lastUsedAt: lastUse._max.usedAt?.toISOString() ?? null,
       createdAt: t.createdAt.toISOString(),
       etag: etagOf(t),
+      // TP-F08: what a structured kind stands for, or its own structure.
+      linkedTemplate: await linkedOf(tx, businessId, t),
+      structure: structureOf(t.kind, t.structure),
     };
   }
 

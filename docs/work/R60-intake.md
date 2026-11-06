@@ -175,6 +175,16 @@ Progress (Templates, Oct 28 review):
   with its purpose; one list in `packages/types` (`STARTER_TEMPLATES`) for the API and the mock.
   The first Finish of setup installs them (`SettingsService.finishSetup`, a one-off exception to
   owned paths the lead gave on Nov 4).
+- TP-F08 part 1 (paused Nov 4 on the lead's order), branch `rasel/R60-template-structures`
+  (pushed, WIP, no PR; `main` merged in): the contract (Tax Workflow and Bookkeeping shapes,
+  `structure` on create and update, `PUT .../linked-template`, `GET .../structure-options`, 409
+  STRUCTURE_IN_USE), the API (`template-structures.ts`; a structure change is a new version that
+  keeps it; restore and duplicate carry it), the editor's Structure panel, the mock and the
+  isolation case. **Next step:** add the API e2e cases for links (steps, 409 in use, 400 wrong
+  kind, 404 another firm's, stale etag, clear, options) and structures (shapes, versions,
+  restore, duplicate); then, through heavy.sh, the types build, API and web `tsc` and the
+  templates e2e; then a mock spec, one 1440 px shot, and the PR. Part 2 is using the structure
+  downstream.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
