@@ -208,6 +208,20 @@ export class AutomationsReadService {
             path: `actions.${i}.config.tagIds`,
           });
       }
+      // Request documents' category: a live category of this firm (another firm's never).
+      const categoryId = a.config.categoryId;
+      if (typeof categoryId === 'string') {
+        const live = await tx.documentCategory.count({
+          where: { businessId, id: categoryId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The category is not one of the firm’s live document categories',
+            path: `actions.${i}.config.categoryId`,
+          });
+      }
       // Notify staff's recipients: active members of this firm only (another firm's person never).
       const memberIds = a.config.memberUserIds;
       if (Array.isArray(memberIds) && memberIds.length > 0) {
