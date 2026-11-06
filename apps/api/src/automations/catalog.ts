@@ -1149,6 +1149,27 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     ],
   },
   {
+    type: 'ASSIGN_CLIENT',
+    module: 'CLIENTS',
+    label: 'Assign client',
+    description:
+      'Makes a member of your firm the client’s assigned member; their open tasks move along, as in Clients (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: true,
+    fields: [
+      {
+        key: 'assigneeUserId',
+        label: 'Assign to',
+        type: 'MEMBER',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'An active member of your firm. A rule owned by a Staff member can’t reassign.',
+      },
+    ],
+  },
+  {
     type: 'ADD_CLIENT_TAGS',
     module: 'CLIENTS',
     label: 'Add client tags',

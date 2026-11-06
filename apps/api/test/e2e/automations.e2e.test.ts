@@ -341,6 +341,7 @@ describe('the catalog', () => {
     expect(c.actions.map((a) => a.type)).toEqual([
       'CREATE_TASK',
       'SEND_CLIENT_MESSAGE',
+      'ASSIGN_CLIENT',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
       'ADD_CLIENT_NOTE',
@@ -2426,5 +2427,92 @@ describe('Notify staff, and the firm’s own events with no client (AU-F18 to F2
     expect(one).toMatchObject({ recordKind: 'integration_connection', client: null });
     expect((await runDetail(one.id)).actions[0]).toMatchObject({ status: 'SUCCESS' });
     for (const r of [failed, reauth]) ok(await call('post', `/rules/${r.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Assign client, and actions that would start themselves (AU-F27)', () => {
+  const assign = (assigneeUserId: string) => ({
+    id: 'assign',
+    type: 'ASSIGN_CLIENT',
+    config: { assigneeUserId },
+  });
+  const assignedOf = (id: string) =>
+    inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.findFirstOrThrow({
+            where: { businessId: firms.a, id },
+            select: { assignedUserId: true },
+          })
+        ).assignedUserId,
+    );
+
+  it('reassigns as Clients does, once; a Staff owner and another firm’s person are refused', async () => {
+    const live = await createRule(clientCreated([assign(adminA.id)]), { name: mark('Assign') });
+    ok(await activate(live.id));
+    const id = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `Assign me ${run} (fake)`,
+              assignedUserId: staffA.id,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    expect(await assignedOf(id)).toBe(adminA.id);
+    const entries = await auditRows(id);
+    expect(entries.filter((r) => r.action === 'client.updated')).toHaveLength(1);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+
+    // A rule whose owner is now a Staff member (an Owner or Admin who was demoted): Clients lets
+    // only an Owner or Admin reassign, so it can't be turned on.
+    const staffOwned = await createRule(clientCreated([assign(adminA.id)]), {
+      name: mark('Staff assign'),
+    });
+    await inFirm('a', (tx) =>
+      tx.automationRule.update({
+        where: { businessId_id: { businessId: firms.a, id: staffOwned.id } },
+        data: { ownerUserId: staffA.id },
+      }),
+    );
+    expectError(await activate(staffOwned.id), 409, 'NOT_READY');
+    // Firm B's Owner is not someone firm A can assign to.
+    const foreign = await createRule(clientCreated([assign(ownerB.id)]), {
+      name: mark('Foreign assign'),
+    });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+  });
+
+  it('a rule on a tag or assignment change can’t take the action that makes that change', async () => {
+    const codes = async (definition: object) =>
+      AutomationPreview.parse(
+        ok(await call('post', '/rules/validate', ownerA, { definition })),
+      ).checks.map((c) => c.code);
+    const tag = await inFirm(
+      'a',
+      async (tx) =>
+        (await tx.tag.create({ data: { businessId: firms.a, name: `Loop ${run}` } })).id,
+    );
+    expect(
+      await codes({
+        trigger: { module: 'CLIENTS', event: 'client.tags_changed' },
+        actions: [{ id: 'tag', type: 'ADD_CLIENT_TAGS', config: { tagIds: [tag] } }],
+      }),
+    ).toContain('LOOP_RISK');
+    expect(
+      await codes({
+        trigger: { module: 'CLIENTS', event: 'client.assignment_changed' },
+        actions: [assign(adminA.id)],
+      }),
+    ).toContain('LOOP_RISK');
+    // On another event, the same actions are fine.
+    expect(await codes(clientCreated([assign(adminA.id)]))).not.toContain('LOOP_RISK');
   });
 });

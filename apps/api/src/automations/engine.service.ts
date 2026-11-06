@@ -9,7 +9,8 @@ import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
-import { day } from '../workspaces/common.js';
+import { day, lockClient } from '../workspaces/common.js';
+import { reassignClientTasks } from '../workspaces/tasks.service.js';
 import { actionOf } from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
@@ -658,16 +659,18 @@ export class AutomationEngine {
                         where: { businessId, clientId, tagId: { in: ids } },
                       })
                     ).count;
-              // As Clients' own tag change records it (so a rule on tag changes sees it).
-              await this.audit.logIn(
-                tx,
-                'client.tags_set',
-                { type: 'client', id: clientId },
-                action.type === 'ADD_CLIENT_TAGS'
-                  ? { added: changed, removed: 0 }
-                  : { added: 0, removed: changed },
-                { businessId, actorUserId: actor.userId },
-              );
+              // As Clients' own tag change records it (so a rule on tag changes sees it). Nothing
+              // changed (the client had them, or didn't): no entry, so no tag-change event.
+              if (changed > 0)
+                await this.audit.logIn(
+                  tx,
+                  'client.tags_set',
+                  { type: 'client', id: clientId },
+                  action.type === 'ADD_CLIENT_TAGS'
+                    ? { added: changed, removed: 0 }
+                    : { added: 0, removed: changed },
+                  { businessId, actorUserId: actor.userId },
+                );
               return changed;
             });
             if (result === null)
@@ -685,6 +688,72 @@ export class AutomationEngine {
                 action.type === 'ADD_CLIENT_TAGS'
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
+            };
+          }
+          // AU-F27 Assign or reassign work: the client's assigned member, as Clients changes it (the
+          // open tasks the previous assignee held move along; `client.updated` names the field).
+          // A Staff member may not reassign a client (Clients refuses it too).
+          case 'ASSIGN_CLIENT': {
+            if (actor.role === 'STAFF')
+              return {
+                ok: false,
+                code: 'NOT_PERMITTED',
+                retryable: false,
+                detail: 'A Staff member may not reassign a client',
+              };
+            const to = typeof cfg.assigneeUserId === 'string' ? cfg.assigneeUserId : null;
+            const clientId = run.clientId as string;
+            const result = await this.inFirm(businessId, async (tx) => {
+              const current = await lockClient(tx, businessId, clientId);
+              if (!current || client?.archivedAt) return 'CLIENT_UNAVAILABLE' as const;
+              const member = to
+                ? await tx.membership.findFirst({
+                    where: { businessId, userId: to, status: 'ACTIVE' },
+                    select: { id: true },
+                  })
+                : null;
+              if (!to || !member) return 'NOT_A_MEMBER' as const;
+              // Already theirs: no change and no entry (so no assignment-change event).
+              if (current.assignedUserId === to) return 0;
+              await tx.client.update({
+                where: { businessId_id: { businessId, id: clientId } },
+                data: { assignedUserId: to },
+              });
+              const moved = await reassignClientTasks(
+                tx,
+                businessId,
+                clientId,
+                current.assignedUserId,
+                to,
+              );
+              await this.audit.logIn(
+                tx,
+                'client.updated',
+                { type: 'client', id: clientId },
+                { fields: ['assignedUserId'], tasksMoved: moved },
+                { businessId, actorUserId: actor.userId },
+              );
+              return 1;
+            });
+            if (result === 'CLIENT_UNAVAILABLE')
+              return {
+                ok: false,
+                code: 'CLIENT_UNAVAILABLE',
+                retryable: false,
+                detail: 'The client is archived or no longer exists',
+              };
+            if (result === 'NOT_A_MEMBER')
+              return {
+                ok: false,
+                code: 'NOT_A_MEMBER',
+                retryable: false,
+                detail: 'The person to assign to is not an active member of the firm',
+              };
+            return {
+              ok: true,
+              kind: 'client',
+              id: clientId,
+              detail: result === 0 ? 'Already assigned to them' : 'Client reassigned',
             };
           }
           case 'ADD_CLIENT_NOTE': {

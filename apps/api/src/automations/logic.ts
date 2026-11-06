@@ -451,6 +451,10 @@ export function produces(actions: { type: string; config: Record<string, unknown
       const days = a.config.dueInDays;
       if (typeof days !== 'number' || days <= 1) out.add('task.overdue');
     }
+    // A tag added or removed is a tag change; a new assignee is an assignment change.
+    if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
+      out.add('client.tags_changed');
+    if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
   }
   return [...out];
 }
