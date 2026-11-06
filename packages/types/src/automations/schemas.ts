@@ -133,6 +133,8 @@ export const AutomationActionField = z.object({
     'TEMPLATE',
     'MEMBER',
     'DATE_RULE',
+    /** The firm's live tags, by id (GET /business/tags): an array of up to 20. */
+    'TAGS',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),

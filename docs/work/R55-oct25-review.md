@@ -15,8 +15,9 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1258 merged: Applies To at every width, in words (AU-F01); Logs tabs (AU-F02); Rule Owner, changed only by an Owner or Admin (AU-F28).
 - #1259 merged: Integrations IN-F01 to F04 (honest health, Cancel and Back keep the list, one set of category names, HelpTip per area).
 - #1264 merged: Manual Event Confirmation (AU-F29 to F33).
-- #1267 (`rasel/R55-au-timing`): trigger anchors, the sentence with an example, the time zone, the bad-number check (AU-F04 to F07).
-- AU conditions (`rasel/R55-au-conditions`, stacked on #1267): the match count before any action (AU-F21); operators named per field, lists for Is any of (AU-F23). AU-F22 and the new operators (On, Within a Period, Does Not Contain) wait: each needs a field or operator the catalog does not have.
+- #1267 merged: trigger anchors, the sentence with an example, the time zone, the bad-number check (AU-F04 to F07).
+- #1268 (`rasel/R55-au-conditions`): the match count before any action (AU-F21); operators named per field, lists for Is any of (AU-F23). AU-F22 and the new operators (On, Within a Period, Does Not Contain) wait: each needs a field or operator the catalog does not have.
+- AU actions (`rasel/R55-au-actions`, stacked on #1268): Move up and down for actions (AU-F24); Add and Remove client tags by the firm's tag ids (part of AU-F27).
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
