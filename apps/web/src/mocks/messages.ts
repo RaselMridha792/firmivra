@@ -46,6 +46,7 @@ import {
   SetNoteReminderRequest,
   UpdateInternalNoteRequest,
   UpdateMessageSettingsRequest,
+  SetMessageThreadAssigneeRequest,
   UpdateMessageThreadRequest,
   ConfirmUploadRequest,
   OUTBOUND_FILES_MAX,
@@ -109,6 +110,9 @@ interface ThreadRow {
   automated: boolean;
   archivedAt: string | null;
   createdAt: string;
+  /** MSG-F22: the conversation's owner, and whether the signed-in member muted it. */
+  assignedUserId?: string | null;
+  muted?: boolean;
 }
 /** A lead's own thread (MSG-F03's Leads tab): the firm's emails and texts to the lead. */
 interface LeadThreadRow {
@@ -362,6 +366,13 @@ function firmThread(t: ThreadRow): MessageThread {
       : null,
     unreadCount: msgs.filter((m) => m.direction === 'CLIENT_TO_FIRM' && !m.readAt).length,
     automated: t.automated,
+    assignedTo: t.assignedUserId
+      ? {
+          userId: t.assignedUserId,
+          name: assigneesOf().find((m) => m.userId === t.assignedUserId)?.name ?? 'Former staff',
+        }
+      : null,
+    mutedByMe: t.muted ?? false,
     archivedAt: t.archivedAt,
     createdAt: t.createdAt,
   };
@@ -1164,6 +1175,49 @@ export function createMessagesMock(
       mark(t, 'CLIENT_TO_FIRM', false);
       return firmThread(t);
     },
+    // MSG-F22: as the API: the Assign Staff rule of MSG-F16, a mute for the caller alone, and an
+    // archive that keeps the history.
+    assign: async (threadId, body) => {
+      await mockDelay();
+      const t = find(threadId);
+      const { userId } = parseInput(SetMessageThreadAssigneeRequest, body);
+      if (userId) {
+        const m = assigneesOf().find((x) => x.userId === userId);
+        if (!m) throw notFound();
+        if (m.role === 'STAFF' && !STAFF_CLIENTS.includes(t.clientId))
+          throw fail(
+            400,
+            'ASSIGNEE_CANNOT_REACH',
+            'This staff member does not work with this client',
+          );
+      }
+      t.assignedUserId = userId;
+      return firmThread(t);
+    },
+    mute: async (threadId) => {
+      await mockDelay();
+      const t = find(threadId);
+      t.muted = true;
+      return firmThread(t);
+    },
+    unmute: async (threadId) => {
+      await mockDelay();
+      const t = find(threadId);
+      t.muted = false;
+      return firmThread(t);
+    },
+    archive: async (threadId) => {
+      await mockDelay();
+      const t = find(threadId);
+      t.archivedAt ??= now();
+      return firmThread(t);
+    },
+    restore: async (threadId) => {
+      await mockDelay();
+      const t = find(threadId);
+      t.archivedAt = null;
+      return firmThread(t);
+    },
     fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
     unreadCount: async () => {
       await mockDelay();
@@ -1389,6 +1443,8 @@ export function createMyMessagesMock(): MyMessagesClient {
       const b = parseInput(SendMessageRequest, body);
       const t = find(threadId);
       if (!t.repliesEnabled) throw fail(409, 'REPLIES_CLOSED', 'Replies are closed on this thread');
+      // MSG-F22: the client wrote again, so an archived conversation is back in the inbox.
+      t.archivedAt = null;
       return toMine(addMessage(t, client(JAMIE), b.body));
     },
     markRead: async (threadId) => {

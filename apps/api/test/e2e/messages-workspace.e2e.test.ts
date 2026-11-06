@@ -289,3 +289,122 @@ describe('MSG-F03: Archived and Automations views', () => {
     expect((detail.body as { automated: boolean }).automated).toBe(true);
   });
 });
+
+describe('MSG-F22: thread actions', () => {
+  const act = async (
+    method: 'post' | 'put' | 'delete',
+    path: string,
+    who: { email: string },
+    body: object = {},
+    businessId = ids.firmA,
+  ) =>
+    request(app.getHttpServer())
+      [method](`/api/v1/business/message-threads/${path}`)
+      .set('x-business-id', businessId)
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+      .send(body);
+  const ok = (res: Response) => {
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    return Thread.parse(res.body);
+  };
+  const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
+
+  it('assigns the conversation by the Assign Staff rule, never the client', async () => {
+    // The Staff member works with client One, so One's conversation may be theirs.
+    const mine = ok(
+      await act('put', `${ids.threadOne}/assignee`, people.ownerA, { userId: people.staffA.id }),
+    );
+    expect(mine.assignedTo).toEqual({ userId: people.staffA.id, name: 'Fake staffA' });
+    // Client Two is nobody's: a Staff member cannot own it; an Owner can.
+    const refused = await act('put', `${ids.threadTwo}/assignee`, people.ownerA, {
+      userId: people.staffA.id,
+    });
+    expect(refused.status).toBe(400);
+    expect(codeOf(refused)).toBe('ASSIGNEE_CANNOT_REACH');
+    expect(
+      ok(await act('put', `${ids.threadTwo}/assignee`, people.ownerA, { userId: people.ownerA.id }))
+        .assignedTo?.userId,
+    ).toBe(people.ownerA.id);
+    // Unassigned again; someone who is not a member of this firm is not found.
+    expect(
+      ok(await act('put', `${ids.threadTwo}/assignee`, people.ownerA, { userId: null })).assignedTo,
+    ).toBeNull();
+    const stranger = await act('put', `${ids.threadTwo}/assignee`, people.ownerA, {
+      userId: people.ownerB.id,
+    });
+    expect(stranger.status).toBe(404);
+    // The client's own assigned member is unchanged, and the inbox shows the owner.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const client = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.client.findUnique({ where: { id: ids.two }, select: { assignedUserId: true } }),
+      );
+      expect(client?.assignedUserId).toBeNull();
+      const audit = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.auditLog.findMany({
+          where: {
+            businessId: ids.firmA,
+            entityId: ids.threadOne,
+            action: 'message_thread.assigned',
+          },
+          select: { metadata: true },
+        }),
+      );
+      expect(audit).toHaveLength(1);
+    } finally {
+      await owner.$disconnect();
+    }
+    const listed = (await inbox('')).find((t) => t.id === ids.threadOne);
+    expect(listed?.assignedTo?.userId).toBe(people.staffA.id);
+  });
+
+  it('mutes for the caller alone, and unmutes', async () => {
+    expect(ok(await act('post', `${ids.threadOne}/mute`, people.staffA)).mutedByMe).toBe(true);
+    // Again: still muted, nothing doubled.
+    expect(ok(await act('post', `${ids.threadOne}/mute`, people.staffA)).mutedByMe).toBe(true);
+    const forOwner = await firm(`/message-threads/${ids.threadOne}`, people.ownerA);
+    expect((forOwner.body as { mutedByMe: boolean }).mutedByMe).toBe(false);
+    const forStaff = (await inbox('', people.staffA)).find((t) => t.id === ids.threadOne);
+    expect(forStaff?.mutedByMe).toBe(true);
+    expect(ok(await act('delete', `${ids.threadOne}/mute`, people.staffA)).mutedByMe).toBe(false);
+  });
+
+  it('archives with its history kept, and restores', async () => {
+    const archived = ok(await act('post', `${ids.threadTwo}/archive`, people.ownerA));
+    expect(archived.archivedAt).not.toBeNull();
+    expect((await inbox('')).map((t) => t.id)).not.toContain(ids.threadTwo);
+    expect((await inbox('archived=true')).map((t) => t.id)).toContain(ids.threadTwo);
+    const kept = await firm(`/message-threads/${ids.threadTwo}`, people.ownerA);
+    expect((kept.body as { messages: unknown[] }).messages).toHaveLength(1);
+    expect(ok(await act('post', `${ids.threadTwo}/restore`, people.ownerA)).archivedAt).toBeNull();
+    expect((await inbox('')).map((t) => t.id)).toContain(ids.threadTwo);
+  });
+
+  it('stays within reach: Staff only their clients, never another firm', async () => {
+    // Client Two is not the Staff member's: not found, whatever the action.
+    for (const [method, path, body] of [
+      ['put', `${ids.threadTwo}/assignee`, { userId: null }],
+      ['post', `${ids.threadTwo}/mute`, {}],
+      ['post', `${ids.threadTwo}/archive`, {}],
+    ] as const) {
+      expect((await act(method, path, people.staffA, body)).status, path).toBe(404);
+    }
+    // Firm B never reaches firm A's conversation, under either firm.
+    for (const [method, path, body] of [
+      ['put', `${ids.threadOne}/assignee`, { userId: people.ownerB.id }],
+      ['post', `${ids.threadOne}/mute`, {}],
+      ['delete', `${ids.threadOne}/mute`, {}],
+      ['post', `${ids.threadOne}/archive`, {}],
+      ['post', `${ids.threadOne}/restore`, {}],
+    ] as const) {
+      const res = await act(method, path, people.ownerB, body, ids.firmB);
+      expect(res.status, path).toBe(404);
+      // A firm header the member does not belong to: as if nothing were there.
+      expect(await act(method, path, people.ownerB, body, ids.firmA).then((r) => r.status)).toBe(
+        404,
+      );
+    }
+    const still = await firm(`/message-threads/${ids.threadOne}`, people.ownerA);
+    expect((still.body as { archivedAt: string | null }).archivedAt).toBeNull();
+  });
+});

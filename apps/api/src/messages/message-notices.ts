@@ -69,6 +69,19 @@ export class MessageNotices {
     }
   }
 
+  /** MSG-F22: the members whose mute of this thread is in force (none expired). */
+  private async mutedBy(businessId: string, threadId: string): Promise<Set<string>> {
+    const rows = await this.database.forBusiness(businessId).messageThreadMute.findMany({
+      where: {
+        businessId,
+        threadId,
+        OR: [{ mutedUntil: null }, { mutedUntil: { gt: new Date() } }],
+      },
+      select: { userId: true },
+    });
+    return new Set(rows.map((r) => r.userId));
+  }
+
   private async email(m: SentMessage): Promise<void> {
     const db = this.database.forBusiness(m.businessId);
     const thread = await db.messageThread.findFirst({
@@ -110,7 +123,10 @@ export class MessageNotices {
         },
         select: { userId: true, user: { select: { name: true, email: true } } },
       });
+      // MSG-F22: a member who muted this conversation gets no alert for it.
+      const muted = await this.mutedBy(m.businessId, m.threadId);
       for (const p of members) {
+        if (muted.has(p.userId)) continue;
         recipients.push({ to: p.user.email, name: p.user.name, recipient: { userId: p.userId } });
       }
     }

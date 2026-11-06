@@ -253,6 +253,24 @@ Progress (Messages):
   pins, described for screen readers, tap at 375 px inside the window, tap elsewhere, second tap,
   inside a dialog, Escape order). **Next step:** its PR, then the re-tests of CM-F11, CM-F12 and
   Back to Origin, then CM-F05.
+- Nov 7: Contact panel and Thread Actions, branch `rasel/R60-messages-contact`: MSG-F19, F20, F22.
+  It uses R36's columns and tables, so there is no schema change. The defaults were sent to the
+  lead (Q1, Q2, Q4).
+  - Thread Actions beside the client card: View Profile, Mark as Read or Unread, Assign or
+    Reassign Staff, Tags, Create Task (SH4), Schedule Appointment (SH6), Mute or Unmute, Archive
+    or Restore.
+  - New routes under `business/message-threads/:id`: `PUT assignee`, `POST`/`DELETE mute`, `POST
+    archive`, `POST restore`. Each is audited and has an isolation case.
+  - Assign follows MSG-F16's rule (an Owner or Admin, or a Staff member assigned to the client,
+    400 `ASSIGNEE_CANNOT_REACH`) and never changes the client's own assigned staff member.
+  - Mute is the caller's alone. Muted members get no staff email; the bell waits on Q4, R6's
+    Notifier. A client's new message brings an archived conversation back to the inbox.
+  - The panel shows the client's tags (the firm's one list, edited in place), the client's
+    Assigned Staff and the Conversation Owner, each with an empty state.
+  - Schedule opens `/calendar/new?clientId=`, and Back returns to the thread.
+  - Tests: API e2e `messages-workspace` and `messages` 28 of 28, isolation 19 of 19, mock
+    `r60-messages-contact` 2 of 2 (twice) and every Messages spec.
+  - Next: MSG-F18 Recent Activity (its own PR), and MSG-F21 once the lead answers Q3.
 
 ## Handoff (Oct 23): start here
 

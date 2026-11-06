@@ -39,6 +39,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
+import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
 import {
   activeFilters,
   addressOf,
@@ -423,8 +424,9 @@ export function MessagesScreen({
         ) : current ? (
           <ContactPanel
             key={`c${current.client.id}`}
-            clientId={current.client.id}
-            name={current.client.displayName}
+            thread={current}
+            onChanged={refresh}
+            onNotice={(text, tone) => setMessage({ text, tone })}
           />
         ) : (
           <aside className={card} aria-label="Client" />
@@ -861,10 +863,23 @@ function LeadPanel({ lead }: { lead: LeadThreadContact }) {
   );
 }
 
-function ContactPanel({ clientId, name }: { clientId: string; name: string }) {
+function ContactPanel({
+  thread,
+  onChanged,
+  onNotice,
+}: {
+  thread: MessageThread;
+  onChanged: () => void;
+  onNotice: (text: string, tone: 'success' | 'error') => void;
+}) {
+  const clientId = thread.client.id;
+  const name = thread.client.displayName;
   const qc = useQueryClient();
   const client = useApiQuery([...KEY, 'client', clientId], () => api.clients.get(clientId));
   const notes = useApiQuery([...KEY, 'notes', clientId], () => api.clientNotes.list(clientId));
+  // MSG-F19: the client's own tags (the firm's one list), shown with a clear empty state.
+  const tags = useApiQuery(clientTagsKey(clientId), () => api.clients.tags(clientId));
+  const [editTags, setEditTags] = useState(false);
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
   const c = client.data;
@@ -879,19 +894,29 @@ function ContactPanel({ clientId, name }: { clientId: string; name: string }) {
     >
       <div className="flex items-center gap-3">
         <Avatar name={name} size="xl" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate font-display text-xl font-bold text-heading">{name}</p>
           {/* D7: Open Client is the way to edit; Back returns to this thread (MSG-F08). */}
           <OriginLink href={`/clients/${clientId}`} className="text-sm font-medium text-link">
             Open Client
           </OriginLink>
         </div>
+        {/* MSG-F22: the three-dot Thread Actions beside the client card. */}
+        <ThreadActions thread={thread} onChanged={onChanged} onNotice={onNotice} />
       </div>
       <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-heading">
+        {/* MSG-F20: Schedule opens the appointment form with this client chosen (SH6); its
+            Back or Cancel returns to this conversation. */}
+        <OriginLink
+          href={`/calendar/new?clientId=${clientId}`}
+          className="order-last flex flex-col items-center gap-1 rounded-lg border border-divider p-2 hover:bg-canvas"
+          data-testid="contact-schedule"
+        >
+          <CalendarBlank aria-hidden weight="fill" className="size-5 text-action" /> Schedule
+        </OriginLink>
         {[
           { label: 'Call', icon: Phone, href: c?.phone ? `tel:${c.phone}` : undefined },
           { label: 'Email', icon: Envelope, href: c?.email ? `mailto:${c.email}` : undefined },
-          { label: 'Schedule', icon: CalendarBlank, href: '/calendar' },
         ].map((a) =>
           a.href ? (
             <a
@@ -931,21 +956,81 @@ function ContactPanel({ clientId, name }: { clientId: string; name: string }) {
           </div>
         </dl>
       </section>
-      <section aria-label="Client details">
+      <section aria-label="Client details" data-testid="client-details">
         <h3 className="mb-1 font-display text-lg font-bold text-heading">Client Details</h3>
-        <p className="flex justify-between text-sm">
-          <span className="text-muted">Client Since</span>
-          <span className="text-heading">
-            {c
-              ? new Date(c.createdAt).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })
-              : '—'}
-          </span>
-        </p>
+        <dl className="flex flex-col gap-2 text-sm">
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted">Client Since</dt>
+            <dd className="text-heading">
+              {c
+                ? new Date(c.createdAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : '—'}
+            </dd>
+          </div>
+          {/* MSG-F19: the client's tags and assigned staff member, as they are; nothing made up. */}
+          <div className="flex items-start justify-between gap-2">
+            <dt className="text-muted">Tags</dt>
+            <dd className="flex flex-wrap justify-end gap-1" data-testid="client-tags">
+              {tags.isError ? (
+                <span className="text-muted">Not available right now</span>
+              ) : tags.isPending ? (
+                <span className="text-muted">Loading…</span>
+              ) : (tags.data?.tags ?? []).length === 0 ? (
+                <span className="text-muted">No tags yet</span>
+              ) : (
+                (tags.data?.tags ?? []).map((t) => (
+                  <span
+                    key={t}
+                    className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info"
+                  >
+                    {t}
+                  </span>
+                ))
+              )}
+              <button
+                type="button"
+                aria-label={`Edit tags of ${name}`}
+                onClick={() => setEditTags(true)}
+                className="inline-flex size-6 items-center justify-center rounded-md bg-warning-soft text-heading hover:opacity-80"
+              >
+                <Plus aria-hidden weight="bold" className="size-3.5" />
+              </button>
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted">Assigned Staff</dt>
+            <dd className="text-right text-heading" data-testid="client-assigned">
+              {c ? (c.assignedTo?.name ?? 'Unassigned') : '—'}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-muted">Conversation Owner</dt>
+            <dd className="text-right text-heading" data-testid="thread-owner">
+              {thread.assignedTo?.name ?? 'Unassigned'}
+            </dd>
+          </div>
+        </dl>
+        {thread.mutedByMe ? (
+          <p className="mt-2 text-xs text-muted" data-testid="thread-muted">
+            Muted: you get no alerts for this conversation. Its messages still arrive.
+          </p>
+        ) : null}
       </section>
+      {editTags ? (
+        <ClientTagsDialog
+          clientId={clientId}
+          name={name}
+          onClose={() => setEditTags(false)}
+          onDone={() => {
+            setEditTags(false);
+            onNotice('Tags saved.', 'success');
+          }}
+        />
+      ) : null}
       <section aria-label="Notes" data-testid="contact-notes">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="font-display text-lg font-bold text-heading">Notes</h3>
