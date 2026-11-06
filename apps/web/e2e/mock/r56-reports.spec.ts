@@ -135,7 +135,7 @@ test('Filters fit their field: money in dollars, a bad value named before Apply 
   await page.getByRole('button', { name: /More Filters/ }).click();
   const dialog = page.getByTestId('more-filters');
   await page.getByRole('button', { name: 'Add Filter', exact: true }).click();
-  await dialog.getByLabel('Field').selectOption({ label: 'Amount' });
+  await dialog.getByLabel('Field').selectOption({ label: 'Amount Collected' });
   await dialog.getByLabel('Condition').selectOption({ label: 'Greater Than' });
   await dialog.getByLabel('Value ($)').fill('abc');
   await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
@@ -145,7 +145,7 @@ test('Filters fit their field: money in dollars, a bad value named before Apply 
   await dialog.getByLabel('Value ($)').fill('500');
   await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByRole('list', { name: 'Active filters' })).toContainText(
-    'Amount greater than $500.00',
+    'Amount Collected greater than $500.00',
   );
   await expect(page.getByTestId('run-error')).toHaveCount(0);
 
@@ -153,7 +153,7 @@ test('Filters fit their field: money in dollars, a bad value named before Apply 
   await page.goto(`${base}/builder`);
   const step = page.getByTestId('step-3');
   await step.getByRole('button', { name: 'Add Filter', exact: true }).click();
-  await step.getByLabel('Field').selectOption({ label: 'Amount' });
+  await step.getByLabel('Field').selectOption({ label: 'Amount Collected' });
   await step.getByLabel('Condition').selectOption({ label: 'Greater Than' });
   await step.getByLabel('Value ($)').fill('abc');
   await expect(step.getByText('Enter an amount in dollars, like 500 or 500.50.')).toBeVisible();
@@ -272,7 +272,7 @@ test('Builder: Run Report opens the full report and Back finds the work; leaving
   await page.getByTestId('unsaved-keep').click();
   await expect(page).toHaveURL(/\/reports\/builder/);
   // RP-F14: Run Report opens the full report of the unsaved definition, by its name.
-  await step3.getByLabel('Field').selectOption({ label: 'Amount' });
+  await step3.getByLabel('Field').selectOption({ label: 'Amount Collected' });
   await step3.getByLabel('Condition').selectOption({ label: 'Greater Than' });
   await step3.getByLabel('Value ($)').fill('500');
   await page.getByRole('button', { name: 'Run Report' }).click();
@@ -305,6 +305,32 @@ test('Help icons explain each area, on press and with Escape (RP-F22)', async ({
   await expect(about('Fields, grouping and sorting').first()).toBeVisible();
   await page.goto(`${base}/library`);
   await expect(about('Saved reports and sharing')).toBeVisible();
+});
+
+test('Schedule shows the next run in the firm time zone, and revenue says what it counts (RP-F19, F21)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  // RP-F21: collected payments, said on the KPI.
+  await expect(page.getByText('Total Amount Collected').first()).toBeVisible();
+  // RP-F19: the next run, named with the zone and its offset, recomputed as the form changes.
+  await page.getByRole('button', { name: 'Schedule Report' }).click();
+  const dialog = page.getByTestId('schedule-dialog');
+  await expect(page.getByRole('dialog')).toContainText(
+    "The report runs in your firm's time zone, America/New_York.",
+  );
+  const next = dialog.getByTestId('next-run');
+  await expect(next).toContainText(
+    /Next run: Mon, \w{3} \d{1,2}, \d{4}, 8:00 AM E[SD]T \(America\/New_York, UTC−0[45]:00\)/,
+  );
+  await dialog.getByLabel('How often').selectOption('MONTHLY');
+  await dialog.getByLabel('Day of the month').fill('32');
+  await expect(next).toContainText('Choose a day of the month from 1 to 31.');
+  await dialog.getByLabel('Day of the month').fill('15');
+  await dialog.getByLabel('At', { exact: true }).fill('18:30');
+  await expect(next).toContainText(/Next run: \w{3}, \w{3} 15, \d{4}, 6:30 PM E[SD]T/);
+  await page.screenshot({ path: test.info().outputPath('schedule-next-run.png') });
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {

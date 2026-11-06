@@ -7,9 +7,11 @@ import { legacyFirmRole, requestContext, type TenantContext } from '../common/re
 import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
+import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
-import { day } from '../workspaces/common.js';
+import { day, lockClient } from '../workspaces/common.js';
+import { reassignClientTasks } from '../workspaces/tasks.service.js';
 import { actionOf } from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
@@ -65,6 +67,7 @@ export class AutomationEngine {
     private readonly messages: MessagesService,
     private readonly notes: NotesService,
     private readonly notifier: Notifier,
+    private readonly outbound: OutboundMessagesService,
   ) {}
 
   /**
@@ -576,6 +579,79 @@ export class AutomationEngine {
             });
             return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Message sent' };
           }
+          // AU-F25 Send client email: Messages' own outbound email (OutboundMessagesService), so
+          // every Messages rule holds: who can receive it (contact, consent, suppression, Staff
+          // reach), the firm's Messages settings and limits, the delivery log and the audit.
+          // Automations never sends an email itself.
+          case 'SEND_CLIENT_EMAIL': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            let subject = text('subject');
+            let body = text('body');
+            const templateId = typeof cfg.templateId === 'string' ? cfg.templateId : null;
+            if (templateId) {
+              const t = await this.inFirm(businessId, (tx) =>
+                tx.messageTemplate.findFirst({
+                  where: {
+                    businessId,
+                    id: templateId,
+                    kind: 'EMAIL',
+                    status: 'ACTIVE',
+                    includeInAutomations: true,
+                  },
+                  select: { subject: true, body: true },
+                }),
+              );
+              if (!t)
+                return {
+                  ok: false,
+                  code: 'TEMPLATE_UNAVAILABLE',
+                  retryable: false,
+                  detail: 'The email template is not active',
+                };
+              subject ??= t.subject ? fill(t.subject, values) : undefined;
+              body ??= fill(t.body, values);
+            }
+            const draft = await this.outbound.create(businessId, actor, {
+              channel: 'EMAIL',
+              subject: (subject || `A message from ${values['firm.name']}`).slice(0, 200),
+              body: (body ?? '').slice(0, 10_000) || 'Hello',
+              templateId,
+              clientIds: [run.clientId as string],
+              leadIds: [],
+            });
+            // Messages says who can't receive it (no email, no consent, suppressed...): nothing
+            // is sent, and the draft is canceled rather than left behind.
+            if (draft.counts.canReceive === 0) {
+              const reason = draft.recipients[0]?.reason ?? 'NO_CONTACT';
+              await this.outbound.cancel(businessId, actor, draft.id, draft.updatedAt);
+              return {
+                ok: false,
+                code: reason,
+                retryable: false,
+                detail: `Messages can't email this client (${reason.toLowerCase().replace(/_/g, ' ')})`,
+              };
+            }
+            const sent = await this.outbound.send(businessId, actor, draft.id, draft.updatedAt);
+            if (sent.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'SEND_FAILED',
+                retryable: false,
+                detail: 'Messages could not send the email; its delivery log has the reason',
+              };
+            return {
+              ok: true,
+              kind: 'outbound_message',
+              id: sent.id,
+              detail: sent.status === 'SENT' ? 'Email sent' : 'Email queued by Messages',
+            };
+          }
           // AU-F27 Notify staff: a bell item only, for members of this firm (the Notifier leaves out
           // a Staff member who can't see the client); never an email, a text or the client.
           case 'NOTIFY_STAFF': {
@@ -658,16 +734,18 @@ export class AutomationEngine {
                         where: { businessId, clientId, tagId: { in: ids } },
                       })
                     ).count;
-              // As Clients' own tag change records it (so a rule on tag changes sees it).
-              await this.audit.logIn(
-                tx,
-                'client.tags_set',
-                { type: 'client', id: clientId },
-                action.type === 'ADD_CLIENT_TAGS'
-                  ? { added: changed, removed: 0 }
-                  : { added: 0, removed: changed },
-                { businessId, actorUserId: actor.userId },
-              );
+              // As Clients' own tag change records it (so a rule on tag changes sees it). Nothing
+              // changed (the client had them, or didn't): no entry, so no tag-change event.
+              if (changed > 0)
+                await this.audit.logIn(
+                  tx,
+                  'client.tags_set',
+                  { type: 'client', id: clientId },
+                  action.type === 'ADD_CLIENT_TAGS'
+                    ? { added: changed, removed: 0 }
+                    : { added: 0, removed: changed },
+                  { businessId, actorUserId: actor.userId },
+                );
               return changed;
             });
             if (result === null)
@@ -685,6 +763,72 @@ export class AutomationEngine {
                 action.type === 'ADD_CLIENT_TAGS'
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
+            };
+          }
+          // AU-F27 Assign or reassign work: the client's assigned member, as Clients changes it (the
+          // open tasks the previous assignee held move along; `client.updated` names the field).
+          // A Staff member may not reassign a client (Clients refuses it too).
+          case 'ASSIGN_CLIENT': {
+            if (actor.role === 'STAFF')
+              return {
+                ok: false,
+                code: 'NOT_PERMITTED',
+                retryable: false,
+                detail: 'A Staff member may not reassign a client',
+              };
+            const to = typeof cfg.assigneeUserId === 'string' ? cfg.assigneeUserId : null;
+            const clientId = run.clientId as string;
+            const result = await this.inFirm(businessId, async (tx) => {
+              const current = await lockClient(tx, businessId, clientId);
+              if (!current || client?.archivedAt) return 'CLIENT_UNAVAILABLE' as const;
+              const member = to
+                ? await tx.membership.findFirst({
+                    where: { businessId, userId: to, status: 'ACTIVE' },
+                    select: { id: true },
+                  })
+                : null;
+              if (!to || !member) return 'NOT_A_MEMBER' as const;
+              // Already theirs: no change and no entry (so no assignment-change event).
+              if (current.assignedUserId === to) return 0;
+              await tx.client.update({
+                where: { businessId_id: { businessId, id: clientId } },
+                data: { assignedUserId: to },
+              });
+              const moved = await reassignClientTasks(
+                tx,
+                businessId,
+                clientId,
+                current.assignedUserId,
+                to,
+              );
+              await this.audit.logIn(
+                tx,
+                'client.updated',
+                { type: 'client', id: clientId },
+                { fields: ['assignedUserId'], tasksMoved: moved },
+                { businessId, actorUserId: actor.userId },
+              );
+              return 1;
+            });
+            if (result === 'CLIENT_UNAVAILABLE')
+              return {
+                ok: false,
+                code: 'CLIENT_UNAVAILABLE',
+                retryable: false,
+                detail: 'The client is archived or no longer exists',
+              };
+            if (result === 'NOT_A_MEMBER')
+              return {
+                ok: false,
+                code: 'NOT_A_MEMBER',
+                retryable: false,
+                detail: 'The person to assign to is not an active member of the firm',
+              };
+            return {
+              ok: true,
+              kind: 'client',
+              id: clientId,
+              detail: result === 0 ? 'Already assigned to them' : 'Client reassigned',
             };
           }
           case 'ADD_CLIENT_NOTE': {

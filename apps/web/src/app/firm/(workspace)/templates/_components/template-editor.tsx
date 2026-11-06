@@ -72,8 +72,11 @@ const GROUPS: { id: 'ALL' | MergeField['group']; label: string }[] = [
   { id: 'ALL', label: 'All Fields' },
   { id: 'CLIENT', label: 'Client' },
   { id: 'COMPANY', label: 'Company' },
+  // TP-F09: Tax and Staff fields had no group of their own, only All Fields.
+  { id: 'STAFF', label: 'Staff' },
   { id: 'APPOINTMENT', label: 'Appointment' },
   { id: 'INVOICE', label: 'Invoice' },
+  { id: 'TAX', label: 'Tax' },
   { id: 'CUSTOM', label: 'Custom' },
 ];
 
@@ -133,8 +136,10 @@ const fromDetail = (d: MessageTemplateDetail): Form => ({
 
 /** /templates/new and /templates/[id]/edit. */
 export function TemplateEditorScreen({ id, kindSlug }: { id?: string; kindSlug?: string }) {
+  // A new template has nothing to load: null, since a query may not answer undefined (the
+  // console's "Query data cannot be undefined" on /templates/new).
   const detail = useApiQuery([...TEMPLATES_KEY, 'detail', id ?? 'new'], async () =>
-    id ? api.templates.get(id) : undefined,
+    id ? api.templates.get(id) : null,
   );
   if (id && !detail.data) {
     return (
@@ -156,7 +161,9 @@ export function TemplateEditorScreen({ id, kindSlug }: { id?: string; kindSlug?:
     kindBySlug(kindSlug ?? '')?.kind ??
     KINDS.find((k) => k.kind === kindSlug)?.kind ??
     'EMAIL';
-  return <Editor key={id ?? `new-${kind}`} id={id} kind={kind} initial={detail.data} />;
+  return (
+    <Editor key={id ?? `new-${kind}`} id={id} kind={kind} initial={detail.data ?? undefined} />
+  );
 }
 
 function Editor({

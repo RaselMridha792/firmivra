@@ -24,7 +24,10 @@ test('a draft opens as saved, its checklist changes, and it is sent as the same 
 }) => {
   await openDraft(page);
   // What a draft cannot change stays as saved.
-  await expect(page.getByRole('button', { name: /^Client/ })).toBeDisabled();
+  // Inside the form: the sidebar's "Clients" group is a button too.
+  await expect(
+    page.getByTestId('create-document-request').getByRole('button', { name: /^Client/ }),
+  ).toBeDisabled();
   await expect(page.getByLabel('Request Type *')).toBeDisabled();
   await expect(page.getByLabel('Request Title *')).toHaveValue('Advisory Intake Documents');
   const rows = page.getByTestId('request-item');

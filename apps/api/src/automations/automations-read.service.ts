@@ -254,6 +254,14 @@ export class AutomationsReadService {
             message: `The owner may not act in ${info.module} (${info.label})`,
             path: `actions.${i}`,
           });
+        // Clients lets only an Owner or Admin reassign a client.
+        else if (a.type === 'ASSIGN_CLIENT' && legacyFirmRole(acting.role) === 'STAFF')
+          out.push({
+            code: 'MISSING_PERMISSION',
+            severity: 'BLOCK',
+            message: 'The owner may not reassign a client (Owners and Admins only)',
+            path: `actions.${i}`,
+          });
       }
 
     // Loops among the firm's active rules.

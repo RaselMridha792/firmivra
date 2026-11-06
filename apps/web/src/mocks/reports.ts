@@ -324,8 +324,9 @@ function sources(): Record<string, SourceDef> {
         fld('status', 'Status', 'STATUS', {
           options: opts('PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED'),
         }),
-        fld('amount', 'Amount', 'MONEY'),
-        fld('tip', 'Tip', 'MONEY'),
+        // RP-F21: payments are collected, as the API labels them.
+        fld('amount', 'Amount Collected', 'MONEY'),
+        fld('tip', 'Tips Collected', 'MONEY'),
         fld('method', 'Payment Method', 'TEXT'),
         fld('processor', 'Processor', 'TEXT'),
         fld('paidOn', 'Paid Date', 'DATE', { groupable: false }),
@@ -343,7 +344,13 @@ function sources(): Record<string, SourceDef> {
           'NUMBER',
           'Rows of Payments in the range that match the filters.',
         ),
-        m('amount', 'Total Amount', (r) => sum(r, 'amount'), 'MONEY'),
+        m(
+          'amount',
+          'Total Amount Collected',
+          (r) => sum(r, 'amount'),
+          'MONEY',
+          'Collected: payments received in the range, by paid date, including any tax they paid; tips are apart.',
+        ),
       ],
     ),
     invoices_payments: def(

@@ -552,8 +552,8 @@ describe('the filter chips', () => {
       fields,
     );
     expect(chips.map((c) => `${c.label} ${c.value}`)).toEqual([
-      'Total greater than $500.00',
-      'Total between $100.00 and $250.50',
+      'Invoiced Total greater than $500.00',
+      'Invoiced Total between $100.00 and $250.50',
       'Status is any of Open, Paid',
       'Invoice Date after Oct 24, 2026',
       'Invoice Date in Last 30 Days',

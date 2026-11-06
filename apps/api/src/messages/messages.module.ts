@@ -69,6 +69,6 @@ import { TemplatesModule } from '../templates/templates.module.js';
       useFactory: (env: Env) => new OutboundUploadTokens(poolSecrets(env)),
     },
   ],
-  exports: [MessagesService],
+  exports: [MessagesService, OutboundMessagesService],
 })
 export class MessagesModule {}

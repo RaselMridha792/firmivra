@@ -19,7 +19,11 @@ async function open(page: Page) {
 }
 
 async function chooseClient(page: Page, name: string) {
-  await page.getByRole('button', { name: /^Client/ }).click();
+  // Inside the form: the sidebar's "Clients" group is a button too.
+  await page
+    .getByTestId('create-document-request')
+    .getByRole('button', { name: /^Client/ })
+    .click();
   await page.getByRole('dialog', { name: 'Choose a client' }).getByRole('button', { name }).click();
   // Jamie Sample has two open services, so the request names one.
   await page.getByLabel('Service *').selectOption({ index: 1 });
