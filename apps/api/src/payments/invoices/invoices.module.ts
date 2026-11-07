@@ -133,6 +133,19 @@ export class InvoicesController {
     return this.invoices.send(tenant.businessId, actorOf(auth, tenant), id);
   }
 
+  /** IP-F10: the invoice's email to the client again (open, with something to pay). */
+  @Post(':id/resend')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  resend(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SendInvoiceRequest)) _body: z.output<typeof SendInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.invoices.resend(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   @Post(':id/cancel')
   @HttpCode(200)
   @Roles(...FIRM_MANAGERS)
