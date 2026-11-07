@@ -478,6 +478,66 @@ describe('segments', () => {
     ).toBe(false);
   });
 
+  it('Last Refreshed moves when who belongs is evaluated again, never on a name edit (CM-F13)', async () => {
+    const made = SegmentDetail.parse(ok(await dynamic(), 201));
+    expect(made.lastRefreshedAt).not.toBeNull();
+    const renamed = SegmentDetail.parse(
+      ok(
+        await call('patch', `/segments/${made.id}`, ownerA, {
+          name: mark('Renamed'),
+          description: 'Only the words changed',
+          etag: made.etag,
+        }),
+      ),
+    );
+    expect(renamed.lastRefreshedAt).toBe(made.lastRefreshedAt);
+    // CM-F15: any of the rules (OR), and the summary follows it.
+    const widened = SegmentDetail.parse(
+      ok(
+        await call('patch', `/segments/${made.id}`, ownerA, {
+          criteria: {
+            logic: 'OR',
+            conditions: [
+              { field: 'client.status', op: 'IS', value: 'ACTIVE' },
+              { field: 'client.status', op: 'IS', value: 'ON_HOLD' },
+            ],
+          },
+          etag: renamed.etag,
+        }),
+      ),
+    );
+    expect(widened.lastRefreshedAt).not.toBe(made.lastRefreshedAt);
+    expect(widened.criteria?.logic).toBe('OR');
+    expect(widened.criteriaSummary).toMatch(/ or /i);
+    expect(widened.memberCount).toBeGreaterThan(made.memberCount);
+  });
+
+  it('finds people to add to a list by name, within the caller’s reach (CM-F18)', async () => {
+    const all = SegmentMemberPage.parse(
+      ok(await call('get', '/segments/people?audience=CLIENTS', ownerA)),
+    );
+    expect(all.items.map((p) => p.label)).toEqual(
+      expect.arrayContaining(['Jamie Sample (fake)', 'Riley Example (fake)']),
+    );
+    const found = SegmentMemberPage.parse(
+      ok(await call('get', '/segments/people?audience=CLIENTS&search=jamie', ownerA)),
+    );
+    expect(found.items.map((p) => p.label)).toEqual(['Jamie Sample (fake)']);
+    // Masked as members are.
+    expect(found.items[0]?.secondary ?? '').not.toMatch(/^[^*]+@/);
+    // Staff reach only their own clients.
+    const staffs = SegmentMemberPage.parse(
+      ok(await call('get', '/segments/people?audience=CLIENTS', staffA)),
+    );
+    expect(staffs.items.map((p) => p.label)).toContain('Jamie Sample (fake)');
+    expect(staffs.items.map((p) => p.label)).not.toContain('Riley Example (fake)');
+    // Firm B sees none of firm A's people.
+    const theirs = SegmentMemberPage.parse(
+      ok(await call('get', '/segments/people?audience=CLIENTS', ownerB, undefined, 'b')),
+    );
+    expect(theirs.items.map((p) => p.label)).not.toContain('Jamie Sample (fake)');
+  });
+
   it('will not archive a segment a scheduled communication uses', async () => {
     const made = SegmentDetail.parse(ok(await dynamic(), 201));
     await inFirm('a', async (tx) => {
