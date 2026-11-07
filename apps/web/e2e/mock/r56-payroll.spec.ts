@@ -192,3 +192,34 @@ test('No sideways scroll at 375 px', async ({ page }) => {
     expect(over, path || 'overview').toBeLessThanOrEqual(1);
   }
 });
+
+test('A demo review shows the five Run Payroll steps and processes no payroll: only a draft, Mark Ready, Approve and Submit off (PY-B02)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/clients/${GREEN}`);
+  await page.getByTestId('demo-run-link').click();
+  await page.waitForURL(/\/payroll\/runs\/demo$/);
+  const run = page.getByTestId('payroll-run');
+  await expect(page.getByTestId('demo-banner')).toContainText('no payroll is processed here');
+  for (const step of [
+    'Payroll Period',
+    'Employees & Hours',
+    'Earnings & Deductions',
+    'Taxes & Employer Costs',
+    'Review & Approve',
+  ]) {
+    await expect(run).toContainText(step);
+  }
+  await run.getByRole('button', { name: 'Save Draft' }).click();
+  // Nothing past the draft: each of these is absent or off.
+  for (const name of ['Mark Ready for Review', 'Approve Payroll', 'Submit to Provider']) {
+    const button = run.getByRole('button', { name });
+    if ((await button.count()) > 0) await expect(button.first()).toBeDisabled();
+  }
+  await page.screenshot({ path: test.info().outputPath('demo-run.png') });
+  await expect(page.getByRole('link', { name: 'Back to Payroll' })).toHaveAttribute(
+    'href',
+    '/payroll',
+  );
+});
