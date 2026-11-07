@@ -205,7 +205,8 @@ export function TemplatesScreen() {
           </div>
         </div>
         <OriginLink href="/templates/new" className={gold}>
-          <Plus aria-hidden weight="bold" className="size-5" /> Create Template
+          {/* TP-Y01: it opens an email template; a kind's library creates its own kind. */}
+          <Plus aria-hidden weight="bold" className="size-5" /> Create Email Template
         </OriginLink>
       </header>
       {message ? (
@@ -443,7 +444,7 @@ export function TemplatesScreen() {
           <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
             Template Tools <TemplateHelp area="tools" />
           </h2>
-          {tool(Plus, 'Create Template', 'Build a new template from scratch.', {
+          {tool(Plus, 'Create Email Template', 'Build a new email template from scratch.', {
             href: '/templates/new',
           })}
           {tool(UploadSimple, 'Import Template', 'Import from HTML or text.', {

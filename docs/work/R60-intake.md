@@ -437,6 +437,11 @@ Progress (MSG-F16 Add to Client Timeline; the lead, Nov 7, on R1's `client_timel
   its conversation or the message's outcome with Back to the client.
 - Tests: API e2e `outbound-messages` (MSG-F16 block) and `clients` 37 of 37; mock
   `r60-messages-timeline` 2 of 2.
+Progress (CM-Y and TP-Y, Oct 28 reviews, defaults; Nov 7):
+- Branch `rasel/R60-comms-yellow`: CM-Y07 (a disabled Send Test says why), TP-Y01 (Create Email
+  Template), TP-Y03 (a typed tag is kept on Save, with the hint). The other Y items' status is in
+  the PR body: most hold or wait on `packages/db` seeds; CM-Y09/10/13 tests and the CM-Y19
+  channel-switch warning are left for later.
 
 ## Handoff (Oct 23): start here
 
