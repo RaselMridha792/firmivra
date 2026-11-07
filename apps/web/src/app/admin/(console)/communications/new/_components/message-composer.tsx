@@ -21,6 +21,7 @@ import {
   Phone,
   Plus,
   Smiley,
+  Image as ImageIcon,
   Tag,
   TextAlignCenter,
   TextAlignLeft,
@@ -46,6 +47,7 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 // SA-COM-R5: the firm side's unsaved-changes guard, reused (one behaviour for both).
 import { useUnsavedGuard } from '../../../../../firm/(workspace)/tasks/_components/unsaved-guard';
+import { InsertImagePopover } from '../../templates/new/_components/create-template-screen';
 import { useApiQuery } from '../../../../../../lib/query';
 
 type Channel = 'EMAIL' | 'SMS';
@@ -194,6 +196,8 @@ export function MessageComposer() {
   // SA-COM-R5: what Cancel, an in-app link or a reload would lose: recipients, copies, subject
   // and body. Leaving with any of it asks "Discard this message?" first.
   const [bodyText, setBodyText] = useState('');
+  // SA-COM-R2: Insert Image, as Templates do (upload or the library; a reference at the cursor).
+  const [imageOpen, setImageOpen] = useState(false);
   const guard = useUnsavedGuard({
     to: selected.map((c) => keyOf(c)),
     cc,
@@ -664,6 +668,22 @@ export function MessageComposer() {
                         label="Insert smile"
                         onClick={() => insertText(' 🙂')}
                       />
+                      <span className="relative">
+                        <ToolbarButton
+                          icon={ImageIcon}
+                          label="Insert image"
+                          onClick={() => setImageOpen((open) => !open)}
+                        />
+                        {imageOpen ? (
+                          <InsertImagePopover
+                            onClose={() => setImageOpen(false)}
+                            onInsert={(fileName) => {
+                              insertText(`[Image: ${fileName}]`);
+                              setImageOpen(false);
+                            }}
+                          />
+                        ) : null}
+                      </span>
                       <MergeFieldMenu label="Merge Field" onPick={(token) => insertText(token)} />
                       <span className="ml-1 flex items-center border-l border-border pl-1">
                         <ToolbarButton

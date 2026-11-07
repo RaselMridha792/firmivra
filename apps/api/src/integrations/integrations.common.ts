@@ -12,9 +12,7 @@ import type {
   IntegrationProvider,
   IntegrationSyncRun,
 } from '@firmivra/types';
-import { roleCan } from '@firmivra/types';
 import type { TenantContext } from '../common/request-context.js';
-import { isGridFirmRole } from '@firmivra/types';
 
 const refusal = (code: IntegrationErrorCode, message: string) =>
   new ConflictException({ code, message });
@@ -57,14 +55,13 @@ export const integrationErrors = {
 };
 
 /**
- * Who may connect, configure, sync and disconnect: Owner and Admin always; a grid role only with
- * the Edit capability on Integrations (Manager and the others have none by default). The legacy
- * Staff role, which passes `@Roles(...FIRM_STAFF)` on every route, never does.
+ * Who may connect, configure, sync and disconnect: the firm's Owner and Admin only (IN-Y20,
+ * Rasel, Nov 7). Every other member, Staff and the grid roles alike, views only; the role comes
+ * from the membership on each request, never from a token.
  */
 export function canManageIntegrations(tenant: TenantContext | undefined): boolean {
   if (tenant?.kind !== 'staff') return false;
-  if (tenant.role === 'OWNER' || tenant.role === 'ADMIN') return true;
-  return isGridFirmRole(tenant.role) && roleCan(tenant.role, 'INTEGRATIONS', 'EDIT');
+  return tenant.role === 'OWNER' || tenant.role === 'ADMIN';
 }
 
 /** 403 unless the caller may manage integrations. */

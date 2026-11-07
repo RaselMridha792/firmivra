@@ -9,12 +9,15 @@ import {
 } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { CircleCheck, FileText, UsersRound, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
+import { mergeListQuery, pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { applicationCountsKey, applicationListKey } from './application-data';
+import { LIST_DEFAULTS, type ListView } from './list-view';
 import {
   cellClass,
   EmailText,
@@ -61,14 +64,38 @@ function rangeBounds(value: DateRange): Pick<ListFirmApplicationsQuery, 'from' |
   return { from: start.toISOString(), to: end.toISOString() };
 }
 
-export function ApplicationList() {
+// SA-APP-F11: the list's view in the address, so the detail's Back and the browser's Back open it
+// exactly as it was. Defaults stay out of the address.
+const TAB_IDS = ['all', 'PENDING_REVIEW', 'APPROVED', 'DECLINED'];
+const RANGES = ['all', '7', '30', 'month'];
+
+export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListView }) {
   const { me } = useMe();
-  const [tab, setTab] = useState<Tab>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
-  const [search, setSearch] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>('all');
-  const [dates, setDates] = useState<Pick<ListFirmApplicationsQuery, 'from' | 'to'>>({});
-  const [page, setPage] = useState(1);
+  const [tab, setTab] = useState<Tab>(TAB_IDS.includes(initial.tab) ? (initial.tab as Tab) : 'all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    TAB_IDS.includes(initial.status) && initial.status !== 'all'
+      ? (initial.status as StatusFilter)
+      : '',
+  );
+  const [search, setSearch] = useState(initial.search.slice(0, 100));
+  const [dateRange, setDateRange] = useState<DateRange>(
+    RANGES.includes(initial.range) ? (initial.range as DateRange) : 'all',
+  );
+  const [dates, setDates] = useState<Pick<ListFirmApplicationsQuery, 'from' | 'to'>>(() =>
+    rangeBounds(RANGES.includes(initial.range) ? (initial.range as DateRange) : 'all'),
+  );
+  const [page, setPage] = useState(pageOf(initial.page));
+  const view: ListView = {
+    tab,
+    status: statusFilter,
+    range: dateRange,
+    search,
+    page: String(page),
+  };
+  useEffect(() => writeListQuery(view, LIST_DEFAULTS));
+  /** A detail link carries the list as it is now. */
+  const detailHref = (id: string) =>
+    withOrigin(`/applications/${id}`, `/applications${mergeListQuery('', view, LIST_DEFAULTS)}`);
   const counts = useApiQuery(applicationCountsKey, () => api.firmApplications.counts());
   // The API refuses control characters and more than 100 characters (SearchText).
   const searchText = search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim();
@@ -301,7 +328,7 @@ export function ApplicationList() {
                       <Link
                         aria-label={`Open application for ${application.legalName}`}
                         className="flex justify-center rounded-control bg-action px-4 py-2.5 text-sm font-semibold text-on-action hover:bg-action-hover"
-                        href={`/applications/${application.id}`}
+                        href={detailHref(application.id)}
                       >
                         Open Application
                       </Link>
@@ -378,7 +405,7 @@ export function ApplicationList() {
                           <Link
                             aria-label={`Open application for ${application.legalName}`}
                             className="inline-flex justify-center whitespace-nowrap rounded-control bg-action px-1 py-2.5 font-semibold text-on-action hover:bg-action-hover"
-                            href={`/applications/${application.id}`}
+                            href={detailHref(application.id)}
                           >
                             Open Application
                           </Link>

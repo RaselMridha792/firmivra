@@ -2,7 +2,7 @@
 
 import { FIRM_PLANS, FirmId, type FirmRecord } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
-import { ArrowLeft, Building2, ExternalLink, UserRound } from 'lucide-react';
+import { ArrowLeft, Building2, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
@@ -23,7 +23,7 @@ const STATUS: Record<string, { label: string; tone: string }> = {
 };
 
 /** A firm that never had an application (created by hand): what the firm record holds. */
-function FirmOnly({ firm, appBaseUrl }: { firm: FirmRecord; appBaseUrl: string }) {
+function FirmOnly({ firm }: { firm: FirmRecord }) {
   const status = STATUS[firm.status] ?? { label: 'Inactive', tone: 'bg-danger-soft text-danger' };
   return (
     <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-5">
@@ -49,16 +49,6 @@ function FirmOnly({ firm, appBaseUrl }: { firm: FirmRecord; appBaseUrl: string }
           </div>
           <p className="mt-1 text-base text-muted">Created on {dateText(firm.createdAt)}</p>
         </div>
-        <a
-          href={appBaseUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
-        >
-          <ExternalLink aria-hidden className="size-4" />
-          Open Firm Workspace
-          <span className="sr-only"> (opens in a new tab)</span>
-        </a>
       </header>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <FieldCard
@@ -85,7 +75,7 @@ function FirmOnly({ firm, appBaseUrl }: { firm: FirmRecord; appBaseUrl: string }
   );
 }
 
-function FirmContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
+function FirmContent({ id }: { id: string }) {
   const { me } = useMe();
   const firm = useApiQuery(['firms', 'detail', id], () => api.firmApplications.getFirm(id));
   if (!me.platformAdmin) return <NoApplicationPermission />;
@@ -97,12 +87,11 @@ function FirmContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
             <ApplicationRecord
               key={record.application.id}
               application={record.application}
-              appBaseUrl={appBaseUrl}
               back={BACK}
               onStale={() => void firm.refetch()}
             />
           ) : (
-            <FirmOnly firm={record} appBaseUrl={appBaseUrl} />
+            <FirmOnly firm={record} />
           )}
           {/* After activation the firm asks Firmivra to change its legal name, EIN or licensing. */}
           <ProfileChanges firmId={record.id} />
@@ -116,7 +105,7 @@ function FirmContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
  * One firm, from the firms list's "Open Firm": a firm that came from an application shows the
  * approved application's page (the "Firm approved" mockup); one without shows its own record.
  */
-export function FirmDetail({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
+export function FirmDetail({ id }: { id: string }) {
   if (!FirmId.safeParse(id).success) {
     return (
       <Card data-testid="page-not-found">
@@ -125,5 +114,5 @@ export function FirmDetail({ id, appBaseUrl }: { id: string; appBaseUrl: string 
       </Card>
     );
   }
-  return <FirmContent id={id} appBaseUrl={appBaseUrl} />;
+  return <FirmContent id={id} />;
 }
