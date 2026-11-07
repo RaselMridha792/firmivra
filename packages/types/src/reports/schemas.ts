@@ -278,6 +278,8 @@ export const ReportDefinitionBody = z
     date: ReportDateSpec,
     chartType: ReportChartType.optional().default('AUTO'),
     showDataLabels: z.boolean().optional().default(false),
+    /** RP-F18: the chart's legend (R1's `show_legend`, Nov 7). */
+    showLegend: z.boolean().optional().default(true),
     includeTaxRevenue: z.boolean().optional().default(false),
   })
   .refine((d) => new Set(d.columns).size === d.columns.length, 'Choose each column once');
@@ -307,6 +309,7 @@ export const ReportDefinitionView = z.object({
   ]),
   chartType: ReportChartType,
   showDataLabels: z.boolean(),
+  showLegend: z.boolean(),
   includeTaxRevenue: z.boolean(),
 });
 export type ReportDefinitionView = z.infer<typeof ReportDefinitionView>;
@@ -343,6 +346,7 @@ export const RunReportRequest = z.strictObject({
   search: SearchText.optional(),
   chartType: ReportChartType.optional(),
   showDataLabels: z.boolean().optional(),
+  showLegend: z.boolean().optional(),
   includeTaxRevenue: z.boolean().optional(),
   preview: z.boolean().optional().default(false),
   page: z.coerce.number().int().min(1).optional().default(1),
