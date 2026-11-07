@@ -31,11 +31,12 @@ import {
   X,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { markReturn, ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
@@ -50,6 +51,7 @@ import {
 import { ArchiveDialog } from './template-actions';
 import { IMAGE_SIZING, useButtonDialog, useContentImages } from './content-tools';
 import { PreviewDialog } from './template-dialogs';
+import { TemplateHelp } from './template-help';
 import {
   AUTOMATION_KINDS,
   HAS_SUBJECT,
@@ -177,6 +179,16 @@ function Editor({
 }) {
   const router = useRouter();
   const meta = kindOf(kind);
+  // TP-F01: opened from the overview or a library (`?from=`, SH1), Cancel, the breadcrumb and
+  // Archive return to that exact list, and a save or a duplicate keeps the way back.
+  const from = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
+  const library = `/templates/library/${meta.slug}`;
+  const sameList = (base: string) =>
+    from !== null && (from === base || from.startsWith(`${base}?`)) ? from : null;
+  const toOverview = sameList('/templates') ?? '/templates';
+  const toLibrary = sameList(library) ?? library;
+  const toOrigin = from ?? library;
+  const keepOrigin = (href: string) => (from ? withOrigin(href, from) : href);
   const [saved, setSaved] = useState<MessageTemplateDetail | undefined>(initial);
   const [form, setForm] = useState<Form>(() => (initial ? fromDetail(initial) : blank(kind)));
   const [baseline, setBaseline] = useState(() =>
@@ -217,7 +229,11 @@ function Editor({
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   const guard = (href: string) => (event: MouseEvent) => {
-    if (!dirty) return;
+    if (!dirty) {
+      // Back where it came from, at the place it was scrolled to.
+      markReturn(href);
+      return;
+    }
     event.preventDefault();
     setLeaving(href);
   };
@@ -287,7 +303,7 @@ function Editor({
             text: status === 'DRAFT' ? 'Draft saved.' : 'Template saved.',
             tone: 'success',
           });
-          if (!id) router.replace(`/templates/${d.id}/edit`);
+          if (!id) router.replace(keepOrigin(`/templates/${d.id}/edit`));
         },
         onError: (e) => {
           if (e instanceof ApiRequestError && e.code === 'AUTOMATION_IN_USE') setImpact(e.message);
@@ -340,17 +356,13 @@ function Editor({
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="template-editor">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href="/templates" className="text-link" onClick={guard('/templates')}>
+        <Link href={toOverview} className="text-link" onClick={guard(toOverview)}>
           Templates
         </Link>
         <span aria-hidden className="text-muted">
           ›
         </span>
-        <Link
-          href={`/templates/library/${meta.slug}`}
-          className="text-link"
-          onClick={guard(`/templates/library/${meta.slug}`)}
-        >
+        <Link href={toLibrary} className="text-link" onClick={guard(toLibrary)}>
           {meta.title}
         </Link>
         <span aria-hidden className="text-muted">
@@ -364,11 +376,11 @@ function Editor({
         <div className="flex min-w-0 items-center gap-4">
           <KindTile kind={kind} size="lg" />
           <div className="min-w-0">
-            <h1
-              className="font-display text-3xl font-bold text-heading sm:text-4xl"
-              data-testid="editor-title"
-            >
-              {id ? 'Edit' : 'Create'} {meta.noun} Template
+            <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading sm:text-4xl">
+              <span data-testid="editor-title">
+                {id ? 'Edit' : 'Create'} {meta.noun} Template
+              </span>
+              <TemplateHelp area="details" />
             </h1>
             <p className="text-base text-muted">
               Design a reusable {meta.noun.toLowerCase()} template for clients, leads, or your team.
@@ -394,6 +406,7 @@ function Editor({
           >
             <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Test Send
           </button>
+          <TemplateHelp area="preview" />
         </div>
       </header>
       {message ? (
@@ -523,7 +536,9 @@ function Editor({
           aria-label="Merge Fields"
           data-testid="merge-panel"
         >
-          <h2 className="font-display text-lg font-bold text-heading">Merge Fields</h2>
+          <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Merge Fields <TemplateHelp area="mergeFields" />
+          </h2>
           <Input
             label="Search merge fields"
             hideLabel
@@ -592,8 +607,11 @@ function Editor({
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className={card} aria-label="Attachments" data-testid="attachments">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">
-            Attachments <span className="text-sm font-normal text-muted">(Optional)</span>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            <span>
+              Attachments <span className="text-sm font-normal text-muted">(Optional)</span>
+            </span>
+            <TemplateHelp area="attachments" />
           </h2>
           {saved ? (
             <>
@@ -693,7 +711,9 @@ function Editor({
           aria-label="Template Settings"
           data-testid="settings"
         >
-          <h2 className="font-display text-lg font-bold text-heading">Template Settings</h2>
+          <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Template Settings <TemplateHelp area="access" />
+          </h2>
           <Select
             label="Who Can Use This Template"
             value={form.access}
@@ -723,12 +743,15 @@ function Editor({
               ))}
             </fieldset>
           ) : null}
-          <Checkbox
-            label="Include in Automations"
-            checked={eligible && form.automations}
-            disabled={!eligible}
-            onChange={(e) => set({ automations: e.target.checked })}
-          />
+          <div className="flex items-center gap-2">
+            <Checkbox
+              label="Include in Automations"
+              checked={eligible && form.automations}
+              disabled={!eligible}
+              onChange={(e) => set({ automations: e.target.checked })}
+            />
+            <TemplateHelp area="automations" />
+          </div>
           {!eligible ? (
             <p className="-mt-2 text-xs text-muted">
               This kind of template cannot be used in automations.
@@ -798,7 +821,9 @@ function Editor({
 
       {saved && (versions.data ?? []).length > 0 ? (
         <section className={card} aria-label="Version history" data-testid="versions">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">Version History</h2>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Version History <TemplateHelp area="versions" />
+          </h2>
           <ul>
             {(versions.data ?? []).slice(0, 6).map((v) => (
               <li
@@ -843,11 +868,7 @@ function Editor({
       ) : null}
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/templates/library/${meta.slug}`}
-          className={subtle}
-          onClick={guard(`/templates/library/${meta.slug}`)}
-        >
+        <Link href={toOrigin} className={subtle} onClick={guard(toOrigin)}>
           Cancel
         </Link>
         <div className="flex flex-wrap items-center gap-3">
@@ -868,7 +889,7 @@ function Editor({
                 disabled={duplicate.isPending}
                 onClick={() =>
                   duplicate.mutate(undefined, {
-                    onSuccess: (d) => router.push(`/templates/${d.id}/edit`),
+                    onSuccess: (d) => router.push(keepOrigin(`/templates/${d.id}/edit`)),
                     onError: fail,
                   })
                 }
@@ -926,6 +947,7 @@ function Editor({
                   const to = leaving;
                   setLeaving(undefined);
                   setBaseline(JSON.stringify(form));
+                  markReturn(to);
                   router.push(to);
                 }}
               >
@@ -967,7 +989,8 @@ function Editor({
           onDone={() => {
             // Archived: nothing is left to lose, so the unsaved-work question stays quiet.
             setBaseline(JSON.stringify(form));
-            router.push(`/templates/library/${meta.slug}`);
+            markReturn(toOrigin);
+            router.push(toOrigin);
           }}
         />
       ) : null}

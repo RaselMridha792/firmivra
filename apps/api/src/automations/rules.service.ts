@@ -554,7 +554,7 @@ export class RulesService {
       }
       return this.read.detail(ctx, await this.read.load(ctx, id));
     });
-    if (archive) await this.engine.cancelWaiting(businessId, id);
+    if (archive) await this.engine.cancelWaiting(businessId, id, 'The rule was archived');
     return out;
   }
 

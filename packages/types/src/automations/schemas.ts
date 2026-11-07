@@ -571,13 +571,14 @@ export type SaveAutomationDefinitionRequest = z.input<typeof SaveAutomationDefin
 
 /**
  * POST .../rules/{id}/activate and .../pause (the status toggle). Deactivating stops new runs and
- * `scheduledActions` says what happens to actions already waiting: `CANCEL` them (SKIPPED) or let
- * them `FINISH`. Both are audited.
+ * `scheduledActions` says what happens to actions already waiting: `CANCEL` them (SKIPPED), or
+ * `HOLD` them (the default): they stay waiting, never run while the rule is paused, and run when it
+ * is turned on again. Both are audited. Archiving a rule cancels its waiting actions.
  */
 export const ActivateAutomationRuleRequest = z.strictObject({ etag: Etag.optional() });
 export type ActivateAutomationRuleRequest = z.input<typeof ActivateAutomationRuleRequest>;
 export const PauseAutomationRuleRequest = z.strictObject({
-  scheduledActions: z.enum(['CANCEL', 'FINISH']).optional().default('FINISH'),
+  scheduledActions: z.enum(['CANCEL', 'HOLD']).optional().default('HOLD'),
   etag: Etag.optional(),
 });
 export type PauseAutomationRuleRequest = z.input<typeof PauseAutomationRuleRequest>;

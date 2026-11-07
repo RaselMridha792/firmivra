@@ -248,6 +248,7 @@ export function FiltersPanel({
             label="Created Date"
             value={draft.created}
             onChange={(next) => set('created', next)}
+            strict
           />
         </div>
         <div className="sm:col-span-2">
@@ -255,6 +256,7 @@ export function FiltersPanel({
             label="Last Activity Date"
             value={draft.activity}
             onChange={(next) => set('activity', next)}
+            strict
           />
         </div>
       </div>

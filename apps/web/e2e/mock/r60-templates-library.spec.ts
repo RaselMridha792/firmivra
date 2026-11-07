@@ -42,7 +42,8 @@ test('the status filter says Non-archived; tags and who updated show; Use is off
   // Use is aria-disabled, which Playwright waits on; a person can still press it for the reason.
   await use.click({ force: true });
   await expect(shown(page, /A draft cannot be used yet\. Activate it/)).toBeVisible();
-  await expect(page).toHaveURL(/\/templates\/library\/email$/);
+  // It stays on the list, whose search is kept in the address (TP-F01).
+  await expect(page).toHaveURL(/\/templates\/library\/email\?q=Private\+Draft\+Idea$/);
 
   await page.getByPlaceholder('Search templates...').fill('Tax Season Reminder (2026)');
   await expect(
@@ -142,6 +143,13 @@ test('Recent rows name the category and who updated each (TP-F15)', async ({ pag
   const meta = page.getByTestId('recent-meta');
   await expect(meta.first()).toBeVisible();
   await expect(meta.first()).toHaveText(/^.+ · Updated by \S/);
-  // The draft among them keeps Use, switched off.
-  await expect(page.getByTestId('recent').getByTestId('use-blocked')).toHaveCount(1);
+  // The draft among them keeps Use, switched off. (An unlinked Task or Document Request starter
+  // may be recent too, with its own reason: TP-F08.)
+  const draft = page
+    .getByTestId('recent')
+    .getByRole('listitem')
+    .filter({ hasText: 'Private Draft Idea' });
+  await expect(draft.getByTestId('use-blocked')).toHaveAccessibleDescription(
+    /A draft cannot be used yet/,
+  );
 });

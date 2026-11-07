@@ -204,6 +204,7 @@ export function marketplacePermissions(canManage = true): IntegrationsOverview {
       connected: 0,
       needsAttention: 0,
       available: 0,
+      comingSoon: 0,
       paused: 0,
       total: 0,
       lastCheckAt: null,
