@@ -17,6 +17,36 @@ import { PAYROLL_KEY, quiet } from './payroll-shared';
 export function DemoRunScreen() {
   // One synthetic payroll for the page: the firm's data is never read or written here.
   const [client] = useState(() => createPayrollMock({ role: 'OWNER' }));
+  // The lead (Nov 7): three sample employees, round figures, so the pay grid has rows to review.
+  const addSamples = async (payrollClientId: string, runId: string) => {
+    const samples = [
+      {
+        name: 'Alex Rivera (sample)',
+        type: 'FULL_TIME',
+        pay: 'SALARY',
+        hours: 160,
+        cents: 400_000,
+      },
+      { name: 'Jordan Lee (sample)', type: 'PART_TIME', pay: 'HOURLY', hours: 80, cents: 200_000 },
+      { name: 'Sam Patel (sample)', type: 'CONTRACTOR', pay: 'HOURLY', hours: 40, cents: 200_000 },
+    ] as const;
+    const lines = [];
+    for (const s of samples) {
+      const w = await client.addWorker(payrollClientId, {
+        displayName: s.name,
+        workerType: s.type,
+        payType: s.pay,
+        rateCents: s.pay === 'HOURLY' ? s.cents / s.hours : s.cents,
+      });
+      lines.push({
+        workerId: w.id,
+        hours: s.hours,
+        regularPayCents: s.cents,
+        deductionsCents: s.type === 'CONTRACTOR' ? 0 : 30_000,
+      });
+    }
+    await client.saveRunLines(runId, { lines });
+  };
   const demo = useQuery({
     queryKey: [...PAYROLL_KEY, 'demo-run'],
     queryFn: async () => {
@@ -30,6 +60,7 @@ export function DemoRunScreen() {
       const open = full.sort((x, y) => y.lineCounts.total - x.lineCounts.total)[0];
       if (open) {
         if (open.status === 'NOT_STARTED') await client.updateRun(open.id, { step: 1 });
+        if (open.lineCounts.total === 0) await addSamples(open.payrollClientId, open.id);
         return open.id;
       }
       const first = (await client.clients({})).items[0];
@@ -40,6 +71,7 @@ export function DemoRunScreen() {
         periodEnd: day(0),
         payDate: day(5),
       });
+      await addSamples(first.id, made.id);
       return made.id;
     },
     staleTime: Infinity,

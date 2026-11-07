@@ -61,6 +61,9 @@ import {
   DeliverBookkeepingReportRequest,
   LogBookkeepingActivityRequest,
   ListBookkeepingTransactionsQuery,
+  type BookkeepingReportPreview,
+  type BookkeepingReportVersionList,
+  type BookkeepingReportVersionRow,
   AttachBookkeepingReceiptRequest,
   type BookkeepingTransactionRow,
   type BookkeepingTransferCandidates,
@@ -97,6 +100,7 @@ import { BookkeepingConnectionsService } from './bookkeeping-connections.service
 import { BookkeepingPeriodsService } from './bookkeeping-periods.service.js';
 import { BookkeepingReportsService } from './bookkeeping-reports.service.js';
 import { BookkeepingTransactionsService } from './bookkeeping-transactions.service.js';
+import { BookkeepingReportVersionsService } from './bookkeeping-report-versions.service.js';
 
 const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
 const clientId = pipe(BookkeepingClientId);
@@ -130,6 +134,7 @@ export class BookkeepingController {
     private readonly connections: BookkeepingConnectionsService,
     private readonly periods: BookkeepingPeriodsService,
     private readonly reports: BookkeepingReportsService,
+    private readonly versions: BookkeepingReportVersionsService,
   ) {}
 
   // ---------- Overview, settings ----------
@@ -812,6 +817,51 @@ export class BookkeepingController {
     @Param('id', reportId) id: string,
   ): Promise<BookkeepingReportRow> {
     return this.reports.get(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  // BK-RPT part 1: the figures from the ledger, immutable versions and their CSV.
+  @Get('reports/:id/preview')
+  reportPreview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reportId) id: string,
+  ): Promise<BookkeepingReportPreview> {
+    return this.versions.preview(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Post('reports/:id/generate')
+  @HttpCode(200)
+  generateReport(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reportId) id: string,
+    @Body(pipe(NoBody)) _body: z.output<typeof NoBody>,
+  ): Promise<BookkeepingReportVersionRow> {
+    return this.versions.generate(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Get('reports/:id/versions')
+  reportVersions(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reportId) id: string,
+  ): Promise<BookkeepingReportVersionList> {
+    return this.versions.versions(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Get('reports/:id/versions/:version/csv')
+  @Access('BOOKKEEPING', 'EXPORT')
+  @Header('Cache-Control', 'no-store')
+  @Header('Content-Disposition', 'attachment; filename="bookkeeping-report.csv"')
+  async reportVersionCsv(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', reportId) id: string,
+    @Param('version', pipe(z.coerce.number().int().min(1).max(100_000))) version: number,
+  ): Promise<StreamableFile> {
+    return csv(
+      await this.versions.versionCsv(tenant.businessId, actorOf(auth, tenant), id, version),
+    );
   }
 
   @Patch('reports/:id')

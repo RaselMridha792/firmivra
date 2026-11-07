@@ -1,0 +1,212 @@
+// BK-RPT part 1 (Octavia's Oct 25 Bookkeeping review): a report's figures, worked out from the
+// client's ledger lines for its period. Pure: the service loads the lines and stores the result as
+// an immutable report version. The ledger holds bank and card lines, so every figure is on the
+// cash basis; an accrual report says so instead of pretending (invoices and bills are not in it).
+
+export type FigureReportType =
+  'PROFIT_LOSS' | 'TRIAL_BALANCE' | 'TRANSACTION_DETAIL' | 'UNCATEGORIZED';
+export const FIGURE_REPORT_TYPES: readonly FigureReportType[] = [
+  'PROFIT_LOSS',
+  'TRIAL_BALANCE',
+  'TRANSACTION_DETAIL',
+  'UNCATEGORIZED',
+];
+
+export interface FigureLine {
+  amountCents: number;
+  direction: 'DEBIT' | 'CREDIT';
+  status: string;
+  kind: string;
+  account: { id: string; name: string };
+  category: { id: string; name: string; type: string } | null;
+  splits: { amountCents: number; category: { id: string; name: string; type: string } }[];
+}
+
+export interface FigureRow {
+  label: string;
+  /** Debits and credits (trial balance) or the signed amount (profit and loss), in cents. */
+  debitCents?: number;
+  creditCents?: number;
+  amountCents?: number;
+  count?: number;
+}
+export interface FigureSection {
+  title: string;
+  rows: FigureRow[];
+  totalCents: number;
+}
+export interface ReportFigures {
+  type: FigureReportType;
+  basis: 'CASH';
+  /** Said when the report asked for accrual: these figures are the cash basis. */
+  basisNote: string | null;
+  sections: FigureSection[];
+  /** Net income (P&L), the equal totals (trial balance), or the lines' total. */
+  totals: Record<string, number>;
+  lineCount: number;
+}
+
+/** The parts of a line that carry a category: its own, or each split part. */
+function parts(l: FigureLine) {
+  if (l.splits.length)
+    return l.splits.map((s) => ({ amountCents: s.amountCents, category: s.category }));
+  return [{ amountCents: l.amountCents, category: l.category }];
+}
+
+const bySection = (rows: Map<string, FigureRow>, title: string): FigureSection => {
+  const list = [...rows.values()].sort((a, b) => a.label.localeCompare(b.label));
+  return {
+    title,
+    rows: list,
+    totalCents: list.reduce((n, r) => n + (r.amountCents ?? 0), 0),
+  };
+};
+
+/**
+ * The figures of one report type from the period's lines. Excluded lines never count; a split
+ * counts by its parts; a transfer moves money between the client's own accounts and is no income
+ * or expense.
+ */
+export function reportFigures(
+  type: FigureReportType,
+  basis: 'CASH' | 'ACCRUAL' | null,
+  lines: readonly FigureLine[],
+): ReportFigures {
+  const counted = lines.filter((l) => l.status !== 'EXCLUDED');
+  const basisNote =
+    basis === 'ACCRUAL'
+      ? 'Shown on the cash basis: the ledger holds bank and card lines, not invoices and bills.'
+      : null;
+  const base = { type, basis: 'CASH' as const, basisNote, lineCount: counted.length };
+
+  if (type === 'PROFIT_LOSS') {
+    const income = new Map<string, FigureRow>();
+    const cogs = new Map<string, FigureRow>();
+    const expense = new Map<string, FigureRow>();
+    for (const l of counted) {
+      if (l.kind === 'TRANSFER') continue;
+      for (const p of parts(l)) {
+        if (!p.category) continue;
+        const signed = l.direction === 'CREDIT' ? p.amountCents : -p.amountCents;
+        const target =
+          p.category.type === 'INCOME'
+            ? { map: income, value: signed }
+            : p.category.type === 'COST_OF_GOODS'
+              ? { map: cogs, value: -signed }
+              : p.category.type === 'EXPENSE'
+                ? { map: expense, value: -signed }
+                : null;
+        if (!target) continue;
+        const row = target.map.get(p.category.id) ?? { label: p.category.name, amountCents: 0 };
+        row.amountCents = (row.amountCents ?? 0) + target.value;
+        target.map.set(p.category.id, row);
+      }
+    }
+    const sections = [
+      bySection(income, 'Income'),
+      bySection(cogs, 'Cost of Goods Sold'),
+      bySection(expense, 'Expenses'),
+    ];
+    const [i, c, e] = sections.map((s) => s.totalCents) as [number, number, number];
+    return {
+      ...base,
+      sections,
+      totals: { incomeCents: i, costOfGoodsCents: c, expensesCents: e, netIncomeCents: i - c - e },
+    };
+  }
+
+  if (type === 'TRIAL_BALANCE') {
+    // Each line is two-sided: its category (or Uncategorized, or Transfers) one way, its bank or
+    // card account the other, so the debit and credit totals agree.
+    const rows = new Map<string, FigureRow>();
+    const add = (key: string, label: string, side: 'DEBIT' | 'CREDIT', cents: number) => {
+      const row = rows.get(key) ?? { label, debitCents: 0, creditCents: 0 };
+      if (side === 'DEBIT') row.debitCents = (row.debitCents ?? 0) + cents;
+      else row.creditCents = (row.creditCents ?? 0) + cents;
+      rows.set(key, row);
+    };
+    for (const l of counted) {
+      // Money out (a debit line) debits the category and credits the account; money in the reverse.
+      const accountSide = l.direction === 'DEBIT' ? 'CREDIT' : 'DEBIT';
+      add(`account:${l.account.id}`, l.account.name, accountSide, l.amountCents);
+      if (l.kind === 'TRANSFER') {
+        add('transfers', 'Transfers between accounts', l.direction, l.amountCents);
+        continue;
+      }
+      for (const p of parts(l)) {
+        if (p.category)
+          add(`category:${p.category.id}`, p.category.name, l.direction, p.amountCents);
+        else add('uncategorized', 'Uncategorized', l.direction, p.amountCents);
+      }
+    }
+    const list = [...rows.values()].sort((a, b) => a.label.localeCompare(b.label));
+    const debits = list.reduce((n, r) => n + (r.debitCents ?? 0), 0);
+    const credits = list.reduce((n, r) => n + (r.creditCents ?? 0), 0);
+    return {
+      ...base,
+      sections: [{ title: 'Trial Balance', rows: list, totalCents: debits - credits }],
+      totals: { debitsCents: debits, creditsCents: credits },
+    };
+  }
+
+  // Transaction Detail: the lines by category; Uncategorized: only those waiting for one.
+  const wanted =
+    type === 'UNCATEGORIZED'
+      ? counted.filter((l) => l.kind !== 'TRANSFER' && !l.category && l.splits.length === 0)
+      : counted;
+  const rows = new Map<string, FigureRow>();
+  for (const l of wanted) {
+    const signed = l.direction === 'CREDIT' ? l.amountCents : -l.amountCents;
+    const label =
+      l.kind === 'TRANSFER'
+        ? 'Transfers between accounts'
+        : l.splits.length
+          ? 'Split'
+          : (l.category?.name ?? 'Uncategorized');
+    const row = rows.get(label) ?? { label, amountCents: 0, count: 0 };
+    row.amountCents = (row.amountCents ?? 0) + signed;
+    row.count = (row.count ?? 0) + 1;
+    rows.set(label, row);
+  }
+  const section = bySection(rows, type === 'UNCATEGORIZED' ? 'Uncategorized' : 'By category');
+  return {
+    ...base,
+    lineCount: wanted.length,
+    sections: [section],
+    totals: {
+      netCents: section.totalCents,
+      inCents: wanted
+        .filter((l) => l.direction === 'CREDIT')
+        .reduce((n, l) => n + l.amountCents, 0),
+      outCents: wanted
+        .filter((l) => l.direction === 'DEBIT')
+        .reduce((n, l) => n + l.amountCents, 0),
+    },
+  };
+}
+
+/** A version's figures as CSV rows (section, label, debit, credit, amount, count), with totals. */
+export function figuresCsv(f: ReportFigures, cell: (v: string | number | null) => string): string {
+  const money = (c: number | undefined) => (c === undefined ? null : (c / 100).toFixed(2));
+  const lines = [['Section', 'Line', 'Debit', 'Credit', 'Amount', 'Count'].map(cell).join(',')];
+  for (const s of f.sections) {
+    for (const r of s.rows) {
+      lines.push(
+        [
+          s.title,
+          r.label,
+          money(r.debitCents),
+          money(r.creditCents),
+          money(r.amountCents),
+          r.count ?? null,
+        ]
+          .map(cell)
+          .join(','),
+      );
+    }
+  }
+  for (const [k, v] of Object.entries(f.totals))
+    lines.push(['Total', k, null, null, money(v), null].map(cell).join(','));
+  if (f.basisNote) lines.push(['Note', f.basisNote, null, null, null, null].map(cell).join(','));
+  return `${lines.join('\r\n')}\r\n`;
+}

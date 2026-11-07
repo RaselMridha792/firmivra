@@ -94,6 +94,9 @@ export const BookkeepingErrorCode = z.enum([
   'SPLIT_TOTAL',
   'NOT_A_TRANSFER',
   'CATEGORY_INACTIVE',
+  // BK-RPT part 1.
+  'REPORT_NOT_SUPPORTED',
+  'NO_PERIOD',
 ]);
 export type BookkeepingErrorCode = z.infer<typeof BookkeepingErrorCode>;
 
