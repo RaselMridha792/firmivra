@@ -78,6 +78,31 @@ export function monthlyCents(r: {
 }
 
 /** MRR on a day: the active recurring billing in force then (billing records, never plan prices). */
+/**
+ * SA-RPT-R3: MRR at each month's end (or `to`, for the month it falls in), read from the paying
+ * subscriptions' daily rollup: the latest day on or before that end. 0 when there is none yet.
+ */
+export async function mrrByMonth(
+  tx: TxClient,
+  months: string[],
+  to: string,
+): Promise<{ month: string; value: number }[]> {
+  const toEnd = dayEnd(to);
+  const rows = await tx.platformMrrDaily.findMany({
+    where: { day: { lte: toEnd } },
+    orderBy: { day: 'asc' },
+    select: { day: true, mrrCents: true },
+  });
+  return months.map((month) => {
+    const next = new Date(monthStart(month));
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    const end = next.getTime() - 1 < toEnd.getTime() ? new Date(next.getTime() - 1) : toEnd;
+    let value = 0;
+    for (const r of rows) if (r.day.getTime() <= end.getTime()) value = r.mrrCents;
+    return { month, value };
+  });
+}
+
 export async function mrrOn(tx: TxClient, day: string): Promise<number> {
   const at = dayEnd(day);
   const rows = await tx.platformRecurringInvoice.findMany({

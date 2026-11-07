@@ -34,7 +34,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1312 merged: the shared date range (opt-in names and the reversed-range check) on for Support, the Sales pipeline and Integrations Usage, and Support's date ranges kept in the address (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4 part).
 - #1314 merged: the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
 - #1315 merged: connect copy in each provider's own terms and the registry's facts before connecting (IN-Y11, Y12).
-- #1319 (`rasel/R55-sa-com`): New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
+- #1319 merged: New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
+- #1321 (`rasel/R55-sa-com-2`): New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -79,7 +80,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **Y02, events:** each listed event binds to a real source (`matching.ts`, `audit-events.ts`); "lists each module's events, each with a real source". There's no Anniversary, Account Activated, Manager Changed, or open or click event.
 - **Y03, timing:** the five presets only; no custom timing is built.
 - **Y04, import:** both inputs kept and no picker added; the template import tests cover it.
-- **Y05, needs Rasel:** approved synthetic message templates in the dev seed (`packages/db` seed).
+- **Y05 (Rasel, Oct 29: no seeded message templates):** the TP-F18 starters installed for LVP are the active templates. Tests create the draft template and the one not offered to Automations themselves.
   - Eligibility: kind PORTAL_MESSAGE for Send client message and EMAIL for Send client email, status ACTIVE, and `includeInAutomations` on.
 - **Y06, channels:**
   - Send client message is the portal message.
@@ -109,7 +110,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - A member's own re-run of a run (with its reason) still runs: it's that member's act, not a waiting action.
   - Test: "holds a paused rule's waiting actions, runs them once it is on again, and cancels them on archive".
 - **Y17, no matches:** a warning in the rule's test, and the rule still saves and turns on ("a rule that matches nothing right now warns…").
-- **Y18, needs Rasel:** synthetic log rows (success, failed, skipped, pending) in the dev seed. The export test checks the file's columns and who may export.
+- **Y18:** synthetic log rows (success, failed, skipped, pending) come in R1's seed part 3. The export test checks the file's columns and who may export.
 - **Y20, permissions:** the server matrix for Owner, Admin, Staff and Tax preparer (view, write, activate, export, settings), checked against the role grid, plus another firm's Owner getting 404 ("enforces the automation rights on the server for each role"). The audit entries are covered by the tests for each feature.
 
 **For Review 2: IN-Y01, Y03, Y04, Y06 (the change list's defaults)**
@@ -155,6 +156,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - Support filtered to the firm (`?firm=`), which is the firm's full ticket history, every status.
 
   Ticket numbers open the exact ticket.
+- **Merge fields (SA-COM-R4):** New Message's Merge Field buttons open one chooser over the central list (ADMIN_COMM_MERGE_FIELDS, the same six as Templates) and insert at the cursor of the subject or the body. The API fills each field per recipient, and a field with no value is left empty.
+- **MRR (SA-RPT-R3):** the overview's Revenue Trend shows MRR at each month's end, from the paying subscriptions' daily rollup (platform_mrr_daily, never list prices), beside Collected payments (payments received). 0 where the rollup has no day yet.
 - **SA-PIP-PL01's menu** (Add Lead, Add Opportunity, Build Pipeline) already had text names, so the date popup was the open part.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
@@ -169,7 +172,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 **Not listed (no real source, AU-Y02 default):** client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
-- Rasel (seed, AU-Y05 and Y18): approved synthetic message templates (portal message and email, active, offered to Automations) and synthetic automation log rows (success, failed, skipped, pending) in the dev seed. No engine run.
+- R1 (seed part 3, AU-Y18): the synthetic automation rule and log rows sent to the lead on Nov 7. AU-Y05 needs no seed (Rasel's Oct 29 rule).
 - AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).
 - AU-F29, F30 and F33: start on main's `automation_settings.manual_confirmation_enabled` (lead, Nov 4). AU-F31 and F32 wait for R1's `automation_event_confirmations` migration and its Deploy dev.
 

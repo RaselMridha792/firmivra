@@ -185,6 +185,9 @@ describe('the dashboard', () => {
     expect(o.kpis.uptimePercent).toEqual({ value: null, previous: null });
     expect(o.kpis.totalFirms.value).toBeGreaterThanOrEqual(2);
     expect(o.firmGrowth).toHaveLength(6);
+    // SA-RPT-R3: MRR at each month's end, beside Collected payments, the same six months.
+    expect(o.mrrTrend.map((p) => p.month)).toEqual(o.firmGrowth.map((p) => p.month));
+    expect(o.revenueTrend.map((p) => p.month)).toEqual(o.firmGrowth.map((p) => p.month));
     expect(o.planDistribution.map((p) => p.planName)).toEqual(
       expect.arrayContaining([`Fake Plan ${run}`, 'No plan']),
     );
@@ -192,6 +195,25 @@ describe('the dashboard', () => {
     expect(esign).toMatchObject({ label: 'eSignature' });
     expect(esign.events).toBeGreaterThanOrEqual(6);
     expect(o.recentActivity.map((a) => a.detail)).toContain(`Fake Reports Firm a ${run}`);
+  });
+
+  it('reads MRR at each month end from the subscriptions rollup, apart from collected payments (SA-RPT-R3)', async () => {
+    const months = AdminReportsOverview.parse(ok(await call('get', '/overview'))).firmGrowth.map(
+      (p) => p.month,
+    );
+    // A day late in the second month of the six (rarely written by anything else).
+    const day = new Date(`${months[1]}-27T00:00:00.000Z`);
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.platformMrrDaily.upsert({
+        where: { day },
+        create: { day, mrrCents: 123_456 },
+        update: { mrrCents: 123_456 },
+      }),
+    );
+    const o = AdminReportsOverview.parse(ok(await call('get', '/overview')));
+    expect(o.mrrTrend[1]).toEqual({ month: months[1], value: 123_456 });
+    // The month after carries it to its end when nothing newer was recorded before then.
+    expect(o.mrrTrend[1]!.value).toBeGreaterThan(0);
   });
 
   it('answers the tabs', async () => {

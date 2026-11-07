@@ -248,13 +248,29 @@ export function ReportsOverview() {
         >
           <Loaded query={q}>
             {(d) => (
-              <MonthLine
-                data={d.revenueTrend.slice(-revenueMonths)}
-                label="Payments received by month"
-                format={moneyWhole}
-                minTop={1_000_000}
-                emptyText="No payments received in these months."
-              />
+              // SA-RPT-R3: MRR from the subscriptions and Collected payments from billing, apart.
+              <div className="flex flex-col gap-4">
+                <div data-testid="mrr-trend">
+                  <h3 className="mb-1 text-sm font-semibold text-heading">MRR (month end)</h3>
+                  <MonthLine
+                    data={d.mrrTrend.slice(-revenueMonths)}
+                    label="MRR at each month's end"
+                    format={moneyWhole}
+                    minTop={1_000_000}
+                    emptyText="No subscription MRR recorded in these months."
+                  />
+                </div>
+                <div data-testid="collected-trend">
+                  <h3 className="mb-1 text-sm font-semibold text-heading">Collected payments</h3>
+                  <MonthLine
+                    data={d.revenueTrend.slice(-revenueMonths)}
+                    label="Payments received by month"
+                    format={moneyWhole}
+                    minTop={1_000_000}
+                    emptyText="No payments received in these months."
+                  />
+                </div>
+              </div>
             )}
           </Loaded>
         </Panel>
