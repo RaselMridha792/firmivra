@@ -343,8 +343,12 @@ describe('definitions', () => {
         expect(snake(f.key)).not.toMatch(/ssn|social|password|token|secret|account_number|routing/);
         expect(camel(snake(f.key))).toBe(f.key);
       }
+      // A source ranges by one of its date fields, or (the team roster) by none.
       expect(
-        s.fields.some((f) => f.key === s.dateField && (f.type === 'DATE' || f.type === 'DATETIME')),
+        s.dateField === null ||
+          s.fields.some(
+            (f) => f.key === s.dateField && (f.type === 'DATE' || f.type === 'DATETIME'),
+          ),
       ).toBe(true);
       expect(s.defaultColumns.every((k) => s.fields.some((f) => f.key === k))).toBe(true);
     }

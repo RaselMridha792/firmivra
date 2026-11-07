@@ -40,6 +40,7 @@ import { markReturn, ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../..
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
+import { withTyped } from './tag-input';
 import {
   type StructureDraft,
   StructurePanel,
@@ -268,7 +269,8 @@ function Editor({
       status: v.status,
       access: form.access,
       sharedWithUserIds: form.access === 'SELECTED' ? form.shared : [],
-      tags: form.tags,
+      // TP-Y03: a tag still typed (no Enter yet) is kept, not lost on Save.
+      tags: withTyped(form.tags, tagText),
       includeInAutomations: eligible ? form.automations : false,
       ...structurePayload(form.structure),
     };
@@ -295,8 +297,11 @@ function Editor({
           const next = {
             ...form,
             status: d.status === 'ACTIVE' ? ('ACTIVE' as const) : ('DRAFT' as const),
+            // A tag typed but not added went in with the save (TP-Y03).
+            tags: d.tags,
             structure: draftOf(d.kind, d),
           };
+          setTagText('');
           setForm(next);
           setBaseline(JSON.stringify(next));
           setMessage({
@@ -345,9 +350,7 @@ function Editor({
         `${f.key} ${f.label}`.toLowerCase().includes(fieldSearch.trim().toLowerCase())),
   );
   const addTag = () => {
-    const t = tagText.trim();
-    if (t && !form.tags.some((x) => x.toLowerCase() === t.toLowerCase()) && form.tags.length < 20)
-      set({ tags: [...form.tags, t] });
+    set({ tags: withTyped(form.tags, tagText) });
     setTagText('');
   };
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
@@ -795,7 +798,11 @@ function Editor({
                 }
               }}
               className={fieldCls}
+              aria-describedby="te-tags-hint"
             />
+            <p id="te-tags-hint" className="mt-1 text-xs text-muted">
+              Press Enter to add a tag. One still typed is added when you save.
+            </p>
             {form.tags.length > 0 ? (
               <ul className="mt-2 flex flex-wrap gap-2">
                 {form.tags.map((t) => (

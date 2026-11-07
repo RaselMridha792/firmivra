@@ -534,6 +534,41 @@ describe('quick reports and the run path', () => {
     expectError(await runReport({ target: { kind: 'SYSTEM', key: 'nope' } }), 404, 'NOT_FOUND');
   });
 
+  it('Staff & Team (SM3): the team as it stands, whatever the range; team data only for those who may see it', async () => {
+    const r = await quick('staff_team');
+    expect(r.target).toEqual({ kind: 'SYSTEM', key: 'staff_team' });
+    const row = (key: string) => r.table.rows.find((x) => x.cells.name === `Fake R55r ${key}`);
+    expect(row('ownerA')?.cells).toMatchObject({ role: 'OWNER', status: 'ACTIVE' });
+    expect(row('adminA')?.cells).toMatchObject({ role: 'ADMIN', status: 'ACTIVE' });
+    expect(row('staffA')?.cells).toMatchObject({ role: 'STAFF' });
+    // The fixtures: an overdue open task each for the Owner and the Admin, a client for Staff.
+    expect(row('ownerA')?.cells.overdueTasks).toBeGreaterThanOrEqual(1);
+    expect(row('adminA')?.cells.openTasks).toBeGreaterThanOrEqual(1);
+    expect(row('staffA')?.cells.clients).toBeGreaterThanOrEqual(1);
+    // A roster, not a period: a range long past narrows nothing.
+    const old = await quick('staff_team', {
+      date: { rule: 'FIXED', from: '2020-01-01', to: '2020-01-31' },
+    });
+    expect(old.table.rows.map((x) => x.cells.name).sort()).toEqual(
+      r.table.rows.map((x) => x.cells.name).sort(),
+    );
+    // Only firm A's members; firm B's run shows only its own.
+    expect(JSON.stringify(r)).not.toMatch(/ownerB/);
+    const b = ReportResult.parse(
+      ok(await runReport({ target: { kind: 'SYSTEM', key: 'staff_team' } }, people.ownerB, 'b')),
+    );
+    expect(b.table.rows.map((x) => x.cells.name)).toEqual(['Fake R55r ownerB']);
+    // Team data (Review 2 default, lead Nov 7): Staff and a grid Manager (Reports view and
+    // export, no manage) are refused; no one gains access by it.
+    for (const who of [people.staffA, people.managerA]) {
+      expectError(
+        await runReport({ target: { kind: 'SYSTEM', key: 'staff_team' } }, who),
+        403,
+        'FIELD_NOT_ALLOWED',
+      );
+    }
+  });
+
   it('the detail view’s controls change this run only: range, comparison, quick filters, sort, search, tax, paging', async () => {
     const fixed = await quick('new_clients', {
       date: { rule: 'FIXED', from: '2020-01-01', to: '2020-12-31' },

@@ -4,6 +4,8 @@ import {
   InvoiceStatus,
   LeadSource,
   LeadStatus,
+  MembershipRole,
+  MembershipStatus,
   PaymentStatus,
   type ReportCategory,
   type ReportDataSource,
@@ -49,8 +51,8 @@ export interface SourceDef {
   category: ReportCategory;
   label: string;
   description: string;
-  /** The date field ranges apply to. */
-  dateField: string;
+  /** The date field ranges apply to; null for a list with no date to range by (the team). */
+  dateField: string | null;
   defaultColumns: string[];
   fields: ReportField[];
   supportsComparison: boolean;
@@ -631,6 +633,97 @@ const tasks: SourceDef = {
   },
 };
 
+// ---------- Staff & Team (SM3, Octavia's Staff Management review) ----------
+
+/**
+ * The firm's team as it stands: each member who has joined, their role, status, job title, the
+ * clients assigned to them and their live tasks (open, overdue, completed). A roster, not a period:
+ * it has no date to range by. Team data, so Owner and Admin (or Manage on Reports) only.
+ */
+const team: SourceDef = {
+  key: 'team_members',
+  category: 'TEAM_PRODUCTIVITY',
+  label: 'Staff & Team',
+  description: 'The team: role, status, job title, assigned clients and open work per person.',
+  dateField: null,
+  defaultColumns: ['name', 'role', 'jobTitle', 'status', 'clients', 'openTasks', 'overdueTasks'],
+  supportsComparison: false,
+  supportsTaxToggle: false,
+  restricted: true,
+  breakdownBy: 'role',
+  fields: [
+    field('name', 'Name', 'TEXT', { locked: true, groupable: false }),
+    field('role', 'Role', 'STATUS', { options: MembershipRole.options }),
+    field('status', 'Status', 'STATUS', { options: MembershipStatus.options }),
+    field('jobTitle', 'Job Title', 'TEXT'),
+    field('joinedOn', 'Joined', 'DATE', { groupable: false }),
+    field('clients', 'Assigned Clients', 'NUMBER', { groupable: false }),
+    field('openTasks', 'Open Tasks', 'NUMBER', { groupable: false }),
+    field('overdueTasks', 'Overdue Tasks', 'NUMBER', { groupable: false }),
+    field('completedTasks', 'Completed Tasks', 'NUMBER', { groupable: false }),
+  ],
+  async load(c) {
+    const today = localDay(new Date(), c.timezone)!;
+    const members = await c.tx.membership.findMany({
+      where: { businessId: c.businessId, joinedAt: { not: null } },
+      take: MAX_ROWS + 1,
+      orderBy: { joinedAt: 'asc' },
+      select: {
+        id: true,
+        userId: true,
+        role: true,
+        status: true,
+        jobTitle: true,
+        joinedAt: true,
+        user: { select: { name: true } },
+      },
+    });
+    const ids = members.map((m) => m.userId);
+    const live = {
+      businessId: c.businessId,
+      archivedAt: null,
+      ...LIVE_TASK,
+      assignedUserId: { in: ids },
+    };
+    const [clients, byStatus, overdue] = await Promise.all([
+      c.tx.client.groupBy({
+        by: ['assignedUserId'],
+        where: { businessId: c.businessId, archivedAt: null, assignedUserId: { in: ids } },
+        _count: { _all: true },
+      }),
+      c.tx.task.groupBy({ by: ['assignedUserId', 'status'], where: live, _count: { _all: true } }),
+      c.tx.task.groupBy({
+        by: ['assignedUserId'],
+        where: { ...live, status: 'OPEN', dueOn: { lt: new Date(`${today}T00:00:00.000Z`) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const total = <T extends { assignedUserId: string | null; _count: { _all: number } }>(
+      list: T[],
+      userId: string,
+      pick: (x: T) => boolean = () => true,
+    ) =>
+      list
+        .filter((x) => x.assignedUserId === userId && pick(x))
+        .reduce((n, x) => n + x._count._all, 0);
+    return members.map((m) => ({
+      id: m.id,
+      cells: {
+        name: m.user.name,
+        role: m.role,
+        status: m.status,
+        jobTitle: m.jobTitle,
+        joinedOn: localDay(m.joinedAt, c.timezone),
+        clients: total(clients, m.userId),
+        openTasks: total(byStatus, m.userId, (x) => x.status === 'OPEN'),
+        overdueTasks: total(overdue, m.userId),
+        completedTasks: total(byStatus, m.userId, (x) => x.status === 'DONE'),
+      },
+      links: [],
+    }));
+  },
+};
+
 export const SOURCES: readonly SourceDef[] = [
   clients,
   invoices,
@@ -638,6 +731,7 @@ export const SOURCES: readonly SourceDef[] = [
   leads,
   taxReturns,
   tasks,
+  team,
 ];
 const BY_KEY = new Map(SOURCES.map((s) => [s.key, s]));
 export const sourceOf = (key: string): SourceDef | undefined => BY_KEY.get(key);
