@@ -54,6 +54,15 @@ export const errors = {
   notThisClients: (what: string) =>
     conflict('NOT_THIS_CLIENTS', `The ${what} does not belong to this bookkeeping client`),
   duplicate: (message: string) => conflict('DUPLICATE', message),
+  // BK-T01 engines.
+  splitTotal: () => conflict('SPLIT_TOTAL', 'The parts must add up to the transaction amount'),
+  notATransfer: () =>
+    conflict(
+      'NOT_A_TRANSFER',
+      "A transfer's other side is the same amount, the other way, on another of the client's accounts",
+    ),
+  categoryInactive: () =>
+    conflict('CATEGORY_INACTIVE', 'That category is inactive. Choose an active one'),
   /** A request that passed the contract but cannot be stored. */
   invalid: (path: string, message: string) =>
     new BadRequestException({
@@ -88,6 +97,8 @@ export function mapBookkeepingDbError(error: unknown): never {
   if (!rule) throw error;
   if (/closed period is locked|period is closed and locked/.test(rule)) throw errors.periodLocked();
   if (/complete the required close steps/.test(rule)) throw errors.closeItemsOpen();
+  if (/split transaction.s parts add up/.test(rule)) throw errors.splitTotal();
+  if (/transfer.s (?:other side|two sides)/.test(rule)) throw errors.notATransfer();
   if (/publish the report before delivering/.test(rule)) throw errors.reportNotPublished();
   if (
     /must be (?:the|one of the) same client|stays with its client|must be the period's client|must be a document of the same client/.test(

@@ -11,7 +11,7 @@ import {
   Query,
   StreamableFile,
 } from '@nestjs/common';
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   AddBookkeepingAccountRequest,
   AddBookkeepingClientRequest,
@@ -61,6 +61,15 @@ import {
   DeliverBookkeepingReportRequest,
   LogBookkeepingActivityRequest,
   ListBookkeepingTransactionsQuery,
+  AttachBookkeepingReceiptRequest,
+  type BookkeepingTransactionRow,
+  type BookkeepingTransferCandidates,
+  BulkBookkeepingTransactionsRequest,
+  type BulkBookkeepingTransactionsResult,
+  CategorizeBookkeepingTransactionRequest,
+  ExcludeBookkeepingTransactionRequest,
+  MatchBookkeepingTransferRequest,
+  SplitBookkeepingTransactionRequest,
   type BookkeepingCategoryList,
   type BookkeepingTransactionPage,
   SaveBookkeepingSettingsRequest,
@@ -92,6 +101,8 @@ import { BookkeepingTransactionsService } from './bookkeeping-transactions.servi
 const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
 const clientId = pipe(BookkeepingClientId);
 const connectionId = pipe(BookkeepingConnectionId);
+const txnId = pipe(z.uuid());
+const NoBody = z.strictObject({});
 const accountId = pipe(BookkeepingAccountId);
 const periodId = pipe(BookkeepingPeriodId);
 const closeItemId = pipe(BookkeepingCloseItemId);
@@ -385,6 +396,103 @@ export class BookkeepingController {
     q: z.output<typeof ListBookkeepingTransactionsQuery>,
   ): Promise<BookkeepingTransactionPage> {
     return this.ledger.list(tenant.businessId, actorOf(auth, tenant), id, q);
+  }
+
+  // BK-T01 engines (Staff on their clients, as clearing in reconciliations; each audited).
+  @Post('clients/:id/transactions/bulk')
+  @HttpCode(200)
+  bulkTransactions(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Body(pipe(BulkBookkeepingTransactionsRequest))
+    body: z.output<typeof BulkBookkeepingTransactionsRequest>,
+  ): Promise<BulkBookkeepingTransactionsResult> {
+    return this.ledger.bulk(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  @Patch('clients/:id/transactions/:txnId/category')
+  categorizeTransaction(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(CategorizeBookkeepingTransactionRequest))
+    body: z.output<typeof CategorizeBookkeepingTransactionRequest>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.categorize(tenant.businessId, actorOf(auth, tenant), id, txn, body);
+  }
+
+  @Put('clients/:id/transactions/:txnId/split')
+  splitTransaction(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(SplitBookkeepingTransactionRequest))
+    body: z.output<typeof SplitBookkeepingTransactionRequest>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.split(tenant.businessId, actorOf(auth, tenant), id, txn, body);
+  }
+
+  @Get('clients/:id/transactions/:txnId/transfer-candidates')
+  transferCandidates(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+  ): Promise<BookkeepingTransferCandidates> {
+    return this.ledger.transferCandidates(tenant.businessId, actorOf(auth, tenant), id, txn);
+  }
+
+  @Post('clients/:id/transactions/:txnId/transfer')
+  @HttpCode(200)
+  matchTransfer(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(MatchBookkeepingTransferRequest))
+    body: z.output<typeof MatchBookkeepingTransferRequest>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.matchTransfer(tenant.businessId, actorOf(auth, tenant), id, txn, body);
+  }
+
+  @Post('clients/:id/transactions/:txnId/exclude')
+  @HttpCode(200)
+  excludeTransaction(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(ExcludeBookkeepingTransactionRequest))
+    body: z.output<typeof ExcludeBookkeepingTransactionRequest>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.exclude(tenant.businessId, actorOf(auth, tenant), id, txn, body);
+  }
+
+  @Put('clients/:id/transactions/:txnId/receipt')
+  attachReceipt(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(AttachBookkeepingReceiptRequest))
+    body: z.output<typeof AttachBookkeepingReceiptRequest>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.receipt(tenant.businessId, actorOf(auth, tenant), id, txn, body);
+  }
+
+  @Post('clients/:id/transactions/:txnId/include')
+  @HttpCode(200)
+  includeTransaction(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientId) id: string,
+    @Param('txnId', txnId) txn: string,
+    @Body(pipe(NoBody)) _body: z.output<typeof NoBody>,
+  ): Promise<BookkeepingTransactionRow> {
+    return this.ledger.include(tenant.businessId, actorOf(auth, tenant), id, txn);
   }
 
   @Get('clients/:id/categories')

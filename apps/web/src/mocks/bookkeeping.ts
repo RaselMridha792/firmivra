@@ -1,6 +1,12 @@
 import {
   type BookkeepingTransactionRow,
   ListBookkeepingTransactionsQuery,
+  AttachBookkeepingReceiptRequest,
+  BulkBookkeepingTransactionsRequest,
+  CategorizeBookkeepingTransactionRequest,
+  ExcludeBookkeepingTransactionRequest,
+  MatchBookkeepingTransferRequest,
+  SplitBookkeepingTransactionRequest,
   ApiRequestError,
   AddBookkeepingAccountRequest,
   AddBookkeepingClientRequest,
@@ -233,6 +239,13 @@ function ledgerOf(c: {
     ledgers.set(c.id, rows);
   }
   return rows;
+}
+
+/** BK-T01: a category of the mock ledger by id (404 for any other). */
+function categoryOf(id: string) {
+  const i = LEDGER_CATEGORIES.findIndex((_, n) => uid('b960', n + 1) === id);
+  if (i < 0) throw fail(404, 'NOT_FOUND', 'That category was not found.');
+  return { id, name: LEDGER_CATEGORIES[i]![0] };
 }
 
 export function createBookkeepingMock({
@@ -779,6 +792,12 @@ export function createBookkeepingMock({
     const c = clients.find((x) => x.id === cid);
     if (!c) throw fail(404, 'NOT_FOUND', 'That bookkeeping client was not found.');
     return c;
+  };
+  /** BK-T01: one of the client's mock ledger lines (404 for any other). */
+  const lineOf = (cid: string, txnId: string) => {
+    const t = ledgerOf(findClient(cid)).find((x) => x.id === txnId);
+    if (!t) throw fail(404, 'NOT_FOUND', 'That transaction was not found.');
+    return t;
   };
   const view = (c: Ws): BookkeepingClientWorkspace => {
     refreshWs(c);
@@ -1401,6 +1420,119 @@ export function createBookkeepingMock({
             active: true,
           })),
         };
+      }),
+    // BK-T01 engines on the mock ledger (the API's rules where the mock can tell).
+    categorizeTransaction: (cid, txnId, body) =>
+      run(() => {
+        const input = parseInput(CategorizeBookkeepingTransactionRequest, body);
+        const t = lineOf(cid, txnId);
+        Object.assign(t, {
+          category: categoryOf(input.categoryId),
+          status: 'CATEGORIZED',
+          splitCount: 0,
+          ...(t.kind === 'TRANSFER' ? { kind: 'STANDARD' } : {}),
+        });
+        return { ...t };
+      }),
+    splitTransaction: (cid, txnId, body) =>
+      run(() => {
+        const input = parseInput(SplitBookkeepingTransactionRequest, body);
+        const t = lineOf(cid, txnId);
+        if (input.parts.reduce((n, p) => n + p.amountCents, 0) !== t.amountCents) {
+          throw fail(409, 'SPLIT_TOTAL', 'The parts must add up to the transaction amount');
+        }
+        input.parts.forEach((p) => categoryOf(p.categoryId));
+        Object.assign(t, { category: null, status: 'CATEGORIZED', splitCount: input.parts.length });
+        return { ...t };
+      }),
+    transferCandidates: (cid, txnId) =>
+      run(() => {
+        const t = lineOf(cid, txnId);
+        return {
+          items: ledgerOf(findClient(cid)).filter(
+            (o) =>
+              o.id !== t.id &&
+              o.amountCents === t.amountCents &&
+              o.direction !== t.direction &&
+              o.account.id !== t.account.id &&
+              o.status !== 'EXCLUDED',
+          ),
+        };
+      }),
+    matchTransfer: (cid, txnId, body) =>
+      run(() => {
+        const input = parseInput(MatchBookkeepingTransferRequest, body);
+        const t = lineOf(cid, txnId);
+        const o = lineOf(cid, input.pairId);
+        if (
+          o.id === t.id ||
+          o.amountCents !== t.amountCents ||
+          o.direction === t.direction ||
+          o.account.id === t.account.id
+        ) {
+          throw fail(
+            409,
+            'NOT_A_TRANSFER',
+            "A transfer's other side is the same amount, the other way, on another account",
+          );
+        }
+        for (const x of [t, o]) {
+          Object.assign(x, {
+            kind: 'TRANSFER',
+            status: 'CATEGORIZED',
+            category: null,
+            splitCount: 0,
+          });
+        }
+        return { ...t };
+      }),
+    excludeTransaction: (cid, txnId, body) =>
+      run(() => {
+        parseInput(ExcludeBookkeepingTransactionRequest, body);
+        const t = lineOf(cid, txnId);
+        t.status = 'EXCLUDED';
+        return { ...t };
+      }),
+    includeTransaction: (cid, txnId) =>
+      run(() => {
+        const t = lineOf(cid, txnId);
+        t.status = t.category || t.splitCount > 0 ? 'CATEGORIZED' : 'UNCATEGORIZED';
+        return { ...t };
+      }),
+    attachReceipt: (cid, txnId, body) =>
+      run(() => {
+        const input = parseInput(AttachBookkeepingReceiptRequest, body);
+        const t = lineOf(cid, txnId);
+        t.hasReceipt = input.documentId !== null;
+        return { ...t };
+      }),
+    bulkTransactions: (cid, body) =>
+      run(() => {
+        const input = parseInput(BulkBookkeepingTransactionsRequest, body);
+        // As the API: every line must be the client's, else nothing changes.
+        input.ids.forEach((id) => lineOf(cid, id));
+        const refused: { id: string; code: string }[] = [];
+        let done = 0;
+        for (const id of input.ids) {
+          const t = ledgerOf(findClient(cid)).find((x) => x.id === id);
+          if (!t) {
+            refused.push({ id, code: 'NOT_FOUND' });
+            continue;
+          }
+          if (input.action === 'CATEGORIZE') {
+            Object.assign(t, {
+              category: categoryOf(input.categoryId!),
+              status: 'CATEGORIZED',
+              splitCount: 0,
+            });
+          } else if (input.action === 'EXCLUDE') {
+            t.status = 'EXCLUDED';
+          } else {
+            t.status = t.category || t.splitCount > 0 ? 'CATEGORIZED' : 'UNCATEGORIZED';
+          }
+          done += 1;
+        }
+        return { done, refused };
       }),
     addAccount: (cid, body) =>
       run(() => {
