@@ -22,6 +22,7 @@ import {
   Label,
   type Reminder,
   ReminderList,
+  newReminder,
   reminderProblem,
   toReminders,
   Section,
@@ -437,8 +438,7 @@ function TemplateForm({ template }: { template: TaskTemplate | undefined }) {
               checked={remind}
               onChange={(e) => {
                 setRemind(e.target.checked);
-                if (e.target.checked && reminders.length === 0)
-                  setReminders([{ key: 'r0', daysBefore: 1, timeOfDay: null, custom: false }]);
+                if (e.target.checked && reminders.length === 0) setReminders([newReminder('r0')]);
               }}
             />
             {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}

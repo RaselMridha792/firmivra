@@ -427,6 +427,16 @@ Progress (Dashboard D4, D5; the lead's go, Nov 7):
   - Two of R60's older specs fixed on the way: Outstanding Invoices' Status is the list's own
     (R56's charts added "Status counted"), and the KPI spec waits for the cards to be links.
 
+Progress (MSG-F16 Add to Client Timeline; the lead, Nov 7, on R1's `client_timeline_entries`):
+- Branch `rasel/R60-messages-timeline`. New Message's Add to Client Timeline (unchecked, off with no
+  client) is saved as `addToTimeline`. Once sent, each client who got it gets one entry (source
+  `outbound_message_recipient`: one per client, a second send adds nothing): the subject or the
+  channel's name, "Sent … by …", the time and the sender, never the body or file names.
+- `GET business/clients/:id/timeline` (Clients access, Staff their own, audited
+  `client_timeline.viewed`, isolation case) and the client profile's Activity tab, each entry opening
+  its conversation or the message's outcome with Back to the client.
+- Tests: API e2e `outbound-messages` (MSG-F16 block) and `clients` 37 of 37; mock
+  `r60-messages-timeline` 2 of 2.
 Progress (CM-Y and TP-Y, Oct 28 reviews, defaults; Nov 7):
 - Branch `rasel/R60-comms-yellow`: CM-Y07 (a disabled Send Test says why), TP-Y01 (Create Email
   Template), TP-Y03 (a typed tag is kept on Save, with the hint). The other Y items' status is in

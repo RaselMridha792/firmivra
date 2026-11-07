@@ -3,13 +3,14 @@
 import type {
   CreateTaskDetailRequest,
   TaskDetail,
+  TaskDraft,
   TaskPriority,
   TaskProgress,
   TaskTemplate,
   UpdateTaskDetailRequest,
 } from '@firmivra/types';
 import { Button, Checkbox, Modal, Textarea, Toast, Toggle } from '@firmivra/ui';
-import { ArrowLeft, FloppyDisk, Plus, X } from '@phosphor-icons/react';
+import { ArrowLeft, FloppyDisk, Plus, Trash, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -29,6 +30,8 @@ import {
   Label,
   type Reminder,
   TIMES,
+  newReminder,
+  reminderBody,
   reminderProblem,
   toReminders,
   ReminderList,
@@ -48,7 +51,10 @@ import {
 } from './task-shared';
 import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 
-/** /tasks/new and /tasks/[id]/edit: Create Task and Edit Task, one form. */
+/**
+ * /tasks/new, /tasks/[id]/edit and /tasks/drafts/[id]: Create Task, Edit Task and a reopened draft
+ * (Octavia's A2), one form.
+ */
 /** What a service workspace's Create Task fills in (SH4); the member can still change it. */
 export interface TaskPrefill {
   clientId?: string;
@@ -61,10 +67,13 @@ export function TaskFormScreen({
   id,
   templateId,
   prefill,
+  draftId,
 }: {
   id?: string;
   templateId?: string;
   prefill?: TaskPrefill;
+  /** A2: the draft to reopen; Save Task publishes it, Save as Draft keeps it a draft. */
+  draftId?: string;
 }) {
   const prefillClient = useApiQuery(
     [...TASKS_KEY, 'prefill-client', prefill?.clientId ?? 'none'],
@@ -76,8 +85,12 @@ export function TaskFormScreen({
   const template = useApiQuery([...TASKS_KEY, 'template', templateId ?? 'none'], async () =>
     templateId ? api.taskWork.getTemplate(templateId) : null,
   );
+  const draft = useApiQuery([...TASKS_KEY, 'draft', draftId ?? 'none'], async () =>
+    draftId ? api.taskWork.draft(draftId) : null,
+  );
   const waiting =
     (id !== undefined && task.isPending) ||
+    (draftId !== undefined && draft.isPending) ||
     (!!templateId && template.isPending) ||
     (!!prefill?.clientId && prefillClient.isPending);
   if (waiting)
@@ -88,8 +101,9 @@ export function TaskFormScreen({
     );
   return (
     <Form
-      key={task.data?.id ?? template.data?.id ?? 'blank'}
+      key={task.data?.id ?? draft.data?.id ?? template.data?.id ?? 'blank'}
       task={task.data ?? undefined}
+      draft={draft.data ?? undefined}
       template={template.data ?? undefined}
       prefill={
         id === undefined && prefillClient.data
@@ -103,34 +117,49 @@ export function TaskFormScreen({
       loadNote={
         id !== undefined && task.isError
           ? errorMessage(task.error, TASK_ERRORS)
-          : prefill?.clientId && prefillClient.isError
-            ? 'The client could not be loaded. Choose the client below.'
-            : undefined
+          : draftId !== undefined && draft.isError
+            ? errorMessage(draft.error, TASK_ERRORS)
+            : prefill?.clientId && prefillClient.isError
+              ? 'The client could not be loaded. Choose the client below.'
+              : undefined
       }
     />
   );
 }
 
+/** What the form starts from: a task being edited, or a draft being reopened (A2). */
+type Seed = Omit<
+  TaskDraft,
+  'id' | 'client' | 'status' | 'missing' | 'createdAt' | 'updatedAt' | 'createdBy' | 'templateId'
+> & {
+  client: { id: string; displayName: string } | null;
+  engagementId: string | null;
+};
+
 function Form({
   task,
+  draft,
   template,
   prefill,
   loadNote,
 }: {
   task: TaskDetail | undefined;
+  draft?: TaskDraft | undefined;
   template: TaskTemplate | undefined;
   prefill: (TaskPrefill & { clientId: string; clientName: string }) | undefined;
   loadNote: string | undefined;
 }) {
   const router = useRouter();
   const editing = !!task;
+  const seed: Seed | undefined =
+    task ?? (draft ? { ...draft, engagementId: draft.engagement?.id ?? null } : undefined);
   const { members } = useMembers();
-  const [title, setTitle] = useState(task?.title ?? '');
-  const [typeId, setTypeId] = useState(task?.type?.id ?? template?.type?.id ?? '');
+  const [title, setTitle] = useState(seed?.title ?? '');
+  const [typeId, setTypeId] = useState(seed?.type?.id ?? template?.type?.id ?? '');
   const [details, setDetails] = useState(
-    task?.details ?? template?.description ?? (prefill?.period ? `For ${prefill.period}.` : ''),
+    seed?.details ?? template?.description ?? (prefill?.period ? `For ${prefill.period}.` : ''),
   );
-  const [clientId, setClientId] = useState(task?.client.id ?? prefill?.clientId ?? '');
+  const [clientId, setClientId] = useState(seed?.client?.id ?? prefill?.clientId ?? '');
   // Octavia's C4: clients are found by name on the server: the firm's own, and for Staff only
   // their assigned ones, so a restricted client is never listed or counted.
   const [clientSearch, setClientSearch] = useState('');
@@ -151,45 +180,45 @@ function Form({
     prefill ? { [prefill.clientId]: prefill.clientName } : {},
   );
   const [engagementId, setEngagementId] = useState(
-    task?.engagementId ?? prefill?.engagementId ?? '',
+    seed?.engagementId ?? prefill?.engagementId ?? '',
   );
-  const [serviceId, setServiceId] = useState(task?.service?.id ?? template?.service?.id ?? '');
+  const [serviceId, setServiceId] = useState(seed?.service?.id ?? template?.service?.id ?? '');
   const [assignee, setAssignee] = useState(
-    task?.assignedUserId ??
+    seed?.assignedUserId ??
       (template?.assignmentRule === 'SPECIFIC_USER' ? (template.assignedTo?.userId ?? '') : ''),
   );
   // A template that assigns the client's team leaves the person to the API when none is chosen.
-  const byTeam = !task && template?.assignmentRule === 'CLIENT_TEAM';
+  const byTeam = !seed && template?.assignmentRule === 'CLIENT_TEAM';
   const [extra, setExtra] = useState<string[]>(
-    task?.additionalAssignees.map((a) => a.userId) ?? [],
+    seed?.additionalAssignees.map((a) => a.userId) ?? [],
   );
   const [priority, setPriority] = useState<TaskPriority>(
-    task?.priority ?? template?.priority ?? 'MEDIUM',
+    seed?.priority ?? template?.priority ?? 'MEDIUM',
   );
-  const [startOn, setStartOn] = useState(task?.startOn ?? '');
+  const [startOn, setStartOn] = useState(seed?.startOn ?? '');
   const [dueOn, setDueOn] = useState(() =>
-    task
-      ? (task.dueOn ?? '')
+    seed
+      ? (seed.dueOn ?? '')
       : template?.dueOffsetDays != null
         ? new Date(Date.now() + template.dueOffsetDays * 86_400_000).toISOString().slice(0, 10)
         : '',
   );
-  const [dueTime, setDueTime] = useState(task?.dueTime ?? '17:00');
-  const [allDay, setAllDay] = useState(task?.allDay ?? true);
-  const [progress, setProgress] = useState<TaskProgress>(task?.progress ?? 'NOT_STARTED');
-  const [blockedReason, setBlockedReason] = useState(task?.blockedReason ?? '');
+  const [dueTime, setDueTime] = useState(seed?.dueTime ?? '17:00');
+  const [allDay, setAllDay] = useState(seed?.allDay ?? true);
+  const [progress, setProgress] = useState<TaskProgress>(seed?.progress ?? 'NOT_STARTED');
+  const [blockedReason, setBlockedReason] = useState(seed?.blockedReason ?? '');
   const [visible, setVisible] = useState(
-    task?.clientVisible ?? template?.clientVisibleDefault ?? false,
+    seed?.clientVisible ?? template?.clientVisibleDefault ?? false,
   );
-  const startReminders = task?.reminders ?? template?.reminders ?? [];
+  const startReminders = seed?.reminders ?? template?.reminders ?? [];
   const [remind, setRemind] = useState(startReminders.length > 0);
   const [reminders, setReminders] = useState<Reminder[]>(() => toReminders(startReminders));
-  const [depends, setDepends] = useState(!!task?.dependsOn);
-  const [dependsOn, setDependsOn] = useState(task?.dependsOn?.id ?? '');
-  const [notes, setNotes] = useState(task?.internalNotes ?? '');
+  const [depends, setDepends] = useState(!!seed?.dependsOn);
+  const [dependsOn, setDependsOn] = useState(seed?.dependsOn?.id ?? '');
+  const [notes, setNotes] = useState(seed?.internalNotes ?? '');
   const [items, setItems] = useState<Item[]>(
-    task
-      ? task.checklistItems.map((c) => ({
+    seed
+      ? seed.checklistItems.map((c) => ({
           key: c.id,
           id: c.id,
           label: c.label,
@@ -211,7 +240,7 @@ function Form({
   const templates = useApiQuery([...TASKS_KEY, 'templates', 'active'], () =>
     api.taskWork.templates({ status: 'active' }),
   );
-  const [tplName, setTplName] = useState(task?.title ?? '');
+  const [tplName, setTplName] = useState(seed?.title ?? '');
 
   const engagements = useApiQuery([...TASKS_KEY, 'engagements', clientId], async () =>
     clientId ? api.engagements.listForClient(clientId) : [],
@@ -223,17 +252,15 @@ function Form({
     api.taskWork.overview({ view: 'all', pageSize: 100 }),
   );
 
-  const typeChoice = useTypeChoice(typeId, task?.type);
+  const typeChoice = useTypeChoice(typeId, seed?.type);
 
   // Octavia's C5: Related To is one of the chosen client's engagements (open or not started), not
   // a second Service list; a task keeps the one it has. Other record types need a contract.
   const relatedOptions = [
-    ...(editing && task?.engagement
-      ? [{ value: task.engagement.id, label: task.engagement.title }]
-      : []),
+    ...(seed?.engagement ? [{ value: seed.engagement.id, label: seed.engagement.title }] : []),
     ...(engagements.data ?? [])
       .filter(
-        (x) => x.id !== task?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
+        (x) => x.id !== seed?.engagement?.id && (x.status === 'ACTIVE' || x.status === 'PENDING'),
       )
       .map((x) => ({
         value: x.id,
@@ -244,14 +271,14 @@ function Form({
   // Attachments (C6): files go to the client's documents under one of the client's open
   // services: the Related To project when it is open, else the first open one.
   const files = useTaskFiles();
-  const [version, setVersion] = useState(task?.version ?? '');
-  const [attached, setAttached] = useState(task?.attachments ?? []);
+  const [version, setVersion] = useState(seed?.version ?? '');
+  const [attached, setAttached] = useState(seed?.attachments ?? []);
   const openServices = (engagements.data ?? []).filter((x) => x.status === 'ACTIVE');
   const fileService = openServices.find((x) => x.id === engagementId) ?? openServices[0];
   const clientName =
     listed.find((c) => c.id === clientId)?.displayName ??
     clientNames[clientId] ??
-    task?.client.displayName ??
+    seed?.client?.displayName ??
     '';
   const filesBlocked = !clientId
     ? "Choose the client first: files are saved to the client's documents."
@@ -311,8 +338,7 @@ function Form({
     .map((i) => ({ ...(i.id ? { id: i.id } : {}), label: i.label.trim(), required: i.required }));
   const remindersBody = remind
     ? reminders.map((r) => ({
-        daysBefore: r.daysBefore,
-        timeOfDay: r.timeOfDay,
+        ...reminderBody(r),
         inApp: true,
         channels: [] as ('EMAIL' | 'SMS')[],
       }))
@@ -351,7 +377,7 @@ function Form({
     blockedReason,
     visible,
     remind,
-    reminders: reminders.map((r) => [r.daysBefore, r.timeOfDay]),
+    reminders: reminders.map((r) => [r.daysBefore, r.timeOfDay, r.amount, r.unit]),
     depends,
     dependsOn,
     notes,
@@ -360,7 +386,39 @@ function Form({
   });
 
   const options = { invalidate: [...TASKS_KEY] };
+  // #1084: one key per new task (or draft), reused only to retry it: a retried save returns the
+  // first one instead of making a second.
+  const [createKey, setCreateKey] = useState(() => crypto.randomUUID());
+  const [draftKey] = useState(() => crypto.randomUUID());
+  const uploadNew = async () =>
+    files.sendable.length && fileService && clientId
+      ? files.upload(files.sendable, clientId, fileService.id)
+      : [];
+  /** A draft's fields as they stand (A2): `null` clears; new files join the ones it has. */
+  const draftFields = (documentIds: string[]) => ({
+    title: title.trim(),
+    details,
+    clientId: clientId || null,
+    engagementId: engagementId || null,
+    dueOn: dueOn || null,
+    assignedUserId: assignee || null,
+    ...common(),
+    checklist: checklistBody,
+    ...(documentIds.length
+      ? {
+          attachments: [
+            ...attached.map((a) => ({ documentId: a.documentId })),
+            ...documentIds.map((documentId) => ({ documentId })),
+          ],
+        }
+      : {}),
+  });
   const save = useApiMutation(async (another: boolean) => {
+    if (draft) {
+      // Save Task on a draft publishes it: the same id becomes a live task.
+      const body = { ...draftFields(await uploadNew()), version };
+      return { saved: await api.taskWork.publishDraft(draft.id, body), another };
+    }
     if (task) {
       const body: UpdateTaskDetailRequest = {
         version,
@@ -390,9 +448,35 @@ function Form({
       ...(documentIds.length
         ? { attachments: documentIds.map((documentId) => ({ documentId })) }
         : {}),
+      idempotencyKey: createKey,
     };
     return { saved: await api.taskWork.create(body), another };
   }, options);
+  // A2: Save as Draft keeps it out of every list, count, calendar and reminder until Save Task.
+  const saveDraft = useApiMutation(async () => {
+    const documentIds = await uploadNew();
+    if (draft) return api.taskWork.updateDraft(draft.id, { ...draftFields(documentIds), version });
+    return api.taskWork.saveDraft({
+      title: title.trim(),
+      details,
+      ...(clientId ? { clientId } : {}),
+      ...(engagementId ? { engagementId } : {}),
+      ...(dueOn ? { dueOn } : {}),
+      ...(assignee ? { assignedUserId: assignee } : {}),
+      ...common(),
+      checklist: checklistBody,
+      ...(template ? { templateId: template.id } : {}),
+      ...(documentIds.length
+        ? { attachments: documentIds.map((documentId) => ({ documentId })) }
+        : {}),
+      idempotencyKey: draftKey,
+    });
+  }, options);
+  const discard = useApiMutation(
+    async () => (draft ? api.taskWork.discardDraft(draft.id) : null),
+    options,
+  );
+  const [discarding, setDiscarding] = useState(false);
   const saveTemplate = useApiMutation(
     () =>
       api.taskWork.createTemplate({
@@ -443,6 +527,7 @@ function Form({
       },
       onSuccess: ({ saved, another: again }) => {
         if (again) {
+          setCreateKey(crypto.randomUUID());
           setMessage({ text: 'Task saved. Add another.', tone: 'success' });
           router.replace('/tasks/new');
           setTitle('');
@@ -466,20 +551,57 @@ function Form({
     });
   }
 
+  /** Save as Draft: only the task name is needed; nothing else is checked until Save Task. */
+  function keepDraft() {
+    if (sendingRef.current) return;
+    setMessage(undefined);
+    const e: Record<string, string> = {};
+    if (!title.trim()) e['title'] = 'Enter the task name';
+    if (files.queue.some((f) => f.state === 'uploading'))
+      e['files'] = 'Wait for the files to finish uploading.';
+    else if (files.sendable.length && filesBlocked) e['files'] = filesBlocked;
+    setErrors(e);
+    if (Object.keys(e).length) {
+      setMessage({
+        text: 'A draft needs the task name. Fix the highlighted fields.',
+        tone: 'error',
+      });
+      return;
+    }
+    sendingRef.current = true;
+    saveDraft.mutate(undefined, {
+      onSettled: () => {
+        sendingRef.current = false;
+      },
+      onSuccess: () => {
+        guard.allow();
+        router.push('/tasks?view=drafts');
+      },
+      onError: (er) =>
+        setMessage({
+          text:
+            er instanceof FilesNotUploaded
+              ? 'A file was not uploaded, so the draft was not saved. See Attachments, then save again.'
+              : errorMessage(er, TASK_ERRORS),
+          tone: 'error',
+        }),
+    });
+  }
+
   const summary: [string, string][] = [
     ['Client', clientName || '—'],
     [
       'Related To',
-      engagements.data?.find((x) => x.id === engagementId)?.title ?? task?.engagement?.title ?? '—',
+      engagements.data?.find((x) => x.id === engagementId)?.title ?? seed?.engagement?.title ?? '—',
     ],
     [
       'Service',
-      services.data?.items.find((s) => s.id === serviceId)?.name ?? task?.service?.name ?? '—',
+      services.data?.items.find((s) => s.id === serviceId)?.name ?? seed?.service?.name ?? '—',
     ],
     [
       'Assigned To',
       members.find((m) => m.userId === assignee)?.name ??
-        task?.assignedTo?.name ??
+        seed?.assignedTo?.name ??
         (byTeam ? "The client's team" : '—'),
     ],
     ['Due Date', dueOn ? `${dayText(dueOn)}${allDay ? '' : ` at ${timeText(dueTime)}`}` : '—'],
@@ -497,7 +619,7 @@ function Form({
   return (
     <div
       className="flex min-w-0 flex-col gap-5"
-      data-testid={editing ? 'task-edit' : 'task-create'}
+      data-testid={editing ? 'task-edit' : draft ? 'task-draft' : 'task-create'}
     >
       <Link href="/tasks" className="flex w-fit items-center gap-2 text-sm font-medium text-link">
         <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Tasks
@@ -509,7 +631,7 @@ function Form({
           </span>
           <div>
             <h1 className="font-display text-3xl font-bold text-heading">
-              {editing ? 'Edit Task' : 'Create Task'}
+              {editing ? 'Edit Task' : draft ? 'Edit Draft' : 'Create Task'}
             </h1>
             <p className="text-base text-muted">
               Add a new task, set the details, and keep your team (and clients) on track.
@@ -687,9 +809,9 @@ function Form({
                   onChange={setAssignee}
                   options={[
                     { value: '', label: byTeam ? "The client's team" : 'Select team member' },
-                    ...(task?.assignedTo &&
-                    !members.some((m) => m.userId === task.assignedTo?.userId)
-                      ? [{ value: task.assignedTo.userId, label: task.assignedTo.name }]
+                    ...(seed?.assignedTo &&
+                    !members.some((m) => m.userId === seed.assignedTo?.userId)
+                      ? [{ value: seed.assignedTo.userId, label: seed.assignedTo.name }]
                       : []),
                     ...members.map((m) => ({ value: m.userId, label: m.name })),
                   ]}
@@ -905,11 +1027,12 @@ function Form({
               checked={remind}
               onChange={(e) => {
                 setRemind(e.target.checked);
-                if (e.target.checked && reminders.length === 0)
-                  setReminders([{ key: 'r0', daysBefore: 1, timeOfDay: null, custom: false }]);
+                if (e.target.checked && reminders.length === 0) setReminders([newReminder('r0')]);
               }}
             />
-            {remind ? <ReminderList reminders={reminders} onChange={setReminders} /> : null}
+            {remind ? (
+              <ReminderList reminders={reminders} onChange={setReminders} allowBefore />
+            ) : null}
             {err('reminders')}
           </Section>
           <Section title="Dependencies" testId="form-depends">
@@ -962,13 +1085,34 @@ function Form({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="secondary"
-            onClick={() => guard.leave(task ? `/tasks/${task.id}` : '/tasks')}
+            onClick={() =>
+              guard.leave(task ? `/tasks/${task.id}` : draft ? '/tasks?view=drafts' : '/tasks')
+            }
           >
             Cancel
           </Button>
           <Button variant="secondary" onClick={() => setTpl(true)}>
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
+          {editing ? null : (
+            <Button
+              variant="secondary"
+              disabled={saveDraft.isPending || save.isPending || !!loadNote}
+              onClick={keepDraft}
+              data-testid="task-save-draft"
+            >
+              Save as Draft
+            </Button>
+          )}
+          {draft ? (
+            <Button
+              variant="secondary"
+              onClick={() => setDiscarding(true)}
+              data-testid="task-discard-draft"
+            >
+              <Trash aria-hidden weight="fill" className="size-4" /> Discard Draft
+            </Button>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -979,7 +1123,7 @@ function Form({
           >
             {editing ? 'Save Changes' : 'Save Task'}
           </Button>
-          {editing ? null : (
+          {editing || draft ? null : (
             <Button
               disabled={save.isPending}
               onClick={() => submit(true)}
@@ -1023,6 +1167,43 @@ function Form({
         </Modal>
       ) : null}
       <UnsavedDialog guard={guard} onSave={() => submit(false)} saving={save.isPending} />
+      {discarding && draft ? (
+        <Modal
+          open
+          title="Discard Draft"
+          subtitle={draft.title}
+          onClose={() => setDiscarding(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDiscarding(false)}>
+                Keep Draft
+              </Button>
+              <Button
+                disabled={discard.isPending}
+                onClick={() =>
+                  discard.mutate(undefined, {
+                    onSuccess: () => {
+                      guard.allow();
+                      router.push('/tasks?view=drafts');
+                    },
+                    onError: (er) => {
+                      setDiscarding(false);
+                      setMessage({ text: errorMessage(er, TASK_ERRORS), tone: 'error' });
+                    },
+                  })
+                }
+              >
+                Discard
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            The draft, its checklist and reminders are deleted. It was never a live task, so nothing
+            else changes.
+          </p>
+        </Modal>
+      ) : null}
       {tpl ? (
         <Modal
           open

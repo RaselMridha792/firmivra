@@ -118,6 +118,9 @@ function RecurringForm({
   const { members } = useMembers();
   const { clients } = useClients();
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
+  // A5 (#1084): one key per form, reused only to retry its save, so a retried Save never makes a
+  // second series; Save & Create Another starts a fresh form with a new key.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [title, setTitle] = useState('');
   const [typeId, setTypeId] = useState('');
   const typeChoice = useTypeChoice(typeId);
@@ -247,6 +250,7 @@ function RecurringForm({
       reminders: remind ? reminders.map((d) => ({ daysBefore: d })) : [],
       ...(notifyClient ? { clientVisible: true, notifyClient: true } : {}),
       recurrence,
+      idempotencyKey,
     };
     return api.taskWork.createSeries(body);
   }, options);

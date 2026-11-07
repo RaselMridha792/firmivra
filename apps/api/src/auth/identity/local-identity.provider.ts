@@ -10,6 +10,7 @@ import { AuthFlowError, type AuthStep, type IdentityProvider } from './identity-
  */
 export const LOCAL_PASSWORD = 'Firmivra-local-1';
 export const LOCAL_MFA_CODE = '000000';
+const LOCAL_REFRESH = 'local-';
 /** The reset code for every forgot-password request (nothing is emailed locally). */
 export const LOCAL_RESET_CODE = '000000';
 /** A well-known example TOTP key, so the setup screen has a real QR code to show. */
@@ -71,8 +72,12 @@ export class LocalIdentityProvider implements IdentityProvider {
     return this.issue(username, pool);
   }
 
-  async refresh(pool: IdentityPool, username: string): Promise<SessionTokens> {
-    const { token, expiresIn } = await this.tokens.signLocal(username, pool);
+  async refresh(pool: IdentityPool, username: string, refreshToken = ''): Promise<SessionTokens> {
+    // The sign-in's id rides in the refresh token, so a refresh keeps the session (SM4).
+    const sid = refreshToken.startsWith(LOCAL_REFRESH)
+      ? refreshToken.slice(LOCAL_REFRESH.length)
+      : '';
+    const { token, expiresIn } = await this.tokens.signLocal(username, pool, sid || undefined);
     return { accessToken: token, expiresIn };
   }
 
@@ -133,8 +138,10 @@ export class LocalIdentityProvider implements IdentityProvider {
   }
 
   private async issue(sub: string, pool: IdentityPool): Promise<SessionTokens> {
-    const { token, expiresIn } = await this.tokens.signLocal(sub, pool);
+    // One id per sign-in, as Cognito's origin_jti: in each access token, and kept by refresh.
+    const sid = randomUUID();
+    const { token, expiresIn } = await this.tokens.signLocal(sub, pool, sid);
     // The refresh token only has to exist: the sealed envelope around it is what is checked.
-    return { accessToken: token, refreshToken: `local-${randomUUID()}`, expiresIn };
+    return { accessToken: token, refreshToken: `${LOCAL_REFRESH}${sid}`, expiresIn };
   }
 }

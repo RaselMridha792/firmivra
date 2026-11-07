@@ -1,6 +1,7 @@
 // End-to-end: R55, Staff Account Access & Security (contract in packages/types/src/staff): the
 // sign-in rules, Active Sessions, Login History, activity, and the password and MFA resets.
 // Owner and Admin; a change needs a role the actor manages; firm B reaches none of firm A's.
+// SM4: a real sign-in opens a session row per firm, and a session the firm ends answers 401.
 import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -10,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  type MfaSetupResponse,
+  type SignInResult,
   StaffActionResult,
   StaffActivityPage,
   StaffLoginHistory,
@@ -17,6 +20,8 @@ import {
   StaffSessionList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
+import { FIRM_SESSION_STARTED } from '../../src/auth/staff-sessions.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -31,11 +36,15 @@ const people = {
   managerA: person('manager-a'),
   invitedA: person('invited-a'),
   ownerB: person('owner-b'),
+  /** SM4: signs in for real; an Admin in firm A and in firm B. */
+  both: person('both'),
 };
 type Who = (typeof people)[keyof typeof people];
 const firms = {} as Record<'a' | 'b', string>;
 
 let app: INestApplication;
+/** The firm site's origin: browsers send it with every change. */
+let appOrigin = '';
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.64.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
@@ -123,6 +132,7 @@ beforeAll(async () => {
     ['a', 'managerA', 'MANAGER', 'ACTIVE'],
     ['a', 'invitedA', 'STAFF', 'INVITED'],
     ['b', 'ownerB', 'OWNER', 'ACTIVE'],
+    ['a', 'both', 'ADMIN', 'ACTIVE'],
   ] as const) {
     member[key] = (
       await inFirm(firm, (tx) =>
@@ -156,10 +166,11 @@ beforeAll(async () => {
     await add('manager', member.managerA, new Date());
     // Sign-in rows in the firm's log, and a change made to staffA by the owner.
     for (const action of [
-      'auth.signed_in',
+      FIRM_SESSION_STARTED,
       'auth.sign_in_failed',
-      'auth.signed_in',
-      'auth.signed_in',
+      FIRM_SESSION_STARTED,
+      FIRM_SESSION_STARTED,
+      FIRM_SESSION_STARTED,
     ])
       await tx.auditLog.create({
         data: {
@@ -189,6 +200,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
+  appOrigin = new URL(env.APP_BASE_URL).origin;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -313,11 +325,11 @@ describe('Active Sessions', () => {
 });
 
 describe('Login History and activity', () => {
-  it('pages the sign-in attempts, newest first', async () => {
+  it("pages the firm's sign-ins, newest first, and never a failed attempt (SM4)", async () => {
     const first = StaffLoginHistory.parse(
       ok(await call('get', `/staff/${member.staffA}/login-history?limit=3`, ownerA)),
     );
-    expect(first.items.map((i) => i.outcome)).toEqual(['SUCCESS', 'SUCCESS', 'FAILED']);
+    expect(first.items.map((i) => i.outcome)).toEqual(['SUCCESS', 'SUCCESS', 'SUCCESS']);
     expect(first.items[0]).toMatchObject({
       ip: '203.0.113.9',
       device: 'Fake browser',
@@ -347,7 +359,7 @@ describe('Login History and activity', () => {
     );
     const changed = page.items.find((i) => i.action === 'membership.role_changed');
     expect(changed).toMatchObject({ label: 'Role changed', actorName: 'Fake R55x ownerA' });
-    const signedIn = page.items.find((i) => i.action === 'auth.signed_in');
+    const signedIn = page.items.find((i) => i.action === FIRM_SESSION_STARTED);
     expect(signedIn).toMatchObject({ label: 'Logged in', actorName: null });
   });
 });
@@ -405,5 +417,180 @@ describe('firm B', () => {
       ['post', `/staff/${member.staffA}/reset-mfa`, { confirm: true }],
     ] as const)
       expectError(await call(method, path, ownerB, body, 'b'), 404, 'NOT_FOUND');
+  });
+});
+
+describe('a real sign-in: the session row per firm and the revoke check (SM4)', () => {
+  const UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+  let inB = '';
+
+  beforeAll(async () => {
+    inB = (
+      await inFirm('b', (tx) =>
+        tx.membership.create({
+          data: { businessId: firms.b, userId: people.both.id, role: 'ADMIN', status: 'ACTIVE' },
+          select: { id: true },
+        }),
+      )
+    ).id;
+  });
+
+  /** "name=value" of one cookie the response set. */
+  const cookieNamed = (res: Response, name: string) => {
+    const raw = res.headers['set-cookie'] as unknown;
+    return (
+      (Array.isArray(raw) ? (raw as string[]) : [])
+        .map((c) => c.split(';')[0] ?? '')
+        .find((c) => c.startsWith(`${name}=`)) ?? ''
+    );
+  };
+
+  /** Password, authenticator and code, as the firm's sign-in screens do it. */
+  async function signIn(email: string) {
+    const from = viewer();
+    const post = (path: string, body: object) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/auth${path}`)
+        .set('origin', appOrigin)
+        .set('x-forwarded-for', from)
+        .set('user-agent', UA)
+        .send(body);
+    let step = ok(await post('/sign-in', { email, password: LOCAL_PASSWORD })) as SignInResult;
+    if (step.status === 'MFA_SETUP_REQUIRED') {
+      const setup = ok(await post('/mfa/setup', { session: step.session })) as MfaSetupResponse;
+      step = { status: 'MFA_REQUIRED', session: setup.session };
+    }
+    if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
+    const done = await post('/mfa', { session: step.session, code: LOCAL_MFA_CODE });
+    ok(done);
+    return { access: cookieNamed(done, 'fv_access'), refresh: cookieNamed(done, 'fv_refresh') };
+  }
+
+  /** The browser: its access cookie on a firm route of firm A or B. */
+  const browse = (access: string, firm: 'a' | 'b') =>
+    request(app.getHttpServer())
+      .get('/api/v1/business/staff/summary')
+      .set('x-business-id', firms[firm])
+      .set('x-forwarded-for', viewer())
+      .set('user-agent', UA)
+      .set('cookie', access);
+  const rowsIn = (firm: 'a' | 'b', membershipId: string) =>
+    inFirm(firm, (tx) =>
+      tx.staffSession.findMany({ where: { membershipId }, orderBy: { createdAt: 'asc' } }),
+    );
+
+  it('opens one row per firm, keyed by a hash, with a sign-in in that firm’s Login History', async () => {
+    const web = await signIn(people.both.email);
+    expect(web.access).toMatch(/^fv_access=/);
+    ok(await browse(web.access, 'a'));
+    ok(await browse(web.access, 'a'));
+    ok(await browse(web.access, 'b'));
+    const [a, ...moreA] = await rowsIn('a', member.both);
+    const [b, ...moreB] = await rowsIn('b', inB);
+    expect([moreA.length, moreB.length]).toEqual([0, 0]);
+    expect(a).toMatchObject({ device: 'Chrome on Windows', revokedAt: null });
+    expect(a?.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    // Each firm's row has its own key, and neither is any part of a token.
+    expect(b?.tokenHash).not.toBe(a?.tokenHash);
+    expect(`${web.access}${web.refresh}`).not.toContain(a?.tokenHash ?? '-');
+    // Two requests within a minute: lastActiveAt did not move.
+    expect(a?.lastActiveAt.getTime()).toBe(a?.createdAt.getTime());
+
+    const list = StaffSessionList.parse(
+      ok(await call('get', `/staff/${member.both}/sessions`, ownerA)),
+    );
+    expect(list.items.map((i) => i.id)).toEqual([a?.id]);
+    const history = StaffLoginHistory.parse(
+      ok(await call('get', `/staff/${member.both}/login-history`, ownerA)),
+    );
+    expect(history.items).toHaveLength(1);
+    expect(history.items[0]).toMatchObject({ outcome: 'SUCCESS', device: 'Chrome on Windows' });
+    // Firm B's sign-in is firm B's own row.
+    expect(
+      await inFirm('b', (tx) =>
+        tx.auditLog.count({
+          where: { businessId: firms.b, action: FIRM_SESSION_STARTED, actorUserId: people.both.id },
+        }),
+      ),
+    ).toBe(1);
+    // A dev token is no sign-in: it opens no session.
+    expect(await rowsIn('a', member.ownerA)).toHaveLength(0);
+
+    // A refresh keeps the session: the same row, seen again after a minute.
+    const renewed = await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('origin', appOrigin)
+      .set('cookie', web.refresh);
+    ok(renewed);
+    const access = cookieNamed(renewed, 'fv_access');
+    expect(access).toMatch(/^fv_access=/);
+    await inFirm('a', (tx) =>
+      tx.staffSession.update({
+        where: { id: a?.id ?? '' },
+        data: { lastActiveAt: new Date(Date.now() - 2 * 60_000) },
+      }),
+    );
+    ok(await browse(access, 'a'));
+    const [again, ...extra] = await rowsIn('a', member.both);
+    expect(extra).toHaveLength(0);
+    expect(again?.id).toBe(a?.id);
+    expect(Date.now() - (again?.lastActiveAt.getTime() ?? 0)).toBeLessThan(60_000);
+  });
+
+  it('a session firm A ended answers 401 SESSION_REVOKED there; firm B can neither see nor end it', async () => {
+    const web = await signIn(people.both.email);
+    ok(await browse(web.access, 'a'));
+    ok(await browse(web.access, 'b'));
+    const open = (await rowsIn('a', member.both)).filter((r) => !r.revokedAt);
+    const [mine] = open.slice(-1);
+    // Firm B: firm A's member and session are not there to see or end.
+    expectError(
+      await call('get', `/staff/${member.both}/sessions`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/staff/${inB}/sessions/${mine?.id}/revoke`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    ok(await browse(web.access, 'a'));
+
+    // Revoke this one session: its next request is 401, also after a refresh.
+    const one = StaffActionResult.parse(
+      ok(await call('post', `/staff/${member.both}/sessions/${mine?.id}/revoke`, ownerA)),
+    );
+    expect(one.sessionsRevoked).toBe(1);
+    expectError(await browse(web.access, 'a'), 401, 'SESSION_REVOKED');
+    const renewed = await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('origin', appOrigin)
+      .set('cookie', web.refresh);
+    expectError(await browse(cookieNamed(renewed, 'fv_access'), 'a'), 401, 'SESSION_REVOKED');
+    // Firm A ended it in firm A only.
+    ok(await browse(web.access, 'b'));
+
+    // Sign out all: every session of this member in firm A, none in firm B.
+    const other = await signIn(people.both.email);
+    ok(await browse(other.access, 'a'));
+    ok(await browse(other.access, 'b'));
+    const all = StaffActionResult.parse(
+      ok(
+        await call('post', `/staff/${member.both}/sessions/revoke-all`, ownerA, {
+          reason: 'Lost laptop',
+          confirm: true,
+        }),
+      ),
+    );
+    expect(all.sessionsRevoked).toBeGreaterThanOrEqual(2);
+    expect((await rowsIn('a', member.both)).filter((r) => !r.revokedAt)).toHaveLength(0);
+    expectError(await browse(other.access, 'a'), 401, 'SESSION_REVOKED');
+    ok(await browse(other.access, 'b'));
+    expect((await rowsIn('b', inB)).filter((r) => r.revokedAt)).toHaveLength(0);
+
+    // A new sign-in is a new session, and it works.
+    const fresh = await signIn(people.both.email);
+    ok(await browse(fresh.access, 'a'));
   });
 });

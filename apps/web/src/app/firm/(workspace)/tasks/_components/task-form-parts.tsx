@@ -1,5 +1,10 @@
 'use client';
 
+import {
+  TASK_REMINDER_MAX_MINUTES,
+  TASK_REMINDER_UNIT_MINUTES,
+  type TaskReminderUnit,
+} from '@firmivra/types';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash, X } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 import { timeText } from './task-shared';
@@ -113,10 +118,33 @@ export interface Reminder {
   daysBefore: number;
   /** HH:MM, or null for the firm's usual reminder time. */
   timeOfDay: string | null;
-  /** Octavia's A3: any number of days before, and a time of day if wanted. */
+  /** Any number of days before, and a time of day if wanted. */
   custom: boolean;
+  /**
+   * Octavia's A3 Custom (#1081): `amount` minutes, hours or days before the due date and time
+   * (NaN while typed); null for a days rule.
+   */
+  amount: number | null;
+  unit: TaskReminderUnit | null;
 }
 export const DAYS = [0, 1, 2, 3, 7, 14, 30];
+const UNIT_WORD: Record<TaskReminderUnit, string> = {
+  MINUTES: 'minute',
+  HOURS: 'hour',
+  DAYS: 'day',
+};
+/** "30 minutes before the due time", "1 hour before the due time". */
+export const beforeText = (amount: number, unit: TaskReminderUnit) =>
+  `${amount} ${UNIT_WORD[unit]}${amount === 1 ? '' : 's'} before the due time`;
+/** A new row: one day before, at the usual time. */
+export const newReminder = (key: string): Reminder => ({
+  key,
+  daysBefore: 1,
+  timeOfDay: null,
+  custom: false,
+  amount: null,
+  unit: null,
+});
 
 /** Every half hour, HH:MM. */
 export const TIMES = Array.from({ length: 48 }, (_, i) => {
@@ -124,23 +152,58 @@ export const TIMES = Array.from({ length: 48 }, (_, i) => {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 });
 
-/** Saved reminders as rows: one that is not a preset, or has a time, is a custom one. */
-export const toReminders = (list: { daysBefore: number; timeOfDay: string | null }[]) =>
-  list.map((r, i) => ({
-    key: `r${i}`,
-    daysBefore: r.daysBefore,
-    timeOfDay: r.timeOfDay,
-    custom: r.timeOfDay !== null || !DAYS.includes(r.daysBefore),
-  }));
+/**
+ * Saved reminders as rows: one with an amount and unit is a Custom one before the due time; a
+ * days rule that is not a preset, or has a time, is a days-and-time one.
+ */
+export const toReminders = (
+  list: {
+    daysBefore: number;
+    timeOfDay: string | null;
+    amount?: number | null;
+    unit?: TaskReminderUnit | null;
+  }[],
+): Reminder[] =>
+  list.map((r, i) => {
+    const before = r.amount != null && r.unit != null;
+    return {
+      key: `r${i}`,
+      daysBefore: r.daysBefore,
+      timeOfDay: before ? null : r.timeOfDay,
+      custom: !before && (r.timeOfDay !== null || !DAYS.includes(r.daysBefore)),
+      amount: before ? (r.amount ?? null) : null,
+      unit: before ? (r.unit ?? null) : null,
+    };
+  });
+
+/** A row as the API takes it: a Custom amount and unit, or days and a time. */
+export const reminderBody = (r: Reminder) =>
+  r.unit
+    ? { amount: r.amount, unit: r.unit, timeOfDay: null }
+    : { daysBefore: r.daysBefore, timeOfDay: r.timeOfDay };
 
 /**
  * What the API would refuse (INVALID_REMINDER), said first: a custom number outside 0 to 365, two
  * reminders alike, a same-day one after the due time.
  */
 export function reminderProblem(list: Reminder[], dueTime?: string | null): string | undefined {
-  if (list.some((r) => !Number.isInteger(r.daysBefore) || r.daysBefore < 0 || r.daysBefore > 365))
+  const before = list.filter((r) => r.unit);
+  const days = list.filter((r) => !r.unit);
+  if (days.some((r) => !Number.isInteger(r.daysBefore) || r.daysBefore < 0 || r.daysBefore > 365))
     return 'Enter 0 to 365 days before the due date.';
-  const keys = list.map((r) => `${r.daysBefore}@${r.timeOfDay ?? ''}`);
+  if (
+    before.some((r) => !Number.isInteger(r.amount) || (r.amount ?? 0) < 1 || (r.amount ?? 0) > 999)
+  )
+    return 'Enter 1 to 999 for a Custom reminder.';
+  const minutes = before.map((r) => (r.amount ?? 0) * TASK_REMINDER_UNIT_MINUTES[r.unit!]);
+  if (minutes.some((m) => m > TASK_REMINDER_MAX_MINUTES))
+    return 'A Custom reminder can be at most 365 days before.';
+  if (before.length && !dueTime)
+    return 'A Custom reminder counts back from the due time: turn off All Day and set the time.';
+  const keys = [
+    ...days.map((r) => `${r.daysBefore}@${r.timeOfDay ?? ''}`),
+    ...minutes.map((m) => `m${m}`),
+  ];
   if (new Set(keys).size < keys.length) return 'Two reminders are the same. Remove one.';
   if (dueTime && list.some((r) => r.daysBefore === 0 && r.timeOfDay && r.timeOfDay > dueTime))
     return 'A same-day reminder cannot be after the due time.';
@@ -260,15 +323,20 @@ export function ChecklistItems({
 }
 
 /**
- * The reminders, each a number of days before the due date, with Add Reminder. Custom… takes any
- * number of days (0 to 365) and, if wanted, a time of day; the presets use the firm's usual time.
+ * The reminders, with Add Reminder: a number of days before the due date (the presets, at the
+ * firm's usual time), Days and time… (any number of days, 0 to 365, and a time of day if wanted)
+ * and, where the form has a due time, Octavia's A3 Custom… (#1081): a number of minutes, hours or
+ * days before the due date and time.
  */
 export function ReminderList({
   reminders,
   onChange,
+  allowBefore = false,
 }: {
   reminders: Reminder[];
   onChange: (reminders: Reminder[]) => void;
+  /** Offer Custom… (minutes, hours or days before the due time): a task, not a template. */
+  allowBefore?: boolean;
 }) {
   const set = (key: string, change: Partial<Reminder>) =>
     onChange(reminders.map((x) => (x.key === key ? { ...x, ...change } : x)));
@@ -280,15 +348,19 @@ export function ReminderList({
             <select
               aria-label={`Reminder ${i + 1}`}
               className={field}
-              value={r.custom ? 'custom' : r.daysBefore}
+              value={r.unit ? 'before' : r.custom ? 'custom' : r.daysBefore}
               onChange={(e) =>
-                e.target.value === 'custom'
-                  ? set(r.key, { custom: true })
-                  : set(r.key, {
-                      custom: false,
-                      timeOfDay: null,
-                      daysBefore: Number(e.target.value),
-                    })
+                e.target.value === 'before'
+                  ? set(r.key, { custom: false, timeOfDay: null, amount: 1, unit: 'HOURS' })
+                  : e.target.value === 'custom'
+                    ? set(r.key, { custom: true, amount: null, unit: null })
+                    : set(r.key, {
+                        custom: false,
+                        timeOfDay: null,
+                        amount: null,
+                        unit: null,
+                        daysBefore: Number(e.target.value),
+                      })
               }
             >
               {DAYS.map((d) => (
@@ -296,7 +368,8 @@ export function ReminderList({
                   {d === 0 ? 'Same day' : `${d} day${d === 1 ? '' : 's'} before`}
                 </option>
               ))}
-              <option value="custom">Custom…</option>
+              <option value="custom">Days and time…</option>
+              {allowBefore || r.unit ? <option value="before">Custom…</option> : null}
             </select>
             <button
               type="button"
@@ -307,6 +380,35 @@ export function ReminderList({
               <X aria-hidden weight="bold" className="size-4" />
             </button>
           </div>
+          {r.unit ? (
+            <div className="flex flex-wrap items-center gap-2 pr-6 text-sm text-text">
+              <input
+                type="number"
+                min={1}
+                max={999}
+                inputMode="numeric"
+                aria-label={`Reminder ${i + 1} amount`}
+                className={`${field} w-24!`}
+                value={r.amount === null || Number.isNaN(r.amount) ? '' : r.amount}
+                onChange={(e) =>
+                  set(r.key, {
+                    amount: e.target.value === '' ? Number.NaN : Number(e.target.value),
+                  })
+                }
+              />
+              <select
+                aria-label={`Reminder ${i + 1} unit`}
+                className={`${field} w-28!`}
+                value={r.unit}
+                onChange={(e) => set(r.key, { unit: e.target.value as TaskReminderUnit })}
+              >
+                <option value="MINUTES">Minutes</option>
+                <option value="HOURS">Hours</option>
+                <option value="DAYS">Days</option>
+              </select>
+              <span className="shrink-0">before the due time</span>
+            </div>
+          ) : null}
           {r.custom ? (
             <div className="flex items-center gap-2 pr-6 text-sm text-text">
               <input
@@ -345,15 +447,7 @@ export function ReminderList({
         <button
           type="button"
           onClick={() =>
-            onChange([
-              ...reminders,
-              {
-                key: `r${reminders.length}-${Date.now()}`,
-                daysBefore: 1,
-                timeOfDay: null,
-                custom: false,
-              },
-            ])
+            onChange([...reminders, newReminder(`r${reminders.length}-${Date.now()}`)])
           }
           className="inline-flex items-center gap-1 text-sm font-medium text-link"
         >
