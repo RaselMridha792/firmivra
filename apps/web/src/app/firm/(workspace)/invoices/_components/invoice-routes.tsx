@@ -7,14 +7,7 @@ import {
   type RecurringInvoiceRow,
 } from '@firmivra/types';
 import { Badge, Button, Input, Select, Table, type Column } from '@firmivra/ui';
-import {
-  ArrowsClockwise,
-  type Icon,
-  LinkSimple,
-  ListBullets,
-  Receipt,
-  Scroll,
-} from '@phosphor-icons/react';
+import { type Icon, LinkSimple, ListBullets, Receipt, Scroll } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
@@ -37,7 +30,7 @@ import {
 // Statement, Recurring Invoices and the Payment Link Generator. Each reads what the firm has;
 // nothing here sends, charges or schedules anything.
 
-function SubHeader({
+export function SubHeader({
   icon: Glyph,
   title,
   subtitle,
@@ -344,72 +337,26 @@ const FREQUENCY: Record<RecurringInvoiceRow['frequency'], string> = {
 };
 const UNIT = { WEEK: 'week', MONTH: 'month', YEAR: 'year' } as const;
 /** "Monthly", or a custom schedule's "Every 3 weeks". */
-const frequencyText = (r: RecurringInvoiceRow) =>
+export const frequencyText = (r: RecurringInvoiceRow) =>
   r.interval
     ? r.interval.count === 1
       ? `Every ${UNIT[r.interval.unit]}`
       : `Every ${r.interval.count} ${UNIT[r.interval.unit]}s`
     : FREQUENCY[r.frequency];
-const RECURRING_TONE = {
+export const RECURRING_TONE = {
   ACTIVE: 'success',
   PAUSED: 'warning',
   COMPLETED: 'neutral',
   ENDED: 'neutral',
 } as const;
-const RECURRING_LABEL = {
+export const RECURRING_LABEL = {
   ACTIVE: 'Active',
   PAUSED: 'Paused',
   COMPLETED: 'Completed',
   ENDED: 'Ended',
 } as const;
 
-/** /invoices/recurring: the firm's recurring invoice schedules (read only). */
-export function RecurringInvoicesScreen() {
-  const q = useApiQuery([...INV_KEY, 'recurring'], () => api.invoices.recurring());
-  const columns: Column<RecurringInvoiceRow>[] = [
-    { id: 'name', label: 'Schedule', cell: (r) => <span className="font-medium">{r.name}</span> },
-    { id: 'client', label: 'Client', cell: (r) => r.client.displayName },
-    { id: 'frequency', label: 'Frequency', cell: frequencyText },
-    { id: 'next', label: 'Next Invoice', cell: (r) => dayText(r.nextSendOn) },
-    { id: 'amount', label: 'Amount', className: 'text-right', cell: (r) => money(r.amountCents) },
-    { id: 'send', label: 'Sends', cell: (r) => (r.autoSend ? 'Automatically' : 'After review') },
-    {
-      id: 'status',
-      label: 'Status',
-      cell: (r) => <Badge tone={RECURRING_TONE[r.status]}>{RECURRING_LABEL[r.status]}</Badge>,
-    },
-  ];
-  return (
-    <div className="flex min-w-0 flex-col gap-5" data-testid="recurring-invoices">
-      <SubHeader
-        icon={ArrowsClockwise}
-        title="Recurring Invoices"
-        subtitle="Invoices that repeat on a schedule, and when the next one goes out."
-      />
-      <section className={card} aria-label="Recurring invoices">
-        <Table
-          rows={q.data?.items ?? []}
-          columns={columns}
-          rowKey={(r) => r.id}
-          caption="Recurring invoices"
-          dense
-          noun="schedules"
-          pageSize={25}
-          loading={q.isPending}
-          keepHeaderWhenEmpty
-          emptyTitle={
-            q.isError ? 'Recurring invoices are not available' : 'No recurring invoices yet'
-          }
-          emptyText={
-            q.isError
-              ? errorMessage(q.error, INVOICE_ERRORS)
-              : 'A recurring schedule appears here once it is set up.'
-          }
-        />
-      </section>
-    </div>
-  );
-}
+// IP-F18: the list and a schedule's page are in recurring-screens.tsx.
 
 // ---------- Payment Link Generator ----------
 

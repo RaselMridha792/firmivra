@@ -3,6 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 import {
   BillingFrequency,
+  InvoiceDelivery,
   InvoiceStatus,
   PaymentRefundStatus,
   PaymentStatus,
@@ -791,6 +792,48 @@ export type RecurringInvoiceRow = z.infer<typeof RecurringInvoiceRow>;
 export const RecurringInvoiceList = z.object({ items: z.array(RecurringInvoiceRow) });
 export type RecurringInvoiceList = z.infer<typeof RecurringInvoiceList>;
 
+/**
+ * GET /business/invoices/recurring/{id} (IP-F18): one schedule with what it bills, the invoices it
+ * made, its next send days in the firm's time zone (none while paused or ended) and its history.
+ * Staff see their clients' schedules; the history names who acted, never amounts or lines.
+ */
+export const RecurringInvoiceDetail = RecurringInvoiceRow.extend({
+  startOn: CalendarDate,
+  endOn: CalendarDate.nullable(),
+  maxOccurrences: z.number().int().nullable(),
+  /** Invoices made so far, the first one included. */
+  occurrences: z.number().int(),
+  delivery: InvoiceDelivery,
+  /** True while it only waits for its draft invoice to be sent (nothing can be done to it yet). */
+  waiting: z.boolean(),
+  /** The firm's time zone, the one the send days are in. */
+  timezone: z.string(),
+  upcoming: z.array(CalendarDate).max(3),
+  lines: z.array(
+    z.object({
+      description: z.string(),
+      quantity: z.number(),
+      unitAmountCents: z.number().int(),
+      taxable: z.boolean(),
+    }),
+  ),
+  invoices: z.array(
+    z.object({
+      id: z.uuid(),
+      number: z.string(),
+      periodOn: CalendarDate,
+      status: InvoiceStatus,
+      totalCents: z.number().int(),
+    }),
+  ),
+  history: z.array(z.object({ action: z.string(), at: DateTime, by: z.string().nullable() })),
+});
+export type RecurringInvoiceDetail = z.infer<typeof RecurringInvoiceDetail>;
+
+/** PATCH /business/invoices/recurring/{id} (Owner and Admin): whether its invoices go out by themselves. */
+export const UpdateRecurringInvoiceRequest = z.strictObject({ autoSend: z.boolean() });
+export type UpdateRecurringInvoiceRequest = z.input<typeof UpdateRecurringInvoiceRequest>;
+
 /** GET /business/invoices/{id}/pdf: a 5-minute link to the invoice as a PDF. */
 export const InvoicePdfLink = z.object({ url: z.string(), expiresAt: DateTime });
 export type InvoicePdfLink = z.infer<typeof InvoicePdfLink>;
@@ -1077,6 +1120,11 @@ export const InvoiceErrorCode = z.enum([
    */
   'NOT_RESENDABLE',
   /**
+   * 409 (IP-F18, pause, resume, end): the schedule is not in a state that allows it (resume a
+   * paused one, pause an active one, end either); one waiting for its draft is changed there.
+   */
+  'RECURRING_STATE',
+  /**
    * 503 (Pay Now, refund): Stripe did not answer; nothing was charged or refunded. Try again in a
    * moment (a refund with the same `idempotencyKey`).
    */
@@ -1094,6 +1142,7 @@ export const INVOICE_ERRORS = {
   ZERO_TOTAL: 'There is nothing to pay on this invoice. Cancel it instead.',
   DUE_DATE_PASSED: 'The due date has passed. Choose a later due date, then send it.',
   INVOICE_CLOSED: 'This invoice is paid or canceled, so it can no longer be changed.',
+  RECURRING_STATE: 'This recurring invoice cannot do that now. Reload to see its status.',
   NOT_RESENDABLE:
     'Only a sent invoice with something still to pay can be sent again. Reload to see it.',
   HAS_PAYMENTS:
