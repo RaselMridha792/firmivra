@@ -67,8 +67,10 @@ export {
   type DonutSegment,
 } from './donut-chart';
 export {
+  BUTTON_LINK_CLASS,
   HTTPS_LINK,
   RichTextEditor,
+  buttonLinkHtml,
   plainTextLength,
   type RichTextEditorProps,
 } from './rich-text-editor';

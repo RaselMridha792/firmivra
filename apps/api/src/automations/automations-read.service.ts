@@ -208,6 +208,25 @@ export class AutomationsReadService {
             path: `actions.${i}.config.tagIds`,
           });
       }
+      // Send intake form's form: one of this firm's, not archived, with a published version.
+      const formId = a.config.formId;
+      if (typeof formId === 'string') {
+        const live = await tx.intakeTemplate.count({
+          where: {
+            businessId,
+            id: formId,
+            archivedAt: null,
+            forms: { some: { status: 'PUBLISHED' } },
+          },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The intake form is not one of the firm’s published forms',
+            path: `actions.${i}.config.formId`,
+          });
+      }
       // Request documents' category: a live category of this firm (another firm's never).
       const categoryId = a.config.categoryId;
       if (typeof categoryId === 'string') {
@@ -234,6 +253,54 @@ export class AutomationsReadService {
             severity: 'BLOCK',
             message: 'A person to notify is not an active member of the firm',
             path: `actions.${i}.config.memberUserIds`,
+          });
+      }
+      // Create task's template and Add service's service: live ones of this firm (never another's).
+      const taskTemplateId = a.config.taskTemplateId;
+      if (typeof taskTemplateId === 'string') {
+        const live = await tx.taskTemplate.count({
+          where: { businessId, id: taskTemplateId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The task template is not one of the firm’s live templates',
+            path: `actions.${i}.config.taskTemplateId`,
+          });
+      }
+      const serviceId = a.config.serviceId;
+      if (typeof serviceId === 'string') {
+        const live = await tx.service.count({
+          where: { businessId, id: serviceId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The service is not one of the firm’s live services',
+            path: `actions.${i}.config.serviceId`,
+          });
+      }
+      // Request approval's reviewer: an active member of this firm, and never the rule's owner,
+      // who asks for it (nobody approves their own request).
+      const reviewer = a.config.reviewerUserId;
+      if (typeof reviewer === 'string') {
+        const m = await this.actingMember(tx, businessId, reviewer);
+        const path = `actions.${i}.config.reviewerUserId`;
+        if (!m)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer is not an active member of the firm',
+            path,
+          });
+        else if (reviewer === rule.ownerUserId)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer can’t be the rule’s owner, who asks for the approval',
+            path,
           });
       }
       const assignee = a.config.assigneeUserId;
@@ -331,11 +398,12 @@ export class AutomationsReadService {
         businessId,
         now: new Date(),
         today: ctx.today,
+        timezone: ctx.timezone,
         since,
         ...(def.trigger.source ? { source: def.trigger.source } : {}),
       },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit
@@ -379,9 +447,9 @@ export class AutomationsReadService {
         offsetValue: def.trigger.offsetValue ?? null,
         offsetUnit: def.trigger.offsetUnit ?? null,
       },
-      { businessId, now, today: ctx.today, since },
+      { businessId, now, today: ctx.today, timezone: ctx.timezone, since },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit

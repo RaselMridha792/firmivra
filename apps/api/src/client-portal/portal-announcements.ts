@@ -4,18 +4,26 @@ import { AnnouncementPlace, type MyAnnouncement, type MyAnnouncementList } from 
 import { CurrentTenant, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { toPlainText } from '../templates/html.js';
+import type { NotifyConfig } from '../notify/config.js';
+import { firmImages } from '../notify/email-html.js';
+import { NOTIFY_CONFIG } from '../notify/notify.module.js';
+import { sanitizeForPortal, toPlainText } from '../templates/html.js';
 
 // Client Portal guide 3 (Rasel, Oct 24: the parts without schema): announcements are made and
 // published in Communications; the portal shows the ones published to the client, inside their
 // window and not expired (Expire archives one). The firm's switch for announcements and their
-// notification channels need schema (R0).
+// notification channels need schema (R0). CM-F08 (R60, a one-off exception to owned paths the lead
+// gave on Nov 7): the announcement's own page shows its formatting (`html`, cleaned for the
+// portal: images only from this firm's email-images address); snippets keep the plain `body`.
 
 const LIMIT = 50;
 
 @Injectable()
 export class PortalAnnouncementsService {
-  constructor(@Inject(DATABASE) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly db: Database,
+    @Inject(NOTIFY_CONFIG) private readonly notify: NotifyConfig,
+  ) {}
 
   /** The signed-in client's live announcements, newest first. Their client record, never the URL. */
   async mine(businessId: string, clientAccountId: string): Promise<MyAnnouncementList> {
@@ -52,11 +60,18 @@ export class PortalAnnouncementsService {
         createdAt: true,
       },
     });
+    // Images only from this firm's own email-images address on the portal's host.
+    const firm = rows.length
+      ? await scope.business.findUnique({ where: { id: businessId }, select: { slug: true } })
+      : null;
+    const origin = this.notify.portalOrigin;
+    const images = origin && firm ? firmImages(origin, firm.slug) : () => false;
     return {
       items: rows.map((r): MyAnnouncement => ({
         id: r.id,
         title: r.subject?.trim() || null,
         body: toPlainText(r.body),
+        html: sanitizeForPortal(r.body, images),
         where: AnnouncementPlace.safeParse(r.visibility).data ?? 'dashboard',
         publishedAt: (r.publishStartsAt ?? r.sentAt ?? r.createdAt).toISOString(),
         endsAt: r.publishEndsAt?.toISOString() ?? null,

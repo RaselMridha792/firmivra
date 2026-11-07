@@ -70,6 +70,37 @@ test('Conditions: operators named for the field, several values, and the match c
   await page.screenshot({ path: `${shots}/builder-conditions.png` });
 });
 
+test('a date condition takes On or Within the last or next N days, in the firm’s days (AU-F22, F23)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
+  await page.getByRole('button', { name: 'Add Condition' }).click();
+  await page.getByLabel('Condition 1 field').selectOption({ label: 'Due date' });
+  const operator = page.getByLabel('Condition 1 operator');
+  await expect(operator.locator('option')).toContainText([
+    'Before',
+    'After',
+    'On',
+    'Within last N days',
+    'Within next N days',
+  ]);
+  await operator.selectOption({ label: 'Within next N days' });
+  const value = page.getByLabel('Condition 1 value');
+  await expect(value).toHaveAttribute('type', 'number');
+  await value.fill('14');
+  await expect(page.getByTestId('condition-timezone')).toContainText('firm');
+  await operator.selectOption({ label: 'On' });
+  // Days and a date don't mix: the value is cleared and the box takes a date.
+  await expect(value).toHaveValue('');
+  await expect(value).toHaveAttribute('type', 'date');
+  await operator.selectOption({ label: 'Within next N days' });
+  await value.fill('14');
+  await page.getByTestId('step-conditions').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/builder-date-condition.png` });
+});
+
 test('Actions move up and down with their settings, and a broken dependency clears (AU-F24)', async ({
   page,
 }) => {

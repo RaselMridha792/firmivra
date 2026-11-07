@@ -117,7 +117,10 @@ test('Results: tabs, follow-up and duplicate make new drafts', async ({ page }) 
   await page.getByRole('tab', { name: 'Recipients' }).click();
   await expect(page.getByTestId('recipient-table')).toBeVisible();
   await page.getByRole('tab', { name: 'Message' }).click();
-  await expect(page.getByTestId('message-tab')).toContainText('Tax season');
+  // The message shows as it was sent, in a sandboxed frame (CM-F08).
+  await expect(
+    page.getByTestId('message-tab').frameLocator('[data-testid="message-body"]').locator('body'),
+  ).toContainText('Tax season');
   await page.getByRole('button', { name: 'Send Follow-Up' }).click();
   await page.getByRole('button', { name: 'Did not open the message' }).click();
   await page.waitForURL(/\/edit$/);

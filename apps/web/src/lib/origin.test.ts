@@ -61,6 +61,8 @@ describe('withOrigin', () => {
     );
     expect(originLabel('/templates?view=mine&q=Fake')).toBe('Templates');
     expect(originLabel('/templates/0199c0f0-3e00-7000-8000-000000000001/edit')).toBe('Templates');
+    // IP-F11: Templates or Reports opened from Invoices go back to its list, filters and all.
+    expect(originLabel('/invoices?tab=OVERDUE&q=0098&page=2')).toBe('Invoices & Payments');
   });
 });
 

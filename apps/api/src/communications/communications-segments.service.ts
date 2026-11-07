@@ -30,6 +30,7 @@ import type {
   CreateSegmentBody,
   PreviewSegmentBody,
   SegmentMembersQ,
+  SegmentPeopleQ,
   SegmentsQ,
   SetConsentBody,
   SetSegmentMembersBody,
@@ -336,6 +337,64 @@ export class CommunicationSegmentsService {
     return this.run(tenant, userId, async (ctx) => this.detail(ctx, await this.load(ctx, id)));
   }
 
+  /**
+   * CM-F18: the people a member may add to a list, by name, within their reach (Staff: their own
+   * clients and leads), masked as members are; nothing is saved.
+   */
+  people(
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof SegmentPeopleQ>,
+  ): Promise<SegmentMemberPage> {
+    return this.run(tenant, userId, async (ctx) => {
+      const term = q.search ? { contains: q.search, mode: 'insensitive' as const } : undefined;
+      const [cs, ls] = await Promise.all([
+        q.audience === 'LEADS'
+          ? []
+          : ctx.tx.client.findMany({
+              where: { AND: [this.clientReach(ctx), term ? { displayName: term } : {}] },
+              select: { id: true, displayName: true, email: true },
+              orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
+              take: 5_000,
+            }),
+        q.audience === 'CLIENTS'
+          ? []
+          : ctx.tx.lead.findMany({
+              where: {
+                AND: [
+                  this.leadReach(ctx),
+                  term ? { OR: [{ firstName: term }, { lastName: term }] } : {},
+                ],
+              },
+              select: { id: true, firstName: true, lastName: true, email: true },
+              orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }],
+              take: 5_000,
+            }),
+      ]);
+      const people: SegmentMemberPage['items'] = [
+        ...cs.map((c) => ({
+          kind: 'CLIENT' as const,
+          id: c.id,
+          label: c.displayName,
+          secondary: mask(c.email) || null,
+        })),
+        ...ls.map((l) => ({
+          kind: 'LEAD' as const,
+          id: l.id,
+          label: `${l.firstName} ${l.lastName}`,
+          secondary: mask(l.email) || null,
+        })),
+      ];
+      const start = (q.page - 1) * q.pageSize;
+      return {
+        items: people.slice(start, start + q.pageSize),
+        total: people.length,
+        page: q.page,
+        pageSize: q.pageSize,
+      };
+    });
+  }
+
   members(
     tenant: TenantContext,
     userId: string,
@@ -612,6 +671,9 @@ export class CommunicationSegmentsService {
           : null;
       if (criteria) validateCriteria(criteria, audience);
       const changed = Object.keys(body).filter((k) => k !== 'etag');
+      // CM-F13: Last Refreshed moves only when who belongs is evaluated again (its rules or its
+      // audience), never on a name or description edit.
+      const refreshed = body.criteria !== undefined || body.audience !== undefined;
       const saved = await ctx.tx.communicationSegment.update({
         where: { id: s.id },
         data: {
@@ -624,7 +686,7 @@ export class CommunicationSegmentsService {
                 criteriaSummary: summarize(criteria),
               }
             : {}),
-          lastRefreshedAt: new Date(),
+          ...(refreshed ? { lastRefreshedAt: new Date() } : {}),
         },
       });
       const count = await this.count(ctx, saved);

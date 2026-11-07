@@ -1,6 +1,6 @@
 'use client';
 
-import type { SegmentDetail, SegmentField, SegmentRow } from '@firmivra/types';
+import type { SegmentDetail, SegmentField, SegmentMemberPage, SegmentRow } from '@firmivra/types';
 import {
   ActionMenu,
   Button,
@@ -30,9 +30,21 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { useAct, type Notice } from './communication-actions';
-import { COMM_ERRORS, COMM_KEY, card, dayText, gold, quiet } from './communications-shared';
+import {
+  COMM_ERRORS,
+  COMM_KEY,
+  card,
+  dateTimeText,
+  dayText,
+  gold,
+  quiet,
+  timeText,
+} from './communications-shared';
 
 type Cond = { field: string; op: SegmentField['operators'][number]; value: string | string[] };
+type Person = SegmentMemberPage['items'][number];
+/** A member whose role only views Communications (CM-F17, CM-F18): the exact reason. */
+const VIEW_ONLY = 'Your role can view segments but not change them. Ask an Owner or Admin.';
 const OP_LABEL: Record<string, string> = {
   IS: 'is',
   IS_NOT: 'is not',
@@ -77,6 +89,9 @@ export function SegmentDialog({
       value: (c.value as string | string[] | undefined) ?? '',
     })),
   );
+  // CM-F15: all of the rules (AND) or any of them (OR); saved groups are kept as they are.
+  const [logic, setLogic] = useState<'AND' | 'OR'>(segment?.criteria?.logic ?? 'AND');
+  const groups = segment?.criteria?.groups ?? [];
   const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -84,9 +99,21 @@ export function SegmentDialog({
     (f) => f.audience === 'BOTH' || audience === 'BOTH' || f.audience === audience,
   );
   const criteria = {
-    logic: 'AND' as const,
+    logic,
     conditions: conds.filter((c) => c.field && c.value !== ''),
+    ...(groups.length ? { groups } : {}),
   };
+  // What the saved segment held, in the same shape, to send only what changed (CM-F13: a name or
+  // description edit never re-evaluates who belongs).
+  const saved = segment?.criteria
+    ? {
+        logic: segment.criteria.logic ?? 'AND',
+        conditions: (segment.criteria.conditions ?? []).filter(
+          (c) => c.field && c.value !== '' && c.value !== undefined,
+        ),
+        ...(groups.length ? { groups } : {}),
+      }
+    : null;
   const preview = useApiQuery(
     [...COMM_KEY, 'segment-preview', type, audience, JSON.stringify(criteria)],
     () =>
@@ -120,11 +147,23 @@ export function SegmentDialog({
               setError(undefined);
               try {
                 if (segment) {
+                  const changes = {
+                    ...(name.trim() !== segment.name ? { name: name.trim() } : {}),
+                    ...((description.trim() || null) !== segment.description
+                      ? { description: description.trim() || null }
+                      : {}),
+                    ...(audience !== segment.audience ? { audience } : {}),
+                    ...(type === 'DYNAMIC' && JSON.stringify(criteria) !== JSON.stringify(saved)
+                      ? { criteria }
+                      : {}),
+                  };
+                  if (Object.keys(changes).length === 0) {
+                    onNotice('Nothing changed.', 'success');
+                    onClose();
+                    return;
+                  }
                   await api.communications.updateSegment(segment.id, {
-                    name: name.trim(),
-                    description: description.trim() || null,
-                    audience,
-                    ...(type === 'DYNAMIC' ? { criteria } : {}),
+                    ...changes,
                     etag: segment.etag,
                   });
                 } else {
@@ -190,9 +229,28 @@ export function SegmentDialog({
         </div>
         {type === 'DYNAMIC' ? (
           <div className="flex flex-col gap-2" data-testid="criteria">
-            <h3 className="text-sm font-semibold text-heading">
-              Include people where all of these are true
-            </h3>
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <h3 className="text-sm font-semibold text-heading">
+                Include people where {logic === 'OR' ? 'any' : 'all'} of these are true
+              </h3>
+              <div className="w-56">
+                <Select
+                  label="Match"
+                  value={logic}
+                  onChange={(e) => setLogic(e.target.value as 'AND' | 'OR')}
+                  options={[
+                    { value: 'AND', label: 'All of these rules (AND)' },
+                    { value: 'OR', label: 'Any of these rules (OR)' },
+                  ]}
+                />
+              </div>
+            </div>
+            {groups.length ? (
+              <p className="text-xs text-muted">
+                This segment also has {groups.length} saved rule group
+                {groups.length === 1 ? '' : 's'}, kept as they are.
+              </p>
+            ) : null}
             {conds.length === 0 ? (
               <p className={quiet}>No rules yet: everyone in the group is included.</p>
             ) : null}
@@ -304,19 +362,38 @@ export function SegmentDialog({
             ))}
           </div>
         )}
-        <p
+        {/* CM-F16: the live count and who matches, recalculated as the rules change; a count for
+            the old rules is never shown as the current one. Nothing is saved or sent. */}
+        <div
           role="status"
           className="rounded-lg bg-info-soft p-3 text-sm text-info"
           data-testid="segment-count"
         >
-          {preview.data
-            ? type === 'STATIC'
-              ? `${picked.length} chosen`
-              : `${preview.data.count} ${preview.data.count === 1 ? 'person matches' : 'people match'} right now.`
-            : preview.isError
-              ? 'The count is not available right now.'
-              : 'Counting…'}
-        </p>
+          {type === 'STATIC' ? (
+            `${picked.length} chosen`
+          ) : preview.data ? (
+            preview.data.count === 0 ? (
+              'No one matches these rules right now.'
+            ) : (
+              <>
+                {preview.data.count} {preview.data.count === 1 ? 'person matches' : 'people match'}{' '}
+                right now (at {timeText(preview.data.calculatedAt)}).
+                <span className="mt-1 block text-xs" data-testid="segment-sample">
+                  For example:{' '}
+                  {preview.data.sample
+                    .slice(0, 3)
+                    .map((p) => p.label)
+                    .join(', ')}
+                  {preview.data.count > 3 ? ' and others' : ''}. {preview.data.criteriaSummary}.
+                </span>
+              </>
+            )
+          ) : preview.isError ? (
+            'The count is not available right now.'
+          ) : (
+            'Counting…'
+          )}
+        </div>
         {error ? (
           <p role="alert" className="text-sm text-danger">
             {error}
@@ -327,7 +404,23 @@ export function SegmentDialog({
   );
 }
 
-function MembersDialog({ segment, onClose }: { segment: SegmentRow; onClose: () => void }) {
+/**
+ * View Members. A list's people are added and removed here by whoever may change segments
+ * (CM-F18), saved together; a segment's members follow its rules. Others see the exact reason.
+ */
+function MembersDialog({
+  segment,
+  canManage,
+  onClose,
+  onNotice,
+}: {
+  segment: SegmentRow;
+  canManage: boolean;
+  onClose: () => void;
+  onNotice: Notice;
+}) {
+  const qc = useQueryClient();
+  const editable = canManage && segment.type === 'STATIC' && !segment.archived;
   const [search, setSearch] = useState('');
   const term = useDeferredValue(search.trim());
   const members = useApiQuery([...COMM_KEY, 'segment-members', segment.id, term], () =>
@@ -337,32 +430,153 @@ function MembersDialog({ segment, onClose }: { segment: SegmentRow; onClose: () 
       pageSize: 50,
     }),
   );
+  // Editing a list: every member (page by page) and the list's etag, then changes held here.
+  const everyone = useApiQuery([...COMM_KEY, 'segment-members-all', segment.id], async () => {
+    const all: Person[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const p = await api.communications.segmentMembers(segment.id, { page, pageSize: 100 });
+      all.push(...p.items);
+      if (all.length >= p.total || p.items.length === 0) break;
+    }
+    const detail = await api.communications.segment(segment.id);
+    return { all, etag: detail.etag };
+  });
+  const [chosen, setChosen] = useState<Person[]>();
+  const current = chosen ?? everyone.data?.all ?? [];
+  const [find, setFind] = useState('');
+  const findTerm = useDeferredValue(find.trim());
+  const people = useApiQuery([...COMM_KEY, 'segment-people', segment.audience, findTerm], () =>
+    api.communications.segmentPeople({
+      audience: segment.audience,
+      ...(findTerm ? { search: findTerm } : {}),
+      pageSize: 10,
+    }),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const shown = editable
+    ? current.filter((m) => !term || m.label.toLowerCase().includes(term.toLowerCase()))
+    : (members.data?.items ?? []);
+  const save = async () => {
+    if (!everyone.data) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.communications.setSegmentMembers(segment.id, {
+        clientIds: current.filter((m) => m.kind === 'CLIENT').map((m) => m.id),
+        leadIds: current.filter((m) => m.kind === 'LEAD').map((m) => m.id),
+        etag: everyone.data.etag,
+      });
+      await qc.invalidateQueries({ queryKey: [...COMM_KEY] });
+      onNotice(`${segment.name} saved: ${current.length} members.`, 'success');
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e, COMM_ERRORS));
+      setBusy(false);
+    }
+  };
   return (
     <Modal
       open
       title={segment.name}
-      subtitle={`${segment.memberCount} members`}
+      subtitle={`${editable ? current.length : segment.memberCount} members`}
       onClose={onClose}
       footer={
-        <Button variant="secondary" onClick={onClose}>
-          Close
-        </Button>
+        editable ? (
+          <>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={busy || chosen === undefined || !everyone.data} onClick={save}>
+              Save Members
+            </Button>
+          </>
+        ) : (
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        )
       }
     >
       <div className="flex flex-col gap-3" data-testid="members-dialog">
+        {segment.type === 'STATIC' && !canManage ? (
+          <p className={quiet} data-testid="members-reason">
+            {VIEW_ONLY}
+          </p>
+        ) : null}
         <Input label="Search members" value={search} onChange={(e) => setSearch(e.target.value)} />
-        {members.data?.items.length === 0 ? <p className={quiet}>No members match.</p> : null}
-        <ul className="max-h-72 overflow-auto">
-          {(members.data?.items ?? []).map((m) => (
+        {shown.length === 0 ? (
+          <p className={quiet}>
+            {(editable ? everyone.isPending : members.isPending) ? 'Loading…' : 'No members match.'}
+          </p>
+        ) : null}
+        <ul className="max-h-72 overflow-auto" aria-label="Members">
+          {shown.map((m) => (
             <li
               key={m.id}
               className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
             >
-              <span className="font-medium text-heading">{m.label}</span>
-              <span className="text-muted">{m.secondary}</span>
+              <span>
+                <span className="font-medium text-heading">{m.label}</span>{' '}
+                <span className="text-muted">{m.secondary}</span>
+              </span>
+              {editable ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${m.label}`}
+                  onClick={() => setChosen(current.filter((x) => x.id !== m.id))}
+                  className="inline-flex min-h-9 items-center gap-1 rounded-control px-2 text-sm font-medium text-danger hover:bg-danger-soft"
+                >
+                  <Trash aria-hidden weight="bold" className="size-4" /> Remove
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
+        {editable ? (
+          <section
+            aria-label="Add people"
+            className="flex flex-col gap-2 border-t border-divider pt-3"
+            data-testid="add-people"
+          >
+            <h3 className="text-sm font-semibold text-heading">Add people</h3>
+            <Input label="Find by name" value={find} onChange={(e) => setFind(e.target.value)} />
+            <ul className="max-h-48 overflow-auto">
+              {(people.data?.items ?? []).map((p) => {
+                const on = current.some((m) => m.id === p.id);
+                return (
+                  <li
+                    key={p.id}
+                    className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
+                  >
+                    <span>
+                      <span className="font-medium text-heading">{p.label}</span>{' '}
+                      <span className="text-muted">{p.secondary}</span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Add ${p.label}`}
+                      disabled={on}
+                      onClick={() => setChosen([...current, p])}
+                      className="inline-flex min-h-9 items-center gap-1 rounded-control px-2 text-sm font-medium text-link hover:bg-canvas disabled:text-muted"
+                    >
+                      <Plus aria-hidden weight="bold" className="size-4" />{' '}
+                      {on ? 'On the list' : 'Add'}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {people.isError ? (
+              <p className="text-xs text-danger">People are not available right now.</p>
+            ) : null}
+          </section>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
     </Modal>
   );
@@ -416,7 +630,24 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
     },
     { id: 'type', label: 'Kind', cell: (r) => (r.type === 'DYNAMIC' ? 'Segment' : 'List') },
     { id: 'count', label: 'Members', cell: (r) => r.memberCount },
+    // CM-F14: the assigned owner (not necessarily who made it).
+    {
+      id: 'owner',
+      label: 'Owner',
+      cell: (r) => <span className="whitespace-nowrap">{r.owner.name}</span>,
+    },
     { id: 'used', label: 'Used By', cell: (r) => (r.usedBy ? `${r.usedBy} scheduled` : '—') },
+    // CM-F13: when who belongs was last evaluated, apart from a name or description edit.
+    {
+      id: 'refreshed',
+      label: 'Last Refreshed',
+      cell: (r) =>
+        r.lastRefreshedAt ? (
+          <span className="whitespace-nowrap">{dateTimeText(r.lastRefreshedAt)}</span>
+        ) : (
+          '—'
+        ),
+    },
     { id: 'upd', label: 'Updated', cell: (r) => dayText(r.updatedAt) },
   ];
   return (
@@ -509,6 +740,16 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
                 {
                   items: [
                     { label: 'View Members', icon: UsersThree, onSelect: () => setMembers(r) },
+                    ...(!canManage
+                      ? [
+                          {
+                            label: 'Edit',
+                            icon: PencilSimple,
+                            restricted: 'View only',
+                            onSelect: () => onNotice(VIEW_ONLY, 'error'),
+                          },
+                        ]
+                      : []),
                     ...(canManage
                       ? [
                           {
@@ -572,7 +813,14 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
           onNotice={onNotice}
         />
       ) : null}
-      {members ? <MembersDialog segment={members} onClose={() => setMembers(undefined)} /> : null}
+      {members ? (
+        <MembersDialog
+          segment={members}
+          canManage={canManage}
+          onClose={() => setMembers(undefined)}
+          onNotice={onNotice}
+        />
+      ) : null}
     </section>
   );
 }

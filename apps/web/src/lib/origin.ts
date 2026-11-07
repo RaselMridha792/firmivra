@@ -49,6 +49,7 @@ const LABELS: Record<string, string> = {
   compliance: 'Compliance & Deadlines',
   reports: 'Reports',
   templates: 'Templates',
+  invoices: 'Invoices & Payments',
 };
 
 /** "Payroll", "Bookkeeping"…: the place the origin path belongs to. */

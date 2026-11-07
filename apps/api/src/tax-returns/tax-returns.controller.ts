@@ -124,5 +124,8 @@ export class MyTaxReturnsController {
     MyTaxReturnsController,
   ],
   providers: [TaxReturnsService, TaxReturnWorkspaceService, TaxReturnReviewService],
+  // Automations' Request approval (R55, the lead's one-off exception): a pending step through
+  // Tax Returns' own add; deciding it stays Tax Returns' alone.
+  exports: [TaxReturnReviewService],
 })
 export class TaxReturnsModule {}

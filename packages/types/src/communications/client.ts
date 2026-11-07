@@ -1,5 +1,10 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { ConfirmUploadRequest, UploadPutTicket } from '../documents/schemas.js';
+import {
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
+  EmailImage,
+} from '../leads/email.js';
 import { OkResponse } from '../schemas.js';
 import { MessageTemplateDetail, RenderedTemplate } from '../templates/schemas.js';
 import {
@@ -39,6 +44,7 @@ import {
   SegmentFieldList,
   SegmentMemberPage,
   SegmentMembersQuery,
+  SegmentPeopleQuery,
   SegmentPage,
   SegmentPreview,
   SegmentsQuery,
@@ -146,6 +152,23 @@ export function createCommunicationsClient(request: ApiRequest) {
         CommunicationAttachment,
         `${BASE}/attachments/uploads/confirm`,
         post(parseInput(ConfirmUploadRequest, body)),
+      ),
+    /**
+     * CM-F08: an image in an email's or an announcement's content, step 1 (the firm's email
+     * images: PNG, JPEG or GIF up to 2 MB). Upload it with `uploadImage()`.
+     */
+    createImageUpload: async (body: CreateEmailImageUploadRequest): Promise<UploadPutTicket> =>
+      request(
+        UploadPutTicket,
+        `${BASE}/images`,
+        post(parseInput(CreateEmailImageUploadRequest, body)),
+      ),
+    /** Step 3: the image is checked, then served at its public `url` (410 UPLOAD_EXPIRED). */
+    confirmImageUpload: async (body: ConfirmEmailImageUploadRequest): Promise<EmailImage> =>
+      request(
+        EmailImage,
+        `${BASE}/images/confirm`,
+        post(parseInput(ConfirmEmailImageUploadRequest, body)),
       ),
     removeAttachment: async (id: string, attachmentId: string): Promise<OkResponse> =>
       request(
@@ -296,6 +319,12 @@ export function createCommunicationsClient(request: ApiRequest) {
       request(
         SegmentMemberPage,
         `${segment(id)}/members${toQuery(parseInput(SegmentMembersQuery, query))}`,
+      ),
+    /** CM-F18: the people a member may add to a list, by name, within their reach. */
+    segmentPeople: async (query: SegmentPeopleQuery = {}): Promise<SegmentMemberPage> =>
+      request(
+        SegmentMemberPage,
+        `${BASE}/segments/people${toQuery(parseInput(SegmentPeopleQuery, query))}`,
       ),
     setSegmentMembers: async (id: string, body: SetSegmentMembersRequest): Promise<SegmentDetail> =>
       request(SegmentDetail, `${segment(id)}/members`, {

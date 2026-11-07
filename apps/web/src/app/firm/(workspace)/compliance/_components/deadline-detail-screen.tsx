@@ -1,5 +1,6 @@
 'use client';
 
+import { DOCUMENT_ERRORS } from '@firmivra/types';
 import { Badge, Toast } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
@@ -76,6 +77,20 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
   const [dialog, setDialog] = useState<SingleKind>();
   const options = { invalidate: [...COMPLIANCE_KEY] };
   const done = (text: string) => () => setMessage({ text, tone: 'success' });
+  // CD-F06 (Octavia, Oct 28): a document opens as a download through the Documents module (a
+  // short-lived link; a file still being scanned or blocked says so).
+  const download = async (documentId: string, fileName: string) => {
+    try {
+      const link = await api.documents.download(documentId);
+      const a = document.createElement('a');
+      a.href = link.url;
+      a.download = fileName;
+      a.rel = 'noopener';
+      a.click();
+    } catch (e) {
+      setMessage({ text: errorMessage(e, DOCUMENT_ERRORS), tone: 'error' });
+    }
+  };
   const fail = (e: unknown) =>
     setMessage({ text: errorMessage(e, COMPLIANCE_ERRORS), tone: 'error' });
   const start = useApiMutation(() => api.compliance.startDeadline(id), options);
@@ -286,7 +301,13 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
                         string,
                         ReactNode,
                       ][])
-                    : []),
+                    : d.notApplicableReason
+                      ? // CD-Y09 (Octavia, Oct 28): reopened, the reason it was set aside stays in view.
+                        ([['Earlier not applicable because', d.notApplicableReason]] as [
+                          string,
+                          ReactNode,
+                        ][])
+                      : []),
                 ]}
               />
               {d.dueOverridden ? (
@@ -311,7 +332,7 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
                   'Last verified',
                   d.calendarEntry.verifiedAt
                     ? dayText(d.calendarEntry.verifiedAt.slice(0, 10))
-                    : 'Not verified',
+                    : 'Needs Verification',
                 ],
                 [
                   'Official source',
@@ -331,8 +352,14 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
               ]}
             />
           ) : (
-            <p className={quiet}>
-              {d ? 'This deadline was not made from a government calendar.' : note}
+            <p className={quiet} data-testid="source-note">
+              {/* CD-Y07 (Octavia, Oct 28): a Government date typed by hand has no source, year or
+                  verified date on file, so it says so instead of passing for checked law. */}
+              {!d
+                ? note
+                : d.source === 'GOVERNMENT' || d.source === 'IMPORTED'
+                  ? 'Needs Verification: this date was entered by hand, with no official source, effective year or verified date on file. Check it against the authority before relying on it.'
+                  : 'This deadline was not made from a government calendar.'}
             </p>
           )}
         </Card>
@@ -403,7 +430,17 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
                 {d.documents.map((x) => (
                   <li key={x.documentId} className="flex items-center justify-between gap-2">
                     <span className="min-w-0 truncate">{x.fileName}</span>
-                    <span className="shrink-0 text-xs text-muted">{stamp(x.addedAt)}</span>
+                    <span className="flex shrink-0 items-center gap-3 text-xs text-muted">
+                      {stamp(x.addedAt)}
+                      <button
+                        type="button"
+                        className="font-medium text-link underline"
+                        data-testid="document-download"
+                        onClick={() => void download(x.documentId, x.fileName)}
+                      >
+                        Download
+                      </button>
+                    </span>
                   </li>
                 ))}
               </ul>

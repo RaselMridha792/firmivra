@@ -9,6 +9,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
 import { StructurePreview } from './structure-panel';
+import { HtmlFrame } from './html-preview';
 import { type TemplateHelpArea, TemplateHelp } from './template-help';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
@@ -95,17 +96,18 @@ export function PreviewDialog({
                 {p.subject}
               </p>
             ) : null}
-            <div
-              className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
-              data-testid="preview-body"
-            >
-              {p.body
-                .replace(/<br\s*\/?>/gi, '\n')
-                .replace(/<\/p>\s*<p>/gi, '\n\n')
-                .replace(/<li>/gi, '• ')
-                .replace(/<\/li>/gi, '\n')
-                .replace(/<[^>]+>/g, '')}
-            </div>
+            {template.kind === 'SMS' ? (
+              <div
+                className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
+                data-testid="preview-body"
+              >
+                {p.body.replace(/<[^>]+>/g, '')}
+              </div>
+            ) : (
+              // TP-F07: as an email shows it (images, alignment, the button), in a frame that runs
+              // nothing (sandbox); the API cleaned the HTML already.
+              <HtmlFrame html={p.body} title={`Content of ${template.name}`} />
+            )}
             {p.sms ? (
               <p className="text-xs text-muted">
                 {p.sms.characters} characters, {p.sms.parts} text{' '}

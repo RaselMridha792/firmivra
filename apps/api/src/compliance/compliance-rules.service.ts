@@ -1,5 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import {
+  CLASSIFICATION_LABEL,
+  type FederalClassification,
+  LLC_CLASSIFICATIONS,
+  TAXED_AS,
+  classificationOf,
+} from '@firmivra/types';
 import type {
   ComplianceApplicabilityRule,
   ComplianceApplicabilityRulePage,
@@ -118,20 +125,39 @@ export function decide(
   if (lower(rule.excludeStatuses).includes(client.status.toLowerCase())) {
     return { kind: 'EXCLUDED' };
   }
+  // Every definite mismatch is a NO_MATCH; what the client's record cannot answer goes to staff
+  // (the first such reason), and only after nothing else rules the client out.
   const parts: string[] = [];
-  const entity = client.profile?.entityType ?? null;
+  const unknown: string[] = [];
   if (rule.entityTypes.length > 0) {
-    if (!entity)
-      return { kind: 'REVIEW', reason: `${tag(rule)}: the client's entity type is not recorded` };
-    if (!lower(rule.entityTypes).includes(entity.toLowerCase())) return { kind: 'NO_MATCH' };
-    parts.push(`entity ${entity}`);
+    // CD-F14 (Octavia, Oct 28): classifications on both sides; an LLC is taxed by its election.
+    const wanted = rule.entityTypes
+      .map(classificationOf)
+      .filter((x): x is FederalClassification => !!x && x !== 'LLC');
+    const fits = (c: FederalClassification) => wanted.includes(c) || wanted.includes(TAXED_AS[c]);
+    const raw = client.profile?.entityType ?? null;
+    const has = classificationOf(raw);
+    if (!raw) unknown.push("the client's entity type is not recorded");
+    else if (has === null) {
+      unknown.push(`the client's entity type "${raw.slice(0, 40)}" is not a tax classification`);
+    } else if (has === 'LLC') {
+      if (!LLC_CLASSIFICATIONS.some(fits)) return { kind: 'NO_MATCH' };
+      unknown.push(
+        'the client is an LLC without its tax classification (single-member, multi-member, S or C election)',
+      );
+    } else {
+      if (!fits(has)) return { kind: 'NO_MATCH' };
+      const taxed = TAXED_AS[has];
+      parts.push(
+        `entity ${CLASSIFICATION_LABEL[has]}${taxed !== has ? ` (taxed as ${CLASSIFICATION_LABEL[taxed]})` : ''}`,
+      );
+    }
   }
   const state = client.profile?.state ?? null;
   if (rule.states.length > 0) {
-    if (!state)
-      return { kind: 'REVIEW', reason: `${tag(rule)}: the client's state is not recorded` };
-    if (!rule.states.includes(state.toUpperCase())) return { kind: 'NO_MATCH' };
-    parts.push(`state ${state.toUpperCase()}`);
+    if (!state) unknown.push("the client's state is not recorded");
+    else if (!rule.states.includes(state.toUpperCase())) return { kind: 'NO_MATCH' };
+    else parts.push(`state ${state.toUpperCase()}`);
   }
   if (rule.services.length > 0) {
     const kinds = client.engagements.map((e) => e.service.kind);
@@ -140,18 +166,11 @@ export function decide(
     parts.push(`service ${hit}`);
   }
   if (rule.priorYearLiabilityOverCents !== null) {
-    return {
-      kind: 'REVIEW',
-      reason: `${tag(rule)}: the client's prior-year tax liability is not recorded`,
-    };
+    unknown.push("the client's prior-year tax liability is not recorded");
   }
   const criteria = Object.keys((rule.criteria ?? {}) as object);
-  if (criteria.length > 0) {
-    return {
-      kind: 'REVIEW',
-      reason: `${tag(rule)}: staff must check ${criteria.slice(0, 5).join(', ')}`,
-    };
-  }
+  if (criteria.length > 0) unknown.push(`staff must check ${criteria.slice(0, 5).join(', ')}`);
+  if (unknown.length > 0) return { kind: 'REVIEW', reason: `${tag(rule)}: ${unknown[0]}` };
   return {
     kind: 'MATCH',
     reason: `${tag(rule)} applies${parts.length ? `: ${parts.join(', ')}` : ''}`,

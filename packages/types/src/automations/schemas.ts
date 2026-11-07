@@ -79,6 +79,13 @@ export const AutomationOperator = z.enum([
   'CONTAINS',
   'EXISTS',
   'NOT_EXISTS',
+  /** AU-F23: a date on the given day (the firm's day). */
+  'ON',
+  /** AU-F23 Within a Period: a date in the last or the next N days, today included (firm's days). */
+  'WITHIN_LAST',
+  'WITHIN_NEXT',
+  /** AU-F23: text that does not contain the value (an empty field does not contain it). */
+  'NOT_CONTAINS',
 ]);
 export type AutomationOperator = z.infer<typeof AutomationOperator>;
 
@@ -144,6 +151,12 @@ export const AutomationActionField = z.object({
     'MEMBERS',
     /** One of the firm's live document categories, by id (GET /business/document-categories). */
     'DOCUMENT_CATEGORY',
+    /** One of the firm's intake forms with a published version, by id (GET /business/intake-forms). */
+    'INTAKE_FORM',
+    /** One of the firm's live task templates, by id (its choices come with the firm's catalog). */
+    'TASK_TEMPLATE',
+    /** One of the firm's live services, by id (its choices come with the firm's catalog). */
+    'SERVICE',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),
@@ -166,6 +179,11 @@ export const AutomationActionTypeInfo = z.object({
   contactsClient: z.boolean(),
   /** Acts for the record's client (a task, a message, a tag): an event with no client can't use it. */
   needsClient: z.boolean(),
+  /**
+   * Acts on the event's own record of this kind (a lead's follow-up, a tax return's approval):
+   * offered only on that kind's events. Absent: it acts for the client.
+   */
+  recordKind: z.string().nullable().optional(),
 });
 export type AutomationActionTypeInfo = z.infer<typeof AutomationActionTypeInfo>;
 

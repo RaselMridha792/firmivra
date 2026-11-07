@@ -49,6 +49,7 @@ import {
   structurePayload,
 } from './structure-panel';
 import { ArchiveDialog } from './template-actions';
+import { IMAGE_SIZING, useButtonDialog, useContentImages } from './content-tools';
 import { PreviewDialog } from './template-dialogs';
 import { TemplateHelp } from './template-help';
 import {
@@ -198,6 +199,9 @@ function Editor({
   const [preview, setPreview] = useState(false);
   const [impact, setImpact] = useState<string>();
   const [archiving, setArchiving] = useState(false);
+  // TP-F07: images, alignment and a call-to-action button in the rich content.
+  const images = useContentImages();
+  const buttons = useButtonDialog();
   const [tagText, setTagText] = useState('');
   const [fieldSearch, setFieldSearch] = useState('');
   const [group, setGroup] = useState<(typeof GROUPS)[number]['id']>('ALL');
@@ -501,14 +505,28 @@ function Editor({
                 </p>
               </div>
             ) : (
-              <RichTextEditor
-                label={`${meta.noun} Content`}
-                required
-                value={form.body}
-                onChange={(html) => set({ body: html })}
-                maxLength={50_000}
-                {...(errors.body ? { error: errors.body } : {})}
-              />
+              <div className="flex flex-col gap-1">
+                {images.fileInput}
+                <RichTextEditor
+                  label={`${meta.noun} Content`}
+                  required
+                  value={form.body}
+                  onChange={(html) => set({ body: html })}
+                  maxLength={50_000}
+                  imageSizing={IMAGE_SIZING}
+                  onInsertImage={images.insert}
+                  textAlign
+                  onInsertButton={buttons.ask}
+                  {...(errors.body ? { error: errors.body } : {})}
+                />
+                {images.busy ? <p className="text-xs text-muted">Uploading the image…</p> : null}
+                {images.problem ? (
+                  <p role="alert" className="text-xs text-danger">
+                    {images.problem}
+                  </p>
+                ) : null}
+                {buttons.dialog}
+              </div>
             )}
           </div>
         </section>
