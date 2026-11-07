@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
+import { EMAIL_FONTS } from '../leads/email.js';
 import {
   DeliveryChannel,
   MessageTemplateAccess,
@@ -102,6 +103,13 @@ export const TemplateAttachment = z.object({
 export type TemplateAttachment = z.infer<typeof TemplateAttachment>;
 
 /** One row of the library table, the Recent Templates list and the pickers. */
+const CONTENT_FONT_KEYS: readonly string[] = ['ARIAL', 'GEORGIA', 'TIMES', 'VERDANA', 'COURIER'];
+/**
+ * CM-F10: the mail-safe fonts a message's content may use (Arial, Georgia, Times New Roman,
+ * Verdana, Courier New), from the lead email's list; the sanitizer keeps exactly these.
+ */
+export const CONTENT_FONTS = EMAIL_FONTS.filter((f) => CONTENT_FONT_KEYS.includes(f.key));
+
 export const MessageTemplateRow = z.object({
   id: z.uuid(),
   kind: MessageTemplateKind,

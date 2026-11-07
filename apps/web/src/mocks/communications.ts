@@ -13,7 +13,9 @@ import {
   type CommunicationRow,
   CommunicationsQuery,
   type CommunicationsClient,
+  ConfirmEmailImageUploadRequest,
   ConfirmUploadRequest,
+  CreateEmailImageUploadRequest,
   ConsentQuery,
   CreateCommunicationRequest,
   CreateSegmentRequest,
@@ -306,6 +308,8 @@ export function createCommunicationsMock({
     >
   >();
   const id = (block: string) => uuid(block, next++);
+  /** CM-F08: images in the content waiting for their confirm. */
+  const imageUploads = new Map<string, 'image/png' | 'image/jpeg' | 'image/gif'>();
   const run = async <T>(work: () => T): Promise<T> => {
     await mockDelay();
     return copy(work());
@@ -1273,6 +1277,33 @@ export function createCommunicationsMock({
           method: 'PUT' as const,
           headers: { 'content-type': input.contentType },
           expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    // CM-F08: an image in the content, as the API (the firm's email images): a placeholder picture.
+    createImageUpload: (body) =>
+      run(() => {
+        const input = parseInput(CreateEmailImageUploadRequest, body);
+        const token = `mock-comms-image-${next++}`;
+        imageUploads.set(token, input.contentType);
+        return {
+          uploadToken: token,
+          url: `mock:upload/${token}`,
+          method: 'PUT' as const,
+          headers: { 'content-type': input.contentType },
+          expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    confirmImageUpload: (body) =>
+      run(() => {
+        const { uploadToken } = parseInput(ConfirmEmailImageUploadRequest, body);
+        const contentType = imageUploads.get(uploadToken);
+        if (!contentType) throw fail(410, 'UPLOAD_EXPIRED', 'Upload the image again');
+        imageUploads.delete(uploadToken);
+        return {
+          id: id('c900'),
+          url: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="100%" height="100%" fill="#6b7f99"/></svg>')}`,
+          contentType,
+          sizeBytes: 67,
         };
       }),
     confirmAttachment: (body) =>

@@ -222,6 +222,17 @@ Progress (Templates, Oct 28 review):
     its own inline look, since an email has no stylesheet) and an image's width within 24 to 600
     px.
   - Preview shows the content as an email does, in a sandboxed frame. SMS stays plain text.
+- Composer content, branch `rasel/R60-comms-rich`: CM-F08 and CM-F10 (the lead's answers, Nov 7).
+  - Email and Announcement take an image (`business/communications/images` and `/confirm`,
+    Communications' own access) and the Font menu with the five mail-safe fonts
+    (`CONTENT_FONTS`). The shared sanitizer keeps exactly those fonts.
+  - The composer's preview, the review dialog and Sent History's Message tab show the message as it
+    will look, in the sandboxed frame. SMS stays text.
+  - The portal's Announcements page shows the announcement's formatting through
+    `sanitizeForPortal`: https links open apart, images only from that firm's email-images
+    address. The dashboard card, bells and notices keep the plain `body`. This is a one-off
+    exception the lead gave for `client-portal/portal-announcements.ts` and the portal's
+    announcement card.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

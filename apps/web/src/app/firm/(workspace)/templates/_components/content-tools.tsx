@@ -25,8 +25,11 @@ const IMAGE_ERRORS: Record<string, string> = {
   UPLOAD_EXPIRED: 'The upload took too long. Try again.',
 };
 
-/** The image tool: picks one file, uploads it, and answers its public address (null if not). */
-export function useContentImages() {
+/**
+ * The image tool: picks one file, uploads it, and answers its public address (null if not).
+ * Templates (TP-F07) and Communications (CM-F08) each have their own routes to the same images.
+ */
+export function useContentImages(through: 'templates' | 'communications' = 'templates') {
   const inputRef = useRef<HTMLInputElement>(null);
   const waitingRef = useRef<((file: File | null) => void) | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -43,8 +46,14 @@ export function useContentImages() {
       const image = await uploadImage(file, {
         contentTypes: EMAIL_IMAGE_LIMITS.contentTypes,
         maxBytes: EMAIL_IMAGE_LIMITS.maxBytes,
-        start: (body) => api.templates.createImageUpload(body),
-        finish: (uploadToken) => api.templates.confirmImageUpload({ uploadToken }),
+        start: (body) =>
+          through === 'templates'
+            ? api.templates.createImageUpload(body)
+            : api.communications.createImageUpload(body),
+        finish: (uploadToken) =>
+          through === 'templates'
+            ? api.templates.confirmImageUpload({ uploadToken })
+            : api.communications.confirmImageUpload({ uploadToken }),
       });
       return image.url;
     } catch (error) {

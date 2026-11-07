@@ -1,11 +1,19 @@
 import sanitizeHtml from 'sanitize-html';
-import { EMAIL_IMAGE_LIMITS } from '@firmivra/types';
+import { CONTENT_FONTS, EMAIL_IMAGE_LIMITS } from '@firmivra/types';
 
 // What a template's HTML may hold. A template is rich text (headings, paragraphs, lists, links,
 // images, tables, buttons as links), sanitized when it is saved or imported and again after it is
 // rendered with data; Communications cleans its emails with it too. Scripts, event handlers,
-// forms, styles beyond text alignment (left, centre, right) and an image's width, classes beyond
-// the button link's, and links to anything but http, https, mailto and tel are removed.
+// forms, styles beyond text alignment (left, centre, right), the content fonts (CM-F10) and an
+// image's width, classes beyond the button link's, and links to anything but http, https, mailto
+// and tel are removed.
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** CM-F10: one of the content fonts first (quoted or not), then plain fallback names. */
+const FONT_FAMILY = new RegExp(
+  `^(?:${CONTENT_FONTS.map((f) => `['"]?${escapeRegex(f.label)}['"]?`).join('|')})(?:\\s*,\\s*['"]?[A-Za-z][A-Za-z -]*['"]?)*$`,
+  'i',
+);
 
 /** A call-to-action link drawn as a button (the editor's BUTTON_LINK_CLASS, TP-F07). */
 export const BUTTON_CLASS = 'fv-button';
@@ -65,7 +73,7 @@ const OPTIONS: sanitizeHtml.IOptions = {
   // A link keeps only the button class; no other element keeps a class.
   allowedClasses: { a: [BUTTON_CLASS] },
   allowedStyles: {
-    '*': { 'text-align': [/^(left|right|center)$/] },
+    '*': { 'text-align': [/^(left|right|center)$/], 'font-family': [FONT_FAMILY] },
     a: {
       display: [/^inline-block$/],
       padding: [/^10px 18px$/],
@@ -82,6 +90,13 @@ const OPTIONS: sanitizeHtml.IOptions = {
   allowProtocolRelative: false,
   disallowedTagsMode: 'discard',
   transformTags: {
+    // A browser's font command writes <font face>: the content keeps the face as a style.
+    font: (_tag, attribs) => ({
+      tagName: 'span',
+      attribs: attribs.face
+        ? { style: `font-family:${attribs.face}` }
+        : ({} as sanitizeHtml.Attributes),
+    }),
     // A link that opens a new window must not hand it the opener. A button link (https only)
     // gets the button's own look; any other style or class on a link is dropped.
     a: (_tag, attribs) => {
@@ -154,4 +169,63 @@ export function stripTags(text: string): string {
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
+}
+
+const PORTAL_TAGS = [
+  'p',
+  'br',
+  'div',
+  'span',
+  'h3',
+  'h4',
+  'blockquote',
+  'strong',
+  'b',
+  'em',
+  'i',
+  'u',
+  's',
+  'ul',
+  'ol',
+  'li',
+  'a',
+  'img',
+];
+
+/**
+ * An announcement's HTML for the client portal (CM-F08, the lead's Nov 7 answer): the template
+ * rules, narrower. Alignment (left, centre, right), the content fonts and the button link stay;
+ * links are https only and open apart (`noopener noreferrer`); images come only from the firm's
+ * own email-images address (`images`); scripts, other styles and other attributes go. The portal
+ * shows nothing else; a snippet keeps `toPlainText`.
+ */
+export function sanitizeForPortal(html: string, images: (src: string) => boolean): string {
+  const base = OPTIONS.transformTags ?? {};
+  const link = base['a'] as sanitizeHtml.Transformer;
+  return sanitizeHtml(html, {
+    ...OPTIONS,
+    allowedTags: PORTAL_TAGS,
+    allowedAttributes: {
+      a: ['href', 'class', 'target', 'rel'],
+      img: ['src', 'alt', 'width'],
+      '*': ['style'],
+    },
+    allowedSchemes: ['https'],
+    // An image is kept only at the firm's own address (`images`, the portal's configured origin:
+    // https in production, http on a developer's machine), so the scheme follows that rule.
+    allowedSchemesByTag: { img: ['https', 'http'] },
+    transformTags: {
+      ...base,
+      a: (tag, attribs) => {
+        // Not https: its words stay, as text.
+        if (!/^https:\/\//i.test(attribs.href ?? '')) return { tagName: 'span', attribs: {} };
+        const out = link(tag, attribs);
+        return {
+          tagName: 'a',
+          attribs: { ...out.attribs, target: '_blank', rel: 'noopener noreferrer' },
+        };
+      },
+    },
+    exclusiveFilter: (frame) => frame.tag === 'img' && !images(frame.attribs.src ?? ''),
+  }).trim();
 }
