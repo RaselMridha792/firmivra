@@ -3,6 +3,7 @@ import {
   SetClientTagsRequest,
   BulkClientsRequest,
   ClientId,
+  ClientTimelineQuery,
   type ClientListRow,
   ClientRecord,
   type ClientPortalRole,
@@ -21,6 +22,7 @@ import {
   UpdateMyProfileRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
+import { timelineOf } from './client-timeline';
 import { mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
@@ -552,6 +554,14 @@ export function createClientsMock(
       await pause();
       const row = find(parseInput(ClientId, id));
       return { tags: [...(tags.get(row.id) ?? [])] };
+    },
+    // MSG-F16: what New Message's Add to Client Timeline wrote in this browser session.
+    timeline: async (id, query = {}) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const { limit } = parseInput(ClientTimelineQuery, query);
+      const all = timelineOf(row.id);
+      return { items: all.slice(0, limit), nextCursor: null };
     },
     setTags: async (id, body) => {
       await pause();
