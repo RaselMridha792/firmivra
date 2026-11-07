@@ -76,3 +76,59 @@ describe('the Sent state (IP-F07)', () => {
     expect(paid).toMatchObject({ status: 'PAID', sentAt: at });
   });
 });
+
+describe('Resend (IP-F10, Octavia Oct 27)', () => {
+  const resend = (id: string, who = t.people.ownerA, businessId?: string) =>
+    t.firm('post', `/${id}/resend`, who, {}, businessId);
+  const codeOf = (res: { body: unknown }) =>
+    (res.body as { error?: { code?: string } }).error?.code;
+  const deliveries = (invoiceId: string) =>
+    t.inScope(t.ids.firmA, (tx) =>
+      tx.notificationDelivery.count({
+        where: {
+          businessId: t.ids.firmA,
+          channel: 'EMAIL',
+          notification: { type: 'invoice.sent', entityId: invoiceId },
+        },
+      }),
+    );
+
+  it('sends an open invoice with a balance to its client again, audited, and nothing else', async () => {
+    const sent = await send((await create()).id);
+    expect(await deliveries(sent.id)).toBe(1);
+    const again = Invoice.parse(expectOk(await resend(sent.id)).body);
+    expect(again).toMatchObject({ id: sent.id, status: 'OPEN', number: sent.number });
+    expect(again.balanceDueCents).toBe(sent.balanceDueCents);
+    expect(await deliveries(sent.id)).toBe(2);
+    const audit = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({ where: { entityId: sent.id, action: 'invoice.resent' } }),
+    );
+    expect(audit).toHaveLength(1);
+    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/Fake bookkeeping|20000/);
+  });
+
+  it('refuses a draft, a scheduled or a paid invoice; Staff may not; another firm gets not found', async () => {
+    const draft = await create();
+    const scheduled = await send((await create({ scheduledFor: nyDay(5) })).id);
+    const paid = await send((await create()).id);
+    expectOk(
+      await t.firm('post', `/${paid.id}/offline-payments`, t.people.ownerA, {
+        method: 'CASH',
+        amountCents: 20_000,
+        receivedOn: nyDay(0),
+        idempotencyKey: randomUUID(),
+      }),
+    );
+    for (const id of [draft.id, scheduled.id, paid.id]) {
+      const res = await resend(id);
+      expect([res.status, codeOf(res)], id).toEqual([409, 'NOT_RESENDABLE']);
+    }
+    const open = await send((await create()).id);
+    expect((await resend(open.id, t.people.staffA)).status).toBe(403);
+    const other = await resend(open.id, t.people.ownerB, t.ids.firmB);
+    expect([other.status, codeOf(other)]).toEqual([404, 'NOT_FOUND']);
+    const unknown = await resend(randomUUID());
+    expect(unknown.status).toBe(404);
+    expect(await deliveries(open.id)).toBe(1);
+  });
+});

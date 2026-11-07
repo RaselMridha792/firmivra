@@ -97,6 +97,12 @@ export function createInvoicesClient(request: ApiRequest) {
      */
     send: async (id: string): Promise<Invoice> =>
       request(Invoice, `${one(id)}/send`, { method: 'POST', body: {} }),
+    /**
+     * IP-F10: an open invoice with something still to pay goes to the client again (its email and
+     * bell item, as on Send). Owner and Admin. 409 NOT_RESENDABLE or CLIENT_ARCHIVED.
+     */
+    resend: async (id: string): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/resend`, { method: 'POST', body: {} }),
     /** Draft, scheduled or open. 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS or HAS_PAYMENTS. */
     cancel: async (id: string, body: CancelInvoiceRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/cancel`, {

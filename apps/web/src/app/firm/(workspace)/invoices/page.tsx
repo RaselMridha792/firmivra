@@ -20,6 +20,8 @@ export default async function InvoicesPage({
     <InvoicesOverview
       initialStatus={q.status === 'OUTSTANDING' ? 'OUTSTANDING' : ''}
       fromDashboard={openedFromDashboard(q.back)}
+      // IP-F10: Copy Payment Link; the portal's address comes from config, read on the server.
+      portalBase={process.env['PORTAL_BASE_URL'] ?? ''}
     />
   );
 }
