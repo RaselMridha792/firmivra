@@ -243,7 +243,11 @@ export function IntegrationsScreen({
               items={[
                 { id: 'all', label: `All Integrations (${summary?.total ?? 0})` },
                 { id: 'connected', label: `Connected (${summary?.connected ?? 0})` },
-                { id: 'available', label: `Available (${summary?.available ?? 0})` },
+                {
+                  // IN-Y01: every provider not connected, ready or not (Ready to Connect is the card).
+                  id: 'available',
+                  label: `Not Connected (${(summary?.available ?? 0) + (summary?.comingSoon ?? 0)})`,
+                },
                 { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? 0})` },
               ]}
             />
