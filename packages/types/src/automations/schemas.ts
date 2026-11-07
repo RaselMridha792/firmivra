@@ -144,6 +144,8 @@ export const AutomationActionField = z.object({
     'MEMBERS',
     /** One of the firm's live document categories, by id (GET /business/document-categories). */
     'DOCUMENT_CATEGORY',
+    /** One of the firm's intake forms with a published version, by id (GET /business/intake-forms). */
+    'INTAKE_FORM',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CursorClick,
   Eraser,
   Image as ImageIcon,
   Link as LinkIcon,
@@ -38,12 +39,28 @@ const BLOCKS = [
   { value: 'h4', label: 'Subheading' },
 ] as const;
 
+type Special = 'link' | 'image' | 'button' | 'left' | 'center' | 'right';
+
 interface Tool {
   label: string;
   icon: Icon;
   command?: string;
   arg?: string;
-  special?: 'link' | 'image';
+  special?: Special;
+}
+
+/** The class of a call-to-action link drawn as a button (`onInsertButton`); the API keeps only it. */
+export const BUTTON_LINK_CLASS = 'fv-button';
+
+const escapeText = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** A button link on its own line, or null unless it has a label and an https address. */
+export function buttonLinkHtml(label: string, href: string): string | null {
+  const text = label.trim();
+  const url = href.trim();
+  if (!text || !HTTPS_LINK.test(url)) return null;
+  return `<p><a class="${BUTTON_LINK_CLASS}" href="${escapeAttr(url)}">${escapeText(text)}</a></p>`;
 }
 
 /** The toolbar's groups, as in the design: style | B I U | lists | link, image | quote, clear | strike. */
@@ -68,6 +85,15 @@ const TOOL_GROUPS: { id: string; tools: Tool[] }[] = [
     tools: [
       { label: 'Insert link', icon: LinkIcon, special: 'link' },
       { label: 'Insert image', icon: ImageIcon, special: 'image' },
+      { label: 'Insert button', icon: CursorClick, special: 'button' },
+    ],
+  },
+  {
+    id: 'align',
+    tools: [
+      { label: 'Align left', icon: TextAlignLeft, special: 'left' },
+      { label: 'Align centre', icon: TextAlignCenter, special: 'center' },
+      { label: 'Align right', icon: TextAlignRight, special: 'right' },
     ],
   },
   {
@@ -107,6 +133,13 @@ export interface RichTextEditorProps {
   imageSizing?: { minWidth: number; maxWidth: number };
   /** Leaves out the link button, for text whose links are not kept (a lead email). */
   noLinks?: boolean;
+  /** Align left, centre and right for the paragraphs the selection touches (a template, TP-F07). */
+  textAlign?: boolean;
+  /**
+   * Asks for a call-to-action button's label and https address, and inserts it as a link drawn as
+   * a button (`BUTTON_LINK_CLASS`) on its own line; the button tool is left out without it.
+   */
+  onInsertButton?: () => Promise<{ label: string; href: string } | null>;
 }
 
 const run = (command: string, arg?: string) => {
@@ -173,6 +206,39 @@ function styleSelection(area: HTMLElement, property: 'fontFamily' | 'fontSize', 
 }
 
 const BLOCK = 'p,div,h3,h4,li,blockquote';
+
+/** The innermost blocks the selection touches inside `area`: what alignment applies to. */
+function selectedBlocks(area: HTMLElement): HTMLElement[] {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return [];
+  const range = selection.getRangeAt(0);
+  if (!area.contains(range.commonAncestorContainer)) return [];
+  const touched = [...area.querySelectorAll<HTMLElement>(BLOCK)].filter(
+    (b) => range.intersectsNode(b) && !b.querySelector(BLOCK),
+  );
+  if (touched.length) return touched;
+  const start = range.startContainer;
+  const own = (start instanceof HTMLElement ? start : start.parentElement)?.closest<HTMLElement>(
+    BLOCK,
+  );
+  // The box itself is a div: text typed straight into it has no paragraph of its own yet.
+  return own && own !== area && area.contains(own) ? [own] : [];
+}
+
+/** The caret or selection inside `area`, kept while a dialog or the file picker has the focus. */
+function keepSelection(area: HTMLElement | null): () => void {
+  const selection = window.getSelection();
+  const range =
+    area && selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+  const kept = range && area?.contains(range.commonAncestorContainer) ? range : null;
+  return () => {
+    area?.focus();
+    if (!kept) return;
+    const now = window.getSelection();
+    now?.removeAllRanges();
+    now?.addRange(kept);
+  };
+}
 const ALIGNMENTS = [
   { value: 'left', label: 'Place image left', icon: TextAlignLeft },
   { value: 'center', label: 'Place image in the centre', icon: TextAlignCenter },
@@ -230,6 +296,8 @@ export function RichTextEditor({
   fontSizes,
   imageSizing,
   noLinks,
+  textAlign,
+  onInsertButton,
 }: RichTextEditorProps) {
   const id = useId();
   const areaRef = useRef<HTMLDivElement>(null);
@@ -254,14 +322,47 @@ export function RichTextEditor({
     if (answer && HTTPS_LINK.test(answer.trim())) format('createLink', answer.trim());
   };
   const image = async () => {
+    // The file picker takes the focus: the image goes where the caret was.
+    const restore = keepSelection(areaRef.current);
     const src = onInsertImage ? await onInsertImage() : null;
     if (!src) return;
+    restore();
     if (!imageSizing) {
       format('insertImage', src);
       return;
     }
     const width = await startWidth(src, imageSizing);
     format('insertHTML', `<img src="${escapeAttr(src)}" alt="" style="width: ${width}px;">`);
+  };
+  const button = async () => {
+    const restore = keepSelection(areaRef.current);
+    const answer = onInsertButton ? await onInsertButton() : null;
+    const html = answer ? buttonLinkHtml(answer.label, answer.href) : null;
+    const area = areaRef.current;
+    if (!html || !area) return;
+    restore();
+    // On its own line: after the caret's paragraph (after its list, in a list), else at the end.
+    const block = selectedBlocks(area).at(-1);
+    const after = block?.closest<HTMLElement>('ul,ol') ?? block;
+    if (after && after !== area && area.contains(after)) after.insertAdjacentHTML('afterend', html);
+    else area.insertAdjacentHTML('beforeend', html);
+    emit();
+  };
+  const align = (value: 'left' | 'center' | 'right') => {
+    const area = areaRef.current;
+    if (!area) return;
+    area.focus();
+    let blocks = selectedBlocks(area);
+    // Text straight in the box has no paragraph yet: make one, then align it.
+    if (blocks.length === 0) {
+      run('formatBlock', 'p');
+      blocks = selectedBlocks(area);
+    }
+    for (const b of blocks) {
+      b.style.textAlign = value === 'left' ? '' : value;
+      if (!b.getAttribute('style')) b.removeAttribute('style');
+    }
+    emit();
   };
   const style = (property: 'fontFamily' | 'fontSize', value: string) => {
     const area = areaRef.current;
@@ -317,8 +418,19 @@ export function RichTextEditor({
   const apply = (tool: Tool) => {
     if (tool.special === 'link') void link();
     else if (tool.special === 'image') void image();
+    else if (tool.special === 'button') void button();
+    else if (tool.special === 'left' || tool.special === 'center' || tool.special === 'right')
+      align(tool.special);
     else if (tool.command) format(tool.command, tool.arg);
   };
+  // The opt-in tools are left out, not disabled, when not asked for.
+  const shown = (tool: Tool) =>
+    !(noLinks && tool.special === 'link') &&
+    !(tool.special === 'button' && !onInsertButton) &&
+    !(
+      (tool.special === 'left' || tool.special === 'center' || tool.special === 'right') &&
+      !textAlign
+    );
   const paste = (event: ClipboardEvent<HTMLDivElement>) => {
     event.preventDefault();
     run('insertText', event.clipboardData.getData('text/plain'));
@@ -399,27 +511,25 @@ export function RichTextEditor({
               </select>
             </>
           ) : null}
-          {TOOL_GROUPS.map((group) => (
+          {TOOL_GROUPS.filter((group) => group.tools.some(shown)).map((group) => (
             <div
               key={group.id}
               className="flex items-center border-r border-border px-1 last:border-r-0"
             >
-              {group.tools
-                .filter((tool) => !(noLinks && tool.special === 'link'))
-                .map((tool) => (
-                  <button
-                    key={tool.label}
-                    type="button"
-                    title={tool.label}
-                    aria-label={tool.label}
-                    disabled={disabled || (tool.special === 'image' && !onInsertImage)}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => apply(tool)}
-                    className="flex size-9 items-center justify-center rounded-md text-text hover:bg-folder-surface disabled:cursor-not-allowed disabled:text-control-border disabled:hover:bg-transparent"
-                  >
-                    <tool.icon aria-hidden weight="bold" className="size-5" />
-                  </button>
-                ))}
+              {group.tools.filter(shown).map((tool) => (
+                <button
+                  key={tool.label}
+                  type="button"
+                  title={tool.label}
+                  aria-label={tool.label}
+                  disabled={disabled || (tool.special === 'image' && !onInsertImage)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => apply(tool)}
+                  className="flex size-9 items-center justify-center rounded-md text-text hover:bg-folder-surface disabled:cursor-not-allowed disabled:text-control-border disabled:hover:bg-transparent"
+                >
+                  <tool.icon aria-hidden weight="bold" className="size-5" />
+                </button>
+              ))}
             </div>
           ))}
         </div>
@@ -492,7 +602,7 @@ export function RichTextEditor({
             onInput={input}
             onPaste={paste}
             onClick={pick}
-            className="min-h-32 px-4 py-3 text-sm text-text focus:outline-none [&_a]:text-link [&_a]:underline [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_h3]:text-lg [&_h3]:font-bold [&_h4]:font-semibold [&_img]:inline-block [&_img]:max-w-full [&_img]:cursor-pointer [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
+            className="min-h-32 px-4 py-3 text-sm text-text focus:outline-none [&_a]:text-link [&_a]:underline [&_a.fv-button]:my-1 [&_a.fv-button]:inline-block [&_a.fv-button]:rounded-control [&_a.fv-button]:bg-action [&_a.fv-button]:px-4 [&_a.fv-button]:py-2 [&_a.fv-button]:font-semibold [&_a.fv-button]:text-on-action [&_a.fv-button]:no-underline [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_h3]:text-lg [&_h3]:font-bold [&_h4]:font-semibold [&_img]:inline-block [&_img]:max-w-full [&_img]:cursor-pointer [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
           />
         </div>
       </div>
