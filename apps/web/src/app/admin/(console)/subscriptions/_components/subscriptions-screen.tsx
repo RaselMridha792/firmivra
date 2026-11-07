@@ -1,5 +1,7 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
+
 import { BulkBar, Button, Callout, Card, PageHeader, Toast, type DateRange } from '@firmivra/ui';
 import { CaretRight, DownloadSimple, UserSwitch, X } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -50,7 +52,12 @@ type Subject = Pick<SubscriptionListItem, 'id' | 'autoRenew' | 'status'> & {
 /** The Super Admin Subscriptions page (S03): docx §2 to §5, every action a dialog on the page. */
 export function SubscriptionsScreen() {
   const [draft, setDraft] = useState<Filters>(NO_FILTERS);
-  const [applied, setApplied] = useState<Filters>(NO_FILTERS);
+  // SA-RPT-R5: a firm-scoped link (Reports' firm view) opens the list found by the firm's name.
+  const address = useSearchParams();
+  const [applied, setApplied] = useState<Filters>(() => ({
+    ...NO_FILTERS,
+    search: (address.get('search') ?? '').slice(0, 100),
+  }));
   const [periodError, setPeriodError] = useState<string | null>(null);
   const [panel, setPanel] = useState<{
     id: string;

@@ -32,3 +32,26 @@ test('New Message: Cancel with unsaved edits asks Discard or Keep editing; nothi
     .click();
   await expect(page).toHaveURL(/\/communications$/);
 });
+
+test('firm-scoped links open Support and Billing for that one firm, in Super Admin (SA-RPT-R4, R5)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // Support: the firm from the address is the Firm filter, shown as a chip.
+  await page.goto(admin('/support'));
+  await page.getByRole('button', { name: /^Filters/ }).click();
+  const firmSelect = page.getByLabel('Firm', { exact: true });
+  const firm = await firmSelect.locator('option').nth(1).getAttribute('value');
+  const firmName = (await firmSelect.locator('option').nth(1).textContent())?.trim() ?? '';
+  expect(firm).toMatch(/^[0-9a-f-]{36}$/);
+  await page.goto(admin(`/support?firm=${firm}`));
+  await expect(page.getByTestId('active-filters')).toContainText(`Firm: ${firmName}`);
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/super-admin/support-for-firm.png' });
+
+  // Billing: the firm from the address is the firm picker's choice.
+  await page.goto(admin('/billing'));
+  const picker = page.getByRole('combobox', { name: /Firm/ }).first();
+  const billingFirm = await picker.locator('option').nth(1).getAttribute('value');
+  await page.goto(admin(`/billing?firm=${billingFirm}`));
+  await expect(page.getByRole('combobox', { name: /Firm/ }).first()).toHaveValue(billingFirm ?? '');
+});
