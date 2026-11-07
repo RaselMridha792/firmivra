@@ -12,24 +12,25 @@ export interface DateRangePickerProps {
   label: string;
   value: DateRange;
   onChange: (range: DateRange) => void;
+  /**
+   * Opt in (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4): each date gets a spoken name ("Created Date: From,
+   * start date"), and an end before the start is never passed on: it stays on screen with "End
+   * date is before start date" until it is fixed. Left out, the control works as before.
+   */
+  strict?: boolean;
 }
 
 const field =
   'flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-sm text-text focus-within:outline-2 focus-within:outline-focus';
 
-/**
- * A From and To date, each with the calendar icon; the browser's own calendar opens on click.
- * Each date has a name screen readers say ("Created Date: From, start date"). An end before the
- * start is never passed on: it stays on screen with "End date is before start date" until it is
- * fixed, and the range last passed on stays in force (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4).
- */
-export function DateRangePicker({ label, value, onChange }: DateRangePickerProps) {
+/** A From and To date, each with the calendar icon; the browser's own calendar opens on click. */
+export function DateRangePicker({ label, value, onChange, strict = false }: DateRangePickerProps) {
   const id = useId();
   const [held, setHeld] = useState<DateRange | null>(null);
   const shown = held ?? value;
   const reversed = Boolean(shown.from && shown.to && shown.to < shown.from);
   const change = (next: DateRange) => {
-    if (next.from && next.to && next.to < next.from) {
+    if (strict && next.from && next.to && next.to < next.from) {
       setHeld(next);
       return;
     }
@@ -46,9 +47,16 @@ export function DateRangePicker({ label, value, onChange }: DateRangePickerProps
             <input
               id={`${id}-${edge}`}
               type="date"
-              aria-label={`${label}: ${edge === 'from' ? 'From, start date' : 'To, end date'}`}
-              aria-invalid={edge === 'to' && reversed ? true : undefined}
-              aria-describedby={reversed ? `${id}-error` : undefined}
+              {...(strict
+                ? {
+                    'aria-label': `${label}: ${edge === 'from' ? 'From, start date' : 'To, end date'}`,
+                    'aria-invalid': edge === 'to' && reversed ? true : undefined,
+                    'aria-describedby': reversed ? `${id}-error` : undefined,
+                  }
+                : {
+                    min: edge === 'to' ? value.from || undefined : undefined,
+                    max: edge === 'from' ? value.to || undefined : undefined,
+                  })}
               value={shown[edge]}
               onChange={(event) => change({ ...shown, [edge]: event.target.value })}
               className="min-h-0 w-full min-w-0 bg-transparent text-text outline-none [&::-webkit-calendar-picker-indicator]:hidden"
@@ -58,7 +66,7 @@ export function DateRangePicker({ label, value, onChange }: DateRangePickerProps
           </label>
         ))}
       </div>
-      {reversed ? (
+      {strict && reversed ? (
         <p id={`${id}-error`} role="alert" className="text-xs text-danger">
           End date is before start date
         </p>

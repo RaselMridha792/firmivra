@@ -110,6 +110,7 @@ function DateRangeFilter({
           label="Records open in"
           value={value}
           onChange={(range) => onChange(range)}
+          strict
         />
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
