@@ -153,3 +153,52 @@ test('No sideways scroll at 375 px', async ({ page }) => {
     expect(over, path || 'overview').toBeLessThanOrEqual(1);
   }
 });
+
+// AU-F31 (#1264) on the record pages: with Manual Event Confirmation on, a completed deadline and
+// a completed payroll run each get Confirm Filing, once per occurrence. It never changes the
+// record. The pages are reached in the app, so the mock keeps the setting.
+test('Confirm Filing on a completed deadline and a completed payroll run', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/logs`);
+  await page.getByRole('button', { name: 'View Automation Settings' }).click();
+  await page.getByLabel('Manual Event Confirmation').check();
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByText('Settings saved.')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Compliance & Deadlines', exact: true }).click();
+  await page
+    .getByRole('tablist', { name: 'Compliance views' })
+    .getByRole('tab', { name: 'Completed' })
+    .click();
+  await page
+    .getByTestId('deadline-table')
+    .getByRole('link', { name: 'Q2 Estimated Tax Payment' })
+    .click();
+  await expect(page.getByTestId('deadline-title')).toHaveText('Q2 Estimated Tax Payment');
+  await page.getByTestId('confirm-filing').click();
+  const dialog = page.getByTestId('confirm-filing-dialog');
+  await expect(dialog).toContainText('never files, submits, charges or pays');
+  await dialog.getByLabel('Reference').fill('IRS-ACK-2207');
+  await page.screenshot({ path: test.info().outputPath('confirm-deadline.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByTestId('filing-confirmed')).toContainText('IRS-ACK-2207');
+  await expect(page.getByTestId('confirm-filing')).toHaveCount(0);
+  // The deadline itself is unchanged.
+  await expect(page.getByRole('button', { name: 'Reopen' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Payroll', exact: true }).click();
+  await page.getByRole('link', { name: 'Green Leaf Café LLC' }).first().click();
+  await page.getByRole('tab', { name: 'Payroll Runs', exact: true }).click();
+  await page
+    .getByRole('row')
+    .filter({ hasText: 'Completed' })
+    .first()
+    .getByRole('link')
+    .first()
+    .click();
+  await expect(page.getByTestId('run-title')).toBeVisible();
+  await page.getByTestId('confirm-filing').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByTestId('filing-confirmed')).toContainText('Filing confirmed');
+  await page.screenshot({ path: test.info().outputPath('confirm-run.png') });
+});

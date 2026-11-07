@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
+import { ConfirmEventButton } from './confirm-event';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
@@ -207,6 +208,17 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
             >
               <Archive aria-hidden weight="fill" className="size-4" /> Archive
             </button>
+            {/* AU-F31 (#1264): the authority's confirmation of a completed deadline's filing,
+                for the automations waiting on it. It never changes the deadline. */}
+            {d.status === 'COMPLETED' ? (
+              <ConfirmEventButton
+                event="deadline.filing_confirmed"
+                module="COMPLIANCE"
+                recordId={d.id}
+                occurrence={d.dueOn}
+                what="this deadline's filing"
+              />
+            ) : null}
             {/* CD-F15 (Octavia, Oct 28): its own events in the module Logs, and every change in
                 the firm's Audit Log (Owners and Admins). */}
             <OriginLink

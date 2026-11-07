@@ -324,6 +324,7 @@ export class ReportsService {
         date: d.date as ReportDefinitionView['date'],
         chartType: d.chartType,
         showDataLabels: d.showDataLabels,
+        showLegend: d.showLegend,
         includeTaxRevenue: d.includeTaxRevenue,
       },
       source,
@@ -457,6 +458,7 @@ export class ReportsService {
       | 'search'
       | 'chartType'
       | 'showDataLabels'
+      | 'showLegend'
       | 'includeTaxRevenue'
     > & { page: number; pageSize: number; preview: boolean; hiddenColumns?: string[] },
   ): Promise<{
@@ -469,6 +471,7 @@ export class ReportsService {
       compareTo: o.compareTo ?? r.def.compareTo,
       chartType: o.chartType ?? r.def.chartType,
       showDataLabels: o.showDataLabels ?? r.def.showDataLabels,
+      showLegend: o.showLegend ?? r.def.showLegend,
       includeTaxRevenue: o.includeTaxRevenue ?? r.def.includeTaxRevenue,
       date: (o.date as ReportDefinitionView['date'] | undefined) ?? r.def.date,
     };

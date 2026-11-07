@@ -245,6 +245,8 @@ export const cases: CaseModule['cases'] = {
     expect: 409,
   },
   'GET /api/v1/business/message-threads/:id': thread,
+  // MSG-F18: the thread client's Recent Activity.
+  'GET /api/v1/business/message-threads/:id/activity': thread,
   'PATCH /api/v1/business/message-threads/:id': { ...thread, body: { repliesEnabled: false } },
   // MSG-F12: the reply's files are the thread client's own documents.
   'POST /api/v1/business/message-threads/:id/messages': {

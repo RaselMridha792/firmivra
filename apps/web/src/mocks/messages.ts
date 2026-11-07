@@ -28,6 +28,7 @@ import {
   type MessageSender,
   type MessagesClient,
   MessageThreadId,
+  type ClientActivityItem,
   type MessageThread,
   type MessageThreadDetail,
   type MyMessage,
@@ -71,7 +72,9 @@ import {
   mockStaff,
 } from './clients';
 import { createLeadPipelineMock } from './leads-pipeline';
-import { BOOKKEEPING_ENGAGEMENT } from './tasks';
+import { documentFixtures } from './documents';
+import { invoiceFixtures } from './invoices';
+import { BOOKKEEPING_ENGAGEMENT, taskFixtures } from './tasks';
 import { teamFixtures } from './team';
 
 /**
@@ -378,6 +381,75 @@ function firmThread(t: ThreadRow): MessageThread {
   };
 }
 
+/** MSG-F18: the client's latest activity (messages, invoices, documents, tasks), at most 10. */
+function activityOf(clientId: string): ClientActivityItem[] {
+  const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+  const items: ClientActivityItem[] = [];
+  const mine = new Set(
+    s()
+      .threads.filter((t) => t.clientId === clientId)
+      .map((t) => t.id),
+  );
+  for (const m of s().messages.filter((x) => mine.has(x.threadId))) {
+    const received = m.direction === 'CLIENT_TO_FIRM';
+    items.push({
+      kind: received ? 'MESSAGE_RECEIVED' : 'MESSAGE_SENT',
+      title: received ? 'Message Received' : 'Message Sent',
+      detail: m.body.replace(/\s+/g, ' ').slice(0, 80),
+      at: m.createdAt,
+      eventAt: null,
+      href: `/messages?thread=${m.threadId}`,
+    });
+  }
+  if (clientId === firstClientId) {
+    for (const v of invoiceFixtures().filter(
+      (x) => x.client.id === clientId && x.status !== 'DRAFT' && x.status !== 'CANCELED',
+    )) {
+      const paid = v.status === 'PAID' && v.paidAt;
+      items.push({
+        kind: paid ? 'INVOICE_PAID' : 'INVOICE_CREATED',
+        title: paid ? 'Invoice Paid' : 'Invoice Created',
+        detail: `${v.number} · ${usd.format(v.totalCents / 100)}`,
+        at: (paid ? v.paidAt : v.createdAt) ?? v.createdAt,
+        eventAt: null,
+        href: `/invoices/${v.id}`,
+      });
+    }
+    for (const d of documentFixtures().documents.filter((x) => x.clientId === clientId)) {
+      const up = d.direction === 'CLIENT_TO_FIRM';
+      items.push({
+        kind: up
+          ? 'DOCUMENT_UPLOADED'
+          : d.direction === 'FIRM_TO_CLIENT'
+            ? 'DOCUMENT_SHARED'
+            : 'DOCUMENT_ADDED',
+        title: up
+          ? 'Document Uploaded'
+          : d.direction === 'FIRM_TO_CLIENT'
+            ? 'Document Shared'
+            : 'Document Added',
+        detail: d.fileName,
+        at: d.createdAt,
+        eventAt: null,
+        href: `/documents/${d.id}`,
+      });
+    }
+    for (const k of taskFixtures().filter(
+      (x) => x.client.id === clientId && x.status === 'DONE' && x.completedAt,
+    )) {
+      items.push({
+        kind: 'TASK_COMPLETED',
+        title: 'Task Completed',
+        detail: k.title,
+        at: k.completedAt as string,
+        eventAt: null,
+        href: `/tasks/${k.id}`,
+      });
+    }
+  }
+  return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
+}
+
 // ----- New Message (R60, MSG-F09, F10, F14): drafts, schedules and sends -----
 
 interface OutboundRow {
@@ -474,9 +546,13 @@ function leadCopy(
 }
 
 /** MSG-F13: Jamie's own records a message can be about (synthetic). */
+/** Client 1's appointment that Related To offers (MSG-F21). */
+export const MOCK_RELATED_APPOINTMENT = '0199b6c3-0000-7000-8000-000000000001';
 function relatedFor(clientId: string): OutboundRelated[] {
   if (clientId !== firstClientId) return [];
   return [
+    // MSG-F21: an appointment's Send Message opens New Message with this one in Related To.
+    { type: 'appointment', id: MOCK_RELATED_APPOINTMENT, label: 'Appointment, Nov 12, 2026' },
     { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
     { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
     { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },
@@ -1219,6 +1295,13 @@ export function createMessagesMock(
       const t = find(threadId);
       t.archivedAt = null;
       return firmThread(t);
+    },
+    // MSG-F18: as the API: the client's latest records, newest first, from the other mocks'
+    // own fixtures, so each link opens a record that exists.
+    activity: async (threadId) => {
+      await mockDelay();
+      const t = find(threadId);
+      return { items: activityOf(t.clientId) };
     },
     fileDownload: async (fileId) => (await mockDelay(), sentFileLink(fileId)),
     unreadCount: async () => {

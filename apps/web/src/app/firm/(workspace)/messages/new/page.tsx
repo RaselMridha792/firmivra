@@ -1,3 +1,4 @@
+import { OUTBOUND_RELATED_TYPES } from '@firmivra/types';
 import type { Metadata } from 'next';
 import { ComposeScreen } from './_components/compose-screen';
 
@@ -6,16 +7,31 @@ export const metadata: Metadata = { title: 'New Message' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Param = string | string[] | undefined;
 const uuid = (v: Param) => (typeof v === 'string' && UUID.test(v) ? v : undefined);
+/** `?related=appointment:{id}`: one of the client's records, as Related To holds it. */
+const related = (v: Param) => {
+  if (typeof v !== 'string') return undefined;
+  const [type = '', id = ''] = v.split(':');
+  return (OUTBOUND_RELATED_TYPES as readonly string[]).includes(type) && UUID.test(id)
+    ? `${type}:${id}`
+    : undefined;
+};
 
 /**
  * /messages/new (MSG-F09, F10, F14; Frame 2): New Message. `?id=` reopens a draft or a scheduled
  * message; `?clientId=` and `?subject=` start one for a client (a service workspace's Send
- * Message, SH5).
+ * Message, SH5). `?related=` (with `?clientId=`) puts one of that client's records in Related To:
+ * an appointment's Send Message (MSG-F21).
  */
 export default async function NewMessagePage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: Param; clientId?: Param; subject?: Param; fresh?: Param }>;
+  searchParams: Promise<{
+    id?: Param;
+    clientId?: Param;
+    subject?: Param;
+    related?: Param;
+    fresh?: Param;
+  }>;
 }) {
   const q = await searchParams;
   const subject = typeof q.subject === 'string' && q.subject.length <= 200 ? q.subject : undefined;
@@ -26,6 +42,7 @@ export default async function NewMessagePage({
       initialId={uuid(q.id)}
       initialClientId={uuid(q.clientId)}
       initialSubject={subject}
+      initialRelated={related(q.related)}
     />
   );
 }

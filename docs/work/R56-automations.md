@@ -48,3 +48,4 @@ Queue (Scrum thread): Templates, Bookkeeping, then Automations and Communication
 ## Progress log
 
 - 2026-10-18: Automations built on the #730 contract with a new mock; 8-test spec passes; screenshots committed.
+- 2026-11-07: Confirm Filing on the record pages (lead queue item 4, R55's AU-F31 endpoint from #1264). A completed deadline (occurrence: due date) and a submitted, processing or completed payroll run (occurrence: period end; never the demo) record the authority's confirmation once per occurrence. It shows only while Manual Event Confirmation is on, and only to members the API allows (`confirm-access.ts`). The dialog says it never files, submits, charges or pays, and never changes the record. Afterwards the page shows who confirmed and when. The mock catalog has the API's four confirmable events with their record kinds. On `rasel/R56-confirm-buttons`. Tests: unit `confirm-access`, mock `r56-automations` (one new); screenshots `r56-confirm-filing/`.

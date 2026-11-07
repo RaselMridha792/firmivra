@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { MessageThread as ThreadShape } from '@firmivra/types';
+import { ClientActivityItem as ActivityItem, MessageThread as ThreadShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -406,5 +406,133 @@ describe('MSG-F22: thread actions', () => {
     }
     const still = await firm(`/message-threads/${ids.threadOne}`, people.ownerA);
     expect((still.body as { archivedAt: string | null }).archivedAt).toBeNull();
+  });
+});
+
+describe('MSG-F18: Recent Activity', () => {
+  const Activity = z.strictObject({ items: z.array(z.strictObject({ ...ActivityItem.shape })) });
+  const activity = async (threadId: string, who: { email: string }, businessId = ids.firmA) =>
+    firm(`/message-threads/${threadId}/activity`, who, businessId);
+
+  beforeAll(async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
+        const A = { businessId: ids.firmA, clientId: ids.one };
+        await tx.task.create({
+          data: {
+            ...A,
+            title: `Fake checklist ${run}`,
+            status: 'DONE',
+            completedAt: new Date(Date.now() - 3_600_000),
+          },
+        });
+        await tx.appointment.create({
+          data: {
+            ...A,
+            staffUserId: people.ownerA.id,
+            startsAt: new Date(Date.now() + 2 * 86_400_000),
+            endsAt: new Date(Date.now() + 2 * 86_400_000 + 3_600_000),
+            locationKind: 'PHONE',
+          },
+        });
+        const invoice = await tx.invoice.create({
+          data: { ...A, number: `INV-ACT-${run}` },
+          select: { id: true },
+        });
+        await tx.invoiceLine.create({
+          data: {
+            businessId: ids.firmA,
+            invoiceId: invoice.id,
+            description: 'Fake',
+            unitAmountCents: 25_000,
+          },
+        });
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { status: 'OPEN', issuedAt: new Date() },
+        });
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it("lists the client's latest records, newest first, each with its own page", async () => {
+    const res = await activity(ids.threadOne, people.ownerA);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const { items } = Activity.parse(res.body);
+    const kinds = items.map((i) => i.kind);
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        'MESSAGE_SENT',
+        'TASK_COMPLETED',
+        'APPOINTMENT_BOOKED',
+        'INVOICE_CREATED',
+      ]),
+    );
+    const sorted = [...items].sort((a, b) => b.at.localeCompare(a.at));
+    expect(items.map((i) => i.at)).toEqual(sorted.map((i) => i.at));
+    const invoice = items.find((i) => i.kind === 'INVOICE_CREATED');
+    expect(invoice?.detail).toBe(`INV-ACT-${run} · $250.00`);
+    expect(invoice?.href).toMatch(/^\/invoices\/[0-9a-f-]{36}$/);
+    expect(items.find((i) => i.kind === 'TASK_COMPLETED')?.href).toMatch(/^\/tasks\//);
+    const booked = items.find((i) => i.kind === 'APPOINTMENT_BOOKED');
+    expect(booked?.href).toMatch(/^\/calendar\//);
+    expect(booked?.eventAt).not.toBeNull();
+    expect(items.find((i) => i.kind === 'MESSAGE_SENT')?.href).toBe(
+      `/messages?thread=${ids.threadOne}`,
+    );
+    // Another client's records never show: client Two's thread has only its own message.
+    const two = Activity.parse((await activity(ids.threadTwo, people.ownerA)).body).items;
+    expect(two.length).toBeGreaterThan(0);
+    expect(two.every((i) => i.kind === 'MESSAGE_SENT')).toBe(true);
+  });
+
+  it('shows a module only to a member who may view it', async () => {
+    const before = Activity.parse((await activity(ids.threadOne, people.staffA)).body).items;
+    expect(before.some((i) => i.kind === 'INVOICE_CREATED')).toBe(true);
+    // Staff Management takes Invoices & Payments away from this member.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
+        const m = await tx.membership.findFirstOrThrow({
+          where: { businessId: ids.firmA, userId: people.staffA.id },
+          select: { id: true },
+        });
+        await tx.memberPermission.create({
+          data: {
+            businessId: ids.firmA,
+            membershipId: m.id,
+            module: 'INVOICES_PAYMENTS',
+            capability: 'VIEW',
+            granted: false,
+          },
+        });
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+    // The grid is cached per member for a moment; ask until it answers without invoices.
+    await expect
+      .poll(
+        async () =>
+          Activity.parse((await activity(ids.threadOne, people.staffA)).body).items.map(
+            (i) => i.kind,
+          ),
+        { timeout: 15_000 },
+      )
+      .not.toContain('INVOICE_CREATED');
+    const after = Activity.parse((await activity(ids.threadOne, people.staffA)).body).items;
+    expect(after.some((i) => i.kind === 'TASK_COMPLETED')).toBe(true);
+    // The Owner still sees it.
+    const forOwner = Activity.parse((await activity(ids.threadOne, people.ownerA)).body).items;
+    expect(forOwner.some((i) => i.kind === 'INVOICE_CREATED')).toBe(true);
+  });
+
+  it('stays within reach: Staff only their clients, never another firm', async () => {
+    expect((await activity(ids.threadTwo, people.staffA)).status).toBe(404);
+    expect((await activity(ids.threadOne, people.ownerB, ids.firmB)).status).toBe(404);
+    expect((await activity(ids.threadOne, people.ownerB, ids.firmA)).status).toBe(404);
   });
 });
