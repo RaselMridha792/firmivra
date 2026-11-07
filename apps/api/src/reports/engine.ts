@@ -542,20 +542,23 @@ function prepare(
   includeTax: boolean,
 ): Row[] {
   const fields = new Map(source.fields.map((f) => [f.key, f]));
-  return rows
-    .filter((r) => inRange(r.cells, source.dateField, range))
-    .filter((r) => filters.every((f) => matches(r, f, fields, today)))
-    .map((r) =>
-      source.supportsTaxToggle && !includeTax && typeof r.cells.total === 'number'
-        ? {
-            ...r,
-            cells: {
-              ...r.cells,
-              total: r.cells.total - (typeof r.cells.tax === 'number' ? r.cells.tax : 0),
-            },
-          }
-        : r,
-    );
+  return (
+    rows
+      // A source with no date (the team) is a list as it stands: the range does not narrow it.
+      .filter((r) => source.dateField === null || inRange(r.cells, source.dateField, range))
+      .filter((r) => filters.every((f) => matches(r, f, fields, today)))
+      .map((r) =>
+        source.supportsTaxToggle && !includeTax && typeof r.cells.total === 'number'
+          ? {
+              ...r,
+              cells: {
+                ...r.cells,
+                total: r.cells.total - (typeof r.cells.tax === 'number' ? r.cells.tax : 0),
+              },
+            }
+          : r,
+      )
+  );
 }
 
 const sum = (rows: Row[], key: string) =>
@@ -691,7 +694,7 @@ export function compute(input: ComputeInput): Computed {
     const bk = buckets(range);
     const values = new Map<string, number>(bk.keys.map((k) => [k, 0]));
     for (const r of list) {
-      const d = r.cells[source.dateField];
+      const d = source.dateField === null ? null : r.cells[source.dateField];
       if (typeof d !== 'string') continue;
       const key = bk.of(d);
       if (!values.has(key)) continue;
