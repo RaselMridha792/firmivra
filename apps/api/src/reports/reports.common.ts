@@ -261,6 +261,19 @@ export const SYSTEM_REPORTS: readonly SystemDef[] = [
       sortBy: 'dueOn',
     },
   },
+  {
+    // SM3: Staff Management's Reports shortcut opens this one.
+    key: 'staff_team',
+    name: 'Staff & Team',
+    description: 'The team: role, status, job title, assigned clients and open work per person.',
+    category: 'TEAM_PRODUCTIVITY',
+    dataSource: 'team_members',
+    definition: {
+      ...base,
+      columns: ['name', 'role', 'jobTitle', 'status', 'clients', 'openTasks', 'overdueTasks'],
+      sortBy: 'name',
+    },
+  },
 ];
 
 export const systemReport = (key: string) => SYSTEM_REPORTS.find((r) => r.key === key);

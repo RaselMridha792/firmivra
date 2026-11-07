@@ -29,7 +29,8 @@ test('Staff Management shows the cards, the tiles and the directory', async ({ p
     ['Activity & Login History', '/team/activity'],
     ['Bulk Upload Staff', '/team/import'],
     ['Staff Settings', '/team/settings'],
-    ['Reports', '/reports'],
+    // SM3: the Staff & Team report inside Reports.
+    ['Reports', '/reports/staff_team'],
   ] as const) {
     await expect(links.getByRole('link', { name: new RegExp(`^${name}`) })).toHaveAttribute(
       'href',

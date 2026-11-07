@@ -150,6 +150,7 @@ function buildRows(empty: boolean) {
     leads: [],
     communications: [],
     team: [],
+    team_members: [],
     advisory: [],
   };
   if (empty) return rows;
@@ -246,6 +247,20 @@ function buildRows(empty: boolean) {
       sentAt: at(i * 9),
     });
   }
+  // SM3: the team as it stands (the API's Staff & Team source).
+  STAFF.forEach((s, i) =>
+    rows.team_members!.push({
+      name: s,
+      role: ['ADMIN', 'STAFF', 'OWNER', 'STAFF'][i]!,
+      status: i === 3 ? 'LOCKED' : 'ACTIVE',
+      jobTitle: ['Senior Accountant', 'Bookkeeper', 'Owner', 'Tax Preparer'][i]!,
+      joinedOn: at(400 + i * 90),
+      clients: 3 + i * 2,
+      openTasks: 4 + i,
+      overdueTasks: i % 2,
+      completedTasks: 40 + i * 17,
+    }),
+  );
   STAFF.forEach((s, i) =>
     rows.team!.push({
       staffName: s,
@@ -628,6 +643,34 @@ function sources(): Record<string, SourceDef> {
         m('hours', 'Hours', (r) => sum(r, 'hours'), 'NUMBER'),
       ],
     ),
+    team_members: def(
+      'team_members',
+      'TEAM_PRODUCTIVITY',
+      'Staff & Team',
+      'The team: role, status, job title, assigned clients and open work per person.',
+      [
+        fld('name', 'Name', 'TEXT', { locked: true }),
+        fld('role', 'Role', 'STATUS', { options: opts('OWNER', 'ADMIN', 'STAFF') }),
+        fld('status', 'Status', 'STATUS', { options: opts('ACTIVE', 'LOCKED', 'DEACTIVATED') }),
+        fld('jobTitle', 'Job Title', 'TEXT'),
+        fld('joinedOn', 'Joined', 'DATE'),
+        fld('clients', 'Assigned Clients', 'NUMBER'),
+        fld('openTasks', 'Open Tasks', 'NUMBER'),
+        fld('overdueTasks', 'Overdue Tasks', 'NUMBER'),
+        fld('completedTasks', 'Completed Tasks', 'NUMBER'),
+      ],
+      ['name', 'role', 'jobTitle', 'status', 'clients', 'openTasks', 'overdueTasks'],
+      'joinedOn',
+      'openTasks',
+      'role',
+      '# of Staff',
+      [
+        m('staff-open', 'Open Tasks', (r) => sum(r, 'openTasks'), 'NUMBER'),
+        m('staff-overdue', 'Overdue Tasks', (r) => sum(r, 'overdueTasks'), 'NUMBER'),
+      ],
+      // A roster, not a period: no date to range by (as the API).
+      { dateField: null, supportsComparison: false },
+    ),
     advisory: def(
       'advisory',
       'ADVISORY',
@@ -752,6 +795,16 @@ const SYSTEM: {
     source: 'team',
     groupBy: 'staffName',
     columns: ['staffName', 'tasksCompleted', 'hours'],
+  },
+  {
+    // SM3: Staff Management's Reports tile opens this one.
+    key: 'staff_team',
+    name: 'Staff & Team',
+    description: 'The team: role, status, job title, assigned clients and open work per person.',
+    category: 'TEAM_PRODUCTIVITY',
+    source: 'team_members',
+    groupBy: null,
+    columns: ['name', 'role', 'jobTitle', 'status', 'clients', 'openTasks', 'overdueTasks'],
   },
   {
     key: 'advisory-plans',
