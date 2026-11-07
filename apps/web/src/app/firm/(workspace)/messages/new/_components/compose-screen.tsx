@@ -97,6 +97,8 @@ type Form = {
   related: string;
   /** MSG-F16: who owns the conversations it opens, or ''. */
   assignedUserId: string;
+  /** MSG-F16: once sent, an entry on each client's timeline (unchecked to start). */
+  addToTimeline: boolean;
   clients: Map<string, string>;
   leads: Map<string, string>;
   later: boolean;
@@ -110,6 +112,7 @@ const emptyForm = (subject = ''): Form => ({
   templateId: null,
   related: '',
   assignedUserId: '',
+  addToTimeline: false,
   clients: new Map(),
   leads: new Map(),
   later: false,
@@ -125,6 +128,7 @@ const formOf = (m: OutboundMessage, timeZone: string): Form => {
     templateId: m.templateId,
     related: m.related ? `${m.related.type}:${m.related.id}` : '',
     assignedUserId: m.assignedTo?.userId ?? '',
+    addToTimeline: m.addToTimeline,
     clients: new Map(m.recipients.filter((r) => r.kind === 'CLIENT').map((r) => [r.id, r.name])),
     leads: new Map(m.recipients.filter((r) => r.kind === 'LEAD').map((r) => [r.id, r.name])),
     later: at !== null,
@@ -253,6 +257,7 @@ export function ComposeScreen({
         ? { type: relatedType as OutboundRelatedType, id: relatedId }
         : null,
     assignedUserId: form.assignedUserId || null,
+    addToTimeline: form.clients.size > 0 && form.addToTimeline,
     ...ids,
   });
   /** Saves the draft (a new one when its people or channel changed) and answers it. */
@@ -919,6 +924,20 @@ function RelatedAndOwner({
         The conversation it opens is filed under the record and owned by this person. A staff member
         owns only conversations with their own clients.
       </p>
+      {/* MSG-F16: an entry on each client's Activity timeline once sent; never the message. */}
+      <div className="flex flex-col">
+        <Checkbox
+          label="Add to Client Timeline"
+          checked={form.clients.size > 0 && form.addToTimeline}
+          disabled={form.clients.size === 0}
+          onChange={(e) => onChange({ addToTimeline: e.target.checked })}
+        />
+        <p className="text-xs text-muted">
+          {form.clients.size === 0
+            ? 'Choose a client first. Leads have no timeline.'
+            : "Once sent, each client's Activity shows the subject, channel and date, never the message or its files."}
+        </p>
+      </div>
     </div>
   );
 }

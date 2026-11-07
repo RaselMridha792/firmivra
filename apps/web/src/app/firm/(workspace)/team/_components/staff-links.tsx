@@ -31,8 +31,8 @@ interface Tile {
 }
 
 /**
- * The nine tiles, as in the design and the guide §1. Reports has no staff filter yet, so it opens
- * the Reports overview (PAGE-MAP: "Reports from Staff Management opens /reports").
+ * The nine tiles, as in the design and the guide §1. Reports opens the Staff & Team report inside
+ * Reports (Octavia's SM3: the option in the canonical Reports, already chosen).
  */
 const TILES: Tile[] = [
   {
@@ -88,7 +88,7 @@ const TILES: Tile[] = [
     title: 'Reports',
     description: 'View staff performance, activity, and access reports.',
     icon: ChartBar,
-    href: '/reports',
+    href: '/reports/staff_team',
   },
 ];
 

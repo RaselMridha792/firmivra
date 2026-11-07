@@ -349,10 +349,18 @@ function ComposerForm({
       Save Draft
     </button>
   );
+  // CM-Y07: a disabled Send Test says why.
+  const testOff = readOnly
+    ? 'This communication was already sent or canceled, so there is nothing to test.'
+    : channel === 'ANNOUNCEMENT'
+      ? 'An announcement posts to the client portal and sends no email or text, so it has no test. Preview shows how it will look.'
+      : null;
   const sendTest = (
     <button
       type="button"
-      disabled={readOnly || channel === 'ANNOUNCEMENT'}
+      disabled={testOff !== null}
+      // The reason is the button's description: on hover, and read with it.
+      title={testOff ?? undefined}
       className={subtle}
       onClick={() => void save(true).then((s) => s && setDialog('test'))}
     >

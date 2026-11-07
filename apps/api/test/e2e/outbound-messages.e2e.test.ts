@@ -532,3 +532,109 @@ describe('MSG-F11, F15: templates, merge fields and the review', () => {
     expect(JSON.stringify(toLead?.data)).toContain('[Fake Field]');
   });
 });
+
+describe('MSG-F16: Add to Client Timeline', () => {
+  const Timeline = z.object({
+    items: z.array(
+      z.object({
+        id: z.string(),
+        kind: z.string(),
+        title: z.string(),
+        summary: z.string().nullable(),
+        occurredAt: z.string(),
+        href: z.string().nullable(),
+        createdBy: z.object({ userId: z.string(), name: z.string() }).nullable(),
+      }),
+    ),
+    nextCursor: z.string().nullable(),
+  });
+  const timeline = async (clientId: string, who: { email: string } = people.ownerA) =>
+    Timeline.parse(ok(await call('get', `/clients/${clientId}/timeline`, who)).body);
+
+  it('a sent message adds one entry per client who got it: the subject, channel and date, never the text', async () => {
+    const secret = `Timeline ${run} secret text`;
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: `Timeline ${run}`,
+      body: secret,
+      clientIds: [ids.one, ids.two],
+      leadIds: [ids.lead],
+      addToTimeline: true,
+    });
+    expect(d.addToTimeline).toBe(true);
+    const before = (await timeline(ids.one)).items.length;
+    const sent = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+          version: d.updatedAt,
+        }),
+      ).body,
+    );
+    const one = sent.recipients.find((r) => r.id === ids.one);
+    expect(one?.status).toBe('SENT');
+    const after = await timeline(ids.one);
+    expect(after.items).toHaveLength(before + 1);
+    expect(after.items[0]).toMatchObject({
+      kind: 'MESSAGE',
+      title: `Timeline ${run}`,
+      summary: expect.stringContaining('through the client portal') as string,
+      href: `/messages?thread=${one?.threadId}`,
+      createdBy: { userId: people.ownerA.id },
+    });
+    expect(JSON.stringify(after)).not.toContain(secret);
+    // Two had no portal login (skipped): nothing on their timeline from this message.
+    expect(JSON.stringify(await timeline(ids.two))).not.toContain(`Timeline ${run}`);
+    // A second send (a double click) adds nothing.
+    ok(
+      await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+        version: d.updatedAt,
+      }),
+    );
+    expect((await timeline(ids.one)).items).toHaveLength(before + 1);
+    // Reading it is audited with the client's id only.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const rows = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: ids.firmA, action: 'client_timeline.viewed', entityId: ids.one },
+          select: { metadata: true },
+        }),
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(JSON.stringify(rows)).not.toContain(secret);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('left unchecked, nothing is added', async () => {
+    const before = (await timeline(ids.one)).items.length;
+    const d = await draft({
+      channel: 'PORTAL',
+      subject: `No timeline ${run}`,
+      body: 'Not on the timeline',
+      clientIds: [ids.one],
+    });
+    expect(d.addToTimeline).toBe(false);
+    ok(
+      await call('post', `/outbound-messages/${d.id}/send`, people.ownerA, {
+        version: d.updatedAt,
+      }),
+    );
+    expect((await timeline(ids.one)).items).toHaveLength(before);
+  });
+
+  it("Staff read their own client's timeline only; another firm's is 404", async () => {
+    expect((await timeline(ids.one, people.staffA)).items.length).toBeGreaterThan(0);
+    const theirs = await call('get', `/clients/${ids.two}/timeline`, people.staffA);
+    expect(theirs.status).toBe(404);
+    const other = await call(
+      'get',
+      `/clients/${ids.one}/timeline`,
+      people.ownerB,
+      undefined,
+      ids.firmB,
+    );
+    expect(other.status).toBe(404);
+  });
+});

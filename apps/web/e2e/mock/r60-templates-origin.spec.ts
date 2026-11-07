@@ -23,7 +23,7 @@ test('Create from a filtered overview: Cancel returns to the overview as it was,
   await expect(page).toHaveURL(`${base}?view=mine&q=Reminder`);
   const overview = page.url();
 
-  await page.getByRole('link', { name: 'Create Template', exact: true }).click();
+  await page.getByRole('link', { name: 'Create Email Template', exact: true }).click();
   await expect(page).toHaveURL(/\/templates\/new\?from=%2Ftemplates%3Fview%3Dmine%26q%3DReminder$/);
   await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Templates');
   await page.getByLabel('Template Name *').fill('Dummy text');

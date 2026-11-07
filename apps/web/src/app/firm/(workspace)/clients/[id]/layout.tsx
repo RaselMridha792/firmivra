@@ -20,6 +20,8 @@ const tabs: [label: string, path: string][] = [
   ['Messages', '/messages'],
   ['Invoices', '/invoices'],
   ['Signatures', '/signatures'],
+  // MSG-F16: the client's own timeline.
+  ['Activity', '/activity'],
 ];
 
 /**

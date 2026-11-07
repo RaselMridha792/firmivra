@@ -54,6 +54,14 @@ const stale = () =>
   conflict('STALE_VERSION', 'This message changed since you opened it. Reload to see it.');
 /** A schedule at least this far ahead. */
 const LEAD_TIME_MS = 60_000;
+/** MSG-F16: the timeline entry's kind, title (with no subject) and how it went, by channel. */
+const TIMELINE_KIND = { PORTAL: 'MESSAGE', EMAIL: 'EMAIL', SMS: 'SMS' } as const;
+const CHANNEL_TITLE = { PORTAL: 'Portal message', EMAIL: 'Email', SMS: 'Text message' } as const;
+const CHANNEL_HOW = {
+  PORTAL: 'through the client portal',
+  EMAIL: 'by email',
+  SMS: 'by text',
+} as const;
 const linkOn = (base: string, path: string) => `${base.replace(/\/+$/, '')}${path}`;
 
 const messageSelect = {
@@ -69,6 +77,7 @@ const messageSelect = {
   relatedEntityId: true,
   assignedUserId: true,
   assignedTo: { select: { userId: true, user: { select: { name: true } } } },
+  addToTimeline: true,
   createdByUserId: true,
   completedAt: true,
   canceledAt: true,
@@ -77,6 +86,7 @@ const messageSelect = {
   createdBy: { select: { userId: true, role: true, user: { select: { name: true } } } },
   recipients: {
     select: {
+      id: true,
       clientId: true,
       leadId: true,
       channel: true,
@@ -349,6 +359,7 @@ export class OutboundMessagesService {
       assignedTo: row.assignedTo
         ? { userId: row.assignedTo.userId, name: row.assignedTo.user.name }
         : null,
+      addToTimeline: row.addToTimeline,
       scheduledFor: row.status === 'SCHEDULED' ? (row.scheduledFor?.toISOString() ?? null) : null,
       timezone: await firmTimeZone(tx, businessId),
       recipients,
@@ -491,6 +502,7 @@ export class OutboundMessagesService {
       relatedEntityType: body.related?.type ?? null,
       relatedEntityId: body.related?.id ?? null,
       assignedUserId: body.assignedUserId ?? null,
+      addToTimeline: body.addToTimeline ?? false,
     };
   }
 
@@ -1094,6 +1106,32 @@ export class OutboundMessagesService {
             : { status: 'FAILED', attempts: { increment: 1 }, lastError: outcome.code },
         }),
       );
+      // MSG-F16: one entry on the client's own timeline, never the body or file names.
+      if (outcome.ok && r.clientId && m.addToTimeline) {
+        await this.inFirm(businessId, (tx) =>
+          tx.clientTimelineEntry.createMany({
+            data: [
+              {
+                businessId,
+                clientId: r.clientId!,
+                kind: TIMELINE_KIND[m.channel],
+                sourceType: 'outbound_message_recipient',
+                sourceId: r.id,
+                title: (own.subject?.trim() || CHANNEL_TITLE[m.channel]).slice(0, 200),
+                summary: `Sent ${CHANNEL_HOW[m.channel]} by ${m.createdBy.user.name}`.slice(0, 500),
+                occurredAt: new Date(),
+                createdByUserId: m.createdByUserId,
+              },
+            ],
+            // The same recipient's entry once, also when a send is retried.
+            skipDuplicates: true,
+          }),
+        ).catch((error: unknown) => {
+          this.logger.warn(
+            `message ${id}: a timeline entry was not kept (${error instanceof Error ? error.name : 'Error'})`,
+          );
+        });
+      }
     }
     const summary = await this.inFirm(businessId, async (tx) => {
       const rows = await tx.outboundMessageRecipient.findMany({
