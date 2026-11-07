@@ -24,6 +24,8 @@ export type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 export interface Options {
   role?: MockRole;
   empty?: boolean;
+  /** CD-F06: a client document's name from the documents mock, so an upload shows as itself. */
+  documentName?: (documentId: string) => Promise<string | null>;
 }
 
 const DAY = 86_400_000;
