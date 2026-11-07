@@ -61,6 +61,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: "the list's filter (preparer or reviewer): another firm's member matches no return of this firm, so nothing of theirs is read (R55)",
   },
   {
+    field: 'serviceId',
+    routes: /^POST \/api\/v1\/business\/tax-returns\/export$/,
+    why: "the list's filter (D4, a dashboard card's tax service): another firm's service matches no return of this firm, so nothing of theirs is read (R60)",
+  },
+  {
     field: 'idempotencyKey',
     routes: /^POST \/api\/v1\/business\/intakes\/send$/,
     why: "the sender's retry key, not a record (R55)",

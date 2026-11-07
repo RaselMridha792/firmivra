@@ -383,14 +383,36 @@ describe('D4: Settings > Dashboard Cards', () => {
     ]);
   });
 
-  it('a new order moves the cards between the slots; every card once', async () => {
-    const before = DashboardCardSettings.parse(
-      (await call('get', CARDS, people.ownerA)).body,
-    ).items;
-    const reversed = [...before].reverse().map((c) => c.id);
-    const bad = await call('put', `${CARDS}/order`, people.ownerA, 'a', { ids: reversed.slice(1) });
-    expect(bad.status).toBe(400);
-    const res = await call('put', `${CARDS}/order`, people.ownerA, 'a', { ids: reversed });
+  it('a new order moves the cards between the slots; the ones not named follow', async () => {
+    const list = async () =>
+      DashboardCardSettings.parse((await call('get', CARDS, people.ownerA)).body).items;
+    const before = await list();
+    const last = before[2]!.id;
+    for (const ids of [
+      [last, last],
+      [last, randomUUID()],
+    ]) {
+      const bad = await call('put', `${CARDS}/order`, people.ownerA, 'a', { ids });
+      expect(bad.status, JSON.stringify(ids)).toBe(400);
+    }
+    // Only the last named: it moves to slot 1, the others follow as they were.
+    const first = await call('put', `${CARDS}/order`, people.ownerA, 'a', { ids: [last] });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    const moved = DashboardCardSettings.parse(first.body).items;
+    expect(moved.map((c) => c.label)).toEqual([
+      before[2]!.label,
+      before[0]!.label,
+      before[1]!.label,
+    ]);
+    // Back as it was, then reversed in full.
+    await call('put', `${CARDS}/order`, people.ownerA, 'a', {
+      ids: before.map((b) => moved.find((m) => m.label === b.label)!.id),
+    });
+    const now = await list();
+    expect(now.map((c) => c.label)).toEqual(before.map((c) => c.label));
+    const res = await call('put', `${CARDS}/order`, people.ownerA, 'a', {
+      ids: [...now].reverse().map((c) => c.id),
+    });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const after = DashboardCardSettings.parse(res.body).items;
     expect(after.map((c) => c.label)).toEqual([...before].reverse().map((c) => c.label));

@@ -12,10 +12,16 @@ export const records: CaseModule['records'] = {
   /** The firm's one service card: every tax return in progress (a default, saved). */
   dashboardCard: {
     async create({ tx, businessId, owner }) {
+      // The first free slot: a world may already hold one.
+      const taken = new Set(
+        (
+          await tx.dashboardCardTemplate.findMany({ where: { businessId }, select: { slot: true } })
+        ).map((r) => r.slot),
+      );
       const card = await tx.dashboardCardTemplate.create({
         data: {
           businessId,
-          slot: 1,
+          slot: [1, 2, 3, 4, 5, 6].find((n) => !taken.has(n)) ?? 1,
           serviceId: null,
           metric: 'ENGAGEMENTS_IN_STATUS',
           statusKey: 'tax:IN_PROGRESS',

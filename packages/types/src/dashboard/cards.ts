@@ -215,8 +215,9 @@ export const UpdateDashboardCardRequest = z.strictObject({
 export type UpdateDashboardCardRequest = z.input<typeof UpdateDashboardCardRequest>;
 
 /**
- * PUT .../dashboard-cards/order: every saved card's id, in the new order (slot 1 first). A card is
- * never removed, only switched off (`enabled: false`), so a firm keeps at most six.
+ * PUT .../dashboard-cards/order: saved cards' ids in the new order (slot 1 first); any not named
+ * follow them as they were. A card is never removed, only switched off (`enabled: false`), so a
+ * firm keeps at most six.
  */
 export const OrderDashboardCardsRequest = z.strictObject({
   ids: z.array(z.uuid()).min(1).max(DASHBOARD_CARD_SLOTS),

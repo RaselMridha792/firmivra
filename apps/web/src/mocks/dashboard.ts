@@ -305,10 +305,14 @@ export function createDashboardMock(): DashboardClient {
       },
       order: async (body) => {
         await mockDelay();
-        const { ids } = parseInput(OrderDashboardCardsRequest, body);
+        const named = parseInput(OrderDashboardCardsRequest, body).ids;
         const cards = cardsOf();
-        if (ids.length !== cards.length || !ids.every((i) => cards.some((c) => c.id === i)))
-          throw fail(400, 'VALIDATION_FAILED', 'List every card once, in the new order');
+        if (
+          new Set(named).size !== named.length ||
+          !named.every((i) => cards.some((c) => c.id === i))
+        )
+          throw fail(400, 'VALIDATION_FAILED', "Name each of the firm's cards at most once");
+        const ids = [...named, ...cards.map((c) => c.id).filter((i) => !named.includes(i))];
         // As the API: the slots stay, the contents move.
         const contents = ids.map((i) => ({ ...cards.find((c) => c.id === i)! }));
         cards.forEach((c, n) => {

@@ -270,9 +270,9 @@ export class DashboardCardsService {
   }
 
   /**
-   * A new order: every card's id, slot 1 first. The slots stay where they are (their index is
-   * unique, checked row by row) and the cards' contents move between them, each moved one a new
-   * version; the ids the answer gives are those of the slots.
+   * A new order: the cards named first, slot 1 first, then the others as they were. The slots stay
+   * where they are (their index is unique, checked row by row) and the cards' contents move between
+   * them, each moved one a new version; the ids the answer gives are those of the slots.
    */
   async order(
     businessId: string,
@@ -294,18 +294,18 @@ export class DashboardCardsService {
           enabled: true,
         },
       });
-      const ids = body.ids.map((i) => i.toLowerCase());
+      const named = body.ids.map((i) => i.toLowerCase());
       if (
-        ids.length !== rows.length ||
-        new Set(ids).size !== ids.length ||
-        !ids.every((i) => rows.some((r) => r.id === i))
+        new Set(named).size !== named.length ||
+        !named.every((i) => rows.some((r) => r.id === i))
       ) {
         throw new BadRequestException({
           code: 'VALIDATION_FAILED',
-          message: 'List every card once, in the new order',
-          details: [{ path: 'ids', message: 'List every card once, in the new order' }],
+          message: "Name each of the firm's cards at most once",
+          details: [{ path: 'ids', message: "Name each of the firm's cards at most once" }],
         });
       }
+      const ids = [...named, ...rows.map((r) => r.id).filter((i) => !named.includes(i))];
       const byId = new Map(rows.map((r) => [r.id, r]));
       for (const [i, row] of rows.entries()) {
         const next = byId.get(ids[i]!)!;
