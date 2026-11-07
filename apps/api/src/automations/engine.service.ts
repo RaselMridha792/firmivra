@@ -10,6 +10,10 @@ import { NotesService } from '../messages/notes.service.js';
 import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
 import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
+import { LeadPipelineTabsService } from '../leads/lead-pipeline-tabs.service.js';
+import { TaxReturnReviewService } from '../tax-returns/review.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
@@ -72,6 +76,9 @@ export class AutomationEngine {
     private readonly outbound: OutboundMessagesService,
     private readonly documentRequests: DocumentRequestsService,
     private readonly intakeSend: IntakeSendService,
+    private readonly leadFollowUps: LeadPipelineTabsService,
+    private readonly taxReview: TaxReturnReviewService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -170,6 +177,7 @@ export class AutomationEngine {
           businessId,
           now,
           today: ctx.today,
+          timezone: ctx.timezone,
           since: v.createdAt,
           ...(view.trigger.source ? { source: view.trigger.source } : {}),
         },
@@ -179,6 +187,7 @@ export class AutomationEngine {
           c.fields,
           v.matchMode,
           view.conditions.map((c2) => ({ ...c2, value: c2.value ?? undefined })),
+          ctx.today,
         ),
       );
       if (hit.length === 0) return [];
@@ -474,6 +483,9 @@ export class AutomationEngine {
         const ctx = run.clientId ? await loadRecordContext(tx, businessId, run.clientId) : null;
         // AU-F18 to F20: only an action that needs no client (Notify staff) runs without one.
         if (info.needsClient && (!run.clientId || !ctx)) return { error: 'NO_CLIENT' as const };
+        // An action on the event's own record runs only on that kind of record.
+        if (info.recordKind && (run.recordKind !== info.recordKind || !run.recordId))
+          return { error: 'WRONG_RECORD' as const };
         const found = run.recordId ? await this.labelOf(tx, businessId, run, today) : '';
         const firm = await tx.business.findFirst({
           where: { id: businessId },
@@ -502,6 +514,7 @@ export class AutomationEngine {
           OWNER_UNAVAILABLE: 'The rule’s owner is no longer an active member',
           NOT_PERMITTED: 'The owner may not do this in the module',
           NO_CLIENT: 'The record has no client to act for',
+          WRONG_RECORD: 'This action works on another kind of record',
         }[prepared.error];
         return { ok: false, code: prepared.error, retryable: false, detail };
       }
@@ -1005,6 +1018,132 @@ export class AutomationEngine {
                   : isStatus
                     ? 'Client status updated'
                     : 'Client priority updated',
+            };
+          }
+          // AU-F27 appointment request: an invitation through Messages, as Send client message
+          // sends one, with the link to the client's portal Appointments page. It never books: the
+          // client picks a time there, under Appointments' own rules.
+          case 'INVITE_TO_BOOK': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            if (!client?.email)
+              return {
+                ok: false,
+                code: 'NO_CONTACT',
+                retryable: false,
+                detail: 'The client has no email address',
+              };
+            const firm = await this.inFirm(businessId, (tx) =>
+              tx.business.findFirst({ where: { id: businessId }, select: { slug: true } }),
+            );
+            const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm?.slug ?? ''}/appointments`;
+            const intro = (text('message') ?? '').slice(0, 2_000);
+            const thread = await this.messages.create(businessId, actor, run.clientId as string, {
+              subject: (text('subject') || 'Book a time with us').slice(0, 200),
+              body: `${intro ? `${intro}\n\n` : ''}Choose a time that suits you: ${link}`,
+              repliesEnabled: true,
+            });
+            return {
+              ok: true,
+              kind: 'message_thread',
+              id: thread.id,
+              detail: 'Invitation sent; nothing is booked until the client picks a time',
+            };
+          }
+          // AU-F27 follow-up: Leads' own follow-up (an open lead only; Leads audits it).
+          case 'SCHEDULE_LEAD_FOLLOW_UP': {
+            const types = ['CALL', 'EMAIL', 'SMS', 'APPOINTMENT', 'SEND_DOCUMENTS', 'FOLLOW_UP'];
+            const type = (
+              types.includes(cfg.followUpType as string) ? cfg.followUpType : 'FOLLOW_UP'
+            ) as 'FOLLOW_UP';
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : 1;
+            await this.leadFollowUps.setFollowUp(
+              businessId,
+              { userId: member.userId, role: member.role },
+              run.recordId as string,
+              {
+                type,
+                dueAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+                notes: text('notes')?.slice(0, 500) || null,
+              },
+            );
+            return {
+              ok: true,
+              kind: 'lead',
+              id: run.recordId,
+              detail: 'Follow-up scheduled',
+            };
+          }
+          // AU-F27 approval request: a PENDING step through Tax Returns' own add. Automations never
+          // decides it (Tax Returns: its reviewer or an approver). Nobody approves their own: the
+          // reviewer is never the rule's owner (checked at activation too) nor the return's
+          // preparer. The same pending step for the same reviewer is never added twice.
+          case 'REQUEST_APPROVAL': {
+            const reviewer = typeof cfg.reviewerUserId === 'string' ? cfg.reviewerUserId : null;
+            const step = (text('step') || 'Review').slice(0, 100);
+            const returnId = run.recordId as string;
+            if (!reviewer)
+              return {
+                ok: false,
+                code: 'REVIEWER_REQUIRED',
+                retryable: false,
+                detail: 'Choose a reviewer',
+              };
+            const current = await this.inFirm(businessId, async (tx) => ({
+              ret: await tx.taxReturn.findFirst({
+                where: { businessId, id: returnId },
+                select: { preparerUserId: true },
+              }),
+              pending: await tx.taxReturnApproval.count({
+                where: {
+                  businessId,
+                  taxReturnId: returnId,
+                  status: 'PENDING',
+                  step,
+                  assignedUserId: reviewer,
+                },
+              }),
+            }));
+            if (!current.ret)
+              return {
+                ok: false,
+                code: 'NOT_FOUND',
+                retryable: false,
+                detail: 'The tax return no longer exists',
+              };
+            if (reviewer === member.userId || reviewer === current.ret.preparerUserId)
+              return {
+                ok: false,
+                code: 'SELF_APPROVAL',
+                retryable: false,
+                detail:
+                  reviewer === member.userId
+                    ? 'The reviewer is the rule’s owner, who asks for the approval'
+                    : 'The reviewer prepared this return',
+              };
+            if (current.pending > 0)
+              return {
+                ok: true,
+                kind: 'tax_return',
+                id: returnId,
+                detail: 'Already pending with this reviewer',
+              };
+            await this.taxReview.addApproval(
+              { businessId, role: member.role, kind: 'staff' },
+              member.userId,
+              returnId,
+              { step, assignedUserId: reviewer },
+            );
+            return {
+              ok: true,
+              kind: 'tax_return',
+              id: returnId,
+              detail: 'Approval requested (pending)',
             };
           }
           case 'ADD_CLIENT_NOTE': {

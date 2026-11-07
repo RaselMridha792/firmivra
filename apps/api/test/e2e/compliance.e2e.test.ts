@@ -3213,6 +3213,9 @@ describe('applicability rules and suggestions', () => {
       { excludeStatuses: ['inactive'] },
       { services: ['NOPE'] },
       { entityTypes: Array.from({ length: 31 }, (_, i) => `E${i}`) },
+      // CD-F14: classifications from the one list, not words.
+      { entityTypes: ['S corp'] },
+      { entityTypes: ['LLC'] },
       { priorYearLiabilityOverCents: -1 },
       { criteria: { nested: { no: 1 } } },
       { outcome: 'NOPE' },
@@ -3262,6 +3265,7 @@ describe('applicability rules and suggestions', () => {
     expectError(await patch({}), 400, 'VALIDATION_FAILED');
     expectError(await patch({ states: ['XX'] }), 400, 'VALIDATION_FAILED');
     expectError(await patch({ excludeStatuses: ['Dissolved'] }), 400, 'VALIDATION_FAILED');
+    expectError(await patch({ entityTypes: ['Cooperative'] }), 400, 'VALIDATION_FAILED');
     expectError(
       await patch({ target: { kind: 'CALENDAR_ENTRY', id: entry } }),
       400,

@@ -11,6 +11,7 @@ import {
   UsersThree,
   type Icon,
 } from '@phosphor-icons/react';
+import { type KeyboardEvent, useId, useRef, useState } from 'react';
 
 /** Every query of the Reports module starts here: a change in one view refreshes the others. */
 export const RP_KEY = ['reports'] as const;
@@ -126,84 +127,134 @@ export function BarChart({
   kind?: 'BAR' | 'LINE' | 'AREA';
   legend?: boolean;
 }) {
+  // RP-Y16 (Octavia, Oct 28): each period's values show on hover, on a tap and on keyboard focus
+  // (Tab into the chart, arrow keys between periods, Escape hides), not only as a hover title.
+  const [tip, setTip] = useState<number | null>(null);
+  const pointsRef = useRef<(HTMLLIElement | null)[]>([]);
+  const tipId = useId();
   const all = chart.series.flatMap((s) => s.values.map((v) => v ?? 0));
   const max = Math.max(1, ...all);
   const fmt = (v: number) => (chart.money ? moneyWhole(v) : v.toLocaleString('en-US'));
   const n = chart.labels.length;
+  const said = (i: number) =>
+    chart.series.map((s) => `${s.label}: ${fmt(s.values[i] ?? 0)}`).join(', ');
+  const go = (i: number) => {
+    const next = Math.min(n - 1, Math.max(0, i));
+    setTip(next);
+    pointsRef.current[next]?.focus();
+  };
+  const keys = (e: KeyboardEvent<HTMLLIElement>, i: number) => {
+    const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: n - 1 }[e.key];
+    if (to !== undefined) {
+      e.preventDefault();
+      go(to);
+    } else if (e.key === 'Escape') setTip(null);
+  };
   // A line or area: x at each period's centre, y from the top (100 is the axis).
   const points = (values: (number | null)[]) =>
     values.map((v, i) => `${((i + 0.5) / Math.max(1, n)) * 100},${100 - ((v ?? 0) / max) * 100}`);
   return (
     <div>
-      {kind !== 'BAR' ? (
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className={`w-full ${height} border-b border-divider`}
-          role="img"
-          aria-label="Chart"
-          data-testid={`chart-${kind.toLowerCase()}`}
-        >
-          {chart.series.map((s) => {
-            const line = points(s.values);
-            const tone = s.comparison ? 'text-chart-blue/40' : 'text-action';
-            return (
-              <g key={s.key} className={tone}>
-                {kind === 'AREA' && line.length ? (
-                  <polygon
-                    points={[
-                      `${(0.5 / Math.max(1, n)) * 100},100`,
-                      ...line,
-                      `${((n - 0.5) / Math.max(1, n)) * 100},100`,
-                    ].join(' ')}
-                    fill="currentColor"
-                    fillOpacity={0.2}
-                  />
-                ) : null}
-                <polyline
-                  points={line.join(' ')}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  vectorEffect="non-scaling-stroke"
-                >
-                  <title>{s.label}</title>
-                </polyline>
-              </g>
-            );
-          })}
-        </svg>
-      ) : null}
-      <ul
-        hidden={kind !== 'BAR'}
-        className={`flex ${height} items-end gap-1.5 border-b border-divider`}
-        role="img"
-        aria-label="Chart"
-      >
-        {chart.labels.map((l, i) => (
-          <li key={l} className="flex h-full flex-1 items-end justify-center gap-0.5">
+      <div className="relative">
+        {kind !== 'BAR' ? (
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            className={`w-full ${height} border-b border-divider`}
+            aria-hidden
+            data-testid={`chart-${kind.toLowerCase()}`}
+          >
             {chart.series.map((s) => {
-              const v = s.values[i] ?? 0;
+              const line = points(s.values);
+              const tone = s.comparison ? 'text-chart-blue/40' : 'text-action';
               return (
-                <span
-                  key={s.key}
-                  className={`relative w-3 rounded-t-sm ${s.comparison ? 'bg-chart-blue/40' : 'bg-action'}`}
-                  style={{ height: `${(v / max) * 100}%` }}
-                  title={`${s.label}: ${fmt(v)}`}
-                >
-                  {dataLabels && v ? (
-                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] whitespace-nowrap text-muted">
-                      {fmt(v)}
-                    </span>
+                <g key={s.key} className={tone}>
+                  {kind === 'AREA' && line.length ? (
+                    <polygon
+                      points={[
+                        `${(0.5 / Math.max(1, n)) * 100},100`,
+                        ...line,
+                        `${((n - 0.5) / Math.max(1, n)) * 100},100`,
+                      ].join(' ')}
+                      fill="currentColor"
+                      fillOpacity={0.2}
+                    />
                   ) : null}
-                </span>
+                  <polyline
+                    points={line.join(' ')}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </g>
               );
             })}
-          </li>
-        ))}
-      </ul>
+          </svg>
+        ) : null}
+        <ul
+          className={`flex gap-1.5 ${kind === 'BAR' ? `${height} items-end border-b border-divider` : 'absolute inset-0'}`}
+          aria-label={`Chart: ${chart.series.map((s) => s.label).join(' and ')}. Arrow keys move between periods.`}
+          data-testid="chart-points"
+        >
+          {chart.labels.map((l, i) => (
+            <li
+              key={l}
+              ref={(el) => {
+                pointsRef.current[i] = el;
+              }}
+              tabIndex={(tip ?? 0) === i ? 0 : -1}
+              aria-label={`${l}: ${said(i)}`}
+              aria-describedby={tip === i ? tipId : undefined}
+              onFocus={() => setTip(i)}
+              onBlur={() => setTip((t) => (t === i ? null : t))}
+              onMouseEnter={() => setTip(i)}
+              onMouseLeave={() => setTip((t) => (t === i ? null : t))}
+              onClick={() => setTip(i)}
+              onKeyDown={(e) => keys(e, i)}
+              className={`relative flex h-full flex-1 cursor-default items-end justify-center gap-0.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-focus ${tip === i ? 'bg-canvas/60' : ''}`}
+              data-testid="chart-point"
+            >
+              {kind === 'BAR'
+                ? chart.series.map((s) => {
+                    const v = s.values[i] ?? 0;
+                    return (
+                      <span
+                        key={s.key}
+                        aria-hidden
+                        className={`relative w-3 rounded-t-sm ${s.comparison ? 'bg-chart-blue/40' : 'bg-action'}`}
+                        style={{ height: `${(v / max) * 100}%` }}
+                      >
+                        {dataLabels && v ? (
+                          <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] whitespace-nowrap text-muted">
+                            {fmt(v)}
+                          </span>
+                        ) : null}
+                      </span>
+                    );
+                  })
+                : null}
+              {tip === i ? (
+                <span
+                  role="tooltip"
+                  id={tipId}
+                  className={`pointer-events-none absolute bottom-full z-10 mb-2 flex flex-col rounded-control bg-navigation px-2.5 py-1.5 text-xs whitespace-nowrap text-white shadow-md ${i < n / 2 ? 'left-0' : 'right-0'}`}
+                  data-testid="chart-tip"
+                >
+                  <span className="font-semibold">{l}</span>
+                  {chart.series.map((s) => (
+                    <span key={s.key}>
+                      {s.label}: {fmt(s.values[i] ?? 0)}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
       {labels ? (
-        <ul className="mt-1 flex gap-1.5 text-[10px] text-muted">
+        <ul aria-hidden className="mt-1 flex gap-1.5 text-[10px] text-muted">
           {chart.labels.map((l) => (
             <li key={l} className="flex-1 text-center">
               {l}

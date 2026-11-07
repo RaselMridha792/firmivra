@@ -39,7 +39,14 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewPanel, SaveTemplateDialog } from './automation-dialogs';
 import { triggerSentence } from './trigger-sentence';
-import { operatorLabel, takesList, takesNoValue } from './operator-labels';
+import {
+  conditionText,
+  conditionValue,
+  operatorLabel,
+  takesDays,
+  takesList,
+  takesNoValue,
+} from './operator-labels';
 import {
   AUTOMATIONS_KEY,
   AUTOMATION_ERRORS,
@@ -136,7 +143,7 @@ const blank = (): Form => ({
   source: 'MANUAL',
   ownerUserId: '',
 });
-const fromDetail = (d: AutomationRuleDetail): Form => {
+const fromDetail = (d: AutomationRuleDetail, catalog?: AutomationCatalog): Form => {
   const v = d.definition;
   return {
     ...blank(),
@@ -160,7 +167,12 @@ const fromDetail = (d: AutomationRuleDetail): Form => {
             key: key(),
             field: c.field,
             operator: c.operator,
-            value: Array.isArray(c.value) ? c.value.join(',') : String(c.value ?? ''),
+            value: conditionText(
+              catalog?.events
+                .find((e) => e.code === v.trigger.event)
+                ?.conditionFields.find((x) => x.field === c.field)?.type,
+              c.value,
+            ),
           })),
           actions: v.actions.map((a) => ({
             id: a.id,
@@ -224,7 +236,7 @@ function Builder({
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState<AutomationRuleDetail | undefined>(initial);
-  const [f, setF] = useState<Form>(() => (initial ? fromDetail(initial) : blank()));
+  const [f, setF] = useState<Form>(() => (initial ? fromDetail(initial, catalog) : blank()));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [errors, setErrors] = useState<Partial<Record<'name' | 'event' | 'actions', string>>>({});
   const [template, setTemplate] = useState(false);
@@ -242,7 +254,11 @@ function Builder({
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
   // AU-F18 to F20: an event about the firm itself (no client) takes only actions that need none.
-  const fitting = catalog.actions.filter((x) => ev?.hasClient !== false || !x.needsClient);
+  const fitting = catalog.actions.filter(
+    (x) =>
+      (ev?.hasClient !== false || !x.needsClient) &&
+      (!x.recordKind || x.recordKind === ev?.recordKind),
+  );
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
   // AU-F06: a whole number, 0 (at the anchor) to 100,000.
   const offsetNumber = Number(f.offsetValue);
@@ -274,7 +290,15 @@ function Builder({
         ? { field: c.field, operator: c.operator }
         : takesList(c.operator)
           ? { field: c.field, operator: c.operator, value: c.value.split(',').filter(Boolean) }
-          : { field: c.field, operator: c.operator, value: c.value },
+          : {
+              field: c.field,
+              operator: c.operator,
+              value: conditionValue(
+                ev?.conditionFields.find((x) => x.field === c.field)?.type,
+                c.operator,
+                c.value,
+              ),
+            },
     ),
     actions: f.actions.map((a) => ({
       id: a.id,
@@ -601,7 +625,7 @@ function Builder({
                 return (
                   <div
                     key={c.key}
-                    className="grid items-end gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]"
+                    className="grid items-end gap-2 sm:grid-cols-[1fr_13rem_1fr_auto]"
                   >
                     <Select
                       label={`Condition ${i + 1} field`}
@@ -628,7 +652,9 @@ function Builder({
                         const next = e.target.value as AutomationOperator;
                         // A value that no longer fits the operator is cleared.
                         const keep =
-                          !takesNoValue(next) && takesList(next) === takesList(c.operator);
+                          !takesNoValue(next) &&
+                          takesList(next) === takesList(c.operator) &&
+                          takesDays(next) === takesDays(c.operator);
                         setCond(c.key, { operator: next, ...(keep ? {} : { value: '' }) });
                       }}
                       options={(def?.operators ?? ['IS']).map((o) => ({
@@ -673,6 +699,15 @@ function Builder({
                       <Input
                         label={`Condition ${i + 1} value`}
                         hideLabel
+                        type={
+                          takesDays(c.operator) || def?.type === 'NUMBER' || def?.type === 'MONEY'
+                            ? 'number'
+                            : def?.type === 'DATE'
+                              ? 'date'
+                              : 'text'
+                        }
+                        {...(takesDays(c.operator) ? { min: 0, step: 1 } : {})}
+                        {...(def?.type === 'MONEY' ? { min: 0, step: 0.01 } : {})}
                         value={c.value}
                         onChange={(e) => setCond(c.key, { value: e.target.value })}
                       />
@@ -690,6 +725,14 @@ function Builder({
                   </div>
                 );
               })}
+              {f.conditions.some(
+                (c) => ev?.conditionFields.find((x) => x.field === c.field)?.type === 'DATE',
+              ) ? (
+                <p className="text-xs text-muted" data-testid="condition-timezone">
+                  Dates are your firm&apos;s days{timezone ? ` (${timezone})` : ''}; the last or
+                  next days count today.
+                </p>
+              ) : null}
               {f.conditions.length === 0 ? (
                 <p className="text-sm text-muted">
                   {ev?.hasClient === false

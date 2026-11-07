@@ -1,3 +1,4 @@
+import { zonedDate } from '../appointments/calendar.js';
 import type { TxClient } from '@firmivra/db';
 import { liveClient } from '../tasks/task-common.js';
 import { AUDIT_EVENTS, clientTypes, loadAuditEvent, providerName } from './audit-events.js';
@@ -38,6 +39,8 @@ export interface Scope {
   limit?: number;
   /** AU-F30: a confirmable event's source (Manual confirmation when left out). */
   source?: 'INTEGRATION_VERIFIED' | 'MANUAL' | 'EITHER';
+  /** The firm's time zone: a moment's day (a client added, an appointment) is the firm's day. */
+  timezone?: string;
 }
 
 const UNIT_MS = { MINUTE: 60_000, HOUR: 3_600_000, DAY: 86_400_000 } as const;
@@ -56,6 +59,9 @@ export function timingHolds(t: Timing, at: Date | null, now: Date): boolean {
 }
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+/** A moment's day in the firm's time zone (UTC when the scope has none). */
+const dayIn = (s: Scope, d: Date | null) =>
+  d ? (s.timezone ? zonedDate(s.timezone, d.getTime()) : dayOf(d)) : null;
 const todayDate = (today: string) => new Date(`${today}T00:00:00.000Z`);
 const daysBetween = (today: string, d: Date) =>
   Math.floor((Date.parse(`${today}T00:00:00Z`) - d.getTime()) / DAY);
@@ -129,6 +135,17 @@ const LOADERS: Record<string, Loader> = {
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
     });
+    // What was paid (online and offline), as Invoices counts it (app_invoice_paid_cents).
+    const paid = new Map(
+      rows.length === 0
+        ? []
+        : (
+            await tx.$queryRaw<{ id: string; paid: bigint | number }[]>`
+              SELECT id::text AS id, app_invoice_paid_cents(id) AS paid FROM invoices
+              WHERE business_id = ${s.businessId}::uuid
+                AND id = ANY(${rows.map((i) => i.id)}::uuid[])`
+          ).map((p) => [p.id, Number(p.paid)]),
+    );
     return rows.map((i) => ({
       recordKind: 'invoice',
       recordId: i.id,
@@ -139,7 +156,10 @@ const LOADERS: Record<string, Loader> = {
       fields: {
         clientType: i.client.accountType,
         totalCents: i.totalCents,
+        balanceCents: Math.max(i.totalCents - (paid.get(i.id) ?? 0), 0),
+        paymentStatus: (paid.get(i.id) ?? 0) > 0 ? 'PARTLY_PAID' : 'UNPAID',
         daysOverdue: i.dueOn ? daysBetween(s.today, i.dueOn) : null,
+        dueOn: i.dueOn ? dayOf(i.dueOn) : null,
       },
     }));
   },
@@ -158,6 +178,9 @@ const LOADERS: Record<string, Loader> = {
         dueOn: true,
         type: true,
         priority: true,
+        status: true,
+        jurisdiction: true,
+        taxYear: true,
         client: { select: clientSelect },
       },
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
@@ -170,7 +193,15 @@ const LOADERS: Record<string, Loader> = {
       label: d.name,
       at: d.dueOn,
       occurrence: dayOf(d.dueOn),
-      fields: { clientType: d.client.accountType, deadlineType: d.type, priority: d.priority },
+      fields: {
+        clientType: d.client.accountType,
+        deadlineType: d.type,
+        priority: d.priority,
+        deadlineStatus: d.status,
+        jurisdiction: d.jurisdiction,
+        taxYear: d.taxYear,
+        dueOn: dayOf(d.dueOn),
+      },
     }));
   },
   'task.overdue': async (tx, s) => {
@@ -187,6 +218,8 @@ const LOADERS: Record<string, Loader> = {
         title: true,
         dueOn: true,
         priority: true,
+        progress: true,
+        assignedUserId: true,
         client: { select: clientSelect },
       },
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
@@ -206,6 +239,9 @@ const LOADERS: Record<string, Loader> = {
           clientType: client.accountType,
           priority: t.priority,
           daysOverdue: t.dueOn ? daysBetween(s.today, t.dueOn) : null,
+          taskProgress: t.progress,
+          taskAssignedUserId: t.assignedUserId,
+          dueOn: t.dueOn ? dayOf(t.dueOn) : null,
         },
       };
     });
@@ -218,7 +254,15 @@ const LOADERS: Record<string, Loader> = {
         startsAt: { gte: s.now },
         ...(s.recordId ? { id: s.recordId } : {}),
       },
-      select: { id: true, startsAt: true, locationKind: true, client: { select: clientSelect } },
+      select: {
+        id: true,
+        startsAt: true,
+        locationKind: true,
+        typeId: true,
+        confirmedAt: true,
+        service: { select: { kind: true } },
+        client: { select: clientSelect },
+      },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
     });
@@ -229,7 +273,14 @@ const LOADERS: Record<string, Loader> = {
       label: 'Appointment',
       at: a.startsAt,
       occurrence: a.startsAt.toISOString(),
-      fields: { clientType: a.client.accountType, locationKind: a.locationKind },
+      fields: {
+        clientType: a.client.accountType,
+        locationKind: a.locationKind,
+        appointmentTypeId: a.typeId,
+        confirmation: a.confirmedAt ? 'CONFIRMED' : 'PENDING',
+        serviceKind: a.service?.kind ?? null,
+        startsOn: dayIn(s, a.startsAt),
+      },
     }));
   },
   // AU-F09: an open lead's next follow-up (its type and time), before or after it.
@@ -287,7 +338,13 @@ const LOADERS: Record<string, Loader> = {
         status: true,
         dueOn: true,
         form: { select: { title: true } },
-        engagement: { select: { clientId: true, client: { select: { accountType: true } } } },
+        engagement: {
+          select: {
+            clientId: true,
+            client: { select: { accountType: true } },
+            service: { select: { kind: true } },
+          },
+        },
       },
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
@@ -299,7 +356,12 @@ const LOADERS: Record<string, Loader> = {
       label: i.form.title,
       at: i.dueOn,
       occurrence: dayOf(i.dueOn!),
-      fields: { clientType: i.engagement?.client.accountType ?? null, status: i.status },
+      fields: {
+        clientType: i.engagement?.client.accountType ?? null,
+        status: i.status,
+        serviceKind: i.engagement?.service.kind ?? null,
+        dueOn: dayOf(i.dueOn!),
+      },
     }));
   },
   // AU-F11: a document request still open (not submitted or completed), by its due date.
@@ -311,7 +373,13 @@ const LOADERS: Record<string, Loader> = {
         dueOn: { not: null },
         ...(s.recordId ? { id: s.recordId } : {}),
       },
-      select: { id: true, title: true, dueOn: true, clientId: true },
+      select: {
+        id: true,
+        title: true,
+        dueOn: true,
+        clientId: true,
+        engagement: { select: { service: { select: { kind: true } } } },
+      },
       orderBy: [{ dueOn: 'asc' }, { id: 'asc' }],
       take: s.limit ?? LIMIT,
     });
@@ -327,7 +395,11 @@ const LOADERS: Record<string, Loader> = {
       label: p.title,
       at: p.dueOn,
       occurrence: dayOf(p.dueOn!),
-      fields: { clientType: types.get(p.clientId) ?? null },
+      fields: {
+        clientType: types.get(p.clientId) ?? null,
+        serviceKind: p.engagement.service.kind,
+        dueOn: dayOf(p.dueOn!),
+      },
     }));
   },
   // AU-F12: a return not yet transmitted, by its filing due date.
@@ -371,6 +443,7 @@ const LOADERS: Record<string, Loader> = {
         clientType: r.client.accountType,
         workflowStatus: r.workflowStatus,
         taxYear: r.taxYear,
+        dueOn: dayOf(r.dueOn!),
       },
     }));
   },
@@ -446,7 +519,50 @@ export async function loadCandidates(
   const load = LOADERS[event];
   if (!load) return [];
   const rows = await load(tx, scope);
-  return rows.filter((c) => timingHolds(timing, c.at, scope.now));
+  return withClientContext(
+    tx,
+    scope,
+    rows.filter((c) => timingHolds(timing, c.at, scope.now)),
+  );
+}
+
+/**
+ * AU-F22: each candidate's client, in one read of the firm's clients: its status, tags, assigned
+ * member, state, the day it was added and its last recorded activity. The event's own fields win
+ * (a client's own event already has its status, tags and assignee under their usual names).
+ */
+async function withClientContext(tx: TxClient, s: Scope, rows: Candidate[]): Promise<Candidate[]> {
+  const ids = [...new Set(rows.flatMap((c) => (c.clientId ? [c.clientId] : [])))];
+  if (ids.length === 0) return rows;
+  const clients = await tx.client.findMany({
+    where: { businessId: s.businessId, id: { in: ids } },
+    select: {
+      id: true,
+      status: true,
+      assignedUserId: true,
+      createdAt: true,
+      lastActivityAt: true,
+      tags: { select: { tagId: true } },
+      profile: { select: { state: true } },
+    },
+  });
+  const byId = new Map(clients.map((c) => [c.id, c]));
+  return rows.map((r) => {
+    const c = r.clientId ? byId.get(r.clientId) : undefined;
+    if (!c) return r;
+    return {
+      ...r,
+      fields: {
+        clientStatus: c.status,
+        clientTags: c.tags.map((t) => t.tagId),
+        clientAssignedUserId: c.assignedUserId,
+        clientState: c.profile?.state?.toUpperCase() ?? null,
+        clientCreatedOn: dayIn(s, c.createdAt),
+        clientLastActivityOn: dayIn(s, c.lastActivityAt),
+        ...r.fields,
+      },
+    };
+  });
 }
 
 /** The sync errors only a new authorization fixes (integrations.service.ts marks them too). */

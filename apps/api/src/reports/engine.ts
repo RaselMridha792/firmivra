@@ -14,6 +14,7 @@ import type {
   ReportTableRow,
 } from '@firmivra/types';
 import type { Cell, Row, SourceDef } from './sources.js';
+import { INSIGHT_RULES } from './metric-definitions.js';
 import { MONEY_BASIS } from './sources.js';
 
 // The reporting engine: date ranges in the firm's time zone, filter evaluation, and the one
@@ -879,14 +880,24 @@ export function compute(input: ComputeInput): Computed {
     const now = measure(rows);
     const before = measure(previous);
     const change = pct(now, before);
-    if (change !== null && Math.abs(change) >= 10) {
-      const what = measureField ? `${measureField.label}` : source.label;
+    const what = measureField ? `${measureField.label}` : source.label;
+    const rule = INSIGHT_RULES.change;
+    if (change !== null && Math.abs(change) >= rule.minPercent) {
       insights.push({
-        key: 'change_vs_comparison',
+        key: rule.key,
         message: `${what} is ${change > 0 ? 'up' : 'down'} ${Math.abs(change)}% against the comparison period.`,
         metric: measureField?.key ?? 'count',
         value: change,
-        threshold: '10%',
+        threshold: `${rule.minPercent}%`,
+      });
+    } else if (change === null && now !== 0) {
+      // RP-Y12: too little to compare with is said, never turned into a percentage.
+      insights.push({
+        key: INSIGHT_RULES.noBaseline.key,
+        message: `${what} has nothing in the comparison period to compare with.`,
+        metric: measureField?.key ?? 'count',
+        value: null,
+        threshold: INSIGHT_RULES.noBaseline.threshold,
       });
     }
   }
