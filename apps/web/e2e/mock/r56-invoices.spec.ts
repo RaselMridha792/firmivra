@@ -203,7 +203,7 @@ test('The list keeps its filters in the address; Templates goes back to it; the 
   await expect(page.getByRole('button', { name: 'Actions for INV-2026-0098' })).toBeVisible();
 });
 
-test('Recurring Invoices: figures, tabs and a schedule page; Pause, Resume, End asking first, and Auto-send (IP-F18)', async ({
+test('Recurring Invoices: figures, tabs and a schedule page; Send Now, Pause, Resume, End asking first, and Auto-send (IP-F18)', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -224,12 +224,18 @@ test('Recurring Invoices: figures, tabs and a schedule page; Pause, Resume, End 
   await expect(detail.getByTestId('autopay-note')).toContainText('AutoPay is off');
   await detail.getByRole('switch', { name: 'Auto-send' }).click();
   await expect(page.getByText('Auto-send is on.')).toBeVisible();
+  // Send Now asks first, then makes and sends the next one.
+  await detail.getByRole('button', { name: 'Send Now' }).click();
+  await expect(page.getByTestId('send-now-confirm')).toContainText('sent to');
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Now' }).click();
+  await expect(page.getByText('The next invoice was made and sent to the client.')).toBeVisible();
+  await expect(detail.getByTestId('recurring-invoices-made')).toContainText('INV-2026-R4');
   await detail.getByRole('button', { name: 'Pause' }).click();
   await expect(page.getByText('Paused: no invoice is made until it resumes.')).toBeVisible();
   await expect(detail).toContainText('None while paused.');
   await detail.getByRole('button', { name: 'Resume' }).click();
   await expect(detail.getByTestId('recurring-upcoming')).toBeVisible();
-  await detail.getByRole('button', { name: 'End' }).click();
+  await detail.getByRole('button', { name: 'End', exact: true }).click();
   await expect(page.getByTestId('end-confirm')).toContainText('makes no more invoices');
   await page.screenshot({ path: test.info().outputPath('recurring-end.png') });
   await page.getByRole('dialog').getByRole('button', { name: 'End Recurring Invoice' }).click();

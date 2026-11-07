@@ -1091,6 +1091,27 @@ export function createInvoicesMock(
       const d = mockSchedules().get(id);
       if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
       const state = (m: string) => fail(409, 'RECURRING_STATE', m);
+      if (action === 'send-now') {
+        if (d.status !== 'ACTIVE' || !d.nextSendOn) {
+          throw state('Only an active recurring invoice can send its next invoice now');
+        }
+        const k = d.occurrences + 1;
+        d.invoices.unshift({
+          id: `0199c3b1-0000-7000-8000-${String(100 + k).padStart(12, '0')}`,
+          number: `INV-2026-R${k}`,
+          periodOn: d.nextSendOn,
+          status: 'OPEN',
+          totalCents: d.amountCents,
+        });
+        const next = plusMonths(d.nextSendOn, 1);
+        Object.assign(d, {
+          occurrences: k,
+          nextSendOn: next,
+          upcoming: [next, plusMonths(next, 1), plusMonths(next, 2)],
+        });
+        d.history.unshift({ action: 'invoice_made', at: now(), by: mockMe.name });
+        return copy(d);
+      }
       if (action === 'pause') {
         if (d.status !== 'ACTIVE') throw state('Only an active recurring invoice can be paused');
         Object.assign(d, { status: 'PAUSED', upcoming: [] });
@@ -1109,7 +1130,7 @@ export function createInvoicesMock(
         }
         Object.assign(d, { status: 'ENDED', nextSendOn: null, upcoming: [] });
       }
-      const done = { pause: 'paused', resume: 'resumed', end: 'ended' }[action];
+      const done = { pause: 'paused', resume: 'resumed', end: 'ended' }[action as 'pause'];
       d.history.unshift({ action: done, at: now(), by: mockMe.name });
       return copy(d);
     },
