@@ -14,12 +14,17 @@ import {
   UploadSimple,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useDeferredValue, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useDeferredValue, useEffect, useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { pageOf, writeListQuery } from '../../../../../lib/list-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { TemplateMenu, UseTemplate } from './template-actions';
+import { LIBRARY_VIEW, UUID, viewOf } from './list-view';
 import { CategoriesDialog, ImportDialog, PreviewDialog } from './template-dialogs';
+import { TemplateHelp } from './template-help';
 import {
   KindTile,
   StatusPill,
@@ -53,13 +58,23 @@ const NONE = 'none';
 export function LibraryScreen({ slug }: { slug: string }) {
   const meta = kindBySlug(slug);
   const kind = meta?.kind ?? 'EMAIL';
-  const [categoryId, setCategoryId] = useState('');
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [owner, setOwner] = useState('');
-  const [tag, setTag] = useState('');
-  const [sort, setSort] = useState('updated');
-  const [page, setPage] = useState(1);
+  // TP-F01: the view comes from the address and goes back into it, so the editor's Cancel and
+  // breadcrumb, browser Back and Use's Back open this list as it was left.
+  const params = useSearchParams();
+  const [initial] = useState(() => viewOf(params, LIBRARY_VIEW));
+  const [categoryId, setCategoryId] = useState(
+    initial.category === NONE || UUID.test(initial.category) ? initial.category : '',
+  );
+  const [search, setSearch] = useState(initial.q);
+  const [status, setStatus] = useState(
+    ['ACTIVE', 'DRAFT', 'ARCHIVED'].includes(initial.status) ? initial.status : '',
+  );
+  const [owner, setOwner] = useState(initial.owner);
+  const [tag, setTag] = useState(initial.tag);
+  const [sort, setSort] = useState(
+    SORTS.some((x) => x.value === initial.sort) ? initial.sort : 'updated',
+  );
+  const [page, setPage] = useState(() => pageOf(initial.page));
   const [selected, setSelected] = useState<string[]>([]);
   const [preview, setPreview] = useState<MessageTemplateRow>();
   const [dialog, setDialog] = useState<
@@ -101,6 +116,12 @@ export function LibraryScreen({ slug }: { slug: string }) {
     (body: Parameters<typeof api.templates.bulk>[0]) => api.templates.bulk(body),
     options,
   );
+  useEffect(() => {
+    writeListQuery(
+      { category: categoryId, q: search, status, owner, tag, sort, page: String(page) },
+      LIBRARY_VIEW,
+    );
+  }, [categoryId, search, status, owner, tag, sort, page]);
 
   if (!meta) {
     return (
@@ -188,13 +209,13 @@ export function LibraryScreen({ slug }: { slug: string }) {
             />
           </button>
           <span className="block">
-            <Link
+            <OriginLink
               href={`/templates/${r.id}/edit`}
               data-testid="template-link"
               className="font-semibold text-heading hover:underline"
             >
               {r.name}
-            </Link>
+            </OriginLink>
             {r.description ? (
               <span className="block text-xs text-muted">{r.description}</span>
             ) : null}
@@ -281,7 +302,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
         <div className="flex min-w-0 items-center gap-4">
           <KindTile kind={kind} size="lg" />
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">{meta.title}</h1>
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              {meta.title} <TemplateHelp area="library" />
+            </h1>
             <p className="text-base text-muted">{meta.blurb}</p>
           </div>
         </div>
@@ -289,9 +312,13 @@ export function LibraryScreen({ slug }: { slug: string }) {
           <button type="button" className={outlined} onClick={() => setDialog('import')}>
             <UploadSimple aria-hidden weight="bold" className="size-4" /> Import Template
           </button>
-          <Link href={`/templates/new?kind=${kind}`} className={gold} data-testid="create-template">
+          <OriginLink
+            href={`/templates/new?kind=${kind}`}
+            className={gold}
+            data-testid="create-template"
+          >
             <Plus aria-hidden weight="bold" className="size-5" /> Create {meta.noun} Template
-          </Link>
+          </OriginLink>
         </div>
       </header>
       {message ? (
@@ -324,7 +351,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
       <div className="grid items-start gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
         <aside aria-label="Categories" className={card} data-testid="category-sidebar">
           <h2 className="mb-2 flex items-center justify-between gap-2 font-display text-lg font-bold text-heading">
-            Categories
+            <span className="flex items-center gap-2">
+              Categories <TemplateHelp area="categories" />
+            </span>
             <span
               className="rounded-pill bg-canvas px-2 py-0.5 font-sans text-xs font-semibold text-heading"
               data-testid="category-count"
@@ -459,6 +488,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
             <button type="button" className="text-sm font-medium text-link" onClick={reset}>
               Clear
             </button>
+            <span className="flex h-10 items-center">
+              <TemplateHelp area="filters" />
+            </span>
           </form>
           {selected.length > 0 ? (
             <div className="mb-3">
@@ -495,12 +527,12 @@ export function LibraryScreen({ slug }: { slug: string }) {
                   : `Create a ${meta.noun} template to get started.`
               }
               emptyAction={
-                <Link
+                <OriginLink
                   href={`/templates/new?kind=${kind}`}
                   className="inline-flex min-h-11 items-center rounded-control bg-gold px-4 text-sm font-semibold text-on-action"
                 >
                   Create {meta.noun} Template
-                </Link>
+                </OriginLink>
               }
               selection={{ selected, onChange: setSelected }}
               rowActions={(r) => (

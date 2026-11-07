@@ -34,7 +34,7 @@ import { RECURRING_LABEL, RECURRING_TONE, SubHeader, frequencyText } from './inv
 // schedule and turn Auto-send on or off; AutoPay stays off (it needs a payment provider that
 // supports it and the client's own authorization). Nothing here makes or sends an invoice.
 
-type Action = 'pause' | 'resume' | 'end';
+type Action = 'pause' | 'resume' | 'end' | 'send-now';
 const TABS = [
   { id: 'ALL', label: 'All' },
   { id: 'ACTIVE', label: 'Active' },
@@ -45,12 +45,17 @@ const DONE: Record<Action, string> = {
   pause: 'Paused: no invoice is made until it resumes.',
   resume: 'Resumed from the next send day.',
   end: 'Ended: no more invoices are made.',
+  'send-now': 'The next invoice was made and sent to the client.',
 };
 
-/** Pause, Resume and End for Owner and Admin, End asking first; `onDone` gets the new state. */
+/**
+ * Send Now, Pause, Resume and End for Owner and Admin; Send Now and End ask first. `onDone` gets
+ * the new state.
+ */
 function useScheduleActions(onDone: (d: RecurringInvoiceDetail, text: string) => void) {
   const qc = useQueryClient();
   const [ending, setEnding] = useState<{ id: string; name: string }>();
+  const [sending, setSending] = useState<{ id: string; name: string; client: string }>();
   const [error, setError] = useState<string>();
   const run = async (id: string, action: Action) => {
     setError(undefined);
@@ -62,7 +67,15 @@ function useScheduleActions(onDone: (d: RecurringInvoiceDetail, text: string) =>
       setError(errorMessage(e, INVOICE_ERRORS));
     }
   };
-  const items = (r: Pick<RecurringInvoiceRow, 'id' | 'name' | 'status'>) => [
+  const items = (r: Pick<RecurringInvoiceRow, 'id' | 'name' | 'status' | 'client'>) => [
+    ...(r.status === 'ACTIVE'
+      ? [
+          {
+            label: 'Send Now',
+            onSelect: () => setSending({ id: r.id, name: r.name, client: r.client.displayName }),
+          },
+        ]
+      : []),
     ...(r.status === 'ACTIVE' ? [{ label: 'Pause', onSelect: () => void run(r.id, 'pause') }] : []),
     ...(r.status === 'PAUSED'
       ? [{ label: 'Resume', onSelect: () => void run(r.id, 'resume') }]
@@ -96,6 +109,33 @@ function useScheduleActions(onDone: (d: RecurringInvoiceDetail, text: string) =>
       <p className="text-sm text-text" data-testid="end-confirm">
         {ending.name} makes no more invoices. The invoices it already made stay as they are, and its
         history is kept. This cannot be undone: set up a new recurring invoice to start again.
+      </p>
+    </Modal>
+  ) : sending ? (
+    <Modal
+      open
+      title="Send the next invoice now?"
+      onClose={() => setSending(undefined)}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => setSending(undefined)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              const id = sending.id;
+              setSending(undefined);
+              void run(id, 'send-now');
+            }}
+          >
+            Send Now
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-text" data-testid="send-now-confirm">
+        The next invoice of {sending.name} is made now and sent to {sending.client}, as Send does.
+        The schedule then moves to the send day after.
       </p>
     </Modal>
   ) : null;
@@ -253,6 +293,8 @@ const ACTION_WORD: Record<string, string> = {
   paused: 'Paused',
   resumed: 'Resumed',
   ended: 'Ended',
+  invoice_made: 'Invoice made',
+  period_skipped: 'Period already made; moved on',
 };
 
 /** /invoices/recurring/[id]: one recurring invoice. */

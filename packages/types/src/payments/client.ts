@@ -73,10 +73,13 @@ export function createInvoicesClient(request: ApiRequest) {
     /** IP-F18: one schedule, its invoices, next sends and history. 404 when not the caller's to see. */
     recurringOne: async (id: string): Promise<RecurringInvoiceDetail> =>
       request(RecurringInvoiceDetail, `${BASE}/recurring/${encodeURIComponent(id)}`),
-    /** IP-F18 (Owner and Admin): pause, resume or end a schedule. 409 RECURRING_STATE. */
+    /**
+     * IP-F18 (Owner and Admin): pause, resume or end a schedule, or Send Now (its next period's
+     * invoice made and sent now). 409 RECURRING_STATE.
+     */
     recurringAction: async (
       id: string,
-      action: 'pause' | 'resume' | 'end',
+      action: 'pause' | 'resume' | 'end' | 'send-now',
     ): Promise<RecurringInvoiceDetail> =>
       request(RecurringInvoiceDetail, `${BASE}/recurring/${encodeURIComponent(id)}/${action}`, {
         method: 'POST',

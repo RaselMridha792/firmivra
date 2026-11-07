@@ -2,6 +2,7 @@
 
 import { CreateIntegrationRequest } from '@firmivra/types';
 import { Button, Input, Modal, Select, Textarea } from '@firmivra/ui';
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useFirm } from '../../../../../../components/firm-context';
@@ -32,12 +33,29 @@ export function RequestIntegrationModal({ open, onClose }: { open: boolean; onCl
     (body: CreateIntegrationRequest) => api.integrations.request(body),
     { invalidate: ['integration-requests'] },
   );
+  // IN-Y05: Cancel on a started request asks Keep draft or Discard; Escape or the close button
+  // keep the draft (it is still there when the modal opens again).
+  const [asking, setAsking] = useState(false);
   function close() {
+    setAsking(false);
     onClose();
     if (create.isSuccess) {
       form.reset();
       create.reset();
     }
+  }
+  function cancel() {
+    // Anything typed or chosen is a started request.
+    const started = Object.values(form.getValues()).some((v) =>
+      typeof v === 'string' ? v.trim() !== '' : v != null,
+    );
+    if (started && !create.isSuccess) setAsking(true);
+    else close();
+  }
+  function discard() {
+    form.reset();
+    create.reset();
+    close();
   }
   return (
     <Modal
@@ -113,8 +131,23 @@ export function RequestIntegrationModal({ open, onClose }: { open: boolean; onCl
               {errorMessage(create.error)}
             </p>
           ) : null}
+          {asking ? (
+            <div
+              role="alertdialog"
+              aria-label="Keep this request as a draft?"
+              className="flex flex-wrap items-center justify-end gap-3 rounded-lg bg-subtle p-3 text-sm"
+            >
+              <span className="mr-auto text-heading">Keep this request as a draft?</span>
+              <Button variant="secondary" onClick={close}>
+                Keep draft
+              </Button>
+              <Button variant="outline" onClick={discard}>
+                Discard
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap justify-end gap-3">
-            <Button variant="secondary" onClick={close}>
+            <Button variant="secondary" onClick={cancel}>
               Cancel
             </Button>
             <Button type="submit" disabled={create.isPending}>

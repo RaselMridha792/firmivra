@@ -249,6 +249,48 @@ Progress (Templates, Oct 28 review):
   - the member's own (`business/me/message-signature`).
   The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
   Signature. A missing one says why. It is text and formatting only and sends nothing.
+- Word import, branch `rasel/R60-template-docx`: TP-F16.
+  - Import Template takes a Word document for a formatted kind (not SMS or Task), up to the
+    module's 10 MB.
+  - It uploads in three steps (`business/templates/import/uploads`, the PUT, then the import with
+    its token) under `tenant/{firm}/template-imports/`.
+  - The API reads it once, converts it with mammoth (no network, images dropped), runs the
+    allowlist sanitizer, and deletes the file whatever happens.
+  - The result is always a private draft. Firm B and another member can't use the ticket.
+- TP-F06 again (the lead, Nov 7, High; R1 found no `attachments/uploads` request in the dev logs
+  for Octavia's session), on the same branch. The real client against the local API and s3mock
+  (`e2e/r60-template-attachments.spec.ts`, not the mock):
+  - a valid PNG and PDF, and a PDF with an upper-case ending, were attached, kept after a reload
+    and downloaded from the firm's prefix, so the start step itself works in Chromium;
+  - a file the browser gives no type (`File.type` '': some do, dragged in or from a cloud folder)
+    was refused before any request: the editor's and the Communications composer's pickers listed
+    types only. They now take the endings too (`TEMPLATE_ATTACHMENT_ACCEPT`, as Documents does),
+    and the name decides the type in any case;
+  - a file the browser cannot read (`file.arrayBuffer()` throws, such as a OneDrive placeholder)
+    showed "Something went wrong" with no request, which matches the dev logs. `uploadFile` now
+    names it (`FILE_UNREADABLE`, every upload screen through `lib/errors.ts`).
+  - Tests: the real spec 1 of 1 (five files, a .txt, 11 MB and an unreadable file, nothing sent
+    for those); unit `upload` 16 of 16; mock editor and composer specs 7 of 7.
+  - Not found locally: the exact file Octavia used. If dev still fails, the editor now names the
+    reason.
+- Return to origin, branch `rasel/R60-templates-origin`: TP-F01.
+  - The overview's view, category, search, Show All and page, and a library's category, search,
+    status, owner, tag, sort and page, are kept in the address (SH1's `lib/list-query`, read in the
+    browser so a browser Back gets them).
+  - Links into the editor (names, Recent, Create, the menu's Edit and Duplicate) and Use carry
+    `?from=` (SH1's `OriginLink`). The editor's Cancel and Archive go back there, the breadcrumb's
+    Templates or library crumb opens that list, and a first save or a duplicate keeps it.
+  - Cancel and the crumbs restore the scroll position. A Use that opens a Communications draft
+    keeps Back to the list, also when the draft can't start.
+  - `lib/origin.ts` names them "Templates" and "Template Library" (as R56 did for Reports and
+    Compliance).
+- Help icons, branch `rasel/R60-templates-help` (on TP-F01): TP-F02.
+  - The shared `HelpTip` on every functional area: the overview, views and kinds, Recent, Tools,
+    the library, its filters and categories.
+  - In the editor: writing it, Preview and Test Send, merge fields, structure, attachments, who can
+    use it, automations and versions. The Import, Merge Fields, Branding and Categories dialogs too.
+  - The text is in one file (`template-help.tsx`). No topic repeats a field's label, so a label
+    finds only its field.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

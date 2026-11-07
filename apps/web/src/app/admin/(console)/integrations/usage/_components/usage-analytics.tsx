@@ -502,7 +502,7 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
               }))}
             />
           </div>
-          <DateRangePicker label="Dates (UTC)" value={draft} onChange={changeRange} />
+          <DateRangePicker label="Dates (UTC)" value={draft} onChange={changeRange} strict />
         </div>
         {rangeError ? (
           <p role="alert" className="text-sm text-danger">

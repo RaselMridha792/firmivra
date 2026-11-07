@@ -233,6 +233,11 @@ export const IntegrationsQuery = z.strictObject({
   category: IntegrationCategory.optional(),
   environment: IntegrationEnvironment.optional().default('LIVE'),
   search: SearchText.optional(),
+  /**
+   * IN-Y03: readiness, apart from connection status: `connectable` (a provider the firm can
+   * connect now) or `coming_soon` (listed, not enabled yet).
+   */
+  readiness: z.enum(['connectable', 'coming_soon']).optional(),
 });
 export type IntegrationsQuery = z.input<typeof IntegrationsQuery>;
 
@@ -240,7 +245,10 @@ export const IntegrationSummary = z.object({
   /** Connected and actively syncing (CONNECTED or SYNCING). */
   connected: z.number().int(),
   needsAttention: z.number().int(),
+  /** IN-Y01: Ready to connect: not connected, and connectable now (not "coming soon"). */
   available: z.number().int(),
+  /** IN-Y01: listed providers that are not enabled yet (can't be connected). */
+  comingSoon: z.number().int(),
   paused: z.number().int(),
   total: z.number().int(),
   /** The last time the platform checked every connection's health. */

@@ -8,6 +8,7 @@ import {
   MessageTemplateKind,
   MessageTemplateStatus,
 } from '../db-enums.js';
+import { UPLOAD_LIMITS } from '../documents/schemas.js';
 
 // Templates (R55 contract, for the Templates screens): the library page with its tabs, category
 // cards and recent templates; the category library with filters, favourites and actions; Create /
@@ -435,6 +436,15 @@ export const TEMPLATE_ATTACHMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ] as const;
 export const TEMPLATE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * TP-F06: what an attachment picker takes (its `accept`): each type, and each type's name endings
+ * for a file the browser gives no type (some do, for a file dragged in or from a cloud folder).
+ * The upload then declares the type from the name, in any case (`uploadContentTypeFor`).
+ */
+export const TEMPLATE_ATTACHMENT_ACCEPT: readonly string[] = [
+  ...TEMPLATE_ATTACHMENT_TYPES,
+  ...TEMPLATE_ATTACHMENT_TYPES.flatMap((type) => UPLOAD_LIMITS.types[type]),
+];
 
 /**
  * Step 1 of an attachment upload: POST .../{id}/attachments/uploads. The answer is the documents'
@@ -528,13 +538,43 @@ export type SaveTemplateBrandingRequest = z.input<typeof SaveTemplateBrandingReq
  * screen to HTML first). The content is sanitized: scripts, event handlers, forms and unsafe links
  * are removed, and what was removed is counted in `removed`. The result is a DRAFT.
  */
-export const ImportTemplateRequest = z.strictObject({
-  kind: MessageTemplateKind,
-  name: text(200),
-  categoryId: z.uuid().nullable().optional(),
-  format: z.enum(['HTML', 'TEXT']),
-  content: z.string().min(1).max(200_000),
+/** TP-F16: a Word document's media type, the one import file there is. */
+export const TEMPLATE_DOCX_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document' as const;
+
+/**
+ * POST .../templates/import/uploads (TP-F16): step 1 of a Word document import, up to the module's
+ * 10 MB; the answer says where to PUT it. The file is read once on import and then deleted.
+ */
+export const StartTemplateImportRequest = z.strictObject({
+  fileName: text(255),
+  contentType: z.literal(TEMPLATE_DOCX_TYPE),
+  sizeBytes: z.number().int().min(1).max(TEMPLATE_ATTACHMENT_MAX_BYTES),
+  /** SHA-256 of the file, hex. */
+  sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Use the lower-case hex SHA-256'),
 });
+export type StartTemplateImportRequest = z.input<typeof StartTemplateImportRequest>;
+
+/**
+ * POST .../templates/import: HTML or plain text in `content`, or a Word document (DOCX, rich
+ * kinds only) by its `uploadToken`. Always a private draft; the content is sanitized.
+ */
+export const ImportTemplateRequest = z
+  .strictObject({
+    kind: MessageTemplateKind,
+    name: text(200),
+    categoryId: z.uuid().nullable().optional(),
+    format: z.enum(['HTML', 'TEXT', 'DOCX']),
+    content: z.string().min(1).max(200_000).optional(),
+    uploadToken: z.string().min(1).max(4_000).optional(),
+  })
+  .refine(
+    (o) =>
+      o.format === 'DOCX'
+        ? o.uploadToken !== undefined && o.content === undefined
+        : o.content !== undefined && o.uploadToken === undefined,
+    { message: "Send the content, or the Word document's upload", path: ['content'] },
+  );
 export type ImportTemplateRequest = z.input<typeof ImportTemplateRequest>;
 export const ImportTemplateResult = z.object({
   template: MessageTemplateDetail,

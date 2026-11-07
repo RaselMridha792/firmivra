@@ -21,7 +21,7 @@ test('CM-F12: Template Actions activate a draft; an email needs its subject firs
     .getByTestId('library-table')
     .getByRole('link', { name: 'Private Draft Idea', exact: true })
     .click();
-  await page.waitForURL(/\/edit$/);
+  await page.waitForURL(/\/edit\?from=/);
   await page.getByLabel(/Subject Line/).fill('An idea worth sharing');
   await page.getByTestId('save-draft').click();
   await expect(page.getByText('Draft saved.')).toBeVisible();

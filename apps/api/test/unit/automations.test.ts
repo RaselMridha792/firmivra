@@ -224,6 +224,39 @@ describe('words, conditions and timing', () => {
     );
   });
 
+  it('times boundaries, zero offsets and the clock change in the firm’s zone (AU-Y09)', () => {
+    const at = new Date('2026-11-02T05:00:00Z');
+    const day = (timing: 'BEFORE' | 'AFTER', offsetValue: number) =>
+      ({ timing, offsetValue, offsetUnit: 'DAY' }) as const;
+    // Exactly the offset away counts; a millisecond short does not.
+    expect(timingHolds(day('BEFORE', 1), at, new Date('2026-11-01T05:00:00Z'))).toBe(true);
+    expect(timingHolds(day('BEFORE', 1), at, new Date('2026-11-01T04:59:59.999Z'))).toBe(false);
+    expect(timingHolds(day('AFTER', 1), at, new Date('2026-11-03T05:00:00Z'))).toBe(true);
+    expect(timingHolds(day('AFTER', 1), at, new Date('2026-11-03T04:59:59.999Z'))).toBe(false);
+    // A zero offset is the moment itself.
+    expect(timingHolds(day('AFTER', 0), at, at)).toBe(true);
+    // No reference date: a before or after timing never holds.
+    expect(timingHolds(day('AFTER', 1), null, at)).toBe(false);
+    // Quiet hours across the night the clocks go back in New York (Nov 1, 2026): 22:30 EDT on
+    // Oct 31 waits until 08:00 EST, which is 13:00 UTC (not 12:00).
+    const q = { start: '21:00', end: '08:00' };
+    expect(quietUntil(new Date('2026-11-01T02:30:00Z'), 'America/New_York', q)?.toISOString()).toBe(
+      '2026-11-01T13:00:00.000Z',
+    );
+    // And the spring night (Mar 8, 2026): 23:00 EST waits until 08:00 EDT, 12:00 UTC.
+    expect(quietUntil(new Date('2026-03-08T04:00:00Z'), 'America/New_York', q)?.toISOString()).toBe(
+      '2026-03-08T12:00:00.000Z',
+    );
+    // Within the last or next N days count the firm's calendar days across the change.
+    const f = { due: '2026-11-03' };
+    expect(
+      conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 3 }, '2026-10-31'),
+    ).toBe(true);
+    expect(
+      conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 2 }, '2026-10-31'),
+    ).toBe(false);
+  });
+
   it('measures timing from the record’s date', () => {
     const at = new Date('2026-06-10T00:00:00Z');
     const before = { timing: 'BEFORE' as const, offsetValue: 7, offsetUnit: 'DAY' as const };

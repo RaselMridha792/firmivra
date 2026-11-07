@@ -9,7 +9,8 @@ const base = `http://app.localhost:${port}/templates`;
 const openFirst = async (page: Page, name: string) => {
   await page.goto(`${base}/library/email`);
   await page.getByRole('link', { name, exact: true }).first().click();
-  await page.waitForURL(/\/edit$/);
+  // TP-F01 (R60): opened from the library, with the way back.
+  await page.waitForURL(/\/edit\?from=%2Ftemplates%2Flibrary%2Femail$/);
   await expect(page.getByTestId('template-editor')).toBeVisible();
 };
 
@@ -31,7 +32,10 @@ test('Home: sixteen kinds with counts, recent templates, tools and tips', async 
     page.getByTestId('recent').getByRole('link', { name: /^Use / }).first(),
   ).toBeVisible();
   await expect(page.getByTestId('recent')).toContainText('Recent Templates');
-  await expect(page.getByTestId('tools').getByRole('button')).toHaveCount(4);
+  // Four tools, beside the Help icon (TP-F02, R60).
+  await expect(page.getByTestId('tools').getByRole('button', { name: /^(?!About )/ })).toHaveCount(
+    4,
+  );
   await expect(page.getByTestId('tips')).toContainText('merge fields');
 });
 
@@ -186,7 +190,10 @@ test('Duplicate from the menu opens the copy as a draft', async ({ page }) => {
   await page.goto(`${base}/library/sms`);
   await page.getByRole('button', { name: 'Actions for Missing Documents Text' }).click();
   await page.getByRole('menuitem', { name: 'Duplicate' }).click();
-  await expect(page).toHaveURL(/\/templates\/[0-9a-f-]{36}\/edit$/);
+  // TP-F01 (R60): the copy opens with the library as its way back.
+  await expect(page).toHaveURL(
+    /\/templates\/[0-9a-f-]{36}\/edit\?from=%2Ftemplates%2Flibrary%2Fsms$/,
+  );
   await expect(page.getByLabel('Template Name *')).toHaveValue('Missing Documents Text (Copy)');
   await expect(page.getByLabel('Message *')).toBeVisible();
 });
@@ -209,5 +216,8 @@ test('Use on an Email template starts a Communications draft copied from it', as
   const use = page.getByTestId('recent').getByRole('link', { name: /^Use / }).first();
   await expect(use).toHaveAttribute('href', /\/communications\/new\?channel=(EMAIL|SMS)&template=/);
   await use.click();
-  await expect(page).toHaveURL(/\/communications\/[0-9a-f-]{36}\/edit$/, { timeout: 30_000 });
+  // TP-F01 (R60): the draft keeps its Back to the Templates overview.
+  await expect(page).toHaveURL(/\/communications\/[0-9a-f-]{36}\/edit\?from=%2Ftemplates$/, {
+    timeout: 30_000,
+  });
 });

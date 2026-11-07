@@ -9,6 +9,7 @@ import type { Database } from '@firmivra/db';
 import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { InvoiceNotices } from './invoice-notices.js';
+import { InvoicesService } from './invoices.service.js';
 import { firmToday, toDate } from './invoice-view.js';
 
 /** The job's advisory lock key: fixed, in a range no other module uses ("R7" = 0x5237). */
@@ -58,6 +59,7 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly notices: InvoiceNotices,
+    private readonly invoices: InvoicesService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -149,6 +151,13 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
         return [] as string[];
       });
       opened.push(...ids.map((id) => ({ businessId, id })));
+      const made = await this.makeRecurring(businessId, now).catch((error: unknown) => {
+        this.logger.warn(
+          `firm ${businessId} recurring failed (${error instanceof Error ? error.name : 'Error'})`,
+        );
+        return [] as string[];
+      });
+      opened.push(...made.map((id) => ({ businessId, id })));
     }
   }
 
@@ -184,5 +193,42 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
       }
       return done;
     });
+  }
+
+  /**
+   * IP-F18: each active recurring invoice whose next send day has come (the firm's calendar) makes
+   * that period's invoice, one schedule at a time in its own transaction. A schedule that fails is
+   * logged with ids only and tried again on the next run; the period is never made twice (the
+   * unique index). Returns the invoices that opened, whose notices go after the commit.
+   */
+  private async makeRecurring(businessId: string, now: Date): Promise<string[]> {
+    const due = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      const { today } = await firmToday(tx, businessId, now);
+      return tx.recurringInvoice.findMany({
+        where: { businessId, status: 'ACTIVE', nextSendOn: { lte: toDate(today) } },
+        select: { id: true },
+        orderBy: [{ nextSendOn: 'asc' }, { id: 'asc' }],
+        take: BATCH,
+      });
+    });
+    const opened: string[] = [];
+    for (const { id } of due) {
+      const made = await this.database
+        .withScope({ kind: 'business', businessId }, (tx) =>
+          this.invoices.makePeriodInvoice(tx, businessId, id, {
+            send: 'auto',
+            actorUserId: null,
+            now,
+          }),
+        )
+        .catch((error: unknown) => {
+          this.logger.warn(
+            `recurring invoice ${id} of firm ${businessId} failed (${error instanceof Error ? error.name : 'Error'})`,
+          );
+          return null;
+        });
+      if (made?.opened) opened.push(made.invoiceId);
+    }
+    return opened;
   }
 }

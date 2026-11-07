@@ -31,6 +31,7 @@ import {
   SetTemplateSharesRequest,
   StarterTemplatesStatus,
   StartTemplateAttachmentRequest,
+  StartTemplateImportRequest,
   TemplateAttachment,
   TemplateAttachmentId,
   TemplateBranding,
@@ -205,6 +206,13 @@ export function createTemplatesClient(request: ApiRequest) {
       ),
 
     // ----- Import and starters -----
+    /** TP-F16: step 1 of a Word document import (upload it with `uploadFile()`). */
+    startImport: async (body: StartTemplateImportRequest): Promise<UploadPutTicket> =>
+      request(
+        UploadPutTicket,
+        `${TEMPLATES}/import/uploads`,
+        post(parseInput(StartTemplateImportRequest, body)),
+      ),
     importTemplate: async (body: ImportTemplateRequest): Promise<ImportTemplateResult> =>
       request(
         ImportTemplateResult,

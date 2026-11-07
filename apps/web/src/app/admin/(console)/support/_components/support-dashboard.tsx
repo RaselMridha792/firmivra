@@ -23,8 +23,8 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useId, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useId, useState } from 'react';
 import {
   isActive,
   type SupportSummary,
@@ -202,7 +202,32 @@ export function SupportDashboard() {
   const [tab, setTab] = useState<TicketTab>('ALL');
   const [set, setSet] = useState<TicketSet>(undefined);
   const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState<FilterState>(NO_FILTERS);
+  // SA-SUP-R1: the date ranges live in the address, so a reload or another page keeps them.
+  const params = useSearchParams();
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const day = (key: string) => {
+      const v = params.get(key) ?? '';
+      return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+    };
+    return {
+      ...NO_FILTERS,
+      created: { from: day('createdFrom'), to: day('createdTo') },
+      activity: { from: day('activityFrom'), to: day('activityTo') },
+    };
+  });
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const pairs: [string, string][] = [
+      ['createdFrom', filters.created.from],
+      ['createdTo', filters.created.to],
+      ['activityFrom', filters.activity.from],
+      ['activityTo', filters.activity.to],
+    ];
+    for (const [key, value] of pairs)
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    if (url.href !== window.location.href) window.history.replaceState(null, '', url);
+  }, [filters.created.from, filters.created.to, filters.activity.from, filters.activity.to]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
