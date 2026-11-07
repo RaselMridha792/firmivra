@@ -1,4 +1,4 @@
-// Mock mode only (SH3): the Payroll and Bookkeeping mocks' clients and their engagements, so the
+// Mock mode only (SH3): the Payroll, Bookkeeping and Tax Returns mocks' clients and their engagements, so the
 // documents, clients and engagements mocks answer for them (a request, an upload, Create Task's
 // prefill). Those mocks ask here when they do not find a client.
 
@@ -6,7 +6,7 @@ export interface ServiceMockEngagement {
   id: string;
   clientId: string;
   clientName: string;
-  kind: 'PAYROLL' | 'BOOKKEEPING';
+  kind: 'PAYROLL' | 'BOOKKEEPING' | 'ANNUAL_TAX';
   title: string;
   status: 'ACTIVE';
 }

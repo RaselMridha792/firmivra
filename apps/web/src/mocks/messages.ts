@@ -76,6 +76,7 @@ import { documentFixtures } from './documents';
 import { invoiceFixtures } from './invoices';
 import { BOOKKEEPING_ENGAGEMENT, taskFixtures } from './tasks';
 import { addTimelineEntry } from './client-timeline';
+import { serviceMockClient } from './service-engagements';
 import { teamFixtures } from './team';
 
 /**
@@ -1118,8 +1119,9 @@ export function createMessagesMock(
 ): MessagesClient {
   const role = options.role ?? 'OWNER';
   const me = role === 'STAFF' ? mockStaff : mockMe;
+  // A service mock's client (Bookkeeping, Payroll, a tax return) is the firm's too (SH5, TX-F05).
   const reaches = (clientId: string) =>
-    clientId in CLIENTS || ARCHIVED.includes(clientId)
+    clientId in CLIENTS || ARCHIVED.includes(clientId) || serviceMockClient(clientId)
       ? role !== 'STAFF' || STAFF_CLIENTS.includes(clientId)
       : false;
   const visible = () => s().threads.filter((t) => reaches(t.clientId));
