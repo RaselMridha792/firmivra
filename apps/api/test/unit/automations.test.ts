@@ -302,6 +302,12 @@ describe('loops, stored shapes and templates', () => {
       'client.status_changed',
     ]);
     expect(produces([{ type: 'UPDATE_CLIENT_PRIORITY', config: {} }])).toEqual([]);
+    // A follow-up set is one coming due; an invitation or an approval request starts nothing.
+    expect(produces([{ type: 'SCHEDULE_LEAD_FOLLOW_UP', config: {} }])).toEqual([
+      'lead.follow_up_due',
+    ]);
+    expect(produces([{ type: 'INVITE_TO_BOOK', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'REQUEST_APPROVAL', config: {} }])).toEqual([]);
     expect(
       loopProblems(
         node('a', 'client.tags_changed', [{ type: 'ADD_CLIENT_TAGS', config: {} }]),
