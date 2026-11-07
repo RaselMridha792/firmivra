@@ -19,6 +19,7 @@ import { useDeferredValue, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { CommsHelp } from './communications-help';
 import { SegmentDialog } from './segments-panel';
 import { COMM_ERRORS, COMM_KEY, quiet } from './communications-shared';
 
@@ -337,8 +338,8 @@ export function RecipientsModal({
               className="rounded-lg border border-divider p-3"
               data-testid="selected-audience"
             >
-              <h3 className="mb-2 font-display text-lg font-bold text-heading">
-                Selected Audience
+              <h3 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+                Selected Audience <CommsHelp area="audience" />
               </h3>
               {chosen.length === 0 ? (
                 <p className="text-sm text-muted">Nobody chosen yet.</p>
@@ -426,7 +427,9 @@ export function RecipientsModal({
               </button>
             </section>
             <section className="rounded-lg border border-divider p-3" aria-label="Recipient total">
-              <h3 className="mb-2 font-display text-lg font-bold text-heading">Recipient Total</h3>
+              <h3 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+                Recipient Total <CommsHelp area="total" />
+              </h3>
               <dl className="flex flex-col gap-1 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-muted">Selected contacts</dt>

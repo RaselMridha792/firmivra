@@ -29,6 +29,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { CommsHelp } from './communications-help';
 import { useAct, type Notice } from './communication-actions';
 import {
   COMM_ERRORS,
@@ -708,6 +709,9 @@ export function SegmentsPanel({ canManage, onNotice }: { canManage: boolean; onN
             checked={archived}
             onChange={(e) => setArchived(e.target.checked)}
           />
+          <span className="flex h-10 items-center">
+            <CommsHelp area="segments" />
+          </span>
         </div>
         {canManage ? (
           <button type="button" className={gold} onClick={() => setEdit('new')}>
