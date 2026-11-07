@@ -41,6 +41,7 @@ import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
 import { RecentActivity } from './recent-activity';
 import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
+import { TextAction } from './text-action';
 import {
   activeFilters,
   addressOf,
@@ -132,6 +133,8 @@ export function MessagesScreen({
   const scoped = useApiQuery([...KEY, 'scoped-client', view.clientId], async () =>
     view.clientId ? api.clients.get(view.clientId) : null,
   );
+  // MSG-F23: each lead conversation's reply channel (the panel's Text sets SMS).
+  const [leadChannel, setLeadChannel] = useState<Record<string, LeadMessageChannel>>({});
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useSettled(view.q.trim());
   const search = term ? { search: term } : {};
@@ -405,6 +408,8 @@ export function MessagesScreen({
           <LeadConversation
             key={current.id}
             thread={current}
+            channel={leadChannel[current.id] ?? 'EMAIL'}
+            onChannel={(c) => setLeadChannel((was) => ({ ...was, [current.id]: c }))}
             onChanged={refresh}
             onNotice={(text, tone) => setMessage({ text, tone })}
           />
@@ -421,7 +426,12 @@ export function MessagesScreen({
           </section>
         )}
         {current && isLead(current) ? (
-          <LeadPanel key={`l${current.lead.id}`} lead={current.lead} />
+          <LeadPanel
+            key={`l${current.lead.id}`}
+            lead={current.lead}
+            // MSG-F23: Text turns this conversation's reply into a text.
+            onText={() => setLeadChannel((was) => ({ ...was, [current.id]: 'SMS' }))}
+          />
         ) : current ? (
           <ContactPanel
             key={`c${current.client.id}`}
@@ -628,7 +638,13 @@ function Conversation({
                 {/* MSG-F10: every conversation message is a portal message. */}
                 {' · '}
                 <span data-testid="message-channel">Portal</span>
-                {mine && m.readAt ? ' · Read' : ''}
+                {/* MSG-F17: a portal message is delivered once posted; read when the client
+                    opens it. */}
+                {mine ? (
+                  <span data-testid="message-delivery">
+                    {m.readAt ? ` · Read ${day(m.readAt)}` : ' · Delivered'}
+                  </span>
+                ) : null}
               </span>
             </li>
           );
@@ -685,17 +701,22 @@ function Conversation({
  */
 function LeadConversation({
   thread,
+  channel,
+  onChannel,
   onChanged,
   onNotice,
 }: {
   thread: LeadMessageThread;
+  /** The reply's channel, kept by the screen so the panel's Text can choose it (MSG-F23). */
+  channel: LeadMessageChannel;
+  onChannel: (channel: LeadMessageChannel) => void;
   onChanged: () => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
   const detail = useApiQuery([...KEY, 'lead-thread', thread.id], () =>
     api.messages.leads.get(thread.id),
   );
-  const [channel, setChannel] = useState<LeadMessageChannel>('EMAIL');
+  const setChannel = onChannel;
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const send = async () => {
@@ -811,7 +832,7 @@ function LeadConversation({
 }
 
 /** The lead beside their conversation: Open Lead, and how to reach them. */
-function LeadPanel({ lead }: { lead: LeadThreadContact }) {
+function LeadPanel({ lead, onText }: { lead: LeadThreadContact; onText: () => void }) {
   return (
     <aside className={`${card} flex flex-col gap-4`} aria-label="Lead" data-testid="contact-panel">
       <div className="flex items-center gap-3">
@@ -824,11 +845,20 @@ function LeadPanel({ lead }: { lead: LeadThreadContact }) {
           </OriginLink>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-heading">
+      <div className="grid grid-cols-4 gap-2 text-center text-xs font-medium text-heading">
+        {/* MSG-F23: Text, only where a text can go; otherwise off with the reason. Schedule
+            stays last, as the design draws it. */}
+        <span className="order-last flex">
+          <a
+            href="/calendar"
+            className="flex w-full flex-col items-center gap-1 rounded-lg border border-divider p-2 hover:bg-canvas"
+          >
+            <CalendarBlank aria-hidden weight="fill" className="size-5 text-action" /> Schedule
+          </a>
+        </span>
         {[
           { label: 'Call', icon: Phone, href: lead.phone ? `tel:${lead.phone}` : undefined },
           { label: 'Email', icon: Envelope, href: lead.email ? `mailto:${lead.email}` : undefined },
-          { label: 'Schedule', icon: CalendarBlank, href: '/calendar' },
         ].map((a) =>
           a.href ? (
             <a
@@ -847,6 +877,7 @@ function LeadPanel({ lead }: { lead: LeadThreadContact }) {
             </span>
           ),
         )}
+        <TextAction person={{ kind: 'LEAD', id: lead.id }} onText={onText} />
       </div>
       <section aria-label="Contact information">
         <h3 className="mb-1 font-display text-lg font-bold text-heading">Contact Information</h3>
@@ -908,7 +939,7 @@ function ContactPanel({
         {/* MSG-F22: the three-dot Thread Actions beside the client card. */}
         <ThreadActions thread={thread} onChanged={onChanged} onNotice={onNotice} />
       </div>
-      <div className="grid grid-cols-3 gap-2 text-center text-xs font-medium text-heading">
+      <div className="grid grid-cols-4 gap-2 text-center text-xs font-medium text-heading">
         {/* MSG-F20: Schedule opens the appointment form with this client chosen (SH6); its
             Back or Cancel returns to this conversation. */}
         <OriginLink
@@ -939,6 +970,8 @@ function ContactPanel({
             </span>
           ),
         )}
+        {/* MSG-F23: Text, off with the reason (texts go to leads only). */}
+        <TextAction person={{ kind: 'CLIENT', id: clientId }} />
       </div>
       <section aria-label="Contact information">
         <h3 className="mb-1 font-display text-lg font-bold text-heading">Contact Information</h3>
