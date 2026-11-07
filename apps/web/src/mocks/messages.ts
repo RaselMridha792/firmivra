@@ -546,9 +546,13 @@ function leadCopy(
 }
 
 /** MSG-F13: Jamie's own records a message can be about (synthetic). */
+/** Client 1's appointment that Related To offers (MSG-F21). */
+export const MOCK_RELATED_APPOINTMENT = '0199b6c3-0000-7000-8000-000000000001';
 function relatedFor(clientId: string): OutboundRelated[] {
   if (clientId !== firstClientId) return [];
   return [
+    // MSG-F21: an appointment's Send Message opens New Message with this one in Related To.
+    { type: 'appointment', id: MOCK_RELATED_APPOINTMENT, label: 'Appointment, Nov 12, 2026' },
     { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
     { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
     { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },

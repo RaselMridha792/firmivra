@@ -156,10 +156,13 @@ export function ComposeScreen({
   initialId,
   initialClientId,
   initialSubject,
+  initialRelated,
 }: {
   initialId?: string;
   initialClientId?: string;
   initialSubject?: string;
+  /** MSG-F21: `type:id`, one of the preset client's records (an appointment's Send Message). */
+  initialRelated?: string;
 }) {
   const qc = useQueryClient();
   const [saved, setSaved] = useState<OutboundMessage>();
@@ -187,7 +190,11 @@ export function ComposeScreen({
   }
   if (!seeded && preset.data) {
     setSeeded(true);
-    setForm((f) => ({ ...f, clients: new Map([[preset.data!.id, preset.data!.displayName]]) }));
+    setForm((f) => ({
+      ...f,
+      clients: new Map([[preset.data!.id, preset.data!.displayName]]),
+      related: initialRelated ?? f.related,
+    }));
   }
   useEffect(() => {
     const next = saved ? `/messages/new?id=${saved.id}` : null;
@@ -196,6 +203,7 @@ export function ComposeScreen({
       params.set('id', saved!.id);
       params.delete('clientId');
       params.delete('subject');
+      params.delete('related');
       window.history.replaceState(null, '', `/messages/new?${params.toString()}`);
     }
   }, [saved]);
@@ -848,6 +856,15 @@ function RelatedAndOwner({
   );
   const assignees = useApiQuery([...KEY, 'assignees'], () => api.messages.outbound.assignees());
   const items = options.data?.items ?? [];
+  // A record that is not this client's (another client chosen since, or an appointment older than
+  // the ones offered) is never sent: Related To goes back to Nothing.
+  const stale =
+    Boolean(form.related) &&
+    (!one ||
+      (options.data !== undefined && !items.some((i) => `${i.type}:${i.id}` === form.related)));
+  useEffect(() => {
+    if (stale) onChange({ related: '' });
+  }, [stale, onChange]);
   return (
     <div className="flex flex-col gap-3" data-testid="compose-related">
       <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
