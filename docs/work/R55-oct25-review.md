@@ -32,7 +32,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1308 merged: AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
 - #1311 merged: honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
 - #1312 merged: the shared date range (opt-in names and the reversed-range check) on for Support, the Sales pipeline and Integrations Usage, and Support's date ranges kept in the address (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4 part).
-- #1314 (`rasel/R55-sa-light-2`): the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
+- #1314 merged: the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
+- SA com (`rasel/R55-sa-com`): New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -142,6 +143,13 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **SA-INT-R3 (parked):** counting firm connections by plan needs a rollup column (lead: option b), so it's a schema question for Rasel.
 - **Broadcasts (SA-COM-R7):** the legacy side panel is gone. Every Create Broadcast opens the four-step wizard.
 - **Report builder (SA-RPT-R8):** default labels pluralise properly ("All Subscription Statuses", "All Categories").
+- **New Message (SA-COM-R5):** recipients, CC and BCC, subject or text not yet sent or saved make Cancel, an in-app link or a reload ask "Discard this message?" (Keep editing or Discard; Discard sends nothing). It reuses the firm side's unsaved guard. The browser's own Back isn't caught (the App Router can't stop it).
+- **Firm-scoped links (SA-RPT-R4, R5):** a link from Reports' firm view into the firm's data opens only the Super Admin's own views, never the firm workspace (the lead, consistent with SA-APP-F12):
+  - Subscriptions searched by the firm's name;
+  - Billing with that firm picked (`?firm=`);
+  - Support filtered to the firm (`?firm=`), which is the firm's full ticket history, every status.
+
+  Ticket numbers open the exact ticket.
 - **SA-PIP-PL01's menu** (Add Lead, Add Opportunity, Build Pipeline) already had text names, so the date popup was the open part.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
