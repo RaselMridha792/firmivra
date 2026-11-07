@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Button, Card, Input, PageHeader, Select } from '@firmivra/ui';
+import { Badge, Button, Card, Input, Modal, PageHeader, Select } from '@firmivra/ui';
 import {
   ArrowUUpLeft,
   ArrowUUpRight,
@@ -43,6 +43,8 @@ import {
 } from '@firmivra/types';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
+// SA-COM-R5: the firm side's unsaved-changes guard, reused (one behaviour for both).
+import { useUnsavedGuard } from '../../../../../firm/(workspace)/tasks/_components/unsaved-guard';
 import { useApiQuery } from '../../../../../../lib/query';
 
 type Channel = 'EMAIL' | 'SMS';
@@ -163,6 +165,16 @@ export function MessageComposer() {
   const [sendOptionsOpen, setSendOptionsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  // SA-COM-R5: what Cancel, an in-app link or a reload would lose: recipients, copies, subject
+  // and body. Leaving with any of it asks "Discard this message?" first.
+  const [bodyText, setBodyText] = useState('');
+  const guard = useUnsavedGuard({
+    to: selected.map((c) => keyOf(c)),
+    cc,
+    bcc,
+    subject,
+    body: bodyText,
+  });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setSearchText(search.trim()), 250);
@@ -208,6 +220,7 @@ export function MessageComposer() {
   const applyFormat = (command: string, value?: string) => {
     editorRef.current?.focus();
     document.execCommand(command, false, value);
+    setBodyText(editorRef.current?.innerText ?? '');
   };
 
   const insertText = (value: string) => applyFormat('insertText', value);
@@ -218,6 +231,7 @@ export function MessageComposer() {
     setLoadedTemplate(chosen.id);
     if (chosen.subject) setSubject(chosen.subject);
     if (editorRef.current) editorRef.current.innerText = chosen.body;
+    setBodyText(chosen.body);
   };
 
   /** One message per recipient, each in its own thread; Cc and Bcc on email only. */
@@ -254,6 +268,7 @@ export function MessageComposer() {
         });
         done += 1;
       }
+      guard.allow();
       router.push('/communications');
     } catch (error) {
       setNotice(
@@ -652,6 +667,7 @@ export function MessageComposer() {
                     aria-required="true"
                     contentEditable
                     suppressContentEditableWarning
+                    onInput={(event) => setBodyText(event.currentTarget.innerText)}
                     className="min-h-48 whitespace-pre-wrap px-3 py-3 text-sm leading-6 text-text focus:outline-none sm:min-h-52 sm:px-4"
                   ></div>
                 </div>
@@ -687,7 +703,7 @@ export function MessageComposer() {
           <footer className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <Button
               variant="secondary"
-              onClick={() => router.push('/communications')}
+              onClick={() => guard.leave('/communications')}
               className="w-full sm:w-auto"
             >
               Cancel
@@ -857,6 +873,28 @@ export function MessageComposer() {
           </Card>
         </aside>
       </div>
+      {guard.pending ? (
+        <Modal
+          open
+          title="Discard this message?"
+          subtitle="It has not been sent or saved."
+          onClose={guard.keepEditing}
+          footer={
+            <>
+              <Button variant="secondary" onClick={guard.keepEditing}>
+                Keep editing
+              </Button>
+              <Button className="bg-danger" onClick={guard.discard}>
+                Discard
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            Discard leaves without sending anything. Keep editing keeps your recipients and text.
+          </p>
+        </Modal>
+      ) : null}
     </div>
   );
 }
