@@ -202,6 +202,10 @@ test('A demo review shows the five Run Payroll steps and processes no payroll: o
   await page.waitForURL(/\/payroll\/runs\/demo$/);
   const run = page.getByTestId('payroll-run');
   await expect(page.getByTestId('demo-banner')).toContainText('no payroll is processed here');
+  await expect(page.getByTestId('demo-sample')).toContainText('samples');
+  for (const name of ['Alex Rivera (sample)', 'Jordan Lee (sample)', 'Sam Patel (sample)']) {
+    await expect(run).toContainText(name);
+  }
   for (const step of [
     'Payroll Period',
     'Employees & Hours',

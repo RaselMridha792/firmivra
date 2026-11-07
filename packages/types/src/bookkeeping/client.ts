@@ -55,6 +55,11 @@ import {
   UpdateBookkeepingReportRequest,
 } from './schemas.js';
 import {
+  BookkeepingReportPreview,
+  BookkeepingReportVersionList,
+  BookkeepingReportVersionRow,
+} from './report-versions.js';
+import {
   AttachBookkeepingReceiptRequest,
   BookkeepingTransactionRow,
   BookkeepingTransferCandidates,
@@ -445,6 +450,18 @@ export function createBookkeepingClient(request: ApiRequest) {
         `${client(id)}/reports`,
         post(parseInput(AddBookkeepingReportRequest, body)),
       ),
+    /** BK-RPT: the figures generating would store, from the ledger for the report's period. */
+    reportPreview: async (reportId: string): Promise<BookkeepingReportPreview> =>
+      request(BookkeepingReportPreview, `${report(reportId)}/preview`),
+    /** BK-RPT: a new immutable version of the report's figures. 409 REPORT_NOT_SUPPORTED, NO_PERIOD. */
+    generateReport: async (reportId: string): Promise<BookkeepingReportVersionRow> =>
+      request(BookkeepingReportVersionRow, `${report(reportId)}/generate`, {
+        method: 'POST',
+        body: {},
+      }),
+    /** BK-RPT: the report's versions, newest first. The CSV of one is a download link (`.../versions/{n}/csv`). */
+    reportVersions: async (reportId: string): Promise<BookkeepingReportVersionList> =>
+      request(BookkeepingReportVersionList, `${report(reportId)}/versions`),
     getReport: async (reportId: string): Promise<BookkeepingReportRow> =>
       request(BookkeepingReportRow, report(reportId)),
     updateReport: async (

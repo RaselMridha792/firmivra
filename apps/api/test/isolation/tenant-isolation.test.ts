@@ -115,6 +115,12 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
     value: '1',
     routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
   },
+  // BK-RPT: a report version number, not a record (the case's report has none yet: 404).
+  {
+    param: 'version',
+    value: '1',
+    routes: /\/bookkeeping\/reports\/:id\/versions\/:version\/csv$/,
+  },
   // Each automation rule record has a version 1 (cases/automations.ts).
   { param: 'version', value: '1', routes: /\/automations\/rules\/:id\/versions\/:version$/ },
   // Each message template record has version 1 (cases/templates.ts).

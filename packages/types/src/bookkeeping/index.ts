@@ -4,3 +4,4 @@ export { createBookkeepingClient, type BookkeepingClient } from './client.js';
 export { createBookkeepingTermsClient, type BookkeepingTermsClient } from './terms-client.js';
 export * from './transactions.js';
 export * from './reconciliation-items.js';
+export * from './report-versions.js';

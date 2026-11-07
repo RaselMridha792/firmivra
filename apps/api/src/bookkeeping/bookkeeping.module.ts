@@ -7,6 +7,7 @@ import { BookkeepingStatusService } from './bookkeeping-status.service.js';
 import { BookkeepingTermsController } from './bookkeeping-terms.controller.js';
 import { BookkeepingTermsService } from './bookkeeping-terms.service.js';
 import { BookkeepingController } from './bookkeeping.controller.js';
+import { BookkeepingReportVersionsService } from './bookkeeping-report-versions.service.js';
 import { BookkeepingTransactionsService } from './bookkeeping-transactions.service.js';
 
 /** The firm's bookkeeping work (contract in packages/types/src/bookkeeping). */
@@ -21,6 +22,7 @@ import { BookkeepingTransactionsService } from './bookkeeping-transactions.servi
     BookkeepingReportsService,
     BookkeepingTermsService,
     BookkeepingTransactionsService,
+    BookkeepingReportVersionsService,
   ],
 })
 export class BookkeepingModule {}
