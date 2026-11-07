@@ -7,7 +7,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { MemberChanged } from '../staff/staff-actions.service.js';
-import { assertManages } from '../staff/staff.common.js';
+import { assertActsOn } from '../staff/staff.common.js';
 import { notFound } from '../workspaces/common.js';
 import {
   type ActionRow,
@@ -633,7 +633,7 @@ export class LocationsService {
         select: { id: true, userId: true, role: true, status: true },
       });
       if (!target) throw notFound();
-      assertManages({ businessId, userId, role }, target);
+      await assertActsOn(tx, { businessId, userId, role }, target, 'deactivate');
       const replacement = body.replacementUserId;
       if (replacement !== null) {
         await this.eligible(tx, businessId, replacement, 'replacementUserId');

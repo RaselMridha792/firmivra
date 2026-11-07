@@ -11,7 +11,9 @@ import {
   type StaffMfaState,
   type StaffPermissions,
   type StaffRef,
+  staffAuthority,
   type StaffSummary,
+  tierOf,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import type { TenantContext } from '../common/request-context.js';
@@ -22,6 +24,7 @@ import { ROLE_DESCRIPTIONS } from '../roles/roles-catalog.js';
 import { notFound } from '../workspaces/common.js';
 import type { StaffListQ } from './staff-input.js';
 import { memberGrid, toPermissions } from './staff-permissions.service.js';
+import { originalOwnerOf } from './staff.common.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
@@ -326,13 +329,16 @@ export class StaffReadService {
         },
       });
       if (!m) throw notFound();
-      const [invites, security] = await Promise.all([
+      const [invites, security, original] = await Promise.all([
         m.status === 'INVITED' ? this.openInvites(tx, businessId, [m.id]) : new Map(),
         tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: m.id } },
           select: { lastLoginAt: true },
         }),
+        originalOwnerOf(tx, businessId),
       ]);
+      // SM14: what the viewer may do to this member, by the rule the changes check.
+      const viewer = tenant.role === 'CLIENT' ? 'MEMBER' : tierOf(tenant.role, userId === original);
       const p = m.staffProfile;
       const team = (kind: 'PRIMARY' | 'BACKUP') => {
         const t = m.teamMemberships.find((x) => x.kind === kind && x.team.status !== 'ARCHIVED');
@@ -391,6 +397,11 @@ export class StaffReadService {
               }
             : null,
         isYou: m.userId === userId,
+        authority: staffAuthority(
+          viewer,
+          tierOf(m.role, m.userId === original),
+          m.userId === userId,
+        ),
         version: (p && p.updatedAt > m.updatedAt ? p.updatedAt : m.updatedAt).toISOString(),
       };
     });

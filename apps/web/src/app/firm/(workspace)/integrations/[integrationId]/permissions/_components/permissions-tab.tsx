@@ -126,7 +126,7 @@ function Permissions({
         <ul className="flex flex-col gap-3 text-sm text-text">
           <li className="flex gap-3">
             <ShieldCheck aria-hidden weight="fill" className="size-5 shrink-0 text-action" />
-            LVP Pro asks only for what the objects you sync need.
+            Firmivra asks only for what the objects you sync need.
           </li>
           <li className="flex gap-3">
             <ShieldCheck aria-hidden weight="fill" className="size-5 shrink-0 text-action" />

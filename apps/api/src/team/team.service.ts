@@ -21,6 +21,7 @@ import {
 import { AuditService } from '../audit/audit.service.js';
 import { InvitesService, lockStaffInvites } from '../auth/invites.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { assertActsOn, assertRoleChange } from '../staff/staff.common.js';
 
 /** Who acts: the signed-in member, as TenantGuard resolved them. */
 export interface TeamActor {
@@ -181,6 +182,8 @@ export class TeamService {
     const row = await this.change(businessId, actor, async (tx) => {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
+      // SM14: never the Original Owner; Owner given or taken away only by the Original Owner.
+      const tiers = await assertActsOn(tx, { businessId, ...actor }, target, 'edit');
       if (target.status !== 'ACTIVE') {
         throw new ConflictException({
           code: 'NOT_ACTIVE',
@@ -188,6 +191,7 @@ export class TeamService {
         });
       }
       if (target.role === role) return target;
+      assertRoleChange(tiers.actor, target.role, role);
       // Only if the member is still as we read them (not deactivated or changed meanwhile).
       await this.updateIfUnchanged(tx, businessId, target, { role });
       // With the change, so both land or neither does (and a retry writes it once).
@@ -214,6 +218,7 @@ export class TeamService {
     const row = await this.change(businessId, actor, async (tx) => {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
+      await assertActsOn(tx, { businessId, ...actor }, target, 'deactivate');
       if (target.status === 'DEACTIVATED') return target;
       // InvitesService's lock: a resend making a link either commits first (and its link is
       // revoked below) or waits and then finds the member deactivated.
@@ -239,15 +244,17 @@ export class TeamService {
   /** A new link for an invited member, through R2's InvitesService (which audits it). */
   async resendInvite(businessId: string, actor: TeamActor, memberId: string): Promise<TeamMember> {
     const firm = this.database.forBusiness(businessId);
-    await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-      this.assertActor(tx, businessId, actor),
-    );
-    const target = await firm.membership.findFirst({
-      where: { businessId, id: memberId },
-      select: { role: true, userId: true, status: true },
+    const target = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      await this.assertActor(tx, businessId, actor);
+      const row = await tx.membership.findFirst({
+        where: { businessId, id: memberId },
+        select: { role: true, userId: true, status: true },
+      });
+      if (!row) throw notFound();
+      assertManageable(actor, row);
+      await assertActsOn(tx, { businessId, ...actor }, row, 'resendInvitation');
+      return row;
     });
-    if (!target) throw notFound();
-    assertManageable(actor, target);
     if (target.status !== 'INVITED') {
       throw new ConflictException({
         code: 'NOT_INVITED',

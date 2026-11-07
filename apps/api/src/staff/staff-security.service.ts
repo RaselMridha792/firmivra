@@ -17,7 +17,7 @@ import type { StaffAccessBody, StaffCursorQ } from './staff-input.js';
 import { mfaOf } from './staff-read.service.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
-  assertManages,
+  assertActsOn,
   lockTarget,
   mapStaffDbError,
   requireManager,
@@ -187,7 +187,7 @@ export class StaffSecurityService {
     try {
       await this.inFirm(actor, async (tx) => {
         const target = await lockTarget(tx, businessId, id);
-        assertManages(actor, target);
+        await assertActsOn(tx, actor, target, 'edit');
         const now = await tx.staffSecuritySettings.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
           select: { accessLocation: true, allowedIps: true, allowedCountries: true },
@@ -258,7 +258,7 @@ export class StaffSecurityService {
     const { businessId } = actor;
     return this.inFirm(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'signOutSessions');
       const session = await tx.staffSession.findFirst({
         where: { businessId, membershipId: id, id: sessionId },
         select: { revokedAt: true },
@@ -285,7 +285,7 @@ export class StaffSecurityService {
     const { businessId } = actor;
     return this.inFirm(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'signOutSessions');
       const sessionsRevoked = await revokeSessions(tx, businessId, id);
       await this.audit.logIn(
         tx,
@@ -299,11 +299,11 @@ export class StaffSecurityService {
   }
 
   /** The member's login and their (signed-in) status, for a reset: someone who can sign in. */
-  private async signInTarget(actor: StaffActor, id: string) {
+  private async signInTarget(actor: StaffActor, id: string, action: 'resetPassword' | 'resetMfa') {
     const { businessId } = actor;
     return this.inFirm(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, action);
       if (target.status !== 'ACTIVE' && target.status !== 'LOCKED')
         throw staffConflict(
           'NOT_ACTIVE',
@@ -329,7 +329,7 @@ export class StaffSecurityService {
     id: string,
     reasonGiven: boolean,
   ): Promise<StaffActionResult> {
-    const { target, sub } = await this.signInTarget(actor, id);
+    const { target, sub } = await this.signInTarget(actor, id, 'resetPassword');
     await this.identity.forgotPassword('STAFF', sub);
     await this.database.withScope(
       { kind: 'business', businessId: actor.businessId },
@@ -358,7 +358,8 @@ export class StaffSecurityService {
    * up again, and every session ends. The login is the person's at every firm they work for.
    */
   async resetMfa(actor: StaffActor, id: string, reasonGiven: boolean): Promise<StaffActionResult> {
-    const { target, sub } = await this.signInTarget(actor, id);
+    // SM14: owner-level only (an Admin never resets MFA), never the Original Owner's.
+    const { target, sub } = await this.signInTarget(actor, id, 'resetMfa');
     await this.identity.resetMfa('STAFF', sub);
     const sessionsRevoked = await this.database.withScope(
       { kind: 'business', businessId: actor.businessId },

@@ -6,11 +6,16 @@ import {
 } from '@nestjs/common';
 import { databaseErrorCode, isDbError, type TxClient } from '@firmivra/db';
 import {
+  mayActOn,
+  mayChangeRole,
   type MembershipRole,
   type PermissionCapability,
   type PermissionModule,
   ROLES_MANAGED_BY,
   type StaffActionResult,
+  type StaffAuthorityAction,
+  type StaffTier,
+  tierOf,
 } from '@firmivra/types';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { notFound } from '../workspaces/common.js';
@@ -85,11 +90,63 @@ export async function lockTarget(tx: TxClient, businessId: string, id: string): 
   return row as Target;
 }
 
-/** An Admin acts on the roles below Admin only (ROLES_MANAGED_BY); nobody acts on themselves. */
-export function assertManages(actor: StaffActor, target: { role: MembershipRole; userId: string }) {
+/**
+ * SM14: the firm's Original Owner (its user id): the first Owner, the account the firm's
+ * application created. Nobody can demote or deactivate that account, so it stays the first.
+ */
+export async function originalOwnerOf(tx: TxClient, businessId: string): Promise<string | null> {
+  const first = await tx.membership.findFirst({
+    where: { businessId, role: 'OWNER' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { userId: true },
+  });
+  return first?.userId ?? null;
+}
+
+/** Where the actor and the target stand (packages/types, team/authority.ts). */
+export async function tiersOf(
+  tx: TxClient,
+  actor: { businessId: string; userId: string; role: MembershipRole },
+  target: { role: MembershipRole; userId: string },
+): Promise<{ actor: StaffTier; target: StaffTier }> {
+  const original = await originalOwnerOf(tx, actor.businessId);
+  return {
+    actor: tierOf(actor.role, actor.userId === original),
+    target: tierOf(target.role, target.userId === original),
+  };
+}
+
+const protectedOwner = () =>
+  new ForbiddenException({
+    code: 'FORBIDDEN',
+    message: "Only the Original Owner can change the Original Owner's account",
+  });
+
+/**
+ * SM14, the account authority rule (mayActOn): nobody acts on themselves or on the Original
+ * Owner; owner-level acts on everyone else; an Admin on the roles below Admin, never Reset MFA.
+ * Returns both places, for a role change after it (assertRoleChange).
+ */
+export async function assertActsOn(
+  tx: TxClient,
+  actor: { businessId: string; userId: string; role: MembershipRole },
+  target: { role: MembershipRole; userId: string },
+  action: StaffAuthorityAction,
+): Promise<{ actor: StaffTier; target: StaffTier }> {
   if (target.userId === actor.userId)
     throw staffConflict('CANNOT_CHANGE_SELF', 'You cannot change your own access');
-  if (!ROLES_MANAGED_BY[actor.role].includes(target.role)) throw forbidden();
+  const tiers = await tiersOf(tx, actor, target);
+  if (tiers.target === 'ORIGINAL_OWNER') throw protectedOwner();
+  if (!mayActOn(tiers.actor, tiers.target, action)) throw forbidden();
+  return tiers;
+}
+
+/**
+ * A role change (mayChangeRole): giving owner-level access, or taking it from a delegate, is the
+ * Original Owner's alone; otherwise the roles the actor may give. Else 403 CANNOT_GRANT.
+ */
+export function assertRoleChange(actor: StaffTier, from: MembershipRole, to: MembershipRole) {
+  if (!mayChangeRole(actor, from, to)) throw cannotGrant();
 }
 
 /** The actor may give this role (ROLES_MANAGED_BY): else 403 CANNOT_GRANT. */
