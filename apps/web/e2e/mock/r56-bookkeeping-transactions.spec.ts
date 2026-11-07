@@ -128,7 +128,7 @@ test('Add Note opens in place, internal and on this service (BK-NAV)', async ({ 
   expect(page.url()).toBe(url);
 });
 
-test('A report previews its figures, generates numbered versions and downloads one; other types say why not (BK-RPT part 1)', async ({
+test('A report previews its figures, generates numbered versions and downloads one; a Balance Sheet waits for a statement (BK-RPT)', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -150,8 +150,34 @@ test('A report previews its figures, generates numbered versions and downloads o
 
   await page.getByRole('button', { name: 'Actions for Balance Sheet' }).first().click();
   await page.getByRole('menuitem', { name: 'Figures & Versions' }).click();
-  await expect(dialog.getByTestId('figures-reason')).toContainText('not worked out yet');
+  await expect(dialog.getByTestId('report-totals')).toHaveText(
+    'Assets $14,080.00 · Liabilities $0.00 · Net assets $14,080.00',
+  );
+  await expect(dialog.getByTestId('figures-notes')).toContainText('opening balances');
+  await expect(dialog.getByTestId('figures-waiting')).toContainText('Business Card');
   await expect(
     page.getByRole('dialog').getByRole('button', { name: 'Generate Version' }),
   ).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath('balance-sheet.png') });
+});
+
+test('A report is never approved past an open reconciliation; Mark Report Complete picks an approved report (BK-RPT)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${app}/bookkeeping/reports`);
+  await page.getByLabel('Status').selectOption('IN_REVIEW');
+  const inReview = page.getByRole('row').filter({ hasText: 'In Review' }).first();
+  await inReview.getByRole('button', { name: /^Actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Approve', exact: true }).click();
+  await expect(page.getByText(/Approve every reconciliation/).first()).toBeVisible();
+
+  await page.goto(`${app}/bookkeeping`);
+  await page.getByRole('button', { name: 'Actions for Green Leaf Café LLC' }).first().click();
+  await page.getByRole('menuitem', { name: 'Mark Report Complete' }).click();
+  const dialog = page.getByTestId('complete-report-dialog');
+  await expect(dialog).toContainText('Only an approved report can be completed');
+  await expect(dialog).toContainText('No approved report for this client yet');
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath('complete-report.png') });
 });

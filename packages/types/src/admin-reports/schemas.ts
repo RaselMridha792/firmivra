@@ -349,7 +349,8 @@ export type AdminReportResult = z.infer<typeof AdminReportResult>;
 /** Export to CSV: the file in the answer (title, time, period and filters on top), audited. */
 export const AdminReportExportRequest = z.strictObject({
   ...Definition,
-  format: z.literal('CSV'),
+  /** SA-RPT-R1: CSV, Excel (XLSX) or PDF, from the same run as the preview. */
+  format: z.enum(['CSV', 'XLSX', 'PDF']),
   title: z.string().trim().min(1).max(120).optional(),
 });
 export type AdminReportExportRequest = z.input<typeof AdminReportExportRequest>;
@@ -358,7 +359,9 @@ export const ADMIN_REPORT_EXPORT_MAX = 10_000;
 export const AdminReportFile = z.object({
   fileName: z.string(),
   mimeType: z.string(),
+  /** The file itself: text for CSV, base64 for Excel and PDF (`encoding`). */
   content: z.string(),
+  encoding: z.enum(['utf8', 'base64']).optional().default('utf8'),
   rowCount: z.number().int(),
 });
 export type AdminReportFile = z.infer<typeof AdminReportFile>;

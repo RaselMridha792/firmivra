@@ -414,6 +414,18 @@ Progress (Dashboard D4, D5; the lead's go, Nov 7):
     an appointment older than the 20 offered) goes back to Nothing and is never sent.
   - Tests: mock `r60-messages-appointment` 2 of 2; New Message, Messages and calendar detail specs
     28 of 28.
+- Screen, branch `rasel/R60-dashboard-cards-web` (#1317's API on `main`):
+  - Settings > Dashboard Cards (`/settings/dashboard-cards`, Owner and Admin in the menu): the
+    defaults until a card is saved, with Start from the defaults; Add Card and Edit choose the
+    service, what it counts, the status and the label with the shared rule checked first and a
+    live count for This Month; each card switches off and moves up or down.
+  - The dashboard's top row: Total Clients and New Leads, the firm's service cards (the defaults,
+    Returns In Progress and Accepted Returns, keep their places and links), then Outstanding
+    Invoices and Appointments Today. Each service card opens its list in that list's address.
+  - Clients reads `engagement`, `completedFrom` and `completedTo` with `service`; Tax Returns
+    reads `serviceId`. Each shows the filter in words with Show all.
+  - Two of R60's older specs fixed on the way: Outstanding Invoices' Status is the list's own
+    (R56's charts added "Status counted"), and the KPI spec waits for the cards to be links.
 
 Progress (MSG-F16 Add to Client Timeline; the lead, Nov 7, on R1's `client_timeline_entries`):
 - Branch `rasel/R60-messages-timeline`. New Message's Add to Client Timeline (unchecked, off with no

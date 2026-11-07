@@ -396,15 +396,41 @@ export class BookkeepingReportsService {
     );
   }
 
+  /**
+   * BK-RPT: approving or completing a period's report never skips its reconciliation (409
+   * RECON_OPEN while any of the period's reconciliations is not approved); delivering it never
+   * skips the close's approval either (409 PERIOD_STATE before the period is approved).
+   */
+  private async gate(
+    tx: TxClient,
+    businessId: string,
+    periodId: string | null,
+    close: boolean,
+  ): Promise<void> {
+    if (!periodId) return;
+    const open = await tx.bookkeepingReconciliation.count({
+      where: { businessId, periodId, status: { not: 'APPROVED' } },
+    });
+    if (open > 0) throw errors.reconOpen(open);
+    if (!close) return;
+    const period = await tx.bookkeepingPeriod.findFirst({
+      where: { businessId, id: periodId },
+      select: { status: true },
+    });
+    if (period && period.status !== 'APPROVED' && period.status !== 'CLOSED')
+      throw errors.periodState("Approve the period's close before delivering its report");
+  }
+
   approve(businessId: string, actor: BookkeepingActor, id: string) {
     return this.act(
       businessId,
       actor,
       id,
       'approved',
-      async (_tx, r) => {
+      async (tx, r) => {
         if (r.status !== 'IN_REVIEW')
           throw errors.reportState('The report is not waiting for review');
+        await this.gate(tx, businessId, r.periodId, false);
         return { status: 'APPROVED', reviewedAt: new Date(), reviewedByUserId: actor.userId };
       },
       (n, l) => `${n} for ${l} approved`,
@@ -426,12 +452,26 @@ export class BookkeepingReportsService {
       async (tx, r, engagementId) => {
         if (r.status !== 'APPROVED')
           throw errors.reportState('Only an approved report can be delivered');
+        await this.gate(tx, businessId, r.periodId, true);
         const published = await tx.engagementReport.findFirst({
           where: { businessId, id: body.engagementReportId, engagementId },
           select: { status: true },
         });
         if (!published) throw errors.notThisClients('report');
         if (published.status !== 'PUBLISHED') throw errors.reportNotPublished();
+        // The client gets the latest generated version: it is recorded as sent (the database
+        // stamps when, and a sent version stays sent).
+        const latest = await tx.bookkeepingReportVersion.findFirst({
+          where: { businessId, reportId: id },
+          orderBy: { version: 'desc' },
+          select: { id: true, deliveryStatus: true },
+        });
+        if (latest && latest.deliveryStatus !== 'SENT') {
+          await tx.bookkeepingReportVersion.update({
+            where: { id: latest.id },
+            data: { deliveryStatus: 'SENT', sentByUserId: actor.userId, deliveryError: null },
+          });
+        }
         return {
           status: 'DELIVERED',
           deliveredAt: new Date(),
