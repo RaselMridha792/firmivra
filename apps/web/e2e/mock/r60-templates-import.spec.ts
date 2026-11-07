@@ -30,7 +30,7 @@ test('a Word document imports as a private draft; an SMS offers no Word option (
     .locator('input[type="file"]')
     .setInputFiles({ name: 'welcome.docx', mimeType: DOCX, buffer: docx });
   await expect(form.getByTestId('import-file')).toHaveText('welcome.docx');
-  await page.getByRole('dialog').getByRole('button', { name: 'Import' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Import', exact: true }).click();
   await expect(
     page.getByText('Welcome letter (Word) imported as a draft.').filter({ visible: true }),
   ).toBeVisible();

@@ -28,6 +28,7 @@ import { pageOf, writeListQuery } from '../../../../../lib/list-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { OVERVIEW_VIEW, UUID, viewOf } from './list-view';
 import { TemplateMenu, UseTemplate } from './template-actions';
+import { TemplateHelp } from './template-help';
 import {
   BrandingDialog,
   CategoriesDialog,
@@ -194,7 +195,9 @@ export function TemplatesScreen() {
             <FileText aria-hidden weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">Templates</h1>
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              Templates <TemplateHelp area="overview" />
+            </h1>
             <p className="text-xl font-semibold text-action">Create once. Use everywhere.</p>
             <p className="text-base text-muted">
               Save time, maintain consistency, and deliver a professional client experience.
@@ -265,6 +268,9 @@ export function TemplatesScreen() {
               className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
             />
           </label>
+          <span className="flex h-10 items-center">
+            <TemplateHelp area="views" />
+          </span>
         </div>
       </div>
 
@@ -380,7 +386,9 @@ export function TemplatesScreen() {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <section className={card} aria-label="Recent Templates" data-testid="recent">
           <header className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-lg font-bold text-heading">Recent Templates</h2>
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Recent Templates <TemplateHelp area="recent" />
+            </h2>
             <button type="button" className={linkBtn} onClick={() => setShowAll(true)}>
               View All <ArrowRight aria-hidden weight="bold" className="size-3" />
             </button>
@@ -432,7 +440,9 @@ export function TemplatesScreen() {
           )}
         </section>
         <section className={card} aria-label="Template Tools" data-testid="tools">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">Template Tools</h2>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Template Tools <TemplateHelp area="tools" />
+          </h2>
           {tool(Plus, 'Create Template', 'Build a new template from scratch.', {
             href: '/templates/new',
           })}

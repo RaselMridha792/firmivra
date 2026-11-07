@@ -17,6 +17,7 @@ import { uploadFile } from '../../../../../lib/upload';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
 import { StructurePreview } from './structure-panel';
 import { HtmlFrame } from './html-preview';
+import { type TemplateHelpArea, TemplateHelp } from './template-help';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
   CLIENT: 'Client',
@@ -28,6 +29,15 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
   WORKFLOW: 'Workflow',
   CUSTOM: 'Custom',
 };
+
+/** A tool dialog's line under its title, with the Help icon of its area (TP-F02). */
+function DialogLead({ area, children }: { area: TemplateHelpArea; children: string }) {
+  return (
+    <p className="-mt-5 mb-4 flex items-center gap-2 text-sm text-muted">
+      {children} <TemplateHelp area={area} />
+    </p>
+  );
+}
 
 /** Preview with sample data: unresolved merge fields are flagged, and a test send never changes the template. */
 export function PreviewDialog({
@@ -221,7 +231,6 @@ export function ImportDialog({
     <Modal
       open
       title="Import Template"
-      subtitle="Paste your own HTML or text, or choose a Word document. It becomes a private draft you can edit."
       onClose={onClose}
       footer={
         <>
@@ -239,6 +248,10 @@ export function ImportDialog({
         </>
       }
     >
+      <DialogLead area="import">
+        Paste your own HTML or text, or choose a Word document. It becomes a private draft you can
+        edit.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="import-form">
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
@@ -349,7 +362,6 @@ export function MergeFieldsDialog({ onClose }: { onClose: () => void }) {
     <Modal
       open
       title="Merge Fields"
-      subtitle="Dynamic fields like [Client First Name] are filled in when a template is used."
       onClose={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -357,6 +369,9 @@ export function MergeFieldsDialog({ onClose }: { onClose: () => void }) {
         </Button>
       }
     >
+      <DialogLead area="mergeFields">
+        Dynamic fields like [Client First Name] are filled in when a template is used.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="merge-fields-dialog">
         <Input
           label="Search merge fields"
@@ -562,7 +577,6 @@ function BrandingForm({
     <Modal
       open
       title="Branding & Letterhead"
-      subtitle="Your logo and business name come from Settings."
       onClose={onClose}
       footer={
         <>
@@ -578,6 +592,7 @@ function BrandingForm({
         </>
       }
     >
+      <DialogLead area="branding">Your logo and business name come from Settings.</DialogLead>
       <div className="flex flex-col gap-3" data-testid="branding-form">
         <p className="text-sm text-text">
           Business name:{' '}
@@ -670,7 +685,6 @@ export function CategoriesDialog({
     <Modal
       open
       title="Template Categories"
-      subtitle="Organize templates into categories for easy access."
       onClose={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -678,6 +692,9 @@ export function CategoriesDialog({
         </Button>
       }
     >
+      <DialogLead area="categoryTools">
+        Organize templates into categories for easy access.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="categories-dialog">
         <Select
           label="Kind of template"

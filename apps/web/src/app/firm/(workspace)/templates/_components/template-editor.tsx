@@ -51,6 +51,7 @@ import {
 import { ArchiveDialog } from './template-actions';
 import { IMAGE_SIZING, useButtonDialog, useContentImages } from './content-tools';
 import { PreviewDialog } from './template-dialogs';
+import { TemplateHelp } from './template-help';
 import {
   AUTOMATION_KINDS,
   HAS_SUBJECT,
@@ -375,11 +376,11 @@ function Editor({
         <div className="flex min-w-0 items-center gap-4">
           <KindTile kind={kind} size="lg" />
           <div className="min-w-0">
-            <h1
-              className="font-display text-3xl font-bold text-heading sm:text-4xl"
-              data-testid="editor-title"
-            >
-              {id ? 'Edit' : 'Create'} {meta.noun} Template
+            <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading sm:text-4xl">
+              <span data-testid="editor-title">
+                {id ? 'Edit' : 'Create'} {meta.noun} Template
+              </span>
+              <TemplateHelp area="details" />
             </h1>
             <p className="text-base text-muted">
               Design a reusable {meta.noun.toLowerCase()} template for clients, leads, or your team.
@@ -405,6 +406,7 @@ function Editor({
           >
             <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Test Send
           </button>
+          <TemplateHelp area="preview" />
         </div>
       </header>
       {message ? (
@@ -534,7 +536,9 @@ function Editor({
           aria-label="Merge Fields"
           data-testid="merge-panel"
         >
-          <h2 className="font-display text-lg font-bold text-heading">Merge Fields</h2>
+          <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Merge Fields <TemplateHelp area="mergeFields" />
+          </h2>
           <Input
             label="Search merge fields"
             hideLabel
@@ -603,8 +607,11 @@ function Editor({
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className={card} aria-label="Attachments" data-testid="attachments">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">
-            Attachments <span className="text-sm font-normal text-muted">(Optional)</span>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            <span>
+              Attachments <span className="text-sm font-normal text-muted">(Optional)</span>
+            </span>
+            <TemplateHelp area="attachments" />
           </h2>
           {saved ? (
             <>
@@ -704,7 +711,9 @@ function Editor({
           aria-label="Template Settings"
           data-testid="settings"
         >
-          <h2 className="font-display text-lg font-bold text-heading">Template Settings</h2>
+          <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Template Settings <TemplateHelp area="access" />
+          </h2>
           <Select
             label="Who Can Use This Template"
             value={form.access}
@@ -734,12 +743,15 @@ function Editor({
               ))}
             </fieldset>
           ) : null}
-          <Checkbox
-            label="Include in Automations"
-            checked={eligible && form.automations}
-            disabled={!eligible}
-            onChange={(e) => set({ automations: e.target.checked })}
-          />
+          <div className="flex items-center gap-2">
+            <Checkbox
+              label="Include in Automations"
+              checked={eligible && form.automations}
+              disabled={!eligible}
+              onChange={(e) => set({ automations: e.target.checked })}
+            />
+            <TemplateHelp area="automations" />
+          </div>
           {!eligible ? (
             <p className="-mt-2 text-xs text-muted">
               This kind of template cannot be used in automations.
@@ -809,7 +821,9 @@ function Editor({
 
       {saved && (versions.data ?? []).length > 0 ? (
         <section className={card} aria-label="Version history" data-testid="versions">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">Version History</h2>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Version History <TemplateHelp area="versions" />
+          </h2>
           <ul>
             {(versions.data ?? []).slice(0, 6).map((v) => (
               <li
