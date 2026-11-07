@@ -159,6 +159,44 @@ test('Correct Dates: a sent invoice gets a later due date with a reason (IP-F08)
   await expect(row).not.toContainText('Overdue');
 });
 
+test('Row menu by status: Resend and Copy Payment Link while unpaid, Send Receipt and Issue Refund once paid (IP-F10)', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  const search = page.getByLabel('Search invoices');
+  await search.fill('0098');
+  const menuOf = (n: string) => page.getByRole('button', { name: `Actions for ${n}` }).click();
+  await menuOf('INV-2026-0098');
+  await expect(page.getByRole('menuitem', { name: 'Send Invoice', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Send Receipt' })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('row-menu-open.png') });
+  await page.getByRole('menuitem', { name: 'Copy Payment Link' }).click();
+  await expect(
+    page.getByText('Payment link for INV-2026-0098 copied.', { exact: false }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
+    /\/invoices\/[0-9a-f-]{36}$/,
+  );
+  await menuOf('INV-2026-0098');
+  await page.getByRole('menuitem', { name: 'Resend Invoice' }).click();
+  await expect(page.getByText('INV-2026-0098 sent to the client again.')).toBeVisible();
+
+  // Paid: no resend or link; the receipt and the refund are on the invoice's Payments.
+  await search.fill('0081');
+  await menuOf('INV-2026-0081');
+  await expect(page.getByRole('menuitem', { name: 'Resend Invoice' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Copy Payment Link' })).toHaveCount(0);
+  for (const name of ['Archive', 'Delete', 'Archive Invoice', 'Delete Invoice']) {
+    await expect(page.getByRole('menuitem', { name, exact: true })).toHaveCount(0);
+  }
+  await page.getByRole('menuitem', { name: 'Issue Refund' }).click();
+  await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}#payments$/);
+  await expect(page.getByTestId('invoice-payments')).toBeVisible();
+});
+
 test('Row menu: Send Reminder first, notes in the history, a message and a task (IP-F09)', async ({
   page,
 }) => {

@@ -21,6 +21,7 @@ import {
   Toast,
 } from '@firmivra/ui';
 import {
+  ArrowCounterClockwise,
   ArrowSquareOut,
   ArrowsClockwise,
   LinkSimple,
@@ -105,7 +106,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export function InvoicesOverview({
   initialStatus = '',
   fromDashboard = false,
+  portalBase = '',
 }: {
+  /** The client portal's address (PORTAL_BASE_URL, read on the server): Copy Payment Link. */
+  portalBase?: string;
   /** OUTSTANDING: every unpaid invoice (the dashboard's Outstanding Invoices, Octavia's K6). */
   initialStatus?: string;
   fromDashboard?: boolean;
@@ -146,6 +150,7 @@ export function InvoicesOverview({
             initialStatus={initialStatus}
             loading={all.isPending}
             failed={all.isError}
+            portalBase={portalBase}
             onNotice={(text, tone) => setNotice({ text, tone })}
           />
         </div>
@@ -528,9 +533,11 @@ function InvoiceTable({
   initialStatus = '',
   loading,
   failed,
+  portalBase,
   onNotice,
 }: {
   items: InvoiceListItem[];
+  portalBase: string;
   /** The firm's calendar date (IP-F06). */
   today: string;
   initialStatus?: string;
@@ -540,7 +547,7 @@ function InvoiceTable({
 }) {
   const router = useRouter();
   const qc = useQueryClient();
-  const { role } = useFirm();
+  const { role, firm } = useFirm();
   const canChange = role === 'OWNER' || role === 'ADMIN';
   const [tab, setTab] = useState<Tab>('ALL');
   const [clientId, setClientId] = useState('');
@@ -646,6 +653,28 @@ function InvoiceTable({
       onNotice(errorMessage(e, INVOICE_ERRORS), 'error');
     }
   };
+  // IP-F10 (Octavia, Oct 27): the invoice again to its client, and its payment page's link.
+  const resend = async (i: InvoiceListItem) => {
+    try {
+      await api.invoices.resend(i.id);
+      onNotice(`${i.number} sent to the client again.`, 'success');
+    } catch (e) {
+      onNotice(errorMessage(e, INVOICE_ERRORS), 'error');
+    }
+  };
+  const payLink = (i: InvoiceListItem) =>
+    portalBase && firm ? `${portalBase.replace(/\/$/, '')}/${firm.slug}/invoices/${i.id}` : '';
+  const copyLink = async (i: InvoiceListItem) => {
+    try {
+      await navigator.clipboard.writeText(payLink(i));
+      onNotice(
+        `Payment link for ${i.number} copied. It opens the invoice in the client's portal, after sign-in.`,
+        'success',
+      );
+    } catch {
+      onNotice('The link could not be copied. Use the Payment Link Generator.', 'error');
+    }
+  };
   const menu = (i: InvoiceListItem): ActionMenuSection[] => {
     const open = i.status === 'OPEN';
     const draft = i.status === 'DRAFT';
@@ -709,13 +738,28 @@ function InvoiceTable({
             : []),
         ],
       },
-      ...(canChange && draft
+      ...(canChange && (draft || remindable)
         ? [
             {
               title: 'Send & Collect',
-              items: [
-                { label: 'Send Invoice', icon: PaperPlaneTilt, onSelect: () => void send(i) },
-              ],
+              items: draft
+                ? [{ label: 'Send Invoice', icon: PaperPlaneTilt, onSelect: () => void send(i) }]
+                : [
+                    {
+                      label: 'Resend Invoice',
+                      icon: PaperPlaneTilt,
+                      onSelect: () => void resend(i),
+                    },
+                    ...(payLink(i)
+                      ? [
+                          {
+                            label: 'Copy Payment Link',
+                            icon: LinkSimple,
+                            onSelect: () => void copyLink(i),
+                          },
+                        ]
+                      : []),
+                  ],
             },
           ]
         : []),
@@ -736,6 +780,22 @@ function InvoiceTable({
             icon: ListBullets,
             onSelect: () => router.push(`/invoices/${i.id}#payments`),
           },
+          // IP-F10: a receipt or a refund is per payment, on the invoice's Payments (which offers
+          // each only where the payment allows it: gone through, refundable, within what is left).
+          ...(canChange && paidCents(i) > 0
+            ? [
+                {
+                  label: 'Send Receipt',
+                  icon: Receipt,
+                  onSelect: () => router.push(`/invoices/${i.id}#payments`),
+                },
+                {
+                  label: 'Issue Refund',
+                  icon: ArrowCounterClockwise,
+                  onSelect: () => router.push(`/invoices/${i.id}#payments`),
+                },
+              ]
+            : []),
         ],
       },
       {

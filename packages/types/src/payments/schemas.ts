@@ -1072,6 +1072,11 @@ export const InvoiceErrorCode = z.enum([
    */
   'TERMS_NOT_OFFERED',
   /**
+   * 409 (IP-F10, Resend): only an open invoice with something still to pay can be sent again; a
+   * draft is sent, a scheduled one waits for its day, a paid or canceled one is done.
+   */
+  'NOT_RESENDABLE',
+  /**
    * 503 (Pay Now, refund): Stripe did not answer; nothing was charged or refunded. Try again in a
    * moment (a refund with the same `idempotencyKey`).
    */
@@ -1089,6 +1094,8 @@ export const INVOICE_ERRORS = {
   ZERO_TOTAL: 'There is nothing to pay on this invoice. Cancel it instead.',
   DUE_DATE_PASSED: 'The due date has passed. Choose a later due date, then send it.',
   INVOICE_CLOSED: 'This invoice is paid or canceled, so it can no longer be changed.',
+  NOT_RESENDABLE:
+    'Only a sent invoice with something still to pay can be sent again. Reload to see it.',
   HAS_PAYMENTS:
     'This invoice has payments. Void its check or cash payments and refund its card payments first.',
   NOT_OPEN: 'Only an open invoice can take a payment. Reload to see its status.',
