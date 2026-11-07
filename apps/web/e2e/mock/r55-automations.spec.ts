@@ -127,6 +127,35 @@ test('Actions move up and down with their settings, and a broken dependency clea
   await page.screenshot({ path: `${shots}/builder-actions.png` });
 });
 
+test('an action takes Only if conditions on the event’s fields (AU-F26 Conditional branch)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await page.getByLabel('Trigger Event *').selectOption({ label: 'Deadline Approaching' });
+  await page.getByRole('button', { name: 'Add Action' }).click();
+  await page.getByRole('button', { name: 'Run only if…' }).click();
+  const field = page.getByLabel('Action 1 only if 1 field');
+  await expect(field.locator('option')).toContainText([
+    'Only if Deadline Type',
+    'Only if Due date',
+  ]);
+  await field.selectOption({ label: 'Only if Due date' });
+  await page
+    .getByLabel('Action 1 only if 1 operator')
+    .selectOption({ label: 'Within next N days' });
+  await page.getByLabel('Action 1 only if 1 value').fill('7');
+  await page.getByRole('button', { name: 'Add another condition' }).click();
+  await page
+    .getByLabel('Action 1 only if 2 field')
+    .selectOption({ label: 'Only if Deadline Type' });
+  await page.getByLabel('Action 1 only if 2 value').selectOption({ label: 'Tax Filing' });
+  await page.getByTestId('step-actions').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/builder-only-if.png` });
+  await page.getByRole('button', { name: 'Delete Action 1 only if 2' }).click();
+  await expect(page.getByLabel('Action 1 only if 2 field')).toHaveCount(0);
+});
+
 test('an event with no client offers only Notify staff, with the members to notify (AU-F19, F27)', async ({
   page,
 }) => {

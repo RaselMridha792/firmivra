@@ -85,6 +85,8 @@ export const RULE_CLIENT_STATUSES = [
   'ON_HOLD',
 ] as const;
 export const RULE_CLIENT_PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'] as const;
+/** The portal's resource pages (a published RESOURCE item shows on its category's page). */
+export const RESOURCE_PAGES = ['payroll', 'record-keeping', 'startup-guide', 'tax-deductions'];
 const LEAD_FIELDS = [
   field('stage', 'Lead stage', 'STATUS', [
     'SUBMITTED',
@@ -1653,6 +1655,36 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: 'Left empty: the service’s name.',
+      },
+    ],
+  },
+  {
+    type: 'SEND_RESOURCE',
+    module: 'COMMUNICATIONS',
+    label: 'Send resource',
+    description:
+      'Sends the client a portal message that links one of your published portal resources or links, never a file outside them (AU-F26).',
+    requiresIntegration: null,
+    contactsClient: true,
+    needsClient: true,
+    fields: [
+      {
+        key: 'resourceId',
+        label: 'Resource',
+        type: 'RESOURCE',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'Portal resources are for business clients: an individual client gets nothing, and the step says so.',
+      },
+      {
+        key: 'message',
+        label: 'Message',
+        type: 'LONG_TEXT',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'The link is added below it. Merge fields like {{client.firstName}} are filled in.',
       },
     ],
   },

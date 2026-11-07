@@ -46,8 +46,7 @@ export function structureProblems(def: Def): Detail[] {
     if (def.trigger.source && !event.confirmation)
       add('trigger.source', 'Only a confirmed external outcome has a source to choose');
   }
-  def.conditions.forEach((c, i) => {
-    const at = `conditions.${i}`;
+  const checkCondition = (c: Def['conditions'][number], at: string) => {
     const f = event?.conditionFields.find((x) => x.field === c.field);
     if (event && !f) return add(`${at}.field`, 'This event has no such field');
     if (!f) return;
@@ -88,9 +87,12 @@ export function structureProblems(def: Def): Detail[] {
     if (f.type === 'BOOLEAN' && typeof c.value !== 'boolean')
       add(`${at}.value`, 'Choose yes or no');
     if (f.type === 'TEXT' && typeof c.value !== 'string') add(`${at}.value`, 'Enter text');
-  });
+  };
+  def.conditions.forEach((c, i) => checkCondition(c, `conditions.${i}`));
   def.actions.forEach((a, i) => {
     const at = `actions.${i}`;
+    // AU-F26 Conditional branch: an action's own conditions, on the event's fields.
+    (a.onlyIf ?? []).forEach((c, j) => checkCondition(c, `${at}.onlyIf.${j}`));
     if (a.dependsOn != null && !def.actions.slice(0, i).some((x) => x.id === a.dependsOn))
       add(`${at}.dependsOn`, 'Depend on an earlier action of this rule');
     const info = actionOf(a.type);
@@ -139,6 +141,7 @@ export function structureProblems(def: Def): Detail[] {
         case 'INTAKE_FORM':
         case 'TASK_TEMPLATE':
         case 'SERVICE':
+        case 'RESOURCE':
           if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) add(path, 'Choose one');
           break;
         case 'TAGS':
@@ -309,6 +312,16 @@ export function stored(def: Def, defaults: Defaults) {
       config: a.config,
       delayMinutes: a.delayMinutes,
       dependsOn: a.dependsOn ?? null,
+      // AU-F26 Conditional branch: kept with the action (and its version).
+      ...(a.onlyIf?.length
+        ? {
+            onlyIf: a.onlyIf.map((c) => ({
+              field: c.field,
+              operator: c.operator,
+              ...(c.value === undefined ? {} : { value: c.value }),
+            })),
+          }
+        : {}),
     })),
     settings: {
       preventDuplicatesDays: def.settings.preventDuplicatesDays ?? defaults.defaultDedupeDays,
@@ -363,6 +376,7 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
         config?: Record<string, never>;
         delayMinutes?: number;
         dependsOn?: string | null;
+        onlyIf?: { field: string; operator: AutomationOperator; value?: unknown }[];
       };
       return {
         id: x.id,
@@ -370,6 +384,17 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
         config: x.config ?? {},
         delayMinutes: x.delayMinutes ?? 0,
         dependsOn: x.dependsOn ?? null,
+        ...(Array.isArray(x.onlyIf) && x.onlyIf.length
+          ? {
+              onlyIf: x.onlyIf.map((c) => ({
+                field: c.field,
+                operator: c.operator,
+                ...(c.value === undefined || c.value === null
+                  ? {}
+                  : { value: c.value as string | number | boolean | string[] }),
+              })),
+            }
+          : {}),
       };
     }),
     settings: {
@@ -590,6 +615,7 @@ export function forTemplate(def: Def): Def {
         f?.type === 'INTAKE_FORM' ||
         f?.type === 'TASK_TEMPLATE' ||
         f?.type === 'SERVICE' ||
+        f?.type === 'RESOURCE' ||
         f?.type === 'MEMBERS'
       )
         continue;

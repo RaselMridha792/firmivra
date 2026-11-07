@@ -25,6 +25,7 @@ import {
   EVENTS,
   MEMBER_FIELDS,
   MODULES,
+  RESOURCE_PAGES,
   TAGS_FIELD,
   VARIABLES,
 } from './catalog.js';
@@ -60,7 +61,7 @@ export class AutomationsOverviewService {
    * its active members, read in the firm's scope. Never another firm's.
    */
   async catalog(businessId: string): Promise<AutomationCatalog> {
-    const { tags, members, types, taskTemplates, services } = await this.read.inFirm(
+    const { tags, members, types, taskTemplates, services, resources } = await this.read.inFirm(
       businessId,
       async (tx) => ({
         tags: await tx.tag.findMany({
@@ -88,12 +89,22 @@ export class AutomationsOverviewService {
           select: { id: true, name: true },
           orderBy: { name: 'asc' },
         }),
+        resources: await tx.contentItem.findMany({
+          where: {
+            businessId,
+            publishedAt: { not: null },
+            OR: [{ kind: 'EXTERNAL_LINK' }, { kind: 'RESOURCE', category: { in: RESOURCE_PAGES } }],
+          },
+          select: { id: true, title: true },
+          orderBy: { title: 'asc' },
+        }),
       }),
     );
     // A setting naming one of the firm's records offers the firm's own (another firm's never).
     const settingChoices: Record<string, { value: string; label: string }[]> = {
       TASK_TEMPLATE: taskTemplates.map((t) => ({ value: t.id, label: t.name })),
       SERVICE: services.map((t) => ({ value: t.id, label: t.name })),
+      RESOURCE: resources.map((r) => ({ value: r.id, label: r.title })),
     };
     const people = members.map((m) => ({ value: m.userId, label: m.user.name }));
     const choices: Record<string, { value: string; label: string }[]> = {

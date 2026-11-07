@@ -16,12 +16,21 @@ import { LeadPipelineTabsService } from '../leads/lead-pipeline-tabs.service.js'
 import { TaxReturnReviewService } from '../tax-returns/review.service.js';
 import { ComplianceDeadlineActionsService } from '../compliance/compliance-deadline-actions.service.js';
 import { EngagementsService } from '../engagements/engagements.service.js';
-import { CreateComplianceDeadlineRequest, CreateEngagementRequest } from '@firmivra/types';
+import {
+  type AutomationOperator,
+  CreateComplianceDeadlineRequest,
+  CreateEngagementRequest,
+} from '@firmivra/types';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
 import { reassignClientTasks } from '../workspaces/tasks.service.js';
-import { actionOf, RULE_CLIENT_PRIORITIES, RULE_CLIENT_STATUSES } from './catalog.js';
+import {
+  actionOf,
+  RESOURCE_PAGES,
+  RULE_CLIENT_PRIORITIES,
+  RULE_CLIENT_STATUSES,
+} from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
 import { fill, matches, viewOf } from './logic.js';
@@ -33,6 +42,7 @@ type Action = {
   config: Record<string, unknown>;
   delayMinutes: number;
   dependsOn: string | null;
+  onlyIf?: { field: string; operator: AutomationOperator; value?: unknown }[];
 };
 type Outcome =
   | { ok: true; kind: string | null; id: string | null; detail: string | null }
@@ -365,6 +375,25 @@ export class AutomationEngine {
           state.set(e.actionKey, 'SKIPPED');
           continue;
         }
+      }
+      // AU-F26 Conditional branch: the action's own conditions, on the record as it is now.
+      if (
+        action.onlyIf?.length &&
+        !(await this.stillHolds(businessId, run, action.onlyIf, plan.today, plan.timezone))
+      ) {
+        await this.finish(
+          businessId,
+          e.id,
+          {
+            ok: false,
+            code: 'CONDITION_NOT_MET',
+            retryable: false,
+            detail: 'Its condition was not met, so it was skipped',
+          },
+          'SKIPPED',
+        );
+        state.set(e.actionKey, 'SKIPPED');
+        continue;
       }
       if (actionOf(action.type)?.contactsClient) {
         const until = quietUntil(now, plan.timezone, plan.quiet);
@@ -1156,6 +1185,68 @@ export class AutomationEngine {
                     : 'Client priority updated',
             };
           }
+          // AU-F26 Send resource: a portal message linking one of the firm's published portal
+          // resources (its page) or links; never a file outside them. Portal resources are for
+          // business clients (Content's rule), so an individual client gets nothing.
+          case 'SEND_RESOURCE': {
+            const resourceId = typeof cfg.resourceId === 'string' ? cfg.resourceId : null;
+            const found = await this.inFirm(businessId, async (tx) => ({
+              item: resourceId
+                ? await tx.contentItem.findFirst({
+                    where: {
+                      businessId,
+                      id: resourceId,
+                      publishedAt: { not: null },
+                      kind: { in: ['RESOURCE', 'EXTERNAL_LINK'] },
+                    },
+                    select: { kind: true, category: true, title: true },
+                  })
+                : null,
+              firm: await tx.business.findFirst({
+                where: { id: businessId },
+                select: { slug: true },
+              }),
+              who: await tx.client.findFirst({
+                where: { businessId, id: run.clientId as string },
+                select: { accountType: true },
+              }),
+            }));
+            const page =
+              found.item?.kind === 'EXTERNAL_LINK'
+                ? 'external-links'
+                : found.item?.category && RESOURCE_PAGES.includes(found.item.category)
+                  ? found.item.category
+                  : null;
+            if (!found.item || !page)
+              return {
+                ok: false,
+                code: 'RESOURCE_UNAVAILABLE',
+                retryable: false,
+                detail: 'The resource is no longer published',
+              };
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            if (found.who?.accountType !== 'BUSINESS')
+              return {
+                ok: false,
+                code: 'BUSINESS_ONLY',
+                retryable: false,
+                detail: 'Portal resources are for business clients',
+              };
+            const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${found.firm?.slug ?? ''}/resources/${page}`;
+            const intro = (text('message') ?? '').slice(0, 2_000);
+            const thread = await this.messages.create(businessId, actor, run.clientId as string, {
+              subject: found.item.title.slice(0, 200),
+              body: `${intro ? `${intro}\n\n` : ''}${found.item.title}: ${link}`,
+              repliesEnabled: true,
+            });
+            return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Resource sent' };
+          }
           // AU-F27 appointment request: an invitation through Messages, as Send client message
           // sends one, with the link to the client's portal Appointments page. It never books: the
           // client picks a time there, under Appointments' own rules.
@@ -1320,6 +1411,41 @@ export class AutomationEngine {
         detail: 'The action failed and can be tried again',
       };
     }
+  }
+
+  /**
+   * AU-F26 Conditional branch: do an action's conditions hold for the run's record now? The
+   * record is read by its event's own loader (the run's occurrence of it), so the fields are the
+   * ones the rule's conditions test.
+   */
+  private async stillHolds(
+    businessId: string,
+    run: { sourceEventKey: string; recordId: string | null },
+    onlyIf: { field: string; operator: AutomationOperator; value?: unknown }[],
+    today: string,
+    timezone: string,
+  ): Promise<boolean> {
+    if (!run.recordId) return false;
+    const [event, , ...rest] = run.sourceEventKey.split(':');
+    const occurrence = rest.join(':');
+    const rows = await this.inFirm(businessId, (tx) =>
+      loadCandidates(
+        tx,
+        event as string,
+        { timing: 'IMMEDIATE', offsetValue: null, offsetUnit: null },
+        {
+          businessId,
+          now: new Date(),
+          today,
+          timezone,
+          since: new Date(0),
+          recordId: run.recordId as string,
+          limit: 50,
+        },
+      ),
+    );
+    const record = rows.find((c) => c.occurrence === occurrence) ?? rows[0];
+    return !!record && matches(record.fields, 'ALL', onlyIf, today);
   }
 
   private async labelOf(
