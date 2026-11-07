@@ -30,6 +30,7 @@ import {
   AutomationTemplatePage,
   AutomationVersionDetail,
   INTAKE_FORMS,
+  roleCan,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -3802,5 +3803,91 @@ describe('Only if on an action, and Send resource (AU-F26)', () => {
       ),
     ).toBe(0);
     ok(await pause(live.id));
+  });
+});
+
+describe('Review 2 evidence: rule states, no matches and the permission matrix (AU-Y01, Y17, Y20)', () => {
+  it('Save Draft is a draft, Save and Activate is active, a copy is a draft (AU-Y01)', async () => {
+    const draft = await createRule(clientCreated(), { name: mark('Y01 draft') });
+    expect(draft.status).toBe('DRAFT');
+    const active = await createRule(clientCreated(), { name: mark('Y01 active'), activate: true });
+    expect(active.status).toBe('ACTIVE');
+    // As saved, after a fresh read (a refresh).
+    expect((await rule(active.id)).status).toBe('ACTIVE');
+    expect((await rule(draft.id)).status).toBe('DRAFT');
+    // Activation is not a run: nothing ran for either.
+    expect((await runs(`?ruleId=${active.id}`)).total).toBe(0);
+    const copy = AutomationRuleDetail.parse(
+      ok(await call('post', `/rules/${active.id}/duplicate`, ownerA, {}), 201),
+    );
+    expect(copy.id).not.toBe(active.id);
+    expect(copy.status).toBe('DRAFT');
+    expect((await rule(active.id)).status).toBe('ACTIVE');
+    ok(await call('post', `/rules/${active.id}/pause`, ownerA, {}));
+  });
+
+  it('a rule that matches nothing right now warns in its test, and is still saved and turned on (AU-Y17)', async () => {
+    const quiet = await createRule(
+      clientCreated([note()], {
+        conditions: [{ field: 'source', operator: 'IS', value: `Nobody ${run}` }],
+      }),
+      { name: mark('Y17 no match') },
+    );
+    const tested = AutomationPreview.parse(
+      ok(await call('post', `/rules/${quiet.id}/test`, ownerA, {})),
+    );
+    expect(tested.checks.find((c) => c.code === 'NO_MATCHES')).toMatchObject({
+      severity: 'WARN',
+    });
+    expect(AutomationRuleDetail.parse(ok(await activate(quiet.id))).status).toBe('ACTIVE');
+    ok(await call('post', `/rules/${quiet.id}/pause`, ownerA, {}));
+  });
+
+  it('enforces the automation rights on the server for each role, as the role grid says (AU-Y20)', async () => {
+    const target = await createRule(clientCreated(), { name: mark('Y20 target') });
+    const settingsNow = AutomationSettingsView.parse(ok(await call('get', '/settings', ownerA)));
+    const grid = (cap: 'VIEW' | 'CREATE' | 'EDIT' | 'APPROVE' | 'EXPORT' | 'MANAGE') =>
+      roleCan('TAX_PREPARER', 'AUTOMATIONS', cap);
+    const preparer = {
+      view: grid('VIEW'),
+      write: grid('CREATE'),
+      activate: grid('CREATE') && (grid('APPROVE') || grid('MANAGE')),
+      export: grid('CREATE') && (grid('EXPORT') || grid('MANAGE')),
+      settings: false,
+    };
+    const matrix: [Who, string, typeof preparer][] = [
+      [ownerA, 'Owner', { view: true, write: true, activate: true, export: true, settings: true }],
+      [adminA, 'Admin', { view: true, write: true, activate: true, export: true, settings: true }],
+      [
+        staffA,
+        'Staff',
+        { view: true, write: false, activate: false, export: false, settings: false },
+      ],
+      [preparerA, 'Tax preparer', preparer],
+    ];
+    const allowed = (res: Response) => res.status >= 200 && res.status < 300;
+    for (const [who, label, want] of matrix) {
+      const got = {
+        view: allowed(await call('get', '/rules', who)),
+        write: allowed(
+          await call('post', '/rules', who, {
+            name: mark(`Y20 ${label}`),
+            category: 'CLIENTS',
+            definition: clientCreated(),
+          }),
+        ),
+        activate: allowed(await activate(target.id, who)),
+        export: allowed(await call('post', '/runs/export', who, { filter: {} })),
+        settings: allowed(
+          await call('put', '/settings', who, {
+            manualConfirmationEnabled: settingsNow.manualConfirmationEnabled,
+          }),
+        ),
+      };
+      expect({ label, ...got }).toEqual({ label, ...want });
+      if (got.activate) ok(await call('post', `/rules/${target.id}/pause`, ownerA, {}));
+    }
+    // Another firm's Owner sees none of firm A's rules.
+    expectError(await call('get', `/rules/${target.id}`, ownerB), 404, 'NOT_FOUND');
   });
 });

@@ -28,7 +28,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1297 merged: the rest of AU-F22 (the client's context on every client record's event; each record's own due date, balance, payment status, progress, assignee, type, confirmation, service, jurisdiction and tax year) and AU-F23's remaining operators (On, Within the last / next N days, Does not contain).
 - #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
 - #1301 merged: Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
-- #1304 (`rasel/R55-au-branch`): Conditional branch as an action's Only if, and Send resource (AU-F26).
+- #1304 merged: Conditional branch as an action's Only if, and Send resource (AU-F26).
+- AU yellow (`rasel/R55-au-yellow`): AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -66,6 +67,41 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - Create Invoice: an invoice is money and needs line items. The reminder is Send client message or Send client email on Invoice overdue, with the invoice number as a merge field.
   - Webhook / Integration: no vetted outbound webhook exists.
 
+**AU-Y evidence for Review 2 (the change list's defaults; tests in `apps/api/test/e2e/automations.e2e.test.ts` and `test/unit/automations.test.ts`):**
+- **Y01, rule states:**
+  - Save Draft is DRAFT; Save and Activate is ACTIVE (also after a fresh read); a copy is DRAFT with its own id; activation is not a run.
+  - Test: "Save Draft is a draft, Save and Activate is active, a copy is a draft". A template opens as a draft for review ("uses a template to make a draft for review").
+- **Y02, events:** each listed event binds to a real source (`matching.ts`, `audit-events.ts`); "lists each module's events, each with a real source". There's no Anniversary, Account Activated, Manager Changed, or open or click event.
+- **Y03, timing:** the five presets only; no custom timing is built.
+- **Y04, import:** both inputs kept and no picker added; the template import tests cover it.
+- **Y05, needs Rasel:** approved synthetic message templates in the dev seed (`packages/db` seed).
+  - Eligibility: kind PORTAL_MESSAGE for Send client message and EMAIL for Send client email, status ACTIVE, and `includeInAutomations` on.
+- **Y06, channels:**
+  - Send client message is the portal message.
+  - Send client email is Messages' email (the portal message plus an email notice).
+  - Send client text message is Messages' SMS.
+  - Messages' own contact and consent checks apply to each.
+- **Y07, Manual Event Confirmation:** the defaults are in place (AU-F29 to F33 tests).
+- **Y08, business days:** not offered. Invoice timing follows IP-F06 (firm days, open balances).
+- **Y09, time:**
+  - Firm time zone first.
+  - Unit tests cover exact boundaries, a zero offset, no date, quiet hours across both 2026 clock changes, and Within N days across the change ("times boundaries, zero offsets and the clock change").
+- **Y10, contracts and safety:**
+  - Run key = event, record and occurrence; dedupe days per rule; loop and chain checks ("finds a rule that starts itself…"); only module services are called; logs keep ids.
+  - Tests: the run engine and loop tests.
+- **Y11, overview:** "shows the overview: counts, health and recent activity". The formulas are in `overview.service.ts`.
+- **Y12, Y13, copies and archive:** "pauses, copies, archives and restores". A copy is a new id with no run history, and the original is unchanged; archive keeps history; Test runs nothing.
+- **Y14, dry run:** "count and sample what a rule would act on, create nothing…" (no task, message or note).
+- **Y15, settings:**
+  - "keeps the firm's settings, for an Automation Admin to change"; "waits for a delay, and honours quiet hours".
+  - Safety threshold: "stops a rule that would act on too much".
+- **Y16, Y19, order, retry and loops:**
+  - "runs its actions in order once"; "retries only the failed, retryable actions"; "a rule on a tag or assignment change can't take the action…".
+  - Only if and dependency skips are covered too.
+- **Y17, no matches:** a warning in the rule's test, and the rule still saves and turns on ("a rule that matches nothing right now warns…").
+- **Y18, needs Rasel:** synthetic log rows (success, failed, skipped, pending) in the dev seed. The export test checks the file's columns and who may export.
+- **Y20, permissions:** the server matrix for Owner, Admin, Staff and Tax preparer (view, write, activate, export, settings), checked against the role grid, plus another firm's Owner getting 404 ("enforces the automation rights on the server for each role"). The audit entries are covered by the tests for each feature.
+
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
 **Manual Event Confirmation (AU-F29 to F33), design (`rasel/R55-au-confirm`, from main):**
@@ -78,6 +114,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 **Not listed (no real source, AU-Y02 default):** client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
+- Rasel (seed, AU-Y05 and Y18): approved synthetic message templates (portal message and email, active, offered to Automations) and synthetic automation log rows (success, failed, skipped, pending) in the dev seed. No engine run.
 - AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).
 - AU-F29, F30 and F33: start on main's `automation_settings.manual_confirmation_enabled` (lead, Nov 4). AU-F31 and F32 wait for R1's `automation_event_confirmations` migration and its Deploy dev.
 
