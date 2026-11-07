@@ -1,7 +1,7 @@
 // Bookkeeping (R38 Bookkeeping API): bookkeeping clients and their connections, accounts, periods
 // with their close steps, reconciliations and reports. Each world has its own records on client
 // X's Bookkeeping engagement (the `workspace` record).
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { CaseModule, RecordDef } from '../world.js';
 
 const BASE = '/api/v1/business/bookkeeping';
@@ -248,6 +248,44 @@ export const records: CaseModule['records'] = {
       ).id;
     },
   },
+  /** BK-T01 engines: a category of client X's, and a line of theirs to change. */
+  bookkeepingTxnCategory: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      return (
+        await tx.bookkeepingCategory.create({
+          data: {
+            businessId,
+            engagementId: await get('workspace'),
+            name: 'Fake office supplies',
+            type: 'EXPENSE',
+          },
+        })
+      ).id;
+    },
+  },
+  /** A file of client X's on their Bookkeeping workspace, as a line's receipt. */
+  bookkeepingReceipt: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const tag = randomUUID();
+      return (
+        await tx.document.create({
+          data: {
+            businessId,
+            clientId: await get('client'),
+            engagementId: await get('workspace'),
+            direction: 'CLIENT_TO_FIRM',
+            fileName: 'fake-receipt.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 100,
+            sha256: createHash('sha256').update(tag).digest('hex'),
+            s3Key: `tenant/${businessId}/iso/${tag}/fake-receipt.pdf`,
+          },
+        })
+      ).id;
+    },
+  },
   bookkeepingReport: report('NOT_STARTED'),
   bookkeepingReportStarted: report('IN_PROGRESS'),
   bookkeepingReportReview: report('IN_REVIEW'),
@@ -274,6 +312,7 @@ export const records: CaseModule['records'] = {
 };
 
 const client = { id: 'bookkeepingClient' };
+const line = { id: 'bookkeepingClient', txnId: 'bookkeepingReconLine' };
 const connection = { id: 'bookkeepingConnection' };
 const periodId = { id: 'bookkeepingPeriod' };
 const recon = { id: 'bookkeepingReconciliation' };
@@ -295,6 +334,45 @@ export const cases: CaseModule['cases'] = {
   // BK-T01: the read side of the ledger.
   [`GET ${BASE}/clients/:id/transactions`]: { params: client },
   [`GET ${BASE}/clients/:id/categories`]: { params: client },
+  // BK-T01 engines on one of client X's lines (4,000 cents, a credit).
+  [`PATCH ${BASE}/clients/:id/transactions/:txnId/category`]: {
+    params: line,
+    bodyIds: { categoryId: 'bookkeepingTxnCategory' },
+    body: {},
+  },
+  [`PUT ${BASE}/clients/:id/transactions/:txnId/split`]: {
+    params: line,
+    bodyIds: { 'parts.categoryId': 'bookkeepingTxnCategory' },
+    body: {
+      parts: [
+        { categoryId: '', amountCents: 1_500 },
+        { categoryId: '', amountCents: 2_500 },
+      ],
+    },
+  },
+  [`GET ${BASE}/clients/:id/transactions/:txnId/transfer-candidates`]: { params: line },
+  // Found, but a line is not its own other side.
+  [`POST ${BASE}/clients/:id/transactions/:txnId/transfer`]: {
+    params: line,
+    bodyIds: { pairId: 'bookkeepingReconLine' },
+    body: {},
+    expect: 409,
+  },
+  [`POST ${BASE}/clients/:id/transactions/:txnId/exclude`]: {
+    params: line,
+    body: { reason: 'Fake duplicate' },
+  },
+  [`POST ${BASE}/clients/:id/transactions/:txnId/include`]: { params: line, body: {} },
+  [`PUT ${BASE}/clients/:id/transactions/:txnId/receipt`]: {
+    params: line,
+    bodyIds: { documentId: 'bookkeepingReceipt' },
+    body: {},
+  },
+  [`POST ${BASE}/clients/:id/transactions/bulk`]: {
+    params: client,
+    bodyIds: { ids: 'bookkeepingReconLine', categoryId: 'bookkeepingTxnCategory' },
+    body: { action: 'CATEGORIZE' },
+  },
   [`PATCH ${BASE}/clients/:id`]: {
     params: client,
     bodyIds: { reviewerUserId: 'adminUser' },
