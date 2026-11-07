@@ -413,7 +413,14 @@ export const api = {
    */
   compliance:
     dev && mocked('compliance')
-      ? createComplianceMock({ role: MOCK_ROLE, empty: mockedEmpty('compliance') })
+      ? createComplianceMock({
+          role: MOCK_ROLE,
+          empty: mockedEmpty('compliance'),
+          // CD-F06: an attachment uploaded through the documents mock keeps its name.
+          ...(documentsMock
+            ? { documentName: async (id: string) => (await documentsMock.get(id)).fileName }
+            : {}),
+        })
       : createComplianceClient(request),
   /**
    * Tasks module (R55): overview, create/edit, checklist, templates and recurring series. Mock:
