@@ -22,8 +22,8 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useDeferredValue, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useDeferredValue, useEffect, useState } from 'react';
 import {
   INVOICE_STATUSES,
   INVOICE_TYPES,
@@ -127,6 +127,12 @@ function CreateInvoiceButton() {
 
 export function BillingDashboard() {
   const [firmId, setFirmId] = useBillingFirm();
+  // SA-RPT-R5: a firm-scoped link (Reports' firm view) opens Billing for that firm.
+  const address = useSearchParams();
+  const linkedFirm = address.get('firm') ?? '';
+  useEffect(() => {
+    if (/^[0-9a-f-]{36}$/i.test(linkedFirm)) setFirmId(linkedFirm);
+  }, [linkedFirm, setFirmId]);
   const [search, setSearch] = useState('');
   const term = useDeferredValue(search.trim());
   const [status, setStatus] = useState<InvoiceStatus | ''>('');

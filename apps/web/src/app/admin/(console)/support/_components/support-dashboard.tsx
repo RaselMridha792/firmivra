@@ -209,8 +209,11 @@ export function SupportDashboard() {
       const v = params.get(key) ?? '';
       return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
     };
+    const firm = params.get('firm') ?? '';
     return {
       ...NO_FILTERS,
+      // SA-RPT-R5: a firm-scoped link (Reports' firm view) opens Support for that firm.
+      firmId: /^[0-9a-f-]{36}$/i.test(firm) ? firm : '',
       created: { from: day('createdFrom'), to: day('createdTo') },
       activity: { from: day('activityFrom'), to: day('activityTo') },
     };
