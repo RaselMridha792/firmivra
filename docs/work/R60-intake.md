@@ -263,14 +263,20 @@ Progress (Messages):
     archive`, `POST restore`. Each is audited and has an isolation case.
   - Assign follows MSG-F16's rule (an Owner or Admin, or a Staff member assigned to the client,
     400 `ASSIGNEE_CANNOT_REACH`) and never changes the client's own assigned staff member.
-  - Mute is the caller's alone. Muted members get no staff email; the bell waits on Q4, R6's
-    Notifier. A client's new message brings an archived conversation back to the inbox.
+  - Mute is the caller's alone. Muted members get no staff email and no bell item: the lead's Q4
+    (Nov 7, a one-off exception in R6's Notifier) added an optional `excludeUserIds` to
+    `NotifyEventInput` (up to 50 UUIDs, any event, never adds anyone), with a unit test. A
+    client's new message brings an archived conversation back to the inbox.
   - The panel shows the client's tags (the firm's one list, edited in place), the client's
     Assigned Staff and the Conversation Owner, each with an empty state.
   - Schedule opens `/calendar/new?clientId=`, and Back returns to the thread.
   - Tests: API e2e `messages-workspace` and `messages` 28 of 28, isolation 19 of 19, mock
     `r60-messages-contact` 2 of 2 (twice) and every Messages spec.
-  - Next: MSG-F18 Recent Activity (its own PR), and MSG-F21 once the lead answers Q3.
+  - The lead's answers (Nov 7): Q1 and Q2 as built (the client's tags and Assigned Staff, MSG-F16's
+    assign rule); Q4 as above. Notifier tests: unit `notifications` and API e2e `messages`,
+    `messages-workspace`, `notifications`, `automations` 100 of 100.
+  - Next: MSG-F18 Recent Activity (its own PR), then MSG-F21 (Q3: one Send Message link on the
+    appointment detail page).
 
 ## Handoff (Oct 23): start here
 

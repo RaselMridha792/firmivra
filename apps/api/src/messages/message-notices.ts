@@ -49,6 +49,17 @@ export class MessageNotices {
   ) {}
 
   async sent(m: SentMessage): Promise<void> {
+    // MSG-F22: a member who muted this conversation gets no bell item and no email for it. The
+    // Notifier skips up to 50; more than 50 members muting one conversation is beyond any firm.
+    // A failed read of the mutes still sends the notices, to everyone.
+    let muted = new Set<string>();
+    if (m.toSide === 'staff') {
+      try {
+        muted = await this.mutedBy(m.businessId, m.threadId);
+      } catch (error) {
+        this.logger.warn(`mutes for message ${m.messageId} not read (${errorName(error)})`);
+      }
+    }
     try {
       await this.notifier.notify({
         businessId: m.businessId,
@@ -57,13 +68,14 @@ export class MessageNotices {
         audience: m.toSide,
         actorUserId: m.senderUserId,
         eventKey: `message:${m.messageId}`,
+        ...(muted.size > 0 ? { excludeUserIds: [...muted].slice(0, 50) } : {}),
       });
     } catch (error) {
       this.logger.warn(`bell item for message ${m.messageId} not sent (${errorName(error)})`);
     }
     if (!m.email) return;
     try {
-      await this.email(m);
+      await this.email(m, muted);
     } catch (error) {
       this.logger.warn(`email for message ${m.messageId} not sent (${errorName(error)})`);
     }
@@ -82,7 +94,7 @@ export class MessageNotices {
     return new Set(rows.map((r) => r.userId));
   }
 
-  private async email(m: SentMessage): Promise<void> {
+  private async email(m: SentMessage, muted: ReadonlySet<string>): Promise<void> {
     const db = this.database.forBusiness(m.businessId);
     const thread = await db.messageThread.findFirst({
       where: { businessId: m.businessId, id: m.threadId },
@@ -123,8 +135,6 @@ export class MessageNotices {
         },
         select: { userId: true, user: { select: { name: true, email: true } } },
       });
-      // MSG-F22: a member who muted this conversation gets no alert for it.
-      const muted = await this.mutedBy(m.businessId, m.threadId);
       for (const p of members) {
         if (muted.has(p.userId)) continue;
         recipients.push({ to: p.user.email, name: p.user.name, recipient: { userId: p.userId } });
