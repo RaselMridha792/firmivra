@@ -14,6 +14,7 @@ import { FirmSlug } from '@firmivra/types';
 import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { businessStatusesFor, isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
+import { StaffSessions } from './staff-sessions.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Client portal routes: /api/v1/portal/:firmSlug/... (any case, like routing). */
@@ -35,6 +36,7 @@ export class TenantGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     @Inject(DATABASE) private readonly db: Database,
+    private readonly sessions: StaffSessions,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -53,8 +55,9 @@ export class TenantGuard implements CanActivate {
       .business.findUnique({ where: { id: businessId }, select: { id: true, status: true } });
     if (!business) throw notFound();
 
-    const tenant = await this.membership(auth, business.id);
-    if (!tenant) throw notFound();
+    const found = await this.membership(auth, business.id);
+    if (!found) throw notFound();
+    const { tenant, membershipId } = found;
     // Only after the membership check, so the status of someone else's firm never shows.
     if (!businessStatusesFor(this.reflector, ctx).includes(business.status)) {
       throw business.status === 'PENDING_SETUP'
@@ -63,6 +66,11 @@ export class TenantGuard implements CanActivate {
             message: 'This firm has not finished setting up',
           })
         : new ForbiddenException({ code: 'BUSINESS_INACTIVE', message: 'This firm is not active' });
+    }
+
+    // SM4: a staff sign-in is a session row in this firm; one the firm ended answers 401.
+    if (membershipId && auth.session) {
+      await this.sessions.check(req, business.id, membershipId, auth.session);
     }
 
     req.tenant = tenant;
@@ -109,24 +117,29 @@ export class TenantGuard implements CanActivate {
   private async membership(
     auth: AuthContext,
     businessId: string,
-  ): Promise<TenantContext | undefined> {
+  ): Promise<{ tenant: TenantContext; membershipId?: string } | undefined> {
     const firm = this.db.forBusiness(businessId);
     if (auth.pool === 'STAFF') {
       const m = await firm.membership.findFirst({
         where: { userId: auth.userId, status: 'ACTIVE' },
-        select: { role: true, customRoleId: true },
+        select: { id: true, role: true, customRoleId: true },
       });
       if (!m) return undefined;
-      return m.customRoleId
-        ? { businessId, role: m.role, kind: 'staff', customRoleId: m.customRoleId }
-        : { businessId, role: m.role, kind: 'staff' };
+      return {
+        tenant: m.customRoleId
+          ? { businessId, role: m.role, kind: 'staff', customRoleId: m.customRoleId }
+          : { businessId, role: m.role, kind: 'staff' },
+        membershipId: m.id,
+      };
     }
     if (auth.pool === 'CLIENT') {
       const c = await firm.clientAccount.findFirst({
         where: { userId: auth.userId, status: 'ACTIVE' },
         select: { id: true },
       });
-      return c ? { businessId, role: 'CLIENT', kind: 'client', clientAccountId: c.id } : undefined;
+      return c
+        ? { tenant: { businessId, role: 'CLIENT', kind: 'client', clientAccountId: c.id } }
+        : undefined;
     }
     // ADMIN: firm data only through an owner-approved support grant (Tumit, Sprint 3).
     return undefined;

@@ -11,7 +11,11 @@ import type { Database } from '@firmivra/db';
 import { AuthGuard } from '../../src/auth/auth.guard.js';
 import { Access, Public, Roles } from '../../src/auth/decorators.js';
 import { RolesGuard } from '../../src/auth/roles.guard.js';
+import type { StaffSessions } from '../../src/auth/staff-sessions.js';
 import { TenantGuard } from '../../src/auth/tenant.guard.js';
+
+/** The guard's staff sessions, unused here: these requests carry no sign-in id (SM4). */
+const noSessions = { check: () => Promise.resolve() } as unknown as StaffSessions;
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -134,7 +138,7 @@ describe('TenantGuard', () => {
   const staff = { userId: 'u1', cognitoSub: 's', pool: 'STAFF' };
 
   it('skips routes without a firm role', async () => {
-    const guard = new TenantGuard(reflector, fakeDb({}));
+    const guard = new TenantGuard(reflector, fakeDb({}), noSessions);
     await expect(
       guard.canActivate(ctx('anyUser', { auth: staff, get: headers({}) })),
     ).resolves.toBe(true);
@@ -144,6 +148,7 @@ describe('TenantGuard', () => {
     const guard = new TenantGuard(
       reflector,
       fakeDb({ businessById: { id: FIRM, status: 'ACTIVE' } }),
+      noSessions,
     );
     const req = { auth: staff, params: {}, get: headers({ 'x-business-id': FIRM }) };
     await expect(guard.canActivate(ctx('ownerOrAdmin', req))).rejects.toBeInstanceOf(
@@ -156,11 +161,59 @@ describe('TenantGuard', () => {
       businessById: { id: FIRM, status: 'ACTIVE' },
       membership: { role: 'ADMIN' },
     });
-    const guard = new TenantGuard(reflector, db);
+    const guard = new TenantGuard(reflector, db, noSessions);
     const req: Req = { auth: staff, params: {}, get: headers({ 'x-business-id': FIRM }) };
     await expect(guard.canActivate(ctx('ownerOrAdmin', req))).resolves.toBe(true);
     expect(req['tenant']).toEqual({ businessId: FIRM, role: 'ADMIN', kind: 'staff' });
     expect(db.forBusiness).toHaveBeenCalledWith(FIRM);
+  });
+
+  it('checks the staff session of a sign-in, and its 401 stops the request (SM4)', async () => {
+    const db = fakeDb({
+      businessById: { id: FIRM, status: 'ACTIVE' },
+      membership: { id: 'm-1', role: 'STAFF' },
+    });
+    const check = vi.fn().mockResolvedValue(undefined);
+    const sessions = { check } as unknown as StaffSessions;
+    const signedIn = { ...staff, session: 'sid-1' };
+    const req: Req = { auth: signedIn, params: {}, get: headers({ 'x-business-id': FIRM }) };
+    await expect(
+      new TenantGuard(reflector, db, sessions).canActivate(ctx('ownerOrAdmin', req)),
+    ).resolves.toBe(true);
+    expect(check).toHaveBeenCalledWith(req, FIRM, 'm-1', 'sid-1');
+    // A dev token (no sign-in id) opens no session.
+    check.mockClear();
+    const dev: Req = { auth: staff, params: {}, get: headers({ 'x-business-id': FIRM }) };
+    await new TenantGuard(reflector, db, sessions).canActivate(ctx('ownerOrAdmin', dev));
+    expect(check).not.toHaveBeenCalled();
+    // Ended: 401, and no tenant is set.
+    check.mockRejectedValue(new UnauthorizedException({ code: 'SESSION_REVOKED' }));
+    const ended: Req = { auth: signedIn, params: {}, get: headers({ 'x-business-id': FIRM }) };
+    await expect(
+      new TenantGuard(reflector, db, sessions).canActivate(ctx('ownerOrAdmin', ended)),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ended['tenant']).toBeUndefined();
+  });
+
+  it('never checks a session for a client sign-in (SM4: staff pool only)', async () => {
+    const db = fakeDb({
+      businessBySlug: { id: FIRM },
+      businessById: { id: FIRM, status: 'ACTIVE' },
+      clientAccount: { id: 'acct-1' },
+    });
+    const check = vi.fn();
+    const req: Req = {
+      auth: { userId: 'c1', cognitoSub: 's', pool: 'CLIENT', session: 'sid-2' },
+      path: '/api/v1/portal/lvp/me',
+      params: { firmSlug: 'lvp' },
+      get: headers({}),
+    };
+    await expect(
+      new TenantGuard(reflector, db, { check } as unknown as StaffSessions).canActivate(
+        ctx('ownerOrAdmin', req),
+      ),
+    ).resolves.toBe(true);
+    expect(check).not.toHaveBeenCalled();
   });
 
   it('uses the only firm when no header is sent', async () => {
@@ -171,7 +224,7 @@ describe('TenantGuard', () => {
     });
     const req: Req = { auth: staff, params: {}, get: headers({}) };
     await expect(
-      new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', req)),
+      new TenantGuard(reflector, db, noSessions).canActivate(ctx('ownerOrAdmin', req)),
     ).resolves.toBe(true);
     expect((req['tenant'] as { businessId: string }).businessId).toBe(FIRM);
   });
@@ -183,11 +236,11 @@ describe('TenantGuard', () => {
     });
     const req = { auth: staff, params: {}, get: headers({ 'x-business-id': FIRM }) };
     await expect(
-      new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', req)),
+      new TenantGuard(reflector, db, noSessions).canActivate(ctx('ownerOrAdmin', req)),
     ).rejects.toBeInstanceOf(ForbiddenException);
     const outsider = fakeDb({ businessById: { id: FIRM, status: 'SUSPENDED' } });
     await expect(
-      new TenantGuard(reflector, outsider).canActivate(ctx('ownerOrAdmin', req)),
+      new TenantGuard(reflector, outsider, noSessions).canActivate(ctx('ownerOrAdmin', req)),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -207,7 +260,7 @@ describe('TenantGuard', () => {
     });
     const req = portalReq('LVP');
     await expect(
-      new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', req)),
+      new TenantGuard(reflector, db, noSessions).canActivate(ctx('ownerOrAdmin', req)),
     ).resolves.toBe(true);
     expect(db.forPlatform().business.findUnique).toHaveBeenCalledWith({
       where: { slug: 'lvp' },
@@ -233,7 +286,9 @@ describe('TenantGuard', () => {
         businessById: { id: FIRM, status: 'ACTIVE' },
       });
       await expect(
-        new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', portalReq(firmSlug))),
+        new TenantGuard(reflector, db, noSessions).canActivate(
+          ctx('ownerOrAdmin', portalReq(firmSlug)),
+        ),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(db.forPlatform().business.findUnique).not.toHaveBeenCalled();
     }

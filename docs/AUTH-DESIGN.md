@@ -62,6 +62,20 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 4. `@Roles()` on every controller; default deny.
 5. Database access goes through `forBusiness(businessId)`, so row-level security applies.
 
+## Staff sessions per firm (SM4, Nov 7)
+
+A staff sign-in is a session row in each firm the person opens (`staff_sessions`, firm-scoped with the normal row-level security). Staff pool only: client portal and Super Admin sessions never get one.
+
+- **The key.** The refresh cookie's path is `/api/v1/auth`, so it never reaches a firm route. Every access token from one refresh token carries the same id instead: Cognito's `origin_jti` (token revocation is on for each app client), locally the `sid` claim that local sign-in sets and refresh keeps. The row stores only `token_hash` = SHA-256 of the firm id and that id; neither the id nor any token is stored. With the firm in the hash, one sign-in has its own row in each firm, and no firm's row matches another firm's. A dev token (`POST /dev/token`) has no id and opens no session.
+- **On every staff request to a firm route,** after the membership check, `TenantGuard` reads the row (`src/auth/staff-sessions.ts`):
+  - Revoked (Sign out, or Sign out all, in Active Sessions): **401 `SESSION_REVOKED`**. A failed lookup fails the request too (closed).
+  - No row: the session's first request in this firm. It creates the row (device from the user agent, IP), sets the member's Last Login where a security settings row exists, and writes `auth.firm_session_started` to the firm's audit log, which is what Login History lists.
+  - Otherwise `last_active_at` moves, at most once a minute.
+  - These writes never fail the request: an error is logged and the request goes on.
+- **Login History** lists the firm's `auth.firm_session_started` rows. Sign-in itself and failed attempts stay in Firmivra's platform log (a failed attempt has no firm), which no firm reads; the screens say "Failed attempts are kept by Firmivra".
+- **The browser.** On `401 SESSION_REVOKED` the web does not refresh: it signs out on the API (the refresh token is revoked and the cookies cleared) and opens the site's sign-in page (`apps/web/src/lib/session.ts`). A refresh would not help anyway: the new access token has the same id.
+- **One firm only.** Sign out (one or all) ends the member's sessions in that firm; the same sign-in keeps working in their other firms. Ending the login at Cognito everywhere is SEC-5; the 8-hour cap and the 15-minute idle limit (SEC-4) build on these rows.
+
 ## Sign-up, invites, password reset
 
 - **Firm owner:** created when Super Admin approves an application; gets an activation email with a one-time link (7 days) to set a password and MFA.

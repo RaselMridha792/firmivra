@@ -9,6 +9,8 @@ export interface AuthContext {
   userId: string;
   cognitoSub: string;
   pool: IdentityPool;
+  /** The sign-in's id from the token (VerifiedToken.session); only ever stored hashed. */
+  session?: string;
 }
 
 export type TenantRole = MembershipRole | 'CLIENT';

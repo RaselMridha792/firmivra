@@ -61,6 +61,7 @@ R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) and SM14 (account authority) 
   - The fix: record a session row and a firm-scoped sign-in row when the member opens the firm.
   - That means changing the sign-in or session path (auth), and revoking needs Cognito, which is "Sign Out All Sessions", waiting for Rasel's word.
   - Not built. **Rasel (Oct 24 evening): leave it; he decides SM4 himself.**
+  - **Built (Nov 7, Rasel's approval through the lead): `rasel/R55-staff-sessions`.** The tenant guard keeps a `staff_sessions` row per staff sign-in per firm, keyed by a SHA-256 of the firm and the sign-in's id (Cognito `origin_jti`, locally `sid`): the refresh cookie never reaches firm routes. A revoked row answers 401 `SESSION_REVOKED` and the web signs out. The first request in a firm writes `auth.firm_session_started`, which Login History lists. See docs/AUTH-DESIGN.md, "Staff sessions per firm".
 - **SM6, the Export permission (`rasel/R55-export-permission`, PR when a slot frees).**
   - The grid already has Export for every module, and Payroll, Tax Returns, Bookkeeping, Compliance, Automations and Communications check it.
   - **Report exports** asked the guard for Create, so a Manager (Reports View and Export by default) got 403. They now ask for Export.
@@ -72,6 +73,6 @@ R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) and SM14 (account authority) 
 - **S3 for staff documents (Rasel, infra).** The API task role needs `s3:PutObject` (presigned), `s3:GetObject` and `s3:DeleteObject` on `tenant/*/staff/*` of the documents bucket, as it has for `tenant/*/templates/*`, and the GuardDuty scan results of that prefix routed to the API's scan queue (the router now knows the `staff` prefix).
 - **A per-firm name and phone (R0).** `users.name` and `users.phone` belong to the shared login; Create Staff's phone has nowhere to go and Edit Staff cannot correct a name. A `staff_profiles.phone` (and display name) column would hold the firm's own.
 - **R6: a staff change notice.** Edit Staff's `notifyMember` is recorded in the audit row; no email goes out until a `staff.changed` template exists.
-- **R2: sign-ins the firm can see.** Staff `auth.signed_in` and `auth.sign_in_failed` rows go to the platform's log (no firm at sign-in), and nothing writes `staff_sessions` or `last_login_at`. Login History, Active Sessions and Last Login stay empty until sign-in records them per firm (at the firm the member opens). A failed attempt carries no user, only an email key.
-- **R2: sign out at Cognito per session.** Revoking a `staff_sessions` row ends nothing at Cognito until the session check reads the row (or the row keeps what `RevokeToken` needs).
+- **R2: sign-ins the firm can see.** Done by SM4 (Nov 7): the firm's session rows and `auth.firm_session_started`. Failed attempts stay in the platform log (no firm, only an email key).
+- **R2: sign out at Cognito per session.** SM4 reads the row on every firm request, so a revoked session ends there at once; ending the login at Cognito everywhere is SEC-5 (R1).
 - **MFA state.** Whether a member has a second step is known to Cognito, not to our database. Until the API asks Cognito, an invited member shows PENDING and everyone else DISABLED. The API task role needs `cognito-idp:AdminGetUser` on the staff pool to show the real state.

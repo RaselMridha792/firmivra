@@ -3,14 +3,15 @@ import { DiscoveryModule, DiscoveryService, MetadataScanner, Reflector } from '@
 import { AuthGuard } from './auth.guard.js';
 import { RolesGuard } from './roles.guard.js';
 import { routeSiteProblems } from './route-sites.js';
+import { StaffSessions } from './staff-sessions.js';
 import { TenantGuard } from './tenant.guard.js';
 import { TokenService } from './token.service.js';
 
 @Global()
 @Module({
   imports: [DiscoveryModule],
-  providers: [TokenService, AuthGuard, TenantGuard, RolesGuard],
-  exports: [TokenService, AuthGuard, TenantGuard, RolesGuard],
+  providers: [TokenService, AuthGuard, TenantGuard, RolesGuard, StaffSessions],
+  exports: [TokenService, AuthGuard, TenantGuard, RolesGuard, StaffSessions],
 })
 export class AuthModule implements OnApplicationBootstrap {
   constructor(
