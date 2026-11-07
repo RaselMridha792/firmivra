@@ -3,7 +3,6 @@
 import {
   Badge,
   Button,
-  Card,
   IconButton,
   Input,
   KpiCard,
@@ -13,11 +12,9 @@ import {
   Select,
   Table,
   Tabs,
-  Textarea,
   type Column,
 } from '@firmivra/ui';
 import {
-  ArrowRight,
   Bell,
   CalendarBlank,
   ChatCircleDots,
@@ -25,7 +22,6 @@ import {
   DotsThreeVertical,
   EnvelopeSimple,
   FileText,
-  Lightbulb,
   MagnifyingGlass,
   Megaphone,
   PaperPlaneTilt,
@@ -42,15 +38,11 @@ import {
 } from '@firmivra/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
-import {
-  saveBroadcastDraft,
-  initialBroadcastDraft,
-  stepHref,
-} from '../new/_components/broadcast-draft';
+import { stepHref } from '../new/_components/broadcast-draft';
 
 type TabStatus = 'ALL' | 'DRAFT' | 'SCHEDULED' | 'SENT' | 'FAILED';
 type ChannelFilter = 'ALL' | AdminCommBroadcastChannel;
@@ -208,169 +200,6 @@ function DateRangeFilter({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function BroadcastSteps() {
-  const steps = ['Basic Information', 'Audience', 'Message', 'Review & Send'];
-  return (
-    <ol
-      aria-label="Broadcast creation steps"
-      className="relative flex flex-col gap-1 before:absolute before:top-5 before:bottom-5 before:left-4 before:w-px before:bg-border"
-    >
-      {steps.map((step, index) => {
-        const current = index === 0;
-        return (
-          <li
-            key={step}
-            aria-current={current ? 'step' : undefined}
-            className={`relative flex min-h-11 items-center gap-3 rounded-lg px-2 text-sm ${current ? 'bg-info-soft font-semibold text-action' : 'text-muted'}`}
-          >
-            <span
-              className={`z-10 flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${current ? 'bg-action text-on-action' : 'border border-border bg-surface text-text'}`}
-            >
-              {index + 1}
-            </span>
-            {step}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-/** Step 1 in the side panel: the draft is made here, then the wizard continues at Audience. */
-function CreateBroadcastPanel() {
-  const router = useRouter();
-  const [name, setName] = useState('');
-  const [channel, setChannel] = useState<'EMAIL' | 'SMS'>('EMAIL');
-  const [category, setCategory] = useState('');
-  const [description, setDescription] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const categories = useApiQuery(['admin-communications', 'categories'], () =>
-    api.adminCommunications.categories.list(),
-  );
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!name.trim()) {
-      setError('Enter a broadcast name to continue.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const created = await api.adminBroadcasts.broadcasts.create({ name: name.trim() });
-      saveBroadcastDraft(
-        { ...initialBroadcastDraft, name: name.trim(), description, category, channels: [channel] },
-        created.id,
-      );
-      router.push(stepHref('audience', created.id));
-    } catch (e) {
-      setError(errorMessage(e, ADMIN_COMM_BROADCAST_ERRORS));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card variant="outlined" className="min-w-0 p-4 sm:p-5">
-      <h2 className="mb-3 font-display text-lg font-bold text-heading">Create New Broadcast</h2>
-      <BroadcastSteps />
-
-      <form onSubmit={(event) => void submit(event)} className="mt-4 flex flex-col gap-4">
-        <Input
-          label="Broadcast Name"
-          required
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="e.g. Monthly Newsletter"
-          error={error}
-        />
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-text">
-            Channel <span className="text-danger">*</span>
-          </legend>
-          <div className="grid grid-cols-2 gap-2">
-            {(['EMAIL', 'SMS'] as const).map((item) => {
-              const active = channel === item;
-              const Glyph = item === 'EMAIL' ? EnvelopeSimple : ChatCircleDots;
-              return (
-                <Button
-                  key={item}
-                  type="button"
-                  variant={active ? 'outline' : 'secondary'}
-                  aria-pressed={active}
-                  onClick={() => setChannel(item)}
-                  className={`min-w-0 px-2 ${active ? 'bg-info-soft' : ''}`}
-                >
-                  <Glyph aria-hidden weight="fill" className="size-4 shrink-0" />
-                  {item === 'EMAIL' ? 'Email' : 'SMS'}
-                </Button>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        <Select
-          label="Category (Optional)"
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          options={[
-            { value: '', label: 'Select a category' },
-            ...(categories.data?.items ?? [])
-              .filter((c) => c.isActive)
-              .map((c) => ({ value: c.id, label: c.name })),
-          ]}
-          className="text-sm"
-        />
-
-        <Textarea
-          label="Description (Optional)"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Brief description of this broadcast..."
-          rows={3}
-          className="text-sm"
-        />
-
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              setName('');
-              setCategory('');
-              setDescription('');
-              setError('');
-            }}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={busy}>
-            Next <ArrowRight aria-hidden weight="bold" className="size-4" />
-          </Button>
-        </div>
-      </form>
-
-      <section className="mt-4 rounded-xl bg-info-soft p-4" aria-labelledby="broadcast-tips-title">
-        <h3
-          id="broadcast-tips-title"
-          className="mb-2 flex items-center gap-2 text-sm font-semibold text-heading"
-        >
-          <Lightbulb aria-hidden weight="fill" className="size-4 text-action" />
-          Tips for Broadcasts
-        </h3>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-text">
-          <li>Use a clear and concise subject line</li>
-          <li>Segment your audience for better results</li>
-          <li>Consider sending a test first</li>
-          <li>Review and confirm before sending</li>
-          <li>Track performance after sending</li>
-        </ul>
-      </section>
-    </Card>
   );
 }
 
@@ -691,7 +520,7 @@ export function BroadcastsDashboard() {
         }
       />
 
-      <div className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(18rem,1fr)]">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4">
         <div className="flex min-w-0 flex-col gap-3">
           <section
             aria-label="Broadcast summary"
@@ -877,10 +706,6 @@ export function BroadcastsDashboard() {
             )}
           </section>
         </div>
-
-        <aside className="min-w-0 xl:sticky xl:top-4">
-          <CreateBroadcastPanel />
-        </aside>
       </div>
 
       <Modal

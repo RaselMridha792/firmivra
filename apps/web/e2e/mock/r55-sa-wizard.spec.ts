@@ -35,3 +35,22 @@ test('the wizard saves with Save and continue, says Draft saved, and Cancel keep
   // the API, not here.)
   await expect(page).toHaveURL(/\/integrations$/);
 });
+
+test('broadcasts: no legacy side panel, and the wizard saves with Save and continue (SA-COM-R7, R8)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(admin('/communications/broadcasts'));
+  await expect(page.getByRole('heading', { name: 'Create New Broadcast' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Create Broadcast' }).first().click();
+  await expect(page).toHaveURL(/\/communications\/broadcasts\/new/);
+  await expect(page.getByRole('button', { name: 'Save and continue' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/super-admin/broadcast-step-1.png' });
+});
+
+test('the report builder says Statuses, not Statuss (SA-RPT-R8)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(admin('/reports/builder'));
+  await expect(page.getByText(/Statuss/)).toHaveCount(0);
+});
