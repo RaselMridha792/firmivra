@@ -434,7 +434,7 @@ export function LoginHistoryCard({ id }: { id: string }) {
   return (
     <Panel
       title="Login History"
-      subtitle="Recent login activity for this user."
+      subtitle="Sign-ins to this firm. Failed attempts are kept by Firmivra."
       icon={ClockCounterClockwise}
       testId="login-history"
       action={

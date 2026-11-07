@@ -247,6 +247,8 @@ describe('Firm onboarding, from application to an active firm', () => {
       'settings.copied_from_application',
       'membership.invited',
       'membership.activated',
+      // The Owner's sign-in, at the first request in the firm (SM4).
+      'auth.firm_session_started',
       'setup.step_completed',
       'setup.step_completed',
       'setup.step_completed',

@@ -41,7 +41,7 @@ export function HistoryTab({ id }: { id: string }) {
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
         <Panel
           title="Login History"
-          subtitle="Every sign-in attempt for this user, newest first."
+          subtitle="Sign-ins to this firm, newest first. Failed attempts are kept by Firmivra."
           icon={ClockCounterClockwise}
           testId="login-history-all"
           className="min-[1440px]:col-span-2"

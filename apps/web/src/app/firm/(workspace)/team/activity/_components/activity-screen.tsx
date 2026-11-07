@@ -33,6 +33,8 @@ const when = (iso: string) =>
   });
 
 const WORDS: Record<string, string> = {
+  // SM4: a staff session's first request in this firm.
+  'auth.firm_session_started': 'Signed in',
   'auth.signed_in': 'Signed in',
   'auth.sign_in_failed': 'Sign-in failed',
   'auth.signed_out': 'Signed out',
@@ -245,7 +247,7 @@ export function ActivityScreen() {
 
       <Card
         title="Login History"
-        subtitle="Staff sign-ins and failed attempts, newest first."
+        subtitle="Staff sign-ins to this firm, newest first. Failed attempts are kept by Firmivra."
         icon={ClockCounterClockwise}
         testId="team-login-history"
       >

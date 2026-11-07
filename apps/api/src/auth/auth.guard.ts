@@ -58,7 +58,12 @@ export class AuthGuard implements CanActivate {
     const pools = portalSlugOf(req) ? (['CLIENT'] as const) : SITE_POOLS[siteOf(req)];
     if (!pools.includes(user.pool)) throw unauthenticated();
 
-    const auth = { userId: user.id, cognitoSub: claims.sub, pool: user.pool };
+    const auth = {
+      userId: user.id,
+      cognitoSub: claims.sub,
+      pool: user.pool,
+      ...(claims.session ? { session: claims.session } : {}),
+    };
     req.auth = auth;
     const store = requestContext.getStore();
     if (store) store.auth = auth;

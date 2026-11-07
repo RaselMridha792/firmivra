@@ -12,6 +12,12 @@ const LOCAL_TTL_SECONDS = 60 * 60;
 export interface VerifiedToken {
   sub: string;
   pool: IdentityPool;
+  /**
+   * The sign-in this token belongs to, the same across refreshes (SM4): Cognito's `origin_jti`
+   * (the refresh token's revocation id), locally the `sid` claim. Never stored as is: the firm's
+   * session row keeps only a SHA-256 of it (src/auth/staff-sessions.ts).
+   */
+  session?: string;
 }
 
 /**
@@ -40,12 +46,24 @@ export class TokenService {
       algorithms: ['HS256'],
     });
     if (!payload.sub) throw new Error('token has no subject');
-    return { sub: payload.sub, pool: IdentityPool.parse(payload['pool']) };
+    const sid = payload['sid'];
+    return {
+      sub: payload.sub,
+      pool: IdentityPool.parse(payload['pool']),
+      ...(typeof sid === 'string' && sid ? { session: sid } : {}),
+    };
   }
 
-  /** Local development only (POST /api/v1/dev/token). */
-  async signLocal(sub: string, pool: IdentityPool): Promise<{ token: string; expiresIn: number }> {
-    const token = await new SignJWT({ pool })
+  /**
+   * Local development only (POST /api/v1/dev/token, and local sign-in). `session` is the sign-in's
+   * id (the `sid` claim), kept across refreshes; a dev token has none, so it opens no session row.
+   */
+  async signLocal(
+    sub: string,
+    pool: IdentityPool,
+    session?: string,
+  ): Promise<{ token: string; expiresIn: number }> {
+    const token = await new SignJWT({ pool, ...(session ? { sid: session } : {}) })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(sub)
       .setIssuer(LOCAL_ISSUER)
@@ -92,7 +110,14 @@ function createCognitoVerifier(env: Env) {
       const payload = await verifier.verify(token);
       const match = pools.find((p) => payload.iss.endsWith(`/${p.userPoolId}`));
       if (!match) throw new Error('token from an unknown user pool');
-      return { sub: payload.sub, pool: match.pool };
+      // origin_jti: the same for every access token its refresh token gives (token revocation
+      // is on for each app client, infra/src/stacks/auth-stack.ts).
+      const origin = (payload as { origin_jti?: unknown }).origin_jti;
+      return {
+        sub: payload.sub,
+        pool: match.pool,
+        ...(typeof origin === 'string' && origin ? { session: origin } : {}),
+      };
     },
   };
 }
