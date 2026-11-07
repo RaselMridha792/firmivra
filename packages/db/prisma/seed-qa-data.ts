@@ -102,6 +102,8 @@ async function seedFirm(tx: TxClient, businessId: string, f: number) {
         businessId,
         displayName: `QA Fixture Client ${i + 1}`,
         email: `qa-fixture-${i + 1}@example.test`,
+        // In the past, so no client.created automation rule ever matches a fixture client.
+        createdAt: new Date('2026-09-01T12:00:00Z'),
       },
     });
   }

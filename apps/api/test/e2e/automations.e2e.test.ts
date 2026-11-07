@@ -130,8 +130,15 @@ const { ownerA, adminA, staffA, preparerA, ownerB } = people;
 const DAY = 86_400_000;
 // The firm's day (New York, the default zone), as the rules, the job and the runs filter use it:
 // a UTC day is a day ahead from 00:00 to 04:00 or 05:00 UTC.
-const nyDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
-const day = (offset: number) => nyDay.format(new Date(Date.now() + offset * DAY));
+/** New York's day, moved by calendar days (never 24 hours: a clock change makes a day 23 or 25). */
+const day = (offset: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
+  );
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
 
 // ---------- Definitions ----------
 
@@ -3063,5 +3070,133 @@ describe('Update client status and priority, a typed allowlist (AU-F27, AU-F08)'
     expect(await codes(onStatus([setStatus('ACTIVE')]))).toContain('LOOP_RISK');
     expect(await codes(onStatus([setPriority('HIGH')]))).not.toContain('LOOP_RISK');
     expect(await codes(clientCreated([setStatus('ACTIVE')]))).not.toContain('LOOP_RISK');
+  });
+});
+
+describe('the client’s context and each record’s own fields as conditions (AU-F22, F23)', () => {
+  const overdue = { module: 'INVOICES_PAYMENTS', event: 'invoice.overdue' };
+  const labels = async (conditions: object[]) =>
+    AutomationMatches.parse(
+      ok(await call('post', '/rules/matches', ownerA, { trigger: overdue, conditions })),
+    ).sample.map((s) => s.label);
+  const one = `INV-U-${run}-1`;
+  const two = `INV-U-${run}-2`;
+
+  it('offers the client’s status, tags, staff, state and dates, with the firm’s own choices only', async () => {
+    const ours = await inFirm(
+      'a',
+      async (tx) =>
+        (await tx.tag.create({ data: { businessId: firms.a, name: `Context ${run}` } })).id,
+    );
+    const theirs = await inFirm(
+      'b',
+      async (tx) =>
+        (await tx.tag.create({ data: { businessId: firms.b, name: `Theirs ${run}` } })).id,
+    );
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const fieldsOf = (code: string) =>
+      catalog.events.find((e) => e.code === code)?.conditionFields ?? [];
+    const invoice = fieldsOf('invoice.overdue');
+    expect(invoice.map((f) => f.field)).toEqual(
+      expect.arrayContaining([
+        'balanceCents',
+        'paymentStatus',
+        'dueOn',
+        'clientStatus',
+        'clientTags',
+        'clientAssignedUserId',
+        'clientState',
+        'clientCreatedOn',
+        'clientLastActivityOn',
+      ]),
+    );
+    const tagChoices = invoice.find((f) => f.field === 'clientTags')?.options.map((o) => o.value);
+    expect(tagChoices).toContain(ours);
+    expect(tagChoices).not.toContain(theirs);
+    expect(
+      invoice.find((f) => f.field === 'clientAssignedUserId')?.options.map((o) => o.value),
+    ).not.toContain(ownerB.id);
+    expect(invoice.find((f) => f.field === 'dueOn')?.operators).toEqual([
+      'BEFORE',
+      'AFTER',
+      'ON',
+      'WITHIN_LAST',
+      'WITHIN_NEXT',
+      'EXISTS',
+      'NOT_EXISTS',
+    ]);
+    // A client's own event has its status, tags and staff already: it takes the state and dates.
+    const created = fieldsOf('client.created').map((f) => f.field);
+    expect(created).toEqual(expect.arrayContaining(['clientState', 'clientCreatedOn']));
+    expect(created).not.toContain('clientStatus');
+    expect(fieldsOf('task.overdue').map((f) => f.field)).toEqual(
+      expect.arrayContaining(['taskProgress', 'taskAssignedUserId', 'dueOn', 'clientTags']),
+    );
+    expect(fieldsOf('appointment.upcoming').map((f) => f.field)).toEqual(
+      expect.arrayContaining(['appointmentTypeId', 'confirmation', 'serviceKind', 'startsOn']),
+    );
+    // Staff Management has no client: no client fields.
+    expect(fieldsOf('staff.invited').map((f) => f.field)).not.toContain('clientStatus');
+  });
+
+  it('matches on the client’s context, the balance and the due date, in the firm’s days', async () => {
+    const tag = await inFirm('a', async (tx) => {
+      const t = await tx.tag.create({ data: { businessId: firms.a, name: `Tagged ${run}` } });
+      await tx.clientTag.create({
+        data: { businessId: firms.a, clientId: clients.c2, tagId: t.id, addedByUserId: ownerA.id },
+      });
+      await tx.clientProfile.upsert({
+        where: { clientId: clients.c1 },
+        create: { businessId: firms.a, clientId: clients.c1, state: 'GA' },
+        update: { state: 'GA' },
+      });
+      return t.id;
+    });
+    const both = await labels([]);
+    expect(both).toEqual(expect.arrayContaining([one, two]));
+
+    expect(await labels([{ field: 'clientTags', operator: 'INCLUDES', value: [tag] }])).toEqual([
+      two,
+    ]);
+    expect(await labels([{ field: 'clientState', operator: 'IS', value: 'GA' }])).toEqual([one]);
+    expect(
+      await labels([{ field: 'clientAssignedUserId', operator: 'IS', value: staffA.id }]),
+    ).toEqual([one]);
+    expect(
+      await labels([
+        { field: 'balanceCents', operator: 'GREATER_THAN', value: 7_000 },
+        { field: 'paymentStatus', operator: 'IS', value: 'UNPAID' },
+      ]),
+    ).toEqual([one]);
+    // Due 2 and 10 days ago: only the first is within the last 5 days; both are past.
+    expect(await labels([{ field: 'dueOn', operator: 'WITHIN_LAST', value: 5 }])).toEqual([two]);
+    expect(await labels([{ field: 'dueOn', operator: 'WITHIN_NEXT', value: 5 }])).toEqual([]);
+    expect(
+      await labels([
+        { field: 'clientCreatedOn', operator: 'WITHIN_LAST', value: 1 },
+        { field: 'clientStatus', operator: 'IS', value: 'NEW' },
+      ]),
+    ).toEqual(expect.arrayContaining([one, two]));
+  });
+
+  it('refuses a period that is not a number of days, or a day that is not a date', async () => {
+    for (const condition of [
+      { field: 'dueOn', operator: 'WITHIN_NEXT', value: 'soon' },
+      { field: 'dueOn', operator: 'WITHIN_LAST', value: -1 },
+      { field: 'dueOn', operator: 'ON', value: '2026-13-01' },
+      { field: 'balanceCents', operator: 'NOT_CONTAINS', value: 'x' },
+    ])
+      expectError(
+        await call('post', '/rules/matches', ownerA, { trigger: overdue, conditions: [condition] }),
+        400,
+        'INVALID_DEFINITION',
+      );
+    // Text takes Does not contain.
+    ok(
+      await call('post', '/rules/matches', ownerA, {
+        trigger: { module: 'CLIENTS', event: 'client.created' },
+        conditions: [{ field: 'source', operator: 'NOT_CONTAINS', value: 'Referral' }],
+      }),
+    );
   });
 });

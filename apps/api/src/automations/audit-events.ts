@@ -124,7 +124,13 @@ const RESOLVERS = {
         id: true,
         status: true,
         form: { select: { title: true } },
-        engagement: { select: { clientId: true, client: { select: { accountType: true } } } },
+        engagement: {
+          select: {
+            clientId: true,
+            client: { select: { accountType: true } },
+            service: { select: { kind: true } },
+          },
+        },
       },
     });
     return new Map(
@@ -133,7 +139,11 @@ const RESOLVERS = {
         {
           clientId: i.engagement?.clientId ?? null,
           label: i.form.title,
-          fields: { clientType: i.engagement?.client.accountType ?? null, status: i.status },
+          fields: {
+            clientType: i.engagement?.client.accountType ?? null,
+            status: i.status,
+            serviceKind: i.engagement?.service?.kind ?? null,
+          },
         },
       ]),
     );
@@ -253,7 +263,12 @@ const RESOLVERS = {
   document_request_packet: (async (tx, businessId, ids) => {
     const rows = await tx.documentRequestPacket.findMany({
       where: { businessId, id: { in: ids } },
-      select: { id: true, title: true, clientId: true },
+      select: {
+        id: true,
+        title: true,
+        clientId: true,
+        engagement: { select: { service: { select: { kind: true } } } },
+      },
     });
     const types = await clientTypes(
       tx,
@@ -266,7 +281,10 @@ const RESOLVERS = {
         {
           clientId: p.clientId,
           label: p.title,
-          fields: { clientType: types.get(p.clientId) ?? null },
+          fields: {
+            clientType: types.get(p.clientId) ?? null,
+            serviceKind: p.engagement?.service?.kind ?? null,
+          },
         },
       ]),
     );
