@@ -28,6 +28,7 @@ import {
   stamp,
   timeText,
 } from './task-shared';
+import { beforeText } from './task-form-parts';
 
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
 function Card({ title, children, testId }: { title: string; children: ReactNode; testId: string }) {
@@ -234,10 +235,12 @@ export function TaskDetailScreen({ id }: { id: string }) {
               ) : (
                 <ul className="text-heading">
                   {t.reminders.map((r) => (
-                    <li key={`${r.daysBefore}-${r.timeOfDay}`}>
-                      {r.daysBefore === 0
-                        ? 'Same day'
-                        : `${r.daysBefore} day${r.daysBefore === 1 ? '' : 's'} before`}
+                    <li key={`${r.daysBefore}-${r.timeOfDay}-${r.amount}-${r.unit}`}>
+                      {r.unit && r.amount
+                        ? beforeText(r.amount, r.unit)
+                        : r.daysBefore === 0
+                          ? 'Same day'
+                          : `${r.daysBefore} day${r.daysBefore === 1 ? '' : 's'} before`}
                       {r.timeOfDay ? `, at ${timeText(r.timeOfDay)}` : ''}
                     </li>
                   ))}

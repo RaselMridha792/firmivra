@@ -18,7 +18,11 @@ import {
 } from '../../src/auth/decorators.js';
 import { RolesGuard } from '../../src/auth/roles.guard.js';
 import { routeSiteProblems } from '../../src/auth/route-sites.js';
+import type { StaffSessions } from '../../src/auth/staff-sessions.js';
 import { TenantGuard } from '../../src/auth/tenant.guard.js';
+
+/** The guard's staff sessions, unused here: these requests carry no sign-in id (SM4). */
+const noSessions = { check: () => Promise.resolve() } as unknown as StaffSessions;
 import { requestContext } from '../../src/common/request-context.js';
 import { PlatformPrisma } from '../../src/database/database.module.js';
 
@@ -108,12 +112,12 @@ async function codeOf(p: Promise<unknown>) {
 
 describe('TenantGuard: firm statuses per route', () => {
   it('lets an ACTIVE firm through by default', async () => {
-    const guard = new TenantGuard(reflector, tenantDb('ACTIVE', true));
+    const guard = new TenantGuard(reflector, tenantDb('ACTIVE', true), noSessions);
     await expect(guard.canActivate(ctx('ownerDefault', { auth: staff }))).resolves.toBe(true);
   });
 
   it('refuses a firm still in setup, unless the route allows it', async () => {
-    const guard = new TenantGuard(reflector, tenantDb('PENDING_SETUP', true));
+    const guard = new TenantGuard(reflector, tenantDb('PENDING_SETUP', true), noSessions);
     expect(await codeOf(guard.canActivate(ctx('ownerDefault', { auth: staff })))).toBe(
       'BUSINESS_SETUP_REQUIRED',
     );
@@ -121,14 +125,14 @@ describe('TenantGuard: firm statuses per route', () => {
   });
 
   it('refuses a suspended firm even on a route that allows setup', async () => {
-    const guard = new TenantGuard(reflector, tenantDb('SUSPENDED', true));
+    const guard = new TenantGuard(reflector, tenantDb('SUSPENDED', true), noSessions);
     expect(await codeOf(guard.canActivate(ctx('setupWizard', { auth: staff })))).toBe(
       'BUSINESS_INACTIVE',
     );
   });
 
   it('answers 404 to an outsider, so the status of their firm never shows', async () => {
-    const guard = new TenantGuard(reflector, tenantDb('PENDING_SETUP', false));
+    const guard = new TenantGuard(reflector, tenantDb('PENDING_SETUP', false), noSessions);
     await expect(guard.canActivate(ctx('ownerDefault', { auth: staff }))).rejects.toBeInstanceOf(
       NotFoundException,
     );
@@ -234,7 +238,7 @@ describe('TenantGuard: firm from the portal slug only, client account in the con
         membership: { findMany: vi.fn().mockResolvedValue([{ businessId: FIRM }]) },
       }),
     } as unknown as Database;
-    return new TenantGuard(reflector, db);
+    return new TenantGuard(reflector, db, noSessions);
   }
 
   function ctxFor(method: keyof Routes, req: Record<string, unknown>): ExecutionContext {

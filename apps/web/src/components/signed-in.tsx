@@ -37,6 +37,18 @@ function refreshFor(site: Site, firmSlug: string | undefined): () => Promise<unk
   return () => staffAuth.refresh();
 }
 
+/** Ends this site's session on the API: the refresh token is revoked and the cookies cleared. */
+function endFor(site: Site, firmSlug: string | undefined): () => Promise<unknown> {
+  // A portal session is that firm's own, locally too (its cookies reach only its routes).
+  if (site === 'portal' && firmSlug) return () => portalAuth(firmSlug).signOut();
+  // The Super Admin mock (lib/auth.ts) ends its own session, also when AUTH_MODE is local.
+  if (site === 'admin' && process.env.NODE_ENV !== 'production' && mocked('adminAuth'))
+    return () => adminAuth.signOut();
+  if (AUTH_MODE === 'local') return () => devSignOut();
+  if (site === 'admin') return () => adminAuth.signOut();
+  return () => staffAuth.signOut();
+}
+
 /**
  * The sign-in check of every signed-in layout. Reads the user once in the browser
  * (GET /admin/me on the Super Admin site, GET /portal/{slug}/me on a firm's portal, GET /me on the
@@ -83,7 +95,7 @@ export function SignedIn({
         (me) => {
           if (!active) return;
           claimCache(queryClient, 'user', me.user.id);
-          setSession({ refresh, signInPath });
+          setSession({ refresh, end: endFor(site, firmSlug), signInPath });
           setState({ status: 'ready', me });
         },
         (e: unknown) => {
@@ -98,14 +110,7 @@ export function SignedIn({
   }, [site, signInPath, firmSlug, router, queryClient, attempt]);
 
   const signOut = useCallback(async () => {
-    // A portal session is that firm's own, locally too (its cookies reach only its routes).
-    if (site === 'portal' && firmSlug) await portalAuth(firmSlug).signOut();
-    // The Super Admin mock (lib/auth.ts) ends its own session, also when AUTH_MODE is local.
-    else if (site === 'admin' && process.env.NODE_ENV !== 'production' && mocked('adminAuth'))
-      await adminAuth.signOut();
-    else if (AUTH_MODE === 'local') await devSignOut();
-    else if (site === 'admin') await adminAuth.signOut();
-    else await staffAuth.signOut();
+    await endFor(site, firmSlug)();
     // Nothing of this person's stays in memory for whoever uses the tab next.
     setSession(null);
     releaseCache(queryClient);

@@ -6,11 +6,13 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
 const FIRST = '0199c0f0-0a10-7000-8000-000000000001';
 
-test('Overview: five cards, seven views, the table and the side widgets', async ({ page }) => {
+test('Overview: five cards, eight views (Drafts last), the table and the side widgets', async ({
+  page,
+}) => {
   await page.goto(base);
   await expect(page.getByRole('heading', { name: 'Tasks', level: 1 })).toBeVisible();
   await expect(page.getByTestId('tasks-kpis').getByRole('button')).toHaveCount(5);
-  await expect(page.getByRole('tablist', { name: 'Task views' }).getByRole('tab')).toHaveCount(7);
+  await expect(page.getByRole('tablist', { name: 'Task views' }).getByRole('tab')).toHaveCount(8);
   await expect(page.getByTestId('task-table').getByTestId('task-link').first()).toBeVisible();
   for (const id of [
     'rail-summary',

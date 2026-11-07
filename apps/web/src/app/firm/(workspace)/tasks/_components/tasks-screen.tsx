@@ -27,6 +27,7 @@ import { useClients, useMembers, useTypes } from './task-data';
 import { PriorityPill, StatusPill, TASKS_KEY, dueText } from './task-shared';
 import type { TaskView } from './task-views';
 import { RecurringTab, TemplatesTab } from './tasks-other-tabs';
+import { DraftsTab } from './drafts-tab';
 import {
   MySummary,
   QuickActions,
@@ -46,6 +47,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'recurring', label: 'Recurring Tasks' },
   { id: 'templates', label: 'Task Templates' },
   { id: 'completed', label: 'Completed Tasks' },
+  // Octavia's A2: exactly Drafts, beside Completed Tasks.
+  { id: 'drafts', label: 'Drafts' },
 ];
 type KpiFilter = 'pending' | 'progress' | 'overdue' | 'completed' | undefined;
 
@@ -313,6 +316,7 @@ export function TasksScreen({
 
           {tab === 'recurring' ? <RecurringTab /> : null}
           {tab === 'templates' ? <TemplatesTab saved={savedTemplate} /> : null}
+          {tab === 'drafts' ? <DraftsTab /> : null}
           {showTable || tab === 'client' || tab === 'project' ? (
             <>
               <form

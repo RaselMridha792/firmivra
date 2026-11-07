@@ -10,6 +10,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
+import { FIRM_SESSION_STARTED } from '../auth/staff-sessions.js';
 import { DATABASE } from '../database/database.module.js';
 import { day, notFound } from '../workspaces/common.js';
 import type { StaffAccessBody, StaffCursorQ } from './staff-input.js';
@@ -33,10 +34,16 @@ type Out<S extends z.ZodType> = z.output<S>;
 const SESSION_DAYS = 7;
 /** "Active now": seen in the last five minutes. */
 const ACTIVE_NOW_MS = 5 * 60 * 1000;
-const LOGIN_ACTIONS = ['auth.signed_in', 'auth.sign_in_failed'];
+/**
+ * SM4: Login History is this firm's sign-ins, the first request of each staff session in the firm
+ * (src/auth/staff-sessions.ts). Sign-in itself and failed attempts are in Firmivra's platform log,
+ * which no firm reads.
+ */
+const LOGIN_ACTIONS = [FIRM_SESSION_STARTED];
 
 /** The screen's words for the audit actions of a member's activity; others are shown as is. */
 const LABELS: Record<string, string> = {
+  [FIRM_SESSION_STARTED]: 'Logged in',
   'auth.signed_in': 'Logged in',
   'auth.sign_in_failed': 'Failed sign-in',
   'auth.signed_out': 'Logged out',
@@ -391,18 +398,28 @@ export class StaffSecurityService {
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: q.limit + 1,
-        select: { id: true, createdAt: true, action: true, ip: true, userAgent: true },
+        select: {
+          id: true,
+          createdAt: true,
+          action: true,
+          ip: true,
+          userAgent: true,
+          metadata: true,
+        },
       });
       const page = rows.slice(0, q.limit);
       const last = page.at(-1);
       return {
-        items: page.map((r) => ({
-          at: r.createdAt.toISOString(),
-          outcome: r.action === 'auth.signed_in' ? ('SUCCESS' as const) : ('FAILED' as const),
-          place: null,
-          ip: r.ip,
-          device: r.userAgent?.slice(0, 100) ?? null,
-        })),
+        items: page.map((r) => {
+          const device = (r.metadata as { device?: unknown } | null)?.device;
+          return {
+            at: r.createdAt.toISOString(),
+            outcome: 'SUCCESS' as const,
+            place: null,
+            ip: r.ip,
+            device: typeof device === 'string' ? device : (r.userAgent?.slice(0, 100) ?? null),
+          };
+        }),
         nextCursor: rows.length > q.limit && last ? encodeCursor(last.createdAt, last.id) : null,
       };
     });
