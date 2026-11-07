@@ -136,6 +136,25 @@ describe('audit-sourced trigger events', () => {
     expect(hits[0]).toMatchObject({ occurrence: rows[1]!.id, label: 'Jamie Sample' });
   });
 
+  it('counts a client update only when it changed the status, with the old and new status', async () => {
+    const rows = [
+      audit('client.updated', 'client', CLIENT, { fields: ['priority'], from: null, to: 'HIGH' }),
+      audit('client.updated', 'client', CLIENT, {
+        fields: ['status'],
+        from: 'NEW',
+        to: 'IN_PROGRESS',
+      }),
+    ];
+    const hits = await load('client.status_changed', rows);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      occurrence: rows[1]!.id,
+      fields: { newStatus: 'IN_PROGRESS', previousStatus: 'NEW' },
+    });
+    // A status change is not an assignment change.
+    expect(await load('client.assignment_changed', rows)).toEqual([]);
+  });
+
   it('a status change carries the new and previous status, for Accepted or Rejected conditions', async () => {
     const rows = [
       audit('tax_return.status_changed', 'tax_return', RETURN, {
