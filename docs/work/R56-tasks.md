@@ -45,6 +45,7 @@ The Tasks screens on the R55 contract (`api.taskWork`, PR #709; API in #712) wit
 - **Automations** button opens the module page `/modules/automations` (not built).
 - **Task Templates** has no create or edit page: a template is made by "Save as Template" on a task or the recurring form.
 - **Reminders** are in-app only in the form (channels EMAIL and SMS need the firm's settings and the person's consent, not shown yet).
+- **Related To custom text (Octavia's A1, Nov 7):** with no matching record, A1 wants text the firm types beside Save, labelled custom and never a fake record link. A task has nowhere to keep it. The ask for Rasel and R1: `tasks.related_text` (and the same on drafts), at most 200 characters, with a check that a task has an engagement or the text, never both. Then the API and the field follow. Until then Related To lists the client's open and not-started engagements.
 - **Mock team ids**: `api.team` mock members have their own ids (`0199b6a0-...`), the signed-in Mock User in `api.tasks` mocks is `0000...0101`; the form adds the task's current assignee as an option so an edit keeps it.
 
 ## Handoff for a fresh R56 window (Sonnet 5.5, medium)
@@ -85,3 +86,9 @@ None of these has routes yet (the sidebar items open `/modules/<slug>`, from `sr
 ## Progress log
 
 - 2026-10-17: Tasks built on the #709 contract with a new mock; 9-test spec passes; screenshots committed.
+- 2026-11-07 (lead queue item 5): Tasks A2, A3 and A5 on `rasel/R56-tasks-drafts`:
+  - **A2 Drafts:** Create Task has Save as Draft, which needs only the name and keeps the draft out of every list, count, calendar and reminder. The Tasks overview has a **Drafts** tab beside Completed Tasks, with search, Client, Type and Priority filters, My drafts, paging, Edit and Discard (confirmed). A draft without a client says so. `/tasks/drafts/[id]` reopens a draft in the same form as Edit Draft: Save Task publishes it as a live task with the same id, Save as Draft keeps it, Discard Draft deletes it. This is the R55 drafts API, retry-safe with a key.
+  - **A3 Custom reminders:** Custom… is a number of minutes, hours or days before the due date and time (#1081), refused without a due time, shown on the task as typed. The days-and-time rows stay as Days and time…, and templates keep days only.
+  - **A5:** the recurring form sends #1084's key (one per form), so a retried Save never makes a second series. Create Task and Save as Draft send one too.
+  - **A1:** custom text needs a field (see Needs from others).
+  - **Tests:** mock `r56-tasks-review` (two new: A3 Custom, A2 drafts end to end).

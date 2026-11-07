@@ -623,3 +623,103 @@ test('T2 A double click on Save makes one task', async ({ page }) => {
   await page.getByLabel('Search tasks').fill('Send the engagement renewal');
   await expect(page.getByTestId('task-table').getByTestId('task-link')).toHaveCount(1);
 });
+
+test('A3 Custom: minutes, hours or days before the due time; it needs a due time; kept on Edit', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  await fillRequired(page, 'Call about the payroll deposit');
+  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await page.getByLabel('All Day').uncheck();
+  await page.locator('#tf-time').selectOption('14:30');
+  await page.getByLabel('Enable reminders').check();
+  await page.getByLabel('Reminder 1', { exact: true }).selectOption('before');
+  await page.getByLabel('Reminder 1 amount').fill('30');
+  await page.getByLabel('Reminder 1 unit').selectOption('MINUTES');
+  await page.getByRole('button', { name: 'Add Reminder' }).click();
+  await page.getByLabel('Reminder 2', { exact: true }).selectOption('before');
+  await page.getByLabel('Reminder 2 amount').fill('2');
+  await page.getByLabel('Reminder 2 unit').selectOption('HOURS');
+  await page.getByTestId('form-reminders').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('custom-reminders.png') });
+  // All day: there is no due time to count back from.
+  await page.getByLabel('All Day').check();
+  await page.getByTestId('task-save').click();
+  await expect(
+    page.getByText(
+      'A Custom reminder counts back from the due time: turn off All Day and set the time.',
+    ),
+  ).toBeVisible();
+  await page.getByLabel('All Day').uncheck();
+  await page.locator('#tf-time').selectOption('14:30');
+  await page.getByTestId('task-save').click();
+
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const shown = page.getByTestId('detail-reminders');
+  await expect(shown).toContainText('30 minutes before the due time');
+  await expect(shown).toContainText('2 hours before the due time');
+  await page.getByRole('link', { name: 'Edit' }).first().click();
+  await expect(page.getByLabel('Reminder 1', { exact: true })).toHaveValue('before');
+  await expect(page.getByLabel('Reminder 1 amount')).toHaveValue('30');
+  await expect(page.getByLabel('Reminder 1 unit')).toHaveValue('MINUTES');
+});
+
+test('A2 Save as Draft, the Drafts tab (search, filters), reopen and Save Task publishes; discard', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/new`);
+  // Only the name is needed for a draft.
+  await page.getByLabel('Task Name *').fill('Draft the engagement letter');
+  await page.getByTestId('task-save-draft').click();
+  await expect(page).toHaveURL(/\/tasks\?view=drafts$/);
+  await expect(page.getByRole('tab', { name: 'Drafts', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const rows = page.getByTestId('draft-rows');
+  const mine = rows.getByRole('row').filter({ hasText: 'Draft the engagement letter' });
+  await expect(mine).toContainText('Needs a client');
+  // A draft is not a live task: All Tasks does not list it.
+  await page.getByRole('tab', { name: 'All Tasks', exact: true }).click();
+  await page.getByLabel('Search tasks').fill('Draft the engagement letter');
+  await expect(page.getByTestId('task-table').getByTestId('task-link')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Drafts', exact: true }).click();
+
+  // Search and a filter.
+  await page.getByLabel('Draft priority').selectOption('HIGH');
+  await expect(rows.getByTestId('draft-link')).toHaveText(['Collect 2025 1099 forms']);
+  await page.getByLabel('Draft priority').selectOption('');
+  await page.getByLabel('Search drafts').fill('engagement letter');
+  await expect(rows.getByTestId('draft-link')).toHaveText(['Draft the engagement letter']);
+  await page.getByLabel('Search drafts').fill('');
+  await page.screenshot({ path: test.info().outputPath('drafts-tab.png') });
+
+  // Discard one, with a confirmation.
+  await rows
+    .getByRole('row')
+    .filter({ hasText: 'Plan the Q1 onboarding call' })
+    .getByRole('button', { name: /^Discard/ })
+    .click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard', exact: true }).click();
+  await expect(page.getByText('Plan the Q1 onboarding call discarded.')).toBeVisible();
+  await expect(rows).not.toContainText('Plan the Q1 onboarding call');
+
+  // Reopen ours, finish it, and Save Task publishes it.
+  await rows.getByRole('link', { name: 'Draft the engagement letter', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Draft' })).toBeVisible();
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Draft the engagement letter');
+  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await page.getByLabel('Assigned to').selectOption({ index: 1 });
+  await page.locator('#tf-due').fill('2027-03-02');
+  await page.getByLabel('Task type').selectOption({ label: 'Onboarding' });
+  await page.getByTestId('task-save').click();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  await page.getByRole('link', { name: 'Back to Tasks' }).click();
+  await page.getByRole('tab', { name: 'All Tasks', exact: true }).click();
+  await page.getByLabel('Search tasks').fill('Draft the engagement letter');
+  await expect(page.getByTestId('task-table').getByTestId('task-link')).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Drafts', exact: true }).click();
+  await expect(page.getByTestId('drafts-tab')).not.toContainText('Draft the engagement letter');
+});
