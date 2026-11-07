@@ -1191,15 +1191,22 @@ describe('#109 review', () => {
   it('waits for a reassignment of the client under way, then answers as it says (q5)', async () => {
     // c1 is staffA's; a reassignment to staffA2 is under way when staffA publishes.
     const r = await draft(eng.bk1, 'REPORT', `Race q5 ${run}`);
+    // The publish starts only once the reassignment holds the client's row (a fixed delay let a
+    // slow runner publish first, before the reassignment, and get 200).
+    let holding!: () => void;
+    const held = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
     const reassigning = asOwner({ kind: 'business', businessId: firms.a.id }, async (tx) => {
       await tx.client.update({
         where: { id: clients.c1 },
         data: { assignedUserId: people.staffA2.id },
       });
+      holding();
       await new Promise((resolve) => setTimeout(resolve, 400));
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await Promise.race([held, reassigning]);
       const res = await reportCall(r.id, 'publish', people.staffA);
       await reassigning;
       expectError(res, 404, 'NOT_FOUND');
