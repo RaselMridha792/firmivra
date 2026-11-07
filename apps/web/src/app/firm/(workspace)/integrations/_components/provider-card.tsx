@@ -12,7 +12,7 @@ import { dateLabel, linkClass } from './integration-shared';
 import { useFromHere } from './integrations-origin';
 
 const labels = {
-  AVAILABLE: 'Available',
+  AVAILABLE: 'Not connected',
   CONNECTED: 'Connected',
   NEEDS_ATTENTION: 'Needs Attention',
   SYNCING: 'Syncing',
@@ -43,6 +43,8 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
   const router = useRouter();
   const fromHere = useFromHere();
   const connection = item.connections[0];
+  // IN-Y01: listed but not enabled yet: never "available", never a Connect that would fail.
+  const unavailable = item.provider.comingSoon && !connection;
   const [notice, setNotice] = useState('');
   const mutation = useApiMutation(
     async (kind: 'sync' | 'test' | 'resume') => {
@@ -90,8 +92,8 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
         <ProviderLogo name={item.provider.name} />
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-bold text-heading">{item.provider.name}</h2>
-          <Badge tone={tones[item.status]} dot>
-            {labels[item.status]}
+          <Badge tone={unavailable ? 'neutral' : tones[item.status]} dot>
+            {unavailable ? 'Not available yet' : labels[item.status]}
           </Badge>
         </div>
         <ActionMenu
@@ -164,6 +166,8 @@ export function ProviderCard({ item, canManage }: { item: IntegrationCard; canMa
               Resume
             </Button>
           ) : null
+        ) : unavailable ? (
+          <p className="text-xs text-muted">Not available to connect yet.</p>
         ) : canManage || connection ? (
           <Link
             className={`${linkClass} flex-1 ${connection ? '!bg-navigation !text-on-action' : ''}`}

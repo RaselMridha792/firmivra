@@ -116,8 +116,13 @@ export class IntegrationsReadService {
       const summary = {
         connected: all.filter((c) => c.status === 'CONNECTED' || c.status === 'SYNCING').length,
         needsAttention: all.filter((c) => c.status === 'NEEDS_ATTENTION').length,
-        available: all.filter((c) => c.status === 'AVAILABLE' || c.status === 'DISCONNECTED')
-          .length,
+        // IN-Y01: Ready to connect counts only what the firm can connect now; a provider that is
+        // not enabled yet is counted apart, never as ready.
+        available: all.filter(
+          (c) =>
+            (c.status === 'AVAILABLE' || c.status === 'DISCONNECTED') && !c.provider.comingSoon,
+        ).length,
+        comingSoon: all.filter((c) => c.connections.length === 0 && c.provider.comingSoon).length,
         paused: all.filter((c) => c.status === 'PAUSED').length,
         total: all.length,
         lastCheckAt:
@@ -134,6 +139,14 @@ export class IntegrationsReadService {
         summary.connected > 0 && summary.lastCheckAt !== null && summary.needsAttention === 0;
       const search = q.search?.toLowerCase();
       const items = all
+        // IN-Y03: readiness, apart from connection status.
+        .filter((c) =>
+          q.readiness === 'connectable'
+            ? !c.provider.comingSoon
+            : q.readiness === 'coming_soon'
+              ? c.provider.comingSoon
+              : true,
+        )
         .filter((c) =>
           q.tab === 'connected'
             ? c.status === 'CONNECTED' || c.status === 'SYNCING' || c.status === 'PAUSED'
@@ -346,8 +359,9 @@ export class IntegrationsReadService {
           category: category as IntegrationCard['provider']['category'],
           count,
         })),
+        // IN-Y06: the featured row follows the category, as the search already filters it.
         featured: cards
-          .filter((c) => c.provider.featured)
+          .filter((c) => c.provider.featured && (!q.category || c.provider.category === q.category))
           .sort((a, b) => b.provider.popularity - a.provider.popularity),
         items,
         total: items.length,
