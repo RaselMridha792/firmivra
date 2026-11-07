@@ -167,3 +167,18 @@ test('Disconnect says what happens before it happens (IN-Y17)', async ({ page })
   await expect(outcome).toContainText('kept');
   await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/disconnect.png' });
 });
+
+test('connecting shows the provider’s facts first, in its own words (IN-Y11, Y12)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixtures(page);
+  await page.goto(app('/integrations/quickbooks/connect'));
+  const facts = page.getByTestId('provider-facts');
+  await expect(facts).toContainText('Sign-in');
+  await expect(facts).toContainText('Sync direction');
+  await expect(facts).toContainText('How often');
+  await expect(facts).toContainText('Test environment');
+  await expect(page.getByText("You'll be redirected to your provider")).toHaveCount(0);
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/connect-facts.png' });
+});
