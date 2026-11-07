@@ -61,6 +61,12 @@ export const errors = {
       'NOT_A_TRANSFER',
       "A transfer's other side is the same amount, the other way, on another of the client's accounts",
     ),
+  reportNotSupported: () =>
+    conflict(
+      'REPORT_NOT_SUPPORTED',
+      'Figures for this report type are not worked out yet: Profit & Loss, Trial Balance, Transaction Detail and Uncategorized are',
+    ),
+  noPeriod: () => conflict('NO_PERIOD', 'Set the bookkeeping period this report covers first'),
   categoryInactive: () =>
     conflict('CATEGORY_INACTIVE', 'That category is inactive. Choose an active one'),
   /** A request that passed the contract but cannot be stored. */

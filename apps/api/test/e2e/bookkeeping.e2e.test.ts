@@ -21,6 +21,9 @@ import {
   BookkeepingClientPage,
   BookkeepingClientWorkspace,
   BookkeepingTransactionPage,
+  BookkeepingReportPreview,
+  BookkeepingReportVersionList,
+  BookkeepingReportVersionRow,
   BookkeepingTransactionRow,
   BookkeepingTransferCandidates,
   BulkBookkeepingTransactionsResult,
@@ -2901,6 +2904,156 @@ describe('transaction engines (BK-T01)', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+describe('report figures and versions (BK-RPT part 1)', () => {
+  it('previews, generates immutable numbered versions from the period ledger, lists them and downloads one', async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const tag = randomUUID().slice(0, 6);
+    const p = await mkPeriod(bk);
+    const acct = await mkAccount(bk, { name: `Fake report checking ${tag}` });
+    const category = (name: string, type: 'INCOME' | 'EXPENSE') =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingCategory.create({
+          data: { ...A, name: `${name} ${tag}`, type },
+          select: { id: true },
+        }),
+      ).then((c) => c.id);
+    const fees = await category('Fake Fees', 'INCOME');
+    const rent = await category('Fake Rent', 'EXPENSE');
+    const mk = (
+      on: string,
+      cents: number,
+      direction: 'DEBIT' | 'CREDIT',
+      categoryId: string | null,
+      status: 'CATEGORIZED' | 'UNCATEGORIZED' | 'EXCLUDED' = categoryId
+        ? 'CATEGORIZED'
+        : 'UNCATEGORIZED',
+    ) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId: acct.id,
+            transactionDate: new Date(`${on}T00:00:00.000Z`),
+            description: 'Fake report line',
+            amountCents: cents,
+            direction,
+            status,
+            source: 'MANUAL',
+            categoryId,
+            ...(status === 'EXCLUDED' ? { excludedReason: 'Fake duplicate' } : {}),
+          },
+        }),
+      );
+    await mk(p.periodStart, 120_000, 'CREDIT', fees);
+    await mk(p.periodEnd, 30_000, 'DEBIT', rent);
+    await mk(p.periodStart, 5_000, 'DEBIT', null);
+    await mk(p.periodStart, 999, 'DEBIT', rent, 'EXCLUDED');
+    // The day before the period: not in it.
+    const before = new Date(Date.parse(`${p.periodStart}T00:00:00.000Z`) - 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    await mk(before, 7_777, 'DEBIT', rent);
+
+    const r = await mkReport(bk, { reportType: 'PROFIT_LOSS', periodId: p.id, basis: 'ACCRUAL' });
+    const preview = exact(
+      BookkeepingReportPreview,
+      await call('get', `/reports/${r.id}/preview`, people.staffA),
+    );
+    expect(preview).toMatchObject({
+      supported: true,
+      period: { start: p.periodStart, end: p.periodEnd },
+    });
+    expect(preview.figures!.totals).toMatchObject({
+      incomeCents: 120_000,
+      expensesCents: 30_000,
+      netIncomeCents: 90_000,
+    });
+    expect(preview.figures!.lineCount).toBe(3);
+    expect(preview.figures!.basisNote).toMatch(/cash basis/);
+
+    const v1 = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${r.id}/generate`, people.staffA, {}),
+    );
+    expect(v1).toMatchObject({ version: 1, deliveryStatus: 'NOT_SENT' });
+    // A later line changes the next version, never the first.
+    await mk(p.periodStart, 10_000, 'CREDIT', fees);
+    const v2 = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${r.id}/generate`, people.staffA, {}),
+    );
+    expect([v2.version, v2.figures.totals.incomeCents]).toEqual([2, 130_000]);
+    const list = exact(
+      BookkeepingReportVersionList,
+      await call('get', `/reports/${r.id}/versions`, people.staffA),
+    );
+    expect(list.items.map((v) => [v.version, v.figures.totals.incomeCents])).toEqual([
+      [2, 130_000],
+      [1, 120_000],
+    ]);
+    await expect(
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingReportVersion.updateMany({
+          where: { businessId: ids.firmA, reportId: r.id, version: 1 },
+          data: { summary: {} },
+        }),
+      ),
+    ).rejects.toThrow(/never changes/);
+
+    const file = await call('get', `/reports/${r.id}/versions/1/csv`, people.ownerA);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-type']).toMatch(/text\/csv/);
+    expect(file.text).toContain(`Income,Fake Fees ${tag},,,1200.00,`);
+    expect(file.text).toContain('Total,netIncomeCents,,,900.00,');
+    expectError(
+      await call('get', `/reports/${r.id}/versions/9/csv`, people.ownerA),
+      404,
+      'NOT_FOUND',
+    );
+
+    // Another type for now, and a report with no period, say so.
+    const bs = await mkReport(bk, { reportType: 'BALANCE_SHEET', periodId: p.id });
+    expectError(
+      await call('post', `/reports/${bs.id}/generate`, people.staffA, {}),
+      409,
+      'REPORT_NOT_SUPPORTED',
+    );
+    const none = await mkReport(bk, { reportType: 'TRIAL_BALANCE' });
+    expectError(
+      await call('post', `/reports/${none.id}/generate`, people.staffA, {}),
+      409,
+      'NO_PERIOD',
+    );
+    expect(
+      exact(
+        BookkeepingReportPreview,
+        await call('get', `/reports/${none.id}/preview`, people.staffA),
+      ),
+    ).toMatchObject({ supported: false, figures: null });
+
+    // Staff on another's client and another firm reach nothing.
+    expectError(await call('get', `/reports/${r.id}/preview`, people.staff2A), 404, 'NOT_FOUND');
+    expectError(
+      await call('post', `/reports/${r.id}/generate`, people.ownerB, {}, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: r.id, action: 'bookkeeping.report.generated' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit).toHaveLength(2);
+    expect(JSON.stringify(audit)).not.toMatch(/Fake Fees|120000/);
   });
 });
 

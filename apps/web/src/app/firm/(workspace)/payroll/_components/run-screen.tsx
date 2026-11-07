@@ -159,6 +159,10 @@ export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) 
           Approve and Submit are off, nothing is sent to a payroll provider, and leaving the page
           forgets it. On a real run, approving inside Firmivra and submitting to the provider are
           separate steps.
+          <span className="mt-1 block" data-testid="demo-sample">
+            The three employees are samples (their names end in &quot;(sample)&quot;) with round
+            amounts, not a calculation.
+          </span>
         </p>
       ) : null}
       <header className="flex flex-wrap items-start justify-between gap-4">

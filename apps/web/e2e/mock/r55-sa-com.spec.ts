@@ -55,3 +55,22 @@ test('firm-scoped links open Support and Billing for that one firm, in Super Adm
   await page.goto(admin(`/billing?firm=${billingFirm}`));
   await expect(page.getByRole('combobox', { name: /Firm/ }).first()).toHaveValue(billingFirm ?? '');
 });
+
+test('New Message: Merge Field opens one chooser and puts the field at the cursor (SA-COM-R4)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(admin('/communications/new'));
+  const subject = page.getByRole('textbox', { name: 'Subject' });
+  await subject.fill('Hello  from us');
+  await subject.evaluate((el: HTMLInputElement) => el.setSelectionRange(6, 6));
+  await page.getByRole('button', { name: 'Insert Merge Field' }).click();
+  await expect(page.getByRole('menuitem')).toHaveCount(6);
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/super-admin/merge-field-chooser.png' });
+  await page.getByRole('menuitem', { name: 'Contact first name' }).click();
+  await expect(subject).toHaveValue('Hello {{contact.first_name}} from us');
+  await page.getByRole('textbox', { name: 'Message body' }).click();
+  await page.getByRole('button', { name: 'Merge Field', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Firm name' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message body' })).toContainText('{{firm.name}}');
+});

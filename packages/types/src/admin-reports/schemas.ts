@@ -97,8 +97,14 @@ export const AdminReportsOverview = z.object({
   }),
   /** New firms per month, the last six months. */
   firmGrowth: z.array(AdminReportPoint),
-  /** Payments received per month in cents, the last six months. */
+  /** Collected payments: payments received per month in cents, the last six months. */
   revenueTrend: z.array(AdminReportPoint),
+  /**
+   * SA-RPT-R3: MRR in cents at each month's end (the range's last day for the current month),
+   * from the paying subscriptions' daily rollup, never estimated from list prices; 0 where the
+   * rollup has no day yet.
+   */
+  mrrTrend: z.array(AdminReportPoint),
   /** Active firms by plan; "No plan" for firms with no subscription yet. */
   planDistribution: z.array(
     z.object({ planCode: z.string().nullable(), planName: z.string(), firms: z.number().int() }),
