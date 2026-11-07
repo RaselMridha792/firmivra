@@ -98,6 +98,11 @@ describe('seed', () => {
       'automation_event_confirmations',
       // PRT-3 (Nov 7): no row means the defaults, so a firm has none until it changes a switch.
       'client_portal_settings',
+      // The Nov 7 batch: the client timeline, lead follow-ups and staff draft files start empty (the
+      // follow-ups' backfill finds no lead with a next action before the seed runs).
+      'client_timeline_entries',
+      'lead_follow_ups',
+      'staff_draft_attachments',
     ];
     const empty: string[] = [];
     for (const t of tables) {

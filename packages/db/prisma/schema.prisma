@@ -1061,24 +1061,27 @@ model PlatformOwnerInvite {
 
 /// A staff user's role in one business.
 model Membership {
-  id           String           @id @default(uuid(7)) @db.Uuid
-  businessId   String           @map("business_id") @db.Uuid
-  userId       String           @map("user_id") @db.Uuid
-  role         MembershipRole
-  status       MembershipStatus @default(INVITED)
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  role            MembershipRole
+  /// R1 (Nov 7, SEC-6/SM14): may change other members' MFA; only the Owner sets it, and the Owner
+  /// always counts.
+  isSecurityAdmin Boolean          @default(false) @map("is_security_admin")
+  status          MembershipStatus @default(INVITED)
   /// Set by the database the first time the membership is ACTIVE; never changes. Until then
   /// the firm sees only the invite's name and email, never the person's user row.
-  joinedAt     DateTime?        @map("joined_at") @db.Timestamptz(3)
+  joinedAt        DateTime?        @map("joined_at") @db.Timestamptz(3)
   /// The member's own video meeting link (Zoom, Meet, Teams) for their VIDEO appointments:
   /// https only, no spaces or control characters, at most 500 characters (database CHECK).
-  meetingUrl   String?          @map("meeting_url")
+  meetingUrl      String?          @map("meeting_url")
   /// Firm Sign's Staff Title merge field: the member's own job title, up to 100 characters.
-  jobTitle     String?          @map("job_title")
+  jobTitle        String?          @map("job_title")
   /// R1 (Oct 21): the firm's own role this member has; `role` then equals its `based_on`, and
   /// the custom role's permissions apply (database rule).
-  customRoleId String?          @map("custom_role_id") @db.Uuid
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  customRoleId    String?          @map("custom_role_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business                Business               @relation(fields: [businessId], references: [id])
   user                    User                   @relation(fields: [userId], references: [id])
@@ -1236,6 +1239,11 @@ model Membership {
   // R55's D4 (Oct 25): Dashboard card templates this member made or last changed.
   dashboardCardsCreated     DashboardCardTemplate[]      @relation("DashboardCardCreatedBy")
   dashboardCardsUpdated     DashboardCardTemplate[]      @relation("DashboardCardUpdatedBy")
+
+  clientTimelineEntries ClientTimelineEntry[]
+  leadFollowUps         LeadFollowUp[]
+  staffDraftAttachments StaffDraftAttachment[]
+  mfaExceptionsApproved StaffSecurityDefaults[] @relation("StaffSecurityMfaExceptionApprovedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -3041,6 +3049,8 @@ model Client {
   signupMatchCandidates ClientSignupMatchCandidate[]
   signupVerifications   ClientSignupVerification[]
 
+  timelineEntries ClientTimelineEntry[]
+
   @@unique([businessId, id])
   @@unique([businessId, email])
   @@unique([businessId, clientNumber])
@@ -3752,6 +3762,11 @@ model Intake {
   submissions    IntakeSubmission[]
   documents      Document[]
 
+  /// R1 (Nov 7, A9): the appointment this intake was requested for; its completion is the
+  /// intake's own status.
+  appointmentId String?      @map("appointment_id") @db.Uuid
+  appointment   Appointment? @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
+
   @@unique([businessId, id])
   @@unique([businessId, referenceNumber])
   @@index([businessId, engagementId])
@@ -3759,6 +3774,7 @@ model Intake {
   @@index([businessId, status, sentAt])
   @@index([businessId, assignedUserId, status])
   @@index([businessId, formId])
+  @@index([businessId, appointmentId])
   @@index([businessId, lastActivityAt])
   @@map("intakes")
 }
@@ -3872,6 +3888,8 @@ model Lead {
   services       LeadService[]
   tags           LeadTag[]
   activities     LeadActivity[]
+
+  followUps LeadFollowUp[]
 
   @@unique([businessId, id])
   @@unique([businessId, number])
@@ -4012,19 +4030,23 @@ model AppointmentType {
 
   // R37: shown in Manage Appointment Types.
   /// Up to 500 characters.
-  description         String?
+  description              String?
   /// The service this type is for (optional).
-  serviceId           String?        @map("service_id") @db.Uuid
+  serviceId                String?         @map("service_id") @db.Uuid
+  /// R1 (Nov 7, A9): the intake form (the firm's reusable template) a booking of this type asks
+  /// the client to complete; the API sends its published version.
+  requiredIntakeTemplateId String?         @map("required_intake_template_id") @db.Uuid
+  requiredIntakeTemplate   IntakeTemplate? @relation(fields: [businessId, requiredIntakeTemplateId], references: [businessId, id], onDelete: Restrict)
   /// The default colour of its appointments.
-  color               CalendarColor?
+  color                    CalendarColor?
   /// Reminders new appointments of this type start with: [{ channel, offsetMinutes }], at most 10.
   /// Minutes kept free before and after (0 to 240); copied onto each appointment.
-  bufferBeforeMinutes Int            @default(0) @map("buffer_before_minutes")
-  bufferAfterMinutes  Int            @default(0) @map("buffer_after_minutes")
+  bufferBeforeMinutes      Int             @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes       Int             @default(0) @map("buffer_after_minutes")
   /// Clients book at least this long ahead (minutes, up to 30 days) and at most this far (days).
-  minNoticeMinutes    Int            @default(0) @map("min_notice_minutes")
-  maxAdvanceDays      Int?           @map("max_advance_days")
-  reminderDefaults    Json           @default("[]") @map("reminder_defaults")
+  minNoticeMinutes         Int             @default(0) @map("min_notice_minutes")
+  maxAdvanceDays           Int?            @map("max_advance_days")
+  reminderDefaults         Json            @default("[]") @map("reminder_defaults")
 
   service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   business     Business      @relation(fields: [businessId], references: [id])
@@ -4142,6 +4164,8 @@ model Appointment {
   reminders  AppointmentReminder[]
   series     AppointmentSeries?    @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
   type       AppointmentType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+
+  intakes Intake[]
 
   @@unique([businessId, idempotencyKey])
   // Target of the reminders' same-firm foreign key.
@@ -5791,39 +5815,42 @@ enum InvoiceActorKind {
 /// defaults below. The gateway is the firm's Stripe account (`stripe_accounts`); nothing here is a
 /// credential. Money values are cents.
 model PaymentSettings {
-  businessId              String       @id @map("business_id") @db.Uuid
-  acceptCard              Boolean      @default(true) @map("accept_card")
-  acceptAch               Boolean      @default(true) @map("accept_ach")
-  acceptManual            Boolean      @default(true) @map("accept_manual")
-  autoReceipts            Boolean      @default(true) @map("auto_receipts")
-  sendReminders           Boolean      @default(true) @map("send_reminders")
-  notifyOverdue           Boolean      @default(true) @map("notify_overdue")
-  autoApplyPayments       Boolean      @default(true) @map("auto_apply_payments")
+  businessId              String           @id @map("business_id") @db.Uuid
+  acceptCard              Boolean          @default(true) @map("accept_card")
+  acceptAch               Boolean          @default(true) @map("accept_ach")
+  acceptManual            Boolean          @default(true) @map("accept_manual")
+  /// R1 (Nov 7, PAY-3): which processor takes card and ACH payments (only Stripe until launch).
+  defaultCardProcessor    PaymentProcessor @default(STRIPE) @map("default_card_processor")
+  achProcessor            PaymentProcessor @default(STRIPE) @map("ach_processor")
+  autoReceipts            Boolean          @default(true) @map("auto_receipts")
+  sendReminders           Boolean          @default(true) @map("send_reminders")
+  notifyOverdue           Boolean          @default(true) @map("notify_overdue")
+  autoApplyPayments       Boolean          @default(true) @map("auto_apply_payments")
   /// Shown as "Next invoice: INV-001247"; letters, digits and hyphens, up to 10.
-  invoicePrefix           String       @default("INV-") @map("invoice_prefix")
+  invoicePrefix           String           @default("INV-") @map("invoice_prefix")
   /// A terms code (`net_14`).
-  defaultTerms            String       @default("net_14") @map("default_terms")
+  defaultTerms            String           @default("net_14") @map("default_terms")
   /// The firm's own payment terms (Oct 28): each a number of days, 1 to 365, at most 12; its code is
   /// `net_<days>`, beside the standard ones.
-  customTermDays          Int[]        @default([]) @map("custom_term_days")
-  defaultMemo             String?      @map("default_memo")
+  customTermDays          Int[]            @default([]) @map("custom_term_days")
+  defaultMemo             String?          @map("default_memo")
   /// "Due Soon": an open invoice due within this many days.
-  dueSoonDays             Int          @default(14) @map("due_soon_days")
-  reminderDaysBefore      Int          @default(3) @map("reminder_days_before")
+  dueSoonDays             Int              @default(14) @map("due_soon_days")
+  reminderDaysBefore      Int              @default(3) @map("reminder_days_before")
   /// Repeat the overdue reminder every this many days (0: once).
-  overdueReminderDays     Int          @default(7) @map("overdue_reminder_days")
-  retryAttempts           Int          @default(3) @map("retry_attempts")
-  retryIntervalDays       Int          @default(3) @map("retry_interval_days")
-  lateFeeEnabled          Boolean      @default(false) @map("late_fee_enabled")
-  lateFeeType             LateFeeType? @map("late_fee_type")
-  lateFeePercent          Decimal?     @map("late_fee_percent") @db.Decimal(5, 2)
-  lateFeeCents            Int?         @map("late_fee_cents")
-  tippingEnabled          Boolean      @default(false) @map("tipping_enabled")
-  requirePaymentBeforeDue Boolean      @default(false) @map("require_payment_before_due")
-  portalPaymentsEnabled   Boolean      @default(true) @map("portal_payments_enabled")
-  updatedByUserId         String?      @map("updated_by_user_id") @db.Uuid
-  createdAt               DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt               DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  overdueReminderDays     Int              @default(7) @map("overdue_reminder_days")
+  retryAttempts           Int              @default(3) @map("retry_attempts")
+  retryIntervalDays       Int              @default(3) @map("retry_interval_days")
+  lateFeeEnabled          Boolean          @default(false) @map("late_fee_enabled")
+  lateFeeType             LateFeeType?     @map("late_fee_type")
+  lateFeePercent          Decimal?         @map("late_fee_percent") @db.Decimal(5, 2)
+  lateFeeCents            Int?             @map("late_fee_cents")
+  tippingEnabled          Boolean          @default(false) @map("tipping_enabled")
+  requirePaymentBeforeDue Boolean          @default(false) @map("require_payment_before_due")
+  portalPaymentsEnabled   Boolean          @default(true) @map("portal_payments_enabled")
+  updatedByUserId         String?          @map("updated_by_user_id") @db.Uuid
+  createdAt               DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business  Business    @relation(fields: [businessId], references: [id])
   updatedBy Membership? @relation(fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
@@ -7549,6 +7576,8 @@ model ReportDefinition {
   sortBy            String?          @map("sort_by")
   sortDescending    Boolean          @default(false) @map("sort_descending")
   showTotals        Boolean          @default(false) @map("show_totals")
+  /// R1 (Nov 7, RP-F18): the chart legend shows unless the report hides it.
+  showLegend        Boolean          @default(true) @map("show_legend")
   showPercentage    Boolean          @default(false) @map("show_percentage")
   includeComparison Boolean          @default(false) @map("include_comparison")
   /// "previous_period" or "same_period_last_year".
@@ -9040,24 +9069,31 @@ model StaffWorkSchedule {
 /// account. Owner and Admin read and change it. No row: these defaults. Sign-in does not enforce
 /// these settings yet.
 model StaffSecurityDefaults {
-  businessId            String              @id @map("business_id") @db.Uuid
-  allowedAuthMethods    StaffAuthMethod[]   @default([AUTHENTICATOR_APP, BACKUP_CODES]) @map("allowed_auth_methods")
-  accessLocation        StaffAccessLocation @default(ANYWHERE) @map("access_location")
-  allowedIps            String[]            @default([]) @map("allowed_ips")
-  allowedCountries      String[]            @default([]) @map("allowed_countries")
-  restrictDevices       Boolean             @default(false) @map("restrict_devices")
+  businessId                   String              @id @map("business_id") @db.Uuid
+  allowedAuthMethods           StaffAuthMethod[]   @default([AUTHENTICATOR_APP, BACKUP_CODES]) @map("allowed_auth_methods")
+  accessLocation               StaffAccessLocation @default(ANYWHERE) @map("access_location")
+  allowedIps                   String[]            @default([]) @map("allowed_ips")
+  allowedCountries             String[]            @default([]) @map("allowed_countries")
+  restrictDevices              Boolean             @default(false) @map("restrict_devices")
   /// Sign out after this many idle minutes (5 to 480); null means the firm's default.
-  autoLogoutMinutes     Int?                @map("auto_logout_minutes")
-  maxConcurrentSessions Int                 @default(1) @map("max_concurrent_sessions")
-  signOutOtherSessions  Boolean             @default(false) @map("sign_out_other_sessions")
-  allowTrustedDevices   Boolean             @default(false) @map("allow_trusted_devices")
-  notifyNewDeviceLogin  Boolean             @default(true) @map("notify_new_device_login")
-  notifyFailedLogins    Boolean             @default(true) @map("notify_failed_logins")
-  notifyPasswordChanges Boolean             @default(true) @map("notify_password_changes")
-  notifySecurityAlerts  Boolean             @default(true) @map("notify_security_alerts")
-  notifyLockouts        Boolean             @default(true) @map("notify_lockouts")
-  updatedByUserId       String?             @map("updated_by_user_id") @db.Uuid
-  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  autoLogoutMinutes            Int?                @map("auto_logout_minutes")
+  maxConcurrentSessions        Int                 @default(1) @map("max_concurrent_sessions")
+  signOutOtherSessions         Boolean             @default(false) @map("sign_out_other_sessions")
+  allowTrustedDevices          Boolean             @default(false) @map("allow_trusted_devices")
+  notifyNewDeviceLogin         Boolean             @default(true) @map("notify_new_device_login")
+  notifyFailedLogins           Boolean             @default(true) @map("notify_failed_logins")
+  notifyPasswordChanges        Boolean             @default(true) @map("notify_password_changes")
+  notifySecurityAlerts         Boolean             @default(true) @map("notify_security_alerts")
+  notifyLockouts               Boolean             @default(true) @map("notify_lockouts")
+  /// R1 (Nov 7, SEC-6): MFA is required for staff unless a documented exception is on file:
+  /// mfaRequired is false only with the note, who approved it and when (SQL only).
+  mfaRequired                  Boolean             @default(true) @map("mfa_required")
+  mfaExceptionNote             String?             @map("mfa_exception_note")
+  mfaExceptionApprovedByUserId String?             @map("mfa_exception_approved_by_user_id") @db.Uuid
+  mfaExceptionAt               DateTime?           @map("mfa_exception_at") @db.Timestamptz(3)
+  mfaExceptionApprovedBy       Membership?         @relation("StaffSecurityMfaExceptionApprovedBy", fields: [businessId, mfaExceptionApprovedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedByUserId              String?             @map("updated_by_user_id") @db.Uuid
+  updatedAt                    DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business  Business    @relation(fields: [businessId], references: [id])
   updatedBy Membership? @relation("StaffSecurityDefaultsUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
@@ -9102,6 +9138,9 @@ model StaffDraft {
 
   createdBy Membership @relation(fields: [businessId, createdById], references: [businessId, id], onDelete: Restrict)
 
+  attachments StaffDraftAttachment[]
+
+  @@unique([businessId, id])
   @@index([businessId, updatedAt])
   @@map("staff_drafts")
 }
@@ -10901,6 +10940,8 @@ model IntakeTemplate {
   createdBy       Membership?      @relation("IntakeTemplateCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
   forms           IntakeForm[]
   messageTemplate MessageTemplate?
+
+  appointmentTypes AppointmentType[]
 
   @@unique([businessId, id])
   // Target of the versions' same-service foreign key.
@@ -14623,4 +14664,94 @@ model FirmOfficeMember {
   @@id([officeId, userId])
   @@index([businessId, userId])
   @@map("firm_office_members")
+}
+
+/// R1 (Nov 7, MSG-F16): what happened with a client, for the client's Activity tab and New
+/// Message's "Add to Client Timeline". Insert-only. sourceType and sourceId name the record it came
+/// from (one entry per record); summary is a short summary, never a message body or document text.
+model ClientTimelineEntry {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  businessId      String             @map("business_id") @db.Uuid
+  clientId        String             @map("client_id") @db.Uuid
+  kind            ClientTimelineKind
+  /// e.g. "outbound_message", "message_thread"; up to 50 characters.
+  sourceType      String             @map("source_type")
+  sourceId        String?            @map("source_id") @db.Uuid
+  /// Up to 200 characters.
+  title           String
+  /// Up to 500 characters.
+  summary         String?
+  occurredAt      DateTime           @map("occurred_at") @db.Timestamptz(3)
+  /// Null for a row the system wrote.
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client    Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership? @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId, occurredAt(sort: Desc)])
+  @@map("client_timeline_entries")
+}
+
+enum ClientTimelineKind {
+  MESSAGE
+  EMAIL
+  SMS
+  NOTE
+  CALL
+  MEETING
+  DOCUMENT
+  TASK
+  INVOICE
+  OTHER
+}
+
+/// R1 (Nov 7, L8; issue #1051): one of a lead's follow-ups. The API keeps leads.next_action_* equal
+/// to the earliest unfinished one and allows at most 10 open per lead.
+model LeadFollowUp {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  leadId          String         @map("lead_id") @db.Uuid
+  actionType      LeadActionType @map("action_type")
+  dueAt           DateTime       @map("due_at") @db.Timestamptz(3)
+  /// Up to 500 characters.
+  note            String?
+  doneAt          DateTime?      @map("done_at") @db.Timestamptz(3)
+  /// The outcome logged on completion; up to 500 characters.
+  outcome         String?
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  lead      Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership? @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, leadId, doneAt, dueAt])
+  @@map("lead_follow_ups")
+}
+
+/// R1 (Nov 7, SM12): a file saved on a staff draft (Save under Remove): its S3 key under
+/// tenant/{businessId}/staff-drafts/{draftId}/, never its content. Deleted with its draft (the API
+/// deletes the objects).
+model StaffDraftAttachment {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  businessId      String     @map("business_id") @db.Uuid
+  staffDraftId    String     @map("staff_draft_id") @db.Uuid
+  s3Key           String     @unique @map("s3_key")
+  /// Up to 255 characters.
+  fileName        String     @map("file_name")
+  /// Up to 100 characters.
+  contentType     String     @map("content_type")
+  sizeBytes       Int        @map("size_bytes")
+  /// The type chosen for the file; up to 100 characters.
+  documentType    String     @map("document_type")
+  scanStatus      ScanStatus @default(PENDING) @map("scan_status")
+  createdByUserId String?    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  draft     StaffDraft  @relation(fields: [businessId, staffDraftId], references: [businessId, id], onDelete: Cascade)
+  createdBy Membership? @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, staffDraftId])
+  @@map("staff_draft_attachments")
 }
