@@ -182,7 +182,7 @@ export class DashboardCardsService {
   ): Promise<DashboardCardTemplate> {
     const card = await this.inFirm(businessId, async (tx) => {
       // One add at a time per firm: two at once must not both take the same free slot.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`dashboard-cards:${businessId}`}))`;
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`dashboard-cards:${businessId}`}))) AS l`;
       await this.checked(tx, businessId, body);
       const taken = new Set(
         (
@@ -280,7 +280,7 @@ export class DashboardCardsService {
     body: z.output<typeof OrderDashboardCardsRequest>,
   ): Promise<DashboardCardSettings> {
     await this.inFirm(businessId, async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`dashboard-cards:${businessId}`}))`;
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${`dashboard-cards:${businessId}`}))) AS l`;
       const rows = await tx.dashboardCardTemplate.findMany({
         where: { businessId },
         orderBy: { slot: 'asc' },
