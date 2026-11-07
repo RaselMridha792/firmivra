@@ -307,6 +307,10 @@ describe('loops, stored shapes and templates', () => {
       'lead.follow_up_due',
     ]);
     expect(produces([{ type: 'INVITE_TO_BOOK', config: {} }])).toEqual([]);
+    // A new deadline is one approaching; a service added or a text sent starts nothing.
+    expect(produces([{ type: 'CREATE_DEADLINE', config: {} }])).toEqual(['deadline.approaching']);
+    expect(produces([{ type: 'ADD_SERVICE', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_CLIENT_SMS', config: {} }])).toEqual([]);
     expect(produces([{ type: 'REQUEST_APPROVAL', config: {} }])).toEqual([]);
     expect(
       loopProblems(

@@ -14,6 +14,9 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { LeadPipelineTabsService } from '../leads/lead-pipeline-tabs.service.js';
 import { TaxReturnReviewService } from '../tax-returns/review.service.js';
+import { ComplianceDeadlineActionsService } from '../compliance/compliance-deadline-actions.service.js';
+import { EngagementsService } from '../engagements/engagements.service.js';
+import { CreateComplianceDeadlineRequest, CreateEngagementRequest } from '@firmivra/types';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
@@ -78,6 +81,8 @@ export class AutomationEngine {
     private readonly intakeSend: IntakeSendService,
     private readonly leadFollowUps: LeadPipelineTabsService,
     private readonly taxReview: TaxReturnReviewService,
+    private readonly deadlines: ComplianceDeadlineActionsService,
+    private readonly engagements: EngagementsService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -547,6 +552,11 @@ export class AutomationEngine {
                 : client?.assignedUserId
                   ? { assignedUserId: client.assignedUserId }
                   : {}),
+              // AU-F26: a template of the firm fills what the rule leaves out; visibility as set.
+              ...(typeof cfg.taskTemplateId === 'string' ? { templateId: cfg.taskTemplateId } : {}),
+              ...(typeof cfg.clientVisible === 'boolean'
+                ? { clientVisible: cfg.clientVisible }
+                : {}),
             });
             return { ok: true, kind: 'task', id: created.id, detail: 'Task created' };
           }
@@ -781,6 +791,132 @@ export class AutomationEngine {
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
             };
+          }
+          // AU-F26 Send SMS: Messages' outbound text, as Send client email sends an email, so
+          // consent, opt-in, the firm's texting setting and the provider all hold. With texting off
+          // or not set up, nothing is sent and the step gives Messages' own reason.
+          case 'SEND_CLIENT_SMS': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            const draft = await this.outbound.create(businessId, actor, {
+              channel: 'SMS',
+              subject: null,
+              body: (text('body') ?? '').slice(0, 1_600) || 'Hello',
+              templateId: null,
+              clientIds: [run.clientId as string],
+              leadIds: [],
+            });
+            if (draft.counts.canReceive === 0) {
+              const reason = draft.recipients[0]?.reason ?? 'NO_CONTACT';
+              await this.outbound.cancel(businessId, actor, draft.id, draft.updatedAt);
+              return {
+                ok: false,
+                code: reason,
+                retryable: false,
+                detail: `Messages can't text this client (${reason.toLowerCase().replace(/_/g, ' ')})`,
+              };
+            }
+            const sent = await this.outbound.send(businessId, actor, draft.id, draft.updatedAt);
+            if (sent.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'SEND_FAILED',
+                retryable: false,
+                detail: 'Messages could not send the text; its delivery log has the reason',
+              };
+            return {
+              ok: true,
+              kind: 'outbound_message',
+              id: sent.id,
+              detail: sent.status === 'SENT' ? 'Text sent' : 'Text queued by Messages',
+            };
+          }
+          // AU-F26 Create deadline: Compliance's own create, for the client. The same deadline
+          // (client, name, type and day) is never added twice.
+          case 'CREATE_DEADLINE': {
+            const clientId = run.clientId as string;
+            const name = (text('name') ?? '').slice(0, 200) || 'Deadline';
+            const type = typeof cfg.deadlineType === 'string' ? cfg.deadlineType : 'OTHER';
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : 0;
+            const dueOn = addDays(today, days);
+            const existing = await this.inFirm(businessId, (tx) =>
+              tx.complianceDeadline.findFirst({
+                where: {
+                  businessId,
+                  clientId,
+                  name,
+                  type: type as never,
+                  dueOn: new Date(`${dueOn}T00:00:00.000Z`),
+                  archivedAt: null,
+                },
+                select: { id: true },
+              }),
+            );
+            if (existing)
+              return {
+                ok: true,
+                kind: 'deadline',
+                id: existing.id,
+                detail: 'The client already has this deadline',
+              };
+            const created = await this.deadlines.create(
+              businessId,
+              actor,
+              CreateComplianceDeadlineRequest.parse({
+                clientId,
+                name,
+                type,
+                dueOn,
+                ...(typeof cfg.priority === 'string' ? { priority: cfg.priority } : {}),
+                clientVisible: cfg.clientVisible === true,
+              }),
+            );
+            return { ok: true, kind: 'deadline', id: created.id, detail: 'Deadline created' };
+          }
+          // AU-F26 Add service: Engagements' own create (no billing date, so no billing starts). A
+          // client with this service already open (pending or active) gets nothing new.
+          case 'ADD_SERVICE': {
+            const clientId = run.clientId as string;
+            const serviceId = typeof cfg.serviceId === 'string' ? cfg.serviceId : null;
+            if (!serviceId)
+              return {
+                ok: false,
+                code: 'SERVICE_REQUIRED',
+                retryable: false,
+                detail: 'Choose a service',
+              };
+            const found = await this.inFirm(businessId, async (tx) => ({
+              open: await tx.engagement.findFirst({
+                where: { businessId, clientId, serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+                select: { id: true },
+              }),
+              service: await tx.service.findFirst({
+                where: { businessId, id: serviceId },
+                select: { name: true },
+              }),
+            }));
+            if (found.open)
+              return {
+                ok: true,
+                kind: 'engagement',
+                id: found.open.id,
+                detail: 'The client already has this service open',
+              };
+            const added = await this.engagements.create(
+              businessId,
+              actor,
+              clientId,
+              CreateEngagementRequest.parse({
+                serviceId,
+                title: (text('title') || found.service?.name || 'Service').slice(0, 200),
+              }),
+            );
+            return { ok: true, kind: 'engagement', id: added.id, detail: 'Service added' };
           }
           // AU-F27 Request intake: Intake Forms' own send (IntakeSendService.send), so every Intake
           // rule holds (a published form, the client's open service for it, portal or email, the

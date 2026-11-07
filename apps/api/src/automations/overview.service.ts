@@ -60,23 +60,41 @@ export class AutomationsOverviewService {
    * its active members, read in the firm's scope. Never another firm's.
    */
   async catalog(businessId: string): Promise<AutomationCatalog> {
-    const { tags, members, types } = await this.read.inFirm(businessId, async (tx) => ({
-      tags: await tx.tag.findMany({
-        where: { businessId, archivedAt: null },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
+    const { tags, members, types, taskTemplates, services } = await this.read.inFirm(
+      businessId,
+      async (tx) => ({
+        tags: await tx.tag.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        members: await tx.membership.findMany({
+          where: { businessId, status: 'ACTIVE' },
+          select: { userId: true, user: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        }),
+        types: await tx.appointmentType.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        taskTemplates: await tx.taskTemplate.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        services: await tx.service.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
       }),
-      members: await tx.membership.findMany({
-        where: { businessId, status: 'ACTIVE' },
-        select: { userId: true, user: { select: { name: true } } },
-        orderBy: { createdAt: 'asc' },
-      }),
-      types: await tx.appointmentType.findMany({
-        where: { businessId, archivedAt: null },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      }),
-    }));
+    );
+    // A setting naming one of the firm's records offers the firm's own (another firm's never).
+    const settingChoices: Record<string, { value: string; label: string }[]> = {
+      TASK_TEMPLATE: taskTemplates.map((t) => ({ value: t.id, label: t.name })),
+      SERVICE: services.map((t) => ({ value: t.id, label: t.name })),
+    };
     const people = members.map((m) => ({ value: m.userId, label: m.user.name }));
     const choices: Record<string, { value: string; label: string }[]> = {
       [TAGS_FIELD.field]: tags.map((t) => ({ value: t.id, label: t.name })),
@@ -96,7 +114,12 @@ export class AutomationsOverviewService {
           choices[f.field] ? { ...f, options: choices[f.field]! } : f,
         ),
       })),
-      actions: ACTIONS,
+      actions: ACTIONS.map((a) => ({
+        ...a,
+        fields: a.fields.map((f) =>
+          settingChoices[f.type] ? { ...f, choices: settingChoices[f.type]! } : f,
+        ),
+      })),
       variables: VARIABLES,
     };
   }

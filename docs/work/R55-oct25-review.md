@@ -26,7 +26,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1285 merged: Send intake form (AU-F27) through Intake Forms' own send (IntakeSendService, already exported), one per run and action.
 - #1290 merged: Update client status and Update client priority (AU-F27, a typed allowlist), and the Client status changed event with old and new status (AU-F08).
 - #1297 merged: the rest of AU-F22 (the client's context on every client record's event; each record's own due date, balance, payment status, progress, assignee, type, confirmation, service, jurisdiction and tax year) and AU-F23's remaining operators (On, Within the last / next N days, Does not contain).
-- #1300 (`rasel/R55-au-requests-2`): Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
+- #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
+- #1301 (`rasel/R55-au-coverage`): Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -45,6 +46,19 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **Invite client to book:** a portal message through Messages with a link to the client's portal Appointments page. It never books; the client picks a time under Appointments' rules.
 - **Schedule lead follow-up:** offered on lead events only. It goes through Leads' own follow-up (a type, due N days after the run, a note), for open leads only: a closed lead fails with Leads' LEAD_CLOSED.
 - **Request approval:** offered on tax return events only. It adds a PENDING step through Tax Returns, and Automations never decides it. The reviewer can never be the rule's owner (blocked when the rule is turned on) or the return's preparer (SELF_APPROVAL at run time). The same pending step for the same reviewer is never added twice.
+
+**For Review 2 (lead, Nov 7): AU-F26 coverage**
+- **Already covered:**
+  - Create task, Portal message (Send client message), Email (AU-F25), Internal notification (Notify staff), Update status, Assign, Document request, Add tag and Add note;
+  - Delay (each action's delay);
+  - Appointment: Invite client to book, which never books.
+- **Create task:** it also takes one of the firm's task templates (which fills what the rule leaves out) and Visible to client.
+- **Send client text message:** it goes through Messages' outbound text, with consent, opt-in, the firm's texting setting and the provider. Production starts without texting, so the step fails with Messages' own reason and nothing is sent.
+- **Create deadline:** through Compliance's own create. The same deadline (client, name, type and day) is never added twice.
+- **Add service:** through Engagements' own create, with no billing date, so it never starts billing. A client with that service already open gets nothing new.
+- **Not offered:**
+  - Create Invoice: an invoice is money and needs line items. The reminder is Send client message or Send client email on Invoice overdue, with the invoice number as a merge field.
+  - Webhook / Integration: no vetted outbound webhook exists.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
