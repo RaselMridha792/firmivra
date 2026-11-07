@@ -36,6 +36,7 @@ Standing rules (lead, Nov 4): local checks only for what changed; group one area
 ## Y items answered without a build
 
 - **RP-Y04**: the metric definitions (USD in cents, the firm's days in its time zone, invoiced versus collected, reach, live data) and the insight thresholds are in `apps/api/src/reports/metric-definitions.ts`. **RP-Y12** stale case: every run reads live data, so a result is never stale and no stale insight can arise. **CD-Y04**: already met: a deadline shows its statutory, extended and payment dates apart, and its calendar's authority, effective year, version, source link and last verified date read-only; an extension never moves the payment date.
+
 - **RP-Y02** (out of scope this round; fields that exist and rough effort): Compliance and Deadlines reports have no source yet (deadlines hold client, type, status, due dates and assignee; a new source with reach and tests is about 1 to 2 days). Invoice discount is stored on each invoice but is not a report field (about half a day). Outstanding balance is not a field: Outstanding Invoices sums the Invoiced Total of open invoices, partial payments not netted (about half a day). Task age is not a field, but Created is (about two hours as a derived number).
 
 ## Log
