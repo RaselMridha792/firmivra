@@ -29,7 +29,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
 - #1301 merged: Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 - #1304 merged: Conditional branch as an action's Only if, and Send resource (AU-F26).
-- #1308 (`rasel/R55-au-yellow`): AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
+- #1308 merged: AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
 - IN yellow (`rasel/R55-in-yellow`): honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
