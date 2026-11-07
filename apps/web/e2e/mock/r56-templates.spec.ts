@@ -109,7 +109,10 @@ test('Library: categories, filters, favorite, preview and bulk tag', async ({ pa
   await expect(page.getByRole('button', { name: /Remove .* from favorites/ })).toBeVisible();
 
   await page.getByRole('button', { name: /^Preview Existing Client/ }).click();
-  await expect(page.getByTestId('preview-body')).toContainText('Jamie');
+  // The content shows as an email does, in a sandboxed frame (TP-F07).
+  await expect(page.frameLocator('[data-testid="preview-body"]').locator('body')).toContainText(
+    'Jamie',
+  );
   await page.getByLabel('Send a test to').fill('me@example.test');
   await page.getByRole('button', { name: 'Test Send' }).click();
   await expect(page.getByText('Test sent. The template was not changed.')).toBeVisible();

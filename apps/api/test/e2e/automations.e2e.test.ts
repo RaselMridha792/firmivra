@@ -29,6 +29,7 @@ import {
   AutomationTemplateDetail,
   AutomationTemplatePage,
   AutomationVersionDetail,
+  INTAKE_FORMS,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -353,6 +354,7 @@ describe('the catalog', () => {
       'SEND_CLIENT_MESSAGE',
       'SEND_CLIENT_EMAIL',
       'REQUEST_DOCUMENTS',
+      'SEND_INTAKE',
       'ASSIGN_CLIENT',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
@@ -2793,6 +2795,145 @@ describe('Request documents, through Documents (AU-F27)', () => {
         tx.documentRequest.count({ where: { businessId: firms.a, clientId: closed.id } }),
       ),
     ).toBe(0);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Send intake form, through Intake Forms (AU-F27)', () => {
+  it('sends the published form once under the client’s open service; another firm’s form is refused', async () => {
+    const form = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: {
+          businessId: firms.a,
+          kind: 'ANNUAL_TAX',
+          name: `Intake tax ${run}`,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+      const f = await tx.intakeForm.create({
+        data: {
+          businessId: firms.a,
+          serviceId: service.id,
+          version: 1,
+          title: `Annual Tax Intake ${run}`,
+          definition: INTAKE_FORMS.ANNUAL_TAX as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerA.id,
+        },
+        select: { templateId: true },
+      });
+      return { serviceId: service.id, templateId: f.templateId as string };
+    });
+    const theirs = await inFirm('b', async (tx) => {
+      const service = await tx.service.create({
+        data: {
+          businessId: firms.b,
+          kind: 'ANNUAL_TAX',
+          name: `B intake ${run}`,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+      const f = await tx.intakeForm.create({
+        data: {
+          businessId: firms.b,
+          serviceId: service.id,
+          version: 1,
+          title: `B Intake ${run}`,
+          definition: INTAKE_FORMS.ANNUAL_TAX as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerB.id,
+        },
+        select: { templateId: true },
+      });
+      return f.templateId as string;
+    });
+    const send = (formId: string) => ({
+      id: 'intake',
+      type: 'SEND_INTAKE',
+      config: {
+        formId,
+        channel: 'EMAIL',
+        subject: 'Your tax organizer, {{client.name}}',
+        dueInDays: 10,
+      },
+    });
+    // Firm B's form is never one firm A's rule can send.
+    const foreign = await createRule(clientCreated([send(theirs)]), { name: mark('Foreign form') });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+
+    const live = await createRule(clientCreated([send(form.templateId)]), {
+      name: mark('Send organizer'),
+    });
+    ok(await activate(live.id));
+    // Intake delivers through the client's portal login (its bell item), so the client has one.
+    const login = randomUUID();
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: login,
+          cognitoSub: login,
+          pool: 'CLIENT',
+          email: `intake-login-${run}@client.test`,
+          name: `Intake client ${run} (fake)`,
+        },
+      }),
+    );
+    const clientId = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: `Intake client ${run} (fake)`,
+          email: `intake-${run}@client.test`,
+        },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId: login,
+          clientId: c.id,
+          email: `intake-login-${run}@client.test`,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      await tx.engagement.create({
+        data: {
+          businessId: firms.a,
+          clientId: c.id,
+          serviceId: form.serviceId,
+          title: 'Tax (fake)',
+        },
+      });
+      return c.id;
+    });
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const runId = (await runs(`?ruleId=${live.id}`)).items[0]!.id;
+    const step = (await runDetail(runId)).actions[0]!;
+    expect(step, JSON.stringify(step)).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'intake' },
+    });
+    const intakes = await inFirm('a', (tx) =>
+      tx.intake.findMany({
+        where: { businessId: firms.a, engagement: { clientId } },
+        select: { id: true, dueOn: true },
+      }),
+    );
+    expect(intakes).toHaveLength(1);
+    expect(intakes[0]!.dueOn).not.toBeNull();
+    // Intake's own delivery: the client's bell item for the form.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.notification.count({
+          where: { businessId: firms.a, recipientUserId: login, type: 'intake.sent' },
+        }),
+      ),
+    ).toBe(1);
     ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
   });
 });

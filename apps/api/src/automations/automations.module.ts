@@ -10,6 +10,7 @@ import {
 } from '../storage/document-storage.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
+import { IntakeWorkspaceModule } from '../intake-workspace/intake-workspace.module.js';
 import { TasksModule } from '../tasks/tasks.module.js';
 import { AUTOMATION_FILES, S3AutomationFiles } from './automation-files.js';
 import { AutomationJob } from './automation.job.js';
@@ -29,7 +30,13 @@ import { TemplatesService } from './templates.service.js';
  * Log exports live under tenant/<business>/automations/ in the documents bucket.
  */
 @Module({
-  imports: [MessagesModule, TasksModule, NotificationsModule, DocumentsModule],
+  imports: [
+    MessagesModule,
+    TasksModule,
+    NotificationsModule,
+    DocumentsModule,
+    IntakeWorkspaceModule,
+  ],
   controllers: [AutomationsController],
   providers: [
     AutomationsReadService,
