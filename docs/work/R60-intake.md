@@ -242,6 +242,13 @@ Progress (Templates, Oct 28 review):
   - A saved segment's rules are edited in place; view-only roles see the exact reason.
   - View Members adds and removes a list's people by name through the new `GET segments/people`
     (within the member's reach, masked), saved together with `PUT .../members` (audited).
+- Closing, branch `rasel/R60-comms-closing` (stacked on #1288): CM-F11. It was re-tested against
+  MSG-F02, whose stores already exist, so there is no schema change:
+  - the firm's signature (`message_settings.signature`, set by an Owner or Admin in Messages
+    Settings);
+  - the member's own (`business/me/message-signature`).
+  The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
+  Signature. A missing one says why. It is text and formatting only and sends nothing.
 - Return to origin, branch `rasel/R60-templates-origin`: TP-F01.
   - The overview's view, category, search, Show All and page, and a library's category, search,
     status, owner, tag, sort and page, are kept in the address (SH1's `lib/list-query`, read in the

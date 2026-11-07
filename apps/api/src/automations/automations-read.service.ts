@@ -12,7 +12,7 @@ import { firmTimeZone } from '../appointments/calendar-data.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { day, memberNames, memberRef, notFound } from '../workspaces/common.js';
-import { actionOf, eventOf } from './catalog.js';
+import { actionOf, eventOf, RESOURCE_PAGES } from './catalog.js';
 import { type Perms, autoErrors, hhmm, iso, mayAct, permsOf } from './automations.common.js';
 import {
   actionSummary,
@@ -280,6 +280,26 @@ export class AutomationsReadService {
             severity: 'BLOCK',
             message: 'The service is not one of the firm’s live services',
             path: `actions.${i}.config.serviceId`,
+          });
+      }
+      // Send resource's resource: a published portal resource (on one of the portal's resource
+      // pages) or link of this firm, never another firm's or a draft.
+      const resourceId = a.config.resourceId;
+      if (typeof resourceId === 'string') {
+        const live = await tx.contentItem.count({
+          where: {
+            businessId,
+            id: resourceId,
+            publishedAt: { not: null },
+            OR: [{ kind: 'EXTERNAL_LINK' }, { kind: 'RESOURCE', category: { in: RESOURCE_PAGES } }],
+          },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The resource is not one of the firm’s published portal resources',
+            path: `actions.${i}.config.resourceId`,
           });
       }
       // Request approval's reviewer: an active member of this firm, and never the rule's owner,

@@ -1011,7 +1011,7 @@ export class InvoicesService {
  * out: the lines, less the discount (a percent one in whole cents), plus the schedule's tax rate on
  * its taxable lines (R55's IP-F03).
  */
-function scheduleTotal(r: {
+export function scheduleTotal(r: {
   lines: { quantity: Prisma.Decimal; unitAmountCents: number; taxable: boolean }[];
   discountType: 'FIXED' | 'PERCENT';
   discountPercent: Prisma.Decimal | null;
