@@ -174,6 +174,8 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'recurringInvoice' },
     body: {},
   },
+  // IP-F10: an open invoice with a balance goes to its client again.
+  'POST /api/v1/business/invoices/:id/resend': { params: { id: 'openInvoice' }, body: {} },
   'POST /api/v1/business/invoices/:id/cancel': {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },

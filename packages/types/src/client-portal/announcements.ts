@@ -8,13 +8,19 @@ import type { ApiRequest } from '../client.js';
 export const AnnouncementPlace = z.enum(['dashboard', 'messages', 'documents', 'billing']);
 export type AnnouncementPlace = z.infer<typeof AnnouncementPlace>;
 
-/** One announcement the signed-in client can see now, as plain text. */
+/** One announcement the signed-in client can see now: plain text, and its cleaned HTML. */
 export const MyAnnouncement = z.object({
   id: z.uuid(),
   /** The announcement's subject; null when the firm gave none. */
   title: z.string().nullable(),
   /** Plain text: the firm's formatting becomes lines, never markup. */
   body: z.string(),
+  /**
+   * CM-F08: the announcement as the firm formatted it, for its own page, cleaned by the API for the
+   * portal (alignment, the content fonts, https links and button links, images only from the firm's
+   * own email-images address). Snippets (the dashboard card, bells, notices) use `body`.
+   */
+  html: z.string(),
   where: AnnouncementPlace,
   publishedAt: z.iso.datetime({ offset: true }),
   /** When it stops showing; null: until the firm expires it. */

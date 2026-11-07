@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { HtmlFrame } from '../../templates/_components/html-preview';
 import {
   COMM_ERRORS,
   COMM_KEY,
@@ -125,12 +126,21 @@ export function ReviewDialog({
                 );
               })}
             </ul>
-            <div
-              className="max-h-40 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
-              data-testid="review-preview"
-            >
-              {plain(r.preview.body)}
-            </div>
+            {r.channel === 'SMS' ? (
+              <div
+                className="max-h-40 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
+                data-testid="review-preview"
+              >
+                {plain(r.preview.body)}
+              </div>
+            ) : (
+              <HtmlFrame
+                html={r.preview.body}
+                title="Message preview"
+                className="h-48"
+                testId="review-preview"
+              />
+            )}
           </>
         ) : null}
         {error ? (

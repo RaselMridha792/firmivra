@@ -254,7 +254,11 @@ function Builder({
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
   // AU-F18 to F20: an event about the firm itself (no client) takes only actions that need none.
-  const fitting = catalog.actions.filter((x) => ev?.hasClient !== false || !x.needsClient);
+  const fitting = catalog.actions.filter(
+    (x) =>
+      (ev?.hasClient !== false || !x.needsClient) &&
+      (!x.recordKind || x.recordKind === ev?.recordKind),
+  );
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
   // AU-F06: a whole number, 0 (at the anchor) to 100,000.
   const offsetNumber = Number(f.offsetValue);
