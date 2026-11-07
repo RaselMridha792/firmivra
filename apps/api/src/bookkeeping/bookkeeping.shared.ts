@@ -64,9 +64,20 @@ export const errors = {
   reportNotSupported: () =>
     conflict(
       'REPORT_NOT_SUPPORTED',
-      'Figures for this report type are not worked out yet: Profit & Loss, Trial Balance, Transaction Detail and Uncategorized are',
+      'Figures for this report type are not worked out yet: Quarterly Review, Year to Date Summary and custom reports are not',
     ),
   noPeriod: () => conflict('NO_PERIOD', 'Set the bookkeeping period this report covers first'),
+  // BK-RPT part 2.
+  statementsMissing: (names: string) =>
+    conflict(
+      'STATEMENTS_MISSING',
+      `Add the period's statement for ${names} first: balances come from statements, never estimates`,
+    ),
+  reconOpen: (count: number) =>
+    conflict(
+      'RECON_OPEN',
+      `Approve every reconciliation of this period first (${count} open): completing a report never skips the reconciliation`,
+    ),
   categoryInactive: () =>
     conflict('CATEGORY_INACTIVE', 'That category is inactive. Choose an active one'),
   /** A request that passed the contract but cannot be stored. */

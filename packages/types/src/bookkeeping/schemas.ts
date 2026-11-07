@@ -97,6 +97,9 @@ export const BookkeepingErrorCode = z.enum([
   // BK-RPT part 1.
   'REPORT_NOT_SUPPORTED',
   'NO_PERIOD',
+  // BK-RPT part 2.
+  'STATEMENTS_MISSING',
+  'RECON_OPEN',
 ]);
 export type BookkeepingErrorCode = z.infer<typeof BookkeepingErrorCode>;
 

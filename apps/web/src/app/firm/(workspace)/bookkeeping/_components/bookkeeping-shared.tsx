@@ -176,6 +176,13 @@ export const BK_ERRORS: Record<string, string> = {
   REPORT_STATE: 'The report is not in the right state for that.',
   REPORT_NOT_PUBLISHED: 'Publish the report first.',
   NOT_THIS_CLIENTS: 'That belongs to another client.',
+  // BK-RPT.
+  REPORT_NOT_SUPPORTED: 'Figures for this report type are not worked out yet.',
+  NO_PERIOD: 'Set the bookkeeping period this report covers first.',
+  STATEMENTS_MISSING:
+    "Each reconciled account needs the period's statement first: start its reconciliation.",
+  RECON_OPEN:
+    "Approve every reconciliation of this report's period first: a report never skips the reconciliation.",
 };
 
 export const gold =

@@ -6,17 +6,52 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { BK_KEY, dayText, money } from './bookkeeping-shared';
+import { BK_ERRORS, BK_KEY, dayText, money } from './bookkeeping-shared';
 
-// BK-RPT part 1 (Octavia's Oct 25 Bookkeeping review): a report's figures from the client's
-// ledger for its period, previewed before anything is stored; Generate Version keeps them as a
-// numbered version that never changes (a later one is generated instead); each version downloads
-// as CSV. Profit & Loss, Trial Balance, Transaction Detail and Uncategorized for now.
+// BK-RPT (Octavia's Oct 25 Bookkeeping review): a report's figures from the client's ledger,
+// statements, refunds, settlements and close for its period, previewed before anything is stored;
+// Generate Version keeps them as a numbered version that never changes (a later one is generated
+// instead); each version downloads as CSV. A Balance Sheet or Cash Flow waits for each reconciled
+// account's statement, and the figures say what they rest on.
+
+/** The line under the figures: the report's headline totals. */
+function headline(f: BookkeepingReportFigures): string {
+  const t = (k: string) => f.totals[k] ?? 0;
+  switch (f.type) {
+    case 'PROFIT_LOSS':
+      return `Net income ${money(t('netIncomeCents'))}`;
+    case 'TRIAL_BALANCE':
+    case 'GENERAL_LEDGER':
+      return `Debits ${money(t('debitsCents'))} · Credits ${money(t('creditsCents'))}`;
+    case 'BALANCE_SHEET':
+      return `Assets ${money(t('assetsCents'))} · Liabilities ${money(t('liabilitiesCents'))} · Net assets ${money(t('netAssetsCents'))}`;
+    case 'CASH_FLOW':
+      return `Beginning cash ${money(t('beginningCashCents'))} · Net change ${money(t('netChangeCents'))} · Ending cash ${money(t('endingCashCents'))}`;
+    case 'RECONCILIATION':
+      return `${t('approvedCount')} of ${t('accountsCount')} approved · ${t('openCount')} open · difference ${money(t('differenceCents'))}`;
+    case 'MISSING_DOCUMENTS':
+      return `${t('receiptsMissing')} receipts (${money(t('amountWithoutReceiptCents'))}) · ${t('statementsMissing')} statements missing`;
+    case 'BOOKKEEPING_STATUS':
+      return `${t('closeStepsDone')} of ${t('closeStepsDone') + t('closeStepsOpen')} close steps done`;
+    default:
+      return `${f.lineCount} lines · net ${money(t('netCents'))}`;
+  }
+}
 
 function Figures({ f }: { f: BookkeepingReportFigures }) {
   return (
     <div className="flex flex-col gap-3 text-sm" data-testid="report-figures">
       {f.basisNote ? <p className="rounded-lg bg-info-soft p-2 text-info">{f.basisNote}</p> : null}
+      {f.notes.length ? (
+        <ul
+          className="flex flex-col gap-1 rounded-lg bg-warning-soft p-2 text-warning"
+          data-testid="figures-notes"
+        >
+          {f.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      ) : null}
       {f.sections.map((s) => (
         <section key={s.title}>
           <h3 className="mb-1 font-semibold text-heading">{s.title}</h3>
@@ -35,8 +70,9 @@ function Figures({ f }: { f: BookkeepingReportFigures }) {
                       </>
                     ) : (
                       <td className="py-1 text-right">
-                        {money(r.amountCents ?? 0)}
-                        {r.count !== undefined ? ` · ${r.count}` : ''}
+                        {r.amountCents !== undefined ? money(r.amountCents) : ''}
+                        {r.amountCents !== undefined && r.count !== undefined ? ' · ' : ''}
+                        {r.count !== undefined ? r.count : ''}
                       </td>
                     )}
                   </tr>
@@ -47,11 +83,7 @@ function Figures({ f }: { f: BookkeepingReportFigures }) {
         </section>
       ))}
       <p className="font-semibold text-heading" data-testid="report-totals">
-        {f.type === 'PROFIT_LOSS'
-          ? `Net income ${money(f.totals['netIncomeCents'] ?? 0)}`
-          : f.type === 'TRIAL_BALANCE'
-            ? `Debits ${money(f.totals['debitsCents'] ?? 0)} · Credits ${money(f.totals['creditsCents'] ?? 0)}`
-            : `${f.lineCount} lines · net ${money(f.totals['netCents'] ?? 0)}`}
+        {headline(f)}
       </p>
     </div>
   );
@@ -82,7 +114,7 @@ export function ReportFiguresDialog({
       await api.bookkeeping.generateReport(row.id);
       await qc.invalidateQueries({ queryKey: [...BK_KEY] });
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorMessage(e, BK_ERRORS));
     } finally {
       setBusy(false);
     }
@@ -101,7 +133,10 @@ export function ReportFiguresDialog({
           <Button variant="secondary" onClick={onClose}>
             Done
           </Button>
-          <Button disabled={busy || !p?.supported} onClick={() => void generate()}>
+          <Button
+            disabled={busy || !p?.supported || p.missingStatements.length > 0}
+            onClick={() => void generate()}
+          >
             Generate Version
           </Button>
         </>
@@ -117,6 +152,12 @@ export function ReportFiguresDialog({
         ) : p?.figures ? (
           <>
             <p className="text-xs text-muted">Preview: not stored until you generate a version.</p>
+            {p.missingStatements.length ? (
+              <p className="text-sm text-text" data-testid="figures-waiting">
+                Generate Version waits for the period&apos;s statement of{' '}
+                {p.missingStatements.join(', ')}: balances come from statements, never estimates.
+              </p>
+            ) : null}
             <Figures f={p.figures} />
           </>
         ) : null}
