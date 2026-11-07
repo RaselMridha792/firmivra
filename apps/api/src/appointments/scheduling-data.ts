@@ -21,6 +21,12 @@ import {
 
 export const schedulingSelect = {
   ...appointmentSelect,
+  // A9: the latest intake form sent for this appointment, and whether it is done.
+  intakes: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: { id: true, status: true, form: { select: { title: true } } },
+  },
   serviceId: true,
   timeZone: true,
   allDay: true,
@@ -155,7 +161,13 @@ export function toRecord(
       bookkeepingEngagement: null,
       invoice: null,
       task: null,
-      intakeForm: null,
+      intakeForm: row.intakes[0]
+        ? {
+            id: row.intakes[0].id,
+            name: row.intakes[0].form.title,
+            completed: row.intakes[0].status === 'COMPLETED',
+          }
+        : null,
       documentRequest: null,
     },
     reminders: row.reminders.map((r) => reminderFromOffset(r.channel, r.offsetMinutes)),

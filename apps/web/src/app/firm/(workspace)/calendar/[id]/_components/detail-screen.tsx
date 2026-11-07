@@ -20,6 +20,7 @@ import { OriginLink } from '../../../../../../components/origin-link';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { SendIntakeDialog } from './send-intake-dialog';
 import {
   METHOD_LABELS,
   NOT_LOADED,
@@ -107,6 +108,14 @@ export function DetailScreen({ id }: { id: string }) {
   const remind = useApiMutation(() => api.scheduling.sendReminder(id), { invalidate: SCHEDULING });
   const open = r && ['PENDING', 'CONFIRMED', 'RESCHEDULED'].includes(r.status);
   const error = confirm.error ?? remind.error;
+  // A9: the intake form this appointment's type asks for, sent from here.
+  const typeConfig = useApiQuery([...SCHEDULING, 'type-config', r?.type?.id ?? 'none'], async () =>
+    r?.type ? api.scheduling.typeConfig(r.type.id) : null,
+  );
+  const requiredFormId = typeConfig.data?.requiredIntakeFormId ?? null;
+  const [sendingIntake, setSendingIntake] = useState(false);
+  const canSendIntake =
+    !!r && !!open && r.contact.kind === 'CLIENT' && !!r.contact.id && !r.related.intakeForm;
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -197,6 +206,18 @@ export function DetailScreen({ id }: { id: string }) {
         </p>
       ) : null}
 
+      {sendingIntake && r ? (
+        <SendIntakeDialog
+          record={r}
+          requiredFormId={requiredFormId}
+          onClose={() => setSendingIntake(false)}
+          onSent={() => {
+            setSendingIntake(false);
+            setMessage('Intake form sent. This appointment shows when the client completes it.');
+          }}
+        />
+      ) : null}
+
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">
           <Card title="Appointment" icon={CalendarCheck} testId="detail-summary">
@@ -277,6 +298,23 @@ export function DetailScreen({ id }: { id: string }) {
                 ]}
               />
             )}
+            {canSendIntake ? (
+              <div className="mt-3 flex flex-col gap-2" data-testid="detail-intake">
+                {requiredFormId ? (
+                  <p className="text-xs text-muted">
+                    This appointment type asks for an intake form before the appointment.
+                  </p>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  className="self-start"
+                  onClick={() => setSendingIntake(true)}
+                  data-testid="send-intake"
+                >
+                  Send Intake Form
+                </Button>
+              </div>
+            ) : null}
           </Card>
           <Card title="Reminders & Notices" icon={Bell} testId="detail-reminders">
             {!r ? (

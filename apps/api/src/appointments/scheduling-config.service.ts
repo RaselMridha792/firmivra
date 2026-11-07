@@ -64,6 +64,8 @@ const configSelect = {
   maxAdvanceDays: true,
   reminderDefaults: true,
   color: true,
+  // A9 (#1303): the service intake a booking of this type asks the client for.
+  requiredIntakeTemplateId: true,
 } satisfies Prisma.AppointmentTypeSelect;
 type ConfigRow = Prisma.AppointmentTypeGetPayload<{ select: typeof configSelect }>;
 
@@ -72,7 +74,7 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
     typeId: row.id,
     description: row.description,
     serviceId: row.serviceId,
-    // No table of eligible staff, offices, intake forms or required documents yet: empty.
+    // No table of eligible staff, offices or required documents yet: empty.
     eligibleStaffUserIds: [],
     methods: typeMethods(row).map(methodOf),
     officeIds: [],
@@ -80,7 +82,7 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
     bufferAfterMinutes: row.bufferAfterMinutes,
     minNoticeHours: Math.ceil(row.minNoticeMinutes / 60),
     maxWindowDays: row.maxAdvanceDays ?? NO_LIMIT_DAYS,
-    requiredIntakeFormId: null,
+    requiredIntakeFormId: row.requiredIntakeTemplateId,
     requiredDocuments: [],
     defaultReminders: remindersOf(row.reminderDefaults),
     color: colorHex(row.color),
@@ -215,6 +217,31 @@ export class SchedulingConfigService {
             JSON.stringify(stored) === JSON.stringify(current.reminderDefaults),
           );
         }
+        if (body.requiredIntakeFormId !== undefined) {
+          // A9: a live intake form of the firm, of the type's service when it has one ("tied to
+          // the service selected"); null stops asking.
+          const formId = body.requiredIntakeFormId;
+          if (formId) {
+            const form = await tx.intakeTemplate.findFirst({
+              where: { businessId, id: formId, archivedAt: null },
+              select: { serviceId: true },
+            });
+            if (!form) throw errors.notFound();
+            const serviceId = body.serviceId !== undefined ? body.serviceId : current.serviceId;
+            if (serviceId && form.serviceId !== serviceId) {
+              throw errors.invalidField(
+                'requiredIntakeFormId',
+                "Choose an intake form of this appointment type's service",
+              );
+            }
+          }
+          set(
+            'requiredIntakeFormId',
+            'requiredIntakeTemplateId',
+            formId,
+            formId === current.requiredIntakeTemplateId,
+          );
+        }
         if (body.color !== undefined) {
           const color = body.color ? colorFromHex(body.color) : null;
           if (body.color && !color) throw errors.unsupported('Choose one of the calendar colours');
@@ -244,11 +271,10 @@ export class SchedulingConfigService {
     const unstorable =
       (body.eligibleStaffUserIds?.length ?? 0) > 0 ||
       (body.officeIds?.length ?? 0) > 0 ||
-      (body.requiredIntakeFormId ?? null) !== null ||
       (body.requiredDocuments?.length ?? 0) > 0;
     if (unstorable) {
       throw errors.unsupported(
-        'Eligible staff, offices, a required intake form and required documents cannot be saved yet.',
+        'Eligible staff, offices and required documents cannot be saved yet.',
       );
     }
   }
