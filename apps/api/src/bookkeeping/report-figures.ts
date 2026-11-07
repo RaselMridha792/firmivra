@@ -2,14 +2,24 @@
 // client's ledger lines for its period. Pure: the service loads the lines and stores the result as
 // an immutable report version. The ledger holds bank and card lines, so every figure is on the
 // cash basis; an accrual report says so instead of pretending (invoices and bills are not in it).
+// Part 2's six types (statements, status, missing documents) are in report-figures-more.ts.
+
+import {
+  EMPTY_CONTEXT,
+  type FigureContext,
+  MORE_REPORT_TYPES,
+  type MoreReportType,
+  moreFigures,
+} from './report-figures-more.js';
 
 export type FigureReportType =
-  'PROFIT_LOSS' | 'TRIAL_BALANCE' | 'TRANSACTION_DETAIL' | 'UNCATEGORIZED';
+  'PROFIT_LOSS' | 'TRIAL_BALANCE' | 'TRANSACTION_DETAIL' | 'UNCATEGORIZED' | MoreReportType;
 export const FIGURE_REPORT_TYPES: readonly FigureReportType[] = [
   'PROFIT_LOSS',
   'TRIAL_BALANCE',
   'TRANSACTION_DETAIL',
   'UNCATEGORIZED',
+  ...MORE_REPORT_TYPES,
 ];
 
 export interface FigureLine {
@@ -17,9 +27,14 @@ export interface FigureLine {
   direction: 'DEBIT' | 'CREDIT';
   status: string;
   kind: string;
-  account: { id: string; name: string };
+  /** The account's type (BANK, CREDIT_CARD, LOAN, OTHER), for the Cash Flow. */
+  account: { id: string; name: string; type?: string };
   category: { id: string; name: string; type: string } | null;
   splits: { amountCents: number; category: { id: string; name: string; type: string } }[];
+  /** A transfer's other side's account type (Cash Flow: a card payment, a loan, another bank). */
+  transferPairAccountType?: string | null;
+  /** Whether a receipt is attached (Missing Documents and Status). */
+  hasReceipt?: boolean;
 }
 
 export interface FigureRow {
@@ -40,6 +55,8 @@ export interface ReportFigures {
   basis: 'CASH';
   /** Said when the report asked for accrual: these figures are the cash basis. */
   basisNote: string | null;
+  /** What the figures leave out or rest on (a statement missing, balances from statements). */
+  notes: string[];
   sections: FigureSection[];
   /** Net income (P&L), the equal totals (trial balance), or the lines' total. */
   totals: Record<string, number>;
@@ -71,13 +88,17 @@ export function reportFigures(
   type: FigureReportType,
   basis: 'CASH' | 'ACCRUAL' | null,
   lines: readonly FigureLine[],
+  ctx: FigureContext = EMPTY_CONTEXT,
 ): ReportFigures {
   const counted = lines.filter((l) => l.status !== 'EXCLUDED');
   const basisNote =
     basis === 'ACCRUAL'
       ? 'Shown on the cash basis: the ledger holds bank and card lines, not invoices and bills.'
       : null;
-  const base = { type, basis: 'CASH' as const, basisNote, lineCount: counted.length };
+  if ((MORE_REPORT_TYPES as readonly string[]).includes(type)) {
+    return moreFigures(type as MoreReportType, { basis: 'CASH', basisNote }, counted, lines, ctx);
+  }
+  const base = { type, basis: 'CASH' as const, basisNote, notes: [], lineCount: counted.length };
 
   if (type === 'PROFIT_LOSS') {
     const income = new Map<string, FigureRow>();
@@ -208,5 +229,7 @@ export function figuresCsv(f: ReportFigures, cell: (v: string | number | null) =
   for (const [k, v] of Object.entries(f.totals))
     lines.push(['Total', k, null, null, money(v), null].map(cell).join(','));
   if (f.basisNote) lines.push(['Note', f.basisNote, null, null, null, null].map(cell).join(','));
+  for (const n of f.notes ?? [])
+    lines.push(['Note', n, null, null, null, null].map(cell).join(','));
   return `${lines.join('\r\n')}\r\n`;
 }

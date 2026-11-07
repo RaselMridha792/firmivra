@@ -248,9 +248,11 @@ const MOCK_REPORT_PERIOD = { start: '2026-10-01', end: '2026-10-31' };
 let reportVersionStore: Map<string, BookkeepingReportVersionRow[]> | undefined;
 /** The report versions generated in the page, made on first use. */
 const reportVersions = () => (reportVersionStore ??= new Map());
-/** Synthetic figures for the four types part 1 covers; null for the rest. */
+/** The accounts a mock Balance Sheet has no statement for (generating waits for them). */
+const mockMissingStatements = (type: string) => (type === 'BALANCE_SHEET' ? ['Business Card'] : []);
+/** Synthetic figures for the types BK-RPT works out; null for the rest. */
 function mockFigures(type: string): BookkeepingReportFigures | null {
-  const base = { basis: 'CASH' as const, basisNote: null, lineCount: 12 };
+  const base = { basis: 'CASH' as const, basisNote: null, notes: [] as string[], lineCount: 12 };
   if (type === 'PROFIT_LOSS') {
     return {
       ...base,
@@ -311,6 +313,157 @@ function mockFigures(type: string): BookkeepingReportFigures | null {
         },
       ],
       totals: { netCents: -18_500, inCents: 0, outCents: 18_500 },
+    };
+  }
+  // BK-RPT part 2: statements, status and documents (synthetic; the API works them out).
+  if (type === 'GENERAL_LEDGER') {
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Bank and Card Accounts',
+          rows: [
+            { label: 'Operating Checking', debitCents: 1_250_000, creditCents: 342_000, count: 12 },
+          ],
+          totalCents: 908_000,
+        },
+        {
+          title: 'Income',
+          rows: [{ label: 'Sales', debitCents: 0, creditCents: 1_250_000, count: 4 }],
+          totalCents: -1_250_000,
+        },
+        {
+          title: 'Expenses',
+          rows: [
+            { label: 'Office Supplies', debitCents: 42_000, creditCents: 0, count: 6 },
+            { label: 'Rent', debitCents: 300_000, creditCents: 0, count: 2 },
+          ],
+          totalCents: 342_000,
+        },
+      ],
+      totals: { debitsCents: 1_592_000, creditsCents: 1_592_000 },
+    };
+  }
+  if (type === 'BALANCE_SHEET') {
+    return {
+      ...base,
+      type,
+      lineCount: 1,
+      notes: [
+        "Balances are each account's statement ending balance for the period. Other assets, liabilities and owner's equity need opening balances, which are not recorded yet, so net assets stand in for equity.",
+        'No statement balance yet for Business Card.',
+      ],
+      sections: [
+        {
+          title: 'Assets',
+          rows: [{ label: 'Operating Checking', amountCents: 1_408_000 }],
+          totalCents: 1_408_000,
+        },
+        { title: 'Liabilities', rows: [], totalCents: 0 },
+      ],
+      totals: { assetsCents: 1_408_000, liabilitiesCents: 0, netAssetsCents: 1_408_000 },
+    };
+  }
+  if (type === 'CASH_FLOW') {
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Operating Activities',
+          rows: [
+            { label: 'Office Supplies', amountCents: -42_000, count: 6 },
+            { label: 'Rent', amountCents: -300_000, count: 2 },
+            { label: 'Sales', amountCents: 1_250_000, count: 4 },
+          ],
+          totalCents: 908_000,
+        },
+        { title: 'Investing Activities', rows: [], totalCents: 0 },
+        { title: 'Financing Activities', rows: [], totalCents: 0 },
+      ],
+      totals: {
+        beginningCashCents: 500_000,
+        operatingCents: 908_000,
+        investingCents: 0,
+        financingCents: 0,
+        netChangeCents: 908_000,
+        endingCashCents: 1_408_000,
+        statementEndingCents: 1_408_000,
+        differenceCents: 0,
+      },
+    };
+  }
+  if (type === 'RECONCILIATION') {
+    return {
+      ...base,
+      type,
+      lineCount: 1,
+      sections: [
+        {
+          title: 'Operating Checking (approved)',
+          rows: [
+            { label: 'Statement beginning balance', amountCents: 500_000 },
+            { label: 'Statement ending balance', amountCents: 1_408_000 },
+            { label: 'Cleared balance', amountCents: 1_408_000, count: 12 },
+            { label: 'Difference', amountCents: 0 },
+            { label: 'Open exceptions', count: 0 },
+          ],
+          totalCents: 0,
+        },
+        {
+          title: 'Refunds and Chargebacks',
+          rows: [{ label: 'Refund issued (completed)', amountCents: 12_500, count: 1 }],
+          totalCents: 12_500,
+        },
+        { title: 'Settlements', rows: [], totalCents: 0 },
+      ],
+      totals: {
+        accountsCount: 1,
+        approvedCount: 1,
+        openCount: 0,
+        differenceCents: 0,
+        refundsCents: 12_500,
+        settlementsNetCents: 0,
+      },
+    };
+  }
+  if (type === 'MISSING_DOCUMENTS') {
+    return {
+      ...base,
+      type,
+      lineCount: 2,
+      sections: [
+        {
+          title: 'Receipts',
+          rows: [{ label: 'Office Supplies', amountCents: 18_500, count: 2 }],
+          totalCents: 18_500,
+        },
+        {
+          title: 'Bank and Card Statements',
+          rows: [{ label: 'Business Card', count: 1 }],
+          totalCents: 0,
+        },
+      ],
+      totals: { receiptsMissing: 2, amountWithoutReceiptCents: 18_500, statementsMissing: 1 },
+    };
+  }
+  if (type === 'BOOKKEEPING_STATUS') {
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Close',
+          rows: [
+            { label: 'Period: in progress' },
+            { label: 'Close steps done', count: 3 },
+            { label: 'Close steps open', count: 5 },
+          ],
+          totalCents: 0,
+        },
+      ],
+      totals: { closeStepsDone: 3, closeStepsOpen: 5 },
     };
   }
   return null;
@@ -884,6 +1037,20 @@ export function createBookkeepingMock({
     const p = periods.get(pid);
     if (!p) throw fail(404, 'NOT_FOUND', 'That period was not found.');
     return p;
+  };
+  /** BK-RPT, as the API: a period's report never skips its reconciliation, or (delivered) its close. */
+  const reportGate = (pid: string | null, close: boolean) => {
+    const p = pid ? periods.get(pid) : undefined;
+    if (!p) return;
+    const open = p.reconciliations.filter((x) => x.status !== 'APPROVED').length;
+    if (open)
+      throw fail(
+        409,
+        'RECON_OPEN',
+        `Approve every reconciliation of this period first (${open} open).`,
+      );
+    if (close && p.status !== 'APPROVED' && p.status !== 'CLOSED')
+      throw fail(409, 'PERIOD_STATE', "Approve the period's close before delivering its report.");
   };
   const touchPeriod = (p: BookkeepingPeriod) => {
     progressOf(p);
@@ -2079,20 +2246,27 @@ export function createBookkeepingMock({
         return r;
       }),
     getReport: (rid) => run(() => findReport(rid)),
-    // BK-RPT part 1: synthetic figures for the four report types (the API works them out from
-    // the ledger); versions kept in the page.
+    // BK-RPT: synthetic figures (the API works them out from the ledger and statements);
+    // versions kept in the page; a Balance Sheet waits for the card's statement.
     reportPreview: (rid) =>
       run(() => {
         const r = findReport(rid);
         const figures = mockFigures(r.reportType);
         return figures
-          ? { supported: true, reason: null, period: MOCK_REPORT_PERIOD, figures }
+          ? {
+              supported: true,
+              reason: null,
+              period: MOCK_REPORT_PERIOD,
+              figures,
+              missingStatements: mockMissingStatements(r.reportType),
+            }
           : {
               supported: false,
               reason:
-                'Figures for this report type are not worked out yet: Profit & Loss, Trial Balance, Transaction Detail and Uncategorized are.',
+                'Figures for this report type are not worked out yet: Quarterly Review, Year to Date Summary and custom reports are not.',
               period: MOCK_REPORT_PERIOD,
               figures: null,
+              missingStatements: [],
             };
       }),
     generateReport: (rid) =>
@@ -2106,6 +2280,12 @@ export function createBookkeepingMock({
             'Figures for this report type are not worked out yet',
           );
         }
+        if (mockMissingStatements(r.reportType).length)
+          throw fail(
+            409,
+            'STATEMENTS_MISSING',
+            "Add the period's statement for Business Card first.",
+          );
         const list = reportVersions().get(rid) ?? [];
         const v = {
           version: list.length + 1,
@@ -2169,6 +2349,7 @@ export function createBookkeepingMock({
         const r = findReport(rid);
         if (r.status !== 'IN_REVIEW')
           throw fail(409, 'REPORT_STATE', 'Only a report in review can be approved.');
+        reportGate(r.periodId, false);
         r.status = 'APPROVED';
         r.reviewedAt = nowIso();
         r.reviewedBy = mockMe;
@@ -2181,6 +2362,7 @@ export function createBookkeepingMock({
         const r = findReport(rid);
         if (r.status !== 'APPROVED')
           throw fail(409, 'REPORT_STATE', 'Approve the report before delivering it.');
+        reportGate(r.periodId, true);
         r.status = 'DELIVERED';
         r.deliveredAt = nowIso();
         r.deliveredBy = mockMe;

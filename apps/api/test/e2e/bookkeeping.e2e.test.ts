@@ -3019,8 +3019,8 @@ describe('report figures and versions (BK-RPT part 1)', () => {
       'NOT_FOUND',
     );
 
-    // Another type for now, and a report with no period, say so.
-    const bs = await mkReport(bk, { reportType: 'BALANCE_SHEET', periodId: p.id });
+    // A type not worked out yet, and a report with no period, say so.
+    const bs = await mkReport(bk, { reportType: 'YEAR_TO_DATE_SUMMARY', periodId: p.id });
     expectError(
       await call('post', `/reports/${bs.id}/generate`, people.staffA, {}),
       409,
@@ -3054,6 +3054,243 @@ describe('report figures and versions (BK-RPT part 1)', () => {
     );
     expect(audit).toHaveLength(2);
     expect(JSON.stringify(audit)).not.toMatch(/Fake Fees|120000/);
+  });
+});
+
+describe('report figures from statements, status and documents (BK-RPT part 2)', () => {
+  it('works out the statement reports, waits for missing statements, and never completes a report past an open reconciliation', async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const tag = randomUUID().slice(0, 6);
+    const p = await mkPeriod(bk);
+    const at = (on: string) => new Date(`${on}T00:00:00.000Z`);
+    const checking = await mkAccount(bk, { name: `Fake p2 checking ${tag}` });
+    const card = await mkAccount(bk, { name: `Fake p2 card ${tag}`, type: 'CREDIT_CARD' });
+    const category = (name: string, type: 'INCOME' | 'EXPENSE') =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingCategory.create({
+          data: { ...A, name: `${name} ${tag}`, type },
+          select: { id: true },
+        }),
+      ).then((c) => c.id);
+    const fees = await category('Fake p2 Fees', 'INCOME');
+    const rent = await category('Fake p2 Rent', 'EXPENSE');
+    const mk = (
+      accountId: string,
+      cents: number,
+      direction: 'DEBIT' | 'CREDIT',
+      categoryId: string,
+    ) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId,
+            transactionDate: at(p.periodStart),
+            description: 'Fake p2 line',
+            amountCents: cents,
+            direction,
+            status: 'CATEGORIZED',
+            source: 'MANUAL',
+            categoryId,
+          },
+        }),
+      );
+    await mk(checking.id, 100_000, 'CREDIT', fees);
+    await mk(checking.id, 30_000, 'DEBIT', rent);
+    await mk(card.id, 700, 'DEBIT', rent);
+    const preview = async (type: string) => {
+      const r = await mkReport(bk, { reportType: type, periodId: p.id });
+      const out = exact(
+        BookkeepingReportPreview,
+        await call('get', `/reports/${r.id}/preview`, people.staffA),
+      );
+      return { id: r.id, ...out };
+    };
+
+    // No statements yet: the Balance Sheet says which, and is not generated from a guess.
+    const bs = await preview('BALANCE_SHEET');
+    expect(bs.supported).toBe(true);
+    expect(bs.figures!.notes.join(' ')).toContain(`Fake p2 checking ${tag}`);
+    expectError(
+      await call('post', `/reports/${bs.id}/generate`, people.staffA, {}),
+      409,
+      'STATEMENTS_MISSING',
+    );
+
+    // The period's statements: checking still open, the card approved; the client's other
+    // accounts (from other tests) approved at zero so they change nothing.
+    const recon = (accountId: string, beginning: number, ending: number, approved: boolean) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingReconciliation.create({
+          data: {
+            businessId: ids.firmA,
+            periodId: p.id,
+            accountId,
+            statementStart: at(p.periodStart),
+            statementEnd: at(p.periodEnd),
+            beginningBalanceCents: beginning,
+            endingBalanceCents: ending,
+            clearedBalanceCents: approved ? ending : 0,
+            differenceCents: approved ? 0 : ending,
+            ...(approved
+              ? { status: 'APPROVED', readyForReviewAt: new Date(), approvedAt: new Date() }
+              : {}),
+          },
+          select: { id: true },
+        }),
+      );
+    const open = await recon(checking.id, 50_000, 120_000, false);
+    await recon(card.id, 0, -700, true);
+    const others = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingAccount.findMany({
+        where: { ...A, archivedAt: null, reconcile: true, id: { notIn: [checking.id, card.id] } },
+        select: { id: true },
+      }),
+    );
+    for (const o of others) await recon(o.id, 0, 0, true);
+
+    const v1 = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${bs.id}/generate`, people.staffA, {}),
+    );
+    expect(v1.figures.totals).toEqual({
+      assetsCents: 120_000,
+      liabilitiesCents: 700,
+      netAssetsCents: 119_300,
+    });
+    expect(v1.figures.notes).toContain(`Not reconciled and approved yet: Fake p2 checking ${tag}.`);
+
+    // Cash Flow: the bank lines explain the statement's change exactly.
+    const cf = await preview('CASH_FLOW');
+    expect(cf.figures!.totals).toMatchObject({
+      beginningCashCents: 50_000,
+      operatingCents: 70_000,
+      netChangeCents: 70_000,
+      endingCashCents: 120_000,
+      differenceCents: 0,
+    });
+
+    // Reconciliation, with the period's refunds and settlements broken down.
+    await asOwner(ids.firmA, async (tx) => {
+      await tx.bookkeepingRefund.create({
+        data: {
+          ...A,
+          kind: 'REFUND_ISSUED',
+          refundDate: at(p.periodStart),
+          amountCents: 2_000,
+          status: 'COMPLETED',
+        },
+      });
+      await tx.bookkeepingSettlement.create({
+        data: {
+          ...A,
+          processor: 'stripe',
+          periodStart: at(p.periodStart),
+          periodEnd: at(p.periodEnd),
+          payoutDate: at(p.periodEnd),
+          grossCents: 10_000,
+          feesCents: 300,
+          netPayoutCents: 9_700,
+          netSource: 'CALCULATED',
+        },
+      });
+    });
+    const rc = await preview('RECONCILIATION');
+    const mine = rc.figures!.sections.find(
+      (s) => s.title === `Fake p2 checking ${tag} (in progress)`,
+    );
+    expect(mine!.rows.find((r) => r.label === 'Difference')).toEqual({
+      label: 'Difference',
+      amountCents: 120_000,
+    });
+    expect(rc.figures!.sections.find((s) => s.title === 'Refunds and Chargebacks')!.rows).toEqual([
+      { label: 'Refund issued (completed)', amountCents: 2_000, count: 1 },
+    ]);
+    expect(rc.figures!.sections.find((s) => s.title === 'Settlements')!.totalCents).toBe(9_700);
+    expect(rc.figures!.totals).toMatchObject({ openCount: 1, refundsCents: 2_000 });
+
+    // Missing Documents, Status and the General Ledger.
+    const md = await preview('MISSING_DOCUMENTS');
+    expect(md.figures!.totals).toMatchObject({
+      receiptsMissing: 2,
+      amountWithoutReceiptCents: 30_700,
+    });
+    expect(md.figures!.sections[1]!.rows.map((r) => r.label)).toEqual(
+      expect.arrayContaining([`Fake p2 checking ${tag}`, `Fake p2 card ${tag}`]),
+    );
+    const st = await preview('BOOKKEEPING_STATUS');
+    expect(st.figures!.totals).toMatchObject({
+      uncategorized: 0,
+      withoutReceipt: 2,
+      reconciliationsOpen: 1,
+      reconciliationsNotStarted: 0,
+    });
+    const gl = await preview('GENERAL_LEDGER');
+    expect(gl.figures!.totals['debitsCents']).toBe(gl.figures!.totals['creditsCents']);
+    expect(gl.figures!.totals['debitsCents']).toBe(130_700);
+
+    // Approving or completing the period's report never skips its reconciliation, or its close.
+    const report = await mkReport(bk, { reportType: 'PROFIT_LOSS', periodId: p.id });
+    await call('post', `/reports/${report.id}/start`, people.staffA, {});
+    await call('post', `/reports/${report.id}/submit-review`, people.staffA, {});
+    expectError(
+      await call('post', `/reports/${report.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_OPEN',
+    );
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingReconciliation.update({
+        where: { businessId_id: { businessId: ids.firmA, id: open.id } },
+        data: {
+          clearedBalanceCents: 120_000,
+          differenceCents: 0,
+          status: 'APPROVED',
+          readyForReviewAt: new Date(),
+          approvedAt: new Date(),
+        },
+      }),
+    );
+    exact(
+      BookkeepingReportRow,
+      await call('post', `/reports/${report.id}/approve`, people.ownerA, {}),
+    );
+    const published = await mkPublishedReport(ws.engagementId);
+    expectError(
+      await call('post', `/reports/${report.id}/deliver`, people.ownerA, {
+        engagementReportId: published,
+      }),
+      409,
+      'PERIOD_STATE',
+    );
+    await call('post', `/periods/${p.id}/start`, people.staffA, {});
+    await call('post', `/periods/${p.id}/ready`, people.staffA, {});
+    exact(BookkeepingPeriod, await call('post', `/periods/${p.id}/approve`, people.ownerA, {}));
+    expect(
+      exact(
+        BookkeepingReportRow,
+        await call('post', `/reports/${report.id}/deliver`, people.ownerA, {
+          engagementReportId: published,
+        }),
+      ).status,
+    ).toBe('DELIVERED');
+
+    // Another firm reaches none of it; Quarterly Review is not worked out yet.
+    expectError(
+      await call('get', `/reports/${bs.id}/preview`, people.ownerB, undefined, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    const qr = await mkReport(bk, { reportType: 'QUARTERLY_REVIEW', periodId: p.id });
+    expectError(
+      await call('post', `/reports/${qr.id}/generate`, people.staffA, {}),
+      409,
+      'REPORT_NOT_SUPPORTED',
+    );
   });
 });
 
