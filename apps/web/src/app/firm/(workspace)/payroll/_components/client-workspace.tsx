@@ -271,6 +271,16 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
           ) : null}
         </header>
         {why ? <p className="text-right text-xs text-muted">{why}</p> : null}
+        {/* PY-B02: the five steps on a synthetic run, to review them without running payroll. */}
+        <p className="text-right text-xs">
+          <Link
+            href="/payroll/runs/demo"
+            className="text-link underline"
+            data-testid="demo-run-link"
+          >
+            Preview the Run Payroll steps on a demo run (nothing is sent)
+          </Link>
+        </p>
         {message ? (
           <Toast
             message={message.text}
