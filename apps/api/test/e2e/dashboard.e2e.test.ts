@@ -30,10 +30,15 @@ const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY);
 /** The firm's today and tomorrow (no settings row: America/New_York). */
-const nyDay = (offset: number) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(Date.now() + offset * DAY),
+/** Today in New York, moved by whole calendar days (never by 24 hours: a clock change is 23 or 25). */
+const nyDay = (offset: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
   );
+  const day = new Date(`${today}T12:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + offset);
+  return day.toISOString().slice(0, 10);
+};
 
 let app: INestApplication;
 const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
