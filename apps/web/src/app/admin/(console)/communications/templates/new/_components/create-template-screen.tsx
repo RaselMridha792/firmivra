@@ -145,7 +145,8 @@ function LibraryThumbnail({ image }: { image: AdminCommMedia }) {
   );
 }
 
-function InsertImagePopover({
+/** Upload or pick from the library; also New Message's (SA-COM-R2: one behaviour for both). */
+export function InsertImagePopover({
   onClose,
   onInsert,
 }: {

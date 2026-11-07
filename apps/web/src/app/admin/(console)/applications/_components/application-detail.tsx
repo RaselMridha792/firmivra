@@ -16,7 +16,6 @@ import {
   Building2,
   Check,
   Database,
-  ExternalLink,
   FileText,
   Folder,
   History,
@@ -85,13 +84,10 @@ const firmStatus = (status: BusinessStatus) =>
 
 export function ApplicationRecord({
   application,
-  appBaseUrl,
   onStale,
   back = { href: '/applications', label: 'Back to Applications' },
 }: {
   application: FirmApplicationRecord;
-  /** The firm workspace site, for "Open Firm Workspace". */
-  appBaseUrl: string;
   /** Reloads the application after someone else changed it. */
   onStale: () => void;
   /** Where "Back" goes: the applications list, or the firms list on a firm's page. */
@@ -392,19 +388,7 @@ export function ApplicationRecord({
             </Button>
           </div>
         )}
-        {/* Edit Firm Details and Deactivate Firm wait for their API; only working buttons show. */}
-        {firm && (
-          <a
-            href={appBaseUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
-          >
-            <ExternalLink aria-hidden className="size-4" />
-            Open Firm Workspace
-            <span className="sr-only"> (opens in a new tab)</span>
-          </a>
-        )}
+        {/* SA-APP-F12: no shortcut into a firm's private workspace from the Super Admin console. */}
       </header>
 
       {/* One grid, so rows fill in order at every width. */}
@@ -535,7 +519,7 @@ export function ApplicationRecord({
   );
 }
 
-function ApplicationDetailContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
+function ApplicationDetailContent({ id, backTo }: { id: string; backTo: string | null }) {
   const { me } = useMe();
   const query = useApiQuery(applicationDetailKey(id), () => api.firmApplications.get(id));
   if (!me.platformAdmin) return <NoApplicationPermission />;
@@ -545,15 +529,15 @@ function ApplicationDetailContent({ id, appBaseUrl }: { id: string; appBaseUrl: 
         <ApplicationRecord
           key={application.id}
           application={application}
-          appBaseUrl={appBaseUrl}
           onStale={() => void query.refetch()}
+          {...(backTo ? { back: { href: backTo, label: 'Back to Applications' } } : {})}
         />
       )}
     </ApplicationPageState>
   );
 }
 
-export function ApplicationDetail({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
+export function ApplicationDetail({ id, backTo = null }: { id: string; backTo?: string | null }) {
   if (!FirmApplicationId.safeParse(id).success) {
     return (
       <Card data-testid="page-not-found">
@@ -563,5 +547,5 @@ export function ApplicationDetail({ id, appBaseUrl }: { id: string; appBaseUrl: 
     );
   }
 
-  return <ApplicationDetailContent id={id} appBaseUrl={appBaseUrl} />;
+  return <ApplicationDetailContent id={id} backTo={backTo} />;
 }

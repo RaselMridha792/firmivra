@@ -34,6 +34,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { ConfirmEventButton } from '../../compliance/_components/confirm-event';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -351,6 +352,19 @@ export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) 
                   Provider confirmation {run.providerConfirmation}
                   {run.submittedAt ? `, submitted ${stamp(run.submittedAt)}` : ''}.
                 </p>
+              ) : null}
+              {/* AU-F31 (#1264): once submitted, the agency's confirmation of the filing is recorded
+                  here for the automations waiting on it. Never in the demo. */}
+              {!demo && ['SUBMITTED', 'PROCESSING', 'COMPLETED'].includes(run.status) ? (
+                <div className="mt-3">
+                  <ConfirmEventButton
+                    event="payroll.filing_confirmed"
+                    module="PAYROLL"
+                    recordId={run.id}
+                    occurrence={run.periodEnd}
+                    what="this payroll's filing"
+                  />
+                </div>
               ) : null}
               {a?.canReopen ? (
                 <button
