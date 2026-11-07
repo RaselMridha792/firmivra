@@ -475,6 +475,18 @@ describe('the computation', () => {
       }) as never,
     );
     expect(flat.insights).toEqual([]);
+    // RP-Y12: a comparison period with nothing in it is said, not turned into a percentage.
+    const empty = compute(
+      input({
+        def: def({ compareTo: 'PREVIOUS_PERIOD' }),
+        compareRows: [],
+        comparisonRange: cmp,
+      }) as never,
+    );
+    expect(empty.insights).toEqual([
+      expect.objectContaining({ key: 'comparison_has_nothing', value: null }),
+    ]);
+    expect(empty.kpis.find((k) => k.key === 'total')?.deltaPercent ?? null).toBeNull();
     // A comparison that was asked for but not possible is a notice, never a made-up number.
     expect(
       compute(input({ def: def({ compareTo: 'PREVIOUS_PERIOD' }) }) as never).notices.join(' '),
