@@ -450,6 +450,17 @@ Progress (MSG-F17, F23, F24; Nov 7):
   off with the reason; a client's is off ("Texts go to leads only"). A lead's Text switches the
   reply to Text. F24's evidence rows are in the PR body. Mock specs 41 of 41.
 
+Progress (TX-F07 and the TX-F06 decision; Nov 7):
+- TX-F06, for Review 2 (the lead accepted it, Nov 7): Create Appointment on a return opens the
+  shared Schedule form on that client and engagement, with Back, as Bookkeeping and Payroll do.
+  There is no separate panel; one would need the Schedule form made embeddable first.
+- Branch `rasel/R60-tax-returns-menu`: TX-F07. The row menu's ways out keep Back to the list as it
+  was: View Client Profile, Edit Client Details (new: the client's editor, `?edit=1`, with its Stay
+  or Discard guard), Documents, Request Client Information (`/documents/requests/new?clientId=`),
+  Send Message (New Message on the client, subject the return, Related To the return), Schedule
+  Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
+  Mock `r60-tax-returns-menu` 2 of 2.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
