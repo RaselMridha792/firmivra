@@ -116,11 +116,18 @@ const { ownerA, adminA, staffA, preparerA, ownerB } = people;
 
 const DAY = 86_400_000;
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
-/** The firm’s day (the firm has no time zone set: New York), for dates the server works out. */
-const firmDay = (offset = 0) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(Date.now() + offset * DAY),
+/**
+ * The firm’s day (the firm has no time zone set: New York), for dates the server works out, moved
+ * by calendar days (never 24 hours: a clock change makes a day 23 or 25).
+ */
+const firmDay = (offset = 0) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
   );
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
 
 const auditRows = (entityId: string) =>
   inFirm('a', (tx) =>
