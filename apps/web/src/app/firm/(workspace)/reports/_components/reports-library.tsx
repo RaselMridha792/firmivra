@@ -1,7 +1,16 @@
 'use client';
 
 import type { RecentReportRow, ReportScheduleRow, SavedReportRow } from '@firmivra/types';
-import { ActionMenu, Checkbox, Select, Table, Toast, type Column } from '@firmivra/ui';
+import {
+  ActionMenu,
+  Button,
+  Checkbox,
+  Modal,
+  Select,
+  Table,
+  Toast,
+  type Column,
+} from '@firmivra/ui';
 import { DotsThreeVertical, MagnifyingGlass, Star } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -20,6 +29,7 @@ import {
   RP_KEY,
   card,
   dateTimeText,
+  linkBtn,
 } from './reports-shared';
 import { ReportHelp } from './report-help';
 
@@ -31,6 +41,14 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 // RP-F12 (Octavia, Oct 28): each tab's sort, as the API takes it ("field:direction").
+/** RP-Y01 (Octavia, Oct 28): saved reports changed lately, in days back from now. */
+const UPDATED = [
+  { value: '', label: 'Any Time' },
+  { value: '7', label: 'Last 7 Days' },
+  { value: '30', label: 'Last 30 Days' },
+  { value: '90', label: 'Last 90 Days' },
+  { value: '365', label: 'Last 12 Months' },
+];
 const SORTS: Record<TabId, { value: string; label: string }[]> = {
   recent: [
     { value: 'at:desc', label: 'Newest First' },
@@ -67,10 +85,15 @@ export function ReportsLibrary() {
     SORTS[tab].find((s) => s.value === params.get('sort'))?.value ?? SORTS[tab][0]?.value;
   const show = params.get('show') ?? '';
   const archived = params.get('archived') === '1';
+  const updated = UPDATED.find((u) => u.value === params.get('updated'))?.value ?? '';
   const [term, setTerm] = useState(search);
   const query = useDeferredValue(search);
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [schedule, setSchedule] = useState<SavedReportRow>();
+  // RP-Y16 (Octavia, Oct 28): Archive asks first, and the report just archived can come back
+  // from the note it leaves (Undo), as well as from Show archived reports and Restore.
+  const [archiving, setArchiving] = useState<SavedReportRow>();
+  const [archivedNow, setArchivedNow] = useState<SavedReportRow>();
   const here = `${pathname}?${params.toString()}`;
   /** Changes the address in place; any change but the page goes back to page 1. */
   const set = (over: Record<string, string | null>) => {
@@ -82,14 +105,23 @@ export function ReportsLibrary() {
     if (!('page' in over)) next.delete('page');
     router.replace(`${pathname}?${next.toString()}`, { scroll: false });
   };
-  const act = async (work: () => Promise<unknown>, done: string) => {
+  const act = async (work: () => Promise<unknown>, done: string): Promise<boolean> => {
     try {
       await work();
       await qc.invalidateQueries({ queryKey: [...RP_KEY] });
       setMessage({ text: done, tone: 'success' });
+      return true;
     } catch (e) {
       setMessage({ text: errorMessage(e, RP_ERRORS), tone: 'error' });
+      return false;
     }
+  };
+  const archive = async (r: SavedReportRow) => {
+    setArchiving(undefined);
+    if (await act(() => api.reports.archiveSaved(r.id), 'Archived.')) setArchivedNow(r);
+  };
+  const restore = async (r: SavedReportRow) => {
+    if (await act(() => api.reports.restoreSaved(r.id), 'Restored.')) setArchivedNow(undefined);
   };
   const [sortField, direction] = (sort ?? '').split(':') as [string, 'asc' | 'desc'];
   const recent = useApiQuery([...RP_KEY, 'lib-recent', page, query, category, sort, show], () =>
@@ -104,7 +136,7 @@ export function ReportsLibrary() {
     }),
   );
   const saved = useApiQuery(
-    [...RP_KEY, 'lib-saved', page, query, category, sort, show, archived],
+    [...RP_KEY, 'lib-saved', page, query, category, sort, show, archived, updated],
     () =>
       api.reports.saved({
         page,
@@ -113,6 +145,7 @@ export function ReportsLibrary() {
         ...(category ? { category: category as never } : {}),
         tab: (show || 'all') as never,
         includeArchived: archived,
+        ...(updated ? { updatedWithinDays: Number(updated) } : {}),
         sort: sortField as never,
         direction,
       }),
@@ -220,7 +253,7 @@ export function ReportsLibrary() {
     onPage: (n: number) => set({ page: String(n) }),
     onSort: () => undefined,
   };
-  const filtered = !!(query || category || show || archived);
+  const filtered = !!(query || category || show || archived || updated);
   const empty = filtered
     ? 'No reports match these filters'
     : {
@@ -262,6 +295,21 @@ export function ReportsLibrary() {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
+      {archivedNow ? (
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card bg-canvas p-4 text-sm text-text"
+          data-testid="archived-note"
+        >
+          <span>
+            {archivedNow.name} is archived. Nothing is deleted: Show archived reports finds it, and
+            Restore brings it back.
+          </span>
+          <button type="button" className={linkBtn} onClick={() => void restore(archivedNow)}>
+            Undo
+          </button>
+        </p>
+      ) : null}
       <section className={`${card} flex flex-col gap-3`} aria-label="Reports">
         <div
           role="tablist"
@@ -276,7 +324,15 @@ export function ReportsLibrary() {
               aria-selected={tab === t.id}
               onClick={() => {
                 setTerm('');
-                set({ tab: t.id, q: null, category: null, sort: null, show: null, archived: null });
+                set({
+                  tab: t.id,
+                  q: null,
+                  category: null,
+                  sort: null,
+                  show: null,
+                  archived: null,
+                  updated: null,
+                });
               }}
               className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
             >
@@ -285,7 +341,7 @@ export function ReportsLibrary() {
           ))}
         </div>
         <div
-          className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]"
+          className={`grid items-end gap-3 sm:grid-cols-2 ${tab === 'saved' ? 'lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]' : 'lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]'}`}
           data-testid="library-filters"
         >
           <label className="flex flex-col gap-1.5 text-sm font-semibold text-heading">
@@ -321,6 +377,14 @@ export function ReportsLibrary() {
             onChange={(e) => set({ show: e.target.value })}
             options={showOptions}
           />
+          {tab === 'saved' ? (
+            <Select
+              label="Updated"
+              value={updated}
+              onChange={(e) => set({ updated: e.target.value })}
+              options={UPDATED}
+            />
+          ) : null}
           {SORTS[tab].length ? (
             <Select
               label="Sort By"
@@ -434,16 +498,14 @@ export function ReportsLibrary() {
                               ? [
                                   {
                                     label: 'Restore',
-                                    onSelect: () =>
-                                      void act(() => api.reports.restoreSaved(r.id), 'Restored.'),
+                                    onSelect: () => void restore(r),
                                   },
                                 ]
                               : [
                                   {
                                     label: 'Archive',
                                     danger: true,
-                                    onSelect: () =>
-                                      void act(() => api.reports.archiveSaved(r.id), 'Archived.'),
+                                    onSelect: () => setArchiving(r),
                                   },
                                 ]),
                         ],
@@ -522,6 +584,27 @@ export function ReportsLibrary() {
           onClose={() => setSchedule(undefined)}
           onNotice={(text, tone) => setMessage({ text, tone })}
         />
+      ) : null}
+      {archiving ? (
+        <Modal
+          open
+          title="Archive this report?"
+          onClose={() => setArchiving(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setArchiving(undefined)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void archive(archiving)}>Archive</Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text" data-testid="archive-confirm">
+            {archiving.name} leaves the library and cannot be changed or scheduled until it is
+            restored. Nothing is deleted: its past exports stay, Show archived reports finds it, and
+            Restore brings it back.
+          </p>
+        </Modal>
       ) : null}
     </div>
   );

@@ -9,7 +9,13 @@ import type {
   JurisdictionLevel,
   RecurrenceEnd,
 } from '@firmivra/types';
-import { ApiRequestError, COMPLIANCE_STATES } from '@firmivra/types';
+import {
+  ApiRequestError,
+  CLASSIFICATION_LABEL,
+  COMPLIANCE_STATES,
+  FEDERAL_CLASSIFICATIONS,
+  type FederalClassification,
+} from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Radio, Textarea, Toast } from '@firmivra/ui';
 import { ArrowsClockwise, Gear, Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -62,16 +68,7 @@ const FREQUENCIES: { value: DeadlineFrequency; label: string }[] = [
   { value: 'CUSTOM', label: 'Custom (every N months)' },
   { value: 'AUTHORITY_DEFINED', label: 'Authority-defined' },
 ];
-const ENTITY_TYPES = [
-  'Individual',
-  'Sole Proprietor',
-  'Single-Member LLC',
-  'LLC (Multi-Member)',
-  'S Corporation',
-  'C Corporation',
-  'Partnership',
-  'Nonprofit',
-];
+
 const SERVICES = [
   { value: 'ANNUAL_TAX', label: 'Annual Tax' },
   { value: 'QUARTERLY_TAX', label: 'Quarterly Tax' },
@@ -392,7 +389,7 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
         name: `${r.name} applies to`,
         target: { kind: 'RECURRENCE', id: r.id },
         outcome: 'SUGGEST',
-        entityTypes: s.entityType ? [s.entityType] : [],
+        entityTypes: s.entityType ? [s.entityType as FederalClassification] : [],
         states: s.ruleState ? [s.ruleState as (typeof COMPLIANCE_STATES)[number]] : [],
         services: s.service ? [s.service as 'ANNUAL_TAX'] : [],
         // Tax-exempt is not a client status (CD-F13: a rule names real ones only), so staff check it.
@@ -982,7 +979,11 @@ function SetupForm({ editId, initial }: { editId: string | undefined; initial: S
                   onChange={(v) => set({ entityType: v })}
                   options={[
                     { value: '', label: 'All Applicable' },
-                    ...ENTITY_TYPES.map((x) => ({ value: x, label: x })),
+                    // CD-F14: the federal tax classifications (an LLC by its election).
+                    ...FEDERAL_CLASSIFICATIONS.map((x) => ({
+                      value: x,
+                      label: CLASSIFICATION_LABEL[x],
+                    })),
                   ]}
                 />
               </Label>

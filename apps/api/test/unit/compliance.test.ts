@@ -288,6 +288,30 @@ describe('decide (applicability)', () => {
     expect(decide({ ...rule, criteria: { election: 'S' } }, client()).kind).toBe('REVIEW');
   });
 
+  it("reads the client's typed entity type, and taxes an LLC by its election (CD-F14)", () => {
+    const typed = (entityType: string | null, state = 'GA') =>
+      client({ profile: { entityType, state } });
+    expect(decide(rule, typed('S corp')).kind).toBe('MATCH');
+    const elected = decide(rule, typed('LLC taxed as S corp'));
+    expect(elected.kind).toBe('MATCH');
+    expect(elected.kind === 'MATCH' && elected.reason).toContain(
+      'LLC electing S corporation (taxed as S corporation)',
+    );
+    // A bare LLC could be an S election: staff check, with the reason.
+    const bare = decide(rule, typed('LLC'));
+    expect(bare.kind).toBe('REVIEW');
+    expect(bare.kind === 'REVIEW' && bare.reason).toContain('LLC without its tax classification');
+    // No LLC is taxed as a nonprofit: a bare LLC is simply not one.
+    expect(decide({ ...rule, entityTypes: ['NONPROFIT'] }, typed('LLC')).kind).toBe('NO_MATCH');
+    expect(decide(rule, typed('Cooperative')).kind).toBe('REVIEW');
+    // A rule saved before the list, in words, still reads.
+    expect(decide({ ...rule, entityTypes: ['S Corporation'] }, typed('S_CORPORATION')).kind).toBe(
+      'MATCH',
+    );
+    // Something definite rules a client out before anything unknown sends it to staff.
+    expect(decide(rule, typed(null, 'FL')).kind).toBe('NO_MATCH');
+  });
+
   it('matches by service', () => {
     const withService = {
       ...rule,
@@ -337,6 +361,29 @@ describe('atRiskClients', () => {
     expect(list[0]).toMatchObject({ overdueCount: 1, nextDueOn: '2026-10-30' });
     expect(list[1]).toMatchObject({ highPriorityUpcomingCount: 1 });
     expect(list[2]).toMatchObject({ waitingOnClientCount: 1 });
+  });
+  // CD-Y10 (Octavia, Oct 28): the formula's edges, as the overview's At Risk help says them.
+  it('is overdue from the day after the effective due date; the window counts today and its last day', () => {
+    const at = (rows: Parameters<typeof atRiskClients>[0]) =>
+      atRiskClients(rows, today, 7).map((c) => [
+        c.client.id,
+        c.overdueCount,
+        c.highPriorityUpcomingCount,
+        c.waitingOnClientCount,
+      ]);
+    // Due today: not overdue, and in the window.
+    expect(at([row('a', '2026-10-15')])).toEqual([]);
+    expect(at([row('a', '2026-10-15', 'UPCOMING', 'HIGH')])).toEqual([['a', 0, 1, 0]]);
+    // Yesterday: overdue, whatever its priority.
+    expect(at([row('a', '2026-10-14', 'UPCOMING', 'LOW')])).toEqual([['a', 1, 0, 0]]);
+    // The window's last day counts; the day after does not.
+    expect(at([row('a', '2026-10-22', 'WAITING_ON_CLIENT')])).toEqual([['a', 0, 0, 1]]);
+    expect(at([row('a', '2026-10-23', 'WAITING_ON_CLIENT', 'HIGH')])).toEqual([]);
+    // An extension moves the date it is judged by; closed work never counts.
+    expect(at([{ ...row('a', '2026-10-01'), extendedDueOn: d('2026-11-30') }])).toEqual([]);
+    for (const status of ['COMPLETED', 'NOT_APPLICABLE']) {
+      expect(at([row('a', '2026-10-01', status, 'HIGH')])).toEqual([]);
+    }
   });
 });
 

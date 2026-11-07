@@ -59,6 +59,8 @@ const people = {
   adminA: person('admin-a'),
   staffA: person('staff-a'),
   managerA: person('manager-a'),
+  readerA: person('reader-a'),
+  clientA: person('client-a'),
   ownerB: person('owner-b'),
 };
 type Who = (typeof people)[keyof typeof people];
@@ -159,7 +161,7 @@ beforeAll(async () => {
         data: {
           id: p.id,
           cognitoSub: p.id,
-          pool: 'STAFF',
+          pool: key === 'clientA' ? 'CLIENT' : 'STAFF',
           email: p.email,
           name: `Fake R55r ${key}`,
         },
@@ -191,6 +193,7 @@ beforeAll(async () => {
     ['a', people.adminA.id, 'ADMIN'],
     ['a', people.staffA.id, 'STAFF'],
     ['a', people.managerA.id, 'MANAGER'],
+    ['a', people.readerA.id, 'READ_ONLY'],
     ['b', people.ownerB.id, 'OWNER'],
   ] as const) {
     await inFirm(firm, (tx) =>
@@ -201,6 +204,14 @@ beforeAll(async () => {
   await inFirm('a', async (tx) => {
     const businessId = firms.a;
     await tx.businessSettings.create({ data: { businessId, timezone: 'America/New_York' } });
+    await tx.clientAccount.create({
+      data: {
+        businessId,
+        userId: people.clientA.id,
+        email: people.clientA.email,
+        status: 'ACTIVE',
+      },
+    });
     const service = await tx.service.create({
       data: { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping' },
       select: { id: true },
@@ -1042,6 +1053,19 @@ describe('saved reports', () => {
       [a.id, false],
       [b.id, false],
     ]);
+    // RP-Y01: the Updated facet, in days back from now.
+    await inFirm('a', (tx) =>
+      tx.reportDefinition.update({ where: { id: b.id }, data: { updatedAt: ago(40) } }),
+    );
+    expect((await list('&updatedWithinDays=30')).items.map((r) => r.id)).toEqual([a.id]);
+    expect((await list('&updatedWithinDays=90')).items.map((r) => r.id)).toEqual([a.id, b.id]);
+    for (const bad of ['0', '367', 'week']) {
+      expectError(
+        await call('get', `/reports/saved?updatedWithinDays=${bad}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
     expectError(
       await call('get', '/reports/saved?sort=owner', people.ownerA),
       400,
@@ -1690,8 +1714,8 @@ describe('settings and lookups', () => {
       'Riley Example (fake)',
     ]);
     expect((await lookup('kind=SERVICE')).map((s) => s.label)).toContain('Bookkeeping');
-    // Owner, Admin, Staff and Manager.
-    expect((await lookup('kind=TEAM_MEMBER')).length).toBe(4);
+    // Owner, Admin, Staff, Manager and Read Only.
+    expect((await lookup('kind=TEAM_MEMBER')).length).toBe(5);
     expect(await lookup('kind=TEAM_MEMBER', people.staffA)).toEqual([]);
     expect((await lookup('kind=LEAD_SOURCE&search=ref')).map((s) => s.id)).toEqual(['REFERRAL']);
     expect(
@@ -1708,6 +1732,250 @@ describe('settings and lookups', () => {
       await call('get', '/reports/lookups?kind=PLANET', people.ownerA),
       400,
       'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('permission matrix and another business (RP-Y05, Octavia Oct 28)', () => {
+  /**
+   * What each member may do in Reports, route by route: 'ok' gets past every role and
+   * capability check (the answer may still be about the body or the record), a code is the 403
+   * that member gets. Owner and Admin may do everything; a portal client, a Read Only member
+   * (no Reports in its grid), a signed-out caller and another firm get nothing.
+   */
+  type Allowed = 'ok' | 'FORBIDDEN' | 'EXPORT_NOT_ALLOWED';
+  type Route = { method: Method; path: string; staff: Allowed; manager: Allowed; body?: object };
+  const r: Record<'saved' | 'run' | 'schedule', string> = { saved: '', run: '', schedule: '' };
+  let etag = '';
+  let stale = 0;
+
+  beforeAll(async () => {
+    const saved = await saveReport({ visibility: 'COMPANY' });
+    r.saved = saved.id;
+    etag = saved.etag;
+    r.run = ReportRunStatusView.parse(
+      ok(
+        await call('post', '/reports/exports', people.ownerA, {
+          run: { target: { kind: 'SAVED', id: saved.id } },
+          format: 'CSV',
+        }),
+      ),
+    ).runId;
+    r.schedule = ReportScheduleDetail.parse(
+      ok(
+        await call('post', '/reports/schedules', people.ownerA, {
+          target: { kind: 'SAVED', id: saved.id },
+          name: mark('Matrix'),
+          frequency: 'MONTHLY',
+          dayOfMonth: 1,
+          runTime: '08:00',
+          datePreset: 'last_month',
+          formats: ['CSV'],
+          recipientUserIds: [people.adminA.id],
+        }),
+        201,
+      ),
+    ).id;
+    stale = ReportSettingsView.parse(
+      ok(await call('get', '/reports/settings', people.ownerA)),
+    ).staleAfterMinutes;
+  });
+
+  // Each with a body that passes validation, so a refusal is the member's or the firm's. The
+  // schedule's delete is last: the routes before it still find their records.
+  const routes = (): Route[] => {
+    const saved = `/reports/saved/${r.saved}`;
+    const sch = `/reports/schedules/${r.schedule}`;
+    const system = { target: { kind: 'SYSTEM', key: 'new_clients' } };
+    return [
+      { method: 'get', path: '/reports', staff: 'ok', manager: 'ok' },
+      { method: 'get', path: '/reports/catalog', staff: 'ok', manager: 'ok' },
+      { method: 'get', path: '/reports/sources', staff: 'ok', manager: 'ok' },
+      { method: 'get', path: '/reports/lookups?kind=CLIENT', staff: 'ok', manager: 'ok' },
+      { method: 'post', path: '/reports/run', staff: 'ok', manager: 'ok', body: system },
+      { method: 'get', path: '/reports/recent', staff: 'ok', manager: 'ok' },
+      { method: 'get', path: '/reports/settings', staff: 'ok', manager: 'ok' },
+      {
+        method: 'put',
+        path: '/reports/settings',
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: { staleAfterMinutes: stale },
+      },
+      { method: 'get', path: '/reports/saved', staff: 'ok', manager: 'ok' },
+      {
+        method: 'post',
+        path: '/reports/saved',
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: { name: mark('Matrix save'), definition: def() },
+      },
+      { method: 'get', path: saved, staff: 'ok', manager: 'ok' },
+      {
+        method: 'patch',
+        path: saved,
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: { etag, description: 'Fake description' },
+      },
+      {
+        method: 'post',
+        path: `${saved}/duplicate`,
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: {},
+      },
+      { method: 'post', path: `${saved}/archive`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      { method: 'post', path: `${saved}/restore`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      // A favourite is the member's own mark, but the grid reads PUT and DELETE as Edit and
+      // Delete, which the Manager's Reports cell does not give. Observed and kept.
+      { method: 'put', path: `${saved}/favorite`, staff: 'ok', manager: 'FORBIDDEN' },
+      { method: 'delete', path: `${saved}/favorite`, staff: 'ok', manager: 'FORBIDDEN' },
+      {
+        method: 'post',
+        path: '/reports/exports',
+        staff: 'EXPORT_NOT_ALLOWED',
+        manager: 'ok',
+        body: { run: system, format: 'CSV' },
+      },
+      { method: 'get', path: `/reports/runs/${r.run}`, staff: 'ok', manager: 'ok' },
+      { method: 'get', path: `/reports/runs/${r.run}/download`, staff: 'ok', manager: 'ok' },
+      { method: 'get', path: '/reports/schedules', staff: 'ok', manager: 'ok' },
+      {
+        method: 'post',
+        path: '/reports/schedules',
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: {
+          target: system.target,
+          name: mark('Matrix schedule'),
+          frequency: 'MONTHLY',
+          dayOfMonth: 1,
+          runTime: '08:00',
+          datePreset: 'last_month',
+          formats: ['CSV'],
+          recipientUserIds: [people.adminA.id],
+        },
+      },
+      { method: 'get', path: sch, staff: 'ok', manager: 'ok' },
+      {
+        method: 'patch',
+        path: sch,
+        staff: 'FORBIDDEN',
+        manager: 'FORBIDDEN',
+        body: { name: mark('Matrix renamed') },
+      },
+      { method: 'post', path: `${sch}/pause`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      { method: 'post', path: `${sch}/resume`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      { method: 'post', path: `${sch}/duplicate`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      { method: 'post', path: `${sch}/run-now`, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+      { method: 'delete', path: sch, staff: 'FORBIDDEN', manager: 'FORBIDDEN' },
+    ];
+  };
+  const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+
+  it("a second business never reaches the first's reports: by URL, in its lists, or named in its own requests", async () => {
+    // Firm B's owner, in firm B, with firm A's IDs in the address: not found, nothing changed.
+    for (const { method, path, body } of routes().filter((x) => UUID.test(x.path))) {
+      expectError(await call(method, path, people.ownerB, body, 'b'), 404, 'NOT_FOUND');
+    }
+    const still = SavedReportDetail.parse(
+      ok(await call('get', `/reports/saved/${r.saved}`, people.ownerA)),
+    );
+    expect([still.etag, still.archived]).toEqual([etag, false]);
+    // Firm B's lists hold none of them, nor any of firm A's clients, invoices or members.
+    for (const path of [
+      '/reports',
+      '/reports/recent',
+      '/reports/saved?tab=all',
+      '/reports/schedules',
+      '/reports/lookups?kind=CLIENT&limit=50',
+      '/reports/lookups?kind=TEAM_MEMBER&limit=50',
+    ]) {
+      const res = await call('get', path, people.ownerB, undefined, 'b');
+      expect(res.status, path).toBe(200);
+      const text = JSON.stringify(res.body);
+      for (const id of [...Object.values(r), clients.c1, clients.c2, people.ownerA.id]) {
+        expect(text, path).not.toContain(id);
+      }
+      expect(text, path).not.toMatch(/Jamie|Riley|INV-A-/);
+    }
+    // Firm B naming firm A's report in its own run, export and schedule gets the answer a report
+    // that does not exist gets.
+    const theirs = { kind: 'SAVED', id: r.saved };
+    const unknown = { kind: 'SAVED', id: randomUUID() };
+    for (const [path, body] of [
+      ['/reports/run', (t: object) => ({ target: t })],
+      ['/reports/exports', (t: object) => ({ run: { target: t }, format: 'CSV' })],
+      [
+        '/reports/schedules',
+        (t: object) => ({
+          target: t,
+          name: mark('Firm B'),
+          frequency: 'MONTHLY',
+          dayOfMonth: 1,
+          runTime: '08:00',
+          datePreset: 'last_month',
+          formats: ['CSV'],
+          recipientUserIds: [people.ownerB.id],
+        }),
+      ],
+    ] as [string, (t: object) => object][]) {
+      const named = await call('post', path, people.ownerB, body(theirs), 'b');
+      const none = await call('post', path, people.ownerB, body(unknown), 'b');
+      expect([named.status, codeOf(named)], path).toEqual([none.status, codeOf(none)]);
+      expect(named.status, path).toBe(404);
+    }
+  });
+
+  it('every route: signed out 401, a client and Read Only 403, another firm 404; Staff and Manager as the matrix says; Admin past every check', async () => {
+    for (const route of routes()) {
+      const { method, path, body } = route;
+      const label = `${method} ${path}`;
+      expect((await call(method, path, undefined, body)).status, label).toBe(401);
+      expect((await call(method, path, people.clientA, body)).status, label).toBe(403);
+      expectError(await call(method, path, people.readerA, body), 403, 'FORBIDDEN');
+      expectError(await call(method, path, people.ownerB, body), 404, 'NOT_FOUND');
+      for (const [who, allowed] of [
+        [people.staffA, route.staff],
+        [people.managerA, route.manager],
+        [people.adminA, 'ok'],
+      ] as [Who, Allowed][]) {
+        const res = await call(method, path, who, body);
+        const got = `${label} as ${who.email}: ${res.status} ${codeOf(res) ?? ''}`;
+        if (allowed === 'ok') expect([401, 403], got).not.toContain(res.status);
+        else expect([res.status, codeOf(res)], got).toEqual([403, allowed]);
+      }
+    }
+  });
+
+  it('money and team data stay with Owner, Admin and a role with Manage; Staff and Manager see only their own clients', async () => {
+    for (const key of ['revenue_summary', 'outstanding_invoices', 'task_workload']) {
+      for (const who of [people.staffA, people.managerA]) {
+        expectError(
+          await runReport({ target: { kind: 'SYSTEM', key } }, who),
+          403,
+          'FIELD_NOT_ALLOWED',
+        );
+      }
+      ok(await runReport({ target: { kind: 'SYSTEM', key } }, people.adminA));
+    }
+    // The Manager may export, but not what it may not see.
+    expectError(
+      await call('post', '/reports/exports', people.managerA, {
+        run: { target: { kind: 'SYSTEM', key: 'revenue_summary' } },
+        format: 'CSV',
+      }),
+      403,
+      'FIELD_NOT_ALLOWED',
+    );
+    // Rows: Staff its assigned client, the Manager none (no client is assigned to it).
+    const names = async (who: Who) =>
+      (await quick('new_clients', {}, who)).table.rows.map((x) => x.cells.name);
+    expect(await names(people.staffA)).toEqual(['Jamie Sample (fake)']);
+    expect(await names(people.managerA)).toEqual([]);
+    expect(await names(people.adminA)).toEqual(
+      expect.arrayContaining(['Jamie Sample (fake)', 'Riley Example (fake)']),
     );
   });
 });

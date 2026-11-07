@@ -255,6 +255,27 @@ export class AutomationsReadService {
             path: `actions.${i}.config.memberUserIds`,
           });
       }
+      // Request approval's reviewer: an active member of this firm, and never the rule's owner,
+      // who asks for it (nobody approves their own request).
+      const reviewer = a.config.reviewerUserId;
+      if (typeof reviewer === 'string') {
+        const m = await this.actingMember(tx, businessId, reviewer);
+        const path = `actions.${i}.config.reviewerUserId`;
+        if (!m)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer is not an active member of the firm',
+            path,
+          });
+        else if (reviewer === rule.ownerUserId)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer can’t be the rule’s owner, who asks for the approval',
+            path,
+          });
+      }
       const assignee = a.config.assigneeUserId;
       if (typeof assignee === 'string') {
         const m = await this.actingMember(tx, businessId, assignee);
@@ -350,11 +371,12 @@ export class AutomationsReadService {
         businessId,
         now: new Date(),
         today: ctx.today,
+        timezone: ctx.timezone,
         since,
         ...(def.trigger.source ? { source: def.trigger.source } : {}),
       },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit
@@ -398,9 +420,9 @@ export class AutomationsReadService {
         offsetValue: def.trigger.offsetValue ?? null,
         offsetUnit: def.trigger.offsetUnit ?? null,
       },
-      { businessId, now, today: ctx.today, since },
+      { businessId, now, today: ctx.today, timezone: ctx.timezone, since },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit

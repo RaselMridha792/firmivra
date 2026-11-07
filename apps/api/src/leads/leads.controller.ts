@@ -155,5 +155,8 @@ export class LeadsController {
       },
     },
   ],
+  // Automations' Schedule lead follow-up (R55, the lead's one-off exception): Leads' own
+  // follow-up, with every Leads rule.
+  exports: [LeadPipelineTabsService],
 })
 export class LeadsModule {}

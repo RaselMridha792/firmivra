@@ -30,6 +30,7 @@ import {
   outlined,
   quiet,
 } from './compliance-shared';
+import { ComplianceHelp } from './compliance-help';
 
 const card = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
 function CardHead({ icon: Glyph, title, aside }: { icon: Icon; title: string; aside?: ReactNode }) {
@@ -236,9 +237,12 @@ export function AtRiskCard({
         icon={Warning}
         title="At Risk Clients"
         aside={
-          <button type="button" onClick={onAll} className={link}>
-            View All <ArrowRight aria-hidden weight="bold" className="size-3" />
-          </button>
+          <span className="flex items-center gap-2">
+            <ComplianceHelp area="atRisk" />
+            <button type="button" onClick={onAll} className={link}>
+              View All <ArrowRight aria-hidden weight="bold" className="size-3" />
+            </button>
+          </span>
         }
       />
       {rows.length === 0 ? (

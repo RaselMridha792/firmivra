@@ -1,3 +1,4 @@
+import { US_STATES } from '@firmivra/types';
 import type {
   AutomationActionTypeInfo,
   AutomationConditionField,
@@ -32,10 +33,10 @@ export const MODULES: Record<string, { label: string; destination: string }> = {
 
 /** The operators each field type takes. */
 export const OPERATORS: Record<AutomationFieldType, AutomationOperator[]> = {
-  TEXT: ['IS', 'IS_NOT', 'CONTAINS', 'EXISTS', 'NOT_EXISTS'],
+  TEXT: ['IS', 'IS_NOT', 'CONTAINS', 'NOT_CONTAINS', 'EXISTS', 'NOT_EXISTS'],
   NUMBER: ['IS', 'GREATER_THAN', 'LESS_THAN', 'EXISTS'],
   MONEY: ['IS', 'GREATER_THAN', 'LESS_THAN', 'EXISTS'],
-  DATE: ['BEFORE', 'AFTER', 'EXISTS', 'NOT_EXISTS'],
+  DATE: ['BEFORE', 'AFTER', 'ON', 'WITHIN_LAST', 'WITHIN_NEXT', 'EXISTS', 'NOT_EXISTS'],
   STATUS: ['IS', 'IS_NOT', 'INCLUDES', 'EXCLUDES'],
   BOOLEAN: ['IS'],
   LIST: ['INCLUDES', 'EXCLUDES', 'EXISTS'],
@@ -72,6 +73,18 @@ const CLIENT_STATUS = field('status', 'Client status', 'STATUS', [
   'ON_HOLD',
   'INACTIVE',
 ]);
+/**
+ * AU-F27 Update allowed field (the lead, Nov 7): the client fields a rule may set. Never Inactive,
+ * which stays behind APPROVE; name, email, phone, account type and the tax-year status stay out.
+ */
+export const RULE_CLIENT_STATUSES = [
+  'NEW',
+  'PENDING_DOCUMENTS',
+  'IN_PROGRESS',
+  'ACTIVE',
+  'ON_HOLD',
+] as const;
+export const RULE_CLIENT_PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const LEAD_FIELDS = [
   field('stage', 'Lead stage', 'STATUS', [
     'SUBMITTED',
@@ -108,6 +121,17 @@ const INTAKE_STATUS = field('status', 'Intake status', 'STATUS', [
 
 const statuses = (key: string, label: string, values: string[]) =>
   field(key, label, 'STATUS', values);
+// AU-F22: the record's own service, due date and dates (the firm's days).
+const SERVICE_KIND = statuses('serviceKind', 'Service', [
+  'ANNUAL_TAX',
+  'QUARTERLY_TAX',
+  'BOOKKEEPING',
+  'PAYROLL',
+  'TAX_PLANNING',
+  'BUSINESS_DEVELOPMENT',
+  'OTHER',
+]);
+const DUE_ON = field('dueOn', 'Due date', 'DATE');
 const RETURN_STATUSES = [
   'IN_PREPARATION',
   'WAITING_ON_CLIENT',
@@ -266,6 +290,15 @@ const EVENT_DEFS: EventDef[] = [
     'client',
     [CLIENT_TYPE, CLIENT_STATUS],
   ),
+  // AU-F08 Client Status Changed (old/new): Update client status (AU-F27) is what changes it.
+  change(
+    'client.status_changed',
+    'CLIENTS',
+    'Client status changed',
+    'When a client’s status changes, for example from New to In progress',
+    'client',
+    move(CLIENT_STATUS.options.map((o) => o.value)),
+  ),
   change(
     'client.tags_changed',
     'CLIENTS',
@@ -361,7 +394,7 @@ const EVENT_DEFS: EventDef[] = [
     'Intake form sent',
     'When a form is sent to a client',
     'intake',
-    [CLIENT_TYPE, INTAKE_STATUS],
+    [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND],
   ),
   change(
     'intake.submitted',
@@ -369,7 +402,7 @@ const EVENT_DEFS: EventDef[] = [
     'Intake form submitted',
     'When a client submits a form for the first time',
     'intake',
-    [CLIENT_TYPE, INTAKE_STATUS],
+    [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND],
   ),
   change(
     'intake.returned',
@@ -377,7 +410,7 @@ const EVENT_DEFS: EventDef[] = [
     'Intake form returned for corrections',
     'When your team asks the client to correct a form',
     'intake',
-    [CLIENT_TYPE, INTAKE_STATUS],
+    [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND],
   ),
   change(
     'intake.resubmitted',
@@ -385,7 +418,7 @@ const EVENT_DEFS: EventDef[] = [
     'Intake form resubmitted',
     'When a client sends a corrected form (a new version)',
     'intake',
-    [CLIENT_TYPE, INTAKE_STATUS],
+    [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND],
   ),
   change(
     'intake.approved',
@@ -393,7 +426,7 @@ const EVENT_DEFS: EventDef[] = [
     'Intake form approved',
     'When your team marks a form reviewed',
     'intake',
-    [CLIENT_TYPE, INTAKE_STATUS],
+    [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND],
   ),
   {
     code: 'intake.due',
@@ -402,7 +435,7 @@ const EVENT_DEFS: EventDef[] = [
     example: 'When a form the client hasn’t finished is coming due or is past due',
     recordKind: 'intake',
     timings: ['BEFORE', 'AFTER'],
-    conditionFields: [CLIENT_TYPE, INTAKE_STATUS],
+    conditionFields: [CLIENT_TYPE, INTAKE_STATUS, SERVICE_KIND, DUE_ON],
   },
   // ---------- Documents (AU-F11) ----------
   change(
@@ -411,7 +444,7 @@ const EVENT_DEFS: EventDef[] = [
     'Documents requested',
     'When a document request is sent to a client',
     'document_request',
-    [CLIENT_TYPE],
+    [CLIENT_TYPE, SERVICE_KIND],
   ),
   {
     code: 'document.request_due',
@@ -420,7 +453,7 @@ const EVENT_DEFS: EventDef[] = [
     example: 'When an open document request is coming due or is past due',
     recordKind: 'document_request',
     timings: ['BEFORE', 'AFTER'],
-    conditionFields: [CLIENT_TYPE],
+    conditionFields: [CLIENT_TYPE, SERVICE_KIND, DUE_ON],
   },
   change(
     'document.uploaded',
@@ -452,7 +485,7 @@ const EVENT_DEFS: EventDef[] = [
     'Document request completed',
     'When every document of a request is in and the request is marked complete',
     'document_request',
-    [CLIENT_TYPE],
+    [CLIENT_TYPE, SERVICE_KIND],
   ),
   change(
     'document.archived',
@@ -494,7 +527,7 @@ const EVENT_DEFS: EventDef[] = [
     example: 'When a return not yet transmitted is coming due or is past its due date',
     recordKind: 'tax_return',
     timings: ['BEFORE', 'AFTER'],
-    conditionFields: RETURN_FIELDS,
+    conditionFields: [...RETURN_FIELDS, DUE_ON],
   },
   change(
     'tax_return.amended',
@@ -933,7 +966,11 @@ const EVENT_DEFS: EventDef[] = [
     conditionFields: [
       CLIENT_TYPE,
       field('totalCents', 'Invoice total', 'MONEY'),
+      // What is still owed (the total less what was paid, online or offline), and whether any was.
+      field('balanceCents', 'Balance due', 'MONEY'),
+      statuses('paymentStatus', 'Payment status', ['UNPAID', 'PARTLY_PAID']),
       field('daysOverdue', 'Days overdue', 'NUMBER'),
+      DUE_ON,
     ],
   },
   {
@@ -959,6 +996,14 @@ const EVENT_DEFS: EventDef[] = [
         'OTHER',
       ]),
       PRIORITY(),
+      statuses('deadlineStatus', 'Deadline status', [
+        'UPCOMING',
+        'IN_PROGRESS',
+        'WAITING_ON_CLIENT',
+      ]),
+      statuses('jurisdiction', 'Jurisdiction', ['FEDERAL', 'STATE', 'LOCAL', 'INTERNAL']),
+      field('taxYear', 'Tax year', 'NUMBER'),
+      DUE_ON,
     ],
   },
   {
@@ -968,7 +1013,20 @@ const EVENT_DEFS: EventDef[] = [
     example: 'When an open task is past its due date',
     recordKind: 'task',
     timings: ['IMMEDIATE', 'AFTER'],
-    conditionFields: [CLIENT_TYPE, PRIORITY(), field('daysOverdue', 'Days overdue', 'NUMBER')],
+    conditionFields: [
+      CLIENT_TYPE,
+      PRIORITY(),
+      field('daysOverdue', 'Days overdue', 'NUMBER'),
+      statuses('taskProgress', 'Task progress', [
+        'NOT_STARTED',
+        'PENDING',
+        'IN_PROGRESS',
+        'WAITING',
+        'BLOCKED',
+      ]),
+      field('taskAssignedUserId', 'Task assignee', 'STATUS'),
+      DUE_ON,
+    ],
   },
   {
     code: 'appointment.upcoming',
@@ -980,6 +1038,12 @@ const EVENT_DEFS: EventDef[] = [
     conditionFields: [
       CLIENT_TYPE,
       field('locationKind', 'Where', 'STATUS', ['IN_PERSON', 'PHONE', 'VIDEO']),
+      // The firm's own appointment types (filled in per firm, as tags and members are).
+      field('appointmentTypeId', 'Appointment type', 'STATUS'),
+      // Pending until someone confirms it: a pending appointment never reads as confirmed.
+      statuses('confirmation', 'Confirmation', ['PENDING', 'CONFIRMED']),
+      SERVICE_KIND,
+      field('startsOn', 'Appointment date', 'DATE'),
     ],
   },
 ];
@@ -1046,9 +1110,40 @@ export const ASSIGNEE_FIELD = field('assignedUserId', 'Assigned staff', 'STATUS'
 const PEOPLE_FIELDS = (recordKind: string) =>
   recordKind === 'client' || recordKind === 'lead' ? [TAGS_FIELD, ASSIGNEE_FIELD] : [];
 
+/**
+ * AU-F22: the client's own context on every event about one client's record (a task, an invoice,
+ * a form, a return...), read from the client when the event is loaded (matching.ts). A client's
+ * own events already have its status, tags and assignee, so they take only the state and dates.
+ * The dates are the firm's days; "last activity" is the client's recorded activity, not a contact.
+ * Members, tags and the firm's appointment types are the firm's own choices (`firmCatalog`).
+ */
+export const CLIENT_TAGS_FIELD = field('clientTags', 'Client tags', 'LIST');
+export const MEMBER_FIELDS = ['assignedUserId', 'clientAssignedUserId', 'taskAssignedUserId'];
+const CLIENT_DATES: AutomationConditionField[] = [
+  {
+    field: 'clientState',
+    label: 'Client state',
+    type: 'STATUS',
+    operators: OPERATORS.STATUS,
+    options: Object.entries(US_STATES).map(([value, label]) => ({ value, label })),
+  },
+  field('clientCreatedOn', 'Client added on', 'DATE'),
+  field('clientLastActivityOn', 'Client’s last activity', 'DATE'),
+];
+const CLIENT_CONTEXT = (e: EventDef): AutomationConditionField[] => {
+  if (e.hasClient === false || e.recordKind === 'lead') return [];
+  if (e.recordKind === 'client') return CLIENT_DATES;
+  return [
+    { ...CLIENT_STATUS, field: 'clientStatus' },
+    CLIENT_TAGS_FIELD,
+    field('clientAssignedUserId', 'Client’s assigned staff', 'STATUS'),
+    ...CLIENT_DATES,
+  ];
+};
+
 export const EVENTS: AutomationEvent[] = [...EVENT_DEFS, ...CONFIRMABLE_EVENTS].map((e) => ({
   ...e,
-  conditionFields: [...e.conditionFields, ...PEOPLE_FIELDS(e.recordKind)],
+  conditionFields: [...e.conditionFields, ...PEOPLE_FIELDS(e.recordKind), ...CLIENT_CONTEXT(e)],
   anchor: ANCHORS[e.code] ?? (e.confirmation ? 'it is confirmed' : 'it happens'),
   confirmation: e.confirmation ?? null,
   hasClient: e.hasClient ?? true,
@@ -1343,6 +1438,47 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     ],
   },
   {
+    type: 'UPDATE_CLIENT_STATUS',
+    module: 'CLIENTS',
+    label: 'Update client status',
+    description:
+      'Sets the client’s status, as Clients records it, from an allowed list; a rule never sets Inactive (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: true,
+    fields: [
+      {
+        key: 'status',
+        label: 'New status',
+        type: 'SELECT',
+        required: true,
+        choices: options([...RULE_CLIENT_STATUSES]),
+        templateKind: null,
+        help: 'Inactive needs an approval, so a rule can’t set it.',
+      },
+    ],
+  },
+  {
+    type: 'UPDATE_CLIENT_PRIORITY',
+    module: 'CLIENTS',
+    label: 'Update client priority',
+    description: 'Sets or clears the client’s priority (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: true,
+    fields: [
+      {
+        key: 'priority',
+        label: 'Priority',
+        type: 'SELECT',
+        required: true,
+        choices: options([...RULE_CLIENT_PRIORITIES, 'NONE']),
+        templateKind: null,
+        help: 'None clears it.',
+      },
+    ],
+  },
+  {
     type: 'ADD_CLIENT_TAGS',
     module: 'CLIENTS',
     label: 'Add client tags',
@@ -1379,6 +1515,107 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: 'Your firm’s tags. A tag archived later fails the step.',
+      },
+    ],
+  },
+  // AU-F27 Create Follow Up or Appointment Request: a request is never a booking.
+  {
+    type: 'INVITE_TO_BOOK',
+    module: 'APPOINTMENTS',
+    label: 'Invite client to book',
+    description:
+      'Sends the client a portal message with a link to book a time in their portal. Nothing is booked until the client picks a time (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: true,
+    needsClient: true,
+    fields: [
+      {
+        key: 'subject',
+        label: 'Subject',
+        type: 'TEXT',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'message',
+        label: 'Message',
+        type: 'LONG_TEXT',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'The link to the client’s Appointments page is added below it. Merge fields like {{client.firstName}} are filled in.',
+      },
+    ],
+  },
+  {
+    type: 'SCHEDULE_LEAD_FOLLOW_UP',
+    module: 'LEADS',
+    label: 'Schedule lead follow-up',
+    description: 'Sets the lead’s next follow-up through Leads, for an open lead only (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: false,
+    recordKind: 'lead',
+    fields: [
+      {
+        key: 'followUpType',
+        label: 'Follow-up',
+        type: 'SELECT',
+        required: true,
+        choices: options(['CALL', 'EMAIL', 'SMS', 'APPOINTMENT', 'SEND_DOCUMENTS', 'FOLLOW_UP']),
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'dueInDays',
+        label: 'Due in (days)',
+        type: 'NUMBER',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'From the moment the action runs.',
+      },
+      {
+        key: 'notes',
+        label: 'Note',
+        type: 'LONG_TEXT',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'Up to 500 characters.',
+      },
+    ],
+  },
+  {
+    type: 'REQUEST_APPROVAL',
+    module: 'TAX_RETURNS',
+    label: 'Request approval',
+    description:
+      'Adds a pending review step to the tax return for a reviewer. Automations never decides it, and nobody approves their own request or return (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: false,
+    recordKind: 'tax_return',
+    fields: [
+      {
+        key: 'step',
+        label: 'Step',
+        type: 'TEXT',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'For example “Final Review / Approval”.',
+      },
+      {
+        key: 'reviewerUserId',
+        label: 'Reviewer',
+        type: 'MEMBER',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'Not the rule’s owner, and not the return’s preparer.',
       },
     ],
   },
