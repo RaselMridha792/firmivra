@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 // R56: the firm Reports module in mock mode (every module on mock data, as an Owner): nine report
-// categories, eleven quick reports, four recent and four scheduled reports.
+// categories, twelve quick reports (Staff & Team, SM3, the twelfth), four recent and four
+// scheduled reports.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/reports`;
 
@@ -12,7 +13,7 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
   await expect(page.getByTestId('reports-kpis').getByRole('listitem')).toHaveCount(4);
   await expect(page.getByTestId('category-cards').locator(':scope > li')).toHaveCount(9);
-  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(11);
+  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(12);
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');
@@ -507,4 +508,20 @@ test('No sideways scroll at 375 px', async ({ page }) => {
       await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     ).toBeTruthy();
   }
+});
+
+test("SM3: Staff Management's Reports tile opens Staff & Team inside Reports, the whole team at any range", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`http://app.localhost:${port}/team`);
+  await page
+    .getByTestId('staff-links')
+    .getByRole('link', { name: /^Reports/ })
+    .click();
+  await expect(page).toHaveURL(/\/reports\/staff_team$/);
+  await expect(page.getByRole('heading', { name: 'Staff & Team', level: 1 })).toBeVisible();
+  for (const name of ['Alex Rivera', 'Sam Staff', 'Mock User', 'Dana Cole'])
+    await expect(page.getByTestId('report-table')).toContainText(name);
+  await page.screenshot({ path: test.info().outputPath('staff-team.png') });
 });
