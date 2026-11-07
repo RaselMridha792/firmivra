@@ -169,6 +169,13 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
   3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
 - **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
+- **SM14, account authority (Rasel's default through the lead, Nov 7; defaults 1 to 4 approved):**
+  1. The Original Owner is the firm's first Owner membership (the account its application created). No schema change: nobody, the Original Owner included, can demote or deactivate that account, so it stays the first.
+  2. Owner-level (the Original Owner and delegated Owners) acts on everyone below the Original Owner, other delegates included. Giving the Owner role, or taking it from a delegate, is the Original Owner's alone (Edit Staff and Settings > Users).
+  3. Reset MFA is owner-level only. An Admin acts only on the roles below Admin: Edit, Reset Password, Resend Invitation, Sign Out Sessions, Lock and Unlock, Deactivate and Reactivate. Below Admin, nobody acts on another account.
+  4. Owner-level access is given by promoting an existing member on Edit Staff. Invites and Create Staff stay below Owner.
+  - One rule (packages/types, `team/authority.ts`) for the API, which checks it on every staff route and on Settings > Users, and for the screens, which read the member detail's `authority`. The Original Owner has a badge.
+  - Self-service (part B, the lead's placement): a Security card on My Profile with Sign Out All Other Sessions and Change My Password, for every tier.
 - **Exports (SA-RPT-R1):**
   - The builder exports CSV, Excel (XLSX) and PDF from the same run and columns as the preview, each audited with its format. Excel and PDF use the reports' writers.
   - CSV holds the title, generated time, period and filters above the table. The PDF holds the title and period. The Excel sheet is the table.

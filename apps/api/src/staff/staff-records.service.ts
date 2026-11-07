@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma } from '@firmivra/db';
 import {
-  ROLES_MANAGED_BY,
+  mayActOn,
   type OkResponse,
   type StaffCompensation,
   type StaffDraft,
@@ -14,12 +14,13 @@ import { notFound } from '../workspaces/common.js';
 import type { SaveStaffDraftBody, StaffCompensationBody } from './staff-input.js';
 import { StaffWriteService } from './staff-write.service.js';
 import {
-  assertManages,
+  assertActsOn,
   forbidden,
   lockTarget,
   mapStaffDbError,
   requireManager,
   type StaffActor,
+  tiersOf,
 } from './staff.common.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -93,7 +94,7 @@ export class StaffRecordsService {
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const by = await requireManager(tx, actor);
         const target = await lockTarget(tx, businessId, id);
-        assertManages(actor, target);
+        await assertActsOn(tx, actor, target, 'edit');
         const data = text
           ? { notes: text, notesUpdatedAt: new Date(), notesUpdatedById: by }
           : { notes: null, notesUpdatedAt: null, notesUpdatedById: null };
@@ -129,8 +130,11 @@ export class StaffRecordsService {
           select: { userId: true, role: true },
         });
         if (!target) throw notFound();
-        if (target.userId !== actor.userId && !ROLES_MANAGED_BY[actor.role].includes(target.role))
-          throw forbidden();
+        // Their own pay, or that of someone they act on (SM14, mayActOn).
+        if (target.userId !== actor.userId) {
+          const tiers = await tiersOf(tx, actor, target);
+          if (!mayActOn(tiers.actor, tiers.target, 'edit')) throw forbidden();
+        }
         const pay = await tx.staffCompensation.findUnique({
           where: { businessId_membershipId: { businessId, membershipId: id } },
         });
@@ -159,7 +163,7 @@ export class StaffRecordsService {
         async (tx) => {
           await requireManager(tx, actor);
           const target = await lockTarget(tx, businessId, id);
-          assertManages(actor, target);
+          await assertActsOn(tx, actor, target, 'edit');
           await this.write.writePay(tx, businessId, id, body);
           await this.audit.logIn(
             tx,

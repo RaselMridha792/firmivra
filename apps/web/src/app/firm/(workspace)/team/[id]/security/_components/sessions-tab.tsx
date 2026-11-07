@@ -16,7 +16,7 @@ const yesNo = (on: boolean) => (on ? 'On' : 'Off');
  * Sign out for one or all, and the session rules from Login & Security.
  */
 export function SessionsTab({ id }: { id: string }) {
-  const { member, manages } = useMember(id);
+  const { member } = useMember(id);
   const security = useSecurity(id);
   const s = security.data;
   const rules: [string, string][] = s
@@ -35,7 +35,11 @@ export function SessionsTab({ id }: { id: string }) {
     <SecurityShell id={id} tab="sessions">
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
         <div className="min-w-0 min-[1440px]:col-span-2">
-          <SessionsCard id={id} name={member?.name} enabled={manages} />
+          <SessionsCard
+            id={id}
+            name={member?.name}
+            enabled={member?.authority.signOutSessions ?? false}
+          />
         </div>
         <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-1">
           <Panel

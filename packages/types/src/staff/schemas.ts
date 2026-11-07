@@ -15,6 +15,7 @@ import {
   StaffPayFrequency,
   StaffPayType,
 } from '../schemas.js';
+import { StaffAuthority } from '../team/authority.js';
 import { TeamMemberStatus } from '../team/schemas.js';
 import { megabytes, UPLOAD_LIMITS } from '../documents/schemas.js';
 
@@ -240,6 +241,8 @@ export const StaffDetail = z.object({
   /** Owner and Admin only; null for everyone else (the Notes card is then hidden). */
   notes: StaffNote.nullable(),
   isYou: z.boolean(),
+  /** SM14: what the signed-in person may do to this member (all false on their own record). */
+  authority: StaffAuthority,
   version: z.string(),
 });
 export type StaffDetail = z.infer<typeof StaffDetail>;

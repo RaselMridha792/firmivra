@@ -22,7 +22,12 @@ import {
   type PermissionGrant,
   PermissionModule,
   type RolesClient,
+  mayActOn,
+  mayChangeRole,
   ROLES_MANAGED_BY,
+  type StaffAuthority,
+  staffAuthority,
+  tierOf,
   SaveRolePermissionsRequest,
   SaveStaffDraftRequest,
   SetStaffNoteRequest,
@@ -360,6 +365,7 @@ function seed(empty: boolean): Store {
             }
           : null,
       isYou: false,
+      authority: NO_AUTHORITY,
       version: 'v1',
     };
     s.members.push({
@@ -538,6 +544,20 @@ function seed(empty: boolean): Store {
   }
   return s;
 }
+
+/** A stored member's authority: `get` works out the viewer's (SM14). */
+const NO_AUTHORITY: StaffAuthority = {
+  originalOwner: false,
+  edit: false,
+  changeRole: false,
+  resetPassword: false,
+  resetMfa: false,
+  resendInvitation: false,
+  signOutSessions: false,
+  lock: false,
+  deactivate: false,
+  roles: [],
+};
 
 let stores: Map<string, Store> | undefined;
 /** One store per (role, empty), shared by api.staff, api.departments and api.roles. */
@@ -762,6 +782,7 @@ export function addInvitedMember(
     invite: failed ? null : { sentAt, expiresAt },
     notes: null,
     isYou: false,
+    authority: NO_AUTHORITY,
     version: 'v1',
   };
   s.members.push({
@@ -795,10 +816,18 @@ function guard(options: Options) {
     if (!m) throw notFound();
     return m;
   };
-  /** The actor manages the target's role, and is not the target. */
+  /** SM14: where someone stands; the Original Owner is the first Owner. */
+  const tierFor = (d: StaffDetail) =>
+    tierOf(d.role, d.userId === s.members.find((x) => x.detail.role === 'OWNER')?.detail.userId);
+  const viewer = () => {
+    const you = s.members.find((x) => x.detail.isYou);
+    return you ? tierFor(you.detail) : tierOf(role, false);
+  };
+  const authorityOf = (m: Member) => staffAuthority(viewer(), tierFor(m.detail), m.detail.isYou);
+  /** The actor may act on the target (mayActOn), and is not the target. */
   const manageable = (m: Member) => {
     if (m.detail.isYou) throw fail(409, 'CANNOT_CHANGE_SELF', 'You cannot change your own access');
-    if (!ROLES_MANAGED_BY[role].includes(m.detail.role)) throw forbidden();
+    if (!mayActOn(viewer(), tierFor(m.detail), 'edit')) throw forbidden();
   };
   const keepsAnOwner = (m: Member) => {
     const others = s.members.filter(
@@ -831,7 +860,20 @@ function guard(options: Options) {
     m.sessions = [];
     return n;
   };
-  return { role, s, allowed, find, manageable, keepsAnOwner, bump, setStatus, result, signOut };
+  return {
+    role,
+    s,
+    allowed,
+    find,
+    manageable,
+    authorityOf,
+    viewer,
+    keepsAnOwner,
+    bump,
+    setStatus,
+    result,
+    signOut,
+  };
 }
 
 /** `api.staff` in mock mode. */
@@ -954,6 +996,7 @@ export function createStaffMock(options: Options = {}): StaffClient {
       return copy({
         ...m.detail,
         notes: g.role === 'OWNER' || g.role === 'ADMIN' ? m.detail.notes : null,
+        authority: g.authorityOf(m),
       });
     },
     create: async (body) => {
@@ -1027,7 +1070,8 @@ export function createStaffMock(options: Options = {}): StaffClient {
       const before = m.detail.role;
       const role = custom?.basedOn ?? a?.role ?? before;
       if (role !== before || (custom && custom.id !== m.detail.customRole?.id)) {
-        if (!ROLES_MANAGED_BY[g.role].includes(role))
+        // SM14: Owner given or taken away only by the Original Owner.
+        if (!mayChangeRole(g.viewer(), before, role))
           throw fail(403, 'CANNOT_GRANT', 'You cannot give this role');
       }
       if (role !== before) {

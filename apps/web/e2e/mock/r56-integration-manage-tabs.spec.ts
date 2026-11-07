@@ -134,7 +134,7 @@ test('data mapping saves a scope from the provider field lists', async ({ page }
   await clients.getByRole('button', { name: 'Add Field' }).click();
   await clients.getByRole('button', { name: 'Save Mapping' }).click();
   await expect(clients.getByText('Choose both fields on every row')).toBeVisible();
-  const last = clients.getByLabel('LVP Pro field').last();
+  const last = clients.getByLabel('Firmivra field').last();
   await last.selectOption('billing_address');
   await clients.getByLabel('Provider field').last().selectOption('bill_addr');
   await clients.getByRole('button', { name: 'Save Mapping' }).click();

@@ -96,7 +96,7 @@ export function ConnectionBadge({
 
 export function formatDirection(direction: IntegrationSyncDirection) {
   if (direction === 'TWO_WAY') return 'Two-way sync';
-  if (direction === 'IMPORT') return 'Import to LVP Pro';
+  if (direction === 'IMPORT') return 'Import to Firmivra';
   return 'Export to provider';
 }
 

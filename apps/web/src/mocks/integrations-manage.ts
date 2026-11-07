@@ -24,7 +24,7 @@ export function integrationManageFixture(empty = false) {
       category: 'ACCOUNTING_FINANCE',
       summary: 'Accounting, expenses and invoices',
       description:
-        'Sync your QuickBooks Online data with LVP Pro to automate bookkeeping, import transactions, sync invoices and payments, and keep your financial data up to date.',
+        'Sync your QuickBooks Online data with Firmivra to automate bookkeeping, import transactions, sync invoices and payments, and keep your financial data up to date.',
       logo: 'quickbooks',
       featured: true,
       badge: 'MOST_POPULAR',
