@@ -242,6 +242,13 @@ Progress (Templates, Oct 28 review):
   - A saved segment's rules are edited in place; view-only roles see the exact reason.
   - View Members adds and removes a list's people by name through the new `GET segments/people`
     (within the member's reach, masked), saved together with `PUT .../members` (audited).
+- Closing, branch `rasel/R60-comms-closing` (stacked on #1288): CM-F11. It was re-tested against
+  MSG-F02, whose stores already exist, so there is no schema change:
+  - the firm's signature (`message_settings.signature`, set by an Owner or Admin in Messages
+    Settings);
+  - the member's own (`business/me/message-signature`).
+  The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
+  Signature. A missing one says why. It is text and formatting only and sends nothing.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
