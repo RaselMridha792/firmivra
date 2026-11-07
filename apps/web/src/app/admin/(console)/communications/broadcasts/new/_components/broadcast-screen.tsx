@@ -402,7 +402,7 @@ export function BroadcastScreen({ broadcastId }: { broadcastId?: string }) {
                 Save as Draft
               </Button>
               <Button type="submit" className="min-w-36" disabled={busy}>
-                Next <ArrowRight aria-hidden weight="fill" className="size-4" />
+                Save and continue <ArrowRight aria-hidden weight="fill" className="size-4" />
               </Button>
               {notice ? (
                 <p role="status" className="w-full text-sm text-muted">
