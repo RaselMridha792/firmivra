@@ -311,6 +311,7 @@ describe('loops, stored shapes and templates', () => {
     expect(produces([{ type: 'CREATE_DEADLINE', config: {} }])).toEqual(['deadline.approaching']);
     expect(produces([{ type: 'ADD_SERVICE', config: {} }])).toEqual([]);
     expect(produces([{ type: 'SEND_CLIENT_SMS', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_RESOURCE', config: {} }])).toEqual([]);
     expect(produces([{ type: 'REQUEST_APPROVAL', config: {} }])).toEqual([]);
     expect(
       loopProblems(
