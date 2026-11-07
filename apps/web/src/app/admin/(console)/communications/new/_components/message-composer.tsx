@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Button, Card, Input, Modal, PageHeader, Select } from '@firmivra/ui';
+import { ActionMenu, Badge, Button, Card, Input, Modal, PageHeader, Select } from '@firmivra/ui';
 import {
   ArrowUUpLeft,
   ArrowUUpRight,
@@ -36,6 +36,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ADMIN_COMM_ERRORS,
+  ADMIN_COMM_MERGE_FIELDS,
   FIRM_PLANS,
   type AdminCommContact,
   type AdminCommContactRef,
@@ -69,7 +70,32 @@ const labelOf = (c: AdminCommContact) =>
     : c.type === 'TEAM'
       ? `Team: ${c.name}`
       : c.name;
-const FIRST_NAME = '{{contact.first_name}}';
+/**
+ * SA-COM-R4: the one list of merge fields (the same as Templates'), chosen from a menu and put at
+ * the cursor of the field it was opened from. The API fills each per recipient; a field with no
+ * value is left empty, never shown as a raw token.
+ */
+function MergeFieldMenu({ label, onPick }: { label: string; onPick: (token: string) => void }) {
+  return (
+    <ActionMenu
+      label={label}
+      trigger={
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-action">
+          <BracketsCurly aria-hidden weight="bold" className="size-4" />
+          {label}
+        </span>
+      }
+      sections={[
+        {
+          items: Object.entries(ADMIN_COMM_MERGE_FIELDS).map(([key, field]) => ({
+            label: field.label,
+            onSelect: () => onPick(`{{${key}}}`),
+          })),
+        },
+      ]}
+    />
+  );
+}
 const emails = (text: string) =>
   text
     .split(/[,;\s]+/)
@@ -556,14 +582,18 @@ export function MessageComposer() {
                     <label htmlFor="message-subject" className="text-sm font-medium text-text">
                       Subject <span className="text-danger">*</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => insertText(FIRST_NAME)}
-                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-control bg-info-soft px-3 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-                    >
-                      <BracketsCurly aria-hidden weight="bold" className="size-4" />
-                      <span>Insert Merge Field</span>
-                    </button>
+                    <MergeFieldMenu
+                      label="Insert Merge Field"
+                      onPick={(token) => {
+                        // At the subject's cursor (its end when it was never focused).
+                        const input = document.getElementById(
+                          'message-subject',
+                        ) as HTMLInputElement | null;
+                        const start = input?.selectionStart ?? subject.length;
+                        const end = input?.selectionEnd ?? subject.length;
+                        setSubject(`${subject.slice(0, start)}${token}${subject.slice(end)}`);
+                      }}
+                    />
                   </div>
                   <Input
                     id="message-subject"
@@ -634,14 +664,7 @@ export function MessageComposer() {
                         label="Insert smile"
                         onClick={() => insertText(' 🙂')}
                       />
-                      <button
-                        type="button"
-                        onClick={() => insertText(FIRST_NAME)}
-                        className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-control bg-info-soft px-2 text-xs font-medium text-action hover:bg-folder-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-                      >
-                        <BracketsCurly aria-hidden weight="bold" className="size-4" />
-                        <span>Merge Field</span>
-                      </button>
+                      <MergeFieldMenu label="Merge Field" onPick={(token) => insertText(token)} />
                       <span className="ml-1 flex items-center border-l border-border pl-1">
                         <ToolbarButton
                           icon={ArrowUUpLeft}
