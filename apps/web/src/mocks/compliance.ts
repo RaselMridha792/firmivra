@@ -499,9 +499,7 @@ export function createComplianceMock({
         d.status = 'UPCOMING';
         d.completedAt = null;
         d.completedBy = null;
-        d.filedOn = null;
-        d.confirmationNumber = null;
-        d.notApplicableReason = null;
+        // As the API: the filing record and the reason it was set aside stay (CD-Y09).
         return touch(d);
       }),
     notApplicable: (deadlineId, body) =>

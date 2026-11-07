@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
+import { FederalClassification } from './classifications.js';
 import { SearchText, text } from '../clients/text.js';
 import {
   ApplicabilityDecision,
@@ -364,8 +365,8 @@ const RuleState = z.enum(COMPLIANCE_STATES);
 const ruleFields = {
   name: text(200),
   outcome: ApplicabilityOutcome.optional().default('SUGGEST'),
-  /** Federal classification or entity codes, e.g. "S_CORPORATION", "LLC_MULTI_MEMBER". */
-  entityTypes: z.array(text(60)).max(30).optional().default([]),
+  /** CD-F14: federal tax classifications from the one list (an LLC by its election). */
+  entityTypes: z.array(FederalClassification).max(11).optional().default([]),
   /** The client's state (the profile's), two letters. */
   states: z.array(RuleState).max(60).optional().default([]),
   services: z.array(ServiceKind).max(10).optional().default([]),
@@ -396,7 +397,7 @@ export const UpdateApplicabilityRuleRequest = z
   .strictObject({
     name: ruleFields.name,
     outcome: ApplicabilityOutcome,
-    entityTypes: z.array(text(60)).max(30),
+    entityTypes: z.array(FederalClassification).max(11),
     states: z.array(RuleState).max(60),
     services: z.array(ServiceKind).max(10),
     excludeStatuses: z.array(ClientStatus).max(6),
