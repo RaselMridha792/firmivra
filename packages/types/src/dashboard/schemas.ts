@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TaskPriority } from '../db-enums.js';
+import { DASHBOARD_CARD_SLOTS, DashboardServiceCard } from './cards.js';
 
 // The firm dashboard (R30): one read, GET /api/v1/business/dashboard/summary, for Owner, Admin and
 // Staff. Staff get the numbers of the clients assigned to them (as the clients, tax returns,
@@ -230,6 +231,12 @@ export const DashboardSummary = z.object({
   /** The global period, which the first four KPI cards follow. */
   range: DashboardRange,
   kpis: DashboardKpis,
+  /**
+   * D4: the firm's service cards after the fixed ones, in slot order: those saved in Settings >
+   * Dashboard Cards and switched on, or DEFAULT_DASHBOARD_CARDS while none is saved. A card whose
+   * list the member may not view (Tax Returns, Clients) is left out and never counted.
+   */
+  serviceCards: z.array(DashboardServiceCard).max(DASHBOARD_CARD_SLOTS),
   pipeline: DashboardPipeline,
   revenue: DashboardRevenue,
   tasksDue: z.array(DashboardTask).max(5),

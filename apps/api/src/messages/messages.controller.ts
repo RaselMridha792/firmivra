@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   ClientId,
@@ -19,6 +30,7 @@ import {
   type MyMessageThreadList,
   SendFirmMessageRequest,
   SendMessageRequest,
+  SetMessageThreadAssigneeRequest,
   type UnreadCount,
   UpdateMessageThreadRequest,
 } from '@firmivra/types';
@@ -161,6 +173,64 @@ export class MessageThreadsController {
     @Param('id', idPipe) id: string,
   ): Promise<MessageThread> {
     return this.messages.markUnread(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** MSG-F22: the conversation's owner (null: unassigned), by MSG-F16's Assign Staff rule. */
+  @Put(':id/assignee')
+  @Access('MESSAGES', 'EDIT')
+  assign(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SetMessageThreadAssigneeRequest))
+    body: z.output<typeof SetMessageThreadAssigneeRequest>,
+  ): Promise<MessageThread> {
+    return this.messages.assign(tenant.businessId, actorOf(auth, tenant), id, body.userId);
+  }
+
+  /** MSG-F22: the caller's own internal alerts for it stop; messages still arrive. */
+  @Post(':id/mute')
+  @HttpCode(200)
+  @Access('MESSAGES', 'VIEW')
+  mute(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MessageThread> {
+    return this.messages.setMuted(tenant.businessId, actorOf(auth, tenant), id, true);
+  }
+
+  @Delete(':id/mute')
+  @Access('MESSAGES', 'VIEW')
+  unmute(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MessageThread> {
+    return this.messages.setMuted(tenant.businessId, actorOf(auth, tenant), id, false);
+  }
+
+  /** MSG-F22: out of the active inbox, its whole history kept. */
+  @Post(':id/archive')
+  @HttpCode(200)
+  @Access('MESSAGES', 'EDIT')
+  archive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MessageThread> {
+    return this.messages.setArchived(tenant.businessId, actorOf(auth, tenant), id, true);
+  }
+
+  @Post(':id/restore')
+  @HttpCode(200)
+  @Access('MESSAGES', 'EDIT')
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MessageThread> {
+    return this.messages.setArchived(tenant.businessId, actorOf(auth, tenant), id, false);
   }
 }
 

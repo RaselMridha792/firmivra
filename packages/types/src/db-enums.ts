@@ -2277,3 +2277,17 @@ export type FirmOfficeActionStatus = z.infer<typeof FirmOfficeActionStatus>;
 /** CLIENT links open without a portal account (at most 24 hours); INTERNAL links still need the staff member's sign-in (at most 48 hours). */
 export const DocumentLinkKind = z.enum(['CLIENT', 'INTERNAL']);
 export type DocumentLinkKind = z.infer<typeof DocumentLinkKind>;
+
+export const ClientTimelineKind = z.enum([
+  'MESSAGE',
+  'EMAIL',
+  'SMS',
+  'NOTE',
+  'CALL',
+  'MEETING',
+  'DOCUMENT',
+  'TASK',
+  'INVOICE',
+  'OTHER',
+]);
+export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;

@@ -291,6 +291,16 @@ Progress (Templates, Oct 28 review):
     use it, automations and versions. The Import, Merge Fields, Branding and Categories dialogs too.
   - The text is in one file (`template-help.tsx`). No topic repeats a field's label, so a label
     finds only its field.
+- Help icons, branch `rasel/R60-comms-help` (on CM-F11): the change list's Help icons for
+  Communications.
+  - The shared `HelpTip` on the overview (title, Start, Recent, Upcoming, Saved Templates, Grow
+    Your Reach), the lists and Segments & Lists.
+  - In the composer: writing it, type, recipients, message and personalization, the announcement
+    window, attachments, Delivery, Template, Preview and the checklist.
+  - Choose Recipients (audience and total), Review & Send, and the results (performance, actions,
+    recipient activity).
+  - The text is in one file (`communications-help.tsx`), checked against what each area does
+    (Save Draft, not autosave; the preview is of the saved draft).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
@@ -333,6 +343,56 @@ Progress (Messages):
   pins, described for screen readers, tap at 375 px inside the window, tap elsewhere, second tap,
   inside a dialog, Escape order). **Next step:** its PR, then the re-tests of CM-F11, CM-F12 and
   Back to Origin, then CM-F05.
+- Nov 7: Contact panel and Thread Actions, branch `rasel/R60-messages-contact`: MSG-F19, F20, F22.
+  It uses R36's columns and tables, so there is no schema change. The defaults were sent to the
+  lead (Q1, Q2, Q4).
+  - Thread Actions beside the client card: View Profile, Mark as Read or Unread, Assign or
+    Reassign Staff, Tags, Create Task (SH4), Schedule Appointment (SH6), Mute or Unmute, Archive
+    or Restore.
+  - New routes under `business/message-threads/:id`: `PUT assignee`, `POST`/`DELETE mute`, `POST
+    archive`, `POST restore`. Each is audited and has an isolation case.
+  - Assign follows MSG-F16's rule (an Owner or Admin, or a Staff member assigned to the client,
+    400 `ASSIGNEE_CANNOT_REACH`) and never changes the client's own assigned staff member.
+  - Mute is the caller's alone. Muted members get no staff email and no bell item: the lead's Q4
+    (Nov 7, a one-off exception in R6's Notifier) added an optional `excludeUserIds` to
+    `NotifyEventInput` (up to 50 UUIDs, any event, never adds anyone), with a unit test. A
+    client's new message brings an archived conversation back to the inbox.
+  - The panel shows the client's tags (the firm's one list, edited in place), the client's
+    Assigned Staff and the Conversation Owner, each with an empty state.
+  - Schedule opens `/calendar/new?clientId=`, and Back returns to the thread.
+  - Tests: API e2e `messages-workspace` and `messages` 28 of 28, isolation 19 of 19, mock
+    `r60-messages-contact` 2 of 2 (twice) and every Messages spec.
+  - The lead's answers (Nov 7): Q1 and Q2 as built (the client's tags and Assigned Staff, MSG-F16's
+    assign rule); Q4 as above. Notifier tests: unit `notifications` and API e2e `messages`,
+    `messages-workspace`, `notifications`, `automations` 100 of 100.
+  - Next: MSG-F18 Recent Activity (its own PR), then MSG-F21 (Q3: one Send Message link on the
+    appointment detail page).
+
+Progress (Dashboard D4, D5; the lead's go, Nov 7):
+- API, branch `rasel/R60-dashboard-cards-api`, on R1's `dashboard_card_templates` (no schema
+  change). The lead's answers: Appointments Today stays fixed; the label guard; the Settings page
+  under settings/.
+  - Settings routes `business/settings/dashboard-cards`: list, create (first free slot, 409
+    `CARDS_FULL` after six), `PATCH :id` (409 `STALE_VERSION`), `PUT order`, `POST preview`
+    (This Month, saves nothing). Owner and Admin (Settings, Manage to change). Audited.
+  - The firm's app role has no DELETE on the table and the slot index is unique row by row, so a
+    card is switched off, never removed, and a reorder moves the cards' contents between the slots.
+  - The rule (`dashboardCardProblem` in packages/types, shared with Settings):
+    - `ACTIVE_ENGAGEMENTS` needs a service and no status;
+    - `engagement:` statuses need a service;
+    - `tax:` statuses go with a tax service or none (every return);
+    - Completed in the period is `engagement:COMPLETED` or `tax:ACCEPTED` only, since only those
+      lists can filter by date;
+    - a tax card's label names returns or tax, and no other card's does (`LABEL_MISMATCH`).
+  - `summary.serviceCards`: the firm's cards switched on, or Returns In Progress and Accepted
+    Returns while it has none (D5). Each has its link (Tax Returns or Clients, filtered to exactly
+    what it counts) and is left out when the member may not view that list.
+  - Engagement cards count clients, as Clients lists them. Clients gains `engagementStatus` and
+    `completedFrom`/`completedTo` with `serviceId`; Tax Returns gains `serviceId`. Staff reach is
+    unchanged.
+  - Tests: API e2e `dashboard-cards` 10 of 10 (each card's number is its list's total, for Owner
+    and Staff), `dashboard` and `clients` suites, isolation 19 of 19, unit 3 of 3.
+- Next: the Settings screen and the dashboard's rendering (PR 2).
 
 ## Handoff (Oct 23): start here
 

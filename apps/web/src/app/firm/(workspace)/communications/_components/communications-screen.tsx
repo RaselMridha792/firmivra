@@ -33,6 +33,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { CommsHelp } from './communications-help';
 import { ChannelNotice } from './channel-notice';
 import { CommunicationMenu } from './communication-actions';
 import {
@@ -298,8 +299,8 @@ export function CommunicationsScreen() {
             <PaperPlaneTilt weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-3xl sm:text-4xl font-bold text-heading">
-              Communications
+            <h1 className="flex items-center gap-2 font-display text-3xl font-bold text-heading sm:text-4xl">
+              Communications <CommsHelp area="overview" />
             </h1>
             <p className="text-base text-muted">
               Message. Email. Text. Announce. Keep your clients informed — all in one place.
@@ -487,8 +488,8 @@ export function CommunicationsScreen() {
             </ul>
             <section className={card} aria-label="Recent communications" data-testid="recent">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="font-display text-xl font-bold text-heading">
-                  Recent Communications
+                <h2 className="flex items-center gap-2 font-display text-xl font-bold text-heading">
+                  Recent Communications <CommsHelp area="recent" />
                 </h2>
                 <button type="button" className={linkBtn} onClick={() => setTab('sent')}>
                   View All
@@ -517,8 +518,8 @@ export function CommunicationsScreen() {
               aria-label="Start a new communication"
               data-testid="start-new"
             >
-              <h2 className="mb-3 font-display text-xl font-bold text-heading">
-                Start a New Communication
+              <h2 className="mb-3 flex items-center gap-2 font-display text-xl font-bold text-heading">
+                Start a New Communication <CommsHelp area="start" />
               </h2>
               <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                 {starts.map((c) => (
@@ -601,8 +602,8 @@ export function CommunicationsScreen() {
             </section>
             <section className={card} aria-label="Upcoming communications" data-testid="upcoming">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="font-display text-lg font-bold text-heading">
-                  Upcoming Communications
+                <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+                  Upcoming Communications <CommsHelp area="upcoming" />
                 </h2>
                 <button type="button" className={linkBtn} onClick={() => setTab('scheduled')}>
                   View All
@@ -649,7 +650,9 @@ export function CommunicationsScreen() {
             </section>
             <section className={card} aria-label="Saved templates" data-testid="saved-templates">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="font-display text-lg font-bold text-heading">Saved Templates</h2>
+                <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+                  Saved Templates <CommsHelp area="templates" />
+                </h2>
                 <Link href="/templates" className={linkBtn}>
                   View All
                 </Link>
@@ -702,7 +705,9 @@ export function CommunicationsScreen() {
                 <UsersThree weight="fill" className="size-7" />
               </span>
               <div className="min-w-0 flex-1">
-                <h2 className="font-display text-lg font-bold text-heading">Grow Your Reach</h2>
+                <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+                  Grow Your Reach <CommsHelp area="reach" />
+                </h2>
                 <p className="text-sm text-text">
                   {o && o.segments.total > 0
                     ? `You have ${o.segments.total} segments covering ${o.segments.totalMembers} contacts. Use segments to send targeted messages.`
@@ -794,7 +799,9 @@ function ListPanel({
       data-testid="comm-list"
     >
       <div className="flex flex-wrap items-end gap-3">
-        <h2 className="mr-auto font-display text-xl font-bold text-heading">{titles[tab]}</h2>
+        <h2 className="mr-auto flex items-center gap-2 font-display text-xl font-bold text-heading">
+          {titles[tab]} <CommsHelp area="list" />
+        </h2>
         <label className="flex h-10 w-64 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
           <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
           <span className="sr-only">Search communications</span>

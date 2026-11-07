@@ -284,6 +284,23 @@ describe('Notifier input and failures', () => {
     expect(database.withScope).not.toHaveBeenCalled();
   });
 
+  it('excludeUserIds: up to 50 UUIDs, for any event; more or a non-UUID is a programming error', async () => {
+    const { notifier, database } = notifierWith(() => Promise.resolve([]));
+    const base = { businessId: FIRM_ID, event: 'invoice.sent', recordId: RECORD_ID } as const;
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    for (const excludeUserIds of [ids(51), ['not-a-uuid']]) {
+      await expect(notifier.notify({ ...base, excludeUserIds })).rejects.toBeInstanceOf(
+        NotificationInputError,
+      );
+    }
+    expect(database.withScope).not.toHaveBeenCalled();
+    for (const excludeUserIds of [[], ids(50)]) {
+      expect(await notifier.notify({ ...base, excludeUserIds })).toEqual({ written: 0 });
+    }
+    expect(database.withScope).toHaveBeenCalledTimes(2);
+  });
+
   it('a database failure is { written: 0, failed: true }, logged with ids only', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     try {
