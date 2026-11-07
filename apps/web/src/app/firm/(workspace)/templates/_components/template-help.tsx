@@ -69,7 +69,7 @@ const HELP = {
   },
   import: {
     topic: 'Importing a template',
-    text: 'Paste HTML or plain text; a text message takes plain text only. Scripts and other unsafe parts are removed. It becomes a private draft (Only me, automations off) that you can edit and activate.',
+    text: 'Paste HTML or plain text, or choose a Word document (.docx, up to 10 MB) for an email, letter or other formatted kind; a text message takes plain text only. Scripts, a Word document’s images and other unsafe parts are removed, and the document is not kept. It becomes a private draft (Only me, automations off) that you can edit and activate.',
   },
   branding: {
     topic: 'Branding & Letterhead',
