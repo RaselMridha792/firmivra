@@ -41,6 +41,7 @@ import { InvoiceReceipts } from './invoice-receipts.js';
 import { InvoicesService } from './invoices.service.js';
 import { MyInvoicesController } from './my-invoices.controller.js';
 import { MyInvoicesService } from './my-invoices.service.js';
+import { RecurringSchedulesController, RecurringSchedulesService } from './recurring-schedules.js';
 import { PortalTabsModule } from '../../client-portal/portal-tabs.js';
 import { ReportsModule } from '../../reports/reports.module.js';
 
@@ -220,8 +221,15 @@ export class InvoicesController {
 @Module({
   // ReportsModule: its file store keeps the invoice PDFs under the firm's reports prefix.
   imports: [NotificationsModule, PortalTabsModule, ReportsModule],
-  controllers: [InvoicesController, MyInvoicesController],
-  providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceReceipts, InvoiceJobs],
+  controllers: [InvoicesController, RecurringSchedulesController, MyInvoicesController],
+  providers: [
+    InvoicesService,
+    MyInvoicesService,
+    InvoiceNotices,
+    InvoiceReceipts,
+    InvoiceJobs,
+    RecurringSchedulesService,
+  ],
   exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceReceipts, InvoiceJobs],
 })
 export class InvoicesModule {}

@@ -203,6 +203,47 @@ test('The list keeps its filters in the address; Templates goes back to it; the 
   await expect(page.getByRole('button', { name: 'Actions for INV-2026-0098' })).toBeVisible();
 });
 
+test('Recurring Invoices: figures, tabs and a schedule page; Send Now, Pause, Resume, End asking first, and Auto-send (IP-F18)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices/recurring'));
+  const list = page.getByTestId('recurring-invoices');
+  await expect(page.getByTestId('card-active')).toContainText('1');
+  await expect(page.getByTestId('card-paused')).toContainText('1');
+  await list.getByRole('tab', { name: /Paused/ }).click();
+  await expect(list.getByRole('row', { name: /Quarterly payroll review/ })).toBeVisible();
+  await expect(list.getByRole('row', { name: /Monthly bookkeeping/ })).toHaveCount(0);
+  await list.getByRole('tab', { name: /All/ }).click();
+  await page.screenshot({ path: test.info().outputPath('recurring-list.png') });
+  await list.getByRole('link', { name: 'Monthly bookkeeping' }).click();
+  await page.waitForURL(/\/invoices\/recurring\/[0-9a-f-]{36}$/);
+  const detail = page.getByTestId('recurring-detail');
+  await expect(detail.getByTestId('recurring-upcoming').getByRole('listitem')).toHaveCount(3);
+  await expect(detail.getByTestId('recurring-facts')).toContainText('America/New_York');
+  await expect(detail.getByTestId('autopay-note')).toContainText('AutoPay is off');
+  await detail.getByRole('switch', { name: 'Auto-send' }).click();
+  await expect(page.getByText('Auto-send is on.')).toBeVisible();
+  // Send Now asks first, then makes and sends the next one.
+  await detail.getByRole('button', { name: 'Send Now' }).click();
+  await expect(page.getByTestId('send-now-confirm')).toContainText('sent to');
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Now' }).click();
+  await expect(page.getByText('The next invoice was made and sent to the client.')).toBeVisible();
+  await expect(detail.getByTestId('recurring-invoices-made')).toContainText('INV-2026-R4');
+  await detail.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.getByText('Paused: no invoice is made until it resumes.')).toBeVisible();
+  await expect(detail).toContainText('None while paused.');
+  await detail.getByRole('button', { name: 'Resume' }).click();
+  await expect(detail.getByTestId('recurring-upcoming')).toBeVisible();
+  await detail.getByRole('button', { name: 'End', exact: true }).click();
+  await expect(page.getByTestId('end-confirm')).toContainText('makes no more invoices');
+  await page.screenshot({ path: test.info().outputPath('recurring-end.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'End Recurring Invoice' }).click();
+  await expect(page.getByText('Ended: no more invoices are made.')).toBeVisible();
+  await expect(detail.getByTestId('recurring-history')).toContainText('Ended');
+  await expect(detail.getByRole('button', { name: 'Resume' })).toHaveCount(0);
+});
+
 test('Row menu by status: Resend and Copy Payment Link while unpaid, Send Receipt and Issue Refund once paid (IP-F10)', async ({
   page,
   context,
@@ -296,7 +337,7 @@ test('The routes from Quick Links: payments, recurring, statement, payment link 
 
   await page.getByRole('link', { name: 'Recurring Invoices' }).click();
   await expect(page.getByTestId('page-title')).toHaveText('Recurring Invoices');
-  await expect(page.getByText('No recurring invoices yet')).toBeVisible();
+  await expect(page.getByTestId('recurring-cards')).toBeVisible();
   await page.getByRole('link', { name: 'Back to Invoices' }).click();
 
   await page.getByRole('link', { name: 'Client Statement' }).click();

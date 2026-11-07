@@ -17,6 +17,7 @@ import {
   type UploadPutTicket,
   type UploadTicket,
 } from '@firmivra/types';
+import { FILE_UNREADABLE } from './errors';
 
 export interface UploadSteps<T> {
   /**
@@ -53,6 +54,11 @@ const refused = (
     | 'TOO_MANY_FILES'
     | 'BATCH_TOO_LARGE',
 ) => new ApiRequestError(400, code, DOCUMENT_ERRORS[code]);
+/**
+ * `file.arrayBuffer()` failed (a DOMException: a cloud placeholder, a file moved or changed since
+ * it was chosen), named instead of "Something went wrong" (TP-F06). Nothing was sent.
+ */
+const unreadable = () => new ApiRequestError(400, 'FILE_UNREADABLE', FILE_UNREADABLE);
 const failed = (status: number) =>
   new ApiRequestError(status, 'UPLOAD_FAILED', DOCUMENT_ERRORS.UPLOAD_FAILED);
 /** A part's URL no longer works (expired, or the upload is gone): a new ticket is needed. */
@@ -80,8 +86,8 @@ const PART_RETRY_MOST_MS = 30_000;
  * size (`steps.maxBytes`: 100 MB for documents) first. A browser may give an .xlsx or .docx no
  * type: the name's ending then decides (`uploadContentTypeFor`). Rejects with ApiRequestError like
  * an API error: show it with `errorMessage(error, DOCUMENT_ERRORS)`, since errorMessage() alone
- * knows only the generic codes. Its own refusals are FILE_TYPE_NOT_ALLOWED, FILE_EMPTY and
- * FILE_TOO_LARGE (400, nothing sent), UPLOAD_FAILED when storage can't take the file, and
+ * knows only the generic codes. Its own refusals are FILE_TYPE_NOT_ALLOWED, FILE_EMPTY,
+ * FILE_TOO_LARGE and FILE_UNREADABLE (400, nothing sent), UPLOAD_FAILED when storage can't take the file, and
  * UPLOAD_EXPIRED when a part's URL no longer works (choose the file again); a cancel via
  * `signal` rejects with an AbortError. When confirm answers 503 (storage busy), it confirms again
  * with the same token after the API's Retry-After, up to 3 times. It sends no credentials to
@@ -116,7 +122,13 @@ export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<
   }
 
   checkAborted(steps.signal);
-  const sha256 = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    throw unreadable();
+  }
+  const sha256 = hex(await crypto.subtle.digest('SHA-256', bytes));
   checkAborted(steps.signal);
   const ticket = await steps.start({
     fileName: file.name,

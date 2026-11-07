@@ -4,6 +4,9 @@ import {
   INVOICE_ERRORS,
   invoiceTotals,
   PaymentMethodKey,
+  paymentTermDays,
+  type RecurrenceRule,
+  recurringPeriodOn,
   STANDARD_PAYMENT_TERMS,
 } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
@@ -505,6 +508,155 @@ export class InvoicesService {
       if (isUniqueViolation(e)) return attempt();
       throw e;
     });
+  }
+
+  /**
+   * IP-F18 (Octavia, Oct 27): the invoice of a recurring schedule's next period, made from the
+   * schedule (its lines, terms, tax, discount, staff, template and delivery), due by its terms from
+   * the period's day. Once per schedule and period (the unique index): a period already made is not
+   * made again, the schedule only moves on. It stays a draft for the firm to review, unless `send`
+   * is 'now' (Send Now) or 'auto' with the schedule's Auto-send on and the firm's online payments
+   * ready; then it opens, and the caller sends its notice after the commit. The schedule moves to
+   * its next period, or is completed when none is left. Null when the schedule is not active.
+   */
+  async makePeriodInvoice(
+    tx: TxClient,
+    businessId: string,
+    scheduleId: string,
+    options: { send: 'auto' | 'now'; actorUserId: string | null; now?: Date },
+  ): Promise<{ invoiceId: string; opened: boolean } | null> {
+    const now = options.now ?? new Date();
+    // The daily run has no request: the audit rows name the firm (and the person, on Send Now).
+    const at = { businessId, ...(options.actorUserId ? { actorUserId: options.actorUserId } : {}) };
+    const s = await tx.recurringInvoice.findFirst({
+      where: { businessId, id: scheduleId, status: 'ACTIVE' },
+      include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!s || !s.nextSendOn) return null;
+    const periodOn = day(s.nextSendOn)!;
+    const made = await tx.invoice.findFirst({
+      where: { businessId, recurringInvoiceId: s.id, recurringPeriodOn: s.nextSendOn },
+      select: { id: true },
+    });
+    let invoiceId = made?.id ?? null;
+    let opened = false;
+    let held: string | null = null;
+    if (!invoiceId) {
+      ({ id: invoiceId } = await tx.invoice.create({
+        data: {
+          businessId,
+          clientId: s.clientId,
+          number: await this.nextNumber(tx, businessId),
+          createdByUserId: options.actorUserId ?? s.createdByUserId,
+          recurringInvoiceId: s.id,
+          recurringPeriodOn: s.nextSendOn,
+        },
+        select: { id: true },
+      }));
+      await tx.invoiceLine.createMany({
+        data: s.lines.map((l, i) => ({
+          businessId,
+          invoiceId: invoiceId!,
+          description: l.description,
+          quantity: l.quantity,
+          unitAmountCents: l.unitAmountCents,
+          taxable: l.taxable,
+          serviceId: l.serviceId,
+          itemName: l.itemName,
+          sortOrder: i,
+        })),
+      });
+      const days = paymentTermDays(s.paymentTerms ?? 'due_on_receipt') ?? 0;
+      const due = new Date(`${periodOn}T00:00:00.000Z`);
+      due.setUTCDate(due.getUTCDate() + days);
+      await tx.invoice.update({
+        where: { businessId_id: { businessId, id: invoiceId } },
+        data: {
+          engagementId: s.engagementId,
+          taxRateId: s.taxRateId,
+          assignedUserId: s.assignedUserId,
+          templateId: s.templateId,
+          discountType: s.discountType,
+          discountPercent: s.discountPercent,
+          discountCents: s.discountCents,
+          dueOn: due,
+          paymentTerms: s.paymentTerms,
+          notesToClient: s.notesToClient,
+          emailClient: s.delivery !== 'PORTAL',
+        },
+      });
+      const { totalCents, number } = await tx.invoice.findUniqueOrThrow({
+        where: { businessId_id: { businessId, id: invoiceId } },
+        select: { totalCents: true, number: true },
+      });
+      // Send Now always opens it; the daily run only with Auto-send on and payments ready.
+      const ready =
+        options.send === 'now' || (s.autoSend && (await paymentsEnabled(tx, businessId)));
+      held =
+        totalCents <= 0
+          ? 'nothing_to_pay'
+          : !ready
+            ? s.autoSend
+              ? 'payments_not_ready'
+              : 'review'
+            : null;
+      if (held === null) {
+        await tx.invoice.update({
+          where: { businessId_id: { businessId, id: invoiceId } },
+          data: { status: 'OPEN', issuedAt: now },
+        });
+        opened = true;
+      }
+      await this.audit.logIn(
+        tx,
+        'invoice.created',
+        { type: 'invoice', id: invoiceId },
+        { clientId: s.clientId, number, totalCents, recurringInvoiceId: s.id, periodOn },
+        at,
+      );
+    }
+    // The next period after this one (a resumed schedule may have skipped some), within its end.
+    const rule = {
+      frequency: s.frequency as RecurrenceRule['frequency'],
+      intervalCount: s.intervalCount,
+      intervalUnit: s.intervalUnit as RecurrenceRule['intervalUnit'],
+    };
+    const startOn = day(s.startOn)!;
+    const endOn = day(s.endOn);
+    const occurrences = s.occurrences + (made ? 0 : 1);
+    let next: string | null = null;
+    for (let k = Math.max(1, s.occurrences); k < s.occurrences + 1_000; k += 1) {
+      const on = recurringPeriodOn(startOn, rule, k);
+      if (on <= periodOn) continue;
+      if (
+        (s.maxOccurrences !== null && occurrences >= s.maxOccurrences) ||
+        (endOn !== null && on > endOn)
+      )
+        break;
+      next = on;
+      break;
+    }
+    await tx.recurringInvoice.update({
+      where: { businessId_id: { businessId, id: s.id } },
+      data: next
+        ? { occurrences, nextSendOn: toDate(next) }
+        : { occurrences, nextSendOn: null, status: 'COMPLETED', endedAt: now },
+    });
+    await this.audit.logIn(
+      tx,
+      made ? 'recurring_invoice.period_skipped' : 'recurring_invoice.invoice_made',
+      { type: 'recurring_invoice', id: s.id },
+      {
+        invoiceId,
+        periodOn,
+        opened,
+        ...(held ? { held } : {}),
+        ...(options.send === 'now' ? { sendNow: true } : {}),
+        nextSendOn: next,
+      },
+      at,
+    );
+    return made ? null : { invoiceId, opened };
   }
 
   async update(
@@ -1011,7 +1163,7 @@ export class InvoicesService {
  * out: the lines, less the discount (a percent one in whole cents), plus the schedule's tax rate on
  * its taxable lines (R55's IP-F03).
  */
-function scheduleTotal(r: {
+export function scheduleTotal(r: {
   lines: { quantity: Prisma.Decimal; unitAmountCents: number; taxable: boolean }[];
   discountType: 'FIXED' | 'PERCENT';
   discountPercent: Prisma.Decimal | null;
