@@ -334,6 +334,32 @@ Progress (Messages):
   inside a dialog, Escape order). **Next step:** its PR, then the re-tests of CM-F11, CM-F12 and
   Back to Origin, then CM-F05.
 
+Progress (Dashboard D4, D5; the lead's go, Nov 7):
+- API, branch `rasel/R60-dashboard-cards-api`, on R1's `dashboard_card_templates` (no schema
+  change). The lead's answers: Appointments Today stays fixed; the label guard; the Settings page
+  under settings/.
+  - Settings routes `business/settings/dashboard-cards`: list, create (first free slot, 409
+    `CARDS_FULL` after six), `PATCH :id` (409 `STALE_VERSION`), `PUT order`, `POST preview`
+    (This Month, saves nothing). Owner and Admin (Settings, Manage to change). Audited.
+  - The firm's app role has no DELETE on the table and the slot index is unique row by row, so a
+    card is switched off, never removed, and a reorder moves the cards' contents between the slots.
+  - The rule (`dashboardCardProblem` in packages/types, shared with Settings):
+    - `ACTIVE_ENGAGEMENTS` needs a service and no status;
+    - `engagement:` statuses need a service;
+    - `tax:` statuses go with a tax service or none (every return);
+    - Completed in the period is `engagement:COMPLETED` or `tax:ACCEPTED` only, since only those
+      lists can filter by date;
+    - a tax card's label names returns or tax, and no other card's does (`LABEL_MISMATCH`).
+  - `summary.serviceCards`: the firm's cards switched on, or Returns In Progress and Accepted
+    Returns while it has none (D5). Each has its link (Tax Returns or Clients, filtered to exactly
+    what it counts) and is left out when the member may not view that list.
+  - Engagement cards count clients, as Clients lists them. Clients gains `engagementStatus` and
+    `completedFrom`/`completedTo` with `serviceId`; Tax Returns gains `serviceId`. Staff reach is
+    unchanged.
+  - Tests: API e2e `dashboard-cards` 10 of 10 (each card's number is its list's total, for Owner
+    and Staff), `dashboard` and `clients` suites, isolation 19 of 19, unit 3 of 3.
+- Next: the Settings screen and the dashboard's rendering (PR 2).
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,

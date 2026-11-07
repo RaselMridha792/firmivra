@@ -9,10 +9,11 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
-import { legacyFirmRole } from '../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { LIVE_TASK } from '../tasks/task-common.js';
 import { TasksService } from '../workspaces/tasks.service.js';
+import { DashboardCardsService } from './dashboard-cards.service.js';
 import {
   addDays,
   dueTasks,
@@ -68,13 +69,15 @@ export class DashboardService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly tasks: TasksService,
+    private readonly cards: DashboardCardsService,
   ) {}
 
   async summary(
-    businessId: string,
+    tenant: TenantContext,
     actor: ClientsActor,
     q: SummaryQuery = { period: 'THIS_MONTH', pipelinePeriod: 'THIS_MONTH', revenuePeriod: 'YEAR' },
   ): Promise<DashboardSummary> {
+    const { businessId } = tenant;
     const staff = actor.role === 'STAFF' ? actor.userId : null;
     // The clients in reach, on a query that names the client `c`.
     const mine = Prisma.sql`(${staff}::uuid IS NULL OR c.assigned_user_id = ${staff}::uuid)`;
@@ -230,6 +233,8 @@ export class DashboardService {
           previousCents: before?.cents ?? null,
         };
       });
+    // D4: the firm's service cards for the same period (the defaults while it has none).
+    const serviceCards = await this.cards.forSummary(tenant, actor, range, today);
     const open = await this.tasks.list(businessId, actor, { status: 'OPEN', limit: 5 });
     const priorities = new Map(
       (
@@ -254,6 +259,7 @@ export class DashboardService {
         outstandingInvoicesCents: kpi(c.outstanding, null),
         appointmentsToday: kpi(c.appointments_today, null),
       },
+      serviceCards,
       pipeline: {
         leads: c.leads_pipeline,
         consultation: null,

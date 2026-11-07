@@ -147,6 +147,7 @@ export class TaxReturnWorkspaceService {
     if (q.workflowGroup === 'IN_PROGRESS')
       and.push({ workflowStatus: { in: [...TAX_RETURN_IN_PROGRESS_STATUSES] } });
     if (q.taxYear) and.push({ taxYear: q.taxYear });
+    if (q.serviceId) and.push({ engagement: { serviceId: q.serviceId } });
     if (q.formType) and.push({ formType: { equals: q.formType, mode: 'insensitive' } });
     if (q.clientType) and.push({ client: { accountType: q.clientType } });
     if (q.assignedUserId) {

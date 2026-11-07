@@ -131,6 +131,8 @@ export const TaxReturnsQuery = z.strictObject({
    */
   acceptedFrom: CalendarDate.optional(),
   acceptedTo: CalendarDate.optional(),
+  /** Returns prepared in an engagement of this service (D4, a dashboard card of a tax service). */
+  serviceId: z.uuid().optional(),
   archived: z.union([z.boolean(), z.stringbool()]).optional().default(false),
   search: SearchText.optional(),
   sort: z.enum(['updated', 'client', 'due', 'year', 'status']).optional().default('updated'),

@@ -6,6 +6,7 @@ import {
   ClientPortalRole,
   ClientStatus,
   ContactMethod,
+  EngagementStatus,
   ServiceKind,
 } from '../db-enums.js';
 import { US_STATES } from '../intake/options.js';
@@ -125,6 +126,17 @@ export const ListClientsQuery = z
     clientStatus: ClientStatus.optional(),
     /** Clients with an open engagement in this service (the service tabs). */
     serviceId: z.uuid().optional(),
+    /**
+     * With serviceId (D4, a dashboard service card): clients with an engagement of that service in
+     * this status, instead of an open one.
+     */
+    engagementStatus: EngagementStatus.optional(),
+    /**
+     * With serviceId: clients with an engagement of that service completed on these days (the
+     * firm's calendar), as a dashboard card's Completed in the period counts them.
+     */
+    completedFrom: CalendarDate.optional(),
+    completedTo: CalendarDate.optional(),
     /** Last activity on or after / on or before these days (the firm's calendar days). */
     lastActivityFrom: CalendarDate.optional(),
     lastActivityTo: CalendarDate.optional(),
@@ -144,7 +156,15 @@ export const ListClientsQuery = z
   .refine(
     (q) => !q.lastActivityFrom || !q.lastActivityTo || q.lastActivityFrom <= q.lastActivityTo,
     { message: 'The start is after the end', path: ['lastActivityTo'] },
-  );
+  )
+  .refine((q) => q.serviceId || (!q.engagementStatus && !q.completedFrom && !q.completedTo), {
+    message: 'Choose the service first',
+    path: ['serviceId'],
+  })
+  .refine((q) => !q.completedFrom || !q.completedTo || q.completedFrom <= q.completedTo, {
+    message: 'The start is after the end',
+    path: ['completedTo'],
+  });
 export type ListClientsQuery = z.input<typeof ListClientsQuery>;
 
 export const ListClientsResponse = z.object({
