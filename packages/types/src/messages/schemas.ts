@@ -213,6 +213,47 @@ export const SetMessageThreadAssigneeRequest = z.strictObject({ userId: z.uuid()
 export type SetMessageThreadAssigneeRequest = z.input<typeof SetMessageThreadAssigneeRequest>;
 
 /**
+ * GET /business/message-threads/{id}/activity (MSG-F18): the thread client's latest activity, at
+ * most 10, newest first: messages, appointments, intake forms, invoices, documents, document
+ * requests and completed tasks. A kind appears only when the caller may view its module (their
+ * role's grid, their custom role's or their own change); Staff, as everywhere in Messages, only
+ * for their own clients. `href` is the record's own page in the firm app.
+ */
+export const ClientActivityKind = z.enum([
+  'MESSAGE_RECEIVED',
+  'MESSAGE_SENT',
+  'APPOINTMENT_BOOKED',
+  'APPOINTMENT_CANCELLED',
+  'APPOINTMENT_HELD',
+  'FORM_SENT',
+  'FORM_SUBMITTED',
+  'INVOICE_CREATED',
+  'INVOICE_PAID',
+  'DOCUMENT_UPLOADED',
+  'DOCUMENT_SHARED',
+  'DOCUMENT_ADDED',
+  'DOCUMENTS_REQUESTED',
+  'TASK_COMPLETED',
+]);
+export type ClientActivityKind = z.infer<typeof ClientActivityKind>;
+export const ClientActivityItem = z.object({
+  kind: ClientActivityKind,
+  /** "Appointment Booked", "Invoice Paid". */
+  title: z.string(),
+  /** "Tax Prep Intake Form", "INV-001245 · $250.00", a message's first words; null: none. */
+  detail: z.string().nullable(),
+  /** When it happened. */
+  at: DateTime,
+  /** An appointment's own start; null for the other kinds. */
+  eventAt: DateTime.nullable(),
+  /** The record's page in the firm app: a path, never another site. */
+  href: z.string().regex(/^\/[a-z]/),
+});
+export type ClientActivityItem = z.infer<typeof ClientActivityItem>;
+export const ClientActivity = z.object({ items: z.array(ClientActivityItem).max(10) });
+export type ClientActivity = z.infer<typeof ClientActivity>;
+
+/**
  * GET /business/message-threads/unread-count: the client messages the firm has not read, in every
  * thread the caller may see, in total and per client (clients with none are left out).
  */

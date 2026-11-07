@@ -114,3 +114,35 @@ test('Schedule and Create Task open with the client chosen, and Back returns to 
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(there);
 });
+
+test("Recent Activity lists the client's latest records; each opens with Back to the thread (MSG-F18)", async ({
+  page,
+}) => {
+  await page.goto(app('/messages'));
+  await page.getByLabel('Search messages').fill('jamie');
+  await expect(page.getByTestId('thread-row').nth(1)).toBeVisible();
+  await page.getByTestId('thread-row').first().click();
+  await expect(page).toHaveURL(/thread=/);
+  const there = page.url();
+  const recent = page.getByTestId('recent-activity');
+  await expect(recent.getByRole('listitem').first()).toBeVisible();
+  // Another module's record opens on its own page, with Back to this conversation.
+  const invoice = recent.getByRole('link', { name: /^Invoice (Created|Paid)/ }).first();
+  await invoice.click();
+  await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}\?from=%2Fmessages/);
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(there);
+
+  // A reply is the newest activity; from another of the client's conversations, its row opens
+  // the conversation it is in, on this page.
+  const conversation = page.getByTestId('conversation');
+  await conversation.getByLabel('Type a message').fill('Fake reply for activity');
+  await conversation.getByRole('button', { name: 'Send message' }).click();
+  const sent = recent.getByRole('button', { name: /^Message Sent Fake reply for activity/ });
+  await expect(sent).toBeVisible();
+  await page.getByTestId('thread-row').nth(1).click();
+  await expect(page).not.toHaveURL(there);
+  await sent.click();
+  await expect(page).toHaveURL(there);
+  await expect(conversation).toContainText('Fake reply for activity');
+});

@@ -393,6 +393,27 @@ Progress (Dashboard D4, D5; the lead's go, Nov 7):
   - Tests: API e2e `dashboard-cards` 10 of 10 (each card's number is its list's total, for Owner
     and Staff), `dashboard` and `clients` suites, isolation 19 of 19, unit 3 of 3.
 - Next: the Settings screen and the dashboard's rendering (PR 2).
+- Nov 7: Recent Activity, branch `rasel/R60-messages-activity` (on the contact panel): MSG-F18.
+  - `GET business/message-threads/:id/activity`: the thread client's latest 10, newest first.
+  - Sources: messages, appointments, intake forms, invoices, documents and document requests, and
+    completed tasks.
+  - A module appears only when the member may view it (the guard's order: their own change, a
+    custom role, the role's grid). Staff see only their own clients, as in Messages.
+  - Each row opens the record's own page with Back to the thread; a message row opens its thread
+    in place. Firm Sign keeps its own roles, so it is left out.
+  - Tests: API e2e 31 of 31 (a member refused Invoices gets no invoice rows; another client's and
+    another firm's records never show), isolation 19 of 19, mock 3 of 3 and every Messages spec
+    36 of 36.
+- Nov 7: MSG-F21 on the same branch (the lead's Q3: a one-off exception for one link on the
+  appointment detail page in `calendar/`).
+  - A client's appointment has **Send Message**. It opens
+    `/messages/new?clientId=&related=appointment:{id}`, with Back to the appointment (SH1). A
+    lead's appointment, a typed-in contact and a team meeting have no client, so no link.
+  - New Message takes `?related=` with `?clientId=`: the client is chosen and the record is in
+    Related To. A record not among that client's offered records (another client chosen since, or
+    an appointment older than the 20 offered) goes back to Nothing and is never sent.
+  - Tests: mock `r60-messages-appointment` 2 of 2; New Message, Messages and calendar detail specs
+    28 of 28.
 
 ## Handoff (Oct 23): start here
 

@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bell,
   CalendarCheck,
+  ChatCircleDots,
   ClockCounterClockwise,
   Info,
   LinkSimple,
@@ -15,6 +16,7 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
+import { OriginLink } from '../../../../../../components/origin-link';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -160,6 +162,17 @@ export function DetailScreen({ id }: { id: string }) {
             <Bell aria-hidden weight="fill" className="size-4" />
             Send Reminder
           </Button>
+          {r && !r.internal && r.contact.kind === 'CLIENT' && r.contact.id ? (
+            // MSG-F21: New Message with this client chosen and this appointment in Related To;
+            // Back returns here (SH1).
+            <OriginLink
+              href={`/messages/new?clientId=${r.contact.id}&related=appointment:${r.id}`}
+              className="inline-flex min-h-11 items-center gap-2 rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-folder-surface"
+            >
+              <ChatCircleDots aria-hidden weight="fill" className="size-4" />
+              Send Message
+            </OriginLink>
+          ) : null}
           {r?.videoUrl ? (
             <a
               href={r.videoUrl}

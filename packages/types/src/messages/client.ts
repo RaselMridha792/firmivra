@@ -30,6 +30,7 @@ import {
   UnreadCount,
   UpdateInternalNoteRequest,
   SetMessageThreadAssigneeRequest,
+  ClientActivity,
   UpdateMessageThreadRequest,
 } from './schemas.js';
 import {
@@ -136,6 +137,9 @@ export function createMessagesClient(request: ApiRequest) {
       request(MessageThread, `${thread(id)}/mute`, { method: 'POST', body: {} }),
     unmute: async (id: string): Promise<MessageThread> =>
       request(MessageThread, `${thread(id)}/mute`, { method: 'DELETE', body: {} }),
+    /** MSG-F18: the thread client's latest activity the caller may view, newest first. */
+    activity: async (id: string): Promise<ClientActivity> =>
+      request(ClientActivity, `${thread(id)}/activity`),
     /** MSG-F22: out of the active inbox, its history kept; a client's new message restores it. */
     archive: async (id: string): Promise<MessageThread> =>
       request(MessageThread, `${thread(id)}/archive`, { method: 'POST', body: {} }),

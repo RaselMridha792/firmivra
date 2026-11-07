@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  type ClientActivity,
   ClientId,
   type DownloadLink,
   CreateMessageThreadRequest,
@@ -38,6 +39,7 @@ import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/d
 import type { ClientsActor } from '../clients/clients.service.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { MessagesActivityService } from './messages-activity.service.js';
 import { MessagesService } from './messages.service.js';
 import { OutboundFilesService } from './outbound-files.service.js';
 import { PortalTabRoute } from '../client-portal/portal-tabs.js';
@@ -93,7 +95,10 @@ export class ClientMessageThreadsController {
 @Access('MESSAGES')
 @Roles(...FIRM_STAFF)
 export class MessageThreadsController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly activity: MessagesActivityService,
+  ) {}
 
   @Get()
   inbox(
@@ -121,6 +126,16 @@ export class MessageThreadsController {
     @Param('id', idPipe) id: string,
   ): Promise<MessageThreadDetail> {
     return this.messages.get(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** MSG-F18: the thread client's latest activity, in the modules the caller may view. */
+  @Get(':id/activity')
+  clientActivity(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<ClientActivity> {
+    return this.activity.forThread(tenant, actorOf(auth, tenant), id);
   }
 
   @Patch(':id')
