@@ -32,7 +32,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1308 merged: AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
 - #1311 merged: honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
 - #1312 merged: the shared date range (opt-in names and the reversed-range check) on for Support, the Sales pipeline and Integrations Usage, and Support's date ranges kept in the address (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4 part).
-- #1314 (`rasel/R55-sa-light-2`): the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
+- #1314 merged: the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
+- #1315 (`rasel/R55-in-yellow-2`): connect copy in each provider's own terms and the registry's facts before connecting (IN-Y11, Y12).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -126,6 +127,10 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - tokens and credentials removed at once, and the connection marked Disconnected;
   - imported records and audit and sync history kept, and none of the clients' data deleted;
   - a later reconnect doesn't duplicate records.
+- **Connect step (IN-Y11, Y12):**
+  - Its subtitle says what connecting does for that provider and sign-in method: the provider's page for OAuth, a write-only API key, a provider link, or built in. Website Forms and API & Webhooks say what is set up there and what is not.
+  - A read-only list from the registry shows sign-in, sync direction, how often, and whether a Test environment exists, before anything is connected.
+- **IN-Y18:** one connection per provider per environment, already refused by the API ("connects at once, once per environment") with the Manage-connection notice.
 - **IN-Y20 (Owner/Admin connect, configure and disconnect; Staff view only):** a role change, so it waits for Rasel.
 
 **For Review 2: Super Admin light items (review of Oct 31)**
