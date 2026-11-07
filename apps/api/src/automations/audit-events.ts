@@ -319,6 +319,13 @@ export const AUDIT_EVENTS: Record<string, AuditEvent> = {
     entity: 'client',
     when: changed('assignedUserId'),
   },
+  // Update client status (AU-F27) writes it; the entry names the previous and the new status.
+  'client.status_changed': {
+    actions: ['client.updated'],
+    entity: 'client',
+    when: changed('status'),
+    fieldsOf: statusMove,
+  },
   'client.tags_changed': { actions: ['client.tags_set'], entity: 'client' },
   'client.profile_changed': { actions: ['client.profile_updated'], entity: 'client' },
   'client.archived': { actions: ['client.archived'], entity: 'client' },

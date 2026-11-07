@@ -23,11 +23,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1278 merged: Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
 - #1280 merged: Tags and Assigned staff conditions on every client and lead event, with the firm's own tags and members as the choices (AU-F22, part).
 - #1282 merged: Request documents (AU-F27) through Documents' own request (DocumentRequestsService exported: the lead's one-off exception).
-- AU intake (`rasel/R55-au-intake`): Send intake form (AU-F27) through Intake Forms' own send (IntakeSendService, already exported), one per run and action.
+- #1285 merged: Send intake form (AU-F27) through Intake Forms' own send (IntakeSendService, already exported), one per run and action.
+- AU update field (`rasel/R55-au-update-field`): Update client status and Update client priority (AU-F27, a typed allowlist), and the Client status changed event with old and new status (AU-F08).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
 **For Review 2 (lead, Nov 7):** Request documents (AU-F27) names a service kind, not a service: it asks under the client's oldest ACTIVE service of that kind; with none open, the step fails with Documents' NO_OPEN_SERVICE and nothing is created. Title, instructions, an optional category (a live one of the firm) and a due date N days after the run.
+
+**For Review 2 (lead, Nov 7):** Update allowed field (AU-F27) is a typed allowlist: Client status (New, Pending documents, In progress, Active, On hold; never Inactive, which stays behind APPROVE) and Priority (High, Medium, Low, or none). Clients has no status route, so the engine writes the change as Clients' own update does: the client's row locked, an archived client refused, a Staff owner only on their own clients, `updated_by` = the rule's owner (the database's status history names them), and a `client.updated` entry with the field and its old and new value. Name, email, phone, account type and the tax-year status stay out (a rule's one fixed value would overwrite every matching client; a firm's tax status can read "Filed"). That entry is the Client status changed event (AU-F08), so loop detection blocks a rule on it that sets the status.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
@@ -38,7 +41,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - F32: provider evidence is set once on the same row (`provider_*`), so the occurrence key and the runs keyed by it stay the same: nothing reruns.
 - F33: a confirmation only records a known fact; it never files, submits, charges, pays, changes consent or grants rights. Tests per limit.
 
-**Not listed (no real source, AU-Y02 default):** client status changed (nothing changes a client's status after creation), client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
+**Not listed (no real source, AU-Y02 default):** client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
 - AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).
