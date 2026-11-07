@@ -98,6 +98,9 @@ export function structureProblems(def: Def): Detail[] {
     // AU-F18 to F20: an event about the firm itself has no client to act for.
     if (event && !event.hasClient && info.needsClient)
       add(`${at}.type`, 'This event has no client: choose an action that needs none');
+    // An action on the event's own record (a lead, a tax return) only fits that kind's events.
+    if (event && info.recordKind && event.recordKind !== info.recordKind)
+      add(`${at}.type`, `This action works on a ${info.recordKind.replace(/_/g, ' ')}'s events`);
     for (const [key, value] of Object.entries(a.config)) {
       const f = info.fields.find((x) => x.key === key);
       if (!f) {
@@ -499,6 +502,8 @@ export function produces(actions: { type: string; config: Record<string, unknown
     if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
       out.add('client.tags_changed');
     if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
+    // A follow-up set is one coming due.
+    if (a.type === 'SCHEDULE_LEAD_FOLLOW_UP') out.add('lead.follow_up_due');
     // A status set by a rule is a status change (a priority has no event).
     if (a.type === 'UPDATE_CLIENT_STATUS') out.add('client.status_changed');
     // An intake form sent is a sent form (and, with a near due date, one coming due).

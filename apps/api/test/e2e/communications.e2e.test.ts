@@ -14,6 +14,7 @@ import {
   CommunicationAttachment,
   MessageTemplateDetail,
   UploadPutTicket,
+  EmailImage,
   CommunicationActivityPage,
   CommunicationExport,
   CommunicationRecipientPage,
@@ -1704,6 +1705,48 @@ describe('test send, templates and files', () => {
       403,
       'ACTIVATE_NOT_ALLOWED',
     );
+  });
+
+  it('an image for the content uploads under the firm; firm B neither confirms the ticket nor reads the key (CM-F08)', async () => {
+    // A 1 x 1 PNG (synthetic).
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const facts = { contentType: 'image/png', sizeBytes: png.length, sha256: sha256(png) };
+    const ticket = UploadPutTicket.parse(ok(await call('post', '/images', staffA, facts), 201));
+    expect(ticket.url).toContain(firms.a);
+    storage.put(ticket, png);
+    expectError(
+      await call('post', '/images/confirm', ownerB, { uploadToken: ticket.uploadToken }, 'b'),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    expectError(
+      await call('post', '/images/confirm', ownerA, { uploadToken: ticket.uploadToken }),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    const image = EmailImage.parse(
+      ok(await call('post', '/images/confirm', staffA, { uploadToken: ticket.uploadToken })),
+    );
+    const path = new URL(image.url).pathname;
+    expect(path).toBe(`/api/v1/portal/r55c-a-${run}/email-images/${image.id}.png`);
+    expect((await request(app.getHttpServer()).get(path)).status).toBe(200);
+    const other = await request(app.getHttpServer()).get(
+      path.replace(`r55c-a-${run}`, `r55c-b-${run}`),
+    );
+    expect(other.status).toBe(404);
+    // A draft keeps the image and a content font (CM-F10); another font goes.
+    const d = await draft();
+    await edit(d.id, {
+      subject: 'Images',
+      body: `<p><span style="font-family: Georgia, serif">Hi</span> <span style="font-family: Papyrus">x</span></p><p><img src="${image.url}" style="width: 240px"></p>`,
+    });
+    const saved = CommunicationDetail.parse(ok(await call('get', `/${d.id}`, ownerA)));
+    expect(saved.body).toContain('font-family:Georgia, serif');
+    expect(saved.body).not.toContain('Papyrus');
+    expect(saved.body).toContain(`src="${image.url}"`);
   });
 
   it('an archived template can no longer be used (TP-F13)', async () => {

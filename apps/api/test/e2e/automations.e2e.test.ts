@@ -367,6 +367,9 @@ describe('the catalog', () => {
       'UPDATE_CLIENT_PRIORITY',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
+      'INVITE_TO_BOOK',
+      'SCHEDULE_LEAD_FOLLOW_UP',
+      'REQUEST_APPROVAL',
       'ADD_CLIENT_NOTE',
       'NOTIFY_STAFF',
     ]);
@@ -3198,5 +3201,254 @@ describe('the client’s context and each record’s own fields as conditions (A
         conditions: [{ field: 'source', operator: 'NOT_CONTAINS', value: 'Referral' }],
       }),
     );
+  });
+});
+
+describe('Invite to book, lead follow-up and approval requests (AU-F27)', () => {
+  /** A change the module records, as its audit entry (the event's source). */
+  const recorded = (firm: 'a' | 'b', action: string, entityType: string, entityId: string) =>
+    inFirm(firm, (tx) =>
+      tx.auditLog.create({
+        data: { businessId: firms[firm], action, entityType, entityId },
+      }),
+    );
+  const stepOfRecord = async (ruleId: string, recordId: string) => {
+    const page = await runs(`?ruleId=${ruleId}`);
+    return (await runDetail(page.items.find((r) => r.recordId === recordId)!.id)).actions[0]!;
+  };
+
+  it('invites the client to book in the portal and books nothing', async () => {
+    const live = await createRule(
+      clientCreated([
+        {
+          id: 'invite',
+          type: 'INVITE_TO_BOOK',
+          config: { subject: 'Time to meet', message: 'Hello {{client.firstName}}' },
+        },
+      ]),
+      { name: mark('Invite') },
+    );
+    ok(await activate(live.id));
+    const id = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `Invite Me ${run} (fake)`,
+              email: `invite-${run}@client.test`,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    expect(await stepOfRecord(live.id, id)).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'message_thread' },
+    });
+    const sent = await inFirm('a', (tx) =>
+      tx.message.findFirstOrThrow({
+        where: { businessId: firms.a, thread: { clientId: id } },
+        select: { body: true, thread: { select: { subject: true } } },
+      }),
+    );
+    expect(sent.thread.subject).toBe('Time to meet');
+    expect(sent.body).toMatch(/^Hello Invite\n\nChoose a time that suits you: .+\/appointments$/);
+    // A request, never a booking.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.appointment.count({ where: { businessId: firms.a, clientId: id } }),
+      ),
+    ).toBe(0);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+
+  it('schedules an open lead’s follow-up through Leads, never a closed one, never firm B’s', async () => {
+    const live = await createRule(
+      {
+        trigger: { module: 'LEADS', event: 'lead.created' },
+        actions: [
+          {
+            id: 'follow',
+            type: 'SCHEDULE_LEAD_FOLLOW_UP',
+            config: { followUpType: 'CALL', dueInDays: 2, notes: 'Call {{record.label}}' },
+          },
+        ],
+      },
+      { name: mark('Follow up'), category: 'LEADS' },
+    );
+    ok(await activate(live.id));
+    const lead = (firm: 'a' | 'b', name: string, status: 'SUBMITTED' | 'LOST') =>
+      inFirm(firm, async (tx) => {
+        const service = await tx.service.create({
+          data: { businessId: firms[firm], kind: 'OTHER', name: `${name} service ${run}` },
+          select: { id: true },
+        });
+        return (
+          await tx.lead.create({
+            data: {
+              businessId: firms[firm],
+              serviceId: service.id,
+              firstName: name,
+              lastName: 'Lead (fake)',
+              email: `${name.toLowerCase()}-${run}@lead.test`,
+              status,
+              submittedAt: new Date(),
+            },
+            select: { id: true },
+          })
+        ).id;
+      });
+    const open = await lead('a', 'Olive', 'SUBMITTED');
+    const lost = await lead('a', 'Lou', 'LOST');
+    const theirs = await lead('b', 'Bea', 'SUBMITTED');
+    for (const [firm, id] of [
+      ['a', open],
+      ['a', lost],
+      ['b', theirs],
+    ] as const)
+      await recorded(firm, 'lead.created', 'lead', id);
+    // Firm B's lead is never firm A's event.
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    expect(await stepOfRecord(live.id, open)).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'lead' },
+    });
+    const next = await inFirm('a', (tx) =>
+      tx.lead.findFirstOrThrow({
+        where: { businessId: firms.a, id: open },
+        select: { nextActionType: true, nextActionAt: true, nextActionNote: true },
+      }),
+    );
+    expect(next.nextActionType).toBe('CALL');
+    expect(next.nextActionNote).toMatch(/^Call /);
+    const inDays = (next.nextActionAt!.getTime() - Date.now()) / 86_400_000;
+    expect(inDays).toBeGreaterThan(1.9);
+    expect(inDays).toBeLessThan(2.1);
+    // Leads' own record of it.
+    expect((await auditRows(open)).map((r) => r.action)).toContain('lead.follow_up_set');
+    // A closed lead has no follow-up: Leads refuses it, and the step says so.
+    expect(await stepOfRecord(live.id, lost)).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'LEAD_CLOSED',
+    });
+    expect(
+      await inFirm('b', (tx) =>
+        tx.lead.findFirstOrThrow({ where: { id: theirs }, select: { nextActionType: true } }),
+      ),
+    ).toEqual({ nextActionType: null });
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+
+  it('asks a reviewer for approval as a pending step, never the owner or the preparer, never twice', async () => {
+    const ask = (reviewerUserId: string) => ({
+      trigger: { module: 'TAX_RETURNS', event: 'tax_return.created' },
+      actions: [
+        {
+          id: 'approve',
+          type: 'REQUEST_APPROVAL',
+          config: { step: 'Final Review / Approval', reviewerUserId },
+        },
+      ],
+    });
+    // The rule's owner asks, so can't be the reviewer; another firm's member is not one of ours.
+    const own = await createRule(ask(ownerA.id), {
+      name: mark('Own approval'),
+      category: 'TAX_RETURNS',
+    });
+    expectError(await activate(own.id), 409, 'NOT_READY');
+    const foreign = await createRule(ask(ownerB.id), {
+      name: mark('Foreign approval'),
+      category: 'TAX_RETURNS',
+    });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+
+    const live = await createRule(ask(adminA.id), {
+      name: mark('Approval'),
+      category: 'TAX_RETURNS',
+    });
+    ok(await activate(live.id));
+    const taxReturn = (preparerUserId: string | null) =>
+      inFirm('a', async (tx) => {
+        const r = await tx.taxReturn.create({
+          data: {
+            businessId: firms.a,
+            clientId: clients.c2,
+            taxYear: 2024,
+            filingType: 'INDIVIDUAL',
+            preparerUserId,
+          },
+          select: { id: true },
+        });
+        return r.id;
+      });
+    const plain = await taxReturn(null);
+    const theirOwn = await taxReturn(adminA.id);
+    await recorded('a', 'tax_return.created', 'tax_return', plain);
+    await recorded('a', 'tax_return.created', 'tax_return', theirOwn);
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    const steps = (id: string) =>
+      inFirm('a', (tx) =>
+        tx.taxReturnApproval.findMany({
+          where: { businessId: firms.a, taxReturnId: id },
+          select: { step: true, status: true, assignedUserId: true, decidedAt: true },
+        }),
+      );
+    // Pending, for the reviewer: Automations never decides it.
+    expect(await steps(plain)).toEqual([
+      {
+        step: 'Final Review / Approval',
+        status: 'PENDING',
+        assignedUserId: adminA.id,
+        decidedAt: null,
+      },
+    ]);
+    expect(await stepOfRecord(live.id, plain)).toMatchObject({ status: 'SUCCESS' });
+    // The reviewer prepared this one: nobody approves their own return.
+    expect(await stepOfRecord(live.id, theirOwn)).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'SELF_APPROVAL',
+    });
+    expect(await steps(theirOwn)).toEqual([]);
+    // A second rule asking the same reviewer for the same step on the same return: the pending
+    // step is not added twice.
+    const again = await createRule(ask(adminA.id), {
+      name: mark('Approval again'),
+      category: 'TAX_RETURNS',
+    });
+    ok(await activate(again.id));
+    await recorded('a', 'tax_return.created', 'tax_return', plain);
+    expect(await engine.scanRule(firms.a, again.id)).toMatchObject({ started: 1 });
+    expect(await stepOfRecord(again.id, plain)).toMatchObject({
+      status: 'SUCCESS',
+      detail: 'Already pending with this reviewer',
+    });
+    expect(await steps(plain)).toHaveLength(1);
+    for (const id of [live.id, again.id]) ok(await call('post', `/rules/${id}/pause`, ownerA, {}));
+  });
+
+  it('a record’s action fits only that kind’s events', async () => {
+    const res = await call('post', '/rules', ownerA, {
+      name: mark('Wrong record'),
+      category: 'CLIENTS',
+      definition: clientCreated([
+        {
+          id: 'approve',
+          type: 'REQUEST_APPROVAL',
+          config: { step: 'Review', reviewerUserId: adminA.id },
+        },
+      ]),
+    });
+    expect(res.status).toBe(400);
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    expect(
+      Object.fromEntries(
+        catalog.actions.filter((a) => a.recordKind).map((a) => [a.type, a.recordKind]),
+      ),
+    ).toEqual({ SCHEDULE_LEAD_FOLLOW_UP: 'lead', REQUEST_APPROVAL: 'tax_return' });
   });
 });
