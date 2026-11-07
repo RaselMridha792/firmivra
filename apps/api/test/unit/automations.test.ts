@@ -154,6 +154,9 @@ describe('words, conditions and timing', () => {
     ).toBe('New client added');
     expect(appliesTo('client.created', [], 'ALL')).toBe('All records');
     expect(
+      appliesTo('invoice.overdue', [{ field: 'dueOn', operator: 'WITHIN_LAST', value: 5 }], 'ALL'),
+    ).toBe('Due date is within the last 5 days');
+    expect(
       appliesTo(
         'client.created',
         [
@@ -195,6 +198,30 @@ describe('words, conditions and timing', () => {
     expect(matches(f, 'ALL', list)).toBe(false);
     expect(matches(f, 'ANY', list)).toBe(true);
     expect(matches(f, 'ALL', [])).toBe(true);
+  });
+
+  it('On, Within the last or next N days (from the firm’s today) and Does not contain (AU-F23)', () => {
+    const f = { due: '2026-11-10', added: '2026-11-01', source: 'Referral', none: null };
+    const today = '2026-11-07';
+    const c = (operator: never, field: string, value?: unknown) =>
+      conditionHolds(f, { field, operator, value }, today);
+    expect(c('ON' as never, 'due', '2026-11-10')).toBe(true);
+    expect(c('ON' as never, 'due', '2026-11-09')).toBe(false);
+    // Today counts; the next 3 days reach the 10th, the next 2 do not.
+    expect(c('WITHIN_NEXT' as never, 'due', 3)).toBe(true);
+    expect(c('WITHIN_NEXT' as never, 'due', 2)).toBe(false);
+    expect(c('WITHIN_LAST' as never, 'due', 30)).toBe(false);
+    expect(c('WITHIN_LAST' as never, 'added', 6)).toBe(true);
+    expect(c('WITHIN_LAST' as never, 'added', 5)).toBe(false);
+    expect(c('WITHIN_NEXT' as never, 'none', 30)).toBe(false);
+    // Without the firm's day, a period can't be measured: it never matches.
+    expect(conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 3 })).toBe(false);
+    expect(c('NOT_CONTAINS' as never, 'source', 'web')).toBe(true);
+    expect(c('NOT_CONTAINS' as never, 'source', 'ferr')).toBe(false);
+    expect(c('NOT_CONTAINS' as never, 'none', 'x')).toBe(true);
+    expect(matches(f, 'ALL', [{ field: 'due', operator: 'WITHIN_NEXT', value: 3 }], today)).toBe(
+      true,
+    );
   });
 
   it('measures timing from the record’s date', () => {
@@ -275,6 +302,12 @@ describe('loops, stored shapes and templates', () => {
       'client.status_changed',
     ]);
     expect(produces([{ type: 'UPDATE_CLIENT_PRIORITY', config: {} }])).toEqual([]);
+    // A follow-up set is one coming due; an invitation or an approval request starts nothing.
+    expect(produces([{ type: 'SCHEDULE_LEAD_FOLLOW_UP', config: {} }])).toEqual([
+      'lead.follow_up_due',
+    ]);
+    expect(produces([{ type: 'INVITE_TO_BOOK', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'REQUEST_APPROVAL', config: {} }])).toEqual([]);
     expect(
       loopProblems(
         node('a', 'client.tags_changed', [{ type: 'ADD_CLIENT_TAGS', config: {} }]),

@@ -1,10 +1,12 @@
 // QA seed (R1; Rasel's card "Approve seed", Oct 29): `pnpm db:seed:qa`. Synthetic fixtures for
-// Octavia's Oct 28 reviews in LVP and Test Firm B, rows only, nothing sendable (seed-qa-data.ts).
+// Octavia's Oct 28 reviews in LVP and Test Firm B, rows only, nothing sendable (seed-qa-data.ts),
+// then part 2 for LVP and the Super Admin (seed-qa-extra.ts).
 // Safe to run again: a firm already seeded is skipped. On dev it runs once as a one-off task
 // (scripts/seed-qa-task.mjs), on Rasel's card.
 import { config } from 'dotenv';
 import { createPrismaClient } from '../src/client.js';
 import { seedQa } from './seed-qa-data.js';
+import { seedQaExtra } from './seed-qa-extra.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -18,6 +20,10 @@ async function main() {
   const { seeded, missing } = await seedQa(prisma);
   console.warn(`QA fixtures in: ${seeded.join(', ') || 'none'}`);
   if (missing.length) console.warn(`Firms not found (not created): ${missing.join(', ')}`);
+  const extra = await seedQaExtra(prisma);
+  console.warn(`QA part 2: LVP ${extra.lvp}, platform ${extra.platform}`);
+  if (extra.documentKey)
+    console.warn(`Upload qaFixturePdf() to the documents bucket at: ${extra.documentKey}`);
 }
 
 main()
