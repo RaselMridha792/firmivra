@@ -5,6 +5,7 @@
 // attachments. Firm B never reads or changes firm A's, and a foreign id in a body answers as an
 // unknown one. Every change is audited with ids and field names, never text.
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -1135,6 +1136,103 @@ describe('import', () => {
         name: 'X',
         format: 'DOCX',
         content: 'x',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('a Word document becomes a private draft, sanitized, and the file is never kept (TP-F16)', async () => {
+    // A synthetic .docx: a heading, bold merge fields, a script as words, an https and a javascript: link.
+    const docx = readFileSync(new URL('../fixtures/import-sample.docx', import.meta.url));
+    const facts = {
+      fileName: 'welcome.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sizeBytes: docx.length,
+      sha256: sha256(docx),
+    };
+    const upload = async (who: Who = people.staffA) => {
+      const ticket = UploadPutTicket.parse(
+        ok(await call('post', '/templates/import/uploads', who, facts), 201),
+      );
+      expect(ticket.url).toContain(`tenant/${firms.a}/template-imports/`);
+      storage.put(ticket, docx);
+      return ticket;
+    };
+    const ticket = await upload();
+    // Firm B's member and another member of firm A can't use the ticket.
+    expectError(
+      await call(
+        'post',
+        '/templates/import',
+        people.ownerB,
+        { kind: 'EMAIL', name: 'X', format: 'DOCX', uploadToken: ticket.uploadToken },
+        'b',
+      ),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    const imported = ImportTemplateResult.parse(
+      ok(
+        await call('post', '/templates/import', people.staffA, {
+          kind: 'EMAIL',
+          name: mark('Welcome'),
+          format: 'DOCX',
+          uploadToken: ticket.uploadToken,
+        }),
+        201,
+      ),
+    );
+    const t = imported.template;
+    expect(t).toMatchObject({ status: 'DRAFT', access: 'PRIVATE', includeInAutomations: false });
+    expect(t.body).toContain('<h1>Welcome Letter (fake)</h1>');
+    expect(t.body).toContain('<strong>[Business Name]</strong>');
+    expect(t.body).toContain('&lt;script&gt;');
+    expect(t.body).not.toContain('<script');
+    expect(t.body).toContain('href="https://portal.example.test/upload"');
+    expect(t.body).not.toContain('javascript:');
+    // The Word document is gone from storage, and the ticket can't be used again.
+    expect([...storage.objects.keys()].some((k) => k.includes('/template-imports/'))).toBe(false);
+    expectError(
+      await call('post', '/templates/import', people.staffA, {
+        kind: 'EMAIL',
+        name: 'Again',
+        format: 'DOCX',
+        uploadToken: ticket.uploadToken,
+      }),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    expect((await auditActions(t.id)).map((a) => a.metadata)).toContainEqual(
+      expect.objectContaining({ format: 'DOCX' }),
+    );
+
+    // Rich kinds only: an SMS is refused, and its upload is deleted too.
+    const sms = await upload();
+    expectError(
+      await call('post', '/templates/import', people.staffA, {
+        kind: 'SMS',
+        name: 'X',
+        format: 'DOCX',
+        uploadToken: sms.uploadToken,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect([...storage.objects.keys()].some((k) => k.includes('/template-imports/'))).toBe(false);
+    // Not a .docx name, or over 10 MB, is refused at the ticket.
+    expectError(
+      await call('post', '/templates/import/uploads', people.staffA, {
+        ...facts,
+        fileName: 'welcome.pdf',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/templates/import/uploads', people.staffA, {
+        ...facts,
+        sizeBytes: 10 * 1024 * 1024 + 1,
       }),
       400,
       'VALIDATION_FAILED',
