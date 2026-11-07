@@ -427,6 +427,12 @@ Progress (Dashboard D4, D5; the lead's go, Nov 7):
   - Two of R60's older specs fixed on the way: Outstanding Invoices' Status is the list's own
     (R56's charts added "Status counted"), and the KPI spec waits for the cards to be links.
 
+Progress (CM-Y and TP-Y, Oct 28 reviews, defaults; Nov 7):
+- Branch `rasel/R60-comms-yellow`: CM-Y07 (a disabled Send Test says why), TP-Y01 (Create Email
+  Template), TP-Y03 (a typed tag is kept on Save, with the hint). The other Y items' status is in
+  the PR body: most hold or wait on `packages/db` seeds; CM-Y09/10/13 tests and the CM-Y19
+  channel-switch warning are left for later.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
