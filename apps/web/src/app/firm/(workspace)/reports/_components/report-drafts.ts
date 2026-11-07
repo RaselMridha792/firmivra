@@ -1,3 +1,4 @@
+import { choiceOf } from './chart-display';
 import type { FilterDraft } from './filter-rules';
 
 // RP-F14, F05 (Octavia's Reports review, Oct 28): the builder's work travels in the address, so
@@ -19,6 +20,8 @@ export interface BuilderDraft {
   totals: boolean;
   pct: boolean;
   compare: boolean;
+  /** RP-F18: how the report shows (Automatic, a chart, Table Only, KPI Only). */
+  chart: string;
 }
 
 export const NEW_DRAFT: BuilderDraft = {
@@ -34,6 +37,7 @@ export const NEW_DRAFT: BuilderDraft = {
   totals: false,
   pct: false,
   compare: false,
+  chart: 'AUTO',
 };
 
 /** The most an address carries here; a larger draft is not put in it. */
@@ -103,5 +107,6 @@ export function draftFrom(text: string | null): BuilderDraft {
     totals: bool(d.totals, false),
     pct: bool(d.pct, false),
     compare: bool(d.compare, false),
+    chart: choiceOf(typeof d.chart === 'string' ? d.chart : null),
   };
 }

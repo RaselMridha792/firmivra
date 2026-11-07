@@ -208,6 +208,39 @@ export class AutomationsReadService {
             path: `actions.${i}.config.tagIds`,
           });
       }
+      // Send intake form's form: one of this firm's, not archived, with a published version.
+      const formId = a.config.formId;
+      if (typeof formId === 'string') {
+        const live = await tx.intakeTemplate.count({
+          where: {
+            businessId,
+            id: formId,
+            archivedAt: null,
+            forms: { some: { status: 'PUBLISHED' } },
+          },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The intake form is not one of the firm’s published forms',
+            path: `actions.${i}.config.formId`,
+          });
+      }
+      // Request documents' category: a live category of this firm (another firm's never).
+      const categoryId = a.config.categoryId;
+      if (typeof categoryId === 'string') {
+        const live = await tx.documentCategory.count({
+          where: { businessId, id: categoryId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The category is not one of the firm’s live document categories',
+            path: `actions.${i}.config.categoryId`,
+          });
+      }
       // Notify staff's recipients: active members of this firm only (another firm's person never).
       const memberIds = a.config.memberUserIds;
       if (Array.isArray(memberIds) && memberIds.length > 0) {

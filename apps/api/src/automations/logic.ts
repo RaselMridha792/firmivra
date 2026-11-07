@@ -118,6 +118,8 @@ export function structureProblems(def: Def): Detail[] {
           break;
         case 'TEMPLATE':
         case 'MEMBER':
+        case 'DOCUMENT_CATEGORY':
+        case 'INTAKE_FORM':
           if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) add(path, 'Choose one');
           break;
         case 'TAGS':
@@ -460,6 +462,16 @@ export function produces(actions: { type: string; config: Record<string, unknown
     if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
       out.add('client.tags_changed');
     if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
+    // An intake form sent is a sent form (and, with a near due date, one coming due).
+    if (a.type === 'SEND_INTAKE') {
+      out.add('intake.sent');
+      out.add('intake.due');
+    }
+    // A document request is a new request (and, with a near due date, one coming due).
+    if (a.type === 'REQUEST_DOCUMENTS') {
+      out.add('document.requested');
+      out.add('document.request_due');
+    }
   }
   return [...out];
 }
@@ -526,6 +538,8 @@ export function forTemplate(def: Def): Def {
         f?.type === 'TEMPLATE' ||
         f?.type === 'MEMBER' ||
         f?.type === 'TAGS' ||
+        f?.type === 'DOCUMENT_CATEGORY' ||
+        f?.type === 'INTAKE_FORM' ||
         f?.type === 'MEMBERS'
       )
         continue;
