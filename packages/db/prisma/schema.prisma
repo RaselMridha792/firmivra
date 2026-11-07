@@ -955,6 +955,7 @@ model Business {
   firmLicenses                 FirmLicense[]
   documentFolders              DocumentFolder[]
   firmOffices                  FirmOffice[]
+  clientPortalSettings         ClientPortalSettings?
   firmOfficeServices           FirmOfficeService[]
   firmOfficeHours              FirmOfficeHours[]
   firmOfficeActions            FirmOfficeAction[]
@@ -1272,6 +1273,10 @@ model ClientAccount {
   /// The firm's sign-up policy version an approval or decline used.
   decisionPolicyVersion Int?                @map("decision_policy_version")
   decidedAutomatically  Boolean             @default(false) @map("decided_automatically")
+  /// R1 (Nov 7, PRT-1): the office the person chose at registration, one of the firm's active
+  /// locations; the client record takes it as its office when the sign-up is approved.
+  selectedOfficeId      String?             @map("selected_office_id") @db.Uuid
+  selectedOffice        FirmOffice?         @relation("ClientAccountSelectedOffice", fields: [businessId, selectedOfficeId], references: [businessId, id], onDelete: Restrict)
 
   business                 Business                     @relation(fields: [businessId], references: [id])
   user                     User                         @relation(fields: [userId], references: [id])
@@ -2969,6 +2974,10 @@ model Client {
   source          String?
   /// The campaign or detail, e.g. "Facebook Ad / Back Taxes" (up to 200).
   sourceDetail    String?         @map("source_detail")
+  /// R1 (Nov 7, PRT-1): the client's local office (chosen at registration; staff may reassign).
+  /// Set only to an active location (SQL only); the portal shows its contact details.
+  officeId        String?         @map("office_id") @db.Uuid
+  office          FirmOffice?     @relation("ClientOffice", fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
   /// Client since: editable (clients brought over from before Firmivra); empty means the
   /// creation date. Not in the future.
   clientSince     DateTime?       @map("client_since") @db.Date
@@ -3041,6 +3050,7 @@ model Client {
   @@index([businessId, lastActivityAt(sort: Desc)])
   @@index([businessId, source])
   @@index([businessId, priority])
+  @@index([businessId, officeId])
   @@map("clients")
 }
 
@@ -11625,9 +11635,35 @@ model FirmOffice {
 
   members FirmOfficeMember[]
 
+  clients            Client[]        @relation("ClientOffice")
+  selectedByAccounts ClientAccount[] @relation("ClientAccountSelectedOffice")
+
   @@unique([businessId, id])
   @@index([businessId, managerUserId])
   @@map("firm_offices")
+}
+
+/// R1 (Nov 7, PRT-3): the firm's Client Portal > Contact Information switches. One row per firm; no
+/// row means these defaults. The portal shows the corporate office and the client's local office
+/// (clients.office_id) only when switched on, and offers only the contact methods allowed here; the
+/// details themselves come from the firm and office profiles, never from this row.
+model ClientPortalSettings {
+  businessId           String   @id @map("business_id") @db.Uuid
+  showCorporateOffice  Boolean  @default(true) @map("show_corporate_office")
+  showLocalOffice      Boolean  @default(true) @map("show_local_office")
+  allowPhone           Boolean  @default(true) @map("allow_phone")
+  /// Still only to a client who agreed to texts.
+  allowSms             Boolean  @default(false) @map("allow_sms")
+  allowEmail           Boolean  @default(true) @map("allow_email")
+  allowSecureMessage   Boolean  @default(true) @map("allow_secure_message")
+  allowAppointmentLink Boolean  @default(false) @map("allow_appointment_link")
+  updatedByUserId      String?  @map("updated_by_user_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("client_portal_settings")
 }
 
 /// A room of an office ("Conference Room 1"). Two live appointments never share a room at once.

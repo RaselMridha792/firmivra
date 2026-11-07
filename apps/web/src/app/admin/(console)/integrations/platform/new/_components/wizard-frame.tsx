@@ -14,7 +14,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useApiQuery } from '../../../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import {
   adminIntegrations,
   CATEGORIES,
@@ -350,7 +350,7 @@ export function WizardFrame({
   ready = true,
   busy = false,
   onContinue,
-  continueLabel = 'Continue',
+  continueLabel = 'Save and continue',
   continueIcon: ContinueGlyph = ArrowRight,
   canContinue = true,
   onSaveDraft,
@@ -359,11 +359,18 @@ export function WizardFrame({
   dialog,
 }: WizardFrameProps) {
   const guard = useLeaveGuard(dirty);
+  const router = useRouter();
+  // SA-INT-R1: Cancel on a saved draft keeps it, and offers to discard it; unsaved changes ask
+  // first (the leave guard).
+  const [keepOrDiscard, setKeepOrDiscard] = useState(false);
+  const discard = useApiMutation(async (id: string) => adminIntegrations.removePlatform(id), {
+    invalidate: ['admin-integrations'],
+  });
   const index = stepIndex(step);
   const meta = WIZARD_STEPS[index] ?? WIZARD_STEPS[0];
   const previous = index > 0 ? SETUP_STEPS[index - 1] : undefined;
   const about = ABOUT[step];
-  const cancel = () => guard.leave(CANCEL_HREF);
+  const cancel = () => (draft && !dirty ? setKeepOrDiscard(true) : guard.leave(CANCEL_HREF));
   const blocked = !ready || busy;
 
   return (
@@ -424,6 +431,11 @@ export function WizardFrame({
 
               {alert}
 
+              {draft && !dirty ? (
+                <p role="status" className="text-xs text-muted" data-testid="draft-saved">
+                  Draft saved {formatDateTime(draft.updatedAt)}
+                </p>
+              ) : null}
               <footer className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex flex-wrap gap-3">
                   <Button variant="secondary" onClick={cancel} className="min-[1440px]:hidden">
@@ -477,6 +489,39 @@ export function WizardFrame({
 
       {guard.dialog}
       {dialog}
+      {keepOrDiscard && draft ? (
+        <Modal
+          open
+          title="Keep your saved draft?"
+          onClose={() => setKeepOrDiscard(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => router.push(CANCEL_HREF)}>
+                Keep draft
+              </Button>
+              <Button
+                className="bg-danger"
+                disabled={discard.isPending}
+                onClick={() =>
+                  discard.mutate(draft.id, { onSuccess: () => router.push(CANCEL_HREF) })
+                }
+              >
+                {discard.isPending ? 'Discarding…' : 'Discard draft'}
+              </Button>
+            </>
+          }
+        >
+          <p className="max-w-lg text-sm text-text">
+            This integration is saved as a draft ({formatDateTime(draft.updatedAt)}). Keep it to
+            finish later, or discard it.
+          </p>
+          {discard.isError ? (
+            <p role="alert" className="text-sm text-danger">
+              Could not discard the draft. Try again in a moment.
+            </p>
+          ) : null}
+        </Modal>
+      ) : null}
     </div>
   );
 }

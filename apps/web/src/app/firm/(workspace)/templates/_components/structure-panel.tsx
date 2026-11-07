@@ -11,6 +11,7 @@ import { Button, Input, Select, Textarea } from '@firmivra/ui';
 import { Plus, Trash } from '@phosphor-icons/react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { TemplateHelp } from './template-help';
 import { TEMPLATES_KEY, card, quiet } from './templates-shared';
 
 // TP-F08: the real structure of a structured kind, edited in the template (R1's columns). Task,
@@ -131,7 +132,9 @@ export function StructurePanel({
 }) {
   return (
     <section className={card} aria-label="Structure" data-testid="structure-panel">
-      <h2 className="mb-1 font-display text-lg font-bold text-heading">Structure</h2>
+      <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-bold text-heading">
+        Structure <TemplateHelp area="structure" />
+      </h2>
       {value.type === 'link' && LINKED[kind] ? (
         <LinkedPicker
           kind={LINKED[kind]}

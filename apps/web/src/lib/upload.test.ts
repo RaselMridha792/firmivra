@@ -377,6 +377,24 @@ describe("uploadFile: the flow's largest file", () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('names a file the browser cannot read (FILE_UNREADABLE) and sends nothing', async () => {
+    const { steps, seen } = stepsFor(multipart(1, TEN_MB), { maxBytes: TEN_MB });
+    const placeholder = {
+      name: 'Synthetic.pdf',
+      type: 'application/pdf',
+      size: 1400,
+      arrayBuffer: () =>
+        Promise.reject(new DOMException('The file could not be read', 'NotReadableError')),
+    } as unknown as File;
+    await expect(uploadFile(placeholder, steps)).rejects.toMatchObject({
+      status: 400,
+      code: 'FILE_UNREADABLE',
+      message: expect.stringContaining('This file could not be read.') as string,
+    });
+    expect(seen.facts).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+
   it('never takes more than the documents limit (100 MB), whatever the flow says', async () => {
     const { steps, seen } = stepsFor(multipart(11, TEN_MB), {
       maxBytes: 2 * UPLOAD_LIMITS.maxBytes,

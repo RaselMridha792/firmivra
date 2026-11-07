@@ -19,7 +19,7 @@ const link = async (page: Page, slug: string, name: string, picker: string, choi
     /^Choose the .+ it stands for under Structure in the editor first\.$/,
   );
   await page.getByRole('link', { name, exact: true }).click();
-  await page.waitForURL(/\/edit$/);
+  await page.waitForURL(/\/edit\?from=/);
   await page.getByTestId('structure-panel').getByLabel(picker).selectOption({ label: choice });
   await page.getByTestId('save-template').click();
   // A template an automation uses asks before a save (Save Anyway).
@@ -40,7 +40,8 @@ test('a Task template starts a task from its task template, and its Preview show
   const row = page.getByRole('row', { name: new RegExp(name) });
   await expect(row.getByRole('link', { name: `Use ${name}` })).toHaveAttribute(
     'href',
-    /^\/tasks\/new\?template=[0-9a-f-]{36}$/,
+    // TP-F01: with this library as its origin.
+    /^\/tasks\/new\?template=[0-9a-f-]{36}&from=%2Ftemplates%2Flibrary%2Ftask$/,
   );
   await row.getByRole('button', { name: `Preview ${name}` }).click();
   const structure = page.getByRole('region', { name: 'Saved structure' });

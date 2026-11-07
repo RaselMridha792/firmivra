@@ -52,6 +52,7 @@ import type {
 } from './reports-input.js';
 import { scheduleInclude, toScheduleRows } from './schedule-rows.js';
 import { MAX_ROWS, type Row, SOURCES, type SourceDef, sourceOf, toCatalog } from './sources.js';
+import { INSIGHT_RULES } from './metric-definitions.js';
 import type { z } from 'zod';
 
 type Run = z.output<typeof RunBody>;
@@ -834,17 +835,18 @@ export class ReportsService {
       });
       if (overdue._count._all > 0) {
         out.push({
-          key: 'overdue_invoices',
+          key: INSIGHT_RULES.overdueInvoices.key,
           message: `${overdue._count._all} open invoice${overdue._count._all === 1 ? ' is' : 's are'} past due.`,
           metric: 'overdue_invoice_total',
           value: overdue._sum.totalCents ?? 0,
-          threshold: 'due date before today',
+          threshold: INSIGHT_RULES.overdueInvoices.threshold,
           range,
           target: { kind: 'REPORT', reportKey: 'outstanding_invoices' },
         });
       }
     }
-    const cutoff = new Date(Date.now() - 2 * 86_400_000);
+    const lead = INSIGHT_RULES.uncontactedLeads;
+    const cutoff = new Date(Date.now() - lead.days * 86_400_000);
     const waiting = await ctx.tx.lead.count({
       where: {
         businessId: ctx.businessId,
@@ -856,11 +858,11 @@ export class ReportsService {
     });
     if (waiting > 0) {
       out.push({
-        key: 'uncontacted_leads',
-        message: `${waiting} lead${waiting === 1 ? ' has' : 's have'} waited more than 2 days without a first contact.`,
+        key: lead.key,
+        message: `${waiting} lead${waiting === 1 ? ' has' : 's have'} waited more than ${lead.days} days without a first contact.`,
         metric: 'uncontacted_leads',
         value: waiting,
-        threshold: '2 days',
+        threshold: `${lead.days} days`,
         range,
         target: { kind: 'MODULE', module: 'leads', query: { status: 'SUBMITTED' } },
       });

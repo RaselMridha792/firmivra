@@ -112,7 +112,10 @@ export class ReportsController {
     return { items: await this.reports.lookups(tenant.businessId, tenant, userId, q) };
   }
 
+  // Running a report reads it: a POST only because the definition travels in the body. A grid
+  // role needs Reports View, as for the dashboard, not Create (RP-Y05, Octavia Oct 28).
   @Post('run')
+  @Access('REPORTS', 'VIEW')
   @HttpCode(200)
   run(
     @CurrentAuth() auth: AuthContext,

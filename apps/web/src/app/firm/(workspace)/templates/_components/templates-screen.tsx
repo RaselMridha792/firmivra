@@ -18,12 +18,17 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useDeferredValue, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useDeferredValue, useEffect, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { pageOf, writeListQuery } from '../../../../../lib/list-query';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { OVERVIEW_VIEW, UUID, viewOf } from './list-view';
 import { TemplateMenu, UseTemplate } from './template-actions';
+import { TemplateHelp } from './template-help';
 import {
   BrandingDialog,
   CategoriesDialog,
@@ -68,11 +73,15 @@ const TIPS: [typeof Lightbulb, string][] = [
 
 /** /templates: the library home: kinds, recent templates, tools and tips. */
 export function TemplatesScreen() {
-  const [tab, setTab] = useState<TabId>('all');
-  const [categoryId, setCategoryId] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [showAll, setShowAll] = useState(false);
+  // TP-F01: the view, category, search, page and Show All come from the address and go back into
+  // it, so Cancel, the breadcrumb and browser Back from a template open this page as it was.
+  const params = useSearchParams();
+  const [initial] = useState(() => viewOf(params, OVERVIEW_VIEW));
+  const [tab, setTab] = useState<TabId>(TABS.find((t) => t.id === initial.view)?.id ?? 'all');
+  const [categoryId, setCategoryId] = useState(UUID.test(initial.category) ? initial.category : '');
+  const [search, setSearch] = useState(initial.q);
+  const [page, setPage] = useState(() => pageOf(initial.page));
+  const [showAll, setShowAll] = useState(initial.all === '1');
   const [dialog, setDialog] = useState<
     'import' | 'fields' | 'branding' | 'categories' | undefined
   >();
@@ -100,6 +109,12 @@ export function TemplatesScreen() {
   const install = useApiMutation(() => api.templates.installStarters(), {
     invalidate: [...TEMPLATES_KEY],
   });
+  useEffect(() => {
+    writeListQuery(
+      { view: tab, category: categoryId, q: search, all: showAll ? '1' : '', page: String(page) },
+      OVERVIEW_VIEW,
+    );
+  }, [tab, categoryId, search, showAll, page]);
 
   const columns: Column<MessageTemplateRow>[] = [
     {
@@ -108,13 +123,13 @@ export function TemplatesScreen() {
       cell: (r) => (
         <span className="flex items-center gap-2">
           <KindTile kind={r.kind} size="sm" />
-          <Link
+          <OriginLink
             href={`/templates/${r.id}/edit`}
             data-testid="template-link"
             className="font-medium text-link hover:underline"
           >
             {r.name}
-          </Link>
+          </OriginLink>
         </span>
       ),
     },
@@ -150,9 +165,9 @@ export function TemplatesScreen() {
     const cls =
       'flex w-full items-center gap-3 border-t border-divider py-2 first:border-t-0 hover:bg-canvas';
     return 'href' in action ? (
-      <Link key={title} href={action.href} className={cls}>
+      <OriginLink key={title} href={action.href} className={cls}>
         {body}
-      </Link>
+      </OriginLink>
     ) : (
       <button key={title} type="button" onClick={action.onClick} className={cls}>
         {body}
@@ -180,16 +195,18 @@ export function TemplatesScreen() {
             <FileText aria-hidden weight="fill" className="size-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">Templates</h1>
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              Templates <TemplateHelp area="overview" />
+            </h1>
             <p className="text-xl font-semibold text-action">Create once. Use everywhere.</p>
             <p className="text-base text-muted">
               Save time, maintain consistency, and deliver a professional client experience.
             </p>
           </div>
         </div>
-        <Link href="/templates/new" className={gold}>
+        <OriginLink href="/templates/new" className={gold}>
           <Plus aria-hidden weight="bold" className="size-5" /> Create Template
-        </Link>
+        </OriginLink>
       </header>
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
@@ -251,6 +268,9 @@ export function TemplatesScreen() {
               className="w-full bg-transparent text-sm text-text outline-none placeholder:text-muted"
             />
           </label>
+          <span className="flex h-10 items-center">
+            <TemplateHelp area="views" />
+          </span>
         </div>
       </div>
 
@@ -366,7 +386,9 @@ export function TemplatesScreen() {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <section className={card} aria-label="Recent Templates" data-testid="recent">
           <header className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-lg font-bold text-heading">Recent Templates</h2>
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Recent Templates <TemplateHelp area="recent" />
+            </h2>
             <button type="button" className={linkBtn} onClick={() => setShowAll(true)}>
               View All <ArrowRight aria-hidden weight="bold" className="size-3" />
             </button>
@@ -388,12 +410,12 @@ export function TemplatesScreen() {
                 >
                   <KindTile kind={r.kind} size="sm" />
                   <span className="min-w-0 flex-1">
-                    <Link
+                    <OriginLink
                       href={`/templates/${r.id}/edit`}
                       className="block truncate font-medium text-link hover:underline"
                     >
                       {r.name}
-                    </Link>
+                    </OriginLink>
                     {/* TP-F15: the category and who updated it, at every width. */}
                     <span className="block truncate text-xs text-muted" data-testid="recent-meta">
                       {r.category?.name ?? 'Uncategorized'} · Updated by{' '}
@@ -418,7 +440,9 @@ export function TemplatesScreen() {
           )}
         </section>
         <section className={card} aria-label="Template Tools" data-testid="tools">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">Template Tools</h2>
+          <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+            Template Tools <TemplateHelp area="tools" />
+          </h2>
           {tool(Plus, 'Create Template', 'Build a new template from scratch.', {
             href: '/templates/new',
           })}

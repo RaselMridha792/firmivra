@@ -88,7 +88,7 @@ test('the wizard checks each step and walks all four to a saved draft', async ({
   await expect(page.getByTestId('wizard-categories')).toContainText('Payments & Billing');
 
   // Step 1: required fields and a safe address.
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
   const errors = page.getByTestId('wizard-errors');
   await expect(errors).toContainText('Enter the integration name.');
   await expect(errors).toContainText('Choose a category.');
@@ -101,10 +101,10 @@ test('the wizard checks each step and walks all four to a saved draft', async ({
   await page.getByLabel(/^Short Description/).fill('Status page alerts for the Firmivra team.');
   await expect(page.getByText('41/250')).toBeVisible();
   await page.getByLabel(/^Provider Website/).fill('http://status.example.test');
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
   await expect(errors).toContainText('The provider website must start with https://.');
   await page.getByLabel(/^Provider Website/).fill('https://status.example.test');
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
 
   // Step 2: the custom provider's fields; the secret is checked, then saved masked.
   await expect(page).toHaveURL(/\/integrations\/platform\/new\/connection\?draft=0199d1a0-1a01-/);
@@ -114,12 +114,12 @@ test('the wizard checks each step and walks all four to a saved draft', async ({
   const apiKey = page.getByLabel(/^API Key/);
   await expect(apiKey).toHaveAttribute('type', 'password');
   await apiKey.fill('short');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
   await expect(errors).toContainText('API Key looks too short.');
   await expect(errors).toContainText('Enter the base url.');
   await apiKey.fill('sample-status-key-9a7c');
   await page.getByLabel(/^Base URL/).fill('https://api.status.example.test');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
 
   // Step 3: settings.
   await expect(page).toHaveURL(/\/integrations\/platform\/new\/settings\?draft=/);
@@ -127,7 +127,7 @@ test('the wizard checks each step and walks all four to a saved draft', async ({
   await expect(page.getByTestId('wizard-scopes')).toContainText('no scopes to choose');
   await expect(page.getByTestId('wizard-alerts')).toContainText('Error rate above');
   await page.getByLabel(/^Sync Schedule/).selectOption('HOURLY');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
 
   // Step 4: a redacted summary of every step, then Save as Draft.
   await expect(page).toHaveURL(/\/integrations\/platform\/new\/review\?draft=/);
@@ -156,12 +156,12 @@ test('a tested Stripe test connection activates from the review', async ({ page 
   await page.getByLabel('Provider', { exact: true }).selectOption('stripe');
   await expect(page.getByLabel(/^Integration Name/)).toHaveValue('Stripe');
   await expect(page.getByLabel(/^Category/)).toHaveValue('PAYMENTS_BILLING');
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: '2. Connection Details' })).toBeVisible();
   const secretKey = page.getByLabel(/^Secret Key/);
   await secretKey.fill('sk_live_sample_4242');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
   await expect(page.getByTestId('wizard-errors')).toContainText(
     'Secret Key is a live value; this connection is Test. Live and test credentials never mix.',
   );
@@ -173,10 +173,10 @@ test('a tested Stripe test connection activates from the review', async ({ page 
   // Saved write-only: the box is empty again and only the masked hint is shown.
   await expect(secretKey).toHaveValue('');
   await expect(page.getByText(/Saved: sk_test_••••4242/)).toBeVisible();
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
 
   await expect(page.getByRole('heading', { name: '3. Settings & Access' })).toBeVisible();
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
 
   await expect(page.getByRole('heading', { name: '4. Review & Save' })).toBeVisible();
   await expect(page.getByTestId('review-readiness')).toContainText('Ready to activate');

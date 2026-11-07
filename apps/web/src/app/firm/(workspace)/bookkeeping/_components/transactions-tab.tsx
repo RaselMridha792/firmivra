@@ -1,17 +1,21 @@
 'use client';
 
 import {
+  BOOKKEEPING_TXN_ERRORS,
   type BookkeepingClientWorkspace,
   type BookkeepingTransactionRow,
   BookkeepingTxnKind,
   type ListBookkeepingTransactionsQuery,
 } from '@firmivra/types';
-import { Badge, type Column, Input, Select, Table } from '@firmivra/ui';
-import { Paperclip, SplitHorizontal } from '@phosphor-icons/react';
+import { ActionMenu, Badge, type Column, Input, Select, Table, Toast } from '@firmivra/ui';
+import { DotsThreeVertical, Paperclip, SplitHorizontal } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { BK_KEY, card, dayText, linkBtn, money } from './bookkeeping-shared';
+import { TransactionDialog, type TxnDialog } from './transaction-actions';
 
 const STATUS = {
   UNCATEGORIZED: { label: 'Uncategorized', tone: 'warning' },
@@ -47,6 +51,7 @@ const PAGE_SIZE = 25;
  * filters. The grid shows its columns before the first line, and says why there is none.
  */
 export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
+  const qc = useQueryClient();
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const term = useDeferredValue(search.trim());
@@ -58,6 +63,10 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const badRange = !!from && !!to && from > to;
+  // BK-T01 engines: the row menu, the selection for bulk actions, and their dialog.
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dialog, setDialog] = useState<TxnDialog>();
+  const [notice, setNotice] = useState<string>();
   const query: ListBookkeepingTransactionsQuery = {
     page,
     pageSize: PAGE_SIZE,
@@ -79,6 +88,15 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
     api.bookkeeping.categories(w.id),
   );
   const counts = list.data?.counts;
+  const include = async (row: BookkeepingTransactionRow) => {
+    try {
+      await api.bookkeeping.includeTransaction(w.id, row.id);
+      await qc.invalidateQueries({ queryKey: [...BK_KEY] });
+      setNotice('Back in the books.');
+    } catch (e) {
+      setNotice(errorMessage(e, BOOKKEEPING_TXN_ERRORS));
+    }
+  };
   const filtered = !!(term || accountId || categoryId || kind || direction || from || to || status);
   const sw = w.connections.find((k) => k.status !== 'DISCONNECTED');
   const set =
@@ -163,12 +181,51 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
         </span>
       ),
     },
+    {
+      id: 'actions',
+      label: 'Actions',
+      cell: (r) => (
+        <ActionMenu
+          label={`Actions for ${r.payee ?? r.description} on ${dayText(r.transactionDate)}`}
+          trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
+          align="right"
+          sections={[
+            {
+              items:
+                r.status === 'EXCLUDED'
+                  ? [{ label: 'Include', onSelect: () => void include(r) }]
+                  : [
+                      {
+                        label: 'Categorize',
+                        onSelect: () => setDialog({ kind: 'categorize', row: r }),
+                      },
+                      { label: 'Split', onSelect: () => setDialog({ kind: 'split', row: r }) },
+                      {
+                        label: 'Match Transfer',
+                        onSelect: () => setDialog({ kind: 'transfer', row: r }),
+                      },
+                      {
+                        label: r.hasReceipt ? 'Change Receipt' : 'Attach Receipt',
+                        onSelect: () => setDialog({ kind: 'receipt', row: r }),
+                      },
+                      {
+                        label: 'Exclude',
+                        danger: true,
+                        onSelect: () => setDialog({ kind: 'exclude', row: r }),
+                      },
+                    ],
+            },
+          ]}
+        />
+      ),
+    },
   ];
 
   return (
     <section className={card} aria-label="Transactions" data-testid="transactions-tab">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-lg font-bold text-heading">Transactions</h2>
+        {notice ? <Toast message={notice} onDismiss={() => setNotice(undefined)} /> : null}
         <p className="text-xs text-muted">
           {sw ? `From ${sw.label}` : 'No accounting software connected'}
           {counts ? ` · ${counts.all} in all` : ''}
@@ -277,10 +334,36 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
           The start date is after the end date.
         </p>
       ) : null}
+      {selected.length ? (
+        <div
+          className="mb-2 flex flex-wrap items-center gap-3 rounded-lg bg-info-soft p-2 text-sm text-info"
+          data-testid="bulk-bar"
+        >
+          <span>{selected.length} selected</span>
+          <button
+            type="button"
+            className={linkBtn}
+            onClick={() => setDialog({ kind: 'bulk-categorize', ids: selected })}
+          >
+            Categorize
+          </button>
+          <button
+            type="button"
+            className={linkBtn}
+            onClick={() => setDialog({ kind: 'bulk-exclude', ids: selected })}
+          >
+            Exclude
+          </button>
+          <button type="button" className={linkBtn} onClick={() => setSelected([])}>
+            Clear Selection
+          </button>
+        </div>
+      ) : null}
       <Table
         rows={list.data?.items ?? []}
         columns={columns}
         rowKey={(r) => r.id}
+        selection={{ selected, onChange: setSelected }}
         caption="Transactions"
         dense
         noun="transactions"
@@ -314,6 +397,19 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
           onSort: () => undefined,
         }}
       />
+      {dialog ? (
+        <TransactionDialog
+          w={w}
+          dialog={dialog}
+          categories={categories.data?.items ?? []}
+          onClose={() => setDialog(undefined)}
+          onDone={(text) => {
+            setDialog(undefined);
+            setSelected([]);
+            setNotice(text);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

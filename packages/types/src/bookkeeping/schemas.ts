@@ -90,6 +90,10 @@ export const BookkeepingErrorCode = z.enum([
   'REPORT_STATE',
   'REPORT_NOT_PUBLISHED',
   'NOT_THIS_CLIENTS',
+  // BK-T01 engines.
+  'SPLIT_TOTAL',
+  'NOT_A_TRANSFER',
+  'CATEGORY_INACTIVE',
 ]);
 export type BookkeepingErrorCode = z.infer<typeof BookkeepingErrorCode>;
 

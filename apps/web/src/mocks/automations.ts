@@ -99,7 +99,7 @@ const MODULES: [AutomationCatalog['modules'][number]['module'], string, string][
 const COND = (
   field: string,
   label: string,
-  type: 'STATUS' | 'TEXT' | 'MONEY',
+  type: 'STATUS' | 'TEXT' | 'MONEY' | 'DATE',
   options: [string, string][] = [],
 ) => ({
   field,
@@ -108,7 +108,9 @@ const COND = (
   operators:
     type === 'MONEY'
       ? [...(['GREATER_THAN', 'LESS_THAN', 'IS'] as const)]
-      : [...(['IS', 'IS_NOT', 'INCLUDES', 'EXCLUDES'] as const)],
+      : type === 'DATE'
+        ? [...(['BEFORE', 'AFTER', 'ON', 'WITHIN_LAST', 'WITHIN_NEXT', 'EXISTS'] as const)]
+        : [...(['IS', 'IS_NOT', 'INCLUDES', 'EXCLUDES'] as const)],
   options: options.map(([value, l]) => ({ value, label: l })),
 });
 const clientFields = () => [
@@ -157,6 +159,7 @@ const buildEvents = (): [
         ['ESTIMATED_TAX', 'Estimated Tax'],
         ['ANNUAL_REPORT', 'Annual Report'],
       ]),
+      COND('dueOn', 'Due date', 'DATE'),
     ],
   ],
   [

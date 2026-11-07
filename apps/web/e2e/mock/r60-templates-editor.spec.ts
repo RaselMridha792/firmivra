@@ -11,7 +11,8 @@ const base = `http://app.localhost:${port}/templates`;
 const openReminder = async (page: Page) => {
   await page.goto(`${base}/library/email`);
   await page.getByRole('link', { name: 'Tax Season Reminder (2026)' }).first().click();
-  await page.waitForURL(/\/templates\/[^/]+\/edit$/);
+  // TP-F01: opened from the library, the editor knows the way back (`?from=`).
+  await page.waitForURL(/\/templates\/[^/]+\/edit\?from=%2Ftemplates%2Flibrary%2Femail$/);
   await expect(page.getByTestId('template-editor')).toBeVisible();
 };
 
@@ -23,7 +24,9 @@ test('TP-F04: Preview shows the unsaved words and saves nothing', async ({ page 
   await page.keyboard.type(' An unsaved closing line.');
   await page.getByRole('button', { name: 'Preview Template' }).click();
   const dialog = page.getByTestId('preview-dialog');
-  await expect(dialog.getByTestId('preview-body')).toContainText('An unsaved closing line.');
+  await expect(dialog.frameLocator('[data-testid="preview-body"]').locator('body')).toContainText(
+    'An unsaved closing line.',
+  );
   await expect(page.getByRole('dialog')).toContainText('your unsaved changes');
   await expect(dialog.getByTestId('test-saved-only')).toBeVisible();
 });

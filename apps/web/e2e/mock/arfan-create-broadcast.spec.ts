@@ -38,7 +38,9 @@ test('keeps the design frame in data, empty and unavailable states at desktop, t
   const state = unavailable ? 'api-unavailable' : empty ? 'empty' : 'data';
   for (const width of unavailable || empty ? [1440, 375] : [1536, 1440, 1024, 768, 375]) {
     await page.setViewportSize({ width, height: 1024 });
-    await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Save and continue', exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save as Draft' })).toBeVisible();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -56,7 +58,7 @@ test('requires a nonblank name and a channel; All Channels allows individual des
 }) => {
   await page.getByLabel('Broadcast Name', { exact: true }).fill('   ');
   await page.getByRole('switch', { name: 'Select All' }).click();
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
   await expect(page.getByText('Enter a broadcast name.')).toBeVisible();
   await expect(page.getByText('Select at least one channel.')).toBeVisible();
   await expect(page).toHaveURL(url);
@@ -93,7 +95,7 @@ test('makes the draft, previews templates and carries it to Audience and back', 
   await expect(page.getByLabel('Broadcast Name', { exact: true })).toHaveValue(
     'October product update',
   );
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
   await expect(page).toHaveURL(`${url}/audience?id=${id}`);
   const draft = await page.evaluate(
     (key) => JSON.parse(sessionStorage.getItem(key) ?? '{}') as Record<string, unknown>,

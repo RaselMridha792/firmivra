@@ -48,6 +48,7 @@ import {
 import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
+import { AddClientNoteButton } from './client-note-dialog';
 import { TransactionsTab } from './transactions-tab';
 
 const TABS = [
@@ -507,9 +508,8 @@ export function ClientWorkspace({ id }: { id: string }) {
                   </OriginLink>
                 </div>
                 <p className="text-sm text-heading">{w.shared.notes} notes</p>
-                <OriginLink href={`/clients/${w.client.id}`} className={`${outlined} mt-3 min-h-9`}>
-                  <Plus aria-hidden weight="bold" className="size-4" /> Add Note
-                </OriginLink>
+                {/* BK-NAV: Add Note opens here (internal, on this service), not the profile. */}
+                <AddClientNoteButton w={w} className={`${outlined} mt-3 min-h-9`} />
               </section>
             </div>
 

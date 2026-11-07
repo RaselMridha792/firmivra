@@ -622,6 +622,8 @@ export const SavedReportsQuery = z.strictObject({
   tab: z.enum(['all', 'mine', 'shared', 'favorites']).optional().default('all'),
   includeArchived: z.union([z.boolean(), z.stringbool()]).optional(),
   search: SearchText.optional(),
+  /** RP-Y01 (Octavia, Oct 28): changed in the last so many days (the library's Updated facet). */
+  updatedWithinDays: z.coerce.number().int().min(1).max(366).optional(),
   /** RP-F12 (Octavia, Oct 28): the library's sort, newest change first by default. */
   sort: z.enum(['updatedAt', 'name']).optional().default('updatedAt'),
   direction: z.enum(['asc', 'desc']).optional().default('desc'),

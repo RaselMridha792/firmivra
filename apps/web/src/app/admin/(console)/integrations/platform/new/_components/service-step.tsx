@@ -317,7 +317,6 @@ function ServiceForm({
       dirty={dirty}
       ready={!providers.isError}
       busy={save.isPending}
-      continueLabel="Next"
       onContinue={() => submit('continue')}
       onSaveDraft={() => submit('draft')}
       alert={

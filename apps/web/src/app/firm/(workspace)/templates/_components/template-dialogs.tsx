@@ -1,14 +1,23 @@
 'use client';
 
-import type { MergeField, MessageTemplateKind, MessageTemplateRow } from '@firmivra/types';
-import { Button, Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
+import {
+  TEMPLATE_ATTACHMENT_MAX_BYTES,
+  TEMPLATE_DOCX_TYPE,
+  type MergeField,
+  type MessageTemplateKind,
+  type MessageTemplateRow,
+} from '@firmivra/types';
+import { Button, Checkbox, FileDropzone, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { ArrowDown, ArrowUp, PencilSimple, Trash, Warning } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { uploadFile } from '../../../../../lib/upload';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
 import { StructurePreview } from './structure-panel';
+import { HtmlFrame } from './html-preview';
+import { type TemplateHelpArea, TemplateHelp } from './template-help';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
   CLIENT: 'Client',
@@ -20,6 +29,15 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
   WORKFLOW: 'Workflow',
   CUSTOM: 'Custom',
 };
+
+/** A tool dialog's line under its title, with the Help icon of its area (TP-F02). */
+function DialogLead({ area, children }: { area: TemplateHelpArea; children: string }) {
+  return (
+    <p className="-mt-5 mb-4 flex items-center gap-2 text-sm text-muted">
+      {children} <TemplateHelp area={area} />
+    </p>
+  );
+}
 
 /** Preview with sample data: unresolved merge fields are flagged, and a test send never changes the template. */
 export function PreviewDialog({
@@ -85,17 +103,18 @@ export function PreviewDialog({
                 {p.subject}
               </p>
             ) : null}
-            <div
-              className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
-              data-testid="preview-body"
-            >
-              {p.body
-                .replace(/<br\s*\/?>/gi, '\n')
-                .replace(/<\/p>\s*<p>/gi, '\n\n')
-                .replace(/<li>/gi, '• ')
-                .replace(/<\/li>/gi, '\n')
-                .replace(/<[^>]+>/g, '')}
-            </div>
+            {template.kind === 'SMS' ? (
+              <div
+                className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
+                data-testid="preview-body"
+              >
+                {p.body.replace(/<[^>]+>/g, '')}
+              </div>
+            ) : (
+              // TP-F07: as an email shows it (images, alignment, the button), in a frame that runs
+              // nothing (sandbox); the API cleaned the HTML already.
+              <HtmlFrame html={p.body} title={`Content of ${template.name}`} />
+            )}
             {p.sms ? (
               <p className="text-xs text-muted">
                 {p.sms.characters} characters, {p.sms.parts} text{' '}
@@ -157,6 +176,22 @@ export function PreviewDialog({
 }
 
 /** Import Template: paste HTML or text; imported markup is cleaned before it is kept. */
+/** The kinds that are plain text: a Word document doesn't import into them (TP-F16). */
+const PLAIN_KINDS: readonly MessageTemplateKind[] = ['SMS', 'TASK'];
+const IMPORT_ERRORS: Record<string, string> = {
+  ...TEMPLATE_ERRORS,
+  FILE_TYPE_NOT_ALLOWED: 'Choose a Word document (.docx).',
+  FILE_EMPTY: 'That file is empty.',
+  FILE_TOO_LARGE: 'That file is too large: at most 10 MB.',
+  UPLOAD_MISMATCH: 'The file changed while it was uploading. Try again.',
+  UPLOAD_EXPIRED: 'The upload took too long. Try again.',
+};
+
+/**
+ * Import Template: pasted HTML or text, or a Word document (TP-F16: formatted kinds only, up to
+ * 10 MB; the API converts it, drops its images, cleans it and never keeps the file). Always a
+ * private draft (Draft, Only me, automations off).
+ */
 export function ImportDialog({
   onClose,
   onDone,
@@ -166,17 +201,36 @@ export function ImportDialog({
 }) {
   const [kind, setKind] = useState<MessageTemplateKind>('EMAIL');
   const [name, setName] = useState('');
-  const [format, setFormat] = useState<'HTML' | 'TEXT'>('HTML');
+  const [format, setFormat] = useState<'HTML' | 'TEXT' | 'DOCX'>('HTML');
   const [content, setContent] = useState('');
+  const [file, setFile] = useState<File>();
+  const [problem, setProblem] = useState<string>();
+  const plain = PLAIN_KINDS.includes(kind);
+  const docx = format === 'DOCX' && !plain;
   const send = useApiMutation(
-    () => api.templates.importTemplate({ kind, name: name.trim(), format, content }),
+    async () => {
+      if (!docx)
+        return api.templates.importTemplate({
+          kind,
+          name: name.trim(),
+          format: format === 'DOCX' ? 'TEXT' : format,
+          content,
+        });
+      if (!file) throw new Error('Choose a Word document');
+      return uploadFile(file, {
+        maxBytes: TEMPLATE_ATTACHMENT_MAX_BYTES,
+        start: (facts) => api.templates.startImport({ ...facts, contentType: TEMPLATE_DOCX_TYPE }),
+        finish: (uploadToken) =>
+          api.templates.importTemplate({ kind, name: name.trim(), format: 'DOCX', uploadToken }),
+      });
+    },
     { invalidate: [...TEMPLATES_KEY] },
   );
+  const ready = !!name.trim() && (docx ? !!file : !!content.trim());
   return (
     <Modal
       open
       title="Import Template"
-      subtitle="Paste your own HTML or text. It becomes a draft you can edit."
       onClose={onClose}
       footer={
         <>
@@ -184,31 +238,40 @@ export function ImportDialog({
             Cancel
           </Button>
           <Button
-            disabled={!name.trim() || !content.trim() || send.isPending}
+            disabled={!ready || send.isPending}
             onClick={() =>
               send.mutate(undefined, { onSuccess: (r) => onDone(r.template.name, r.removed) })
             }
           >
-            Import
+            {send.isPending && docx ? 'Importing…' : 'Import'}
           </Button>
         </>
       }
     >
+      <DialogLead area="import">
+        Paste your own HTML or text, or choose a Word document. It becomes a private draft you can
+        edit.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="import-form">
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
             label="Kind"
             value={kind}
-            onChange={(e) => setKind(e.target.value as MessageTemplateKind)}
+            onChange={(e) => {
+              const next = e.target.value as MessageTemplateKind;
+              setKind(next);
+              if (PLAIN_KINDS.includes(next) && format === 'DOCX') setFormat('TEXT');
+            }}
             options={KINDS.map((k) => ({ value: k.kind, label: k.noun }))}
           />
           <Select
             label="Format"
             value={format}
-            onChange={(e) => setFormat(e.target.value as 'HTML')}
+            onChange={(e) => setFormat(e.target.value as 'HTML' | 'TEXT' | 'DOCX')}
             options={[
               { value: 'HTML', label: 'HTML' },
               { value: 'TEXT', label: 'Plain text' },
+              ...(plain ? [] : [{ value: 'DOCX', label: 'Word document (.docx)' }]),
             ]}
           />
         </div>
@@ -218,15 +281,45 @@ export function ImportDialog({
           maxLength={200}
           onChange={(e) => setName(e.target.value)}
         />
-        <Textarea
-          label="Content"
-          value={content}
-          rows={8}
-          onChange={(e) => setContent(e.target.value)}
-        />
+        {docx ? (
+          <div className="flex flex-col gap-1" data-testid="import-docx">
+            <FileDropzone
+              label="Word document"
+              accept={[TEMPLATE_DOCX_TYPE, '.docx']}
+              maxBytes={TEMPLATE_ATTACHMENT_MAX_BYTES}
+              title="Drag & drop a Word document here or click to choose"
+              hints={[
+                'A .docx file up to 10 MB. Its text and formatting are kept; images are left out.',
+                'Unsafe parts are removed, and the file itself is not kept.',
+              ]}
+              onFiles={(files) => {
+                setProblem(undefined);
+                setFile(files[0]);
+              }}
+              onReject={() => setProblem('Choose one Word document (.docx) up to 10 MB.')}
+            />
+            {file ? (
+              <p className="text-sm text-text" data-testid="import-file">
+                {file.name}
+              </p>
+            ) : null}
+            {problem ? (
+              <p role="alert" className="text-sm text-danger">
+                {problem}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <Textarea
+            label="Content"
+            value={content}
+            rows={8}
+            onChange={(e) => setContent(e.target.value)}
+          />
+        )}
         {send.isError ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(send.error, TEMPLATE_ERRORS)}
+            {errorMessage(send.error, IMPORT_ERRORS)}
           </p>
         ) : null}
       </div>
@@ -269,7 +362,6 @@ export function MergeFieldsDialog({ onClose }: { onClose: () => void }) {
     <Modal
       open
       title="Merge Fields"
-      subtitle="Dynamic fields like [Client First Name] are filled in when a template is used."
       onClose={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -277,6 +369,9 @@ export function MergeFieldsDialog({ onClose }: { onClose: () => void }) {
         </Button>
       }
     >
+      <DialogLead area="mergeFields">
+        Dynamic fields like [Client First Name] are filled in when a template is used.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="merge-fields-dialog">
         <Input
           label="Search merge fields"
@@ -482,7 +577,6 @@ function BrandingForm({
     <Modal
       open
       title="Branding & Letterhead"
-      subtitle="Your logo and business name come from Settings."
       onClose={onClose}
       footer={
         <>
@@ -498,6 +592,7 @@ function BrandingForm({
         </>
       }
     >
+      <DialogLead area="branding">Your logo and business name come from Settings.</DialogLead>
       <div className="flex flex-col gap-3" data-testid="branding-form">
         <p className="text-sm text-text">
           Business name:{' '}
@@ -590,7 +685,6 @@ export function CategoriesDialog({
     <Modal
       open
       title="Template Categories"
-      subtitle="Organize templates into categories for easy access."
       onClose={onClose}
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -598,6 +692,9 @@ export function CategoriesDialog({
         </Button>
       }
     >
+      <DialogLead area="categoryTools">
+        Organize templates into categories for easy access.
+      </DialogLead>
       <div className="flex flex-col gap-3" data-testid="categories-dialog">
         <Select
           label="Kind of template"

@@ -24,6 +24,7 @@ import {
   type ReportKpi,
   type ReportRange,
   type ReportResult,
+  type ReportRowLink,
   type ReportRunStatusView,
   type ReportScheduleDetail,
   type ReportSettingsView,
@@ -1192,7 +1193,12 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
     const fieldsOf = (keys: string[]) =>
       keys.map((k) => src.meta.fields.find((f) => f.key === k)!).filter(Boolean);
     let columns;
-    let tableRows: { cells: Row; links: never[] }[];
+    let tableRows: { cells: Row; links: ReportRowLink[] }[];
+    // RP-F17: a row with an invoice opens it (the mock's invoice ids follow its numbers).
+    const linksOf = (r: Row): ReportRowLink[] => {
+      const n = /^INV-(\d+)$/.exec(String(r['invoice'] ?? r['invoiceNumber'] ?? ''))?.[1];
+      return n ? [{ kind: 'INVOICE', id: `0199c3a0-0000-7000-8000-${n.padStart(12, '0')}` }] : [];
+    };
     let totals: Record<string, number> | null = null;
     if (d.groupBy) {
       const g = d.groupBy;
@@ -1257,7 +1263,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       }));
       tableRows = list.map((r) => ({
         cells: Object.fromEntries(flds.map((f) => [f.key, r[f.key] ?? null])),
-        links: [],
+        links: linksOf(r),
       }));
       if (d.showTotals)
         totals = Object.fromEntries(
@@ -1677,6 +1683,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
               (query.includeArchived ? true : !r.archived) &&
               (!query.category || r.category === query.category) &&
               (query.tab !== 'favorites' || r.favorite) &&
+              (!query.updatedWithinDays ||
+                Date.parse(r.updatedAt) >= Date.now() - query.updatedWithinDays * 86_400_000) &&
               (!term || r.name.toLowerCase().includes(term)),
           )
           // RP-F12: sorted as the API sorts (name or last change, either way).

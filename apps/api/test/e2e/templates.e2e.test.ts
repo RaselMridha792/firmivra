@@ -5,6 +5,7 @@
 // attachments. Firm B never reads or changes firm A's, and a foreign id in a body answers as an
 // unknown one. Every change is audited with ids and field names, never text.
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -16,6 +17,7 @@ import { z } from 'zod';
 import {
   BulkTemplatesResult,
   DownloadLink,
+  EmailImage,
   ImportTemplateResult,
   InstallStartersResult,
   MergeField,
@@ -1139,6 +1141,103 @@ describe('import', () => {
       'VALIDATION_FAILED',
     );
   });
+
+  it('a Word document becomes a private draft, sanitized, and the file is never kept (TP-F16)', async () => {
+    // A synthetic .docx: a heading, bold merge fields, a script as words, an https and a javascript: link.
+    const docx = readFileSync(new URL('../fixtures/import-sample.docx', import.meta.url));
+    const facts = {
+      fileName: 'welcome.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sizeBytes: docx.length,
+      sha256: sha256(docx),
+    };
+    const upload = async (who: Who = people.staffA) => {
+      const ticket = UploadPutTicket.parse(
+        ok(await call('post', '/templates/import/uploads', who, facts), 201),
+      );
+      expect(ticket.url).toContain(`tenant/${firms.a}/template-imports/`);
+      storage.put(ticket, docx);
+      return ticket;
+    };
+    const ticket = await upload();
+    // Firm B's member and another member of firm A can't use the ticket.
+    expectError(
+      await call(
+        'post',
+        '/templates/import',
+        people.ownerB,
+        { kind: 'EMAIL', name: 'X', format: 'DOCX', uploadToken: ticket.uploadToken },
+        'b',
+      ),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    const imported = ImportTemplateResult.parse(
+      ok(
+        await call('post', '/templates/import', people.staffA, {
+          kind: 'EMAIL',
+          name: mark('Welcome'),
+          format: 'DOCX',
+          uploadToken: ticket.uploadToken,
+        }),
+        201,
+      ),
+    );
+    const t = imported.template;
+    expect(t).toMatchObject({ status: 'DRAFT', access: 'PRIVATE', includeInAutomations: false });
+    expect(t.body).toContain('<h1>Welcome Letter (fake)</h1>');
+    expect(t.body).toContain('<strong>[Business Name]</strong>');
+    expect(t.body).toContain('&lt;script&gt;');
+    expect(t.body).not.toContain('<script');
+    expect(t.body).toContain('href="https://portal.example.test/upload"');
+    expect(t.body).not.toContain('javascript:');
+    // The Word document is gone from storage, and the ticket can't be used again.
+    expect([...storage.objects.keys()].some((k) => k.includes('/template-imports/'))).toBe(false);
+    expectError(
+      await call('post', '/templates/import', people.staffA, {
+        kind: 'EMAIL',
+        name: 'Again',
+        format: 'DOCX',
+        uploadToken: ticket.uploadToken,
+      }),
+      410,
+      'UPLOAD_EXPIRED',
+    );
+    expect((await auditActions(t.id)).map((a) => a.metadata)).toContainEqual(
+      expect.objectContaining({ format: 'DOCX' }),
+    );
+
+    // Rich kinds only: an SMS is refused, and its upload is deleted too.
+    const sms = await upload();
+    expectError(
+      await call('post', '/templates/import', people.staffA, {
+        kind: 'SMS',
+        name: 'X',
+        format: 'DOCX',
+        uploadToken: sms.uploadToken,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect([...storage.objects.keys()].some((k) => k.includes('/template-imports/'))).toBe(false);
+    // Not a .docx name, or over 10 MB, is refused at the ticket.
+    expectError(
+      await call('post', '/templates/import/uploads', people.staffA, {
+        ...facts,
+        fileName: 'welcome.pdf',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/templates/import/uploads', people.staffA, {
+        ...facts,
+        sizeBytes: 10 * 1024 * 1024 + 1,
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
 });
 
 /** TP-F18: the developer guide's section 8, name by name, with its kind and category. */
@@ -1703,6 +1802,79 @@ describe('merge fields and branding', () => {
         ok(await call('get', '/template-branding', people.ownerB, undefined, 'b')),
       ).letterheadEnabled,
     ).toBe(true);
+  });
+});
+
+describe('images in the content (TP-F07)', () => {
+  // A 1 x 1 PNG (synthetic).
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const ticketFor = (who: Who, firm: 'a' | 'b' = 'a') =>
+    call(
+      'post',
+      '/templates/images',
+      who,
+      { contentType: 'image/png', sizeBytes: png.length, sha256: sha256(png) },
+      firm,
+    );
+  const confirm = (uploadToken: string, who: Who, firm: 'a' | 'b' = 'a') =>
+    call('post', '/templates/images/confirm', who, { uploadToken }, firm);
+
+  it('uploads in three steps under the firm, and firm B neither confirms the ticket nor reads the key', async () => {
+    const ticket = UploadPutTicket.parse(ok(await ticketFor(people.staffA), 201));
+    // The key is under firm A's own prefix.
+    expect(ticket.url).toContain(firms.a);
+    storage.put(ticket, png);
+    // Firm B's member can't confirm firm A's ticket, nor can another member of firm A.
+    expectError(await confirm(ticket.uploadToken, people.ownerB, 'b'), 410, 'UPLOAD_EXPIRED');
+    expectError(await confirm(ticket.uploadToken, people.ownerA), 410, 'UPLOAD_EXPIRED');
+    const image = EmailImage.parse(ok(await confirm(ticket.uploadToken, people.staffA)));
+    expect(image).toMatchObject({ contentType: 'image/png', sizeBytes: png.length });
+    const path = new URL(image.url).pathname;
+    expect(path).toBe(`/api/v1/portal/r55m-a-${run}/email-images/${image.id}.png`);
+    // Served at the firm's public address (any mail client); firm B's address never reaches it.
+    const served = await request(app.getHttpServer()).get(path);
+    expect(served.status).toBe(200);
+    expect(served.headers['content-type']).toContain('image/png');
+    const other = await request(app.getHttpServer()).get(
+      path.replace(`r55m-a-${run}`, `r55m-b-${run}`),
+    );
+    expect(other.status).toBe(404);
+    expect((await auditActions(image.id)).map((a) => a.action)).toContain(
+      'message_template.image_added',
+    );
+    // Other bytes than the ticket's are refused (and removed).
+    const wrong = UploadPutTicket.parse(ok(await ticketFor(people.staffA), 201));
+    storage.put(wrong, Buffer.from('not a png at all'));
+    expectError(await confirm(wrong.uploadToken, people.staffA), 409, 'UPLOAD_MISMATCH');
+  });
+
+  it('a button link keeps its look, alignment is left, centre or right, and other classes go', async () => {
+    const t = await make({
+      body:
+        '<p style="text-align: justify">J</p><p style="text-align: center">C</p>' +
+        '<p><a class="fv-button evil" style="color:red" href="https://portal.example.test/upload">Upload</a></p>' +
+        '<p><a class="fv-button" href="http://example.test">Plain</a> <a class="other" href="https://example.test">x</a></p>' +
+        '<p><img src="https://portal.example.test/a.png" style="width: 9999px; position: fixed"></p>',
+    });
+    const body = (await getT(t.id)).body;
+    expect(body).toContain('<p>J</p>');
+    expect(body).toContain('<p style="text-align:center">C</p>');
+    const button = /<a [^>]*>Upload<\/a>/.exec(body)?.[0] ?? '';
+    expect(button).toContain('href="https://portal.example.test/upload"');
+    expect(button).toContain('class="fv-button"');
+    expect(button).toContain(
+      'style="display:inline-block;padding:10px 18px;border-radius:6px;background-color:#005fcc;color:#ffffff;font-weight:600;text-decoration:none"',
+    );
+    expect(button).not.toContain('evil');
+    // Not https: a plain link. Another class: dropped.
+    expect(body).toContain('<a href="http://example.test">Plain</a>');
+    expect(body).toContain('<a href="https://example.test">x</a>');
+    expect(body).toContain('width="600"');
+    expect(body).toContain('style="width:600px;max-width:100%;height:auto"');
+    expect(body).not.toContain('position');
   });
 });
 

@@ -292,6 +292,7 @@ export class RunsService {
             businessId,
             now: new Date(),
             today: ctx.today,
+            timezone: ctx.timezone,
             since: new Date(0),
             recordId: run.recordId,
             limit: 1,
@@ -303,6 +304,7 @@ export class RunsService {
             found[0]!.fields,
             view.matchMode,
             view.conditions.map((c) => ({ ...c, value: c.value ?? undefined })),
+            ctx.today,
           );
       }
       if (!stillMatches) {

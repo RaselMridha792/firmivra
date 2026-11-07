@@ -55,6 +55,15 @@ import {
   UpdateBookkeepingReportRequest,
 } from './schemas.js';
 import {
+  AttachBookkeepingReceiptRequest,
+  BookkeepingTransactionRow,
+  BookkeepingTransferCandidates,
+  BulkBookkeepingTransactionsRequest,
+  BulkBookkeepingTransactionsResult,
+  CategorizeBookkeepingTransactionRequest,
+  ExcludeBookkeepingTransactionRequest,
+  MatchBookkeepingTransferRequest,
+  SplitBookkeepingTransactionRequest,
   BookkeepingCategoryList,
   BookkeepingTransactionPage,
   ListBookkeepingTransactionsQuery,
@@ -66,6 +75,8 @@ import {
 
 const BASE = '/business/bookkeeping';
 const client = (id: string) => `${BASE}/clients/${parseInput(BookkeepingClientId, id)}`;
+const txn = (id: string, txnId: string) =>
+  `${client(id)}/transactions/${encodeURIComponent(txnId)}`;
 const connection = (id: string) => `${BASE}/connections/${parseInput(BookkeepingConnectionId, id)}`;
 const account = (id: string) => `${BASE}/accounts/${parseInput(BookkeepingAccountId, id)}`;
 const period = (id: string) => `${BASE}/periods/${parseInput(BookkeepingPeriodId, id)}`;
@@ -228,6 +239,64 @@ export function createBookkeepingClient(request: ApiRequest) {
     /** BK-T01: the categories the client's transactions are filed under. */
     categories: async (id: string): Promise<BookkeepingCategoryList> =>
       request(BookkeepingCategoryList, `${client(id)}/categories`),
+    // BK-T01 engines: one line's category, split, transfer, exclusion and receipt, and bulk actions.
+    categorizeTransaction: async (
+      id: string,
+      txnId: string,
+      body: CategorizeBookkeepingTransactionRequest,
+    ): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/category`, {
+        method: 'PATCH',
+        body: parseInput(CategorizeBookkeepingTransactionRequest, body),
+      }),
+    splitTransaction: async (
+      id: string,
+      txnId: string,
+      body: SplitBookkeepingTransactionRequest,
+    ): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/split`, {
+        method: 'PUT',
+        body: parseInput(SplitBookkeepingTransactionRequest, body),
+      }),
+    transferCandidates: async (id: string, txnId: string): Promise<BookkeepingTransferCandidates> =>
+      request(BookkeepingTransferCandidates, `${txn(id, txnId)}/transfer-candidates`),
+    matchTransfer: async (
+      id: string,
+      txnId: string,
+      body: MatchBookkeepingTransferRequest,
+    ): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/transfer`, {
+        method: 'POST',
+        body: parseInput(MatchBookkeepingTransferRequest, body),
+      }),
+    excludeTransaction: async (
+      id: string,
+      txnId: string,
+      body: ExcludeBookkeepingTransactionRequest,
+    ): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/exclude`, {
+        method: 'POST',
+        body: parseInput(ExcludeBookkeepingTransactionRequest, body),
+      }),
+    includeTransaction: async (id: string, txnId: string): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/include`, { method: 'POST', body: {} }),
+    attachReceipt: async (
+      id: string,
+      txnId: string,
+      body: AttachBookkeepingReceiptRequest,
+    ): Promise<BookkeepingTransactionRow> =>
+      request(BookkeepingTransactionRow, `${txn(id, txnId)}/receipt`, {
+        method: 'PUT',
+        body: parseInput(AttachBookkeepingReceiptRequest, body),
+      }),
+    bulkTransactions: async (
+      id: string,
+      body: BulkBookkeepingTransactionsRequest,
+    ): Promise<BulkBookkeepingTransactionsResult> =>
+      request(BulkBookkeepingTransactionsResult, `${client(id)}/transactions/bulk`, {
+        method: 'POST',
+        body: parseInput(BulkBookkeepingTransactionsRequest, body),
+      }),
     addAccount: async (
       id: string,
       body: AddBookkeepingAccountRequest,
