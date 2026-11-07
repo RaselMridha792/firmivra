@@ -160,3 +160,24 @@ test('A report previews its figures, generates numbered versions and downloads o
   ).toBeDisabled();
   await page.screenshot({ path: test.info().outputPath('balance-sheet.png') });
 });
+
+test('A report is never approved past an open reconciliation; Mark Report Complete picks an approved report (BK-RPT)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${app}/bookkeeping/reports`);
+  await page.getByLabel('Status').selectOption('IN_REVIEW');
+  const inReview = page.getByRole('row').filter({ hasText: 'In Review' }).first();
+  await inReview.getByRole('button', { name: /^Actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Approve', exact: true }).click();
+  await expect(page.getByText(/Approve every reconciliation/).first()).toBeVisible();
+
+  await page.goto(`${app}/bookkeeping`);
+  await page.getByRole('button', { name: 'Actions for Green Leaf Café LLC' }).first().click();
+  await page.getByRole('menuitem', { name: 'Mark Report Complete' }).click();
+  const dialog = page.getByTestId('complete-report-dialog');
+  await expect(dialog).toContainText('Only an approved report can be completed');
+  await expect(dialog).toContainText('No approved report for this client yet');
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath('complete-report.png') });
+});

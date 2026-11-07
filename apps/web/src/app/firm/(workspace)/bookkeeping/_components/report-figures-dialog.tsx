@@ -177,6 +177,7 @@ export function ReportFiguresDialog({
                   <span className="text-heading">
                     Version {v.version} · {new Date(v.generatedAt).toLocaleString('en-US')}
                     {v.generatedBy ? ` · ${v.generatedBy}` : ''}
+                    {v.sentAt ? ` · Sent ${new Date(v.sentAt).toLocaleDateString('en-US')}` : ''}
                   </span>
                   <a
                     href={`/api/v1/business/bookkeeping/reports/${row.id}/versions/${v.version}/csv`}

@@ -2292,6 +2292,7 @@ export function createBookkeepingMock({
           generatedAt: new Date().toISOString(),
           generatedBy: 'Mock User',
           deliveryStatus: 'NOT_SENT' as const,
+          sentAt: null,
           period: MOCK_REPORT_PERIOD,
           figures,
         };
@@ -2368,6 +2369,11 @@ export function createBookkeepingMock({
         r.deliveredBy = mockMe;
         r.engagementReportId = input.engagementReportId;
         r.overdue = false;
+        const latest = reportVersions().get(rid)?.[0];
+        if (latest && latest.deliveryStatus !== 'SENT') {
+          latest.deliveryStatus = 'SENT';
+          latest.sentAt = nowIso();
+        }
         return r;
       }),
   };
