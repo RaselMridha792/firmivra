@@ -1485,7 +1485,13 @@ export class AutomationEngine {
           businessId,
           status: 'PENDING',
           OR: [{ scheduledFor: { lte: now } }, { scheduledFor: null }],
-          run: { dryRun: false, status: { in: ['PENDING', 'RUNNING'] } },
+          // Only an active rule's: a paused rule's waiting actions are held until it is on again,
+          // never run and never lost (the lead, Nov 7). A member's re-run is their own act.
+          run: {
+            dryRun: false,
+            status: { in: ['PENDING', 'RUNNING'] },
+            rule: { status: 'ACTIVE' },
+          },
         },
         select: { runId: true },
         distinct: ['runId'],
@@ -1498,7 +1504,11 @@ export class AutomationEngine {
   }
 
   /** A paused rule's waiting actions are cancelled (skipped). */
-  async cancelWaiting(businessId: string, ruleId: string): Promise<number> {
+  async cancelWaiting(
+    businessId: string,
+    ruleId: string,
+    reason = 'The rule was paused',
+  ): Promise<number> {
     const now = new Date();
     const runs = await this.inFirm(businessId, async (tx) => {
       const waiting = await tx.automationActionExecution.findMany({
@@ -1511,7 +1521,7 @@ export class AutomationEngine {
           data: {
             status: 'SKIPPED',
             finishedAt: now,
-            detail: 'The rule was paused',
+            detail: reason,
             errorCode: null,
           },
         });

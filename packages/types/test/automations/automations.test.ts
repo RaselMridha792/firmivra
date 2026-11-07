@@ -192,7 +192,7 @@ describe('rules', () => {
   });
 
   it('pausing says what happens to waiting actions', () => {
-    expect(PauseAutomationRuleRequest.parse({})).toMatchObject({ scheduledActions: 'FINISH' });
+    expect(PauseAutomationRuleRequest.parse({})).toMatchObject({ scheduledActions: 'HOLD' });
     expect(PauseAutomationRuleRequest.safeParse({ scheduledActions: 'CANCEL' }).success).toBe(true);
     expect(PauseAutomationRuleRequest.safeParse({ scheduledActions: 'DELETE' }).success).toBe(
       false,
