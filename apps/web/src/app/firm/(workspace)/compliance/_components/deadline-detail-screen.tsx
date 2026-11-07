@@ -301,7 +301,13 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
                         string,
                         ReactNode,
                       ][])
-                    : []),
+                    : d.notApplicableReason
+                      ? // CD-Y09 (Octavia, Oct 28): reopened, the reason it was set aside stays in view.
+                        ([['Earlier not applicable because', d.notApplicableReason]] as [
+                          string,
+                          ReactNode,
+                        ][])
+                      : []),
                 ]}
               />
               {d.dueOverridden ? (
@@ -326,7 +332,7 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
                   'Last verified',
                   d.calendarEntry.verifiedAt
                     ? dayText(d.calendarEntry.verifiedAt.slice(0, 10))
-                    : 'Not verified',
+                    : 'Needs Verification',
                 ],
                 [
                   'Official source',
@@ -346,8 +352,14 @@ export function DeadlineDetailScreen({ id }: { id: string }) {
               ]}
             />
           ) : (
-            <p className={quiet}>
-              {d ? 'This deadline was not made from a government calendar.' : note}
+            <p className={quiet} data-testid="source-note">
+              {/* CD-Y07 (Octavia, Oct 28): a Government date typed by hand has no source, year or
+                  verified date on file, so it says so instead of passing for checked law. */}
+              {!d
+                ? note
+                : d.source === 'GOVERNMENT' || d.source === 'IMPORTED'
+                  ? 'Needs Verification: this date was entered by hand, with no official source, effective year or verified date on file. Check it against the authority before relying on it.'
+                  : 'This deadline was not made from a government calendar.'}
             </p>
           )}
         </Card>

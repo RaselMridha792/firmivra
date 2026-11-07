@@ -484,6 +484,42 @@ test("Attachments upload as the client's documents, join the deadline, and downl
   }).toPass({ timeout: 30_000 });
 });
 
+test('A hand-entered government date needs verification, a reopened deadline keeps why it was set aside, At Risk says its rule, and Settings says where the rest is set (CD-Y03, Y07, Y09, Y10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // CD-Y10: the overview's At Risk card explains its formula.
+  await page.goto(base);
+  await page.getByRole('button', { name: 'About At Risk clients' }).click();
+  await expect(page.getByTestId('help-tip')).toContainText('due today is not overdue');
+  await page.keyboard.press('Escape');
+  // CD-Y03: Settings says where the defaults it does not hold are set.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const elsewhere = page.getByTestId('settings-elsewhere');
+  await expect(elsewhere.getByRole('link', { name: 'Settings › Preferences' })).toHaveAttribute(
+    'href',
+    '/settings/preferences',
+  );
+  await expect(elsewhere.getByRole('link', { name: 'Applicability Rules' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('settings-elsewhere.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  // CD-Y07: no calendar behind a Government date: it says so.
+  await page.goto(`${base}/${FIRST}`);
+  await expect(page.getByTestId('source-note')).toContainText('Needs Verification');
+  // CD-Y09: set aside with a reason, then reopened: the reason stays in view.
+  await page.getByRole('button', { name: 'Not Applicable' }).click();
+  await page.getByRole('dialog').getByLabel('Why does this not apply?').fill('Client dissolved');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Marked not applicable.')).toBeVisible();
+  await expect(page.getByTestId('detail-dates')).toContainText('Not applicable because');
+  await page.getByRole('button', { name: 'Reopen' }).first().click();
+  await expect(page.getByText('Deadline reopened.')).toBeVisible();
+  const dates = page.getByTestId('detail-dates');
+  await expect(dates).toContainText('Earlier not applicable because');
+  await expect(dates).toContainText('Client dissolved');
+  await page.screenshot({ path: test.info().outputPath('reopened.png') });
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {

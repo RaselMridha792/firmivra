@@ -43,6 +43,11 @@ const HELP = {
     topic: 'Logs',
     text: 'What generating, importing and overriding did, with the result of each. Manual changes to a deadline are in the firm’s Audit Log.',
   },
+  // CD-Y10 (Octavia, Oct 28): the At Risk formula in words, with its edges.
+  atRisk: {
+    topic: 'At Risk clients',
+    text: 'A client is At Risk when an open deadline is overdue (its effective due date, the extended date if an extension was filed, has passed: due today is not overdue), or when, within the At Risk days of Compliance Settings (7 unless changed; today and the last day both count), a deadline is High priority or Waiting on Client. Each client says which. A missing document or blocked task does not count: no field records either yet.',
+  },
   settings: {
     topic: 'Compliance settings',
     text: 'When a deadline counts as Due Soon or At Risk, when a calendar counts as stale, and when work is escalated. They change how deadlines are flagged, not their dates.',
