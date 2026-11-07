@@ -233,6 +233,46 @@ Progress (Templates, Oct 28 review):
     address. The dashboard card, bells and notices keep the plain `body`. This is a one-off
     exception the lead gave for `client-portal/portal-announcements.ts` and the portal's
     announcement card.
+- Segments, branch `rasel/R60-comms-segments` (stacked on #1286): CM-F13 to F18.
+  - Owner and Last Refreshed columns. The API now stamps Last Refreshed only when the rules, the
+    audience or a list's members change, never on a rename, and the dialog sends only what
+    changed.
+  - Match all or any of the rules (saved rule groups are kept).
+  - The live count with "at" time, an example of who matches and the summary.
+  - A saved segment's rules are edited in place; view-only roles see the exact reason.
+  - View Members adds and removes a list's people by name through the new `GET segments/people`
+    (within the member's reach, masked), saved together with `PUT .../members` (audited).
+- Closing, branch `rasel/R60-comms-closing` (stacked on #1288): CM-F11. It was re-tested against
+  MSG-F02, whose stores already exist, so there is no schema change:
+  - the firm's signature (`message_settings.signature`, set by an Owner or Admin in Messages
+    Settings);
+  - the member's own (`business/me/message-signature`).
+  The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
+  Signature. A missing one says why. It is text and formatting only and sends nothing.
+- Word import, branch `rasel/R60-template-docx`: TP-F16.
+  - Import Template takes a Word document for a formatted kind (not SMS or Task), up to the
+    module's 10 MB.
+  - It uploads in three steps (`business/templates/import/uploads`, the PUT, then the import with
+    its token) under `tenant/{firm}/template-imports/`.
+  - The API reads it once, converts it with mammoth (no network, images dropped), runs the
+    allowlist sanitizer, and deletes the file whatever happens.
+  - The result is always a private draft. Firm B and another member can't use the ticket.
+- TP-F06 again (the lead, Nov 7, High; R1 found no `attachments/uploads` request in the dev logs
+  for Octavia's session), on the same branch. The real client against the local API and s3mock
+  (`e2e/r60-template-attachments.spec.ts`, not the mock):
+  - a valid PNG and PDF, and a PDF with an upper-case ending, were attached, kept after a reload
+    and downloaded from the firm's prefix, so the start step itself works in Chromium;
+  - a file the browser gives no type (`File.type` '': some do, dragged in or from a cloud folder)
+    was refused before any request: the editor's and the Communications composer's pickers listed
+    types only. They now take the endings too (`TEMPLATE_ATTACHMENT_ACCEPT`, as Documents does),
+    and the name decides the type in any case;
+  - a file the browser cannot read (`file.arrayBuffer()` throws, such as a OneDrive placeholder)
+    showed "Something went wrong" with no request, which matches the dev logs. `uploadFile` now
+    names it (`FILE_UNREADABLE`, every upload screen through `lib/errors.ts`).
+  - Tests: the real spec 1 of 1 (five files, a .txt, 11 MB and an unreadable file, nothing sent
+    for those); unit `upload` 16 of 16; mock editor and composer specs 7 of 7.
+  - Not found locally: the exact file Octavia used. If dev still fails, the editor now names the
+    reason.
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

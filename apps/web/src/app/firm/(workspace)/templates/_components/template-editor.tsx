@@ -7,7 +7,7 @@ import {
   type MessageTemplateKind,
   type MergeField,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
-  TEMPLATE_ATTACHMENT_TYPES,
+  TEMPLATE_ATTACHMENT_ACCEPT,
 } from '@firmivra/types';
 import {
   Button,
@@ -600,7 +600,7 @@ function Editor({
               <FileDropzone
                 label="Template attachments"
                 multiple
-                accept={[...TEMPLATE_ATTACHMENT_TYPES]}
+                accept={[...TEMPLATE_ATTACHMENT_ACCEPT]}
                 maxBytes={TEMPLATE_ATTACHMENT_MAX_BYTES}
                 hints={['PDF, DOCX, XLSX, JPG, PNG (Max 10MB per file)']}
                 disabled={uploading || saved.status === 'ARCHIVED'}

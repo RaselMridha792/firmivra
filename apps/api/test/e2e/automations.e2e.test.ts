@@ -370,6 +370,7 @@ describe('the catalog', () => {
       'REMOVE_CLIENT_TAGS',
       'CREATE_DEADLINE',
       'ADD_SERVICE',
+      'SEND_RESOURCE',
       'INVITE_TO_BOOK',
       'SCHEDULE_LEAD_FOLLOW_UP',
       'REQUEST_APPROVAL',
@@ -3647,5 +3648,159 @@ describe('Create task from a template, text messages, deadlines and services (AU
       detail: 'The client already has this service open',
     });
     for (const r of [first, again]) ok(await pause(r.id));
+  });
+});
+
+describe('Only if on an action, and Send resource (AU-F26)', () => {
+  const newClient = (name: string, data: object = {}) =>
+    inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: `${name} ${run} (fake)`,
+              email: `${name.toLowerCase()}-${run}@client.test`,
+              ...data,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+  const stepsFor = async (ruleId: string, clientId: string) => {
+    const page = await runs(`?ruleId=${ruleId}`);
+    return runDetail(page.items.find((r) => r.client?.id === clientId)!.id);
+  };
+  const pause = (id: string) => call('post', `/rules/${id}/pause`, ownerA, {});
+
+  it('runs an action only if its condition holds, and skips the actions that depend on it', async () => {
+    const live = await createRule(
+      clientCreated([
+        {
+          id: 'note',
+          type: 'ADD_CLIENT_NOTE',
+          config: { body: 'Business welcome' },
+          onlyIf: [{ field: 'clientType', operator: 'IS', value: 'BUSINESS' }],
+        },
+        {
+          id: 'task',
+          type: 'CREATE_TASK',
+          config: { title: 'Business setup' },
+          dependsOn: 'note',
+        },
+      ]),
+      { name: mark('Only if') },
+    );
+    ok(await activate(live.id));
+    const business = await newClient('Biz', { accountType: 'BUSINESS' });
+    const person = await newClient('Solo', { accountType: 'INDIVIDUAL' });
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    const met = await stepsFor(live.id, business);
+    expect(met.actions.map((a) => a.status)).toEqual(['SUCCESS', 'SUCCESS']);
+    const skipped = await stepsFor(live.id, person);
+    expect(skipped.actions.map((a) => a.status)).toEqual(['SKIPPED', 'SKIPPED']);
+    expect(skipped.actions[0]!.detail).toBe('Its condition was not met, so it was skipped');
+    // Nothing was made for the individual client.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.note.count({ where: { businessId: firms.a, clientId: person } }),
+      ),
+    ).toBe(0);
+    expect(
+      await inFirm('a', (tx) =>
+        tx.task.count({ where: { businessId: firms.a, clientId: person } }),
+      ),
+    ).toBe(0);
+    ok(await pause(live.id));
+
+    // Checked against the event's fields, as the rule's own conditions are.
+    const bad = await call('post', '/rules', ownerA, {
+      name: mark('Bad only if'),
+      category: 'CLIENTS',
+      definition: clientCreated([
+        {
+          id: 'note',
+          type: 'ADD_CLIENT_NOTE',
+          config: { body: 'x' },
+          onlyIf: [{ field: 'shoeSize', operator: 'IS', value: '9' }],
+        },
+      ]),
+    });
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(bad.body)).toContain('actions.0.onlyIf.0.field');
+    // The rule's detail gives it back as saved.
+    const saved = await rule(live.id);
+    expect(saved.definition?.actions[0]?.onlyIf).toEqual([
+      { field: 'clientType', operator: 'IS', value: 'BUSINESS' },
+    ]);
+  });
+
+  it('links a published portal resource of the firm, for a business client only', async () => {
+    const item = (firm: 'a' | 'b', title: string) =>
+      inFirm(
+        firm,
+        async (tx) =>
+          (
+            await tx.contentItem.create({
+              data: {
+                businessId: firms[firm],
+                kind: 'RESOURCE',
+                category: 'payroll',
+                title: `${title} ${run}`,
+                body: 'Fake guide',
+                publishedAt: new Date(),
+              },
+              select: { id: true },
+            })
+          ).id,
+      );
+    const ours = await item('a', 'Payroll checklist');
+    const theirs = await item('b', 'Their checklist');
+    const send = (resourceId: string) => ({
+      id: 'res',
+      type: 'SEND_RESOURCE',
+      config: { resourceId, message: 'Hello {{client.firstName}}' },
+    });
+    const foreign = await createRule(clientCreated([send(theirs)]), { name: mark('Their res') });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const choices = catalog.actions
+      .find((a) => a.type === 'SEND_RESOURCE')
+      ?.fields.find((f) => f.key === 'resourceId')
+      ?.choices.map((c) => c.value);
+    expect(choices).toContain(ours);
+    expect(choices).not.toContain(theirs);
+
+    const live = await createRule(clientCreated([send(ours)]), { name: mark('Send res') });
+    ok(await activate(live.id));
+    const business = await newClient('Shop', { accountType: 'BUSINESS' });
+    const person = await newClient('Single', { accountType: 'INDIVIDUAL' });
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    expect((await stepsFor(live.id, business)).actions[0]).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'message_thread' },
+    });
+    const sent = await inFirm('a', (tx) =>
+      tx.message.findFirstOrThrow({
+        where: { businessId: firms.a, thread: { clientId: business } },
+        select: { body: true, thread: { select: { subject: true } } },
+      }),
+    );
+    expect(sent.thread.subject).toBe(`Payroll checklist ${run}`);
+    expect(sent.body).toMatch(/\/resources\/payroll$/);
+    // Portal resources are for business clients: the individual gets nothing.
+    expect((await stepsFor(live.id, person)).actions[0]).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'BUSINESS_ONLY',
+    });
+    expect(
+      await inFirm('a', (tx) =>
+        tx.messageThread.count({ where: { businessId: firms.a, clientId: person } }),
+      ),
+    ).toBe(0);
+    ok(await pause(live.id));
   });
 });

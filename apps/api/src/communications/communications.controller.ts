@@ -75,6 +75,7 @@ import {
   CreateSegmentBody,
   PreviewSegmentBody,
   SegmentMembersQ,
+  SegmentPeopleQ,
   SegmentsQ,
   SetConsentBody,
   SetSegmentMembersBody,
@@ -256,6 +257,17 @@ export class CommunicationsController {
   ): Promise<SegmentPreview> {
     const w = who(auth, tenant);
     return this.segments.preview(w.tenant, w.userId, body);
+  }
+
+  /** CM-F18: the people a member may add to a list, by name, within their reach. */
+  @Get('segments/people')
+  segmentPeople(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(SegmentPeopleQ)) q: Out<typeof SegmentPeopleQ>,
+  ): Promise<SegmentMemberPage> {
+    const w = who(auth, tenant);
+    return this.segments.people(w.tenant, w.userId, q);
   }
 
   @Get('segments/:id')

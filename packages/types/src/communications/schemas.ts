@@ -856,6 +856,18 @@ export const SegmentMemberPage = z.object({
 });
 export type SegmentMemberPage = z.infer<typeof SegmentMemberPage>;
 
+/**
+ * GET .../segments/people (CM-F18): the clients and leads a member may add to a list, by name,
+ * within their reach (Staff: their own clients), masked as members are.
+ */
+export const SegmentPeopleQuery = z.strictObject({
+  audience: SegmentAudience.optional().default('CLIENTS'),
+  search: SearchText.optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+});
+export type SegmentPeopleQuery = z.input<typeof SegmentPeopleQuery>;
+
 /** PUT .../segments/{id}/members: a STATIC list's members, replaced (up to 5,000 people). */
 export const SetSegmentMembersRequest = z.strictObject({
   clientIds: z.array(z.uuid()).max(5_000).optional().default([]),
