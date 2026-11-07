@@ -30,7 +30,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1301 merged: Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 - #1304 merged: Conditional branch as an action's Only if, and Send resource (AU-F26).
 - #1308 merged: AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
-- #1311 (`rasel/R55-in-yellow`): honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
+- #1311 merged: honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
+- #1312 (`rasel/R55-sa-light`): the shared date range (opt-in names and the reversed-range check) on for Support, the Sales pipeline and Integrations Usage, and Support's date ranges kept in the address (SA-PIP-PL01, SA-SUP-R1, SA-INT-R4 part).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -125,6 +126,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - imported records and audit and sync history kept, and none of the clients' data deleted;
   - a later reconnect doesn't duplicate records.
 - **IN-Y20 (Owner/Admin connect, configure and disconnect; Staff view only):** a role change, so it waits for Rasel.
+
+**For Review 2: Super Admin light items (review of Oct 31)**
+- **The shared date range** (`packages/ui` DateRangePicker) takes an opt-in `strict` (the lead: backward compatible, existing screens unchanged unless they opt in).
+  - Each date gets a spoken name, for example "Created Date: From, start date".
+  - An end before the start stays on screen with "End date is before start date" and is never passed on.
+  - On for Support (Created, Last Activity), the Sales pipeline and Integrations Usage.
+- **Support's date ranges** live in the address (createdFrom/createdTo, activityFrom/activityTo), so a reload or another page keeps them. They show as a chip and count in Filters (n).
+- **SA-PIP-PL01's menu** (Add Lead, Add Opportunity, Build Pipeline) already had text names, so the date popup was the open part.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
