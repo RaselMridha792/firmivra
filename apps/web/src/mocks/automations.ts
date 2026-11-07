@@ -312,9 +312,44 @@ const buildEvents = (): [
     ['IMMEDIATE', 'AFTER'],
     [],
   ],
+  [
+    'tax_return.rejected',
+    'TAX_RETURNS',
+    'Return rejected (confirmed)',
+    'When someone confirms the tax authority rejected a return',
+    'return rejected',
+    ['IMMEDIATE', 'AFTER'],
+    [],
+  ],
+  [
+    'payroll.filing_confirmed',
+    'PAYROLL',
+    'Payroll filing confirmed',
+    'When someone confirms a payroll run’s filing was received',
+    'filing confirmed',
+    ['IMMEDIATE', 'AFTER'],
+    [],
+  ],
+  [
+    'deadline.filing_confirmed',
+    'COMPLIANCE_DEADLINES',
+    'Deadline filing confirmed',
+    'When someone confirms the filing for a deadline was received',
+    'filing confirmed',
+    ['IMMEDIATE', 'AFTER'],
+    [],
+  ],
 ];
-/** AU-F30: the events a member confirms by hand; no verified integration sends them yet. */
-const CONFIRMABLE: readonly string[] = ['tax_return.accepted'];
+/**
+ * AU-F30: the events a member confirms by hand (no verified integration sends them yet), with the
+ * record each is about, as the API's catalog has them.
+ */
+const CONFIRMABLE: Readonly<Record<string, string>> = {
+  'tax_return.accepted': 'tax_return',
+  'tax_return.rejected': 'tax_return',
+  'payroll.filing_confirmed': 'payroll_run',
+  'deadline.filing_confirmed': 'deadline',
+};
 let eventCache: ReturnType<typeof buildEvents> | undefined;
 const events = () => (eventCache ??= buildEvents());
 const phraseOf = (code: string) => events().find((e) => e[0] === code)?.[4] ?? 'event';
@@ -517,11 +552,12 @@ const buildCatalog = (): AutomationCatalog => ({
     module,
     label,
     example,
-    recordKind: module === 'COMPLIANCE_DEADLINES' ? 'deadline' : module.toLowerCase(),
+    recordKind:
+      CONFIRMABLE[code] ?? (module === 'COMPLIANCE_DEADLINES' ? 'deadline' : module.toLowerCase()),
     timings,
     anchor: timings.includes('BEFORE') ? `the ${phrase}` : 'it happens',
     conditionFields: [...clientFields(), ...extra],
-    confirmation: CONFIRMABLE.includes(code) ? { integrationAvailable: false } : null,
+    confirmation: CONFIRMABLE[code] ? { integrationAvailable: false } : null,
     // The firm's own events (a team member, a connection) have no client.
     hasClient: module !== 'STAFF_MANAGEMENT' && module !== 'INTEGRATIONS',
   })),
@@ -539,7 +575,7 @@ const viewOf = (d: Def): AutomationDefinitionView => ({
     timing: d.trigger.timing,
     offsetValue: d.trigger.offsetValue ?? null,
     offsetUnit: d.trigger.offsetUnit ?? null,
-    source: CONFIRMABLE.includes(d.trigger.event) ? (d.trigger.source ?? 'MANUAL') : null,
+    source: CONFIRMABLE[d.trigger.event] ? (d.trigger.source ?? 'MANUAL') : null,
   },
   matchMode: d.matchMode,
   conditions: d.conditions.map((c) => ({
