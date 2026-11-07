@@ -255,6 +255,33 @@ export class AutomationsReadService {
             path: `actions.${i}.config.memberUserIds`,
           });
       }
+      // Create task's template and Add service's service: live ones of this firm (never another's).
+      const taskTemplateId = a.config.taskTemplateId;
+      if (typeof taskTemplateId === 'string') {
+        const live = await tx.taskTemplate.count({
+          where: { businessId, id: taskTemplateId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The task template is not one of the firm’s live templates',
+            path: `actions.${i}.config.taskTemplateId`,
+          });
+      }
+      const serviceId = a.config.serviceId;
+      if (typeof serviceId === 'string') {
+        const live = await tx.service.count({
+          where: { businessId, id: serviceId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The service is not one of the firm’s live services',
+            path: `actions.${i}.config.serviceId`,
+          });
+      }
       // Request approval's reviewer: an active member of this firm, and never the rule's owner,
       // who asks for it (nobody approves their own request).
       const reviewer = a.config.reviewerUserId;
