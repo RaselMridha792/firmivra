@@ -27,7 +27,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1290 merged: Update client status and Update client priority (AU-F27, a typed allowlist), and the Client status changed event with old and new status (AU-F08).
 - #1297 merged: the rest of AU-F22 (the client's context on every client record's event; each record's own due date, balance, payment status, progress, assignee, type, confirmation, service, jurisdiction and tax year) and AU-F23's remaining operators (On, Within the last / next N days, Does not contain).
 - #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
-- AU coverage A (`rasel/R55-au-coverage`): Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
+- #1301 (`rasel/R55-au-coverage`): Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
