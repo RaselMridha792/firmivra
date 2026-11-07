@@ -14,7 +14,9 @@ import {
   InvoicePdfLink,
   ListPaymentsQuery,
   PaymentPage,
+  RecurringInvoiceDetail,
   RecurringInvoiceList,
+  UpdateRecurringInvoiceRequest,
   ListInvoicesQuery,
   ListMyInvoicesQuery,
   MyInvoiceDetail,
@@ -68,6 +70,30 @@ export function createInvoicesClient(request: ApiRequest) {
     /** IP-F17: the firm's recurring invoice schedules (read only). */
     recurring: async (): Promise<RecurringInvoiceList> =>
       request(RecurringInvoiceList, `${BASE}/recurring`),
+    /** IP-F18: one schedule, its invoices, next sends and history. 404 when not the caller's to see. */
+    recurringOne: async (id: string): Promise<RecurringInvoiceDetail> =>
+      request(RecurringInvoiceDetail, `${BASE}/recurring/${encodeURIComponent(id)}`),
+    /**
+     * IP-F18 (Owner and Admin): pause, resume or end a schedule, or Send Now (its next period's
+     * invoice made and sent now). 409 RECURRING_STATE.
+     */
+    recurringAction: async (
+      id: string,
+      action: 'pause' | 'resume' | 'end' | 'send-now',
+    ): Promise<RecurringInvoiceDetail> =>
+      request(RecurringInvoiceDetail, `${BASE}/recurring/${encodeURIComponent(id)}/${action}`, {
+        method: 'POST',
+        body: {},
+      }),
+    /** IP-F18 (Owner and Admin): Auto-send on or off. */
+    updateRecurring: async (
+      id: string,
+      body: UpdateRecurringInvoiceRequest,
+    ): Promise<RecurringInvoiceDetail> =>
+      request(RecurringInvoiceDetail, `${BASE}/recurring/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdateRecurringInvoiceRequest, body),
+      }),
     /** IP-F09: the invoice's history (notes and logged activity), newest first. Firm only. */
     history: async (id: string): Promise<InvoiceHistory> =>
       request(InvoiceHistory, `${one(id)}/history`),
@@ -97,6 +123,12 @@ export function createInvoicesClient(request: ApiRequest) {
      */
     send: async (id: string): Promise<Invoice> =>
       request(Invoice, `${one(id)}/send`, { method: 'POST', body: {} }),
+    /**
+     * IP-F10: an open invoice with something still to pay goes to the client again (its email and
+     * bell item, as on Send). Owner and Admin. 409 NOT_RESENDABLE or CLIENT_ARCHIVED.
+     */
+    resend: async (id: string): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/resend`, { method: 'POST', body: {} }),
     /** Draft, scheduled or open. 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS or HAS_PAYMENTS. */
     cancel: async (id: string, body: CancelInvoiceRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/cancel`, {

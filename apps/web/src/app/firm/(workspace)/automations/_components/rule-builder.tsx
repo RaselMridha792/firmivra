@@ -39,7 +39,14 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { PreviewPanel, SaveTemplateDialog } from './automation-dialogs';
 import { triggerSentence } from './trigger-sentence';
-import { operatorLabel, takesList, takesNoValue } from './operator-labels';
+import {
+  conditionText,
+  conditionValue,
+  operatorLabel,
+  takesDays,
+  takesList,
+  takesNoValue,
+} from './operator-labels';
 import {
   AUTOMATIONS_KEY,
   AUTOMATION_ERRORS,
@@ -62,6 +69,8 @@ interface Act {
   config: Record<string, string | number | boolean | string[] | null>;
   delay: string;
   dependsOn: string;
+  /** AU-F26 Conditional branch: the action runs only if these hold. */
+  onlyIf: Cond[];
 }
 interface Form {
   name: string;
@@ -136,7 +145,7 @@ const blank = (): Form => ({
   source: 'MANUAL',
   ownerUserId: '',
 });
-const fromDetail = (d: AutomationRuleDetail): Form => {
+const fromDetail = (d: AutomationRuleDetail, catalog?: AutomationCatalog): Form => {
   const v = d.definition;
   return {
     ...blank(),
@@ -160,7 +169,12 @@ const fromDetail = (d: AutomationRuleDetail): Form => {
             key: key(),
             field: c.field,
             operator: c.operator,
-            value: Array.isArray(c.value) ? c.value.join(',') : String(c.value ?? ''),
+            value: conditionText(
+              catalog?.events
+                .find((e) => e.code === v.trigger.event)
+                ?.conditionFields.find((x) => x.field === c.field)?.type,
+              c.value,
+            ),
           })),
           actions: v.actions.map((a) => ({
             id: a.id,
@@ -168,6 +182,17 @@ const fromDetail = (d: AutomationRuleDetail): Form => {
             config: a.config,
             delay: String(a.delayMinutes),
             dependsOn: a.dependsOn ?? '',
+            onlyIf: (a.onlyIf ?? []).map((c) => ({
+              key: key(),
+              field: c.field,
+              operator: c.operator,
+              value: conditionText(
+                catalog?.events
+                  .find((e) => e.code === v.trigger.event)
+                  ?.conditionFields.find((x) => x.field === c.field)?.type,
+                c.value,
+              ),
+            })),
           })),
           dedupe: v.settings.preventDuplicatesDays > 0,
           dedupeDays: String(v.settings.preventDuplicatesDays || 7),
@@ -224,7 +249,7 @@ function Builder({
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState<AutomationRuleDetail | undefined>(initial);
-  const [f, setF] = useState<Form>(() => (initial ? fromDetail(initial) : blank()));
+  const [f, setF] = useState<Form>(() => (initial ? fromDetail(initial, catalog) : blank()));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [errors, setErrors] = useState<Partial<Record<'name' | 'event' | 'actions', string>>>({});
   const [template, setTemplate] = useState(false);
@@ -242,7 +267,11 @@ function Builder({
   const events = catalog.events.filter((e) => e.module === f.module);
   const ev = catalog.events.find((e) => e.code === f.event);
   // AU-F18 to F20: an event about the firm itself (no client) takes only actions that need none.
-  const fitting = catalog.actions.filter((x) => ev?.hasClient !== false || !x.needsClient);
+  const fitting = catalog.actions.filter(
+    (x) =>
+      (ev?.hasClient !== false || !x.needsClient) &&
+      (!x.recordKind || x.recordKind === ev?.recordKind),
+  );
   const offset = f.timing === 'BEFORE' || f.timing === 'AFTER';
   // AU-F06: a whole number, 0 (at the anchor) to 100,000.
   const offsetNumber = Number(f.offsetValue);
@@ -260,6 +289,21 @@ function Builder({
   const zone = useApiQuery([...AUTOMATIONS_KEY, 'settings'], () => api.automations.settings());
   const timezone = zone.data?.timezone ?? '';
 
+  /** A condition as the API takes it (the rule's, or an action's Only if). */
+  const condOut = (c: Cond) =>
+    takesNoValue(c.operator)
+      ? { field: c.field, operator: c.operator }
+      : takesList(c.operator)
+        ? { field: c.field, operator: c.operator, value: c.value.split(',').filter(Boolean) }
+        : {
+            field: c.field,
+            operator: c.operator,
+            value: conditionValue(
+              ev?.conditionFields.find((x) => x.field === c.field)?.type,
+              c.operator,
+              c.value,
+            ),
+          };
   const definition = (): AutomationDefinition => ({
     trigger: {
       module: f.module,
@@ -269,19 +313,14 @@ function Builder({
       ...(ev?.confirmation ? { source: f.source } : {}),
     },
     matchMode: f.matchMode,
-    conditions: f.conditions.map((c) =>
-      takesNoValue(c.operator)
-        ? { field: c.field, operator: c.operator }
-        : takesList(c.operator)
-          ? { field: c.field, operator: c.operator, value: c.value.split(',').filter(Boolean) }
-          : { field: c.field, operator: c.operator, value: c.value },
-    ),
+    conditions: f.conditions.map((c) => condOut(c)),
     actions: f.actions.map((a) => ({
       id: a.id,
       type: a.type,
       config: a.config,
       delayMinutes: Number(a.delay),
       ...(a.dependsOn ? { dependsOn: a.dependsOn } : {}),
+      ...(a.onlyIf.length ? { onlyIf: a.onlyIf.map((c) => condOut(c)) } : {}),
     })),
     settings: {
       ...(f.dedupe
@@ -601,7 +640,7 @@ function Builder({
                 return (
                   <div
                     key={c.key}
-                    className="grid items-end gap-2 sm:grid-cols-[1fr_9rem_1fr_auto]"
+                    className="grid items-end gap-2 sm:grid-cols-[1fr_13rem_1fr_auto]"
                   >
                     <Select
                       label={`Condition ${i + 1} field`}
@@ -628,7 +667,9 @@ function Builder({
                         const next = e.target.value as AutomationOperator;
                         // A value that no longer fits the operator is cleared.
                         const keep =
-                          !takesNoValue(next) && takesList(next) === takesList(c.operator);
+                          !takesNoValue(next) &&
+                          takesList(next) === takesList(c.operator) &&
+                          takesDays(next) === takesDays(c.operator);
                         setCond(c.key, { operator: next, ...(keep ? {} : { value: '' }) });
                       }}
                       options={(def?.operators ?? ['IS']).map((o) => ({
@@ -673,6 +714,15 @@ function Builder({
                       <Input
                         label={`Condition ${i + 1} value`}
                         hideLabel
+                        type={
+                          takesDays(c.operator) || def?.type === 'NUMBER' || def?.type === 'MONEY'
+                            ? 'number'
+                            : def?.type === 'DATE'
+                              ? 'date'
+                              : 'text'
+                        }
+                        {...(takesDays(c.operator) ? { min: 0, step: 1 } : {})}
+                        {...(def?.type === 'MONEY' ? { min: 0, step: 0.01 } : {})}
                         value={c.value}
                         onChange={(e) => setCond(c.key, { value: e.target.value })}
                       />
@@ -690,6 +740,14 @@ function Builder({
                   </div>
                 );
               })}
+              {f.conditions.some(
+                (c) => ev?.conditionFields.find((x) => x.field === c.field)?.type === 'DATE',
+              ) ? (
+                <p className="text-xs text-muted" data-testid="condition-timezone">
+                  Dates are your firm&apos;s days{timezone ? ` (${timezone})` : ''}; the last or
+                  next days count today.
+                </p>
+              ) : null}
               {f.conditions.length === 0 ? (
                 <p className="text-sm text-muted">
                   {ev?.hasClient === false
@@ -802,6 +860,12 @@ function Builder({
                         />
                       ) : null}
                     </div>
+                    <OnlyIf
+                      actionLabel={`Action ${i + 1}`}
+                      fields={ev?.conditionFields ?? []}
+                      rows={a.onlyIf}
+                      onChange={(rows) => setAct(a.id, { onlyIf: rows })}
+                    />
                     <Select
                       label={`Action ${i + 1} timing`}
                       value={a.delay}
@@ -860,6 +924,7 @@ function Builder({
                         config: {},
                         delay: '0',
                         dependsOn: '',
+                        onlyIf: [],
                       },
                     ],
                   })
@@ -1233,7 +1298,56 @@ function ActionField({
     ['automations', 'category-choices', field.type === 'DOCUMENT_CATEGORY'],
     async () => (field.type === 'DOCUMENT_CATEGORY' ? api.documents.categories() : []),
   );
+  const intakeForms = useApiQuery(
+    ['automations', 'intake-form-choices', field.type === 'INTAKE_FORM'],
+    async () =>
+      field.type === 'INTAKE_FORM'
+        ? api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' })
+        : [],
+  );
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  // AU-F26: a task template or a service of the firm: the catalog brings the firm's own.
+  if (field.type === 'TASK_TEMPLATE' || field.type === 'SERVICE' || field.type === 'RESOURCE') {
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          {
+            value: '',
+            label:
+              field.type === 'SERVICE'
+                ? 'Choose a service'
+                : field.type === 'RESOURCE'
+                  ? 'Choose a resource'
+                  : 'No template',
+          },
+          ...(text && !field.choices.some((c) => c.value === text)
+            ? [{ value: text, label: 'No longer available: choose again' }]
+            : []),
+          ...field.choices,
+        ]}
+      />
+    );
+  }
+  if (field.type === 'INTAKE_FORM') {
+    const rows = intakeForms.data ?? [];
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          { value: '', label: rows.length ? 'Choose a form' : 'No published forms' },
+          ...(text && !rows.some((f) => f.id === text)
+            ? [{ value: text, label: 'Form no longer published: choose again' }]
+            : []),
+          ...rows.map((f) => ({ value: f.id, label: f.name })),
+        ]}
+      />
+    );
+  }
   if (field.type === 'DOCUMENT_CATEGORY') {
     const rows = (categories.data ?? []).filter((c) => !c.archivedAt);
     return (
@@ -1363,4 +1477,137 @@ function ActionField({
       />
     );
   return <Input label={label} value={text} onChange={(e) => onChange(e.target.value)} />;
+}
+
+/**
+ * AU-F26 Conditional branch: an action's own conditions on the event's fields. It runs only if
+ * all of them hold when its turn comes; otherwise it is skipped (and so are those after it).
+ */
+function OnlyIf({
+  actionLabel,
+  fields,
+  rows,
+  onChange,
+}: {
+  actionLabel: string;
+  fields: AutomationCatalog['events'][number]['conditionFields'];
+  rows: Cond[];
+  onChange: (rows: Cond[]) => void;
+}) {
+  const change = (k: string, patch: Partial<Cond>) =>
+    onChange(rows.map((r) => (r.key === k ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-2 lg:col-span-5" data-testid="only-if">
+      {rows.map((r, j) => {
+        const def = fields.find((x) => x.field === r.field);
+        const label = `${actionLabel} only if ${j + 1}`;
+        return (
+          <div key={r.key} className="grid items-end gap-2 sm:grid-cols-[1fr_13rem_1fr_auto]">
+            <Select
+              label={`${label} field`}
+              hideLabel
+              value={r.field}
+              onChange={(e) => {
+                const nd = fields.find((x) => x.field === e.target.value);
+                change(r.key, {
+                  field: e.target.value,
+                  operator: nd?.operators[0] ?? 'IS',
+                  value: '',
+                });
+              }}
+              options={fields.map((x) => ({ value: x.field, label: `Only if ${x.label}` }))}
+            />
+            <Select
+              label={`${label} operator`}
+              hideLabel
+              value={r.operator}
+              onChange={(e) => {
+                const next = e.target.value as AutomationOperator;
+                const keep =
+                  !takesNoValue(next) &&
+                  takesList(next) === takesList(r.operator) &&
+                  takesDays(next) === takesDays(r.operator);
+                change(r.key, { operator: next, ...(keep ? {} : { value: '' }) });
+              }}
+              options={(def?.operators ?? ['IS']).map((o) => ({
+                value: o,
+                label: operatorLabel(o, def?.type ?? 'TEXT'),
+              }))}
+            />
+            {takesNoValue(r.operator) ? (
+              <span className="text-xs text-muted">No value needed</span>
+            ) : def && def.options.length > 0 && !takesList(r.operator) ? (
+              <Select
+                label={`${label} value`}
+                hideLabel
+                value={r.value}
+                onChange={(e) => change(r.key, { value: e.target.value })}
+                options={[{ value: '', label: 'Choose…' }, ...def.options]}
+              />
+            ) : def && def.options.length > 0 ? (
+              <fieldset className="flex flex-wrap gap-x-3">
+                <legend className="sr-only">{`${label} values`}</legend>
+                {def.options.map((o) => {
+                  const chosen = r.value.split(',').filter(Boolean);
+                  return (
+                    <Checkbox
+                      key={o.value}
+                      label={o.label}
+                      className="min-h-8 text-sm"
+                      checked={chosen.includes(o.value)}
+                      onChange={(e) =>
+                        change(r.key, {
+                          value: (e.target.checked
+                            ? [...chosen, o.value]
+                            : chosen.filter((x) => x !== o.value)
+                          ).join(','),
+                        })
+                      }
+                    />
+                  );
+                })}
+              </fieldset>
+            ) : (
+              <Input
+                label={`${label} value`}
+                hideLabel
+                type={
+                  takesDays(r.operator) || def?.type === 'NUMBER' || def?.type === 'MONEY'
+                    ? 'number'
+                    : def?.type === 'DATE'
+                      ? 'date'
+                      : 'text'
+                }
+                value={r.value}
+                onChange={(e) => change(r.key, { value: e.target.value })}
+              />
+            )}
+            <button
+              type="button"
+              aria-label={`Delete ${label}`}
+              onClick={() => onChange(rows.filter((x) => x.key !== r.key))}
+              className="inline-flex size-10 items-center justify-center rounded-lg text-danger hover:bg-canvas"
+            >
+              <Trash aria-hidden weight="fill" className="size-5" />
+            </button>
+          </div>
+        );
+      })}
+      {fields.length > 0 && rows.length < 10 ? (
+        <button
+          type="button"
+          className="w-fit text-sm font-semibold text-action hover:underline"
+          onClick={() => {
+            const first = fields[0]!;
+            onChange([
+              ...rows,
+              { key: key(), field: first.field, operator: first.operators[0] ?? 'IS', value: '' },
+            ]);
+          }}
+        >
+          {rows.length ? 'Add another condition' : 'Run only if…'}
+        </button>
+      ) : null}
+    </div>
+  );
 }

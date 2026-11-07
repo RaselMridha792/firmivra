@@ -823,7 +823,7 @@ function MessageEditor({
                   disabled={busy}
                   onClick={() => void continueToReview()}
                 >
-                  Next
+                  Save and continue
                   <ArrowRight aria-hidden weight="bold" className="size-4" />
                 </Button>
               </div>

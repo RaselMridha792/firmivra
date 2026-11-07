@@ -53,6 +53,14 @@ import {
   useRange,
 } from '../../_components/reports-common';
 
+/** SA-RPT-R8: "All Subscription Statuses", "All Categories", "All Firms". */
+const plural = (label: string) =>
+  /(s|x|ch|sh)$/i.test(label)
+    ? `${label}es`
+    : /[^aeiou]y$/i.test(label)
+      ? `${label.slice(0, -1)}ies`
+      : `${label}s`;
+
 export type BuilderStep = 1 | 2 | 3 | 4;
 
 const TYPES: { type: PlatformReportType; label: string; icon: Icon }[] = [
@@ -340,7 +348,7 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
                   options={[
                     {
                       value: '',
-                      label: `All ${f.label === 'Status' ? 'Statuses' : `${f.label}s`}`,
+                      label: `All ${plural(f.label)}`,
                     },
                     ...f.options.map((o) => ({
                       value: o.value,

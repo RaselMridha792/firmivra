@@ -21,6 +21,9 @@ import {
   BookkeepingClientPage,
   BookkeepingClientWorkspace,
   BookkeepingTransactionPage,
+  BookkeepingTransactionRow,
+  BookkeepingTransferCandidates,
+  BulkBookkeepingTransactionsResult,
   BookkeepingCategoryList,
   BookkeepingConnection,
   BookkeepingConnectionList,
@@ -2657,6 +2660,246 @@ describe('transactions and categories (BK-T01, read side)', () => {
     ]);
     expect(await auditActions(bk)).toEqual(
       expect.arrayContaining(['bookkeeping.transactions.listed', 'bookkeeping.categories.listed']),
+    );
+  });
+});
+
+describe('transaction engines (BK-T01)', () => {
+  const setup = async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    // Each setup has its own names: the two tests share the client.
+    const tag = randomUUID().slice(0, 6);
+    const checking = await mkAccount(bk, { name: `Fake engine checking ${tag}`, type: 'BANK' });
+    const savings = await mkAccount(bk, { name: `Fake engine savings ${tag}`, type: 'BANK' });
+    const category = (name: string, isActive = true) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingCategory.create({
+          data: { ...A, name: `${name} ${tag}`, type: 'EXPENSE', isActive },
+          select: { id: true },
+        }),
+      ).then((c) => c.id);
+    const rent = await category('Fake Rent');
+    const supplies = await category('Fake Supplies');
+    const retired = await category('Fake Retired', false);
+    const mk = (accountId: string, cents: number, direction: 'DEBIT' | 'CREDIT', payee: string) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId,
+            transactionDate: new Date('2026-10-10T00:00:00.000Z'),
+            description: `Fake ${payee}`,
+            payee,
+            amountCents: cents,
+            direction,
+            source: 'MANUAL',
+          },
+          select: { id: true },
+        }),
+      ).then((t) => t.id);
+    const T = (id: string, rest = '') => `/clients/${bk}/transactions/${id}${rest}`;
+    return { bk, A, checking, savings, rent, supplies, retired, mk, T };
+  };
+
+  it('categorizes, splits to the amount, matches a transfer, excludes and includes, and takes a receipt; each audited', async () => {
+    const { A, checking, savings, rent, supplies, retired, mk, T } = await setup();
+    const a = await mk(checking.id, 5_000, 'DEBIT', 'Engine Supplies Store');
+    expect(
+      exact(
+        BookkeepingTransactionRow,
+        await call('patch', T(a, '/category'), people.staffA, { categoryId: supplies }),
+      ),
+    ).toMatchObject({ status: 'CATEGORIZED', category: { id: supplies } });
+    expectError(
+      await call('patch', T(a, '/category'), people.staffA, { categoryId: retired }),
+      409,
+      'CATEGORY_INACTIVE',
+    );
+    // A split's parts add up to the amount, and it then has no category of its own.
+    expectError(
+      await call('put', T(a, '/split'), people.staffA, {
+        parts: [
+          { categoryId: rent, amountCents: 1_000 },
+          { categoryId: supplies, amountCents: 3_000 },
+        ],
+      }),
+      409,
+      'SPLIT_TOTAL',
+    );
+    expect(
+      exact(
+        BookkeepingTransactionRow,
+        await call('put', T(a, '/split'), people.staffA, {
+          parts: [
+            { categoryId: rent, amountCents: 2_000, memo: 'Fake share' },
+            { categoryId: supplies, amountCents: 3_000 },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: 'CATEGORIZED', category: null, splitCount: 2 });
+
+    // A transfer: the same amount the other way on another account; each side names the other.
+    const out = await mk(checking.id, 25_000, 'DEBIT', 'Engine transfer out');
+    const into = await mk(savings.id, 25_000, 'CREDIT', 'Engine transfer in');
+    const near = await mk(savings.id, 24_999, 'CREDIT', 'Engine near miss');
+    const candidates = exact(
+      BookkeepingTransferCandidates,
+      await call('get', T(out, '/transfer-candidates'), people.staffA),
+    );
+    expect(candidates.items.map((c) => c.id)).toEqual([into]);
+    expectError(
+      await call('post', T(out, '/transfer'), people.staffA, { pairId: near }),
+      409,
+      'NOT_A_TRANSFER',
+    );
+    expect(
+      exact(
+        BookkeepingTransactionRow,
+        await call('post', T(out, '/transfer'), people.staffA, { pairId: into }),
+      ),
+    ).toMatchObject({ kind: 'TRANSFER', status: 'CATEGORIZED', category: null });
+    const sides = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.findMany({
+        where: { ...A, id: { in: [out, into] } },
+        select: { id: true, transferPairId: true, kind: true },
+      }),
+    );
+    expect(Object.fromEntries(sides.map((s) => [s.id, s.transferPairId]))).toEqual({
+      [out]: into,
+      [into]: out,
+    });
+    // Categorizing one side takes the transfer apart on both.
+    exact(
+      BookkeepingTransactionRow,
+      await call('patch', T(into, '/category'), people.staffA, { categoryId: rent }),
+    );
+    const after = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.findUniqueOrThrow({
+        where: { businessId_id: { businessId: ids.firmA, id: out } },
+        select: { transferPairId: true, status: true, kind: true },
+      }),
+    );
+    expect(after).toEqual({ transferPairId: null, status: 'UNCATEGORIZED', kind: 'STANDARD' });
+
+    // Exclude needs a reason; Include brings it back as it was.
+    expectError(
+      await call('post', T(near, '/exclude'), people.staffA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(
+      exact(
+        BookkeepingTransactionRow,
+        await call('post', T(near, '/exclude'), people.staffA, { reason: 'Fake duplicate line' }),
+      ),
+    ).toMatchObject({ status: 'EXCLUDED' });
+    expect(
+      exact(BookkeepingTransactionRow, await call('post', T(near, '/include'), people.staffA, {})),
+    ).toMatchObject({ status: 'UNCATEGORIZED' });
+
+    // A receipt is one of the client's own documents on this workspace.
+    const doc = await asOwner(ids.firmA, (tx) =>
+      tx.document.create({
+        data: {
+          ...A,
+          clientId: clients.assigned,
+          direction: 'CLIENT_TO_FIRM',
+          fileName: 'fake-receipt.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: 'a'.repeat(64),
+          s3Key: `tenant/${ids.firmA}/fake/${randomUUID()}/fake-receipt.pdf`,
+        },
+        select: { id: true },
+      }),
+    );
+    expect(
+      exact(
+        BookkeepingTransactionRow,
+        await call('put', T(a, '/receipt'), people.staffA, { documentId: doc.id }),
+      ),
+    ).toMatchObject({ hasReceipt: true });
+    expectError(
+      await call('put', T(a, '/receipt'), people.staffA, { documentId: randomUUID() }),
+      404,
+      'NOT_FOUND',
+    );
+
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { entityType: 'bookkeeping_transaction', entityId: { in: [a, out, into, near] } },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(audit.map((x) => x.action)).toEqual(
+      expect.arrayContaining([
+        'bookkeeping.transaction.categorized',
+        'bookkeeping.transaction.split',
+        'bookkeeping.transaction.transfer_matched',
+        'bookkeeping.transaction.excluded',
+        'bookkeeping.transaction.included',
+        'bookkeeping.transaction.receipt_changed',
+      ]),
+    );
+    expect(JSON.stringify(audit)).not.toMatch(/Engine Supplies Store|Fake share|Fake duplicate/);
+  });
+
+  it("bulk changes the client's lines or none; Staff only their clients; another firm not at all", async () => {
+    const { bk, checking, supplies, mk, T } = await setup();
+    const one = await mk(checking.id, 1_200, 'DEBIT', 'Engine bulk one');
+    const two = await mk(checking.id, 3_400, 'DEBIT', 'Engine bulk two');
+    // A line that is not the client's refuses the whole request, and nothing changes.
+    expectError(
+      await call('post', `/clients/${bk}/transactions/bulk`, people.staffA, {
+        ids: [one, two, randomUUID()],
+        action: 'CATEGORIZE',
+        categoryId: supplies,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    const result = exact(
+      BulkBookkeepingTransactionsResult,
+      await call('post', `/clients/${bk}/transactions/bulk`, people.staffA, {
+        ids: [one, two],
+        action: 'CATEGORIZE',
+        categoryId: supplies,
+      }),
+    );
+    expect(result).toEqual({ done: 2, refused: [] });
+    expectError(
+      await call('post', `/clients/${bk}/transactions/bulk`, people.staffA, {
+        ids: [one],
+        action: 'EXCLUDE',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('patch', T(one, '/category'), people.staff2A, { categoryId: supplies }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('patch', T(one, '/category'), people.ownerB, { categoryId: supplies }, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'post',
+        `/clients/${bk}/transactions/bulk`,
+        people.ownerB,
+        { ids: [one], action: 'INCLUDE' },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
     );
   });
 });

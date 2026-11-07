@@ -40,6 +40,7 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { HtmlFrame } from '../../templates/_components/html-preview';
 import { RescheduleDialog, SaveTemplateDialog, useAct } from './communication-actions';
 import {
   COMM_ERRORS,
@@ -401,9 +402,19 @@ export function ResultsScreen({ id }: { id: string }) {
               {d.subject ? (
                 <p className="mb-2 text-sm font-semibold text-heading">Subject: {d.subject}</p>
               ) : null}
-              <div className="rounded-lg border border-divider bg-canvas p-3 text-sm whitespace-pre-wrap text-heading">
-                {plain(d.body) || 'No content.'}
-              </div>
+              {d.channel === 'SMS' || !d.body ? (
+                <div className="rounded-lg border border-divider bg-canvas p-3 text-sm whitespace-pre-wrap text-heading">
+                  {plain(d.body) || 'No content.'}
+                </div>
+              ) : (
+                // As it was sent (CM-F08, CM-F10).
+                <HtmlFrame
+                  html={d.body}
+                  title="Message as sent"
+                  className="h-96"
+                  testId="message-body"
+                />
+              )}
               {d.attachments.length > 0 ? (
                 <ul className="mt-3 text-sm text-muted">
                   {d.attachments.map((a) => (

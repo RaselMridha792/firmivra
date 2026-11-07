@@ -40,6 +40,28 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** IP-F18: an active monthly recurring invoice to client X (one invoice made, the next in a month). */
+  recurringInvoice: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const row = await tx.recurringInvoice.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          name: 'Fake monthly bookkeeping',
+          frequency: 'MONTHLY',
+          startOn: new Date(`${day(0)}T00:00:00Z`),
+          nextSendOn: new Date(`${day(30)}T00:00:00Z`),
+          occurrences: 1,
+          status: 'ACTIVE',
+          lines: {
+            create: { description: 'Fake service', unitAmountCents: 5_000 },
+          },
+        },
+      });
+      return row.id;
+    },
+  },
   /** An open invoice of 100.00 to client X, sent today. */
   openInvoice: { clientPrivate: true, create: openInvoice },
   /** Another one, for the checkout below (cash cannot be recorded while a checkout is open). */
@@ -132,6 +154,33 @@ export const cases: CaseModule['cases'] = {
   },
   // Found, but a draft with no lines has nothing to pay.
   'POST /api/v1/business/invoices/:id/send': { params: { id: 'invoice' }, expect: 409 },
+  // IP-F18: a recurring invoice's page and its management.
+  'GET /api/v1/business/invoices/recurring/:id': { params: { id: 'recurringInvoice' } },
+  'PATCH /api/v1/business/invoices/recurring/:id': {
+    params: { id: 'recurringInvoice' },
+    body: { autoSend: true },
+  },
+  'POST /api/v1/business/invoices/recurring/:id/pause': {
+    params: { id: 'recurringInvoice' },
+    body: {},
+  },
+  // Found, but an active one cannot resume.
+  'POST /api/v1/business/invoices/recurring/:id/resume': {
+    params: { id: 'recurringInvoice' },
+    body: {},
+    expect: 409,
+  },
+  // Makes the next period's invoice now and sends it.
+  'POST /api/v1/business/invoices/recurring/:id/send-now': {
+    params: { id: 'recurringInvoice' },
+    body: {},
+  },
+  'POST /api/v1/business/invoices/recurring/:id/end': {
+    params: { id: 'recurringInvoice' },
+    body: {},
+  },
+  // IP-F10: an open invoice with a balance goes to its client again.
+  'POST /api/v1/business/invoices/:id/resend': { params: { id: 'openInvoice' }, body: {} },
   'POST /api/v1/business/invoices/:id/cancel': {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },

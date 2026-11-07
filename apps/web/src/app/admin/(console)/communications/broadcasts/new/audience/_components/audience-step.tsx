@@ -770,7 +770,7 @@ export function AudienceStep({ broadcastId }: { broadcastId?: string }) {
                   disabled={busy}
                   onClick={() => void goNext()}
                 >
-                  Next
+                  Save and continue
                   <ArrowRight aria-hidden weight="bold" className="size-4" />
                 </Button>
               </div>

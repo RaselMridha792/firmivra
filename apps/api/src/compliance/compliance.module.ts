@@ -19,5 +19,7 @@ import { ClientComplianceController, ComplianceController } from './compliance.c
     ComplianceRulesService,
     ComplianceSettingsService,
   ],
+  // Automations' Create deadline (R55, the lead's one-off exception): Compliance's own create.
+  exports: [ComplianceDeadlineActionsService],
 })
 export class ComplianceModule {}

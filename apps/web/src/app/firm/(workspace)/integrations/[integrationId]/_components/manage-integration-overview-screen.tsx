@@ -130,7 +130,7 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
           <Modal
             open={disconnectOpen}
             title={`Disconnect ${data.provider.name}?`}
-            subtitle="Provider access will be revoked. Records already imported into LVP Pro and sync history will remain available."
+            subtitle="Its tokens and credentials are removed at once, and the connection is marked Disconnected."
             onClose={() => setDisconnectOpen(false)}
             footer={
               <>
@@ -149,7 +149,18 @@ export function ManageIntegrationOverviewScreen({ integrationId }: { integration
               </>
             }
           >
-            <p className="text-sm text-muted">You can reconnect this provider later.</p>
+            {/* IN-Y17: what happens, before it happens (the default retention). */}
+            <ul
+              className="list-disc space-y-1 pl-5 text-sm text-muted"
+              data-testid="disconnect-outcome"
+            >
+              <li>Records already imported and the audit and sync history are kept.</li>
+              <li>None of your clients&apos; data is deleted.</li>
+              <li>
+                You can reconnect later; a reconnect picks up where it left off without duplicating
+                records.
+              </li>
+            </ul>
           </Modal>
         </>
       )}

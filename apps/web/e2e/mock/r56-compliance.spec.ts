@@ -442,6 +442,108 @@ test('Logs: search by record, dates before and after, the rule, and links to the
   await expect(page.getByLabel('Record type')).toHaveValue('');
 });
 
+test('A rule names federal tax classifications, an LLC by its election, and says so (CD-F14)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/recurring/new?tab=rules`);
+  const rules = page.getByTestId('rules-tab');
+  // A rule saved with classifications reads them in words.
+  await expect(rules).toContainText('Partnership, Multi-member LLC');
+  await page.getByRole('button', { name: 'New Rule' }).click();
+  const form = page.getByTestId('rule-form');
+  await form.getByLabel('Rule name').fill('S corporation returns');
+  await form.getByLabel('Applies to a').selectOption('RECURRENCE');
+  await form
+    .getByLabel('Recurring deadline')
+    .selectOption({ label: 'Monthly Payroll Tax Deposit' });
+  const entities = page.getByTestId('rule-entities');
+  await expect(entities.getByRole('checkbox')).toHaveCount(11);
+  await entities.getByLabel('S corporation', { exact: true }).check();
+  await expect(form).toContainText('a rule for S corporations also applies to an LLC');
+  await page.screenshot({ path: test.info().outputPath('rule-classifications.png') });
+  await page.getByRole('button', { name: 'Save Rule' }).click();
+  await expect(rules).toContainText('S corporation');
+});
+
+test("Attachments upload as the client's documents, join the deadline, and download (CD-F06)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/${FIRST}/edit`);
+  const attach = page.getByTestId('attachments');
+  await expect(attach.getByLabel('File it under')).toBeVisible();
+  await expect(page.getByTestId('sec-attachments')).not.toContainText('not connected');
+  const uploads = page.getByTestId('attachment-uploads');
+  // A type the Documents module does not take is refused before anything is sent.
+  await attach.getByLabel('Attach files').setInputFiles({
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('synthetic'),
+  });
+  await expect(uploads).toContainText('notes.txt');
+  await expect(uploads).toContainText('Upload a ');
+  // A PDF is saved to the client's documents and added under Related Items.
+  await attach.getByLabel('Attach files').setInputFiles({
+    name: 'engagement-letter.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 synthetic'),
+  });
+  await expect(uploads).toContainText('Saved to the client’s documents');
+  await expect(page.getByTestId('sec-related')).toContainText('engagement-letter.pdf');
+  await page.screenshot({ path: test.info().outputPath('attachments.png') });
+  await page.getByTestId('deadline-save').click();
+  await expect(page).toHaveURL(new RegExp(`/compliance/${FIRST}$`));
+  const docs = page.getByTestId('detail-documents');
+  await expect(docs).toContainText('engagement-letter.pdf');
+  // A new file is scanned first (it says so until then); once clean it downloads.
+  const button = docs
+    .getByRole('listitem')
+    .filter({ hasText: 'engagement-letter.pdf' })
+    .getByTestId('document-download');
+  await expect(async () => {
+    const download = page.waitForEvent('download', { timeout: 3_000 });
+    await button.click();
+    expect((await download).suggestedFilename()).toBe('engagement-letter.pdf');
+  }).toPass({ timeout: 30_000 });
+});
+
+test('A hand-entered government date needs verification, a reopened deadline keeps why it was set aside, At Risk says its rule, and Settings says where the rest is set (CD-Y03, Y07, Y09, Y10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // CD-Y10: the overview's At Risk card explains its formula.
+  await page.goto(base);
+  await page.getByRole('button', { name: 'About At Risk clients' }).click();
+  await expect(page.getByTestId('help-tip')).toContainText('due today is not overdue');
+  await page.keyboard.press('Escape');
+  // CD-Y03: Settings says where the defaults it does not hold are set.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const elsewhere = page.getByTestId('settings-elsewhere');
+  await expect(elsewhere.getByRole('link', { name: 'Settings › Preferences' })).toHaveAttribute(
+    'href',
+    '/settings/preferences',
+  );
+  await expect(elsewhere.getByRole('link', { name: 'Applicability Rules' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('settings-elsewhere.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  // CD-Y07: no calendar behind a Government date: it says so.
+  await page.goto(`${base}/${FIRST}`);
+  await expect(page.getByTestId('source-note')).toContainText('Needs Verification');
+  // CD-Y09: set aside with a reason, then reopened: the reason stays in view.
+  await page.getByRole('button', { name: 'Not Applicable' }).click();
+  await page.getByRole('dialog').getByLabel('Why does this not apply?').fill('Client dissolved');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Marked not applicable.')).toBeVisible();
+  await expect(page.getByTestId('detail-dates')).toContainText('Not applicable because');
+  await page.getByRole('button', { name: 'Reopen' }).first().click();
+  await expect(page.getByText('Deadline reopened.')).toBeVisible();
+  const dates = page.getByTestId('detail-dates');
+  await expect(dates).toContainText('Earlier not applicable because');
+  await expect(dates).toContainText('Client dissolved');
+  await page.screenshot({ path: test.info().outputPath('reopened.png') });
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   for (const path of ['', '/new', `/${FIRST}`, `/${FIRST}/edit`, '/recurring/new']) {

@@ -995,6 +995,8 @@ function sentFileLink(fileId: string) {
 const settingsOf = (): MessageSettings =>
   (s().settings ??= {
     ...MESSAGE_SETTINGS_DEFAULTS,
+    // A synthetic firm signature, so a closing can be inserted in mock mode (CM-F11).
+    signature: 'LVP Accounting & Taxes\nPhone: (555) 010-0100',
     allowedAttachmentTypes: [...MESSAGE_SETTINGS_DEFAULTS.allowedAttachmentTypes],
     smsReady: false,
     defaultAssignee: null,

@@ -303,6 +303,7 @@ describe('the main page and marketplace', () => {
       overview.summary.connected +
         overview.summary.needsAttention +
         overview.summary.available +
+        overview.summary.comingSoon +
         overview.summary.paused,
     );
     expect(overview.items.find((c) => c.provider.provider === 'quickbooks')).toMatchObject({
@@ -339,6 +340,37 @@ describe('the main page and marketplace', () => {
     );
     expectError(await call('get', '/integrations', people.clientA), 403, 'FORBIDDEN');
     expectError(await call('get', '/integrations', undefined), 401, 'UNAUTHENTICATED');
+  });
+
+  it('Ready to connect counts only what can be connected now; readiness filters apart from status (IN-Y01, Y03, Y06)', async () => {
+    const all = IntegrationsOverview.parse(ok(await call('get', '/integrations', people.ownerA)));
+    const soon = all.items.filter((c) => c.provider.comingSoon && c.connections.length === 0);
+    expect(soon.length).toBeGreaterThan(0);
+    expect(all.summary.comingSoon).toBe(soon.length);
+    expect(all.summary.available).toBe(
+      all.items.filter((c) => !c.provider.comingSoon && c.connections.length === 0).length,
+    );
+    const connectable = IntegrationsOverview.parse(
+      ok(await call('get', '/integrations?readiness=connectable', people.ownerA)),
+    );
+    expect(connectable.items.length).toBeGreaterThan(0);
+    expect(connectable.items.every((c) => !c.provider.comingSoon)).toBe(true);
+    const comingSoon = IntegrationsOverview.parse(
+      ok(await call('get', '/integrations?readiness=coming_soon', people.ownerA)),
+    );
+    expect(comingSoon.items.map((c) => c.provider.provider).sort()).toEqual(
+      soon.map((c) => c.provider.provider).sort(),
+    );
+    expectError(
+      await call('get', '/integrations?readiness=someday', people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // The marketplace's featured row follows the category, as its search does.
+    const payments = IntegrationMarketplace.parse(
+      ok(await call('get', '/integrations/marketplace?category=PAYMENTS', people.ownerA)),
+    );
+    expect(payments.featured.every((c) => c.provider.category === 'PAYMENTS')).toBe(true);
   });
 
   it('the marketplace has categories, featured providers, a sort and a search', async () => {

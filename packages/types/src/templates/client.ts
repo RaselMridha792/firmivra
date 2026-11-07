@@ -1,5 +1,10 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { ConfirmUploadRequest, DownloadLink, UploadPutTicket } from '../documents/schemas.js';
+import {
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
+  EmailImage,
+} from '../leads/email.js';
 import { OkResponse } from '../schemas.js';
 import {
   ArchiveMessageTemplateRequest,
@@ -26,6 +31,7 @@ import {
   SetTemplateSharesRequest,
   StarterTemplatesStatus,
   StartTemplateAttachmentRequest,
+  StartTemplateImportRequest,
   TemplateAttachment,
   TemplateAttachmentId,
   TemplateBranding,
@@ -161,6 +167,23 @@ export function createTemplatesClient(request: ApiRequest) {
         `${template(id)}/attachments/uploads`,
         post(parseInput(StartTemplateAttachmentRequest, body)),
       ),
+    /**
+     * TP-F07: an image in a template's content, step 1 (the firm's email images, as a lead
+     * email's: PNG, JPEG or GIF up to 2 MB). Upload it with `uploadImage()`.
+     */
+    createImageUpload: async (body: CreateEmailImageUploadRequest): Promise<UploadPutTicket> =>
+      request(
+        UploadPutTicket,
+        `${TEMPLATES}/images`,
+        post(parseInput(CreateEmailImageUploadRequest, body)),
+      ),
+    /** Step 3: the image is checked, then served at its public `url` (410 UPLOAD_EXPIRED). */
+    confirmImageUpload: async (body: ConfirmEmailImageUploadRequest): Promise<EmailImage> =>
+      request(
+        EmailImage,
+        `${TEMPLATES}/images/confirm`,
+        post(parseInput(ConfirmEmailImageUploadRequest, body)),
+      ),
     /** Step 3 of the upload. The template is found from the token. */
     confirmAttachment: async (body: ConfirmUploadRequest): Promise<TemplateAttachment> =>
       request(
@@ -183,6 +206,13 @@ export function createTemplatesClient(request: ApiRequest) {
       ),
 
     // ----- Import and starters -----
+    /** TP-F16: step 1 of a Word document import (upload it with `uploadFile()`). */
+    startImport: async (body: StartTemplateImportRequest): Promise<UploadPutTicket> =>
+      request(
+        UploadPutTicket,
+        `${TEMPLATES}/import/uploads`,
+        post(parseInput(StartTemplateImportRequest, body)),
+      ),
     importTemplate: async (body: ImportTemplateRequest): Promise<ImportTemplateResult> =>
       request(
         ImportTemplateResult,

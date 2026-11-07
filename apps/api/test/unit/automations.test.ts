@@ -154,6 +154,9 @@ describe('words, conditions and timing', () => {
     ).toBe('New client added');
     expect(appliesTo('client.created', [], 'ALL')).toBe('All records');
     expect(
+      appliesTo('invoice.overdue', [{ field: 'dueOn', operator: 'WITHIN_LAST', value: 5 }], 'ALL'),
+    ).toBe('Due date is within the last 5 days');
+    expect(
       appliesTo(
         'client.created',
         [
@@ -195,6 +198,63 @@ describe('words, conditions and timing', () => {
     expect(matches(f, 'ALL', list)).toBe(false);
     expect(matches(f, 'ANY', list)).toBe(true);
     expect(matches(f, 'ALL', [])).toBe(true);
+  });
+
+  it('On, Within the last or next N days (from the firm’s today) and Does not contain (AU-F23)', () => {
+    const f = { due: '2026-11-10', added: '2026-11-01', source: 'Referral', none: null };
+    const today = '2026-11-07';
+    const c = (operator: never, field: string, value?: unknown) =>
+      conditionHolds(f, { field, operator, value }, today);
+    expect(c('ON' as never, 'due', '2026-11-10')).toBe(true);
+    expect(c('ON' as never, 'due', '2026-11-09')).toBe(false);
+    // Today counts; the next 3 days reach the 10th, the next 2 do not.
+    expect(c('WITHIN_NEXT' as never, 'due', 3)).toBe(true);
+    expect(c('WITHIN_NEXT' as never, 'due', 2)).toBe(false);
+    expect(c('WITHIN_LAST' as never, 'due', 30)).toBe(false);
+    expect(c('WITHIN_LAST' as never, 'added', 6)).toBe(true);
+    expect(c('WITHIN_LAST' as never, 'added', 5)).toBe(false);
+    expect(c('WITHIN_NEXT' as never, 'none', 30)).toBe(false);
+    // Without the firm's day, a period can't be measured: it never matches.
+    expect(conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 3 })).toBe(false);
+    expect(c('NOT_CONTAINS' as never, 'source', 'web')).toBe(true);
+    expect(c('NOT_CONTAINS' as never, 'source', 'ferr')).toBe(false);
+    expect(c('NOT_CONTAINS' as never, 'none', 'x')).toBe(true);
+    expect(matches(f, 'ALL', [{ field: 'due', operator: 'WITHIN_NEXT', value: 3 }], today)).toBe(
+      true,
+    );
+  });
+
+  it('times boundaries, zero offsets and the clock change in the firm’s zone (AU-Y09)', () => {
+    const at = new Date('2026-11-02T05:00:00Z');
+    const day = (timing: 'BEFORE' | 'AFTER', offsetValue: number) =>
+      ({ timing, offsetValue, offsetUnit: 'DAY' }) as const;
+    // Exactly the offset away counts; a millisecond short does not.
+    expect(timingHolds(day('BEFORE', 1), at, new Date('2026-11-01T05:00:00Z'))).toBe(true);
+    expect(timingHolds(day('BEFORE', 1), at, new Date('2026-11-01T04:59:59.999Z'))).toBe(false);
+    expect(timingHolds(day('AFTER', 1), at, new Date('2026-11-03T05:00:00Z'))).toBe(true);
+    expect(timingHolds(day('AFTER', 1), at, new Date('2026-11-03T04:59:59.999Z'))).toBe(false);
+    // A zero offset is the moment itself.
+    expect(timingHolds(day('AFTER', 0), at, at)).toBe(true);
+    // No reference date: a before or after timing never holds.
+    expect(timingHolds(day('AFTER', 1), null, at)).toBe(false);
+    // Quiet hours across the night the clocks go back in New York (Nov 1, 2026): 22:30 EDT on
+    // Oct 31 waits until 08:00 EST, which is 13:00 UTC (not 12:00).
+    const q = { start: '21:00', end: '08:00' };
+    expect(quietUntil(new Date('2026-11-01T02:30:00Z'), 'America/New_York', q)?.toISOString()).toBe(
+      '2026-11-01T13:00:00.000Z',
+    );
+    // And the spring night (Mar 8, 2026): 23:00 EST waits until 08:00 EDT, 12:00 UTC.
+    expect(quietUntil(new Date('2026-03-08T04:00:00Z'), 'America/New_York', q)?.toISOString()).toBe(
+      '2026-03-08T12:00:00.000Z',
+    );
+    // Within the last or next N days count the firm's calendar days across the change.
+    const f = { due: '2026-11-03' };
+    expect(
+      conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 3 }, '2026-10-31'),
+    ).toBe(true);
+    expect(
+      conditionHolds(f, { field: 'due', operator: 'WITHIN_NEXT', value: 2 }, '2026-10-31'),
+    ).toBe(false);
   });
 
   it('measures timing from the record’s date', () => {
@@ -270,6 +330,22 @@ describe('loops, stored shapes and templates', () => {
     expect(produces([{ type: 'ASSIGN_CLIENT', config: {} }])).toEqual([
       'client.assignment_changed',
     ]);
+    // A status set by a rule is a status change; a priority starts nothing.
+    expect(produces([{ type: 'UPDATE_CLIENT_STATUS', config: {} }])).toEqual([
+      'client.status_changed',
+    ]);
+    expect(produces([{ type: 'UPDATE_CLIENT_PRIORITY', config: {} }])).toEqual([]);
+    // A follow-up set is one coming due; an invitation or an approval request starts nothing.
+    expect(produces([{ type: 'SCHEDULE_LEAD_FOLLOW_UP', config: {} }])).toEqual([
+      'lead.follow_up_due',
+    ]);
+    expect(produces([{ type: 'INVITE_TO_BOOK', config: {} }])).toEqual([]);
+    // A new deadline is one approaching; a service added or a text sent starts nothing.
+    expect(produces([{ type: 'CREATE_DEADLINE', config: {} }])).toEqual(['deadline.approaching']);
+    expect(produces([{ type: 'ADD_SERVICE', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_CLIENT_SMS', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_RESOURCE', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'REQUEST_APPROVAL', config: {} }])).toEqual([]);
     expect(
       loopProblems(
         node('a', 'client.tags_changed', [{ type: 'ADD_CLIENT_TAGS', config: {} }]),
@@ -278,6 +354,7 @@ describe('loops, stored shapes and templates', () => {
       ).map((p) => p.code),
     ).toEqual(['LOOP_RISK']);
     expect(produces([{ type: 'NOTIFY_STAFF', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_INTAKE', config: {} }])).toEqual(['intake.sent', 'intake.due']);
     expect(produces([{ type: 'REQUEST_DOCUMENTS', config: {} }])).toEqual([
       'document.requested',
       'document.request_due',

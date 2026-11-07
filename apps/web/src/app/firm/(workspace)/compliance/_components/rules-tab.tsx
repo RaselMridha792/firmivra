@@ -6,7 +6,13 @@ import type {
   ComplianceRuleEvaluation,
   ComplianceSuggestion,
 } from '@firmivra/types';
-import { COMPLIANCE_STATES } from '@firmivra/types';
+import {
+  CLASSIFICATION_LABEL,
+  COMPLIANCE_STATES,
+  FEDERAL_CLASSIFICATIONS,
+  type FederalClassification,
+  classificationOf,
+} from '@firmivra/types';
 import {
   Badge,
   Button,
@@ -34,16 +40,11 @@ import {
 } from './compliance-shared';
 
 const frame = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
-const ENTITY_TYPES = [
-  'Individual',
-  'Sole Proprietor',
-  'Single-Member LLC',
-  'LLC (Multi-Member)',
-  'S Corporation',
-  'C Corporation',
-  'Partnership',
-  'Nonprofit',
-];
+/** CD-F14: a rule's words for a classification (an older free-text entry shows as typed). */
+const classificationText = (x: string) => {
+  const k = classificationOf(x);
+  return k && k !== 'LLC' ? CLASSIFICATION_LABEL[k] : x;
+};
 const SERVICES = [
   { value: 'ANNUAL_TAX', label: 'Annual Tax' },
   { value: 'QUARTERLY_TAX', label: 'Quarterly Tax' },
@@ -63,7 +64,7 @@ const CLIENT_STATUSES: Record<ClientStatus, string> = {
 
 const summaryOf = (r: ComplianceApplicabilityRule) =>
   [
-    r.entityTypes.length ? r.entityTypes.join(', ') : 'All entity types',
+    r.entityTypes.length ? r.entityTypes.map(classificationText).join(', ') : 'All entity types',
     r.states.length ? r.states.join(', ') : 'all states',
     r.services.length
       ? r.services.map((s) => SERVICES.find((x) => x.value === s)?.label ?? s).join(', ')
@@ -408,7 +409,7 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         name: name.trim(),
         target: { kind, id: targetId },
         outcome,
-        entityTypes: entities,
+        entityTypes: entities as FederalClassification[],
         states: states as (typeof COMPLIANCE_STATES)[number][],
         services: services as (
           'ANNUAL_TAX' | 'QUARTERLY_TAX' | 'BOOKKEEPING' | 'PAYROLL' | 'TAX_PLANNING'
@@ -515,18 +516,23 @@ function RuleDialog({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         />
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-text">
-            Entity types (none means all)
+            Federal tax classification (none means all)
           </legend>
-          <div className="grid gap-1 sm:grid-cols-2">
-            {ENTITY_TYPES.map((t) => (
+          <div className="grid gap-1 sm:grid-cols-2" data-testid="rule-entities">
+            {FEDERAL_CLASSIFICATIONS.map((t) => (
               <Checkbox
                 key={t}
-                label={t}
+                label={CLASSIFICATION_LABEL[t]}
                 checked={entities.includes(t)}
                 onChange={() => setEntities(flip(entities, t))}
               />
             ))}
           </div>
+          <p className="mt-1 text-xs text-muted">
+            An LLC counts by how it is taxed: a rule for S corporations also applies to an LLC
+            electing S, one for partnerships to a multi-member LLC. A client whose profile says only
+            &ldquo;LLC&rdquo; goes to review, with the reason.
+          </p>
         </fieldset>
         {/* CD-F13 (Octavia, Oct 28): states from the list, never typed codes. */}
         <fieldset data-testid="rule-states">

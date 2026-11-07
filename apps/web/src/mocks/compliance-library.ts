@@ -383,7 +383,7 @@ export function seedLibrary(empty: boolean): Library {
       name: 'Partnership and multi-member LLC return',
       target: { kind: 'CALENDAR_ENTRY', id: entryId(1), name: 'Form 1065 Partnership Return' },
       outcome: 'SUGGEST',
-      entityTypes: ['Partnership', 'Multi-member LLC'],
+      entityTypes: ['PARTNERSHIP', 'LLC_MULTI_MEMBER'],
       states: [],
       services: ['ANNUAL_TAX'],
       excludeStatuses: ['INACTIVE'],
@@ -399,7 +399,7 @@ export function seedLibrary(empty: boolean): Library {
       name: 'Georgia annual registration',
       target: { kind: 'CALENDAR_ENTRY', id: entryId(10), name: 'Annual Registration' },
       outcome: 'APPLY',
-      entityTypes: ['LLC', 'Corporation'],
+      entityTypes: ['LLC_SINGLE_MEMBER', 'LLC_MULTI_MEMBER', 'S_CORPORATION', 'C_CORPORATION'],
       states: ['GA'],
       services: [],
       excludeStatuses: [],
@@ -694,7 +694,7 @@ export function createLibraryMock(ctx: Context) {
     CLIENTS.filter((c) =>
       r.entityTypes.length === 0
         ? true
-        : c.accountType === 'BUSINESS' || r.entityTypes.includes('Individual'),
+        : c.accountType === 'BUSINESS' || r.entityTypes.includes('INDIVIDUAL'),
     );
 
   const methods: Pick<

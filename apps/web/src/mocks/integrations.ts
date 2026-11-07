@@ -94,7 +94,8 @@ export function integrationOverviewFixture(
         featured: index < 4,
         badge: null,
         popularity: 100 - index,
-        comingSoon: false,
+        // IN-Y01: the last two providers are listed but not enabled yet.
+        comingSoon: index >= providers.length - 2,
         multipleConnections: false,
       },
       status: index < 3 ? 'CONNECTED' : index === 3 ? 'NEEDS_ATTENTION' : 'AVAILABLE',
@@ -132,13 +133,22 @@ export function integrationOverviewFixture(
   const scoped = empty
     ? []
     : cards.filter((card) => !query.category || card.provider.category === query.category);
+  const ready = (card: (typeof cards)[number]) =>
+    query.readiness === 'connectable'
+      ? !card.provider.comingSoon
+      : query.readiness === 'coming_soon'
+        ? card.provider.comingSoon
+        : true;
   const connected = scoped.filter((card) => card.status === 'CONNECTED').length;
   const attention = scoped.filter((card) => card.status === 'NEEDS_ATTENTION').length;
   return IntegrationsOverview.parse({
     summary: {
       connected,
       needsAttention: attention,
-      available: scoped.filter((card) => card.status === 'AVAILABLE').length,
+      available: scoped.filter((card) => card.status === 'AVAILABLE' && !card.provider.comingSoon)
+        .length,
+      comingSoon: scoped.filter((card) => card.status === 'AVAILABLE' && card.provider.comingSoon)
+        .length,
       paused: 0,
       total: scoped.length,
       lastCheckAt: empty ? null : at,
@@ -147,6 +157,7 @@ export function integrationOverviewFixture(
     },
     items: scoped.filter(
       (card) =>
+        ready(card) &&
         (query.tab === 'all' ||
           (query.tab === 'connected'
             ? card.status === 'CONNECTED'

@@ -25,7 +25,10 @@ test('lists the saved segments, counts the chosen one and saves it on the draft'
     fullPage: true,
   });
 
-  await page.locator('footer').getByRole('button', { name: 'Next', exact: true }).click();
+  await page
+    .locator('footer')
+    .getByRole('button', { name: 'Save and continue', exact: true })
+    .click();
   await expect(page).toHaveURL(
     `http://admin.localhost:${port}/communications/broadcasts/new/message?id=${draftId}`,
   );
@@ -36,7 +39,10 @@ test('says where to start without a broadcast, and keeps the frame', async ({ pa
   await page.goto(url);
   await expect(page.getByText('No audience selected')).toBeVisible();
   await page.getByTestId('audience-segments').locator('tbody input[type=checkbox]').first().check();
-  await page.locator('footer').getByRole('button', { name: 'Next', exact: true }).click();
+  await page
+    .locator('footer')
+    .getByRole('button', { name: 'Save and continue', exact: true })
+    .click();
   await expect(
     page.getByText('Start the broadcast with its basic information first.'),
   ).toBeVisible();

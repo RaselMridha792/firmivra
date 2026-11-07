@@ -89,18 +89,45 @@ export function IntegrationsScreen({
   const [environment, setEnvironment] = useState<IntegrationEnvironment>(
     initial.environment === 'TEST' ? 'TEST' : 'LIVE',
   );
+  // IN-Y03: readiness, apart from connection status.
+  const [readiness, setReadiness] = useState<'' | 'connectable' | 'coming_soon'>('');
   const view = { tab, search, category, environment };
   useEffect(() => writeListQuery(view, OVERVIEW_VIEW));
   const here = `/integrations${mergeListQuery('', view, OVERVIEW_VIEW)}`;
   const [panel, setPanel] = useState<'health' | 'mapping' | 'activity' | null>(null);
-  const overview = useApiQuery(['integrations', tab, search, category, environment], () =>
-    api.integrations.overview({
-      tab,
-      search,
-      environment,
-      ...(category ? { category: IntegrationCategory.parse(category) } : {}),
-    }),
+  const overview = useApiQuery(
+    ['integrations', tab, search, category, environment, readiness],
+    () =>
+      api.integrations.overview({
+        tab,
+        search,
+        environment,
+        ...(category ? { category: IntegrationCategory.parse(category) } : {}),
+        ...(readiness ? { readiness } : {}),
+      }),
   );
+  // IN-Y04: the filters in use, each removable, and Clear all.
+  const chips = [
+    ...(search ? [{ key: 'search', label: `Search: ${search}`, clear: () => setSearch('') }] : []),
+    ...(category
+      ? [
+          {
+            key: 'category',
+            label: categoryLabel(IntegrationCategory.parse(category)),
+            clear: () => setCategory(''),
+          },
+        ]
+      : []),
+    ...(readiness
+      ? [
+          {
+            key: 'readiness',
+            label: readiness === 'connectable' ? 'Connectable now' : 'Coming soon',
+            clear: () => setReadiness(''),
+          },
+        ]
+      : []),
+  ];
   const activity = useApiQuery(['integration-activity', panel], async () =>
     panel === 'activity' ? api.integrations.activity() : null,
   );
@@ -190,9 +217,11 @@ export function IntegrationsScreen({
           />
           <SummaryCard
             icon={GridFour}
-            label="Available"
+            label="Ready to Connect"
             value={summary?.available ?? 0}
-            note="Ready to connect"
+            note={
+              summary?.comingSoon ? `${summary.comingSoon} more coming soon` : 'Connectable now'
+            }
             tone="amber"
           />
           <SummaryCard
@@ -203,9 +232,9 @@ export function IntegrationsScreen({
             tone="amber"
           />
         </section>
-        <div className="grid min-w-0 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_11rem_auto] 2xl:grid-cols-[minmax(0,1fr)_15rem_11rem_auto]">
+        <div className="grid min-w-0 items-center gap-3 lg:grid-cols-[minmax(0,1fr)_11rem_11rem_auto] 2xl:grid-cols-[minmax(0,1fr)_15rem_11rem_11rem_auto]">
           {/* The tabs take their own row below 2xl, so none is cut off. */}
-          <div className="min-w-0 overflow-x-auto lg:col-span-3 2xl:col-span-1">
+          <div className="min-w-0 overflow-x-auto lg:col-span-4 2xl:col-span-1">
             <Tabs
               variant="segmented"
               label="Integration status"
@@ -214,7 +243,11 @@ export function IntegrationsScreen({
               items={[
                 { id: 'all', label: `All Integrations (${summary?.total ?? 0})` },
                 { id: 'connected', label: `Connected (${summary?.connected ?? 0})` },
-                { id: 'available', label: `Available (${summary?.available ?? 0})` },
+                {
+                  // IN-Y01: every provider not connected, ready or not (Ready to Connect is the card).
+                  id: 'available',
+                  label: `Not Connected (${(summary?.available ?? 0) + (summary?.comingSoon ?? 0)})`,
+                },
                 { id: 'attention', label: `Needs Attention (${summary?.needsAttention ?? 0})` },
               ]}
             />
@@ -239,12 +272,55 @@ export function IntegrationsScreen({
               })),
             ]}
           />
+          <Select
+            label="Integration readiness"
+            hideLabel
+            value={readiness}
+            onChange={(event) =>
+              setReadiness(event.target.value as '' | 'connectable' | 'coming_soon')
+            }
+            options={[
+              { value: '', label: 'Any readiness' },
+              { value: 'connectable', label: 'Connectable now' },
+              { value: 'coming_soon', label: 'Coming soon' },
+            ]}
+          />
           <EnvironmentSwitch value={environment} onChange={setEnvironment} />
           <HelpTip topic="Search, filters and Live or Test">
             Search finds a provider by name or what it does; the category and tabs narrow the list.
             Live and Test each show that environment&apos;s own connections.
           </HelpTip>
         </div>
+        {chips.length ? (
+          <div
+            className="flex flex-wrap items-center gap-2 text-sm"
+            data-testid="integration-filter-chips"
+          >
+            <span className="text-muted">{data ? `${data.items.length} shown` : 'Filtering'}</span>
+            {chips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.clear}
+                aria-label={`Remove filter ${chip.label}`}
+                className="inline-flex items-center gap-1 rounded-full bg-info-soft px-3 py-1 text-xs font-semibold text-action"
+              >
+                {chip.label} <span aria-hidden>×</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="text-xs font-semibold text-action hover:underline"
+              onClick={() => {
+                setSearch('');
+                setCategory('');
+                setReadiness('');
+              }}
+            >
+              Clear all filters
+            </button>
+          </div>
+        ) : null}
         {overview.isPending || overview.isError ? (
           <PageState query={overview}>{() => null}</PageState>
         ) : null}
@@ -274,7 +350,7 @@ export function IntegrationsScreen({
                     ? 'Loading integrations...'
                     : overview.isError
                       ? 'Integrations will appear here when the connection is restored.'
-                      : search || category || tab !== 'all'
+                      : search || category || readiness || tab !== 'all'
                         ? 'No integrations match your filters.'
                         : 'No integrations available yet.'}
                 </Card>

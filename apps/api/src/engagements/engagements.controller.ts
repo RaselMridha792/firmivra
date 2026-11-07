@@ -176,5 +176,8 @@ export class MyServicesController {
 @Module({
   controllers: [ClientEngagementsController, EngagementsController, MyServicesController],
   providers: [EngagementsService],
+  // Automations' Add service (R55, the lead's one-off exception): Engagements' own create; it
+  // never starts billing.
+  exports: [EngagementsService],
 })
 export class EngagementsModule {}

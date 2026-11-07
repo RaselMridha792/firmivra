@@ -366,6 +366,138 @@ test('A report shows as Table Only or KPI Only, as a line, without its legend; t
   await expect(page.getByTestId('chart-type')).toHaveValue('TABLE');
 });
 
+test('A row opens its record in the same tab, Back finds the report as left, and a row menu opens or copies (RP-F17)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const table = page.getByTestId('report-table');
+  // Page 2 of a search, then a row's invoice.
+  await table.getByPlaceholder('Search results...').fill('INV-10');
+  const link = table.getByTestId('row-link').first();
+  await expect(link).toHaveText(/^INV-10/);
+  const onPage1 = (await link.textContent()) ?? '';
+  await table.getByRole('button', { name: 'Page 2' }).click();
+  await expect(link).not.toHaveText(onPage1);
+  const number = (await link.textContent()) ?? '';
+  expect(number).toMatch(/^INV-10/);
+  // The row menu: open the invoice, or copy its number.
+  await table.getByRole('button', { name: `Actions for ${number}` }).click();
+  await expect(page.getByRole('menuitem', { name: 'Open invoice' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Copy Invoice' })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('row-menu.png') });
+  await page.keyboard.press('Escape');
+  await link.click();
+  await expect(page).toHaveURL(/\/invoices\/0199c3a0-0000-7000-8000-/);
+  // Back: the same search, page and row.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/reports\/revenue-summary\?.*view=/);
+  await expect(table.getByPlaceholder('Search results...')).toHaveValue('INV-10');
+  await expect(table.getByTestId('row-link').first()).toHaveText(number);
+});
+
+test('Filters that do not fit say why; chart values show on focus, keys and a tap; Print gives every row as a document (RP-Y03, Y09, Y16)', async ({
+  page,
+}) => {
+  // The browser's print dialog is not opened in a test: count the calls instead.
+  await page.addInitScript(() => {
+    const w = window as unknown as { printed: number };
+    w.printed = 0;
+    window.print = () => {
+      w.printed += 1;
+    };
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  const filters = page.getByTestId('report-filters');
+  // RP-Y03: payments have no client status, and no report filters by service yet.
+  await expect(filters.getByLabel('Client Type')).toBeDisabled();
+  await expect(filters.getByLabel('Service Type')).toBeDisabled();
+  await expect(filters.getByLabel('Date Range')).toBeEnabled();
+  await expect(page.getByTestId('filters-off')).toContainText(
+    'Client Type: Payments has no client status. Service Type: no report can filter by service yet.',
+  );
+
+  // RP-Y16: Tab reaches the chart's first period; arrows move; Escape hides; a tap shows.
+  const chart = page.getByTestId('report-chart');
+  const points = chart.getByTestId('chart-point');
+  await expect(points.first()).toHaveAttribute('tabindex', '0');
+  await points.first().focus();
+  const tip = chart.getByRole('tooltip');
+  await expect(tip).toBeVisible();
+  const first = (await tip.textContent()) ?? '';
+  expect(first).toMatch(/\$/);
+  await page.keyboard.press('ArrowRight');
+  await expect(points.nth(1)).toBeFocused();
+  await expect(tip).not.toHaveText(first);
+  await page.keyboard.press('Escape');
+  await expect(tip).toBeHidden();
+  await points.nth(2).click();
+  await expect(tip).toBeVisible();
+  await expect(points.nth(2)).toHaveAttribute('aria-describedby', /.+/);
+  await page.screenshot({ path: test.info().outputPath('chart-tip.png') });
+
+  // RP-Y09: Print gathers every row, then prints the print copy: no sidebar, header or controls.
+  await page.getByRole('button', { name: 'Print', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { printed: number }).printed))
+    .toBe(1);
+  await page.emulateMedia({ media: 'print' });
+  const doc = page.getByTestId('report-print');
+  await expect(doc).toBeVisible();
+  await expect(page.getByTestId('report-detail')).toBeHidden();
+  await expect(doc.getByRole('heading', { level: 1 })).toContainText('Revenue Summary');
+  await expect(doc).toContainText(/America\/New_York|UTC|\//);
+  await expect(doc).toContainText('Printed');
+  const said = (await page.getByTestId('print-rows').textContent()) ?? '';
+  const all = Number(/All ([\d,]+) rows/.exec(said)?.[1]?.replace(/,/g, '') ?? NaN);
+  await expect(doc.locator('tbody tr')).toHaveCount(all);
+  await page.screenshot({ path: test.info().outputPath('print.png'), fullPage: true });
+  await page.emulateMedia({ media: 'screen' });
+  await expect(page.getByTestId('report-detail')).toBeVisible();
+});
+
+test('The library finds reports changed lately; Archive asks first and can be undone (RP-Y01, Y16)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/revenue-summary`);
+  await page.getByRole('button', { name: 'Save Report' }).click();
+  await page.getByTestId('save-dialog').getByLabel('Report name').fill('Archive Me');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save Report' }).click();
+  await page.waitForURL(/\/reports\/[0-9a-f-]{36}$/);
+  // In mock mode a saved report lives in the page: go by its link, not a reload.
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Saved Reports' })
+    .click();
+  await page.getByTestId('library-filters').getByLabel('Updated').selectOption('7');
+  await expect(page).toHaveURL(/updated=7/);
+  const row = page.getByRole('row', { name: /Archive Me/ });
+  await expect(row).toBeVisible();
+
+  const archive = async () => {
+    await page.getByRole('button', { name: 'Actions for Archive Me' }).click();
+    await page.getByRole('menuitem', { name: 'Archive' }).click();
+  };
+  await archive();
+  const confirm = page.getByRole('dialog');
+  await expect(confirm).toContainText('Nothing is deleted');
+  await page.screenshot({ path: test.info().outputPath('archive-confirm.png') });
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(row).toBeVisible();
+
+  await archive();
+  await page.getByRole('dialog').getByRole('button', { name: 'Archive' }).click();
+  const note = page.getByTestId('archived-note');
+  await expect(note).toContainText('Archive Me is archived');
+  await expect(row).toHaveCount(0);
+  await note.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Restored.' }).first()).toBeVisible();
+  await expect(row).toBeVisible();
+  await expect(note).toBeHidden();
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of ['', '/revenue-summary', '/builder', '/library']) {

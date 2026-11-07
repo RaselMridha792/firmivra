@@ -2,10 +2,13 @@ import {
   ApiRequestError,
   ArchiveMessageTemplateRequest,
   BulkTemplatesRequest,
+  ConfirmEmailImageUploadRequest,
   ConfirmUploadRequest,
+  CreateEmailImageUploadRequest,
   CreateMessageTemplateRequest,
   CreateTemplateCategoryRequest,
   ImportTemplateRequest,
+  StartTemplateImportRequest,
   MergeTemplateCategoryRequest,
   MessageTemplatesQuery,
   parseInput,
@@ -180,6 +183,10 @@ export function createTemplatesMock({
     string,
     { templateId: string; fileName: string; contentType: string; sizeBytes: number }
   >();
+  /** TP-F16: Word document uploads waiting for their import. */
+  const imports = new Set<string>();
+  /** TP-F07: images in the content waiting for their confirm. */
+  const imageUploads = new Map<string, 'image/png' | 'image/jpeg' | 'image/gif'>();
 
   const ensureCategory = (kind: MessageTemplateKind, name: string): TemplateCategory => {
     const hit = categories.find((c) => c.kind === kind && c.name === name);
@@ -982,6 +989,33 @@ export function createTemplatesMock({
           expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
         };
       }),
+    // TP-F07: an image in the content, as the API (the firm's email images): a placeholder picture.
+    createImageUpload: (body) =>
+      run(() => {
+        const input = parseInput(CreateEmailImageUploadRequest, body);
+        const token = `mock-template-image-${next++}`;
+        imageUploads.set(token, input.contentType);
+        return {
+          uploadToken: token,
+          url: `mock:upload/${token}`,
+          method: 'PUT' as const,
+          headers: { 'content-type': input.contentType },
+          expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    confirmImageUpload: (body) =>
+      run(() => {
+        const { uploadToken } = parseInput(ConfirmEmailImageUploadRequest, body);
+        const contentType = imageUploads.get(uploadToken);
+        if (!contentType) throw fail(410, 'UPLOAD_EXPIRED', 'Upload the image again');
+        imageUploads.delete(uploadToken);
+        return {
+          id: id('7700'),
+          url: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="100%" height="100%" fill="#6b7f99"/></svg>')}`,
+          contentType,
+          sizeBytes: 67,
+        };
+      }),
     confirmAttachment: (body) =>
       run(() => {
         const { uploadToken } = parseInput(ConfirmUploadRequest, body);
@@ -1016,17 +1050,48 @@ export function createTemplatesMock({
         r.d.attachments = r.d.attachments.filter((a) => a.id !== attachmentId);
         return { ok: true as const };
       }),
+    // TP-F16: step 1 of a Word document import.
+    startImport: (body) =>
+      run(() => {
+        const input = parseInput(StartTemplateImportRequest, body);
+        if (!/\.docx$/i.test(input.fileName))
+          throw fail(400, 'VALIDATION_FAILED', 'Choose a Word document (.docx)');
+        const token = `mock-template-import-${next++}`;
+        imports.add(token);
+        return {
+          uploadToken: token,
+          url: `mock:upload/${token}`,
+          method: 'PUT' as const,
+          headers: { 'content-type': input.contentType },
+          expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
     importTemplate: (body) =>
       run(() => {
         manage();
         const input = parseInput(ImportTemplateRequest, body);
         categoryOk(input.kind, input.categoryId);
         uniqueName(input.kind, input.name);
+        if (input.format === 'DOCX') {
+          // As the API: the upload is read once (a placeholder conversion here) and then gone.
+          if (!imports.delete(input.uploadToken ?? ''))
+            throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired');
+          if (input.kind === 'SMS' || input.kind === 'TASK')
+            throw fail(
+              400,
+              'VALIDATION_FAILED',
+              'A Word document imports into a formatted template; use plain text for this kind',
+            );
+        }
+        const content =
+          input.format === 'DOCX'
+            ? `<h1>${input.name}</h1><p>Imported from a Word document (mock): its text and formatting, without images.</p>`
+            : (input.content ?? '');
         const { clean, removed } =
-          input.format === 'HTML'
-            ? sanitize(input.content)
+          input.format !== 'TEXT'
+            ? sanitize(content)
             : {
-                clean: `<p>${input.content.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>')}</p>`,
+                clean: `<p>${content.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>')}</p>`,
                 removed: 0,
               };
         const r = build({
