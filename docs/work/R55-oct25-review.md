@@ -35,7 +35,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1314 merged: the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
 - #1315 merged: connect copy in each provider's own terms and the registry's facts before connecting (IN-Y11, Y12).
 - #1319 merged: New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
-- SA com 2 (`rasel/R55-sa-com-2`): New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
+- #1321 (`rasel/R55-sa-com-2`): New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
