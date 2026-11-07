@@ -31,11 +31,12 @@ import {
   X,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { markReturn, ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
@@ -177,6 +178,16 @@ function Editor({
 }) {
   const router = useRouter();
   const meta = kindOf(kind);
+  // TP-F01: opened from the overview or a library (`?from=`, SH1), Cancel, the breadcrumb and
+  // Archive return to that exact list, and a save or a duplicate keeps the way back.
+  const from = safeOrigin(useSearchParams().get(ORIGIN_PARAM));
+  const library = `/templates/library/${meta.slug}`;
+  const sameList = (base: string) =>
+    from !== null && (from === base || from.startsWith(`${base}?`)) ? from : null;
+  const toOverview = sameList('/templates') ?? '/templates';
+  const toLibrary = sameList(library) ?? library;
+  const toOrigin = from ?? library;
+  const keepOrigin = (href: string) => (from ? withOrigin(href, from) : href);
   const [saved, setSaved] = useState<MessageTemplateDetail | undefined>(initial);
   const [form, setForm] = useState<Form>(() => (initial ? fromDetail(initial) : blank(kind)));
   const [baseline, setBaseline] = useState(() =>
@@ -217,7 +228,11 @@ function Editor({
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   const guard = (href: string) => (event: MouseEvent) => {
-    if (!dirty) return;
+    if (!dirty) {
+      // Back where it came from, at the place it was scrolled to.
+      markReturn(href);
+      return;
+    }
     event.preventDefault();
     setLeaving(href);
   };
@@ -287,7 +302,7 @@ function Editor({
             text: status === 'DRAFT' ? 'Draft saved.' : 'Template saved.',
             tone: 'success',
           });
-          if (!id) router.replace(`/templates/${d.id}/edit`);
+          if (!id) router.replace(keepOrigin(`/templates/${d.id}/edit`));
         },
         onError: (e) => {
           if (e instanceof ApiRequestError && e.code === 'AUTOMATION_IN_USE') setImpact(e.message);
@@ -340,17 +355,13 @@ function Editor({
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="template-editor">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href="/templates" className="text-link" onClick={guard('/templates')}>
+        <Link href={toOverview} className="text-link" onClick={guard(toOverview)}>
           Templates
         </Link>
         <span aria-hidden className="text-muted">
           ›
         </span>
-        <Link
-          href={`/templates/library/${meta.slug}`}
-          className="text-link"
-          onClick={guard(`/templates/library/${meta.slug}`)}
-        >
+        <Link href={toLibrary} className="text-link" onClick={guard(toLibrary)}>
           {meta.title}
         </Link>
         <span aria-hidden className="text-muted">
@@ -843,11 +854,7 @@ function Editor({
       ) : null}
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/templates/library/${meta.slug}`}
-          className={subtle}
-          onClick={guard(`/templates/library/${meta.slug}`)}
-        >
+        <Link href={toOrigin} className={subtle} onClick={guard(toOrigin)}>
           Cancel
         </Link>
         <div className="flex flex-wrap items-center gap-3">
@@ -868,7 +875,7 @@ function Editor({
                 disabled={duplicate.isPending}
                 onClick={() =>
                   duplicate.mutate(undefined, {
-                    onSuccess: (d) => router.push(`/templates/${d.id}/edit`),
+                    onSuccess: (d) => router.push(keepOrigin(`/templates/${d.id}/edit`)),
                     onError: fail,
                   })
                 }
@@ -926,6 +933,7 @@ function Editor({
                   const to = leaving;
                   setLeaving(undefined);
                   setBaseline(JSON.stringify(form));
+                  markReturn(to);
                   router.push(to);
                 }}
               >
@@ -967,7 +975,8 @@ function Editor({
           onDone={() => {
             // Archived: nothing is left to lose, so the unsaved-work question stays quiet.
             setBaseline(JSON.stringify(form));
-            router.push(`/templates/library/${meta.slug}`);
+            markReturn(toOrigin);
+            router.push(toOrigin);
           }}
         />
       ) : null}
