@@ -24,6 +24,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { TemplateMenu, UseTemplate } from './template-actions';
 import { LIBRARY_VIEW, UUID, viewOf } from './list-view';
 import { CategoriesDialog, ImportDialog, PreviewDialog } from './template-dialogs';
+import { TemplateHelp } from './template-help';
 import {
   KindTile,
   StatusPill,
@@ -301,7 +302,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
         <div className="flex min-w-0 items-center gap-4">
           <KindTile kind={kind} size="lg" />
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-bold text-heading">{meta.title}</h1>
+            <h1 className="flex items-center gap-2 font-display text-4xl font-bold text-heading">
+              {meta.title} <TemplateHelp area="library" />
+            </h1>
             <p className="text-base text-muted">{meta.blurb}</p>
           </div>
         </div>
@@ -348,7 +351,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
       <div className="grid items-start gap-4 xl:grid-cols-[15rem_minmax(0,1fr)]">
         <aside aria-label="Categories" className={card} data-testid="category-sidebar">
           <h2 className="mb-2 flex items-center justify-between gap-2 font-display text-lg font-bold text-heading">
-            Categories
+            <span className="flex items-center gap-2">
+              Categories <TemplateHelp area="categories" />
+            </span>
             <span
               className="rounded-pill bg-canvas px-2 py-0.5 font-sans text-xs font-semibold text-heading"
               data-testid="category-count"
@@ -483,6 +488,9 @@ export function LibraryScreen({ slug }: { slug: string }) {
             <button type="button" className="text-sm font-medium text-link" onClick={reset}>
               Clear
             </button>
+            <span className="flex h-10 items-center">
+              <TemplateHelp area="filters" />
+            </span>
           </form>
           {selected.length > 0 ? (
             <div className="mb-3">
