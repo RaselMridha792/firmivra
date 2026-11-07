@@ -5,6 +5,8 @@ import {
   type ReportDefinitionView,
   type ReportFilterCondition,
   type ReportResult,
+  type ReportRowLink,
+  type ReportTableRow,
 } from '@firmivra/types';
 import {
   ActionMenu,
@@ -22,6 +24,7 @@ import {
   Bookmark,
   CalendarBlank,
   CaretRight,
+  DotsThreeVertical,
   DownloadSimple,
   Lightbulb,
   MagnifyingGlass,
@@ -62,6 +65,10 @@ import {
   subtle,
 } from './reports-shared';
 import { ReportHelp } from './report-help';
+import { KIND_WORD, cellLink, ownRecord, packView, recordHref, viewFrom } from './report-drill';
+import { useOriginNavigate } from '../../../../../components/origin-link';
+import { choiceOf, drawingOf, partsOf } from './chart-display';
+import { ChartSelect } from './chart-select';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** More Filters as typed and as sent (only rows that fit are ever applied). */
@@ -76,12 +83,6 @@ interface Run {
   error: unknown;
 }
 const QUICK = ['last_7_days', 'last_30_days', 'this_month', 'this_year', 'last_year'] as const;
-const CHARTS = [
-  { value: 'AUTO', label: 'Automatic' },
-  { value: 'BAR', label: 'Column Chart' },
-  { value: 'LINE', label: 'Line Chart' },
-  { value: 'AREA', label: 'Area Chart' },
-];
 
 /** /reports/[reportId]: one report (a quick report by key, or a saved one by id) with its controls. */
 export function ReportDetail({ reportId }: { reportId: string }) {
@@ -100,6 +101,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   // RP-F01 (Octavia, Oct 28): opened from the overview, the report starts on its range and
   // comparison (they come in the address), not on its own defaults.
   const linked = datesFrom(params);
+  // RP-F17 (Octavia, Oct 28): back from a record, the report is as it was left (its search,
+  // More Filters, sort, page and columns ride in this page's address).
+  const view = viewFrom(params.get('view'));
+  const navigate = useOriginNavigate();
   const [preset, setPreset] = useState<string | undefined>(
     linked?.rule === 'ROLLING' ? linked.preset : undefined,
   );
@@ -115,15 +120,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [clientType, setClientType] = useState('ALL');
   const [service, setService] = useState('');
   const [chartType, setChartType] = useState<string>();
+  const [legend, setLegend] = useState(true);
   // IP-F22 (Octavia's D2): the breakdown's Group By, this run only.
   const [groupBy, setGroupBy] = useState('');
   const [labels, setLabels] = useState<boolean>();
   const [tax, setTax] = useState<boolean>();
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<{ id: string; descending: boolean }>();
-  const [hidden, setHidden] = useState<string[]>([]);
-  const [extra, setExtra] = useState<Extra>(NO_EXTRA);
+  const [search, setSearch] = useState(view?.search ?? '');
+  const [page, setPage] = useState(view?.page ?? 1);
+  const [sort, setSort] = useState<{ id: string; descending: boolean } | undefined>(view?.sort);
+  const [hidden, setHidden] = useState<string[]>(view?.hidden ?? []);
+  const [extra, setExtra] = useState<Extra>(view?.extra ?? NO_EXTRA);
   const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
@@ -243,22 +249,86 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       notice(detail ?? errorMessage(e, { ...RP_ERRORS, ...EXPORT_ERRORS }), 'error');
     }
   };
-  const columns: Column<{ cells: Record<string, string | number | boolean | null> }>[] = (
-    r?.table.columns ?? []
-  )
-    .filter((c) => c.locked || !hidden.includes(c.key))
-    .map((c, i) => ({
-      id: c.key,
-      label: c.label,
-      sortable: c.sortable,
-      cell: (row) => (
-        <span className={i === 0 ? 'font-medium text-heading' : ''}>
-          {c.key === '_count' || c.key === '_pct'
-            ? formatCell(row.cells[c.key], c.key === '_pct' ? 'PERCENT' : 'NUMBER')
-            : formatCell(row.cells[c.key], c.type)}
-        </span>
-      ),
-    }));
+  /** Opens a row's record in this tab; Back (or the bar's Back) returns to this view. */
+  const openRecord = (link: ReportRowLink) => {
+    const href = recordHref(link);
+    if (!href) return;
+    const packed = packView({ search, page, sort, hidden, extra });
+    if (packed) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', packed);
+      window.history.replaceState(window.history.state, '', url.toString());
+    }
+    navigate(href);
+  };
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notice(`${what} copied.`, 'success');
+    } catch {
+      notice(`${what} could not be copied.`, 'error');
+    }
+  };
+  const firstColumn = r?.table.columns[0];
+  const columns: Column<ReportTableRow>[] = [
+    ...(r?.table.columns ?? [])
+      .filter((c) => c.locked || !hidden.includes(c.key))
+      .map((c, i): Column<ReportTableRow> => ({
+        id: c.key,
+        label: c.label,
+        sortable: c.sortable,
+        cell: (row) => {
+          const text =
+            c.key === '_count' || c.key === '_pct'
+              ? formatCell(row.cells[c.key], c.key === '_pct' ? 'PERCENT' : 'NUMBER')
+              : formatCell(row.cells[c.key], c.type);
+          const link = cellLink(c.key, i === 0, row.links);
+          const href = link ? recordHref(link) : null;
+          return link && href && text !== '—' ? (
+            <a
+              href={href}
+              className="font-medium text-link underline"
+              data-testid="row-link"
+              onClick={(e) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                openRecord(link);
+              }}
+            >
+              {text}
+            </a>
+          ) : (
+            <span className={i === 0 ? 'font-medium text-heading' : ''}>{text}</span>
+          );
+        },
+      })),
+    {
+      id: '_actions',
+      label: 'Actions',
+      cell: (row) => {
+        const own = ownRecord(row.links);
+        const client = row.links.find((l) => l.kind === 'CLIENT');
+        const id = firstColumn ? formatCell(row.cells[firstColumn.key], firstColumn.type) : '—';
+        const what = firstColumn?.label ?? 'Identifier';
+        const items = [
+          ...(own
+            ? [{ label: `Open ${KIND_WORD[own.kind]}`, onSelect: () => openRecord(own) }]
+            : []),
+          ...(client && own?.kind !== 'CLIENT'
+            ? [{ label: 'Open client', onSelect: () => openRecord(client) }]
+            : []),
+          ...(id !== '—' ? [{ label: `Copy ${what}`, onSelect: () => void copy(id, what) }] : []),
+        ];
+        return items.length ? (
+          <ActionMenu
+            label={`Actions for ${id}`}
+            trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
+            sections={[{ items }]}
+          />
+        ) : null;
+      },
+    },
+  ];
   const totals = r?.table.totals;
   const src = r ? sources.data?.find((s) => s.key === r.definition.dataSource) : undefined;
   // Octavia's D2: a Financial report's breakdown groups by Service, Client or Payment Method.
@@ -291,6 +361,11 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     ? 'custom'
     : (preset ?? (ownDate?.rule === 'ROLLING' ? ownDate.preset : 'this_year'));
   const shownChart = chartType ?? r?.definition.chartType ?? 'AUTO';
+  // RP-F18 (Octavia, Oct 28): Table Only and KPI Only show one part; Line and Area draw as such
+  // where they fit; the legend can be hidden (on this screen: no saved field holds it yet).
+  const display = choiceOf(shownChart);
+  const facts = { periods: r?.chart?.labels.length ?? 0, kpis: r?.kpis.length ?? 0 };
+  const parts = partsOf(display);
   const shownLabels = labels ?? r?.definition.showDataLabels ?? false;
   const shownTax = tax ?? r?.definition.includeTaxRevenue ?? false;
   // RP-F03: opened from the library, the page's Back (SH1's bar above it, "Back to Report
@@ -533,6 +608,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           ) : null}
 
           <ul
+            hidden={!parts.kpis}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
             data-testid="report-kpis"
           >
@@ -558,13 +634,21 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             ))}
           </ul>
 
-          <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div
+            hidden={!parts.chart}
+            className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"
+          >
             <section className={card} aria-label="Chart" data-testid="report-chart">
               <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold text-heading">
                 {title} Over Time <ReportHelp area="charts" />
               </h2>
               {r?.chart ? (
-                <BarChart chart={r.chart} dataLabels={labels} />
+                <BarChart
+                  chart={r.chart}
+                  dataLabels={labels}
+                  kind={drawingOf(display, facts)}
+                  legend={legend}
+                />
               ) : (
                 <p className={quiet}>
                   {q.isPending ? 'Loading…' : 'There is no data in this range.'}
@@ -591,7 +675,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               {r?.breakdown ? (
                 <DonutChart
                   size="md"
-                  legend
+                  legend={legend}
                   showPercent
                   segments={ringOf(r.breakdown).segments}
                   centerValue={ringOf(r.breakdown).center}
@@ -605,6 +689,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           </div>
 
           <section
+            hidden={!parts.table}
             className={`${card} flex flex-col gap-3`}
             aria-label="Report table"
             data-testid="report-table"
@@ -799,12 +884,17 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <h2 className="flex items-center gap-2 font-display text-lg font-bold text-heading">
               Report Settings <ReportHelp area="charts" />
             </h2>
-            <Select
+            <ChartSelect
               label="Chart Type"
-              value={shownChart}
-              onChange={(e) => setChartType(e.target.value)}
-              options={CHARTS}
+              value={display}
+              facts={facts}
+              onChange={setChartType}
+              testId="chart-type"
             />
+            <label className="flex items-center justify-between gap-3 text-sm text-heading">
+              Show Legend
+              <Toggle label="Show legend" checked={legend} onChange={setLegend} />
+            </label>
             <label className="flex items-center justify-between gap-3 text-sm text-heading">
               Show Comparison Period
               <Toggle

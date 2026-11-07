@@ -62,7 +62,14 @@ const RESOLVERS = {
   client: (async (tx, businessId, ids) => {
     const rows = await tx.client.findMany({
       where: { businessId, id: { in: ids } },
-      select: { id: true, displayName: true, accountType: true, status: true },
+      select: {
+        id: true,
+        displayName: true,
+        accountType: true,
+        status: true,
+        assignedUserId: true,
+        tags: { select: { tagId: true } },
+      },
     });
     return new Map(
       rows.map((c) => [
@@ -70,7 +77,12 @@ const RESOLVERS = {
         {
           clientId: c.id,
           label: c.displayName,
-          fields: { clientType: c.accountType, status: c.status },
+          fields: {
+            clientType: c.accountType,
+            status: c.status,
+            tags: c.tags.map((t) => t.tagId),
+            assignedUserId: c.assignedUserId,
+          },
         },
       ]),
     );
@@ -85,6 +97,8 @@ const RESOLVERS = {
         status: true,
         source: true,
         clientId: true,
+        assignedUserId: true,
+        tags: { select: { tagId: true } },
       },
     });
     return new Map(
@@ -93,7 +107,12 @@ const RESOLVERS = {
         {
           clientId: l.clientId,
           label: `${l.firstName} ${l.lastName}`.trim(),
-          fields: { stage: l.status, source: l.source },
+          fields: {
+            stage: l.status,
+            source: l.source,
+            tags: l.tags.map((t) => t.tagId),
+            assignedUserId: l.assignedUserId,
+          },
         },
       ]),
     );

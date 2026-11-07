@@ -20,7 +20,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1270 merged: Move up and down for actions (AU-F24); Add and Remove client tags by the firm's tag ids (part of AU-F27).
 - #1273 merged: Notify staff (part of AU-F27; bell only, the lead's one-off notifications exception) and the events with no client: Staff Management (AU-F19), Integrations (AU-F20), firm-wide Communications (AU-F18).
 - #1276 merged: loop detection knows the tag and assign actions, and an action that changes nothing records nothing (fix to #1270); Assign client (part of AU-F27).
-- AU email (`rasel/R55-au-email`): Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
+- #1278 merged: Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
+- #1280 merged: Tags and Assigned staff conditions on every client and lead event, with the firm's own tags and members as the choices (AU-F22, part).
+- #1282 merged: Request documents (AU-F27) through Documents' own request (DocumentRequestsService exported: the lead's one-off exception).
+- AU intake (`rasel/R55-au-intake`): Send intake form (AU-F27) through Intake Forms' own send (IntakeSendService, already exported), one per run and action.
+
+**For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
+
+**For Review 2 (lead, Nov 7):** Request documents (AU-F27) names a service kind, not a service: it asks under the client's oldest ACTIVE service of that kind; with none open, the step fails with Documents' NO_OPEN_SERVICE and nothing is created. Title, instructions, an optional category (a live one of the firm) and a due date N days after the run.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 

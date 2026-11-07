@@ -1229,7 +1229,52 @@ function ActionField({
   const firmTags = useApiQuery(['automations', 'tag-choices', field.type === 'TAGS'], async () =>
     field.type === 'TAGS' ? api.tags.list() : { items: [] },
   );
+  const categories = useApiQuery(
+    ['automations', 'category-choices', field.type === 'DOCUMENT_CATEGORY'],
+    async () => (field.type === 'DOCUMENT_CATEGORY' ? api.documents.categories() : []),
+  );
+  const intakeForms = useApiQuery(
+    ['automations', 'intake-form-choices', field.type === 'INTAKE_FORM'],
+    async () =>
+      field.type === 'INTAKE_FORM'
+        ? api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' })
+        : [],
+  );
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  if (field.type === 'INTAKE_FORM') {
+    const rows = intakeForms.data ?? [];
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          { value: '', label: rows.length ? 'Choose a form' : 'No published forms' },
+          ...(text && !rows.some((f) => f.id === text)
+            ? [{ value: text, label: 'Form no longer published: choose again' }]
+            : []),
+          ...rows.map((f) => ({ value: f.id, label: f.name })),
+        ]}
+      />
+    );
+  }
+  if (field.type === 'DOCUMENT_CATEGORY') {
+    const rows = (categories.data ?? []).filter((c) => !c.archivedAt);
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          { value: '', label: 'No category' },
+          ...(text && !rows.some((c) => c.id === text)
+            ? [{ value: text, label: 'Archived category: choose again' }]
+            : []),
+          ...rows.map((c) => ({ value: c.id, label: c.name })),
+        ]}
+      />
+    );
+  }
   if (field.type === 'TAGS') {
     const chosen = Array.isArray(value) ? value : [];
     const rows = firmTags.data?.items ?? [];
