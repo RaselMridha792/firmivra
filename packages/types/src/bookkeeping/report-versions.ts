@@ -63,6 +63,8 @@ export const BookkeepingReportVersionRow = z.object({
   generatedAt: z.iso.datetime({ offset: true }),
   generatedBy: z.string().nullable(),
   deliveryStatus: z.enum(['NOT_SENT', 'SENT', 'FAILED']),
+  /** When it went to the client: delivering the report sends its latest version. */
+  sentAt: z.iso.datetime({ offset: true }).nullable().default(null),
   period: z.object({ start: z.iso.date(), end: z.iso.date() }),
   figures: BookkeepingReportFigures,
 });

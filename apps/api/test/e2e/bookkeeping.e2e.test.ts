@@ -3259,6 +3259,11 @@ describe('report figures from statements, status and documents (BK-RPT part 2)',
       BookkeepingReportRow,
       await call('post', `/reports/${report.id}/approve`, people.ownerA, {}),
     );
+    // Its figures are generated before it goes to the client.
+    exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${report.id}/generate`, people.staffA, {}),
+    );
     const published = await mkPublishedReport(ws.engagementId);
     expectError(
       await call('post', `/reports/${report.id}/deliver`, people.ownerA, {
@@ -3278,6 +3283,21 @@ describe('report figures from statements, status and documents (BK-RPT part 2)',
         }),
       ).status,
     ).toBe('DELIVERED');
+    // Delivering sent the latest version: the database stamps when, and it stays sent.
+    const sent = exact(
+      BookkeepingReportVersionList,
+      await call('get', `/reports/${report.id}/versions`, people.staffA),
+    ).items[0]!;
+    expect(sent).toMatchObject({ version: 1, deliveryStatus: 'SENT' });
+    expect(sent.sentAt).not.toBeNull();
+    await expect(
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingReportVersion.updateMany({
+          where: { businessId: ids.firmA, reportId: report.id },
+          data: { deliveryStatus: 'NOT_SENT' },
+        }),
+      ),
+    ).rejects.toThrow(/stays sent/);
 
     // Another firm reaches none of it; Quarterly Review is not worked out yet.
     expectError(

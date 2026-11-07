@@ -8,16 +8,25 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 
 const card = (page: Page, label: string) => page.getByTestId('kpi-card').filter({ hasText: label });
 
+/**
+ * Six cards, every one a link but Appointments Today (its own button): the summary has come, so
+ * the service cards (D4) are links, not their loading places.
+ */
+async function loaded(page: Page) {
+  await expect(page.getByTestId('kpi-card')).toHaveCount(6, { timeout: 60_000 });
+  await expect(page.locator('div[data-testid="kpi-card"]')).toHaveCount(1, { timeout: 60_000 });
+}
+
 async function openDashboard(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/'));
-  await expect(page.getByTestId('kpi-card')).toHaveCount(6, { timeout: 60_000 });
+  await loaded(page);
 }
 
 async function backToDashboard(page: Page) {
   await page.getByTestId('back-to-dashboard').click();
   await expect(page).toHaveURL(app('/'));
-  await expect(page.getByTestId('kpi-card')).toHaveCount(6);
+  await loaded(page);
 }
 
 test('each card opens its list filtered to what it counts', async ({ page }) => {
@@ -72,7 +81,8 @@ test('Returns In Progress and Accepted Returns open Tax Returns with those filte
 test('Outstanding Invoices lists every unpaid invoice with its total', async ({ page }) => {
   await openDashboard(page);
   await card(page, 'Outstanding Invoices').click();
-  await expect(page.getByRole('combobox', { name: 'Status' })).toHaveValue('OUTSTANDING', {
+  // The list's own Status (the charts have their own "Status counted").
+  await expect(page.getByTestId('invoice-list').getByLabel('Status')).toHaveValue('OUTSTANDING', {
     timeout: 60_000,
   });
   await expect(page.getByTestId('outstanding-total')).toContainText('outstanding');

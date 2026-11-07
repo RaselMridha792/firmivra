@@ -30,42 +30,27 @@ import {
   DotsThreeVertical,
   Warning,
 } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
-import { BK_ERRORS, BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
+import { BK_KEY, STATUS_LABEL, dateTimeText, quiet } from './bookkeeping-shared';
 import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
 import { StopBillingDialog } from '../../../../../components/stop-billing-dialog';
+import { CompleteReportDialog } from './report-actions';
+import { type Notice, useAct } from './use-act';
 
-export type Notice = (text: string, tone: 'success' | 'error') => void;
-
-/** Runs one action, refreshes every Bookkeeping view, and reports in a toast that outlives the row. */
-export function useAct(onNotice: Notice) {
-  const qc = useQueryClient();
-  return async <T,>(work: () => Promise<T>, done: string): Promise<T | undefined> => {
-    try {
-      const result = await work();
-      await qc.invalidateQueries({ queryKey: [...BK_KEY] });
-      onNotice(done, 'success');
-      return result;
-    } catch (e) {
-      onNotice(errorMessage(e, BK_ERRORS), 'error');
-      return undefined;
-    }
-  };
-}
+export { type Notice, useAct } from './use-act';
 
 type Row = Pick<BookkeepingClientRow, 'id' | 'engagementId' | 'status' | 'paused' | 'software'> & {
   client: { id: string; displayName: string };
   assignedTo?: BookkeepingClientRow['assignedTo'];
 };
-type DialogName = 'status' | 'assign' | 'pause' | 'archive' | 'connection' | 'log' | 'sync';
+type DialogName =
+  'status' | 'assign' | 'pause' | 'archive' | 'connection' | 'log' | 'sync' | 'complete';
 
 function Shell({
   title,
@@ -567,6 +552,12 @@ export function ClientMenu({
     ? [
         { label: 'Update Bookkeeping Status', icon: Warning, onSelect: () => setDialog('status') },
         { label: 'Assign/Reassign Staff', icon: UserSwitch, onSelect: () => setDialog('assign') },
+        // BK-RPT: record an approved report delivered (the next report date follows the cadence).
+        {
+          label: 'Mark Report Complete',
+          icon: CheckCircle,
+          onSelect: () => setDialog('complete'),
+        },
         {
           label: 'Manage Accounting Connection',
           icon: Plugs,
@@ -632,6 +623,15 @@ export function ClientMenu({
         />
       ) : null}
       {dialog === 'sync' ? <SyncDialog row={row} onClose={close} /> : null}
+      {dialog === 'complete' ? (
+        <CompleteReportDialog
+          bookkeepingClientId={row.id}
+          engagementId={row.engagementId}
+          clientName={row.client.displayName}
+          onClose={close}
+          onNotice={onNotice}
+        />
+      ) : null}
       {dialog === 'pause' ? (
         <ReasonDialog
           title="Pause Bookkeeping Service"
