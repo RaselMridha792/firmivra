@@ -140,7 +140,17 @@ export const ReportFilters = z.strictObject({
 });
 export type ReportFilters = z.input<typeof ReportFilters>;
 
-export const ReportChartType = z.enum(['AUTO', 'BAR', 'LINE', 'AREA', 'PIE', 'DONUT']);
+/** How a report shows (RP-F18 adds Table Only and KPI Only; the database already takes both). */
+export const ReportChartType = z.enum([
+  'AUTO',
+  'BAR',
+  'LINE',
+  'AREA',
+  'PIE',
+  'DONUT',
+  'TABLE',
+  'KPI',
+]);
 export type ReportChartType = z.infer<typeof ReportChartType>;
 
 /** The detail view's quick filters (Client Type, Service Type), on top of the definition's filters. */

@@ -3,7 +3,7 @@
 import type { ComplianceDeadline, DeadlineSource, DeadlineType } from '@firmivra/types';
 import { COMPLIANCE_STATES } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Radio, Textarea, Toast, Toggle } from '@firmivra/ui';
-import { ArrowLeft, Bank, CalendarPlus, CloudArrowUp, Plus, X } from '@phosphor-icons/react';
+import { ArrowLeft, Bank, CalendarPlus, Plus, X } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -35,6 +35,7 @@ import {
   remindersToDrafts,
 } from './deadline-dialogs';
 import { ComplianceHelp } from './compliance-help';
+import { DeadlineAttachments } from './deadline-attachments';
 
 const ENTITY_TYPES = [
   'Sole Proprietor',
@@ -964,11 +965,18 @@ function DeadlineForm({
             </Section>
 
             <Section step={3} title="Attachments (Optional)" testId="sec-attachments">
-              <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border bg-canvas p-5 text-center text-sm text-muted">
-                <CloudArrowUp aria-hidden weight="regular" className="size-8 text-action" />
-                <p>Uploading files here is not connected yet.</p>
-                <p>Add a document the client already has under Related Items.</p>
-              </div>
+              <DeadlineAttachments
+                clientId={f.clientId}
+                engagements={engagements.data ?? []}
+                defaultServiceId={f.engagementId}
+                onAdded={(doc) =>
+                  setF((cur) =>
+                    cur.documents.some((x) => x.id === doc.id)
+                      ? cur
+                      : { ...cur, documents: [...cur.documents, doc] },
+                  )
+                }
+              />
             </Section>
 
             <Section
