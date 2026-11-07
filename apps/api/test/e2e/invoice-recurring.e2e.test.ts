@@ -4,7 +4,10 @@
 // draft ends it. Custom is every 1 to 52 weeks, months or years. Synthetic data only.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recurringPeriodOn } from '@firmivra/types';
+import { InvoiceJobs } from '../../src/payments/invoices/invoice-jobs.js';
 import { codeOf, expectOk, Invoice, nyDay, startInvoiceApp } from './invoice-setup.js';
+
+const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
 beforeAll(async () => {
@@ -275,5 +278,111 @@ describe('managing a recurring invoice (IP-F18, Octavia Oct 27)', () => {
       expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
     }
     expect(expectOk(await one(id)).body).toMatchObject({ status: 'ACTIVE' });
+  });
+});
+
+describe('making the invoices of a recurring schedule (IP-F18, part 2)', () => {
+  /** A started schedule whose next send day is today (it began 21 days ago, every 3 weeks). */
+  const dueToday = async (extra: object = {}) => {
+    const d = await create(extra);
+    const sent = Invoice.parse(
+      expectOk(await t.firm('post', `/${d.id}/send`, t.people.ownerA, {})).body,
+    );
+    const id = sent.recurring!.id;
+    // As if the first invoice went out 21 days ago.
+    await t.inScope(t.ids.firmA, async (tx) => {
+      await tx.invoice.update({
+        where: { businessId_id: { businessId: t.ids.firmA, id: sent.id } },
+        data: { recurringPeriodOn: new Date(`${nyDay(-21)}T00:00:00Z`) },
+      });
+      await tx.recurringInvoice.update({
+        where: { businessId_id: { businessId: t.ids.firmA, id } },
+        data: {
+          startOn: new Date(`${nyDay(-21)}T00:00:00Z`),
+          nextSendOn: new Date(`${nyDay(0)}T00:00:00Z`),
+        },
+      });
+    });
+    return id;
+  };
+  const made = (id: string) =>
+    t.inScope(t.ids.firmA, (tx) =>
+      tx.invoice.findMany({
+        where: { businessId: t.ids.firmA, recurringInvoiceId: id },
+        orderBy: { recurringPeriodOn: 'asc' },
+        include: { lines: { orderBy: { sortOrder: 'asc' } } },
+      }),
+    );
+  // Another test file may hold the job's lock for a moment: try until a run is not skipped.
+  const run = async () => {
+    for (let i = 0; i < 50; i += 1) {
+      const r = await t.app.get(InvoiceJobs).run({ businessIds: [t.ids.firmA] });
+      if (!r.skipped) return r;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error('the invoice job stayed locked');
+  };
+  const chargesEnabled = (on: boolean) =>
+    t.inScope(t.ids.firmA, (tx) =>
+      tx.stripeAccount.update({
+        where: { businessId: t.ids.firmA },
+        data: { chargesEnabled: on, onboardingStatus: on ? 'COMPLETE' : 'RESTRICTED' },
+      }),
+    );
+
+  it('the daily run makes the due period once, as a draft for review, and moves the schedule on', async () => {
+    const id = await dueToday();
+    await run();
+    await run();
+    const invoices = await made(id);
+    expect(invoices).toHaveLength(2);
+    const next = invoices.find((i) => day(i.recurringPeriodOn) === nyDay(0))!;
+    expect(next).toMatchObject({ status: 'DRAFT', clientId: t.ids.one, totalCents: 45_000 });
+    expect(next.lines.map((l) => [l.description, Number(l.quantity), l.unitAmountCents])).toEqual([
+      ['Monthly bookkeeping (fake)', 1, 35_000],
+      ['Payroll filings (fake)', 2, 5_000],
+    ]);
+    expect((await schedule(id)).nextSendOn?.toISOString().slice(0, 10)).toBe(nyDay(21));
+    expect((await schedule(id)).occurrences).toBe(2);
+    expect((await audits(id)).map((a) => a.action)).toContain('recurring_invoice.invoice_made');
+  });
+
+  it('with Auto-send it opens and goes to the client, never while the firm cannot take payments', async () => {
+    const id = await dueToday();
+    expectOk(await t.firm('patch', `/recurring/${id}`, t.people.ownerA, { autoSend: true }));
+    await chargesEnabled(false);
+    try {
+      await run();
+    } finally {
+      await chargesEnabled(true);
+    }
+    const held = (await made(id)).find((i) => day(i.recurringPeriodOn) === nyDay(0))!;
+    expect(held.status).toBe('DRAFT');
+    expect(JSON.stringify((await audits(id)).map((x) => x.action))).toContain('invoice_made');
+    // Another schedule, with payments ready: its invoice opens by itself.
+    const ready = await dueToday();
+    expectOk(await t.firm('patch', `/recurring/${ready}`, t.people.ownerA, { autoSend: true }));
+    await run();
+    const opened = (await made(ready)).find((i) => day(i.recurringPeriodOn) === nyDay(0))!;
+    expect(opened.status).toBe('OPEN');
+  });
+
+  it('Send Now makes and sends the next one now; Staff may not; a paused one cannot', async () => {
+    const d = await create();
+    const sent = Invoice.parse(
+      expectOk(await t.firm('post', `/${d.id}/send`, t.people.ownerA, {})).body,
+    );
+    const id = sent.recurring!.id;
+    expect((await t.firm('post', `/recurring/${id}/send-now`, t.people.staffA, {})).status).toBe(
+      403,
+    );
+    const after = expectOk(await t.firm('post', `/recurring/${id}/send-now`, t.people.ownerA, {}))
+      .body as { occurrences: number; nextSendOn: string; invoices: { periodOn: string }[] };
+    expect(after).toMatchObject({ occurrences: 2, nextSendOn: nyDay(42) });
+    expect(after.invoices.map((i) => i.periodOn)).toEqual([nyDay(21), nyDay(0)]);
+    expect((await made(id)).map((i) => i.status)).toEqual(['OPEN', 'OPEN']);
+    expectOk(await t.firm('post', `/recurring/${id}/pause`, t.people.ownerA, {}));
+    const paused = await t.firm('post', `/recurring/${id}/send-now`, t.people.ownerA, {});
+    expect([paused.status, codeOf(paused)]).toEqual([409, 'RECURRING_STATE']);
   });
 });

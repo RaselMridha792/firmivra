@@ -170,6 +170,11 @@ export const cases: CaseModule['cases'] = {
     body: {},
     expect: 409,
   },
+  // Makes the next period's invoice now and sends it.
+  'POST /api/v1/business/invoices/recurring/:id/send-now': {
+    params: { id: 'recurringInvoice' },
+    body: {},
+  },
   'POST /api/v1/business/invoices/recurring/:id/end': {
     params: { id: 'recurringInvoice' },
     body: {},
