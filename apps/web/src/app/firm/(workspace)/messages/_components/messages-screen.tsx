@@ -39,6 +39,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
+import { RecentActivity } from './recent-activity';
 import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
 import {
   activeFilters,
@@ -427,6 +428,7 @@ export function MessagesScreen({
             thread={current}
             onChanged={refresh}
             onNotice={(text, tone) => setMessage({ text, tone })}
+            onOpenThread={(id) => update({ thread: id })}
           />
         ) : (
           <aside className={card} aria-label="Client" />
@@ -867,10 +869,12 @@ function ContactPanel({
   thread,
   onChanged,
   onNotice,
+  onOpenThread,
 }: {
   thread: MessageThread;
   onChanged: () => void;
   onNotice: (text: string, tone: 'success' | 'error') => void;
+  onOpenThread: (threadId: string) => void;
 }) {
   const clientId = thread.client.id;
   const name = thread.client.displayName;
@@ -1020,6 +1024,8 @@ function ContactPanel({
           </p>
         ) : null}
       </section>
+      {/* MSG-F18: the client's latest records, before Notes as in the design. */}
+      <RecentActivity threadId={thread.id} onOpenThread={onOpenThread} />
       {editTags ? (
         <ClientTagsDialog
           clientId={clientId}

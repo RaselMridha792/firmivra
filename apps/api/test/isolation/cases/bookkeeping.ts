@@ -485,6 +485,12 @@ export const cases: CaseModule['cases'] = {
     body: { reportType: 'BALANCE_SHEET', periodLabel: 'Fake 2035 period' },
   },
   [`GET ${BASE}/reports/:id`]: { params: reportId },
+  // BK-RPT part 1: the figures, versions and a version's CSV (none generated yet: 404).
+  [`GET ${BASE}/reports/:id/preview`]: { params: reportId },
+  // Found, but the record has no period to cover.
+  [`POST ${BASE}/reports/:id/generate`]: { params: reportId, body: {}, expect: 409 },
+  [`GET ${BASE}/reports/:id/versions`]: { params: reportId },
+  [`GET ${BASE}/reports/:id/versions/:version/csv`]: { params: reportId, expect: 404 },
   [`PATCH ${BASE}/reports/:id`]: { params: reportId, body: { basis: 'CASH' } },
   [`POST ${BASE}/reports/:id/start`]: { params: reportId },
   [`POST ${BASE}/reports/:id/submit-review`]: { params: { id: 'bookkeepingReportStarted' } },

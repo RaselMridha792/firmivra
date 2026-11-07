@@ -1,6 +1,8 @@
 import {
   type BookkeepingTransactionRow,
   ListBookkeepingTransactionsQuery,
+  type BookkeepingReportFigures,
+  type BookkeepingReportVersionRow,
   AttachBookkeepingReceiptRequest,
   BulkBookkeepingTransactionsRequest,
   CategorizeBookkeepingTransactionRequest,
@@ -239,6 +241,79 @@ function ledgerOf(c: {
     ledgers.set(c.id, rows);
   }
   return rows;
+}
+
+/** BK-RPT part 1: the mock's period for every report's figures. */
+const MOCK_REPORT_PERIOD = { start: '2026-10-01', end: '2026-10-31' };
+let reportVersionStore: Map<string, BookkeepingReportVersionRow[]> | undefined;
+/** The report versions generated in the page, made on first use. */
+const reportVersions = () => (reportVersionStore ??= new Map());
+/** Synthetic figures for the four types part 1 covers; null for the rest. */
+function mockFigures(type: string): BookkeepingReportFigures | null {
+  const base = { basis: 'CASH' as const, basisNote: null, lineCount: 12 };
+  if (type === 'PROFIT_LOSS') {
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Income',
+          rows: [{ label: 'Sales', amountCents: 1_250_000 }],
+          totalCents: 1_250_000,
+        },
+        { title: 'Cost of Goods Sold', rows: [], totalCents: 0 },
+        {
+          title: 'Expenses',
+          rows: [
+            { label: 'Office Supplies', amountCents: 42_000 },
+            { label: 'Rent', amountCents: 300_000 },
+          ],
+          totalCents: 342_000,
+        },
+      ],
+      totals: {
+        incomeCents: 1_250_000,
+        costOfGoodsCents: 0,
+        expensesCents: 342_000,
+        netIncomeCents: 908_000,
+      },
+    };
+  }
+  if (type === 'TRIAL_BALANCE') {
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Trial Balance',
+          rows: [
+            { label: 'Operating Checking', debitCents: 1_250_000, creditCents: 342_000 },
+            { label: 'Rent', debitCents: 300_000, creditCents: 0 },
+            { label: 'Office Supplies', debitCents: 42_000, creditCents: 0 },
+            { label: 'Sales', debitCents: 0, creditCents: 1_250_000 },
+          ],
+          totalCents: 0,
+        },
+      ],
+      totals: { debitsCents: 1_592_000, creditsCents: 1_592_000 },
+    };
+  }
+  if (type === 'TRANSACTION_DETAIL' || type === 'UNCATEGORIZED') {
+    return {
+      ...base,
+      type,
+      lineCount: type === 'UNCATEGORIZED' ? 2 : 12,
+      sections: [
+        {
+          title: type === 'UNCATEGORIZED' ? 'Uncategorized' : 'By category',
+          rows: [{ label: 'Uncategorized', amountCents: -18_500, count: 2 }],
+          totalCents: -18_500,
+        },
+      ],
+      totals: { netCents: -18_500, inCents: 0, outCents: 18_500 },
+    };
+  }
+  return null;
 }
 
 /** BK-T01: a category of the mock ledger by id (404 for any other). */
@@ -2004,6 +2079,50 @@ export function createBookkeepingMock({
         return r;
       }),
     getReport: (rid) => run(() => findReport(rid)),
+    // BK-RPT part 1: synthetic figures for the four report types (the API works them out from
+    // the ledger); versions kept in the page.
+    reportPreview: (rid) =>
+      run(() => {
+        const r = findReport(rid);
+        const figures = mockFigures(r.reportType);
+        return figures
+          ? { supported: true, reason: null, period: MOCK_REPORT_PERIOD, figures }
+          : {
+              supported: false,
+              reason:
+                'Figures for this report type are not worked out yet: Profit & Loss, Trial Balance, Transaction Detail and Uncategorized are.',
+              period: MOCK_REPORT_PERIOD,
+              figures: null,
+            };
+      }),
+    generateReport: (rid) =>
+      run(() => {
+        const r = findReport(rid);
+        const figures = mockFigures(r.reportType);
+        if (!figures) {
+          throw fail(
+            409,
+            'REPORT_NOT_SUPPORTED',
+            'Figures for this report type are not worked out yet',
+          );
+        }
+        const list = reportVersions().get(rid) ?? [];
+        const v = {
+          version: list.length + 1,
+          generatedAt: new Date().toISOString(),
+          generatedBy: 'Mock User',
+          deliveryStatus: 'NOT_SENT' as const,
+          period: MOCK_REPORT_PERIOD,
+          figures,
+        };
+        reportVersions().set(rid, [v, ...list]);
+        return v;
+      }),
+    reportVersions: (rid) =>
+      run(() => {
+        findReport(rid);
+        return { items: reportVersions().get(rid) ?? [] };
+      }),
     updateReport: (rid, body) =>
       run(() => {
         const input = parseInput(UpdateBookkeepingReportRequest, body);

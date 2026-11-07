@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { useAct, type Notice } from './bookkeeping-actions';
+import { ReportFiguresDialog } from './report-figures-dialog';
 import { BK_KEY, dayText, quiet } from './bookkeeping-shared';
 
 /** Delivery links the published report the client sees (the workspace's reports). */
@@ -144,8 +145,11 @@ export function ReportMenu({
   canManage?: boolean;
 }) {
   const act = useAct(onNotice);
-  const [dialog, setDialog] = useState<'back' | 'deliver'>();
-  const items: ActionMenuItem[] = [];
+  const [dialog, setDialog] = useState<'back' | 'deliver' | 'figures'>();
+  // BK-RPT: every report shows its figures and versions.
+  const items: ActionMenuItem[] = [
+    { label: 'Figures & Versions', onSelect: () => setDialog('figures') },
+  ];
   if (row.status === 'NOT_STARTED')
     items.push({
       label: 'Start Report',
@@ -172,16 +176,13 @@ export function ReportMenu({
       icon: UploadSimple,
       onSelect: () => setDialog('deliver'),
     });
-  if (items.length === 0)
-    return (
-      <span className="text-xs text-muted">
-        {row.status === 'DELIVERED' && row.deliveredAt
-          ? `Delivered ${dayText(row.deliveredAt.slice(0, 10))}`
-          : '—'}
-      </span>
-    );
   return (
     <>
+      {row.status === 'DELIVERED' && row.deliveredAt ? (
+        <span className="mr-2 text-xs text-muted">
+          Delivered {dayText(row.deliveredAt.slice(0, 10))}
+        </span>
+      ) : null}
       <ActionMenu
         label={`Actions for ${row.name}`}
         trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
@@ -200,6 +201,9 @@ export function ReportMenu({
             ))
           }
         />
+      ) : null}
+      {dialog === 'figures' ? (
+        <ReportFiguresDialog row={row} onClose={() => setDialog(undefined)} />
       ) : null}
       {dialog === 'deliver' ? (
         <DeliverDialog

@@ -1,3 +1,4 @@
+import { MessagesActivityService } from './messages-activity.service.js';
 import { Module } from '@nestjs/common';
 import { poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
@@ -48,6 +49,7 @@ import { TemplatesModule } from '../templates/templates.module.js';
     MessageFilesController,
   ],
   providers: [
+    MessagesActivityService,
     MessagesService,
     NotesService,
     MessageNotices,

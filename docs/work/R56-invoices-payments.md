@@ -22,7 +22,7 @@ Rasel (Oct 28): R61 will not run; R56 takes the Invoices & Payments items of `do
 
 ## Needs from others
 
-- **Schema (Rasel, asked by the lead Nov 7), IP-F10:** invoice Archive and Delete have nowhere to be kept: `invoices` has no `archived_at` or deletion fields. Asked: `archived_at` (with who) for Archive, and a soft delete with retention (`deleted_at`, who, reason) for Delete, an elevated permission (Owner) with confirmation. Until they exist neither is in the row menu.
+- **Schema, IP-F10 (Rasel approved Nov 7):** `invoices.archived_at` only, never a hard delete; "Delete" on a never-sent draft archives it. R1 adds the column in its next small batch; after it merges R56 adds Archive (and Delete-as-archive for unsent drafts) to the row menu, an Archived filter, audit and a firm-B case.
 - **R60 (Create Invoice):** Edit and Create share `invoice-editor.tsx`. IP-F08: the API's `PUT /business/invoices/:id` now takes a SCHEDULED invoice too (it stays scheduled; its send day must stay after today, else 409 SCHEDULE_PASSED), but the editor still says "has been sent, so it can no longer be changed" for anything not DRAFT (`invoice-editor.tsx`, the `status !== 'DRAFT'` check): let it open SCHEDULED invoices, and the Invoices row menu will offer Edit Invoice for them. Dates alone are corrected in R56's Correct Dates dialog meanwhile.
 
 ## Answered without a build (Nov 7)

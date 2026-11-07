@@ -878,6 +878,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       date: { rule: 'ROLLING', preset: settings.defaultDatePreset },
       chartType: 'AUTO',
       showDataLabels: false,
+      showLegend: true,
       includeTaxRevenue: settings.includeTaxDefault,
     };
   };
@@ -902,6 +903,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
       date: d.date,
       chartType: d.chartType ?? 'AUTO',
       showDataLabels: d.showDataLabels ?? false,
+      showLegend: d.showLegend ?? true,
       includeTaxRevenue: d.includeTaxRevenue ?? false,
     };
   };
@@ -1639,6 +1641,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           ...t.d,
           chartType: input.chartType ?? t.d.chartType,
           showDataLabels: input.showDataLabels ?? t.d.showDataLabels,
+          showLegend: input.showLegend ?? t.d.showLegend,
         };
         return runDef(d, t.title, t.target, {
           ...(input.date ? { date: input.date as never } : {}),

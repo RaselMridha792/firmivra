@@ -104,6 +104,7 @@ const base = {
   compareTo: 'NONE' as ReportCompareTo,
   chartType: 'AUTO' as const,
   showDataLabels: false,
+  showLegend: true,
   includeTaxRevenue: false,
 };
 
@@ -297,6 +298,7 @@ export interface DefinitionRow {
   dateTo: Date | null;
   chartType: string;
   showDataLabels: boolean;
+  showLegend: boolean;
   includeTaxRevenue: boolean;
 }
 
@@ -337,6 +339,7 @@ export function toView(r: DefinitionRow): ReportDefinitionView {
         : { rule: 'ROLLING', preset: (r.datePreset ?? 'this_year') as ReportDatePreset },
     chartType: r.chartType.toUpperCase() as ReportDefinitionView['chartType'],
     showDataLabels: r.showDataLabels,
+    showLegend: r.showLegend,
     includeTaxRevenue: r.includeTaxRevenue,
   };
 }
@@ -362,6 +365,7 @@ export function toRow(d: ReportDefinitionView) {
     // The database has no pie chart: it is stored as a donut.
     chartType: d.chartType === 'PIE' ? 'donut' : d.chartType.toLowerCase(),
     showDataLabels: d.showDataLabels,
+    showLegend: d.showLegend,
     includeTaxRevenue: d.includeTaxRevenue,
   };
 }

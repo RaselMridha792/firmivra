@@ -127,3 +127,31 @@ test('Add Note opens in place, internal and on this service (BK-NAV)', async ({ 
   await expect(dialog).toBeHidden();
   expect(page.url()).toBe(url);
 });
+
+test('A report previews its figures, generates numbered versions and downloads one; other types say why not (BK-RPT part 1)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${app}/bookkeeping/reports`);
+  await page.getByRole('button', { name: 'Actions for Profit & Loss' }).first().click();
+  await page.getByRole('menuitem', { name: 'Figures & Versions' }).click();
+  const dialog = page.getByTestId('figures-dialog');
+  await expect(dialog.getByTestId('report-totals')).toHaveText('Net income $9,080.00');
+  await expect(dialog).toContainText('not stored until you generate');
+  await page.getByRole('dialog').getByRole('button', { name: 'Generate Version' }).click();
+  const versions = dialog.getByTestId('report-versions');
+  await expect(versions).toContainText('Version 1');
+  await expect(versions.getByRole('link', { name: 'Download CSV' })).toHaveAttribute(
+    'href',
+    /\/api\/v1\/business\/bookkeeping\/reports\/[0-9a-f-]{36}\/versions\/1\/csv$/,
+  );
+  await page.screenshot({ path: test.info().outputPath('report-figures.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('button', { name: 'Actions for Balance Sheet' }).first().click();
+  await page.getByRole('menuitem', { name: 'Figures & Versions' }).click();
+  await expect(dialog.getByTestId('figures-reason')).toContainText('not worked out yet');
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Generate Version' }),
+  ).toBeDisabled();
+});

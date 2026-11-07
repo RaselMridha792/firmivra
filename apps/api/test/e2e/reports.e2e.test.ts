@@ -1074,6 +1074,27 @@ describe('saved reports', () => {
   });
 });
 
+describe("the chart legend (RP-F18, saved since R1's show_legend)", () => {
+  it('is kept with a saved report, read back and changed; left out, the legend shows', async () => {
+    const saved = await saveReport({ definition: def({ showLegend: false }) });
+    expect(saved.definition.showLegend).toBe(false);
+    const read = SavedReportDetail.parse(
+      ok(await call('get', `/reports/saved/${saved.id}`, people.ownerA)),
+    );
+    expect(read.definition.showLegend).toBe(false);
+    const changed = SavedReportDetail.parse(
+      ok(
+        await call('patch', `/reports/saved/${saved.id}`, people.ownerA, {
+          etag: saved.etag,
+          definition: def({ showLegend: true }),
+        }),
+      ),
+    );
+    expect(changed.definition.showLegend).toBe(true);
+    expect((await saveReport()).definition.showLegend).toBe(true);
+  });
+});
+
 describe('exports', () => {
   it('lets a Manager export, whose grid gives Reports View and Export, until the firm takes Export away (SM6)', async () => {
     const exp = () =>
