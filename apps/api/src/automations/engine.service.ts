@@ -14,7 +14,7 @@ import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
 import { reassignClientTasks } from '../workspaces/tasks.service.js';
-import { actionOf } from './catalog.js';
+import { actionOf, RULE_CLIENT_PRIORITIES, RULE_CLIENT_STATUSES } from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
 import { fill, matches, viewOf } from './logic.js';
@@ -915,6 +915,96 @@ export class AutomationEngine {
               kind: 'client',
               id: clientId,
               detail: result === 0 ? 'Already assigned to them' : 'Client reassigned',
+            };
+          }
+          // AU-F27 Update allowed field (the lead, Nov 7): the client's status or priority, from a
+          // typed allowlist, written as Clients' update writes a change: the client's row locked, an
+          // archived client refused, a Staff owner only on the clients assigned to them. Never
+          // Inactive (it stays behind APPROVE). updated_by is the rule's owner, so the database
+          // records the status history under them; `client.updated` names the field with its old
+          // and new value. No change: no entry (so no status-change event).
+          case 'UPDATE_CLIENT_STATUS':
+          case 'UPDATE_CLIENT_PRIORITY': {
+            const isStatus = action.type === 'UPDATE_CLIENT_STATUS';
+            const raw = isStatus ? cfg.status : cfg.priority;
+            const allowed: readonly unknown[] = isStatus
+              ? RULE_CLIENT_STATUSES
+              : RULE_CLIENT_PRIORITIES;
+            const to =
+              !isStatus && raw === 'NONE'
+                ? null
+                : allowed.includes(raw)
+                  ? (raw as string)
+                  : undefined;
+            if (to === undefined)
+              return {
+                ok: false,
+                code: 'NOT_ALLOWED',
+                retryable: false,
+                detail: isStatus
+                  ? 'A rule sets only New, Pending documents, In progress, Active or On hold'
+                  : 'Choose a priority',
+              };
+            const field = isStatus ? 'status' : 'priority';
+            const clientId = run.clientId as string;
+            const result = await this.inFirm(businessId, async (tx) => {
+              const [current] = await tx.$queryRaw<
+                {
+                  status: string;
+                  priority: string | null;
+                  archived: boolean;
+                  assigned_user_id: string | null;
+                }[]
+              >`
+                SELECT status::text AS status, priority::text AS priority,
+                       archived_at IS NOT NULL AS archived,
+                       assigned_user_id::text AS assigned_user_id
+                FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
+                FOR NO KEY UPDATE`;
+              if (!current || current.archived) return 'CLIENT_UNAVAILABLE' as const;
+              if (actor.role === 'STAFF' && current.assigned_user_id !== actor.userId)
+                return 'NOT_PERMITTED' as const;
+              const from = isStatus ? current.status : current.priority;
+              if (from === to) return 0;
+              await tx.client.update({
+                where: { businessId_id: { businessId, id: clientId } },
+                data: isStatus
+                  ? { status: to as never, updatedByUserId: actor.userId }
+                  : { priority: to as never, updatedByUserId: actor.userId },
+              });
+              await this.audit.logIn(
+                tx,
+                'client.updated',
+                { type: 'client', id: clientId },
+                { fields: [field], from, to },
+                { businessId, actorUserId: actor.userId },
+              );
+              return 1;
+            });
+            if (result === 'CLIENT_UNAVAILABLE')
+              return {
+                ok: false,
+                code: 'CLIENT_UNAVAILABLE',
+                retryable: false,
+                detail: 'The client is archived or no longer exists',
+              };
+            if (result === 'NOT_PERMITTED')
+              return {
+                ok: false,
+                code: 'NOT_PERMITTED',
+                retryable: false,
+                detail: 'A Staff owner changes only the clients assigned to them',
+              };
+            return {
+              ok: true,
+              kind: 'client',
+              id: clientId,
+              detail:
+                result === 0
+                  ? `The ${field} was already that`
+                  : isStatus
+                    ? 'Client status updated'
+                    : 'Client priority updated',
             };
           }
           case 'ADD_CLIENT_NOTE': {
