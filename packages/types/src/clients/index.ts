@@ -1,4 +1,5 @@
 export * from './schemas.js';
+export * from './timeline.js';
 export {
   createClientsClient,
   createMyProfileClient,

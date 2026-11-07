@@ -130,6 +130,8 @@ export const OutboundMessage = z.object({
   related: OutboundRelated.nullable(),
   /** MSG-F16: who owns the conversations it opens. */
   assignedTo: z.object({ userId: z.uuid(), name: z.string() }).nullable(),
+  /** MSG-F16: added to each client's timeline once sent. */
+  addToTimeline: z.boolean(),
   /** Only while SCHEDULED. */
   scheduledFor: DateTime.nullable(),
   /** The firm's time zone: a schedule is picked and shown in it. */
@@ -198,6 +200,11 @@ const SaveShape = {
    * the Staff role only for their own clients (400 ASSIGNEE_CANNOT_REACH).
    */
   assignedUserId: z.uuid().nullable().optional(),
+  /**
+   * MSG-F16: once sent, one entry on each client's own timeline (the subject, the channel and the
+   * day; never the body or file names). Left out: not added.
+   */
+  addToTimeline: z.boolean().optional(),
   ...People,
 };
 const saveRules = <

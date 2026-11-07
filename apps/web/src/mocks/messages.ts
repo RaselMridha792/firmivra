@@ -75,6 +75,7 @@ import { createLeadPipelineMock } from './leads-pipeline';
 import { documentFixtures } from './documents';
 import { invoiceFixtures } from './invoices';
 import { BOOKKEEPING_ENGAGEMENT, taskFixtures } from './tasks';
+import { addTimelineEntry } from './client-timeline';
 import { teamFixtures } from './team';
 
 /**
@@ -465,6 +466,8 @@ interface OutboundRow {
   /** MSG-F13, F16: the record it is about and who owns the conversations. */
   related: OutboundRelated | null;
   assignedUserId: string | null;
+  /** MSG-F16: added to each client's timeline once sent. */
+  addToTimeline: boolean;
   /** MSG-F12: its files (clean at once in mock mode). */
   files: OutboundFile[];
   /** After the send: what happened to each person. */
@@ -637,6 +640,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
         assigneesOf()
           .filter((m) => m.userId === r.assignedUserId)
           .map((m) => ({ userId: m.userId, name: m.name }))[0] ?? null,
+      addToTimeline: r.addToTimeline,
       scheduledFor: r.status === 'SCHEDULED' ? r.scheduledFor : null,
       timezone: 'America/New_York',
       recipients,
@@ -654,6 +658,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
   const extrasOf = (b: {
     related?: { type: OutboundRelated['type']; id: string } | null;
     assignedUserId?: string | null;
+    addToTimeline?: boolean;
     clientIds: string[];
     leadIds: string[];
   }) => {
@@ -680,7 +685,11 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           'This staff member does not work with everyone you chose',
         );
     }
-    return { related, assignedUserId: b.assignedUserId ?? null };
+    return {
+      related,
+      assignedUserId: b.assignedUserId ?? null,
+      addToTimeline: b.addToTimeline ?? false,
+    };
   };
   const find = (id: string) => {
     const r = outboundRows.find(
@@ -746,6 +755,7 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     templateId?: string | null;
     related?: { type: OutboundRelated['type']; id: string } | null;
     assignedUserId?: string | null;
+    addToTimeline?: boolean;
     clientIds: string[];
     leadIds: string[];
   }): Promise<OutboundRow> => {
@@ -955,6 +965,23 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
           threadId = leadCopy(p, r.subject, fillFor(p, r.body).text, r.channel, staff(me));
         }
         r.results.set(p.id, { status: 'SENT', reason: null, threadId });
+        // MSG-F16: the client's own timeline, never the body or file names.
+        if (r.addToTimeline && p.kind === 'CLIENT') {
+          const title = { PORTAL: 'Portal message', EMAIL: 'Email', SMS: 'Text message' };
+          const how = { PORTAL: 'through the client portal', EMAIL: 'by email', SMS: 'by text' };
+          addTimelineEntry(p.id, {
+            id: id('0199b6e7', next()),
+            kind: r.channel === 'PORTAL' ? 'MESSAGE' : r.channel,
+            title: r.subject?.trim() || title[r.channel],
+            summary: `Sent ${how[r.channel]} by ${me.name}`,
+            occurredAt: now(),
+            href:
+              threadId && r.channel === 'PORTAL'
+                ? `/messages?thread=${threadId}`
+                : `/messages/new?id=${r.id}`,
+            createdBy: { userId: me.userId, name: me.name },
+          });
+        }
       }
       r.status = 'SENT';
       r.completedAt = now();

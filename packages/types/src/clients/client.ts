@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
 import { ClientTags, SetClientTagsRequest } from '../tags/schemas.js';
+import { ClientTimelinePage, ClientTimelineQuery } from './timeline.js';
 import {
   BulkClientsRequest,
   BulkClientsResponse,
@@ -60,6 +61,12 @@ export function createClientsClient(request: ApiRequest) {
     get: async (id: string): Promise<ClientRecord> => request(ClientRecord, clientPath(id)),
     /** The client's tags (tags/schemas.ts), by name. */
     tags: async (id: string): Promise<ClientTags> => request(ClientTags, `${clientPath(id)}/tags`),
+    /** MSG-F16: the client's Activity timeline, newest first. */
+    timeline: async (id: string, query: ClientTimelineQuery = {}): Promise<ClientTimelinePage> =>
+      request(
+        ClientTimelinePage,
+        `${clientPath(id)}/timeline${toQuery(parseInput(ClientTimelineQuery, query))}`,
+      ),
     /** Replace the client's tags. 400 UNKNOWN_TAG: a new name, for a member other than Owner or Admin. */
     setTags: async (id: string, body: SetClientTagsRequest): Promise<ClientTags> =>
       request(ClientTags, `${clientPath(id)}/tags`, {
