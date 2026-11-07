@@ -153,6 +153,10 @@ export const AutomationActionField = z.object({
     'DOCUMENT_CATEGORY',
     /** One of the firm's intake forms with a published version, by id (GET /business/intake-forms). */
     'INTAKE_FORM',
+    /** One of the firm's live task templates, by id (its choices come with the firm's catalog). */
+    'TASK_TEMPLATE',
+    /** One of the firm's live services, by id (its choices come with the firm's catalog). */
+    'SERVICE',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),

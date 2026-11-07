@@ -137,6 +137,8 @@ export function structureProblems(def: Def): Detail[] {
         case 'MEMBER':
         case 'DOCUMENT_CATEGORY':
         case 'INTAKE_FORM':
+        case 'TASK_TEMPLATE':
+        case 'SERVICE':
           if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) add(path, 'Choose one');
           break;
         case 'TAGS':
@@ -502,6 +504,8 @@ export function produces(actions: { type: string; config: Record<string, unknown
     if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
       out.add('client.tags_changed');
     if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
+    // A new deadline is one approaching.
+    if (a.type === 'CREATE_DEADLINE') out.add('deadline.approaching');
     // A follow-up set is one coming due.
     if (a.type === 'SCHEDULE_LEAD_FOLLOW_UP') out.add('lead.follow_up_due');
     // A status set by a rule is a status change (a priority has no event).
@@ -584,6 +588,8 @@ export function forTemplate(def: Def): Def {
         f?.type === 'TAGS' ||
         f?.type === 'DOCUMENT_CATEGORY' ||
         f?.type === 'INTAKE_FORM' ||
+        f?.type === 'TASK_TEMPLATE' ||
+        f?.type === 'SERVICE' ||
         f?.type === 'MEMBERS'
       )
         continue;
