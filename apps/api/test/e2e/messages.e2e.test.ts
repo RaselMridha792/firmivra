@@ -503,6 +503,22 @@ describe('notices', () => {
       expectOk(await firm('get', `/message-threads/${t.id}`, people.adminA)).body,
     );
     expect(detail.messages.map((m) => m.body)).toEqual(['Hello', 'Reply']);
+    // No bell item for the muted member either (the Notifier's excludeUserIds); the rest get one.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      expect(to.has(people.adminA.id)).toBe(false);
+      expect(to.has(people.ownerA.id)).toBe(true);
+      expect(to.has(people.staffA.id)).toBe(true);
+    } finally {
+      await owner.$disconnect();
+    }
     // Unmuted, the next run of unread messages reaches them again.
     expectOk(await firm('delete', `/message-threads/${t.id}/mute`, people.adminA, {}));
     expectOk(await firm('post', `/message-threads/${t.id}/read`, people.ownerA, {}));
