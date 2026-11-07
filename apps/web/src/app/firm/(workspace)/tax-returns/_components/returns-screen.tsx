@@ -165,12 +165,15 @@ function trendOf(
 export function ReturnsScreen({
   initialStatus = '',
   accepted: acceptedFromUrl = { from: '', to: '' },
+  serviceId: serviceFromUrl = '',
   fromDashboard = false,
 }: {
   /** A workflow status, or IN_PROGRESS for the five in-progress ones (the dashboard's K4). */
   initialStatus?: string;
   /** Accepted between these days (the dashboard's Accepted Returns, K5). */
   accepted?: { from: string; to: string };
+  /** One tax service's returns (D4, a dashboard service card). */
+  serviceId?: string;
   fromDashboard?: boolean;
 } = {}) {
   const manager = useManager();
@@ -181,6 +184,7 @@ export function ReturnsScreen({
   const [clientType, setClientType] = useState('');
   const [status, setStatus] = useState(initialStatus);
   const [accepted, setAccepted] = useState(acceptedFromUrl);
+  const [serviceId, setServiceId] = useState(serviceFromUrl);
   const [assigned, setAssigned] = useState('');
   const [search, setSearch] = useState('');
   const [more, setMore] = useState(false);
@@ -208,6 +212,7 @@ export function ReturnsScreen({
         : {}),
     ...(accepted.from ? { acceptedFrom: accepted.from } : {}),
     ...(accepted.to ? { acceptedTo: accepted.to } : {}),
+    ...(serviceId ? { serviceId } : {}),
     ...(assigned ? { assignedUserId: assigned } : {}),
     ...(range.from ? { updatedFrom: range.from } : {}),
     ...(range.to ? { updatedTo: range.to } : {}),
@@ -226,6 +231,7 @@ export function ReturnsScreen({
   const s = summary.data;
   const rows = list.data?.items ?? [];
   const filtered = !!(
+    serviceId ||
     year ||
     formType ||
     clientType ||
@@ -391,6 +397,23 @@ export function ReturnsScreen({
             }}
           >
             Clear
+          </Button>
+        </div>
+      ) : null}
+      {serviceId ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="service-filter">
+          <span className="text-muted">
+            One tax service&apos;s returns, as its dashboard card counts them
+          </span>
+          <Button
+            variant="ghost"
+            aria-label="Show every service's returns"
+            onClick={() => {
+              setServiceId('');
+              setPage(1);
+            }}
+          >
+            Show all
           </Button>
         </div>
       ) : null}

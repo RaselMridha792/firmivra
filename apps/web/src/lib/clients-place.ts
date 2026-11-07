@@ -12,12 +12,20 @@ export interface ClientsPlace {
   to: string;
   records: 'active' | 'archived' | 'all';
   owes: '' | 'DOCUMENTS' | 'BALANCE';
+  /**
+   * With `serviceId` (D4, a dashboard service card): clients with an engagement of that service in
+   * this status, and completed on these days. '' is "any open one", as the service tab.
+   */
+  engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  completedFrom: string;
+  completedTo: string;
   page: number;
   limit: number;
 }
 
 export const CLIENT_PAGE_SIZES = [8, 25, 50, 100];
 const STAGES = ['NEW', 'PENDING_DOCUMENTS', 'IN_PROGRESS', 'ACTIVE', 'ON_HOLD', 'INACTIVE'];
+const ENGAGEMENT_STATUSES = ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -37,15 +45,23 @@ export function clientsPlaceFrom(params: Record<string, Param>): ClientsPlace {
   const owes = one(params['owes']);
   const page = Number(one(params['page']));
   const limit = Number(one(params['limit']));
+  const serviceId = pick('service', (v) => UUID.test(v));
+  // The engagement filters go with a service only.
+  const withService = (key: string, ok: (v: string) => boolean) => (serviceId ? pick(key, ok) : '');
   return {
     search: one(params['search']).slice(0, 100),
-    serviceId: pick('service', (v) => UUID.test(v)),
+    serviceId,
     clientStatus: pick('stage', (v) => STAGES.includes(v)),
     assignedUserId: pick('staff', (v) => UUID.test(v)),
     from: pick('from', (v) => DAY.test(v)),
     to: pick('to', (v) => DAY.test(v)),
     records: records === 'archived' || records === 'all' ? records : 'active',
     owes: owes === 'DOCUMENTS' || owes === 'BALANCE' ? owes : '',
+    engagementStatus: withService('engagement', (v) =>
+      ENGAGEMENT_STATUSES.includes(v),
+    ) as ClientsPlace['engagementStatus'],
+    completedFrom: withService('completedFrom', (v) => DAY.test(v)),
+    completedTo: withService('completedTo', (v) => DAY.test(v)),
     page: Number.isInteger(page) && page > 1 && page <= 10_000 ? page : 1,
     limit: CLIENT_PAGE_SIZES.includes(limit) ? limit : (CLIENT_PAGE_SIZES[0] ?? 8),
   };
@@ -63,6 +79,9 @@ export function clientsPlaceQuery(place: ClientsPlace): string {
   set('to', place.to);
   if (place.records !== 'active') q.set('records', place.records);
   set('owes', place.owes);
+  set('engagement', place.engagementStatus);
+  set('completedFrom', place.completedFrom);
+  set('completedTo', place.completedTo);
   if (place.page > 1) q.set('page', String(place.page));
   if (place.limit !== CLIENT_PAGE_SIZES[0]) q.set('limit', String(place.limit));
   return q.toString();

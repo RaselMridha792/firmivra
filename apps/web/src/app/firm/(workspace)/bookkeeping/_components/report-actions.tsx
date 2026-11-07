@@ -13,9 +13,87 @@ import {
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { useAct, type Notice } from './bookkeeping-actions';
+import { type Notice, useAct } from './use-act';
 import { ReportFiguresDialog } from './report-figures-dialog';
 import { BK_KEY, dayText, quiet } from './bookkeeping-shared';
+
+/**
+ * BK-RPT, Mark Report Complete from the client list: one of the client's approved reports, then
+ * its delivery (the published report the client sees). Approval already waited for the period's
+ * reconciliations; delivery waits for the close's approval too.
+ */
+export function CompleteReportDialog({
+  bookkeepingClientId,
+  engagementId,
+  clientName,
+  onClose,
+  onNotice,
+}: {
+  bookkeepingClientId: string;
+  engagementId: string;
+  clientName: string;
+  onClose: () => void;
+  onNotice: Notice;
+}) {
+  const approved = useApiQuery([...BK_KEY, 'approved-reports', bookkeepingClientId], () =>
+    api.bookkeeping.clientReports(bookkeepingClientId, { status: 'APPROVED', pageSize: 50 }),
+  );
+  const [pick, setPick] = useState('');
+  const [chosen, setChosen] = useState<BookkeepingReportRow>();
+  if (chosen)
+    return (
+      <DeliverDialog
+        row={chosen}
+        engagementId={engagementId}
+        onClose={onClose}
+        onNotice={onNotice}
+      />
+    );
+  const items = approved.data?.items ?? [];
+  return (
+    <Modal
+      open
+      title="Mark Report Complete"
+      subtitle={clientName}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!pick} onClick={() => setChosen(items.find((r) => r.id === pick))}>
+            Continue
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="complete-report-dialog">
+        <p className="text-sm text-text">
+          Completing a report delivers it to the client and records who delivered it and when; the
+          next report date then follows the client&apos;s cadence. Only an approved report can be
+          completed, and a report of a period waits for the period&apos;s reconciliations and close.
+        </p>
+        {items.length === 0 ? (
+          <p className={quiet}>
+            {approved.isPending
+              ? 'Loading…'
+              : 'No approved report for this client yet. Send one for review and approve it in Reports first.'}
+          </p>
+        ) : (
+          <Select
+            label="Approved report"
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+            options={[
+              { value: '', label: 'Choose…' },
+              ...items.map((r) => ({ value: r.id, label: `${r.name} · ${r.periodLabel}` })),
+            ]}
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 /** Delivery links the published report the client sees (the workspace's reports). */
 function DeliverDialog({

@@ -1,8 +1,15 @@
 'use client';
 
 import { Skeleton } from '@firmivra/ui';
-import type { DashboardKpi, DashboardRange, DashboardSummary } from '@firmivra/types';
 import {
+  DEFAULT_DASHBOARD_CARDS,
+  type DashboardKpi,
+  type DashboardRange,
+  type DashboardServiceCard,
+  type DashboardSummary,
+} from '@firmivra/types';
+import {
+  Briefcase,
   CalendarDots,
   CheckCircle,
   CurrencyDollar,
@@ -96,12 +103,16 @@ export function Trend({
 /** The global period's days (C1): the span the periodic cards count and their lists filter by. */
 type Span = { from: string; to: string } | null;
 
+type FixedKey = 'totalClients' | 'newLeads' | 'outstandingInvoicesCents' | 'appointmentsToday';
+
 /**
- * The six cards and where each opens (Octavia's K3 to K7): the list filtered to exactly the records
- * the card counts, with Back to Dashboard. `span` is null until the summary gives the period.
+ * The fixed cards and where each opens (Octavia's K3 to K7, D5): the list filtered to exactly the
+ * records the card counts, with Back to Dashboard. `span` is null until the summary gives the
+ * period. The firm's service cards (D4) sit between New Leads and Outstanding Invoices, where the
+ * design draws Returns In Progress and Accepted Returns, its defaults.
  */
 const CARDS: {
-  key: keyof DashboardSummary['kpis'];
+  key: FixedKey;
   label: string;
   icon: Icon;
   tone: Tone;
@@ -131,27 +142,6 @@ const CARDS: {
     periodic: true,
   },
   {
-    key: 'returnsInProgress',
-    label: 'Returns In Progress',
-    icon: FileText,
-    tone: 'purple',
-    // In Preparation, Waiting on Client and Ready for Review/Signature/File.
-    href: () => `/tax-returns?status=IN_PROGRESS&${FROM_DASHBOARD}`,
-    favour: 'neutral',
-    periodic: true,
-  },
-  {
-    key: 'acceptedReturns',
-    label: 'Accepted Returns',
-    icon: CheckCircle,
-    tone: 'green',
-    // Accepted only (not Transmitted, not Rejected), accepted in the period.
-    href: (s) =>
-      `/tax-returns?status=ACCEPTED${s ? `&acceptedFrom=${s.from}&acceptedTo=${s.to}` : ''}&${FROM_DASHBOARD}`,
-    favour: 'up',
-    periodic: true,
-  },
-  {
     key: 'outstandingInvoicesCents',
     label: 'Outstanding Invoices',
     icon: CurrencyDollar,
@@ -174,54 +164,124 @@ const CARDS: {
 
 const daysIn = (r: DashboardRange) => (Date.parse(r.to) - Date.parse(r.from)) / 86_400_000 + 1;
 
-/** The six numbers of the design's top row, from the dashboard summary. */
+/**
+ * Where a service card opens (D4): its link's list, in that list's own address. Tax Returns takes
+ * `status` (a workflow status, or IN_PROGRESS for the group); Clients takes `service` and
+ * `engagement`. Back to Dashboard on both.
+ */
+export function serviceCardHref(card: DashboardServiceCard): string {
+  const q = card.link.query;
+  const params = new URLSearchParams();
+  const set = (key: string, value: string | undefined) => {
+    if (value) params.set(key, value);
+  };
+  if (card.link.list === 'tax-returns') {
+    set('status', q['workflowGroup'] ?? q['workflowStatus']);
+    set('acceptedFrom', q['acceptedFrom']);
+    set('acceptedTo', q['acceptedTo']);
+    set('serviceId', q['serviceId']);
+  } else {
+    set('service', q['serviceId']);
+    set('engagement', q['engagementStatus']);
+    set('completedFrom', q['completedFrom']);
+    set('completedTo', q['completedTo']);
+  }
+  return `/${card.link.list}?${params.toString()}&${FROM_DASHBOARD}`;
+}
+
+/** A service card's look: a tax return card or a clients card; reached in the period or now. */
+const serviceLook = (c: DashboardServiceCard): { icon: Icon; tone: Tone; favour: Favour } =>
+  c.metric === 'COMPLETED_IN_PERIOD'
+    ? { icon: CheckCircle, tone: 'green', favour: 'up' }
+    : c.link.list === 'tax-returns'
+      ? { icon: FileText, tone: 'purple', favour: 'neutral' }
+      : { icon: Briefcase, tone: 'blue', favour: 'neutral' };
+
+/** The design's top row: the fixed cards and the firm's service cards, from the summary. */
 export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
-        const kpi = summary.data?.kpis[key];
-        const range = summary.data?.range;
-        const against = range ? comparedWith(range.period, daysIn(range)) : '';
-        const href = to(range ? { from: range.from, to: range.to } : null);
-        const value = kpi
-          ? key === 'outstandingInvoicesCents'
-            ? money(kpi.value)
-            : String(kpi.value)
-          : '—';
-        const body = (
-          <>
-            <IconTile icon={icon} tone={tone} />
+  const range = summary.data?.range;
+  const against = range ? comparedWith(range.period, daysIn(range)) : '';
+  // Until the summary comes, the defaults' places (D5) wait as skeletons.
+  const services = summary.data?.serviceCards ?? null;
+  const serviceCards = services
+    ? services.map((c) => {
+        const look = serviceLook(c);
+        return (
+          <Link
+            key={`service-${c.slot}`}
+            href={serviceCardHref(c)}
+            data-testid="kpi-card"
+            className="flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md hover:bg-canvas"
+          >
+            <IconTile icon={look.icon} tone={look.tone} />
             <span className="flex min-w-0 flex-col gap-1">
-              {summary.isPending ? (
-                <Skeleton className="h-8 w-16" />
-              ) : (
-                <span className="text-2xl font-bold text-heading">{value}</span>
-              )}
-              <span className="text-sm text-muted">{label}</span>
-              {kpi && favour ? (
-                <Trend kpi={kpi} favour={favour} against={periodic ? against : ''} />
-              ) : null}
+              <span className="text-2xl font-bold text-heading">{c.value}</span>
+              <span className="text-sm text-muted">{c.label}</span>
+              <Trend kpi={c} favour={look.favour} against={against} />
             </span>
-          </>
-        );
-        const card = 'flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md';
-        return key === 'appointmentsToday' ? (
-          <div key={key} data-testid="kpi-card" className={`${card} flex-col`}>
-            <div className="flex items-start gap-3">{body}</div>
-            <Link
-              href={href}
-              className="flex w-full items-center justify-center gap-1 rounded-control border border-action px-3 py-1 text-sm font-medium text-action hover:bg-folder-surface"
-            >
-              View Calendar
-              <ArrowRight aria-hidden className="size-4" />
-            </Link>
-          </div>
-        ) : (
-          <Link key={key} href={href} data-testid="kpi-card" className={`${card} hover:bg-canvas`}>
-            {body}
           </Link>
         );
-      })}
+      })
+    : DEFAULT_DASHBOARD_CARDS.map((d) => (
+        <div
+          key={`service-${d.slot}`}
+          data-testid="kpi-card"
+          className="flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md"
+        >
+          <Skeleton className="size-11" />
+          <span className="flex min-w-0 flex-col gap-1">
+            <Skeleton className="h-8 w-16" />
+            <span className="text-sm text-muted">{d.label}</span>
+          </span>
+        </div>
+      ));
+  const fixed = CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
+    const kpi = summary.data?.kpis[key];
+    const href = to(range ? { from: range.from, to: range.to } : null);
+    const value = kpi
+      ? key === 'outstandingInvoicesCents'
+        ? money(kpi.value)
+        : String(kpi.value)
+      : '—';
+    const body = (
+      <>
+        <IconTile icon={icon} tone={tone} />
+        <span className="flex min-w-0 flex-col gap-1">
+          {summary.isPending ? (
+            <Skeleton className="h-8 w-16" />
+          ) : (
+            <span className="text-2xl font-bold text-heading">{value}</span>
+          )}
+          <span className="text-sm text-muted">{label}</span>
+          {kpi && favour ? (
+            <Trend kpi={kpi} favour={favour} against={periodic ? against : ''} />
+          ) : null}
+        </span>
+      </>
+    );
+    const card = 'flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md';
+    return key === 'appointmentsToday' ? (
+      <div key={key} data-testid="kpi-card" className={`${card} flex-col`}>
+        <div className="flex items-start gap-3">{body}</div>
+        <Link
+          href={href}
+          className="flex w-full items-center justify-center gap-1 rounded-control border border-action px-3 py-1 text-sm font-medium text-action hover:bg-folder-surface"
+        >
+          View Calendar
+          <ArrowRight aria-hidden className="size-4" />
+        </Link>
+      </div>
+    ) : (
+      <Link key={key} href={href} data-testid="kpi-card" className={`${card} hover:bg-canvas`}>
+        {body}
+      </Link>
+    );
+  });
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {fixed.slice(0, 2)}
+      {serviceCards}
+      {fixed.slice(2)}
     </div>
   );
 }

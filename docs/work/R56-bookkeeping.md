@@ -81,3 +81,10 @@ The Bookkeeping screens on the R38 contract (`api.bookkeeping`, `createBookkeepi
   - Missing Documents: money out without a receipt, and statements not attached.
   
   A Balance Sheet or Cash Flow is not generated while a reconciled account has no statement for the period (409 STATEMENTS_MISSING); the preview names the accounts. Mark Report Complete never skips the reconciliation: approving or delivering a period's report is refused 409 RECON_OPEN while any of its reconciliations is not approved. Delivering is refused 409 PERIOD_STATE before the period's close is approved. Every figure carries notes on what it rests on (contract `notes`, `missingStatements`). Still not worked out: Quarterly Review, Year to Date Summary and custom reports. Refund and Settlement are sections of the Reconciliation report; separate report types need R1's enum (Needs from others). Next (2b): send a version, schedule and next due, and the Mark Report Complete row action. Tests: unit (9), bookkeeping e2e (one new, part 1's adjusted), mock (`r56-bookkeeping-transactions`, Balance Sheet waits).
+- 2026-11-07: BK-RPT part 2b on `rasel/R56-bk-reports-3` (stacked on part 2a):
+  - **Send:** delivering a report (Mark Report Complete) sends its latest generated version to the client. The version is recorded SENT with who sent it; the database stamps when, and a sent version stays sent. The contract adds `sentAt`, and Figures & Versions shows "Sent {date}".
+  - **Row action:** the client list's Mark Report Complete (Owner and Admin) picks one of the client's approved reports, then delivers it like Reports does.
+  - **Schedule:** the next report date already follows the cadence and the last completed period on every delivery (`followChange`).
+  - **Not built:** a timed send; sending is delivery through the portal.
+  - **Code:** `useAct` moved to `use-act.ts`, so report-actions and bookkeeping-actions don't import each other.
+  - **Tests:** bookkeeping e2e (part 2's test: the delivered report's version is sent and stays sent), mock (`r56-bookkeeping-transactions`: approve refused past an open reconciliation; the row action's dialog).
