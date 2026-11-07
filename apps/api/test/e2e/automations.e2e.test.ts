@@ -356,6 +356,8 @@ describe('the catalog', () => {
       'REQUEST_DOCUMENTS',
       'SEND_INTAKE',
       'ASSIGN_CLIENT',
+      'UPDATE_CLIENT_STATUS',
+      'UPDATE_CLIENT_PRIORITY',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
       'ADD_CLIENT_NOTE',
@@ -1893,8 +1895,8 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
     expect(codes('BUSINESS_ADVISORY')).toEqual(
       expect.arrayContaining(['advisory.engagement_created', 'advisory_plan.status_changed']),
     );
-    // No event the product can't observe: a client's status never changes after it is set.
-    expect(catalog.events.map((e) => e.code)).not.toContain('client.status_changed');
+    // A client's status changes only through Update client status (AU-F27): its event is listed.
+    expect(codes('CLIENTS')).toContain('client.status_changed');
   });
 
   it('runs once for a client reactivated through Clients, and never for another firm’s', async () => {
@@ -2935,5 +2937,131 @@ describe('Send intake form, through Intake Forms (AU-F27)', () => {
       ),
     ).toBe(1);
     ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Update client status and priority, a typed allowlist (AU-F27, AU-F08)', () => {
+  const setStatus = (status: string) => ({
+    id: 'status',
+    type: 'UPDATE_CLIENT_STATUS',
+    config: { status },
+  });
+  const setPriority = (priority: string) => ({
+    id: 'priority',
+    type: 'UPDATE_CLIENT_PRIORITY',
+    config: { priority },
+  });
+  const newClient = async (firm: 'a' | 'b', name: string, data: object = {}) =>
+    inFirm(
+      firm,
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: { businessId: firms[firm], displayName: `${name} ${run} (fake)`, ...data },
+            select: { id: true },
+          })
+        ).id,
+    );
+  const stateOf = (firm: 'a' | 'b', id: string) =>
+    inFirm(firm, (tx) =>
+      tx.client.findFirstOrThrow({
+        where: { businessId: firms[firm], id },
+        select: { status: true, priority: true },
+      }),
+    );
+
+  it('sets an allowed status and priority as Clients records a change, once, and only for the firm’s own client', async () => {
+    const live = await createRule(clientCreated([setStatus('IN_PROGRESS'), setPriority('HIGH')]), {
+      name: mark('Set status'),
+    });
+    ok(await activate(live.id));
+    // A rule on the status change, with the new status as its condition (AU-F08 old/new).
+    const follow = await createRule(
+      {
+        trigger: { module: 'CLIENTS', event: 'client.status_changed' },
+        conditions: [{ field: 'newStatus', operator: 'IS', value: 'IN_PROGRESS' }],
+        actions: [note()],
+      },
+      { name: mark('On status') },
+    );
+    ok(await activate(follow.id));
+
+    const id = await newClient('a', 'Status me');
+    // Already In progress and High: nothing changes and nothing is recorded.
+    const same = await newClient('a', 'Already set', { status: 'IN_PROGRESS', priority: 'HIGH' });
+    // Firm B's client, added at the same time, is never firm A's to change.
+    const theirs = await newClient('b', 'Not yours');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    expect(await stateOf('a', id)).toEqual({ status: 'IN_PROGRESS', priority: 'HIGH' });
+    expect(await stateOf('a', same)).toEqual({ status: 'IN_PROGRESS', priority: 'HIGH' });
+    expect(await stateOf('b', theirs)).toEqual({ status: 'NEW', priority: null });
+
+    // The database's status history names the rule's owner.
+    const history = await inFirm('a', (tx) =>
+      tx.clientStatusHistory.findMany({
+        where: { businessId: firms.a, clientId: id },
+        orderBy: { seq: 'asc' },
+        select: { status: true, changedByUserId: true },
+      }),
+    );
+    expect(history.at(-1)).toEqual({ status: 'IN_PROGRESS', changedByUserId: ownerA.id });
+    // Clients' client.updated entry names the field with its old and new value.
+    const updates = (await auditRows(id)).filter((r) => r.action === 'client.updated');
+    expect(updates).toHaveLength(2);
+    expect(updates.map((r) => r.metadata)).toEqual(
+      expect.arrayContaining([
+        { fields: ['status'], from: 'NEW', to: 'IN_PROGRESS' },
+        { fields: ['priority'], from: null, to: 'HIGH' },
+      ]),
+    );
+    expect((await auditRows(same)).filter((r) => r.action === 'client.updated')).toEqual([]);
+    const theirRows = await inFirm('b', (tx) =>
+      tx.auditLog.findMany({ where: { entityId: theirs, action: 'client.updated' } }),
+    );
+    expect(theirRows).toEqual([]);
+
+    // The status change starts the rule on it, once; the unchanged client starts nothing.
+    expect(await engine.scanRule(firms.a, follow.id)).toMatchObject({ started: 1 });
+    expect(await engine.scanRule(firms.a, follow.id)).toMatchObject({ started: 0 });
+    const page = await runs(`?ruleId=${follow.id}`);
+    expect(page.items.map((r) => r.client?.id)).toEqual([id]);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+    ok(await call('post', `/rules/${follow.id}/pause`, ownerA, {}));
+  });
+
+  it('never sets Inactive or a value outside the list, and None clears the priority', async () => {
+    for (const action of [setStatus('INACTIVE'), setStatus('ARCHIVED'), setPriority('URGENT')])
+      expect(
+        (
+          await call('post', '/rules', ownerA, {
+            name: mark('Not allowed'),
+            category: 'CLIENTS',
+            definition: clientCreated([action]),
+          })
+        ).status,
+      ).toBe(400);
+    const clear = await createRule(clientCreated([setPriority('NONE')]), {
+      name: mark('Clear priority'),
+    });
+    ok(await activate(clear.id));
+    const id = await newClient('a', 'Clear me', { priority: 'LOW' });
+    expect(await engine.scanRule(firms.a, clear.id)).toMatchObject({ started: 1 });
+    expect(await stateOf('a', id)).toEqual({ status: 'NEW', priority: null });
+    ok(await call('post', `/rules/${clear.id}/pause`, ownerA, {}));
+  });
+
+  it('a rule on a status change can’t set the status, but may set the priority', async () => {
+    const codes = async (definition: object) =>
+      AutomationPreview.parse(
+        ok(await call('post', '/rules/validate', ownerA, { definition })),
+      ).checks.map((c) => c.code);
+    const onStatus = (actions: object[]) => ({
+      trigger: { module: 'CLIENTS', event: 'client.status_changed' },
+      actions,
+    });
+    expect(await codes(onStatus([setStatus('ACTIVE')]))).toContain('LOOP_RISK');
+    expect(await codes(onStatus([setPriority('HIGH')]))).not.toContain('LOOP_RISK');
+    expect(await codes(clientCreated([setStatus('ACTIVE')]))).not.toContain('LOOP_RISK');
   });
 });
