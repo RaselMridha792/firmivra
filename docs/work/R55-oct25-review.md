@@ -98,6 +98,11 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **Y16, Y19, order, retry and loops:**
   - "runs its actions in order once"; "retries only the failed, retryable actions"; "a rule on a tag or assignment change can't take the action…".
   - Only if and dependency skips are covered too.
+- **Paused and archived rules (the lead, Nov 7, a fix found with Y18):**
+  - While a rule is paused, its waiting actions are held: they never run and aren't lost, and they run once it's turned on again. Pausing offers HOLD (the default, replacing FINISH) or CANCEL.
+  - Archiving cancels the waiting actions, with the reason "The rule was archived".
+  - A member's own re-run of a run (with its reason) still runs: it's that member's act, not a waiting action.
+  - Test: "holds a paused rule's waiting actions, runs them once it is on again, and cancels them on archive".
 - **Y17, no matches:** a warning in the rule's test, and the rule still saves and turns on ("a rule that matches nothing right now warns…").
 - **Y18, needs Rasel:** synthetic log rows (success, failed, skipped, pending) in the dev seed. The export test checks the file's columns and who may export.
 - **Y20, permissions:** the server matrix for Owner, Admin, Staff and Tax preparer (view, write, activate, export, settings), checked against the role grid, plus another firm's Owner getting 404 ("enforces the automation rights on the server for each role"). The audit entries are covered by the tests for each feature.

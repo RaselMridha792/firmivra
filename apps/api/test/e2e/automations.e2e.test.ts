@@ -3843,6 +3843,70 @@ describe('Review 2 evidence: rule states, no matches and the permission matrix (
     ok(await call('post', `/rules/${quiet.id}/pause`, ownerA, {}));
   });
 
+  it('holds a paused rule’s waiting actions, runs them once it is on again, and cancels them on archive', async () => {
+    const delayed = (name: string) =>
+      createRule(clientCreated([{ ...note(), delayMinutes: 60 }]), { name: mark(name) });
+    const fresh = (name: string) =>
+      inFirm(
+        'a',
+        async (tx) =>
+          (
+            await tx.client.create({
+              data: { businessId: firms.a, displayName: `${name} ${run} (fake)` },
+              select: { id: true },
+            })
+          ).id,
+      );
+    const waiting = (ruleId: string) =>
+      inFirm('a', (tx) =>
+        tx.automationActionExecution.findFirstOrThrow({
+          where: { businessId: firms.a, run: { ruleId } },
+          select: { id: true, status: true, detail: true },
+        }),
+      );
+    const due = (ruleId: string) =>
+      inFirm('a', (tx) =>
+        tx.automationActionExecution.updateMany({
+          where: { businessId: firms.a, run: { ruleId }, status: 'PENDING' },
+          data: { scheduledFor: new Date(Date.now() - 60_000) },
+        }),
+      );
+    const notes = (clientId: string) =>
+      inFirm('a', (tx) => tx.note.count({ where: { businessId: firms.a, clientId } }));
+
+    const held = await delayed('Y held');
+    ok(await activate(held.id));
+    const id = await fresh('Held');
+    expect(await engine.scanRule(firms.a, held.id)).toMatchObject({ started: 1 });
+    // Paused (the default keeps them): its time comes, and still nothing runs.
+    ok(await call('post', `/rules/${held.id}/pause`, ownerA, {}));
+    await due(held.id);
+    await engine.runDue(firms.a);
+    expect((await waiting(held.id)).status).toBe('PENDING');
+    expect(await notes(id)).toBe(0);
+    // On again: it runs, once.
+    ok(await activate(held.id));
+    await engine.runDue(firms.a);
+    expect((await waiting(held.id)).status).toBe('SUCCESS');
+    expect(await notes(id)).toBe(1);
+    ok(await call('post', `/rules/${held.id}/pause`, ownerA, {}));
+
+    // Archived: its waiting actions are canceled, with the reason.
+    const gone = await delayed('Y archived');
+    ok(await activate(gone.id));
+    const other = await fresh('Archived');
+    expect(await engine.scanRule(firms.a, gone.id)).toMatchObject({ started: 1 });
+    ok(await call('post', `/rules/${gone.id}/pause`, ownerA, {}));
+    ok(await call('post', `/rules/${gone.id}/archive`, ownerA, {}));
+    expect(await waiting(gone.id)).toMatchObject({
+      status: 'SKIPPED',
+      detail: 'The rule was archived',
+    });
+    await due(gone.id);
+    await engine.runDue(firms.a);
+    expect(await notes(other)).toBe(0);
+  });
+
   it('enforces the automation rights on the server for each role, as the role grid says (AU-Y20)', async () => {
     const target = await createRule(clientCreated(), { name: mark('Y20 target') });
     const settingsNow = AutomationSettingsView.parse(ok(await call('get', '/settings', ownerA)));
