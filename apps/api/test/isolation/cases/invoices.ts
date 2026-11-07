@@ -55,7 +55,7 @@ export const records: CaseModule['records'] = {
           occurrences: 1,
           status: 'ACTIVE',
           lines: {
-            create: { businessId, description: 'Fake service', unitAmountCents: 5_000 },
+            create: { description: 'Fake service', unitAmountCents: 5_000 },
           },
         },
       });

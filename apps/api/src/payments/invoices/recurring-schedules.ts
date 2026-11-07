@@ -229,7 +229,7 @@ export class RecurringSchedulesService {
         const next = nextFrom(r, today);
         data = next
           ? { status: 'ACTIVE', pausedAt: null, nextSendOn: toDate(next.on) }
-          : { status: 'COMPLETED', pausedAt: null, nextSendOn: null };
+          : { status: 'COMPLETED', pausedAt: null, nextSendOn: null, endedAt: new Date() };
         meta = { ...meta, nextSendOn: next?.on ?? null };
       } else {
         if (r.status !== 'ACTIVE' && r.status !== 'PAUSED') {

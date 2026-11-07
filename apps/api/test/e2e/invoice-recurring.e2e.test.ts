@@ -219,15 +219,19 @@ describe('managing a recurring invoice (IP-F18, Octavia Oct 27)', () => {
       409,
       'RECURRING_STATE',
     ]);
-    // Paused past its send day: resuming does not make the missed period afterwards.
+    // Paused past its send day (started 23 days ago, every 3 weeks: due 2 days ago): resuming
+    // goes to the next send day ahead and does not make the missed period afterwards.
     await t.inScope(t.ids.firmA, (tx) =>
       tx.recurringInvoice.update({
         where: { businessId_id: { businessId: t.ids.firmA, id } },
-        data: { nextSendOn: new Date(`${nyDay(-2)}T00:00:00Z`) },
+        data: {
+          startOn: new Date(`${nyDay(-23)}T00:00:00Z`),
+          nextSendOn: new Date(`${nyDay(-2)}T00:00:00Z`),
+        },
       }),
     );
     const resumed = expectOk(await act(id, 'resume')).body as { nextSendOn: string };
-    expect(resumed).toMatchObject({ status: 'ACTIVE', nextSendOn: nyDay(21) });
+    expect(resumed).toMatchObject({ status: 'ACTIVE', nextSendOn: nyDay(19) });
     const ended = expectOk(await act(id, 'end')).body;
     expect(ended).toMatchObject({ status: 'ENDED', nextSendOn: null, upcoming: [] });
     expect(codeOf(await act(id, 'resume'))).toBe('RECURRING_STATE');
