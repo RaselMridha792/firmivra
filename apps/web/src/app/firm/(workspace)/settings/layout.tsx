@@ -23,6 +23,7 @@ const menu: [label: string, href: string][] = [
   ['Security & access', '/settings/security'],
   ['Data & backups', '/settings/data'],
   ['Preferences', '/settings/preferences'],
+  ['Dashboard cards', '/settings/dashboard-cards'],
   ['Tax statuses', '/settings/tax-statuses'],
 ];
 

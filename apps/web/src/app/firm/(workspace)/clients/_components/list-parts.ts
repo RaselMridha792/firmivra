@@ -43,6 +43,10 @@ export interface ClientFilters {
   records: Records;
   /** The Pending Documents or Balances Due card's clients (Octavia's E1), or ''. */
   owes: '' | 'DOCUMENTS' | 'BALANCE';
+  /** A dashboard service card's clients (D4), with `serviceId`; '' is any open engagement. */
+  engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  completedFrom: string;
+  completedTo: string;
 }
 
 export const NO_FILTERS: ClientFilters = {
@@ -54,10 +58,15 @@ export const NO_FILTERS: ClientFilters = {
   to: '',
   records: 'active',
   owes: '',
+  engagementStatus: '',
+  completedFrom: '',
+  completedTo: '',
 };
 
 /** The tab that shows the same clients as these filters, or '' when none does. */
 export function tabFor(filters: ClientFilters): string {
+  // A dashboard card's engagement status is narrower than any tab.
+  if (filters.engagementStatus || filters.completedFrom || filters.completedTo) return '';
   if (filters.serviceId) return filters.clientStatus ? '' : `service:${filters.serviceId}`;
   const byStage: Partial<Record<ClientStatus | '', string>> = {
     '': 'all',
@@ -69,12 +78,18 @@ export function tabFor(filters: ClientFilters): string {
 }
 
 /** The filters a tab sets: a stage or a service, never both. */
-export function filtersForTab(id: string): Pick<ClientFilters, 'serviceId' | 'clientStatus'> {
-  if (id.startsWith('service:')) return { serviceId: id.slice(8), clientStatus: '' };
+export function filtersForTab(
+  id: string,
+): Pick<
+  ClientFilters,
+  'serviceId' | 'clientStatus' | 'engagementStatus' | 'completedFrom' | 'completedTo'
+> {
+  const engagement = { engagementStatus: '', completedFrom: '', completedTo: '' } as const;
+  if (id.startsWith('service:')) return { serviceId: id.slice(8), clientStatus: '', ...engagement };
   const stage = ({ active: 'ACTIVE', new: 'NEW', inactive: 'INACTIVE' } as const)[
     id as 'active' | 'new' | 'inactive'
   ];
-  return { serviceId: '', clientStatus: stage ?? '' };
+  return { serviceId: '', clientStatus: stage ?? '', ...engagement };
 }
 
 /**
