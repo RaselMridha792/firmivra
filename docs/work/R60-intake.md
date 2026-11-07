@@ -273,6 +273,17 @@ Progress (Templates, Oct 28 review):
     for those); unit `upload` 16 of 16; mock editor and composer specs 7 of 7.
   - Not found locally: the exact file Octavia used. If dev still fails, the editor now names the
     reason.
+- Return to origin, branch `rasel/R60-templates-origin`: TP-F01.
+  - The overview's view, category, search, Show All and page, and a library's category, search,
+    status, owner, tag, sort and page, are kept in the address (SH1's `lib/list-query`, read in the
+    browser so a browser Back gets them).
+  - Links into the editor (names, Recent, Create, the menu's Edit and Duplicate) and Use carry
+    `?from=` (SH1's `OriginLink`). The editor's Cancel and Archive go back there, the breadcrumb's
+    Templates or library crumb opens that list, and a first save or a duplicate keeps it.
+  - Cancel and the crumbs restore the scroll position. A Use that opens a Communications draft
+    keeps Back to the list, also when the draft can't start.
+  - `lib/origin.ts` names them "Templates" and "Template Library" (as R56 did for Reports and
+    Compliance).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;

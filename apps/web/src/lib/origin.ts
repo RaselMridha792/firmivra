@@ -48,6 +48,7 @@ const LABELS: Record<string, string> = {
   integrations: 'Integrations',
   compliance: 'Compliance & Deadlines',
   reports: 'Reports',
+  templates: 'Templates',
   invoices: 'Invoices & Payments',
 };
 
@@ -57,6 +58,8 @@ export function originLabel(origin: string): string {
   if (/^\/reports\/library(?:[/?#]|$)/.test(origin)) return 'Report Library';
   // CD-F16: a record opened from Compliance's Logs or Manage goes back to that tab.
   if (/^\/compliance\/recurring(?:[/?#]|$)/.test(origin)) return 'Recurring Deadline Setup';
+  // TP-F01: a template opened from a library goes back to that library's filters and page.
+  if (/^\/templates\/library\/[a-z-]+(?:[?#]|$)/.test(origin)) return 'Template Library';
   const first = origin.split(/[/?#]/)[1] ?? '';
   return LABELS[first] ?? 'Previous Page';
 }
