@@ -350,11 +350,12 @@ export class AutomationsReadService {
         businessId,
         now: new Date(),
         today: ctx.today,
+        timezone: ctx.timezone,
         since,
         ...(def.trigger.source ? { source: def.trigger.source } : {}),
       },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit
@@ -398,9 +399,9 @@ export class AutomationsReadService {
         offsetValue: def.trigger.offsetValue ?? null,
         offsetUnit: def.trigger.offsetUnit ?? null,
       },
-      { businessId, now, today: ctx.today, since },
+      { businessId, now, today: ctx.today, timezone: ctx.timezone, since },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit

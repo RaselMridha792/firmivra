@@ -79,6 +79,13 @@ export const AutomationOperator = z.enum([
   'CONTAINS',
   'EXISTS',
   'NOT_EXISTS',
+  /** AU-F23: a date on the given day (the firm's day). */
+  'ON',
+  /** AU-F23 Within a Period: a date in the last or the next N days, today included (firm's days). */
+  'WITHIN_LAST',
+  'WITHIN_NEXT',
+  /** AU-F23: text that does not contain the value (an empty field does not contain it). */
+  'NOT_CONTAINS',
 ]);
 export type AutomationOperator = z.infer<typeof AutomationOperator>;
 

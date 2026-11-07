@@ -170,6 +170,7 @@ export class AutomationEngine {
           businessId,
           now,
           today: ctx.today,
+          timezone: ctx.timezone,
           since: v.createdAt,
           ...(view.trigger.source ? { source: view.trigger.source } : {}),
         },
@@ -179,6 +180,7 @@ export class AutomationEngine {
           c.fields,
           v.matchMode,
           view.conditions.map((c2) => ({ ...c2, value: c2.value ?? undefined })),
+          ctx.today,
         ),
       );
       if (hit.length === 0) return [];
