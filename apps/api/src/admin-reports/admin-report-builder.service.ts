@@ -19,6 +19,7 @@ import {
 import type { z } from 'zod';
 import { conflict, writeAdminEvent } from '../admin-audit/admin-audit.common.js';
 import { csvRow } from '../bookkeeping/bookkeeping.shared.js';
+import { REPORT_FILE_TYPES, toPdf, toXlsx } from '../reports/report-formats.js';
 import { PlatformPrisma } from '../database/database.module.js';
 import { AdminPrisma } from '../firm-applications/admin-prisma.js';
 import { isUniqueViolation, notFound } from '../workspaces/common.js';
@@ -604,16 +605,69 @@ export class AdminReportBuilderService {
         targetLabel: title,
         metadata: {
           type: body.type,
+          format: body.format,
           fields: body.fields,
           filters: Object.keys(body.filters),
           rowCount: result.total,
         },
       }),
     );
+    // SA-RPT-R1: Excel and PDF from the same rows and columns as the CSV and the preview, laid out
+    // by the reports' writers (no hidden field: only the chosen columns go in).
+    if (body.format !== 'CSV') {
+      const TYPES = {
+        text: 'TEXT',
+        number: 'NUMBER',
+        money: 'MONEY',
+        date: 'DATE',
+        datetime: 'DATETIME',
+        status: 'STATUS',
+      } as const;
+      const table = {
+        columns: result.columns.map((c) => ({
+          key: c.key,
+          label: c.label,
+          type: TYPES[c.type],
+          locked: false,
+          sortable: false,
+        })),
+        all: result.rows.map((r) => ({
+          cells: Object.fromEntries(
+            result.columns.map((c) => {
+              const v = r[c.key];
+              return [
+                c.key,
+                typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : null,
+              ];
+            }),
+          ),
+          links: [],
+        })),
+        totals: null,
+      };
+      const file =
+        body.format === 'XLSX'
+          ? toXlsx(table, title)
+          : await toPdf(table, {
+              title,
+              range: { from, to, timezone: 'UTC', label: `${from} to ${to}` },
+              kpis: [],
+              generatedAt: new Date(result.generatedAt),
+            });
+      const type = REPORT_FILE_TYPES[body.format];
+      return {
+        fileName: `firmivra-${body.type.toLowerCase()}-${to}.${type.ext}`,
+        mimeType: type.contentType,
+        content: file.toString('base64'),
+        encoding: 'base64',
+        rowCount: result.total,
+      };
+    }
     return {
       fileName: `firmivra-${body.type.toLowerCase()}-${to}.csv`,
       mimeType: 'text/csv; charset=utf-8',
       content: `${String.fromCharCode(0xfeff)}${[...head, ...lines].join('\r\n')}\r\n`,
+      encoding: 'utf8',
       rowCount: result.total,
     };
   }

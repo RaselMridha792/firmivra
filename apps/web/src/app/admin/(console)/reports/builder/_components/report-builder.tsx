@@ -171,10 +171,10 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
           ? api.adminReports.runSaved(ran.saved, { page, pageSize })
           : api.adminReports.run({ ...definition(ran.fields, ran.filters), page, pageSize }),
   );
-  const exporter = useApiMutation(() =>
+  const exporter = useApiMutation((format: 'CSV' | 'XLSX' | 'PDF') =>
     api.adminReports.export({
       ...definition(),
-      format: 'CSV',
+      format,
       title: editing?.name ?? `${TYPES.find((t) => t.type === type)!.label} report`,
     }),
   );
@@ -410,7 +410,7 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
             variant="secondary"
             disabled={!chosen.length || exporter.isPending}
             onClick={() =>
-              exporter.mutate(undefined, {
+              exporter.mutate('CSV', {
                 onSuccess: (file) => {
                   saveFile(file);
                   setNotice(
@@ -427,8 +427,17 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
           </Button>
           <Button
             variant="secondary"
-            disabled
-            title="Excel export needs a spreadsheet writer the API does not have yet; use CSV"
+            disabled={!chosen.length || exporter.isPending}
+            onClick={() =>
+              exporter.mutate('XLSX', {
+                onSuccess: (file) => {
+                  saveFile(file);
+                  setNotice(
+                    `Exported ${count(file.rowCount)} rows as Excel. The export was added to the audit log.`,
+                  );
+                },
+              })
+            }
           >
             <span className="inline-flex items-center gap-2">
               <FileXls aria-hidden weight="regular" className="size-5" />
@@ -437,8 +446,17 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
           </Button>
           <Button
             variant="secondary"
-            disabled
-            title="PDF export needs a PDF writer the API does not have yet; use CSV"
+            disabled={!chosen.length || exporter.isPending}
+            onClick={() =>
+              exporter.mutate('PDF', {
+                onSuccess: (file) => {
+                  saveFile(file);
+                  setNotice(
+                    `Exported ${count(file.rowCount)} rows as PDF. The export was added to the audit log.`,
+                  );
+                },
+              })
+            }
           >
             <span className="inline-flex items-center gap-2">
               <FilePdf aria-hidden weight="regular" className="size-5" />
@@ -461,7 +479,6 @@ export function ReportBuilder({ step = 1 }: { step?: BuilderStep }) {
               {editing?.isYours ? 'Save Changes' : 'Save Report'}
             </span>
           </Button>
-          <p className="text-xs text-muted">Excel and PDF are not available yet: export to CSV.</p>
           {exporter.isError || update.isError ? (
             <p role="alert" className="text-sm text-danger">
               {errorMessage(exporter.error ?? update.error)}

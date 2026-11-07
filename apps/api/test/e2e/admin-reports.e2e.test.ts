@@ -313,6 +313,28 @@ describe('the builder and saved reports', () => {
       tx.auditLog.count({ where: { action: 'reports.exported', actorUserId: people.super1.id } }),
     );
     expect(audited).toBe(1);
+    // SA-RPT-R1: Excel and PDF from the same run, as files (base64), each audited.
+    const xlsx = AdminReportFile.parse(
+      ok(await call('post', '/builder/export', { ...def, format: 'XLSX', title: 'Fake firms' })),
+    );
+    expect(xlsx).toMatchObject({ encoding: 'base64', rowCount: 1 });
+    expect(xlsx.fileName).toMatch(/\.xlsx$/);
+    expect(Buffer.from(xlsx.content, 'base64').subarray(0, 2).toString('latin1')).toBe('PK');
+    const pdf = AdminReportFile.parse(
+      ok(await call('post', '/builder/export', { ...def, format: 'PDF', title: 'Fake firms' })),
+    );
+    expect(pdf.fileName).toMatch(/\.pdf$/);
+    expect(Buffer.from(pdf.content, 'base64').subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(
+      await asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.count({ where: { action: 'reports.exported', actorUserId: people.super1.id } }),
+      ),
+    ).toBe(3);
+    expectError(
+      await call('post', '/builder/export', { ...def, format: 'DOCX', title: 'Fake firms' }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 
   it('saves, shares, runs, duplicates and deletes, the owner alone changing it', async () => {
