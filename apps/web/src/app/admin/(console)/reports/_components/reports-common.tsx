@@ -247,9 +247,18 @@ export function ReportsHeader({
   );
 }
 
-/** A file built in the answer (CSV): saved by the browser. */
-export function saveFile(file: { fileName: string; mimeType: string; content: string }) {
-  const url = URL.createObjectURL(new Blob([file.content], { type: file.mimeType }));
+/** A file built in the answer (CSV as text, Excel and PDF as base64): saved by the browser. */
+export function saveFile(file: {
+  fileName: string;
+  mimeType: string;
+  content: string;
+  encoding?: 'utf8' | 'base64';
+}) {
+  const body =
+    file.encoding === 'base64'
+      ? Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0))
+      : file.content;
+  const url = URL.createObjectURL(new Blob([body], { type: file.mimeType }));
   const a = document.createElement('a');
   a.href = url;
   a.download = file.fileName;

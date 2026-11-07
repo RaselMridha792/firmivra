@@ -36,7 +36,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1315 merged: connect copy in each provider's own terms and the registry's facts before connecting (IN-Y11, Y12).
 - #1319 merged: New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
 - #1321 merged: New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
-- #1327 (`rasel/R55-sa-com-3`): Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
+- #1327 merged: Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
+- #1330 (`rasel/R55-sa-rpt`): report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -167,6 +168,10 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
   3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
 - **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
+- **Exports (SA-RPT-R1):**
+  - The builder exports CSV, Excel (XLSX) and PDF from the same run and columns as the preview, each audited with its format. Excel and PDF use the reports' writers.
+  - CSV holds the title, generated time, period and filters above the table. The PDF holds the title and period. The Excel sheet is the table.
+  - Up to 10,000 rows, inline. More is refused with "narrow the filters" (EXPORT_TOO_LARGE). A background PlatformExportJob for larger exports isn't built: no admin export has needed one at this size.
 - **SA-PIP-PL01's menu** (Add Lead, Add Opportunity, Build Pipeline) already had text names, so the date popup was the open part.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
