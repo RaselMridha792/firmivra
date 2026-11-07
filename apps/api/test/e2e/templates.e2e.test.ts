@@ -17,6 +17,7 @@ import { z } from 'zod';
 import {
   BulkTemplatesResult,
   DownloadLink,
+  EmailImage,
   ImportTemplateResult,
   InstallStartersResult,
   MergeField,
@@ -1801,6 +1802,79 @@ describe('merge fields and branding', () => {
         ok(await call('get', '/template-branding', people.ownerB, undefined, 'b')),
       ).letterheadEnabled,
     ).toBe(true);
+  });
+});
+
+describe('images in the content (TP-F07)', () => {
+  // A 1 x 1 PNG (synthetic).
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const ticketFor = (who: Who, firm: 'a' | 'b' = 'a') =>
+    call(
+      'post',
+      '/templates/images',
+      who,
+      { contentType: 'image/png', sizeBytes: png.length, sha256: sha256(png) },
+      firm,
+    );
+  const confirm = (uploadToken: string, who: Who, firm: 'a' | 'b' = 'a') =>
+    call('post', '/templates/images/confirm', who, { uploadToken }, firm);
+
+  it('uploads in three steps under the firm, and firm B neither confirms the ticket nor reads the key', async () => {
+    const ticket = UploadPutTicket.parse(ok(await ticketFor(people.staffA), 201));
+    // The key is under firm A's own prefix.
+    expect(ticket.url).toContain(firms.a);
+    storage.put(ticket, png);
+    // Firm B's member can't confirm firm A's ticket, nor can another member of firm A.
+    expectError(await confirm(ticket.uploadToken, people.ownerB, 'b'), 410, 'UPLOAD_EXPIRED');
+    expectError(await confirm(ticket.uploadToken, people.ownerA), 410, 'UPLOAD_EXPIRED');
+    const image = EmailImage.parse(ok(await confirm(ticket.uploadToken, people.staffA)));
+    expect(image).toMatchObject({ contentType: 'image/png', sizeBytes: png.length });
+    const path = new URL(image.url).pathname;
+    expect(path).toBe(`/api/v1/portal/r55m-a-${run}/email-images/${image.id}.png`);
+    // Served at the firm's public address (any mail client); firm B's address never reaches it.
+    const served = await request(app.getHttpServer()).get(path);
+    expect(served.status).toBe(200);
+    expect(served.headers['content-type']).toContain('image/png');
+    const other = await request(app.getHttpServer()).get(
+      path.replace(`r55m-a-${run}`, `r55m-b-${run}`),
+    );
+    expect(other.status).toBe(404);
+    expect((await auditActions(image.id)).map((a) => a.action)).toContain(
+      'message_template.image_added',
+    );
+    // Other bytes than the ticket's are refused (and removed).
+    const wrong = UploadPutTicket.parse(ok(await ticketFor(people.staffA), 201));
+    storage.put(wrong, Buffer.from('not a png at all'));
+    expectError(await confirm(wrong.uploadToken, people.staffA), 409, 'UPLOAD_MISMATCH');
+  });
+
+  it('a button link keeps its look, alignment is left, centre or right, and other classes go', async () => {
+    const t = await make({
+      body:
+        '<p style="text-align: justify">J</p><p style="text-align: center">C</p>' +
+        '<p><a class="fv-button evil" style="color:red" href="https://portal.example.test/upload">Upload</a></p>' +
+        '<p><a class="fv-button" href="http://example.test">Plain</a> <a class="other" href="https://example.test">x</a></p>' +
+        '<p><img src="https://portal.example.test/a.png" style="width: 9999px; position: fixed"></p>',
+    });
+    const body = (await getT(t.id)).body;
+    expect(body).toContain('<p>J</p>');
+    expect(body).toContain('<p style="text-align:center">C</p>');
+    const button = /<a [^>]*>Upload<\/a>/.exec(body)?.[0] ?? '';
+    expect(button).toContain('href="https://portal.example.test/upload"');
+    expect(button).toContain('class="fv-button"');
+    expect(button).toContain(
+      'style="display:inline-block;padding:10px 18px;border-radius:6px;background-color:#005fcc;color:#ffffff;font-weight:600;text-decoration:none"',
+    );
+    expect(button).not.toContain('evil');
+    // Not https: a plain link. Another class: dropped.
+    expect(body).toContain('<a href="http://example.test">Plain</a>');
+    expect(body).toContain('<a href="https://example.test">x</a>');
+    expect(body).toContain('width="600"');
+    expect(body).toContain('style="width:600px;max-width:100%;height:auto"');
+    expect(body).not.toContain('position');
   });
 });
 

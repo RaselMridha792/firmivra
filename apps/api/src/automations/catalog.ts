@@ -72,6 +72,18 @@ const CLIENT_STATUS = field('status', 'Client status', 'STATUS', [
   'ON_HOLD',
   'INACTIVE',
 ]);
+/**
+ * AU-F27 Update allowed field (the lead, Nov 7): the client fields a rule may set. Never Inactive,
+ * which stays behind APPROVE; name, email, phone, account type and the tax-year status stay out.
+ */
+export const RULE_CLIENT_STATUSES = [
+  'NEW',
+  'PENDING_DOCUMENTS',
+  'IN_PROGRESS',
+  'ACTIVE',
+  'ON_HOLD',
+] as const;
+export const RULE_CLIENT_PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'] as const;
 const LEAD_FIELDS = [
   field('stage', 'Lead stage', 'STATUS', [
     'SUBMITTED',
@@ -265,6 +277,15 @@ const EVENT_DEFS: EventDef[] = [
     'When a client is assigned to someone else',
     'client',
     [CLIENT_TYPE, CLIENT_STATUS],
+  ),
+  // AU-F08 Client Status Changed (old/new): Update client status (AU-F27) is what changes it.
+  change(
+    'client.status_changed',
+    'CLIENTS',
+    'Client status changed',
+    'When a client’s status changes, for example from New to In progress',
+    'client',
+    move(CLIENT_STATUS.options.map((o) => o.value)),
   ),
   change(
     'client.tags_changed',
@@ -1265,6 +1286,63 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
     ],
   },
   {
+    type: 'SEND_INTAKE',
+    module: 'INTAKE_FORMS',
+    label: 'Send intake form',
+    description:
+      'Sends the client one of your published intake forms through Intake Forms, under their open service for that form (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: true,
+    needsClient: true,
+    fields: [
+      {
+        key: 'formId',
+        label: 'Intake form',
+        type: 'INTAKE_FORM',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: 'A form with a published version. The client needs an open service for the form’s service.',
+      },
+      {
+        key: 'channel',
+        label: 'Send by',
+        type: 'SELECT',
+        required: true,
+        choices: options(['PORTAL', 'EMAIL']),
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'subject',
+        label: 'Subject',
+        type: 'TEXT',
+        required: true,
+        choices: [],
+        templateKind: null,
+        help: null,
+      },
+      {
+        key: 'message',
+        label: 'Message',
+        type: 'LONG_TEXT',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'Up to 500 characters. Merge fields like {{client.firstName}} are filled in.',
+      },
+      {
+        key: 'dueInDays',
+        label: 'Due in (days)',
+        type: 'NUMBER',
+        required: false,
+        choices: [],
+        templateKind: null,
+        help: 'From the day the action runs.',
+      },
+    ],
+  },
+  {
     type: 'ASSIGN_CLIENT',
     module: 'CLIENTS',
     label: 'Assign client',
@@ -1282,6 +1360,47 @@ export const ACTIONS: AutomationActionTypeInfo[] = [
         choices: [],
         templateKind: null,
         help: 'An active member of your firm. A rule owned by a Staff member can’t reassign.',
+      },
+    ],
+  },
+  {
+    type: 'UPDATE_CLIENT_STATUS',
+    module: 'CLIENTS',
+    label: 'Update client status',
+    description:
+      'Sets the client’s status, as Clients records it, from an allowed list; a rule never sets Inactive (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: true,
+    fields: [
+      {
+        key: 'status',
+        label: 'New status',
+        type: 'SELECT',
+        required: true,
+        choices: options([...RULE_CLIENT_STATUSES]),
+        templateKind: null,
+        help: 'Inactive needs an approval, so a rule can’t set it.',
+      },
+    ],
+  },
+  {
+    type: 'UPDATE_CLIENT_PRIORITY',
+    module: 'CLIENTS',
+    label: 'Update client priority',
+    description: 'Sets or clears the client’s priority (AU-F27).',
+    requiresIntegration: null,
+    contactsClient: false,
+    needsClient: true,
+    fields: [
+      {
+        key: 'priority',
+        label: 'Priority',
+        type: 'SELECT',
+        required: true,
+        choices: options([...RULE_CLIENT_PRIORITIES, 'NONE']),
+        templateKind: null,
+        help: 'None clears it.',
       },
     ],
   },

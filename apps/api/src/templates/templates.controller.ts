@@ -57,6 +57,13 @@ import {
   TestSendBody,
   UpdateTemplateBody,
 } from './template-input.js';
+import {
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
+  type EmailImage,
+  type UploadPutTicket as ImageTicket,
+} from '@firmivra/types';
+import { LeadEmailService } from '../leads/lead-email.service.js';
 import { TemplateAttachmentsService } from './template-attachments.service.js';
 import { TemplateImportFilesService } from './template-import-files.js';
 import { TemplateReadService } from './template-read.service.js';
@@ -87,6 +94,7 @@ export class TemplatesController {
     private readonly attachments: TemplateAttachmentsService,
     private readonly starters: TemplateStartersService,
     private readonly importFiles: TemplateImportFilesService,
+    private readonly images: LeadEmailService,
   ) {}
 
   // ----- Library (static paths first) -----
@@ -141,6 +149,35 @@ export class TemplatesController {
     @Body(new ZodValidationPipe(StartImportBody)) body: Out<typeof StartImportBody>,
   ): Promise<UploadTicket> {
     return this.importFiles.ticket(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  /**
+   * TP-F07: an image in a template's content, step 1. The firm's email images, as a lead email's
+   * (Leads' own service, provided here; the lead's Nov 7 answer): the key is under this firm's
+   * prefix and the image is served at the same public address.
+   */
+  @Post('images')
+  imageTicket(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateEmailImageUploadRequest))
+    body: Out<typeof CreateEmailImageUploadRequest>,
+  ): Promise<ImageTicket> {
+    return this.images.imageTicket(tenant.businessId, auth.userId, body);
+  }
+
+  /** Step 3: only this member's ticket in this firm (410 UPLOAD_EXPIRED); other bytes are 409. */
+  @Post('images/confirm')
+  @HttpCode(200)
+  async confirmImage(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConfirmEmailImageUploadRequest))
+    body: Out<typeof ConfirmEmailImageUploadRequest>,
+  ): Promise<EmailImage> {
+    const image = await this.images.confirmImage(tenant.businessId, auth.userId, body);
+    await this.templates.imageAdded(image.id);
+    return image;
   }
 
   @Post('import')

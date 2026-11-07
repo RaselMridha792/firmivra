@@ -2,7 +2,9 @@ import {
   ApiRequestError,
   ArchiveMessageTemplateRequest,
   BulkTemplatesRequest,
+  ConfirmEmailImageUploadRequest,
   ConfirmUploadRequest,
+  CreateEmailImageUploadRequest,
   CreateMessageTemplateRequest,
   CreateTemplateCategoryRequest,
   ImportTemplateRequest,
@@ -183,6 +185,8 @@ export function createTemplatesMock({
   >();
   /** TP-F16: Word document uploads waiting for their import. */
   const imports = new Set<string>();
+  /** TP-F07: images in the content waiting for their confirm. */
+  const imageUploads = new Map<string, 'image/png' | 'image/jpeg' | 'image/gif'>();
 
   const ensureCategory = (kind: MessageTemplateKind, name: string): TemplateCategory => {
     const hit = categories.find((c) => c.kind === kind && c.name === name);
@@ -983,6 +987,33 @@ export function createTemplatesMock({
           method: 'PUT' as const,
           headers: { 'content-type': input.contentType },
           expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    // TP-F07: an image in the content, as the API (the firm's email images): a placeholder picture.
+    createImageUpload: (body) =>
+      run(() => {
+        const input = parseInput(CreateEmailImageUploadRequest, body);
+        const token = `mock-template-image-${next++}`;
+        imageUploads.set(token, input.contentType);
+        return {
+          uploadToken: token,
+          url: `mock:upload/${token}`,
+          method: 'PUT' as const,
+          headers: { 'content-type': input.contentType },
+          expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    confirmImageUpload: (body) =>
+      run(() => {
+        const { uploadToken } = parseInput(ConfirmEmailImageUploadRequest, body);
+        const contentType = imageUploads.get(uploadToken);
+        if (!contentType) throw fail(410, 'UPLOAD_EXPIRED', 'Upload the image again');
+        imageUploads.delete(uploadToken);
+        return {
+          id: id('7700'),
+          url: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="100%" height="100%" fill="#6b7f99"/></svg>')}`,
+          contentType,
+          sizeBytes: 67,
         };
       }),
     confirmAttachment: (body) =>

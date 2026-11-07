@@ -1,9 +1,28 @@
 import sanitizeHtml from 'sanitize-html';
+import { EMAIL_IMAGE_LIMITS } from '@firmivra/types';
 
 // What a template's HTML may hold. A template is rich text (headings, paragraphs, lists, links,
 // images, tables, buttons as links), sanitized when it is saved or imported and again after it is
-// rendered with data. Scripts, event handlers, forms, styles beyond text alignment, and links to
-// anything but http, https, mailto and tel are removed.
+// rendered with data; Communications cleans its emails with it too. Scripts, event handlers,
+// forms, styles beyond text alignment (left, centre, right) and an image's width, classes beyond
+// the button link's, and links to anything but http, https, mailto and tel are removed.
+
+/** A call-to-action link drawn as a button (the editor's BUTTON_LINK_CLASS, TP-F07). */
+export const BUTTON_CLASS = 'fv-button';
+/**
+ * The button's look, inline, since an email has no stylesheet: set here for every button link,
+ * never taken from the author (the firm's action blue on white).
+ */
+export const BUTTON_STYLE =
+  'display:inline-block;padding:10px 18px;border-radius:6px;background-color:#005fcc;color:#ffffff;font-weight:600;text-decoration:none';
+
+/** The width an image is shown at, kept within the email limits, or null when none is given. */
+function widthOf(attribs: sanitizeHtml.Attributes): number | null {
+  const given = attribs.width ?? /(?:^|;)\s*width\s*:\s*(\d+)px/i.exec(attribs.style ?? '')?.[1];
+  const n = given === undefined ? NaN : Number.parseInt(given, 10);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(EMAIL_IMAGE_LIMITS.maxWidth, Math.max(EMAIL_IMAGE_LIMITS.minWidth, n));
+}
 
 const OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -43,22 +62,57 @@ const OPTIONS: sanitizeHtml.IOptions = {
     img: ['src', 'alt', 'title', 'width', 'height'],
     '*': ['style', 'colspan', 'rowspan'],
   },
+  // A link keeps only the button class; no other element keeps a class.
+  allowedClasses: { a: [BUTTON_CLASS] },
   allowedStyles: {
-    '*': { 'text-align': [/^(left|right|center|justify)$/] },
+    '*': { 'text-align': [/^(left|right|center)$/] },
+    a: {
+      display: [/^inline-block$/],
+      padding: [/^10px 18px$/],
+      'border-radius': [/^6px$/],
+      'background-color': [/^#005fcc$/],
+      color: [/^#ffffff$/],
+      'font-weight': [/^600$/],
+      'text-decoration': [/^none$/],
+    },
+    img: { width: [/^\d+px$/], 'max-width': [/^100%$/], height: [/^auto$/] },
   },
   allowedSchemes: ['http', 'https', 'mailto', 'tel'],
   allowedSchemesByTag: { img: ['http', 'https'] },
   allowProtocolRelative: false,
   disallowedTagsMode: 'discard',
-  // A link that opens a new window must not hand it the opener.
   transformTags: {
-    a: (tag, attribs) => ({
-      tagName: 'a',
-      attribs: {
-        ...attribs,
-        ...(attribs.target === '_blank' ? { rel: 'noopener noreferrer' } : {}),
-      },
-    }),
+    // A link that opens a new window must not hand it the opener. A button link (https only)
+    // gets the button's own look; any other style or class on a link is dropped.
+    a: (_tag, attribs) => {
+      const { class: classes, style, ...rest } = attribs;
+      void style;
+      const button =
+        (classes ?? '').split(/\s+/).includes(BUTTON_CLASS) &&
+        /^https:\/\//i.test(attribs.href ?? '');
+      return {
+        tagName: 'a',
+        attribs: {
+          ...rest,
+          ...(attribs.target === '_blank' ? { rel: 'noopener noreferrer' } : {}),
+          ...(button ? { class: BUTTON_CLASS, style: BUTTON_STYLE } : {}),
+        },
+      };
+    },
+    // Shown at the width the author placed, never wider than the email.
+    img: (_tag, attribs) => {
+      const width = widthOf(attribs);
+      return {
+        tagName: 'img',
+        attribs: {
+          src: attribs.src ?? '',
+          alt: attribs.alt ?? '',
+          ...(attribs.title ? { title: attribs.title } : {}),
+          ...(width === null ? {} : { width: String(width) }),
+          style: `${width === null ? '' : `width:${width}px;`}max-width:100%;height:auto`,
+        },
+      };
+    },
   },
 };
 

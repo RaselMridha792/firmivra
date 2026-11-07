@@ -743,6 +743,14 @@ export class TemplatesService {
     throw templateErrors.testUnavailable();
   }
 
+  /**
+   * TP-F07: an image a member added for a template's content (its own random id; the image service
+   * logs the upload too). Ids only, never the file.
+   */
+  async imageAdded(imageId: string): Promise<void> {
+    await this.audit.log('message_template.image_added', { type: 'email_image', id: imageId });
+  }
+
   async importTemplate(
     businessId: string,
     actor: ClientsActor,

@@ -270,6 +270,11 @@ describe('loops, stored shapes and templates', () => {
     expect(produces([{ type: 'ASSIGN_CLIENT', config: {} }])).toEqual([
       'client.assignment_changed',
     ]);
+    // A status set by a rule is a status change; a priority starts nothing.
+    expect(produces([{ type: 'UPDATE_CLIENT_STATUS', config: {} }])).toEqual([
+      'client.status_changed',
+    ]);
+    expect(produces([{ type: 'UPDATE_CLIENT_PRIORITY', config: {} }])).toEqual([]);
     expect(
       loopProblems(
         node('a', 'client.tags_changed', [{ type: 'ADD_CLIENT_TAGS', config: {} }]),
@@ -278,6 +283,7 @@ describe('loops, stored shapes and templates', () => {
       ).map((p) => p.code),
     ).toEqual(['LOOP_RISK']);
     expect(produces([{ type: 'NOTIFY_STAFF', config: {} }])).toEqual([]);
+    expect(produces([{ type: 'SEND_INTAKE', config: {} }])).toEqual(['intake.sent', 'intake.due']);
     expect(produces([{ type: 'REQUEST_DOCUMENTS', config: {} }])).toEqual([
       'document.requested',
       'document.request_due',

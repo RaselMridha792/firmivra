@@ -29,6 +29,7 @@ import {
   AutomationTemplateDetail,
   AutomationTemplatePage,
   AutomationVersionDetail,
+  INTAKE_FORMS,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -353,7 +354,10 @@ describe('the catalog', () => {
       'SEND_CLIENT_MESSAGE',
       'SEND_CLIENT_EMAIL',
       'REQUEST_DOCUMENTS',
+      'SEND_INTAKE',
       'ASSIGN_CLIENT',
+      'UPDATE_CLIENT_STATUS',
+      'UPDATE_CLIENT_PRIORITY',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
       'ADD_CLIENT_NOTE',
@@ -1891,8 +1895,8 @@ describe('trigger events from the source modules (AU-F08 to F11)', () => {
     expect(codes('BUSINESS_ADVISORY')).toEqual(
       expect.arrayContaining(['advisory.engagement_created', 'advisory_plan.status_changed']),
     );
-    // No event the product can't observe: a client's status never changes after it is set.
-    expect(catalog.events.map((e) => e.code)).not.toContain('client.status_changed');
+    // A client's status changes only through Update client status (AU-F27): its event is listed.
+    expect(codes('CLIENTS')).toContain('client.status_changed');
   });
 
   it('runs once for a client reactivated through Clients, and never for another firm’s', async () => {
@@ -2794,5 +2798,270 @@ describe('Request documents, through Documents (AU-F27)', () => {
       ),
     ).toBe(0);
     ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Send intake form, through Intake Forms (AU-F27)', () => {
+  it('sends the published form once under the client’s open service; another firm’s form is refused', async () => {
+    const form = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: {
+          businessId: firms.a,
+          kind: 'ANNUAL_TAX',
+          name: `Intake tax ${run}`,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+      const f = await tx.intakeForm.create({
+        data: {
+          businessId: firms.a,
+          serviceId: service.id,
+          version: 1,
+          title: `Annual Tax Intake ${run}`,
+          definition: INTAKE_FORMS.ANNUAL_TAX as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerA.id,
+        },
+        select: { templateId: true },
+      });
+      return { serviceId: service.id, templateId: f.templateId as string };
+    });
+    const theirs = await inFirm('b', async (tx) => {
+      const service = await tx.service.create({
+        data: {
+          businessId: firms.b,
+          kind: 'ANNUAL_TAX',
+          name: `B intake ${run}`,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      });
+      const f = await tx.intakeForm.create({
+        data: {
+          businessId: firms.b,
+          serviceId: service.id,
+          version: 1,
+          title: `B Intake ${run}`,
+          definition: INTAKE_FORMS.ANNUAL_TAX as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerB.id,
+        },
+        select: { templateId: true },
+      });
+      return f.templateId as string;
+    });
+    const send = (formId: string) => ({
+      id: 'intake',
+      type: 'SEND_INTAKE',
+      config: {
+        formId,
+        channel: 'EMAIL',
+        subject: 'Your tax organizer, {{client.name}}',
+        dueInDays: 10,
+      },
+    });
+    // Firm B's form is never one firm A's rule can send.
+    const foreign = await createRule(clientCreated([send(theirs)]), { name: mark('Foreign form') });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+
+    const live = await createRule(clientCreated([send(form.templateId)]), {
+      name: mark('Send organizer'),
+    });
+    ok(await activate(live.id));
+    // Intake delivers through the client's portal login (its bell item), so the client has one.
+    const login = randomUUID();
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: login,
+          cognitoSub: login,
+          pool: 'CLIENT',
+          email: `intake-login-${run}@client.test`,
+          name: `Intake client ${run} (fake)`,
+        },
+      }),
+    );
+    const clientId = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: `Intake client ${run} (fake)`,
+          email: `intake-${run}@client.test`,
+        },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId: login,
+          clientId: c.id,
+          email: `intake-login-${run}@client.test`,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      await tx.engagement.create({
+        data: {
+          businessId: firms.a,
+          clientId: c.id,
+          serviceId: form.serviceId,
+          title: 'Tax (fake)',
+        },
+      });
+      return c.id;
+    });
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const runId = (await runs(`?ruleId=${live.id}`)).items[0]!.id;
+    const step = (await runDetail(runId)).actions[0]!;
+    expect(step, JSON.stringify(step)).toMatchObject({
+      status: 'SUCCESS',
+      result: { kind: 'intake' },
+    });
+    const intakes = await inFirm('a', (tx) =>
+      tx.intake.findMany({
+        where: { businessId: firms.a, engagement: { clientId } },
+        select: { id: true, dueOn: true },
+      }),
+    );
+    expect(intakes).toHaveLength(1);
+    expect(intakes[0]!.dueOn).not.toBeNull();
+    // Intake's own delivery: the client's bell item for the form.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.notification.count({
+          where: { businessId: firms.a, recipientUserId: login, type: 'intake.sent' },
+        }),
+      ),
+    ).toBe(1);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+  });
+});
+
+describe('Update client status and priority, a typed allowlist (AU-F27, AU-F08)', () => {
+  const setStatus = (status: string) => ({
+    id: 'status',
+    type: 'UPDATE_CLIENT_STATUS',
+    config: { status },
+  });
+  const setPriority = (priority: string) => ({
+    id: 'priority',
+    type: 'UPDATE_CLIENT_PRIORITY',
+    config: { priority },
+  });
+  const newClient = async (firm: 'a' | 'b', name: string, data: object = {}) =>
+    inFirm(
+      firm,
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: { businessId: firms[firm], displayName: `${name} ${run} (fake)`, ...data },
+            select: { id: true },
+          })
+        ).id,
+    );
+  const stateOf = (firm: 'a' | 'b', id: string) =>
+    inFirm(firm, (tx) =>
+      tx.client.findFirstOrThrow({
+        where: { businessId: firms[firm], id },
+        select: { status: true, priority: true },
+      }),
+    );
+
+  it('sets an allowed status and priority as Clients records a change, once, and only for the firm’s own client', async () => {
+    const live = await createRule(clientCreated([setStatus('IN_PROGRESS'), setPriority('HIGH')]), {
+      name: mark('Set status'),
+    });
+    ok(await activate(live.id));
+    // A rule on the status change, with the new status as its condition (AU-F08 old/new).
+    const follow = await createRule(
+      {
+        trigger: { module: 'CLIENTS', event: 'client.status_changed' },
+        conditions: [{ field: 'newStatus', operator: 'IS', value: 'IN_PROGRESS' }],
+        actions: [note()],
+      },
+      { name: mark('On status') },
+    );
+    ok(await activate(follow.id));
+
+    const id = await newClient('a', 'Status me');
+    // Already In progress and High: nothing changes and nothing is recorded.
+    const same = await newClient('a', 'Already set', { status: 'IN_PROGRESS', priority: 'HIGH' });
+    // Firm B's client, added at the same time, is never firm A's to change.
+    const theirs = await newClient('b', 'Not yours');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 2 });
+
+    expect(await stateOf('a', id)).toEqual({ status: 'IN_PROGRESS', priority: 'HIGH' });
+    expect(await stateOf('a', same)).toEqual({ status: 'IN_PROGRESS', priority: 'HIGH' });
+    expect(await stateOf('b', theirs)).toEqual({ status: 'NEW', priority: null });
+
+    // The database's status history names the rule's owner.
+    const history = await inFirm('a', (tx) =>
+      tx.clientStatusHistory.findMany({
+        where: { businessId: firms.a, clientId: id },
+        orderBy: { seq: 'asc' },
+        select: { status: true, changedByUserId: true },
+      }),
+    );
+    expect(history.at(-1)).toEqual({ status: 'IN_PROGRESS', changedByUserId: ownerA.id });
+    // Clients' client.updated entry names the field with its old and new value.
+    const updates = (await auditRows(id)).filter((r) => r.action === 'client.updated');
+    expect(updates).toHaveLength(2);
+    expect(updates.map((r) => r.metadata)).toEqual(
+      expect.arrayContaining([
+        { fields: ['status'], from: 'NEW', to: 'IN_PROGRESS' },
+        { fields: ['priority'], from: null, to: 'HIGH' },
+      ]),
+    );
+    expect((await auditRows(same)).filter((r) => r.action === 'client.updated')).toEqual([]);
+    const theirRows = await inFirm('b', (tx) =>
+      tx.auditLog.findMany({ where: { entityId: theirs, action: 'client.updated' } }),
+    );
+    expect(theirRows).toEqual([]);
+
+    // The status change starts the rule on it, once; the unchanged client starts nothing.
+    expect(await engine.scanRule(firms.a, follow.id)).toMatchObject({ started: 1 });
+    expect(await engine.scanRule(firms.a, follow.id)).toMatchObject({ started: 0 });
+    const page = await runs(`?ruleId=${follow.id}`);
+    expect(page.items.map((r) => r.client?.id)).toEqual([id]);
+    ok(await call('post', `/rules/${live.id}/pause`, ownerA, {}));
+    ok(await call('post', `/rules/${follow.id}/pause`, ownerA, {}));
+  });
+
+  it('never sets Inactive or a value outside the list, and None clears the priority', async () => {
+    for (const action of [setStatus('INACTIVE'), setStatus('ARCHIVED'), setPriority('URGENT')])
+      expect(
+        (
+          await call('post', '/rules', ownerA, {
+            name: mark('Not allowed'),
+            category: 'CLIENTS',
+            definition: clientCreated([action]),
+          })
+        ).status,
+      ).toBe(400);
+    const clear = await createRule(clientCreated([setPriority('NONE')]), {
+      name: mark('Clear priority'),
+    });
+    ok(await activate(clear.id));
+    const id = await newClient('a', 'Clear me', { priority: 'LOW' });
+    expect(await engine.scanRule(firms.a, clear.id)).toMatchObject({ started: 1 });
+    expect(await stateOf('a', id)).toEqual({ status: 'NEW', priority: null });
+    ok(await call('post', `/rules/${clear.id}/pause`, ownerA, {}));
+  });
+
+  it('a rule on a status change can’t set the status, but may set the priority', async () => {
+    const codes = async (definition: object) =>
+      AutomationPreview.parse(
+        ok(await call('post', '/rules/validate', ownerA, { definition })),
+      ).checks.map((c) => c.code);
+    const onStatus = (actions: object[]) => ({
+      trigger: { module: 'CLIENTS', event: 'client.status_changed' },
+      actions,
+    });
+    expect(await codes(onStatus([setStatus('ACTIVE')]))).toContain('LOOP_RISK');
+    expect(await codes(onStatus([setPriority('HIGH')]))).not.toContain('LOOP_RISK');
+    expect(await codes(clientCreated([setStatus('ACTIVE')]))).not.toContain('LOOP_RISK');
   });
 });

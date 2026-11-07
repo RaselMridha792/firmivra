@@ -28,6 +28,10 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
   CUSTOM: 'Custom',
 };
 
+/** A rendered template's HTML as its own small page, for the sandboxed preview frame. */
+export const previewDocument = (html: string) =>
+  `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:12px;font:14px/1.5 system-ui,sans-serif;color:CanvasText;background:Canvas;overflow-wrap:anywhere}img{max-width:100%;height:auto}a.fv-button{display:inline-block;padding:10px 18px;border-radius:6px;background:LinkText;color:Canvas;font-weight:600;text-decoration:none}</style></head><body>${html}</body></html>`;
+
 /** Preview with sample data: unresolved merge fields are flagged, and a test send never changes the template. */
 export function PreviewDialog({
   template,
@@ -92,17 +96,24 @@ export function PreviewDialog({
                 {p.subject}
               </p>
             ) : null}
-            <div
-              className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
-              data-testid="preview-body"
-            >
-              {p.body
-                .replace(/<br\s*\/?>/gi, '\n')
-                .replace(/<\/p>\s*<p>/gi, '\n\n')
-                .replace(/<li>/gi, '• ')
-                .replace(/<\/li>/gi, '\n')
-                .replace(/<[^>]+>/g, '')}
-            </div>
+            {template.kind === 'SMS' ? (
+              <div
+                className="max-h-80 overflow-auto rounded-lg border border-divider bg-surface p-3 text-sm whitespace-pre-wrap text-heading"
+                data-testid="preview-body"
+              >
+                {p.body.replace(/<[^>]+>/g, '')}
+              </div>
+            ) : (
+              // TP-F07: as an email shows it (images, alignment, the button), in a frame that runs
+              // nothing (sandbox); the API cleaned the HTML already.
+              <iframe
+                title={`Content of ${template.name}`}
+                sandbox=""
+                srcDoc={previewDocument(p.body)}
+                className="h-80 w-full rounded-lg border border-divider bg-surface"
+                data-testid="preview-body"
+              />
+            )}
             {p.sms ? (
               <p className="text-xs text-muted">
                 {p.sms.characters} characters, {p.sms.parts} text{' '}

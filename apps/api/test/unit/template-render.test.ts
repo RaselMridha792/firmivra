@@ -112,7 +112,9 @@ describe('sanitize', () => {
     expect(r.html).toContain('<h2 style="text-align:center">Hello</h2>');
     expect(r.html).toContain('<strong>that</strong>');
     expect(r.html).toContain('<li>One</li>');
-    expect(r.html).toContain('<img src="https://example.com/logo.png" alt="Logo" width="120" />');
+    expect(r.html).toContain(
+      '<img src="https://example.com/logo.png" alt="Logo" width="120" style="width:120px;max-width:100%;height:auto" />',
+    );
     expect(r.html).toContain('<td>Cell</td>');
     expect(r.removed).toBe(0);
   });

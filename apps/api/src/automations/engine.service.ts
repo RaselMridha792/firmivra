@@ -9,11 +9,12 @@ import { MessagesService } from '../messages/messages.service.js';
 import { NotesService } from '../messages/notes.service.js';
 import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
+import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
 import { reassignClientTasks } from '../workspaces/tasks.service.js';
-import { actionOf } from './catalog.js';
+import { actionOf, RULE_CLIENT_PRIORITIES, RULE_CLIENT_STATUSES } from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
 import { fill, matches, viewOf } from './logic.js';
@@ -70,6 +71,7 @@ export class AutomationEngine {
     private readonly notifier: Notifier,
     private readonly outbound: OutboundMessagesService,
     private readonly documentRequests: DocumentRequestsService,
+    private readonly intakeSend: IntakeSendService,
   ) {}
 
   /**
@@ -767,6 +769,46 @@ export class AutomationEngine {
                   : `${result} tag(s) removed`,
             };
           }
+          // AU-F27 Request intake: Intake Forms' own send (IntakeSendService.send), so every Intake
+          // rule holds (a published form, the client's open service for it, portal or email, the
+          // reminders and the audit). Its key is the run's and the action's: a retry replays the
+          // first send, never a second form.
+          case 'SEND_INTAKE': {
+            const formId = typeof cfg.formId === 'string' ? cfg.formId : null;
+            if (!formId)
+              return {
+                ok: false,
+                code: 'FORM_REQUIRED',
+                retryable: false,
+                detail: 'Choose an intake form',
+              };
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : null;
+            const hex = createHash('sha1').update(`intake:${run.id}:${action.id}`).digest('hex');
+            const idempotencyKey = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+            const sent = await this.intakeSend.send(
+              { businessId, role: member.role, kind: 'staff' },
+              member.userId,
+              {
+                idempotencyKey,
+                recipient: { kind: 'CLIENT', id: run.clientId as string },
+                formId,
+                channel: cfg.channel === 'EMAIL' ? 'EMAIL' : 'PORTAL',
+                subject: (text('subject') || 'A form from your firm').slice(0, 200),
+                message: (text('message') ?? '').slice(0, 500) || 'Please fill in this form.',
+                dueOn: days === null ? null : addDays(today, days),
+                allowSaveAndContinue: true,
+                sendMeCopy: false,
+              },
+            );
+            if (sent.delivery.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'DELIVERY_FAILED',
+                retryable: false,
+                detail: 'Intake Forms assigned the form but could not deliver it; resend it there',
+              };
+            return { ok: true, kind: 'intake', id: sent.form.id, detail: 'Intake form sent' };
+          }
           // AU-F27 Request documents: Documents' own request (DocumentRequestsService.create), so
           // every Documents rule holds (reach, an open service, a live category, the client's bell
           // item and email). The service is the client's oldest ACTIVE one of the chosen kind.
@@ -873,6 +915,96 @@ export class AutomationEngine {
               kind: 'client',
               id: clientId,
               detail: result === 0 ? 'Already assigned to them' : 'Client reassigned',
+            };
+          }
+          // AU-F27 Update allowed field (the lead, Nov 7): the client's status or priority, from a
+          // typed allowlist, written as Clients' update writes a change: the client's row locked, an
+          // archived client refused, a Staff owner only on the clients assigned to them. Never
+          // Inactive (it stays behind APPROVE). updated_by is the rule's owner, so the database
+          // records the status history under them; `client.updated` names the field with its old
+          // and new value. No change: no entry (so no status-change event).
+          case 'UPDATE_CLIENT_STATUS':
+          case 'UPDATE_CLIENT_PRIORITY': {
+            const isStatus = action.type === 'UPDATE_CLIENT_STATUS';
+            const raw = isStatus ? cfg.status : cfg.priority;
+            const allowed: readonly unknown[] = isStatus
+              ? RULE_CLIENT_STATUSES
+              : RULE_CLIENT_PRIORITIES;
+            const to =
+              !isStatus && raw === 'NONE'
+                ? null
+                : allowed.includes(raw)
+                  ? (raw as string)
+                  : undefined;
+            if (to === undefined)
+              return {
+                ok: false,
+                code: 'NOT_ALLOWED',
+                retryable: false,
+                detail: isStatus
+                  ? 'A rule sets only New, Pending documents, In progress, Active or On hold'
+                  : 'Choose a priority',
+              };
+            const field = isStatus ? 'status' : 'priority';
+            const clientId = run.clientId as string;
+            const result = await this.inFirm(businessId, async (tx) => {
+              const [current] = await tx.$queryRaw<
+                {
+                  status: string;
+                  priority: string | null;
+                  archived: boolean;
+                  assigned_user_id: string | null;
+                }[]
+              >`
+                SELECT status::text AS status, priority::text AS priority,
+                       archived_at IS NOT NULL AS archived,
+                       assigned_user_id::text AS assigned_user_id
+                FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
+                FOR NO KEY UPDATE`;
+              if (!current || current.archived) return 'CLIENT_UNAVAILABLE' as const;
+              if (actor.role === 'STAFF' && current.assigned_user_id !== actor.userId)
+                return 'NOT_PERMITTED' as const;
+              const from = isStatus ? current.status : current.priority;
+              if (from === to) return 0;
+              await tx.client.update({
+                where: { businessId_id: { businessId, id: clientId } },
+                data: isStatus
+                  ? { status: to as never, updatedByUserId: actor.userId }
+                  : { priority: to as never, updatedByUserId: actor.userId },
+              });
+              await this.audit.logIn(
+                tx,
+                'client.updated',
+                { type: 'client', id: clientId },
+                { fields: [field], from, to },
+                { businessId, actorUserId: actor.userId },
+              );
+              return 1;
+            });
+            if (result === 'CLIENT_UNAVAILABLE')
+              return {
+                ok: false,
+                code: 'CLIENT_UNAVAILABLE',
+                retryable: false,
+                detail: 'The client is archived or no longer exists',
+              };
+            if (result === 'NOT_PERMITTED')
+              return {
+                ok: false,
+                code: 'NOT_PERMITTED',
+                retryable: false,
+                detail: 'A Staff owner changes only the clients assigned to them',
+              };
+            return {
+              ok: true,
+              kind: 'client',
+              id: clientId,
+              detail:
+                result === 0
+                  ? `The ${field} was already that`
+                  : isStatus
+                    ? 'Client status updated'
+                    : 'Client priority updated',
             };
           }
           case 'ADD_CLIENT_NOTE': {
