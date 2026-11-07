@@ -157,6 +157,8 @@ export const AutomationActionField = z.object({
     'TASK_TEMPLATE',
     /** One of the firm's live services, by id (its choices come with the firm's catalog). */
     'SERVICE',
+    /** One of the firm's published portal resources or links, by id (with the firm's catalog). */
+    'RESOURCE',
   ]),
   required: z.boolean(),
   choices: z.array(z.object({ value: z.string(), label: z.string() })),
@@ -273,6 +275,12 @@ export const AutomationAction = z.strictObject({
     .regex(/^[a-z][a-z0-9_-]{0,39}$/)
     .nullable()
     .optional(),
+  /**
+   * AU-F26 Conditional branch: the action runs only if these hold for the record when its turn
+   * comes (the event's own fields, all of them); otherwise it is skipped, and so are the actions
+   * that depend on it.
+   */
+  onlyIf: z.array(AutomationCondition).max(10).optional(),
 });
 export type AutomationAction = z.input<typeof AutomationAction>;
 
@@ -354,6 +362,16 @@ export const AutomationDefinitionView = z.object({
       config: z.record(z.string(), ConfigValue),
       delayMinutes: z.number().int(),
       dependsOn: z.string().nullable(),
+      /** AU-F26 Conditional branch: the action's own conditions (absent: it always runs). */
+      onlyIf: z
+        .array(
+          z.object({
+            field: z.string(),
+            operator: AutomationOperator,
+            value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
+          }),
+        )
+        .optional(),
     }),
   ),
   settings: z.object({

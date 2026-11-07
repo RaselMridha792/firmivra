@@ -27,7 +27,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1290 merged: Update client status and Update client priority (AU-F27, a typed allowlist), and the Client status changed event with old and new status (AU-F08).
 - #1297 merged: the rest of AU-F22 (the client's context on every client record's event; each record's own due date, balance, payment status, progress, assignee, type, confirmation, service, jurisdiction and tax year) and AU-F23's remaining operators (On, Within the last / next N days, Does not contain).
 - #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
-- #1301 (`rasel/R55-au-coverage`): Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
+- #1301 merged: Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
+- #1304 (`rasel/R55-au-branch`): Conditional branch as an action's Only if, and Send resource (AU-F26).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -56,6 +57,11 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **Send client text message:** it goes through Messages' outbound text, with consent, opt-in, the firm's texting setting and the provider. Production starts without texting, so the step fails with Messages' own reason and nothing is sent.
 - **Create deadline:** through Compliance's own create. The same deadline (client, name, type and day) is never added twice.
 - **Add service:** through Engagements' own create, with no billing date, so it never starts billing. A client with that service already open gets nothing new.
+- **Conditional Branch:** an action may carry Only if conditions on the event's own fields, all of which must hold.
+  - They're checked when the action's turn comes, against the record as it is then (the run's occurrence of the event).
+  - If they don't hold, the step is SKIPPED ("Its condition was not met"), and the actions that depend on it skip too.
+- **Send resource:** a portal message linking one of the firm's published portal resources (on its category's portal page) or links, never a file outside them.
+  - Portal resources are for business clients (Content's rule), so an individual client gets nothing and the step fails with BUSINESS_ONLY.
 - **Not offered:**
   - Create Invoice: an invoice is money and needs line items. The reminder is Send client message or Send client email on Invoice overdue, with the invoice number as a merge field.
   - Webhook / Integration: no vetted outbound webhook exists.
