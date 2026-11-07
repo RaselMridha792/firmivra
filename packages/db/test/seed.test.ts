@@ -96,6 +96,8 @@ describe('seed', () => {
       // Octavia's AU-F31 (Oct 29): none until a member confirms an external event by hand; the
       // synthetic QA seed on dev adds them (Rasel's card), not this local seed.
       'automation_event_confirmations',
+      // PRT-3 (Nov 7): no row means the defaults, so a firm has none until it changes a switch.
+      'client_portal_settings',
     ];
     const empty: string[] = [];
     for (const t of tables) {

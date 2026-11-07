@@ -143,6 +143,10 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - Also on `message_templates`: `structure jsonb NULL` for Tax Workflow and Bookkeeping.
   - The check `message_templates_structure_by_kind` puts each link only on its own kind, and a structure (a JSON object) only on those two.
   - `message_template_versions.structure jsonb NULL` (an object) keeps what each save had. No backfill.
+- Nov 7 (Rasel's approval in R1's window, Locations; R1 adds this line): `r1_client_office_portal_contact` (R1, branch `rasel/R1-client-office`): the client portal guide's PRT-1 and PRT-3.
+  - PRT-1: `client_accounts.selected_office_id` (picked at registration) and `clients.office_id` (assigned, reassignable). Both are composite FKs to `firm_offices` (RESTRICT), set only to an ACTIVE, unarchived location (triggers); a later deactivation keeps them.
+  - PRT-3: new table `client_portal_settings` (one row per firm, no row means the defaults; RLS forced, no DELETE): `show_corporate_office`, `show_local_office`, `allow_phone`, `allow_sms` (off), `allow_email`, `allow_secure_message`, `allow_appointment_link` (off).
+  - No backfill.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.
