@@ -17,7 +17,8 @@ Rasel (Oct 28): R61 will not run; R56 takes the Invoices & Payments items of `do
 - [x] 6. IP-F17 routes for Recurring Invoices, Client Statement, Payment Link Generator and View All Payments (check what exists first)
 - [x] 7. IP-F10 (Nov 7, lead's queue): actions by status: Resend and Copy Payment Link while unpaid, Send Receipt and Issue Refund once paid (Archive and Delete wait for their columns)
 - [x] 8a. IP-F11 (the list's state in the address; Templates, Services & Pricing and Reports open with Back to it) and IP-F21 (Payment Status by range and status; Invoice Activity by month range)
-- [ ] 8. IP-F14, F18; F15, F16 evidence; F19, F25, F26, F27 answered (F25 is RP-F19, done in #1279)
+- [ ] 9. IP-F18 in two PRs: (a) Recurring Invoices management (cards, tabs, row menu, a schedule's page with its invoices, the next sends in the firm's zone and its history; Pause, Resume, End; Auto-send on or off, AutoPay stays off until a provider and the client's authorization exist), on `rasel/R56-ip-recurring`; (b) the daily run that makes each period's invoice (once per schedule and period, by the unique index; off unless the invoice jobs are on) and Send Now. IP-F14 is R55's (lead, Nov 7).
+- [ ] 8. (was) IP-F14, F18; F15, F16 evidence; F19, F25, F26, F27 answered (F25 is RP-F19, done in #1279)
 
 ## Needs from others
 

@@ -41,6 +41,7 @@ import {
   recurringPeriodOn,
   type InvoiceAttachment,
   invoiceTaxCents,
+  type RecurringInvoiceDetail,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -404,6 +405,81 @@ export function invoiceFixtures(): readonly Invoice[] {
 }
 
 const copy = <T>(value: T): T => structuredClone(value);
+
+/** The day `n` months after `d` (YYYY-MM-DD; the mock's schedules bill on the 1st). */
+const plusMonths = (d: string, n: number) => {
+  const x = new Date(`${d}T12:00:00Z`);
+  x.setUTCMonth(x.getUTCMonth() + n);
+  return x.toISOString().slice(0, 10);
+};
+let schedules: Map<string, RecurringInvoiceDetail> | null = null;
+/** IP-F18: the mock's recurring invoices (an active monthly one, a paused quarterly one), per page. */
+function mockSchedules(): Map<string, RecurringInvoiceDetail> {
+  if (schedules) return schedules;
+  const [a, b] = clientFixtures();
+  const first = `${today().slice(0, 8)}01`;
+  const next = plusMonths(first, 1);
+  const base = (
+    id: string,
+    c: { id: string; displayName: string },
+    name: string,
+    over: Partial<RecurringInvoiceDetail>,
+  ): RecurringInvoiceDetail => ({
+    id,
+    name,
+    client: { id: c.id, displayName: c.displayName },
+    frequency: 'MONTHLY',
+    interval: null,
+    nextSendOn: next,
+    status: 'ACTIVE',
+    amountCents: 45_000,
+    autoSend: false,
+    autopay: false,
+    startOn: plusMonths(first, -2),
+    endOn: null,
+    maxOccurrences: null,
+    occurrences: 3,
+    delivery: 'EMAIL_AND_PORTAL',
+    waiting: false,
+    timezone: 'America/New_York',
+    upcoming: [next, plusMonths(next, 1), plusMonths(next, 2)],
+    lines: [
+      { description: 'Monthly bookkeeping', quantity: 1, unitAmountCents: 45_000, taxable: false },
+    ],
+    invoices: [0, 1, 2].map((k) => ({
+      id: `0199c3b1-0000-7000-8000-${String(k + 1).padStart(12, '0')}`,
+      number: `INV-2026-R${k + 1}`,
+      periodOn: plusMonths(first, -k),
+      status: k === 0 ? 'OPEN' : 'PAID',
+      totalCents: 45_000,
+    })),
+    history: [{ action: 'started', at: new Date().toISOString(), by: mockMe.name }],
+    ...over,
+  });
+  schedules = new Map(
+    [
+      base('0199c3b0-0000-7000-8000-000000000001', a!, 'Monthly bookkeeping', {}),
+      base('0199c3b0-0000-7000-8000-000000000002', b!, 'Quarterly payroll review', {
+        frequency: 'QUARTERLY',
+        status: 'PAUSED',
+        amountCents: 30_000,
+        occurrences: 1,
+        upcoming: [],
+        lines: [
+          {
+            description: 'Payroll review',
+            quantity: 1,
+            unitAmountCents: 30_000,
+            taxable: false,
+          },
+        ],
+        invoices: [],
+        history: [{ action: 'paused', at: new Date().toISOString(), by: mockMe.name }],
+      }),
+    ].map((d) => [d.id, d]),
+  );
+  return schedules;
+}
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
@@ -985,9 +1061,71 @@ export function createInvoicesMock(
       });
     },
     // IP-F17: no recurring schedules in mock mode yet (IP-F18 makes them).
+    // IP-F18: two schedules to manage in mock mode (the API's come from sent recurring invoices).
     recurring: async () => {
       await mockDelay();
-      return { items: [] };
+      return copy({
+        items: [...mockSchedules().values()].map((d) => ({
+          id: d.id,
+          name: d.name,
+          client: d.client,
+          frequency: d.frequency,
+          interval: d.interval,
+          nextSendOn: d.nextSendOn,
+          status: d.status,
+          amountCents: d.amountCents,
+          autoSend: d.autoSend,
+          autopay: d.autopay,
+        })),
+      });
+    },
+    recurringOne: async (id) => {
+      await mockDelay();
+      const d = mockSchedules().get(id);
+      if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
+      return copy(d);
+    },
+    recurringAction: async (id, action) => {
+      await mockDelay();
+      manager();
+      const d = mockSchedules().get(id);
+      if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
+      const state = (m: string) => fail(409, 'RECURRING_STATE', m);
+      if (action === 'pause') {
+        if (d.status !== 'ACTIVE') throw state('Only an active recurring invoice can be paused');
+        Object.assign(d, { status: 'PAUSED', upcoming: [] });
+      } else if (action === 'resume') {
+        if (d.status !== 'PAUSED') throw state('Only a paused recurring invoice can resume');
+        const next =
+          d.nextSendOn && d.nextSendOn >= today() ? d.nextSendOn : plusMonths(today(), 1);
+        Object.assign(d, {
+          status: 'ACTIVE',
+          nextSendOn: next,
+          upcoming: [next, plusMonths(next, 1), plusMonths(next, 2)],
+        });
+      } else {
+        if (d.status !== 'ACTIVE' && d.status !== 'PAUSED') {
+          throw state('This recurring invoice has already ended');
+        }
+        Object.assign(d, { status: 'ENDED', nextSendOn: null, upcoming: [] });
+      }
+      const done = { pause: 'paused', resume: 'resumed', end: 'ended' }[action];
+      d.history.unshift({ action: done, at: now(), by: mockMe.name });
+      return copy(d);
+    },
+    updateRecurring: async (id, body) => {
+      await mockDelay();
+      manager();
+      const d = mockSchedules().get(id);
+      if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (d.status === 'ENDED' || d.status === 'COMPLETED') {
+        throw fail(409, 'RECURRING_STATE', 'This recurring invoice has already ended');
+      }
+      if (d.autoSend !== body.autoSend) {
+        d.autoSend = body.autoSend;
+        d.history.unshift({ action: 'updated', at: now(), by: mockMe.name });
+      }
+      return copy(d);
     },
     // IP-F09: the invoice's firm-only history, and its PDF (a harmless file in mock mode).
     history: async (id) => {
