@@ -24,7 +24,10 @@ test('opens a draft with its saved content, saves it, and starts blank without o
     animations: 'disabled',
     fullPage: true,
   });
-  await page.locator('footer').getByRole('button', { name: 'Next', exact: true }).click();
+  await page
+    .locator('footer')
+    .getByRole('button', { name: 'Save and continue', exact: true })
+    .click();
   await expect(page).toHaveURL(
     `http://admin.localhost:${port}/communications/broadcasts/new/review?id=${draftId}`,
   );
@@ -52,7 +55,7 @@ test('keeps the broadcast message layout within a 375px viewport', async ({ page
   await expect(page.getByRole('heading', { name: 'Channel Preview' })).toBeVisible();
   const step = page.getByTestId('broadcast-message-step');
   const saveDraft = step.getByRole('button', { name: 'Save as Draft' });
-  const next = step.getByRole('button', { name: 'Next' });
+  const next = step.getByRole('button', { name: 'Save and continue' });
   const back = step.getByRole('button', { name: 'Back', exact: true });
   const buttonBounds = async (locator: typeof saveDraft) =>
     locator.evaluate((element) => {
