@@ -29,6 +29,11 @@ async function fixtures(page: Page) {
           tab: IntegrationTab.parse(url.searchParams.get('tab') ?? 'all'),
           environment: IntegrationEnvironment.parse(url.searchParams.get('environment') ?? 'LIVE'),
           search: url.searchParams.get('search') ?? '',
+          ...(url.searchParams.get('readiness')
+            ? {
+                readiness: url.searchParams.get('readiness') as 'connectable' | 'coming_soon',
+              }
+            : {}),
         },
         false,
       ),
@@ -95,4 +100,26 @@ test('one set of category names, and a Help icon per area (IN-F03, F04)', async 
   await expect(health).toHaveAccessibleDescription(/nothing has been checked/);
   await health.focus();
   await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/overview.png' });
+});
+
+test('a provider not enabled yet reads so and offers no Connect; readiness and chips (IN-Y01, Y03, Y04)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixtures(page);
+  await page.goto(app('/integrations'));
+  await expect(page.getByText(/more coming soon/)).toBeVisible();
+  const notYet = page.getByTestId('integration-card').filter({ hasText: 'Not available yet' });
+  await expect(notYet.first()).toBeVisible();
+  await expect(notYet.first().getByRole('link', { name: 'Connect' })).toHaveCount(0);
+  await page.getByLabel('Integration readiness').selectOption({ label: 'Coming soon' });
+  const chips = page.getByTestId('integration-filter-chips');
+  await expect(chips).toContainText('Coming soon');
+  await expect(chips).toContainText('shown');
+  await expect(
+    page.getByTestId('integration-card').filter({ hasText: 'Not connected' }),
+  ).toHaveCount(0);
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/overview-readiness.png' });
+  await chips.getByRole('button', { name: 'Clear all filters' }).click();
+  await expect(chips).toHaveCount(0);
 });
