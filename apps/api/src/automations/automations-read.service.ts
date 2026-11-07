@@ -208,6 +208,25 @@ export class AutomationsReadService {
             path: `actions.${i}.config.tagIds`,
           });
       }
+      // Send intake form's form: one of this firm's, not archived, with a published version.
+      const formId = a.config.formId;
+      if (typeof formId === 'string') {
+        const live = await tx.intakeTemplate.count({
+          where: {
+            businessId,
+            id: formId,
+            archivedAt: null,
+            forms: { some: { status: 'PUBLISHED' } },
+          },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The intake form is not one of the firm’s published forms',
+            path: `actions.${i}.config.formId`,
+          });
+      }
       // Request documents' category: a live category of this firm (another firm's never).
       const categoryId = a.config.categoryId;
       if (typeof categoryId === 'string') {
