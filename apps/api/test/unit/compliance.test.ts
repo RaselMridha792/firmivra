@@ -288,6 +288,30 @@ describe('decide (applicability)', () => {
     expect(decide({ ...rule, criteria: { election: 'S' } }, client()).kind).toBe('REVIEW');
   });
 
+  it("reads the client's typed entity type, and taxes an LLC by its election (CD-F14)", () => {
+    const typed = (entityType: string | null, state = 'GA') =>
+      client({ profile: { entityType, state } });
+    expect(decide(rule, typed('S corp')).kind).toBe('MATCH');
+    const elected = decide(rule, typed('LLC taxed as S corp'));
+    expect(elected.kind).toBe('MATCH');
+    expect(elected.kind === 'MATCH' && elected.reason).toContain(
+      'LLC electing S corporation (taxed as S corporation)',
+    );
+    // A bare LLC could be an S election: staff check, with the reason.
+    const bare = decide(rule, typed('LLC'));
+    expect(bare.kind).toBe('REVIEW');
+    expect(bare.kind === 'REVIEW' && bare.reason).toContain('LLC without its tax classification');
+    // No LLC is taxed as a nonprofit: a bare LLC is simply not one.
+    expect(decide({ ...rule, entityTypes: ['NONPROFIT'] }, typed('LLC')).kind).toBe('NO_MATCH');
+    expect(decide(rule, typed('Cooperative')).kind).toBe('REVIEW');
+    // A rule saved before the list, in words, still reads.
+    expect(decide({ ...rule, entityTypes: ['S Corporation'] }, typed('S_CORPORATION')).kind).toBe(
+      'MATCH',
+    );
+    // Something definite rules a client out before anything unknown sends it to staff.
+    expect(decide(rule, typed(null, 'FL')).kind).toBe('NO_MATCH');
+  });
+
   it('matches by service', () => {
     const withService = {
       ...rule,
