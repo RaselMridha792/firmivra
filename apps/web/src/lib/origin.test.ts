@@ -55,6 +55,8 @@ describe('withOrigin', () => {
     expect(originLabel('/compliance/recurring-x')).toBe('Compliance & Deadlines');
     // RP-F01: the overview, with its range and comparison.
     expect(originLabel('/reports?range=last_month&compare=NONE')).toBe('Reports');
+    // IP-F11: Templates or Reports opened from Invoices go back to its list, filters and all.
+    expect(originLabel('/invoices?tab=OVERDUE&q=0098&page=2')).toBe('Invoices & Payments');
   });
 });
 

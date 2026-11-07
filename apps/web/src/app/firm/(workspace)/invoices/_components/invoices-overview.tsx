@@ -61,8 +61,8 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import { RequireRole } from '../../../../../components/require-role';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
@@ -71,7 +71,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceCorrectForm } from './invoice-correct-form';
 import { InvoiceHistoryForm } from './invoice-history';
-import { useOriginNavigate } from '../../../../../components/origin-link';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { NewMessageDialog } from '../../messages/_components/messages-screen';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import {
@@ -316,11 +316,51 @@ const SERIES = [
   { key: 'overdue', label: 'Overdue', bar: 'bg-chart-red' },
 ] as const;
 
-/** Invoice Activity: by month of the chosen year, the amounts sent, paid and now overdue. */
+/** "Jan 2026": a month of the chosen range, with its year (IP-F21). */
+const monthLabel = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+/** The months from `from` to `to` (YYYY-MM), both included. */
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  let [y, m] = [Number(from.slice(0, 4)), Number(from.slice(5, 7))];
+  while (`${y}-${String(m).padStart(2, '0')}` <= to && out.length < 25) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+    [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  }
+  return out;
+}
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+/**
+ * Invoice Activity: by month, the amounts sent, paid and now overdue. IP-F21 (Octavia, Oct 27):
+ * This Year (January to December, the default), Last Year, or a Custom Range of months (at most
+ * 24, none after this month, on the firm's calendar), each month labelled with its year.
+ */
 function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: string }) {
   const year = Number(today.slice(0, 4));
-  const [chosen, setChosen] = useState(year);
-  const months = MONTHS.map((_, m) => `${chosen}-${String(m + 1).padStart(2, '0')}`);
+  const thisMonth = today.slice(0, 7);
+  const [range, setRange] = useState<'year' | 'last' | 'custom'>('year');
+  const [from, setFrom] = useState(`${year}-01`);
+  const [to, setTo] = useState(thisMonth);
+  const custom = range === 'custom';
+  const problem = !custom
+    ? ''
+    : !MONTH_RE.test(from) || !MONTH_RE.test(to)
+      ? 'Choose both months.'
+      : from > to
+        ? 'The first month must be on or before the last.'
+        : to > thisMonth
+          ? 'The last month cannot be after this month.'
+          : monthsBetween(from, to).length > 24
+            ? 'Choose at most 24 months.'
+            : '';
+  const months =
+    range === 'year'
+      ? MONTHS.map((_, m) => `${year}-${String(m + 1).padStart(2, '0')}`)
+      : range === 'last'
+        ? MONTHS.map((_, m) => `${year - 1}-${String(m + 1).padStart(2, '0')}`)
+        : problem
+          ? []
+          : monthsBetween(from, to);
   const at = (ym: string) => ({
     sent: items
       .filter((i) => i.issuedAt && monthOf(i.issuedAt) === ym)
@@ -338,6 +378,9 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
   const step = max <= 0 ? 0 : 10 ** Math.floor(Math.log10(max / 4));
   const top = max <= 0 ? 0 : Math.ceil(max / 4 / step) * step * 4;
   const ticks = [4, 3, 2, 1, 0].map((n) => (top * n) / 4);
+  const span = months.length
+    ? `${monthLabel(months[0]!)} – ${monthLabel(months[months.length - 1]!)}`
+    : '';
   return (
     <section className={card} aria-labelledby="inv-activity" data-testid="invoice-activity">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -345,16 +388,40 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
           Invoice Activity
         </h2>
         <Select
-          label="Year"
+          label="Activity range"
           hideLabel
-          value={String(chosen)}
-          onChange={(e) => setChosen(Number(e.target.value))}
+          value={range}
+          onChange={(e) => setRange(e.target.value as typeof range)}
           options={[
-            { value: String(year), label: 'This Year' },
-            { value: String(year - 1), label: 'Last Year' },
+            { value: 'year', label: `This Year (${year})` },
+            { value: 'last', label: `Last Year (${year - 1})` },
+            { value: 'custom', label: 'Custom Range…' },
           ]}
         />
       </div>
+      {custom ? (
+        <div className="mb-3 grid gap-2" data-testid="activity-custom">
+          <Input
+            label="First month"
+            type="month"
+            value={from}
+            max={thisMonth}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+          <Input
+            label="Last month"
+            type="month"
+            value={to}
+            max={thisMonth}
+            onChange={(e) => setTo(e.target.value)}
+          />
+          {problem ? (
+            <p role="alert" className="text-sm text-danger">
+              {problem}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <p className="mb-2 flex flex-wrap gap-4 text-xs text-text">
         {SERIES.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
@@ -362,8 +429,8 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
           </span>
         ))}
       </p>
-      {top === 0 ? (
-        <p className={quiet}>No invoices sent or paid in {chosen}.</p>
+      {problem ? null : top === 0 ? (
+        <p className={quiet}>No invoices sent or paid from {span}.</p>
       ) : (
         <div className="flex gap-2">
           <ul className="flex h-40 flex-col justify-between text-right text-[10px] text-muted">
@@ -377,7 +444,7 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
             <ul
               className="flex h-40 items-end gap-1 border-b border-divider"
               role="img"
-              aria-label={`Invoice activity in ${chosen}`}
+              aria-label={`Invoice activity, ${span}`}
             >
               {data.map((d, i) => (
                 <li key={months[i]} className="flex h-full flex-1 items-end justify-center gap-px">
@@ -386,16 +453,19 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
                       key={s.key}
                       className={`w-1.5 rounded-t-sm ${s.bar}`}
                       style={{ height: `${(d[s.key] / top) * 100}%` }}
-                      title={`${MONTHS[i]} ${s.label}: ${money(d[s.key])}`}
+                      title={`${monthLabel(months[i]!)} ${s.label}: ${money(d[s.key])}`}
                     />
                   ))}
                 </li>
               ))}
             </ul>
-            <ul className="mt-1 flex gap-1 text-[10px] text-muted">
-              {MONTHS.map((m) => (
+            <ul className="mt-1 flex gap-1 text-[10px] text-muted" data-testid="activity-months">
+              {months.map((m, i) => (
                 <li key={m} className="flex-1 text-center">
-                  {m}
+                  {MONTHS[Number(m.slice(5, 7)) - 1]}
+                  {i === 0 || m.endsWith('-01') ? (
+                    <span className="block">{m.slice(0, 4)}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -406,14 +476,36 @@ function ActivityChart({ items, today }: { items: InvoiceListItem[]; today: stri
   );
 }
 
-/** Payment Status: how many invoices are in each status. */
+/**
+ * Payment Status: how many invoices are in each status. IP-F21 (Octavia, Oct 27): over All
+ * Invoices, This Year, Last Year or a Custom Range of invoice dates (on the firm's calendar), and
+ * for every status or one (All resets), the two together.
+ */
 function StatusChart({ items, today }: { items: InvoiceListItem[]; today: string }) {
-  const [range, setRange] = useState<'all' | 'year'>('all');
   const year = today.slice(0, 4);
-  const list = range === 'all' ? items : items.filter((i) => invoiceDay(i).startsWith(year));
-  const segments = VIEW_ORDER.map((v) => ({
+  const last = String(Number(year) - 1);
+  const [range, setRange] = useState<'all' | 'year' | 'last' | 'custom'>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [only, setOnly] = useState<InvoiceView | ''>('');
+  const problem =
+    range === 'custom' && from && to && from > to
+      ? 'The start date must be on or before the end date.'
+      : '';
+  const inRange = (day: string) =>
+    range === 'all'
+      ? true
+      : range === 'year'
+        ? day.startsWith(year)
+        : range === 'last'
+          ? day.startsWith(last)
+          : (!from || day >= from) && (!to || day <= to);
+  const list = problem
+    ? []
+    : items.filter((i) => inRange(invoiceDay(i)) && (!only || inView(i, only)));
+  const segments = VIEW_ORDER.filter((v) => !only || v === only).map((v) => ({
     label: VIEW_LABEL[v],
-    value: list.filter((i) => viewOf(i) === v).length,
+    value: list.filter((i) => (only ? true : viewOf(i) === v)).length,
     tone: VIEW_CHART[v],
   }));
   return (
@@ -422,17 +514,42 @@ function StatusChart({ items, today }: { items: InvoiceListItem[]; today: string
         <h2 id="inv-status" className="font-display text-lg font-bold text-heading">
           Payment Status
         </h2>
-        <Select
-          label="Invoices counted"
-          hideLabel
-          value={range}
-          onChange={(e) => setRange(e.target.value === 'year' ? 'year' : 'all')}
-          options={[
-            { value: 'all', label: 'All Invoices' },
-            { value: 'year', label: 'This Year' },
-          ]}
-        />
+        <div className="flex flex-wrap gap-2">
+          <Select
+            label="Invoices counted"
+            hideLabel
+            value={range}
+            onChange={(e) => setRange(e.target.value as typeof range)}
+            options={[
+              { value: 'all', label: 'All Invoices' },
+              { value: 'year', label: 'This Year' },
+              { value: 'last', label: 'Last Year' },
+              { value: 'custom', label: 'Custom Range…' },
+            ]}
+          />
+          <Select
+            label="Status counted"
+            hideLabel
+            value={only}
+            onChange={(e) => setOnly(e.target.value as InvoiceView | '')}
+            options={[
+              { value: '', label: 'All Statuses' },
+              ...VIEW_ORDER.map((v) => ({ value: v, label: VIEW_LABEL[v] })),
+            ]}
+          />
+        </div>
       </div>
+      {range === 'custom' ? (
+        <div className="mb-3 grid gap-2" data-testid="status-custom">
+          <Input label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          {problem ? (
+            <p role="alert" className="text-sm text-danger">
+              {problem}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {/* The legend drops under the ring when the card is narrow, as eight rows do not fit beside it. */}
       <div className="[&_figure>ul]:min-w-44 [&_figure>ul]:gap-1.5 [&_li]:text-xs">
         <DonutChart
@@ -442,7 +559,7 @@ function StatusChart({ items, today }: { items: InvoiceListItem[]; today: string
           size="sm"
           legend
           showPercent
-          emptyText="No invoices yet."
+          emptyText={only || range !== 'all' ? 'No invoices match.' : 'No invoices yet.'}
         />
       </div>
     </section>
@@ -515,6 +632,9 @@ function MethodsChart() {
 }
 
 type Tab = 'ALL' | InvoiceView;
+const TAB_IDS = new Set<string>(VIEW_ORDER);
+const SIZES = [10, 25, 50];
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The views of an OPEN invoice: unpaid, whether due later, soon or overdue. */
 const OUTSTANDING_VIEWS: readonly string[] = [
@@ -549,15 +669,41 @@ function InvoiceTable({
   const qc = useQueryClient();
   const { role, firm } = useFirm();
   const canChange = role === 'OWNER' || role === 'ADMIN';
-  const [tab, setTab] = useState<Tab>('ALL');
-  const [clientId, setClientId] = useState('');
-  const [service, setService] = useState('');
-  const [status, setStatus] = useState(initialStatus);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(10);
+  // IP-F11 (Octavia, Oct 27): the tab, filters, search and page are kept in the address, so Back
+  // from a record or another module (SH1) finds the list as it was left.
+  const params = useSearchParams();
+  const said = (k: string) => params.get(k) ?? '';
+  const [tab, setTab] = useState<Tab>(() =>
+    TAB_IDS.has(said('tab')) ? (said('tab') as Tab) : 'ALL',
+  );
+  const [clientId, setClientId] = useState(() => said('client'));
+  const [service, setService] = useState(() => said('service'));
+  const [status, setStatus] = useState(() => said('status') || initialStatus);
+  const [from, setFrom] = useState(() => (DAY_RE.test(said('from')) ? said('from') : ''));
+  const [to, setTo] = useState(() => (DAY_RE.test(said('to')) ? said('to') : ''));
+  const [search, setSearch] = useState(() => said('q'));
+  const [page, setPage] = useState(() => Math.max(1, Number(said('page')) || 1));
+  const [size, setSize] = useState(() =>
+    SIZES.includes(Number(said('size'))) ? Number(said('size')) : 10,
+  );
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search);
+    const put = (k: string, v: string) => (v ? next.set(k, v) : next.delete(k));
+    put('tab', tab === 'ALL' ? '' : tab);
+    put('client', clientId);
+    put('service', service);
+    put('status', status);
+    put('from', from);
+    put('to', to);
+    put('q', search.trim());
+    put('page', page > 1 ? String(page) : '');
+    put('size', size !== 10 ? String(size) : '');
+    const qs = next.toString();
+    const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+    if (url !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }, [tab, clientId, service, status, from, to, search, page, size]);
   const [selected, setSelected] = useState<string[]>([]);
   const [canceling, setCanceling] = useState<InvoiceListItem>();
   const [correcting, setCorrecting] = useState<InvoiceListItem>();
@@ -1194,10 +1340,22 @@ function Side({ paymentsEnabled, loaded }: { paymentsEnabled?: boolean; loaded: 
           {links.map((l) => {
             const item = (
               <li key={l.href}>
-                <Link href={l.href} className="flex min-h-9 items-center gap-3 text-sm text-link">
-                  <l.icon aria-hidden weight="fill" className="size-5 text-action" />
-                  {l.label}
-                </Link>
+                {/* IP-F11: another module (Templates, Reports…) opens with Back to Invoices &
+                    Payments, which returns to this list with its filters. */}
+                {l.href.startsWith('/invoices') ? (
+                  <Link href={l.href} className="flex min-h-9 items-center gap-3 text-sm text-link">
+                    <l.icon aria-hidden weight="fill" className="size-5 text-action" />
+                    {l.label}
+                  </Link>
+                ) : (
+                  <OriginLink
+                    href={l.href}
+                    className="flex min-h-9 items-center gap-3 text-sm text-link"
+                  >
+                    <l.icon aria-hidden weight="fill" className="size-5 text-action" />
+                    {l.label}
+                  </OriginLink>
+                )}
               </li>
             );
             return l.change ? (

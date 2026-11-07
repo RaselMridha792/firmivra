@@ -159,6 +159,50 @@ test('Correct Dates: a sent invoice gets a later due date with a reason (IP-F08)
   await expect(row).not.toContainText('Overdue');
 });
 
+test('The list keeps its filters in the address; Templates goes back to it; the charts take ranges and a status (IP-F11, F21)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  // IP-F21: Payment Status by range and status, with a wrong range said in place.
+  const status = page.getByTestId('invoice-status-chart');
+  await status.getByLabel('Status counted').selectOption('PAID');
+  await expect(status).toContainText('Paid');
+  await status.getByLabel('Invoices counted').selectOption('custom');
+  await status.getByLabel('From').fill('2026-12-31');
+  await status.getByLabel('To').fill('2026-01-01');
+  await expect(status.getByRole('alert')).toHaveText(
+    'The start date must be on or before the end date.',
+  );
+  await status.getByLabel('Status counted').selectOption('');
+  await status.getByLabel('Invoices counted').selectOption('all');
+  await expect(status).toContainText('15');
+  // Invoice Activity: a custom range of months, each labelled with its year.
+  const activity = page.getByTestId('invoice-activity');
+  await activity.getByLabel('Activity range').selectOption('custom');
+  await activity.getByLabel('First month').fill('2026-12');
+  await activity.getByLabel('Last month').fill('2026-01');
+  await expect(activity.getByRole('alert')).toHaveText(
+    'The first month must be on or before the last.',
+  );
+  await activity.getByLabel('First month').fill('2025-11');
+  await activity.getByLabel('Last month').fill('2026-02');
+  await expect(activity.getByTestId('activity-months').getByRole('listitem')).toHaveCount(4);
+  await expect(activity.getByTestId('activity-months')).toContainText('Nov2025');
+  await expect(activity.getByTestId('activity-months')).toContainText('Jan2026');
+  await page.screenshot({ path: test.info().outputPath('charts.png') });
+
+  // IP-F11: the search is in the address; Invoice Templates opens with Back to it.
+  await page.getByLabel('Search invoices').fill('0098');
+  await expect(page).toHaveURL(/[?&]q=0098/);
+  await page.getByRole('link', { name: 'Invoice Templates' }).click();
+  await page.waitForURL(/\/templates/);
+  await page.getByTestId('back-to-origin').click();
+  await page.waitForURL(/\/invoices\?.*q=0098/);
+  await expect(page.getByLabel('Search invoices')).toHaveValue('0098');
+  await expect(page.getByRole('button', { name: 'Actions for INV-2026-0098' })).toBeVisible();
+});
+
 test('Row menu by status: Resend and Copy Payment Link while unpaid, Send Receipt and Issue Refund once paid (IP-F10)', async ({
   page,
   context,
