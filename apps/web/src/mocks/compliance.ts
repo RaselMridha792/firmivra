@@ -67,6 +67,7 @@ const page = <T>(rows: T[], q: { page?: number; pageSize?: number }) => {
 export function createComplianceMock({
   role = 'OWNER',
   empty = false,
+  documentName,
 }: Options = {}): ComplianceClient {
   const store: Store = {
     deadlines: empty ? [] : seedDeadlines(),
@@ -498,9 +499,7 @@ export function createComplianceMock({
         d.status = 'UPCOMING';
         d.completedAt = null;
         d.completedBy = null;
-        d.filedOn = null;
-        d.confirmationNumber = null;
-        d.notApplicableReason = null;
+        // As the API: the filing record and the reason it was set aside stay (CD-Y09).
         return touch(d);
       }),
     notApplicable: (deadlineId, body) =>
@@ -593,19 +592,21 @@ export function createComplianceMock({
         d.tasks = d.tasks.filter((t) => t.id !== taskId);
         return touch(d);
       }),
-    addDocument: (deadlineId, body: AddDeadlineDocumentRequest) =>
-      run(() => {
+    addDocument: async (deadlineId, body: AddDeadlineDocumentRequest) => {
+      const named = (await documentName?.(body.documentId).catch(() => null)) ?? null;
+      return run(() => {
         const d = find(deadlineId);
         if (d.documents.some((x) => x.documentId === body.documentId)) {
           throw fail(409, 'DUPLICATE', 'That document is already added.');
         }
         d.documents.push({
           documentId: body.documentId,
-          fileName: `Supporting document ${d.documents.length + 1}.pdf`,
+          fileName: named ?? `Supporting document ${d.documents.length + 1}.pdf`,
           addedAt: nowIso(),
         });
         return touch(d);
-      }),
+      });
+    },
     removeDocument: (deadlineId, documentId) =>
       run(() => {
         const d = find(deadlineId);

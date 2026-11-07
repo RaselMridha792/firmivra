@@ -22,11 +22,43 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1276 merged: loop detection knows the tag and assign actions, and an action that changes nothing records nothing (fix to #1270); Assign client (part of AU-F27).
 - #1278 merged: Send client email (AU-F25) through Messages' outbound email (OutboundMessagesService exported: the lead's one-off exception).
 - #1280 merged: Tags and Assigned staff conditions on every client and lead event, with the firm's own tags and members as the choices (AU-F22, part).
-- AU requests (`rasel/R55-au-requests`): Request documents (AU-F27) through Documents' own request (DocumentRequestsService exported: the lead's one-off exception).
+- #1282 merged: Request documents (AU-F27) through Documents' own request (DocumentRequestsService exported: the lead's one-off exception).
+- #1285 merged: Send intake form (AU-F27) through Intake Forms' own send (IntakeSendService, already exported), one per run and action.
+- #1290 merged: Update client status and Update client priority (AU-F27, a typed allowlist), and the Client status changed event with old and new status (AU-F08).
+- #1297 merged: the rest of AU-F22 (the client's context on every client record's event; each record's own due date, balance, payment status, progress, assignee, type, confirmation, service, jurisdiction and tax year) and AU-F23's remaining operators (On, Within the last / next N days, Does not contain).
+- #1300 merged: Invite client to book, Schedule lead follow-up and Request approval (AU-F27), with actions that work on the event's own record (LeadPipelineTabsService and TaxReturnReviewService exported: the lead's one-off exceptions).
+- #1301 (`rasel/R55-au-coverage`): Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
 **For Review 2 (lead, Nov 7):** Request documents (AU-F27) names a service kind, not a service: it asks under the client's oldest ACTIVE service of that kind; with none open, the step fails with Documents' NO_OPEN_SERVICE and nothing is created. Title, instructions, an optional category (a live one of the firm) and a due date N days after the run.
+
+**For Review 2 (lead, Nov 7):** Update allowed field (AU-F27) is a typed allowlist: Client status (New, Pending documents, In progress, Active, On hold; never Inactive, which stays behind APPROVE) and Priority (High, Medium, Low, or none). Clients has no status route, so the engine writes the change as Clients' own update does: the client's row locked, an archived client refused, a Staff owner only on their own clients, `updated_by` = the rule's owner (the database's status history names them), and a `client.updated` entry with the field and its old and new value. Name, email, phone, account type and the tax-year status stay out (a rule's one fixed value would overwrite every matching client; a firm's tax status can read "Filed"). That entry is the Client status changed event (AU-F08), so loop detection blocks a rule on it that sets the status.
+
+**For Review 2 (AU-F22 and F23 defaults, Nov 7):**
+- Every event about one client's record (a task, an invoice, a form, a return...) can test that client's status, tags, assigned staff, state, the day they were added and their last activity. A client's own events already test its status, tags and staff. Lead events and the firm's own events (staff, integrations, sends) have no client, so they get none of these.
+- Dates are the firm's days. "Within the last / next N days" counts today. There is no "last contact": the client's recorded last activity is offered under that name.
+- An overdue invoice's balance is its total less what was paid, online or offline, as Invoices counts it. Its payment status is Unpaid or Partly paid (an overdue invoice is never paid).
+- An appointment reads Pending until someone confirms it.
+- Not listed, since no record has them: a team on a client or record, and approved custom fields (there's no allowlist of a firm's custom fields).
+
+**For Review 2 (lead, Nov 7): the AU-F27 requests**
+- **Invite client to book:** a portal message through Messages with a link to the client's portal Appointments page. It never books; the client picks a time under Appointments' rules.
+- **Schedule lead follow-up:** offered on lead events only. It goes through Leads' own follow-up (a type, due N days after the run, a note), for open leads only: a closed lead fails with Leads' LEAD_CLOSED.
+- **Request approval:** offered on tax return events only. It adds a PENDING step through Tax Returns, and Automations never decides it. The reviewer can never be the rule's owner (blocked when the rule is turned on) or the return's preparer (SELF_APPROVAL at run time). The same pending step for the same reviewer is never added twice.
+
+**For Review 2 (lead, Nov 7): AU-F26 coverage**
+- **Already covered:**
+  - Create task, Portal message (Send client message), Email (AU-F25), Internal notification (Notify staff), Update status, Assign, Document request, Add tag and Add note;
+  - Delay (each action's delay);
+  - Appointment: Invite client to book, which never books.
+- **Create task:** it also takes one of the firm's task templates (which fills what the rule leaves out) and Visible to client.
+- **Send client text message:** it goes through Messages' outbound text, with consent, opt-in, the firm's texting setting and the provider. Production starts without texting, so the step fails with Messages' own reason and nothing is sent.
+- **Create deadline:** through Compliance's own create. The same deadline (client, name, type and day) is never added twice.
+- **Add service:** through Engagements' own create, with no billing date, so it never starts billing. A client with that service already open gets nothing new.
+- **Not offered:**
+  - Create Invoice: an invoice is money and needs line items. The reminder is Send client message or Send client email on Invoice overdue, with the invoice number as a merge field.
+  - Webhook / Integration: no vetted outbound webhook exists.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
 
@@ -37,7 +69,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - F32: provider evidence is set once on the same row (`provider_*`), so the occurrence key and the runs keyed by it stay the same: nothing reruns.
 - F33: a confirmation only records a known fact; it never files, submits, charges, pays, changes consent or grants rights. Tests per limit.
 
-**Not listed (no real source, AU-Y02 default):** client status changed (nothing changes a client's status after creation), client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
+**Not listed (no real source, AU-Y02 default):** client onboarding completed, client follow-up due, no contact for a period, anniversary, custom client trigger; lead qualified (no qualification step) and lead no-response; intake started; document expiration (no expiry date).
 
 **Needs from others:**
 - AU-F28 Rule Owner: build on the existing `automation_rules.owner_user_id` (lead, Nov 4: yes, no schema change).

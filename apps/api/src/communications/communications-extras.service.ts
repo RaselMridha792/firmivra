@@ -309,6 +309,11 @@ export class CommunicationExtrasService {
     };
   }
 
+  /** CM-F08: an image a member added to a message's content (its random id; never the file). */
+  async imageAdded(imageId: string): Promise<void> {
+    await this.audit.log('communication.image_added', { type: 'email_image', id: imageId });
+  }
+
   async confirm(
     tenant: TenantContext,
     userId: string,

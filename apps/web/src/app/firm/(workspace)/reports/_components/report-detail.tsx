@@ -5,6 +5,8 @@ import {
   type ReportDefinitionView,
   type ReportFilterCondition,
   type ReportResult,
+  type ReportRowLink,
+  type ReportTableRow,
 } from '@firmivra/types';
 import {
   ActionMenu,
@@ -22,6 +24,7 @@ import {
   Bookmark,
   CalendarBlank,
   CaretRight,
+  DotsThreeVertical,
   DownloadSimple,
   Lightbulb,
   MagnifyingGlass,
@@ -62,8 +65,12 @@ import {
   subtle,
 } from './reports-shared';
 import { ReportHelp } from './report-help';
+import { KIND_WORD, cellLink, ownRecord, packView, recordHref, viewFrom } from './report-drill';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 import { choiceOf, drawingOf, partsOf } from './chart-display';
 import { ChartSelect } from './chart-select';
+import { printScope, rowsToPrint } from './print-rows';
+import { ReportPrint } from './report-print';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** More Filters as typed and as sent (only rows that fit are ever applied). */
@@ -80,6 +87,14 @@ interface Run {
 const QUICK = ['last_7_days', 'last_30_days', 'this_month', 'this_year', 'last_year'] as const;
 
 /** /reports/[reportId]: one report (a quick report by key, or a saved one by id) with its controls. */
+/** The detail's Client Type, each kept only where the report's status field has it (RP-Y03). */
+const CLIENT_TYPES = [
+  { value: 'ALL', label: 'All Clients' },
+  { value: 'NEW', label: 'New Clients' },
+  { value: 'ACTIVE', label: 'Active Clients' },
+  { value: 'INACTIVE', label: 'Inactive Clients' },
+];
+
 export function ReportDetail({ reportId }: { reportId: string }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -96,6 +111,10 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   // RP-F01 (Octavia, Oct 28): opened from the overview, the report starts on its range and
   // comparison (they come in the address), not on its own defaults.
   const linked = datesFrom(params);
+  // RP-F17 (Octavia, Oct 28): back from a record, the report is as it was left (its search,
+  // More Filters, sort, page and columns ride in this page's address).
+  const view = viewFrom(params.get('view'));
+  const navigate = useOriginNavigate();
   const [preset, setPreset] = useState<string | undefined>(
     linked?.rule === 'ROLLING' ? linked.preset : undefined,
   );
@@ -116,14 +135,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const [groupBy, setGroupBy] = useState('');
   const [labels, setLabels] = useState<boolean>();
   const [tax, setTax] = useState<boolean>();
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<{ id: string; descending: boolean }>();
-  const [hidden, setHidden] = useState<string[]>([]);
-  const [extra, setExtra] = useState<Extra>(NO_EXTRA);
+  const [search, setSearch] = useState(view?.search ?? '');
+  const [page, setPage] = useState(view?.page ?? 1);
+  const [sort, setSort] = useState<{ id: string; descending: boolean } | undefined>(view?.sort);
+  const [hidden, setHidden] = useState<string[]>(view?.hidden ?? []);
+  const [extra, setExtra] = useState<Extra>(view?.extra ?? NO_EXTRA);
   const [dialog, setDialog] = useState<'save' | 'schedule' | 'filters' | 'custom'>();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const term = useDeferredValue(search.trim());
+  // RP-Y09: Print gathers every row first, then prints the report's print copy.
+  const [printing, setPrinting] = useState<{ rows: ReportTableRow[]; at: string }>();
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
   const date = fixed
     ? ({ rule: 'FIXED', ...fixed } as const)
@@ -240,24 +261,108 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       notice(detail ?? errorMessage(e, { ...RP_ERRORS, ...EXPORT_ERRORS }), 'error');
     }
   };
-  const columns: Column<{ cells: Record<string, string | number | boolean | null> }>[] = (
-    r?.table.columns ?? []
-  )
-    .filter((c) => c.locked || !hidden.includes(c.key))
-    .map((c, i) => ({
-      id: c.key,
-      label: c.label,
-      sortable: c.sortable,
-      cell: (row) => (
-        <span className={i === 0 ? 'font-medium text-heading' : ''}>
-          {c.key === '_count' || c.key === '_pct'
-            ? formatCell(row.cells[c.key], c.key === '_pct' ? 'PERCENT' : 'NUMBER')
-            : formatCell(row.cells[c.key], c.type)}
-        </span>
-      ),
-    }));
+  /** Opens a row's record in this tab; Back (or the bar's Back) returns to this view. */
+  const openRecord = (link: ReportRowLink) => {
+    const href = recordHref(link);
+    if (!href) return;
+    const packed = packView({ search, page, sort, hidden, extra });
+    if (packed) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', packed);
+      window.history.replaceState(window.history.state, '', url.toString());
+    }
+    navigate(href);
+  };
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notice(`${what} copied.`, 'success');
+    } catch {
+      notice(`${what} could not be copied.`, 'error');
+    }
+  };
+  const firstColumn = r?.table.columns[0];
+  const columns: Column<ReportTableRow>[] = [
+    ...(r?.table.columns ?? [])
+      .filter((c) => c.locked || !hidden.includes(c.key))
+      .map((c, i): Column<ReportTableRow> => ({
+        id: c.key,
+        label: c.label,
+        sortable: c.sortable,
+        cell: (row) => {
+          const text =
+            c.key === '_count' || c.key === '_pct'
+              ? formatCell(row.cells[c.key], c.key === '_pct' ? 'PERCENT' : 'NUMBER')
+              : formatCell(row.cells[c.key], c.type);
+          const link = cellLink(c.key, i === 0, row.links);
+          const href = link ? recordHref(link) : null;
+          return link && href && text !== '—' ? (
+            <a
+              href={href}
+              className="font-medium text-link underline"
+              data-testid="row-link"
+              onClick={(e) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                openRecord(link);
+              }}
+            >
+              {text}
+            </a>
+          ) : (
+            <span className={i === 0 ? 'font-medium text-heading' : ''}>{text}</span>
+          );
+        },
+      })),
+    {
+      id: '_actions',
+      label: 'Actions',
+      cell: (row) => {
+        const own = ownRecord(row.links);
+        const client = row.links.find((l) => l.kind === 'CLIENT');
+        const id = firstColumn ? formatCell(row.cells[firstColumn.key], firstColumn.type) : '—';
+        const what = firstColumn?.label ?? 'Identifier';
+        const items = [
+          ...(own
+            ? [{ label: `Open ${KIND_WORD[own.kind]}`, onSelect: () => openRecord(own) }]
+            : []),
+          ...(client && own?.kind !== 'CLIENT'
+            ? [{ label: 'Open client', onSelect: () => openRecord(client) }]
+            : []),
+          ...(id !== '—' ? [{ label: `Copy ${what}`, onSelect: () => void copy(id, what) }] : []),
+        ];
+        return items.length ? (
+          <ActionMenu
+            label={`Actions for ${id}`}
+            trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-4" />}
+            sections={[{ items }]}
+          />
+        ) : null;
+      },
+    },
+  ];
   const totals = r?.table.totals;
   const src = r ? sources.data?.find((s) => s.key === r.definition.dataSource) : undefined;
+  // RP-Y03 (Octavia, Oct 28): a quick filter this report's data cannot use is offered disabled,
+  // and the line under the filters says why (the API would only note that it did not apply).
+  const statuses = new Set(
+    src?.fields.find((f) => f.key === 'status')?.options.map((o) => o.value) ?? [],
+  );
+  const clientTypes = CLIENT_TYPES.filter((t) => t.value === 'ALL' || statuses.has(t.value));
+  const off = {
+    date: !!src && src.dateField === null,
+    compare: !!src && (!src.supportsComparison || src.dateField === null),
+    clientType: !!src && clientTypes.length === 1,
+    service: !!src,
+  };
+  const notHere = src
+    ? [
+        ...(off.date ? [`Date Range: ${src.label} has no date to range by.`] : []),
+        ...(off.compare ? [`Compare To: ${src.label} has no earlier period to compare.`] : []),
+        ...(off.clientType ? [`Client Type: ${src.label} has no client status.`] : []),
+        'Service Type: no report can filter by service yet.',
+      ]
+    : [];
   // Octavia's D2: a Financial report's breakdown groups by Service, Client or Payment Method.
   const groupOptions =
     r?.category === 'FINANCIAL'
@@ -313,6 +418,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     } catch (e) {
       const detail = e instanceof ApiRequestError ? e.details?.[0]?.message : undefined;
       notice(detail ?? errorMessage(e, RP_ERRORS), 'error');
+    }
+  };
+  const printAll = async () => {
+    try {
+      const rows = await rowsToPrint((p, size) =>
+        api.reports.run({ ...req, page: p, pageSize: size }),
+      );
+      setPrinting({ rows, at: new Date().toISOString() });
+    } catch (e) {
+      notice(errorMessage(e, RP_ERRORS), 'error');
     }
   };
   /**
@@ -446,6 +561,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           >
             <Select
               label="Date Range"
+              disabled={off.date}
+              aria-describedby={off.date ? 'filters-off' : undefined}
               value={presetValue}
               onChange={(e) => {
                 if (e.target.value === 'custom') setDialog('custom');
@@ -462,7 +579,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             />
             <Select
               label="Compare To"
-              value={compareValue}
+              disabled={off.compare}
+              aria-describedby={off.compare ? 'filters-off' : undefined}
+              value={off.compare ? 'NONE' : compareValue}
               onChange={(e) => {
                 setCompare(e.target.value);
                 setPage(1);
@@ -471,21 +590,20 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             />
             <Select
               label="Client Type"
-              value={clientType}
+              disabled={off.clientType}
+              aria-describedby={off.clientType ? 'filters-off' : undefined}
+              value={clientTypes.some((t) => t.value === clientType) ? clientType : 'ALL'}
               onChange={(e) => {
                 setClientType(e.target.value);
                 setPage(1);
               }}
-              options={[
-                { value: 'ALL', label: 'All Clients' },
-                { value: 'NEW', label: 'New Clients' },
-                { value: 'ACTIVE', label: 'Active Clients' },
-                { value: 'INACTIVE', label: 'Inactive Clients' },
-              ]}
+              options={clientTypes}
             />
             <Select
               label="Service Type"
-              value={service}
+              disabled={off.service}
+              aria-describedby={off.service ? 'filters-off' : undefined}
+              value={off.service ? '' : service}
               onChange={(e) => {
                 setService(e.target.value);
                 setPage(1);
@@ -506,6 +624,15 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             <span className="self-center">
               <ReportHelp area="filters" />
             </span>
+            {notHere.length ? (
+              <p
+                id="filters-off"
+                className="col-span-full text-xs text-muted"
+                data-testid="filters-off"
+              >
+                Not for this report: {notHere.join(' ')}
+              </p>
+            ) : null}
           </section>
           {r && r.chips.length + extra.rows.length > 0 ? (
             <ul className="flex flex-wrap items-center gap-2" aria-label="Active filters">
@@ -738,7 +865,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
                   ]}
                 />
               )}
-              <button type="button" className={subtle} onClick={() => window.print()}>
+              <button
+                type="button"
+                className={subtle}
+                disabled={!r}
+                onClick={() => void printAll()}
+              >
                 <Printer aria-hidden weight="bold" className="size-4" /> Print
               </button>
               {canSaveChanges ? (
@@ -917,6 +1049,17 @@ export function ReportDetail({ reportId }: { reportId: string }) {
             setPage(1);
             setDialog(undefined);
           }}
+        />
+      ) : null}
+      {r ? (
+        <ReportPrint
+          title={`${meta?.label.replace(/s$/, '')} – ${title}`}
+          result={r}
+          rows={printing?.rows ?? null}
+          columns={r.table.columns.filter((c) => c.locked || !hidden.includes(c.key))}
+          scope={printScope(r, term, rangeText)}
+          printedAt={printing?.at}
+          onPrinted={printing ? setPrinting : undefined}
         />
       ) : null}
     </div>

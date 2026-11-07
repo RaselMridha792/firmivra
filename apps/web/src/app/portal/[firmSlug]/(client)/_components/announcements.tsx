@@ -76,7 +76,12 @@ export function AnnouncementCard({ slug, place }: { slug: string; place: Announc
   );
 }
 
-/** An announcement's title, date and text, its lines kept. */
+/**
+ * An announcement's title, date and text. The dashboard card (`clamp`) shows a snippet of the
+ * plain text; the announcement's own page shows it as the firm formatted it (CM-F08), from the
+ * HTML the API cleaned for the portal (alignment, the content fonts, links, button links and the
+ * firm's own images; nothing that runs).
+ */
 export function AnnouncementText({
   announcement,
   clamp = false,
@@ -90,9 +95,18 @@ export function AnnouncementText({
         {announcement.title ?? 'Announcement'}
       </h2>
       <p className="mt-1 text-xs text-muted">Posted {dateText(announcement.publishedAt)}</p>
-      <p className={`mt-2 text-sm whitespace-pre-line text-text ${clamp ? 'line-clamp-5' : ''}`}>
-        {announcement.body}
-      </p>
+      {clamp || !announcement.html ? (
+        <p className={`mt-2 text-sm whitespace-pre-line text-text ${clamp ? 'line-clamp-5' : ''}`}>
+          {announcement.body}
+        </p>
+      ) : (
+        <div
+          className="mt-2 text-sm text-text [&_a]:text-link [&_a]:underline [&_a.fv-button]:my-1 [&_a.fv-button]:inline-block [&_a.fv-button]:rounded-control [&_a.fv-button]:bg-action [&_a.fv-button]:px-4 [&_a.fv-button]:py-2 [&_a.fv-button]:font-semibold [&_a.fv-button]:text-on-action [&_a.fv-button]:no-underline [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_h3]:text-lg [&_h3]:font-bold [&_h4]:font-semibold [&_img]:inline-block [&_img]:max-w-full [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:pl-6"
+          data-testid="announcement-html"
+          // Cleaned by the API's portal allowlist (apps/api/src/templates/html.ts, sanitizeForPortal).
+          dangerouslySetInnerHTML={{ __html: announcement.html }}
+        />
+      )}
     </>
   );
 }

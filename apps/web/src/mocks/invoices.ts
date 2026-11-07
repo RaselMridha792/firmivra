@@ -881,6 +881,21 @@ export function createInvoicesMock(
       Object.assign(r, change);
       return toInvoice(r, today());
     },
+    resend: async (id) => {
+      await mockDelay();
+      manager();
+      const r = find(parseInput(InvoiceId, id));
+      const view = toInvoice(r, today());
+      if (view.status !== 'OPEN' || view.balanceDueCents <= 0) {
+        throw fail(
+          409,
+          'NOT_RESENDABLE',
+          'Only a sent invoice with something still to pay can be sent again',
+        );
+      }
+      if (isArchived(r)) throw archived();
+      return view;
+    },
     send: async (id) => {
       await mockDelay();
       manager();

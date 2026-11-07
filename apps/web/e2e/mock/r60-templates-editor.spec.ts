@@ -24,7 +24,9 @@ test('TP-F04: Preview shows the unsaved words and saves nothing', async ({ page 
   await page.keyboard.type(' An unsaved closing line.');
   await page.getByRole('button', { name: 'Preview Template' }).click();
   const dialog = page.getByTestId('preview-dialog');
-  await expect(dialog.getByTestId('preview-body')).toContainText('An unsaved closing line.');
+  await expect(dialog.frameLocator('[data-testid="preview-body"]').locator('body')).toContainText(
+    'An unsaved closing line.',
+  );
   await expect(page.getByRole('dialog')).toContainText('your unsaved changes');
   await expect(dialog.getByTestId('test-saved-only')).toBeVisible();
 });

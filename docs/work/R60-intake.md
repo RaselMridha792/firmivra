@@ -200,7 +200,7 @@ Progress (Templates, Oct 28 review):
   - Tax Workflow and Bookkeeping keep Use off with the plain reason; no new flow (the lead logs
     "Tax Returns and Bookkeeping take a template" as a later item).
   - Preview shows the saved structure.
-- Merge groups, branch `rasel/R60-template-merge-groups`: TP-F09 (the editor's merge fields have
+- Merge groups, #1277 (merged): TP-F09 (the editor's merge fields have
   Tax and Staff groups, searchable, inserting at the focused field) and the new-template console
   error ("Query data cannot be undefined": the detail query answered undefined for a new one).
 - The lead's answers (Nov 7), each a one-off exception to owned paths, stated in its PR:
@@ -211,6 +211,37 @@ Progress (Templates, Oct 28 review):
     sanitizers keep only left, center or right and the one button class.
   - TP-F16: mammoth in `apps/api`, for rich kinds only, under the existing upload cap, through the
     allowlist sanitizer; images are dropped, nothing is fetched and the DOCX is not stored.
+- Rich content, branch `rasel/R60-template-rich`: TP-F07.
+  - Images upload to the firm's email images through `business/templates/images` and `/confirm`.
+    Leads' `LeadEmailService` is provided by Templates, since importing LeadsModule would be a
+    cycle; Leads is untouched. The routes keep Templates' access. Firm B can't confirm the ticket or
+    read the key.
+  - Alignment (left, centre, right) and a call-to-action button come from the RichTextEditor's new
+    opt-in props, `textAlign` and `onInsertButton` (https only).
+  - The sanitizer, which Communications shares, keeps only those alignments, the button class (with
+    its own inline look, since an email has no stylesheet) and an image's width within 24 to 600
+    px.
+  - Preview shows the content as an email does, in a sandboxed frame. SMS stays plain text.
+- Composer content, branch `rasel/R60-comms-rich`: CM-F08 and CM-F10 (the lead's answers, Nov 7).
+  - Email and Announcement take an image (`business/communications/images` and `/confirm`,
+    Communications' own access) and the Font menu with the five mail-safe fonts
+    (`CONTENT_FONTS`). The shared sanitizer keeps exactly those fonts.
+  - The composer's preview, the review dialog and Sent History's Message tab show the message as it
+    will look, in the sandboxed frame. SMS stays text.
+  - The portal's Announcements page shows the announcement's formatting through
+    `sanitizeForPortal`: https links open apart, images only from that firm's email-images
+    address. The dashboard card, bells and notices keep the plain `body`. This is a one-off
+    exception the lead gave for `client-portal/portal-announcements.ts` and the portal's
+    announcement card.
+- Segments, branch `rasel/R60-comms-segments` (stacked on #1286): CM-F13 to F18.
+  - Owner and Last Refreshed columns. The API now stamps Last Refreshed only when the rules, the
+    audience or a list's members change, never on a rename, and the dialog sends only what
+    changed.
+  - Match all or any of the rules (saved rule groups are kept).
+  - The live count with "at" time, an example of who matches and the summary.
+  - A saved segment's rules are edited in place; view-only roles see the exact reason.
+  - View Members adds and removes a list's people by name through the new `GET segments/people`
+    (within the member's reach, masked), saved together with `PUT .../members` (audited).
 - Return to origin, branch `rasel/R60-templates-origin`: TP-F01.
   - The overview's view, category, search, Show All and page, and a library's category, search,
     status, owner, tag, sort and page, are kept in the address (SH1's `lib/list-query`, read in the

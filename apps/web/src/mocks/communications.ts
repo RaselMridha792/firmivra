@@ -13,7 +13,9 @@ import {
   type CommunicationRow,
   CommunicationsQuery,
   type CommunicationsClient,
+  ConfirmEmailImageUploadRequest,
   ConfirmUploadRequest,
+  CreateEmailImageUploadRequest,
   ConsentQuery,
   CreateCommunicationRequest,
   CreateSegmentRequest,
@@ -27,6 +29,7 @@ import {
   SaveAsTemplateRequest,
   ScheduleCommunicationRequest,
   SegmentMembersQuery,
+  SegmentPeopleQuery,
   SegmentsQuery,
   type SegmentDetail,
   type SendCheck,
@@ -306,6 +309,8 @@ export function createCommunicationsMock({
     >
   >();
   const id = (block: string) => uuid(block, next++);
+  /** CM-F08: images in the content waiting for their confirm. */
+  const imageUploads = new Map<string, 'image/png' | 'image/jpeg' | 'image/gif'>();
   const run = async <T>(work: () => T): Promise<T> => {
     await mockDelay();
     return copy(work());
@@ -410,7 +415,8 @@ export function createCommunicationsMock({
         ? criteria.conditions.map(condText).join(' and ') || 'Everyone'
         : null,
       memberCount: m.length,
-      lastRefreshedAt: type === 'DYNAMIC' ? at : null,
+      // As the API: made now, so evaluated now (a list's members too).
+      lastRefreshedAt: at,
       usedBy: 0,
       owner: mockMe,
       archived: false,
@@ -1275,6 +1281,33 @@ export function createCommunicationsMock({
           expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
         };
       }),
+    // CM-F08: an image in the content, as the API (the firm's email images): a placeholder picture.
+    createImageUpload: (body) =>
+      run(() => {
+        const input = parseInput(CreateEmailImageUploadRequest, body);
+        const token = `mock-comms-image-${next++}`;
+        imageUploads.set(token, input.contentType);
+        return {
+          uploadToken: token,
+          url: `mock:upload/${token}`,
+          method: 'PUT' as const,
+          headers: { 'content-type': input.contentType },
+          expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+        };
+      }),
+    confirmImageUpload: (body) =>
+      run(() => {
+        const { uploadToken } = parseInput(ConfirmEmailImageUploadRequest, body);
+        const contentType = imageUploads.get(uploadToken);
+        if (!contentType) throw fail(410, 'UPLOAD_EXPIRED', 'Upload the image again');
+        imageUploads.delete(uploadToken);
+        return {
+          id: id('c900'),
+          url: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="100%" height="100%" fill="#6b7f99"/></svg>')}`,
+          contentType,
+          sizeBytes: 67,
+        };
+      }),
     confirmAttachment: (body) =>
       run(() => {
         const { uploadToken } = parseInput(ConfirmUploadRequest, body);
@@ -1792,10 +1825,14 @@ export function createCommunicationsMock({
         if (input.audience !== undefined) s.d.audience = input.audience;
         if (input.criteria !== undefined) {
           const conds = (input.criteria.conditions ?? []) as Cond[];
-          s.d.criteria = { logic: 'AND', conditions: conds, groups: [] } as never;
-          s.d.criteriaSummary = conds.map(condText).join(' and ') || 'Everyone';
-          s.d.lastRefreshedAt = nowIso();
+          const logic = input.criteria.logic ?? 'AND';
+          s.d.criteria = { logic, conditions: conds, groups: input.criteria.groups ?? [] } as never;
+          s.d.criteriaSummary =
+            conds.map(condText).join(logic === 'OR' ? ' or ' : ' and ') || 'Everyone';
         }
+        // CM-F13: as the API, Last Refreshed moves only when who belongs is evaluated again.
+        if (input.criteria !== undefined || input.audience !== undefined)
+          s.d.lastRefreshedAt = nowIso();
         s.d.etag = `e${next++}`;
         s.d.updatedAt = nowIso();
         return { ...s.d, memberCount: segCount(s) };
@@ -1807,13 +1844,16 @@ export function createCommunicationsMock({
         for (const c of conds)
           if (!FIELDS.some((f) => f.field === c.field))
             throw fail(400, 'INVALID_CRITERIA', `${c.field} is not a field you can filter by.`);
+        // CM-F15: all of the rules narrow the group; any of them widens it (synthetic).
+        const any = input.criteria.logic === 'OR';
+        const narrow = any ? Math.min(conds.length, 1) : Math.min(conds.length, 4);
         const pool = contacts.filter(
           (c) =>
             (input.audience === 'LEADS'
               ? c.kind === 'LEAD'
               : input.audience === 'CLIENTS'
                 ? c.kind === 'CLIENT'
-                : true) && c.index % 2 ** Math.min(conds.length, 4) === 0,
+                : true) && c.index % 2 ** narrow === 0,
         );
         const eligible = pool.filter(
           (c) => !c.unsubscribed && !c.invalid && !(input.channel === 'SMS' && c.noPhone),
@@ -1824,7 +1864,7 @@ export function createCommunicationsMock({
           sample: pool
             .slice(0, input.sample)
             .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email })),
-          criteriaSummary: conds.map(condText).join(' and ') || 'Everyone',
+          criteriaSummary: conds.map(condText).join(any ? ' or ' : ' and ') || 'Everyone',
           calculatedAt: nowIso(),
         };
       }),
@@ -1836,6 +1876,29 @@ export function createCommunicationsMock({
         const term = query.search?.toLowerCase();
         const rows = members(s)
           .filter((c) => !term || `${c.name} ${c.email}`.toLowerCase().includes(term))
+          .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email }));
+        return {
+          items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
+          total: rows.length,
+          page: query.page,
+          pageSize: query.pageSize,
+        };
+      }),
+    // CM-F18: the people a member may add to a list, by name.
+    segmentPeople: (q = {}) =>
+      run(() => {
+        const query = parseInput(SegmentPeopleQuery, q);
+        const term = query.search?.toLowerCase();
+        const rows = contacts
+          .filter(
+            (c) =>
+              (query.audience === 'LEADS'
+                ? c.kind === 'LEAD'
+                : query.audience === 'CLIENTS'
+                  ? c.kind === 'CLIENT'
+                  : true) &&
+              (!term || c.name.toLowerCase().includes(term)),
+          )
           .map((c) => ({ kind: c.kind, id: c.id, label: c.name, secondary: c.email }));
         return {
           items: rows.slice((query.page - 1) * query.pageSize, query.page * query.pageSize),
@@ -1858,6 +1921,7 @@ export function createCommunicationsMock({
           ...input.clientIds.map((x) => ({ kind: 'CLIENT' as const, id: x })),
           ...input.leadIds.map((x) => ({ kind: 'LEAD' as const, id: x })),
         ];
+        s.d.lastRefreshedAt = nowIso();
         s.d.etag = `e${next++}`;
         s.d.updatedAt = nowIso();
         return { ...s.d, memberCount: segCount(s) };

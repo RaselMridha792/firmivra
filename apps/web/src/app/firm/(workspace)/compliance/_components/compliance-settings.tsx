@@ -1,6 +1,7 @@
 'use client';
 
 import type { ComplianceSettings } from '@firmivra/types';
+import Link from 'next/link';
 import { Button, Checkbox, Modal } from '@firmivra/ui';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
@@ -139,7 +140,7 @@ function SettingsForm({
           {number(
             'At Risk (days)',
             'atRiskDays',
-            'A high-priority deadline this close puts a client at risk.',
+            'A High priority or Waiting on Client deadline this close puts a client at risk.',
           )}
           {number(
             'Stale calendar (days)',
@@ -168,6 +169,37 @@ function SettingsForm({
             value={form.reminders}
             onChange={(reminders) => setForm({ ...form, reminders })}
           />
+        </div>
+        {/* CD-Y03 (Octavia, Oct 28): the defaults these settings do not hold, and where they are. */}
+        <div data-testid="settings-elsewhere">
+          <h3 className="mb-2 text-sm font-semibold text-heading">Set elsewhere</h3>
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-text">
+            <li>
+              Which day counts as today (the firm's time zone):{' '}
+              <Link href="/settings/preferences" className="text-link underline">
+                Settings › Preferences
+              </Link>
+            </li>
+            <li>
+              Weekends and holidays: each recurring deadline's own rule (the next business day
+              unless changed), with the US federal holidays the IRS observes built in:{' '}
+              <Link href="/compliance/recurring/new" className="text-link underline">
+                Recurring Deadline Setup
+              </Link>
+            </li>
+            <li>
+              Which clients a deadline applies to:{' '}
+              <Link href="/compliance/recurring/new?tab=rules" className="text-link underline">
+                Applicability Rules
+              </Link>
+            </li>
+            <li>
+              Official dates and when they were verified:{' '}
+              <Link href="/compliance/recurring/new?tab=library" className="text-link underline">
+                Calendar Library
+              </Link>
+            </li>
+          </ul>
         </div>
         {save.isError ? (
           <p role="alert" className="text-sm text-danger">

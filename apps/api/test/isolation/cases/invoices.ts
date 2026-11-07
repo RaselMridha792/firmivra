@@ -132,6 +132,8 @@ export const cases: CaseModule['cases'] = {
   },
   // Found, but a draft with no lines has nothing to pay.
   'POST /api/v1/business/invoices/:id/send': { params: { id: 'invoice' }, expect: 409 },
+  // IP-F10: an open invoice with a balance goes to its client again.
+  'POST /api/v1/business/invoices/:id/resend': { params: { id: 'openInvoice' }, body: {} },
   'POST /api/v1/business/invoices/:id/cancel': {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },
