@@ -2,8 +2,8 @@
 
 import {
   ApiRequestError,
+  TEMPLATE_ATTACHMENT_ACCEPT,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
-  TEMPLATE_ATTACHMENT_TYPES,
   type CommunicationDetail,
   type CommunicationRow,
 } from '@firmivra/types';
@@ -667,7 +667,7 @@ function ComposerForm({
               <FileDropzone
                 label="Attachments"
                 multiple
-                accept={[...TEMPLATE_ATTACHMENT_TYPES]}
+                accept={[...TEMPLATE_ATTACHMENT_ACCEPT]}
                 maxBytes={TEMPLATE_ATTACHMENT_MAX_BYTES}
                 hints={['PDF, DOCX, XLSX, JPG, PNG (Max 10MB per file)']}
                 disabled={uploading || readOnly}

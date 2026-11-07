@@ -6,6 +6,13 @@ import { ApiRequestError } from '@firmivra/types';
  *   errorMessage(error, { DUPLICATE_NAME: 'A status with this name already exists.' })
  * Never show `error.message` from the API directly: these texts are the ones users see.
  */
+/**
+ * The browser could not read a chosen file (a cloud placeholder not on this computer, a file moved
+ * or changed since it was chosen). lib/upload.ts's own code, never the API's (TP-F06).
+ */
+export const FILE_UNREADABLE =
+  'This file could not be read. If it is in OneDrive or another cloud folder, save a copy on this computer and choose it again.';
+
 const MESSAGES: Record<string, string> = {
   // Sign-in, sessions and invites
   INVALID_CREDENTIALS: 'Email or password is incorrect.',
@@ -35,6 +42,7 @@ const MESSAGES: Record<string, string> = {
   ORIGIN_NOT_ALLOWED: 'Something went wrong. Reload the page and try again.',
   UNSUPPORTED_MEDIA_TYPE: 'Something went wrong. Reload the page and try again.',
   INTERNAL_ERROR: 'Something went wrong on our side. Try again in a moment.',
+  FILE_UNREADABLE,
   NOT_IMPLEMENTED: "This isn't available yet.",
 };
 

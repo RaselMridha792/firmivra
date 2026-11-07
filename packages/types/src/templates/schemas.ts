@@ -7,6 +7,7 @@ import {
   MessageTemplateKind,
   MessageTemplateStatus,
 } from '../db-enums.js';
+import { UPLOAD_LIMITS } from '../documents/schemas.js';
 
 // Templates (R55 contract, for the Templates screens): the library page with its tabs, category
 // cards and recent templates; the category library with filters, favourites and actions; Create /
@@ -427,6 +428,15 @@ export const TEMPLATE_ATTACHMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ] as const;
 export const TEMPLATE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * TP-F06: what an attachment picker takes (its `accept`): each type, and each type's name endings
+ * for a file the browser gives no type (some do, for a file dragged in or from a cloud folder).
+ * The upload then declares the type from the name, in any case (`uploadContentTypeFor`).
+ */
+export const TEMPLATE_ATTACHMENT_ACCEPT: readonly string[] = [
+  ...TEMPLATE_ATTACHMENT_TYPES,
+  ...TEMPLATE_ATTACHMENT_TYPES.flatMap((type) => UPLOAD_LIMITS.types[type]),
+];
 
 /**
  * Step 1 of an attachment upload: POST .../{id}/attachments/uploads. The answer is the documents'
