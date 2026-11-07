@@ -59,6 +59,7 @@ import {
   subtle,
   toCents,
 } from './payroll-shared';
+import { usePayrollApi } from './payroll-api';
 import { WorkerDialog } from './worker-dialog';
 
 const STEPS = [
@@ -78,8 +79,9 @@ const LINE_TABS = [
 const SEVERITY = { ERROR: 'danger', WARNING: 'warning', INFO: 'neutral' } as const;
 
 /** /payroll/runs/[id]: Run Payroll: period, employees and hours, the summary, exceptions, review and approval. */
-export function RunScreen({ id }: { id: string }) {
-  const runQ = useApiQuery([...PAYROLL_KEY, 'run', id], () => api.payroll.getRun(id));
+export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) {
+  const payroll = usePayrollApi();
+  const runQ = useApiQuery([...PAYROLL_KEY, 'run', id], () => payroll.getRun(id));
   const run = runQ.data;
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
@@ -87,24 +89,35 @@ export function RunScreen({ id }: { id: string }) {
   const options = { invalidate: [...PAYROLL_KEY] };
   const fail = (e: unknown) => notice(errorMessage(e, PAYROLL_ERRORS), 'error');
   const ok = (text: string) => () => notice(text, 'success');
-  const draft = useApiMutation(() => api.payroll.saveDraft(id), options);
-  const ready = useApiMutation(() => api.payroll.markReady(id), options);
-  const approve = useApiMutation(() => api.payroll.approve(id), options);
-  const complete = useApiMutation(() => api.payroll.complete(id), options);
+  const draft = useApiMutation(() => payroll.saveDraft(id), options);
+  const ready = useApiMutation(() => payroll.markReady(id), options);
+  const approve = useApiMutation(() => payroll.approve(id), options);
+  const complete = useApiMutation(() => payroll.complete(id), options);
   const patch = useApiMutation(
-    (body: Parameters<typeof api.payroll.updateRun>[1]) => api.payroll.updateRun(id, body),
+    (body: Parameters<typeof api.payroll.updateRun>[1]) => payroll.updateRun(id, body),
     options,
   );
-  const check = useApiMutation(() => api.payroll.checkRun(id), options);
-  const a = run?.actions;
+  const check = useApiMutation(() => payroll.checkRun(id), options);
+  // PY-B02: the demo never runs or pretends to run payroll: only the draft can be saved; Mark
+  // Ready, Approve, Submit and Reopen are off.
+  const a =
+    run?.actions && demo
+      ? {
+          ...run.actions,
+          canMarkReady: false,
+          canApprove: false,
+          canSubmit: false,
+          canReopen: false,
+        }
+      : run?.actions;
   const note = runQ.isPending ? 'Loading…' : 'This payroll run is not available right now.';
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-run">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
         <Link
-          href={run ? `/payroll/clients/${run.payrollClientId}` : '/payroll'}
-          aria-label="Back to the client"
+          href={run && !demo ? `/payroll/clients/${run.payrollClientId}` : '/payroll'}
+          aria-label={demo ? 'Back to Payroll' : 'Back to the client'}
           className="text-link"
         >
           <ArrowLeft aria-hidden weight="bold" className="size-4" />
@@ -121,7 +134,9 @@ export function RunScreen({ id }: { id: string }) {
         <span aria-hidden className="text-muted">
           ›
         </span>
-        {run ? (
+        {run && demo ? (
+          <span>{run.client.displayName} (demo)</span>
+        ) : run ? (
           <Link href={`/payroll/clients/${run.payrollClientId}`} className="text-link">
             {run.client.displayName}
           </Link>
@@ -133,6 +148,19 @@ export function RunScreen({ id }: { id: string }) {
         </span>
         <span className="font-semibold text-heading">Run Payroll</span>
       </nav>
+      {demo ? (
+        <p
+          role="status"
+          className="rounded-lg bg-warning-soft p-3 text-sm text-warning"
+          data-testid="demo-banner"
+        >
+          Demo review (PY-B02): no payroll is processed here. The five steps show synthetic data
+          that lives in this page only; you can move between them and save a draft, but Mark Ready,
+          Approve and Submit are off, nothing is sent to a payroll provider, and leaving the page
+          forgets it. On a real run, approving inside Firmivra and submitting to the provider are
+          separate steps.
+        </p>
+      ) : null}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span
@@ -186,9 +214,11 @@ export function RunScreen({ id }: { id: string }) {
                     : `In ${daysUntil(run.payDate)} days`}
               </p>
             </div>
-            <Link href={`/payroll/clients/${run.payrollClientId}`} className={outlined}>
-              View Client
-            </Link>
+            {demo ? null : (
+              <Link href={`/payroll/clients/${run.payrollClientId}`} className={outlined}>
+                View Client
+              </Link>
+            )}
           </div>
         ) : null}
       </header>
@@ -375,7 +405,7 @@ export function RunScreen({ id }: { id: string }) {
           onClose={() => setDialog(undefined)}
           onDone={async (text, saved) => {
             try {
-              await api.payroll.saveRunLines(id, {
+              await payroll.saveRunLines(id, {
                 lines: [
                   { workerId: saved.id, hours: 0, regularPayCents: 0, status: 'PENDING_CHANGE' },
                 ],
@@ -455,6 +485,7 @@ function Employees({
   onAdd: () => void;
   notice: (t: string, tone: 'success' | 'error') => void;
 }) {
+  const payroll = usePayrollApi();
   const [tab, setTab] = useState<NonNullable<PayrollLinesQuery['tab']>>('ALL');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -462,7 +493,7 @@ function Employees({
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<PayrollRunLine>();
   const list = useApiQuery([...PAYROLL_KEY, 'lines', run.id, tab, search, status, page], () =>
-    api.payroll.runLines(run.id, {
+    payroll.runLines(run.id, {
       tab,
       ...(search.trim() ? { search: search.trim() } : {}),
       ...(status ? { status: status as 'READY' } : {}),
@@ -673,6 +704,7 @@ function LineDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const payroll = usePayrollApi();
   const [f, setF] = useState({
     hours: String(line.hours),
     regular: dollars(line.regularPayCents),
@@ -684,7 +716,7 @@ function LineDialog({
   });
   const send = useApiMutation(
     () =>
-      api.payroll.saveRunLines(run.id, {
+      payroll.saveRunLines(run.id, {
         lines: [
           {
             workerId: line.worker.id,
@@ -855,6 +887,7 @@ function TaxesDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const payroll = usePayrollApi();
   const f = run.figures;
   const [v, setV] = useState({
     ee: dollars(f.employeeTaxesCents ?? 0),
@@ -863,7 +896,7 @@ function TaxesDialog({
   });
   const send = useApiMutation(
     () =>
-      api.payroll.updateRun(run.id, {
+      payroll.updateRun(run.id, {
         employeeTaxesCents: toCents(v.ee),
         employerTaxesCents: toCents(v.er),
         employerBenefitsCents: toCents(v.ben),
@@ -935,12 +968,13 @@ function Exceptions({
   onCheck: () => void;
   notice: (t: string, tone: 'success' | 'error') => void;
 }) {
+  const payroll = usePayrollApi();
   const issues = useApiQuery([...PAYROLL_KEY, 'issues', run.id, run.updatedAt], () =>
-    api.payroll.runIssues(run.id),
+    payroll.runIssues(run.id),
   );
   const resolve = useApiMutation(
     (v: { id: string; resolved: boolean }) =>
-      api.payroll.resolveIssue(run.id, v.id, { resolved: v.resolved }),
+      payroll.resolveIssue(run.id, v.id, { resolved: v.resolved }),
     { invalidate: [...PAYROLL_KEY] },
   );
   const rows: PayrollIssue[] = issues.data?.items ?? [];
@@ -1056,13 +1090,14 @@ function RunNotes({
   clientId: string;
   notice: (t: string, tone: 'success' | 'error') => void;
 }) {
+  const payroll = usePayrollApi();
   const acts = useApiQuery([...PAYROLL_KEY, 'activities', clientId, 'run'], () =>
-    api.payroll.activities(clientId, { pageSize: 3 }),
+    payroll.activities(clientId, { pageSize: 3 }),
   );
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
   const send = useApiMutation(
-    () => api.payroll.logActivity(clientId, { kind: 'OTHER', summary: text.trim() }),
+    () => payroll.logActivity(clientId, { kind: 'OTHER', summary: text.trim() }),
     { invalidate: [...PAYROLL_KEY] },
   );
   const rows = acts.data?.items ?? [];
@@ -1140,8 +1175,9 @@ function SubmitDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const payroll = usePayrollApi();
   const [conf, setConf] = useState('');
-  const send = useApiMutation(() => api.payroll.submit(id, { providerConfirmation: conf.trim() }), {
+  const send = useApiMutation(() => payroll.submit(id, { providerConfirmation: conf.trim() }), {
     invalidate: [...PAYROLL_KEY],
   });
   return (
@@ -1194,8 +1230,9 @@ function ReopenDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const payroll = usePayrollApi();
   const [reason, setReason] = useState('');
-  const send = useApiMutation(() => api.payroll.reopen(id, { reason: reason.trim() }), {
+  const send = useApiMutation(() => payroll.reopen(id, { reason: reason.trim() }), {
     invalidate: [...PAYROLL_KEY],
   });
   return (

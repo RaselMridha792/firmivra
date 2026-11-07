@@ -305,8 +305,9 @@ function SetupForm({
             <SectionTitle
               number={1}
               title={`Connect Your ${provider?.name ?? 'Integration'} Account`}
-              subtitle="You'll be redirected to your provider to securely authorize access."
+              subtitle={connectCopy(provider)}
             />
+            {provider ? <ProviderFacts provider={provider} /> : null}
             <div className="grid gap-4 xl:grid-cols-5">
               <div className="flex min-w-0 flex-col gap-4 xl:col-span-3">
                 {provider?.authMethod === 'API_KEY'
@@ -625,5 +626,85 @@ function SectionTitle({
         <p className="text-sm text-text">{subtitle}</p>
       </div>
     </div>
+  );
+}
+
+type ProviderDefinition = NonNullable<Parameters<typeof connectCopy>[0]>;
+
+/** IN-Y11: what connecting does, in this provider's own terms (no generic redirect wording). */
+function connectCopy(
+  p:
+    | {
+        provider: string;
+        name: string;
+        authMethod: string;
+        environments: string[];
+        directions: string[];
+        frequencies: number[];
+      }
+    | undefined,
+): string {
+  if (!p) return 'Connect this integration to your firm.';
+  if (p.provider === 'website_forms')
+    return 'Built in: nothing goes outside Firmivra. Connecting turns on your form endpoint; you choose the forms and fields in the next steps.';
+  if (p.provider === 'custom_api')
+    return 'Built in: for your own systems. Connecting creates the connection here; its endpoint, events and secret are set on the API & Webhooks setup, not on this page.';
+  switch (p.authMethod) {
+    case 'OAUTH2':
+      return `You sign in to ${p.name} on its own page and approve access, then come back here.`;
+    case 'API_KEY':
+      return `Enter the key ${p.name} gives you. It is stored encrypted and never shown again.`;
+    case 'PROVIDER_LINK':
+      return `${p.name} opens its own page to approve the link, then you come back here.`;
+    default:
+      return `Connecting turns ${p.name} on for your firm; nothing goes outside Firmivra.`;
+  }
+}
+
+const SIGN_IN: Record<string, string> = {
+  OAUTH2: "The provider's sign-in page",
+  API_KEY: 'An API key from the provider',
+  PROVIDER_LINK: "The provider's own link",
+  NONE: 'Built in (no outside account)',
+};
+const DIRECTION: Record<string, string> = {
+  IMPORT: 'Into Firmivra',
+  EXPORT: 'Out of Firmivra',
+  TWO_WAY: 'Both ways',
+};
+const every = (minutes: number) =>
+  minutes >= 1_440 ? 'Daily' : minutes >= 60 ? `Every ${minutes / 60} h` : `Every ${minutes} min`;
+
+/** IN-Y12: the registry's facts, read-only, before anything is connected. */
+function ProviderFacts({ provider }: { provider: ProviderDefinition }) {
+  const facts: [string, string][] = [
+    ['Sign-in', SIGN_IN[provider.authMethod] ?? provider.authMethod],
+    [
+      'Sync direction',
+      provider.directions.length
+        ? provider.directions.map((d) => DIRECTION[d] ?? d).join(', ')
+        : 'No sync',
+    ],
+    [
+      'How often',
+      provider.frequencies.length ? provider.frequencies.map(every).join(', ') : 'On demand',
+    ],
+    [
+      'Test environment',
+      provider.environments.includes('TEST') ? 'Available (Test Mode)' : 'Not offered',
+    ],
+  ];
+  return (
+    <dl
+      data-testid="provider-facts"
+      className="mb-4 grid gap-x-6 gap-y-2 rounded-control bg-subtle p-4 text-sm sm:grid-cols-2"
+    >
+      {facts.map(([term, value]) => (
+        <div key={term} className="flex min-w-0 flex-col">
+          <dt className="text-xs font-semibold text-muted">{term}</dt>
+          <dd className="text-heading">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

@@ -291,6 +291,16 @@ Progress (Templates, Oct 28 review):
     use it, automations and versions. The Import, Merge Fields, Branding and Categories dialogs too.
   - The text is in one file (`template-help.tsx`). No topic repeats a field's label, so a label
     finds only its field.
+- Help icons, branch `rasel/R60-comms-help` (on CM-F11): the change list's Help icons for
+  Communications.
+  - The shared `HelpTip` on the overview (title, Start, Recent, Upcoming, Saved Templates, Grow
+    Your Reach), the lists and Segments & Lists.
+  - In the composer: writing it, type, recipients, message and personalization, the announcement
+    window, attachments, Delivery, Template, Preview and the checklist.
+  - Choose Recipients (audience and total), Review & Send, and the results (performance, actions,
+    recipient activity).
+  - The text is in one file (`communications-help.tsx`), checked against what each area does
+    (Save Draft, not autosave; the preview is of the saved draft).
 
 Progress (Messages):
 - Oct 28: PR A built. API e2e `messages-workspace` 5 of 5 and `messages` 17 of 17; unit 5 of 5;
@@ -355,6 +365,34 @@ Progress (Messages):
   - The lead's answers (Nov 7): Q1 and Q2 as built (the client's tags and Assigned Staff, MSG-F16's
     assign rule); Q4 as above. Notifier tests: unit `notifications` and API e2e `messages`,
     `messages-workspace`, `notifications`, `automations` 100 of 100.
+  - Next: MSG-F18 Recent Activity (its own PR), then MSG-F21 (Q3: one Send Message link on the
+    appointment detail page).
+
+Progress (Dashboard D4, D5; the lead's go, Nov 7):
+- API, branch `rasel/R60-dashboard-cards-api`, on R1's `dashboard_card_templates` (no schema
+  change). The lead's answers: Appointments Today stays fixed; the label guard; the Settings page
+  under settings/.
+  - Settings routes `business/settings/dashboard-cards`: list, create (first free slot, 409
+    `CARDS_FULL` after six), `PATCH :id` (409 `STALE_VERSION`), `PUT order`, `POST preview`
+    (This Month, saves nothing). Owner and Admin (Settings, Manage to change). Audited.
+  - The firm's app role has no DELETE on the table and the slot index is unique row by row, so a
+    card is switched off, never removed, and a reorder moves the cards' contents between the slots.
+  - The rule (`dashboardCardProblem` in packages/types, shared with Settings):
+    - `ACTIVE_ENGAGEMENTS` needs a service and no status;
+    - `engagement:` statuses need a service;
+    - `tax:` statuses go with a tax service or none (every return);
+    - Completed in the period is `engagement:COMPLETED` or `tax:ACCEPTED` only, since only those
+      lists can filter by date;
+    - a tax card's label names returns or tax, and no other card's does (`LABEL_MISMATCH`).
+  - `summary.serviceCards`: the firm's cards switched on, or Returns In Progress and Accepted
+    Returns while it has none (D5). Each has its link (Tax Returns or Clients, filtered to exactly
+    what it counts) and is left out when the member may not view that list.
+  - Engagement cards count clients, as Clients lists them. Clients gains `engagementStatus` and
+    `completedFrom`/`completedTo` with `serviceId`; Tax Returns gains `serviceId`. Staff reach is
+    unchanged.
+  - Tests: API e2e `dashboard-cards` 10 of 10 (each card's number is its list's total, for Owner
+    and Staff), `dashboard` and `clients` suites, isolation 19 of 19, unit 3 of 3.
+- Next: the Settings screen and the dashboard's rendering (PR 2).
 - Nov 7: Recent Activity, branch `rasel/R60-messages-activity` (on the contact panel): MSG-F18.
   - `GET business/message-threads/:id/activity`: the thread client's latest 10, newest first.
   - Sources: messages, appointments, intake forms, invoices, documents and document requests, and
