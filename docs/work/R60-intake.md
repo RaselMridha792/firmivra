@@ -438,6 +438,13 @@ Progress (MSG-F16 Add to Client Timeline; the lead, Nov 7, on R1's `client_timel
 - Tests: API e2e `outbound-messages` (MSG-F16 block) and `clients` 37 of 37; mock
   `r60-messages-timeline` 2 of 2.
 
+Progress (MSG-F17, F23, F24; Nov 7):
+- Branch `rasel/R60-messages-delivery`: a firm message says Delivered, then Read with the day
+  (`readAt`); the panel's Text quick action (Call, Email, Text, Schedule) is there only where New
+  Message's check lets a text go (a lead: texts on, a mobile number, consent, the role), otherwise
+  off with the reason; a client's is off ("Texts go to leads only"). A lead's Text switches the
+  reply to Text. F24's evidence rows are in the PR body. Mock specs 41 of 41.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
