@@ -126,6 +126,13 @@ export const MessageThread = z.object({
   unreadCount: z.number().int().min(0),
   /** An automation opened it (Send client message): the Automations view. */
   automated: z.boolean(),
+  /**
+   * MSG-F22: the staff member who owns the conversation (Assign Staff), or null: unassigned. It is
+   * the conversation's own, never the client's assigned staff member.
+   */
+  assignedTo: z.object({ userId: z.uuid(), name: z.string() }).nullable(),
+  /** MSG-F22: the caller muted its internal alerts; messages still arrive. Theirs alone. */
+  mutedByMe: z.boolean(),
   /** Archived: out of the active inbox, its history kept (null: active). */
   archivedAt: DateTime.nullable(),
   createdAt: DateTime,
@@ -196,6 +203,14 @@ export type SendFirmMessageRequest = z.input<typeof SendFirmMessageRequest>;
 /** PATCH /business/message-threads/{id}: close or reopen the client's replies. */
 export const UpdateMessageThreadRequest = z.strictObject({ repliesEnabled: z.boolean() });
 export type UpdateMessageThreadRequest = z.input<typeof UpdateMessageThreadRequest>;
+
+/**
+ * PUT /business/message-threads/{id}/assignee (MSG-F22): who owns the conversation; null leaves
+ * it unassigned. An active Owner or Admin, or a Staff member assigned to the thread's client
+ * (400 ASSIGNEE_CANNOT_REACH otherwise), the rule of New Message's Assign Staff (MSG-F16).
+ */
+export const SetMessageThreadAssigneeRequest = z.strictObject({ userId: z.uuid().nullable() });
+export type SetMessageThreadAssigneeRequest = z.input<typeof SetMessageThreadAssigneeRequest>;
 
 /**
  * GET /business/message-threads/unread-count: the client messages the firm has not read, in every

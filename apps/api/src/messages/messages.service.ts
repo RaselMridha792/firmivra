@@ -30,6 +30,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { legacyFirmRole } from '../common/request-context.js';
 import {
   type ClientsActor,
   decodeCursor,
@@ -63,6 +64,7 @@ const threadSelect = {
   repliesEnabled: true,
   lastMessageAt: true,
   createdByUserId: true,
+  assignedUserId: true,
   archivedAt: true,
   createdAt: true,
   client: { select: { displayName: true } },
@@ -328,15 +330,26 @@ export class MessagesService {
     return new Set(rows.flatMap((r) => (r.resultId ? [r.resultId] : [])));
   }
 
-  private async firmThreads(tx: TxClient, businessId: string, rows: ThreadRow[]) {
+  /** The threads as the firm sees them; `viewerId`'s own mute (MSG-F22) is theirs alone. */
+  private async firmThreads(tx: TxClient, businessId: string, rows: ThreadRow[], viewerId: string) {
     const ids = rows.map((t) => t.id);
-    const [last, unread, automated] = await Promise.all([
+    const [last, unread, automated, mutes] = await Promise.all([
       this.lastMessages(tx, businessId, ids),
       this.unreadByThread(tx, businessId, ids, 'firm'),
       this.automated(tx, businessId, ids),
+      ids.length
+        ? tx.messageThreadMute.findMany({
+            where: { businessId, threadId: { in: ids }, userId: viewerId },
+            select: { threadId: true, mutedUntil: true },
+          })
+        : Promise.resolve([]),
     ]);
+    const muted = new Set(
+      mutes.filter((m) => !m.mutedUntil || m.mutedUntil > new Date()).map((m) => m.threadId),
+    );
     const people = await this.people(tx, businessId, [
       ...rows.flatMap((t) => (t.createdByUserId ? [t.createdByUserId] : [])),
+      ...rows.flatMap((t) => (t.assignedUserId ? [t.assignedUserId] : [])),
       ...[...last.values()].map((m) => m.senderUserId),
     ]);
     return rows.map((t): MessageThread => {
@@ -365,6 +378,13 @@ export class MessagesService {
           : null,
         unreadCount: unread.get(t.id) ?? 0,
         automated: automated.has(t.id),
+        assignedTo: t.assignedUserId
+          ? {
+              userId: t.assignedUserId,
+              name: people.get(t.assignedUserId)?.name ?? 'Former staff',
+            }
+          : null,
+        mutedByMe: muted.has(t.id),
         archivedAt: t.archivedAt?.toISOString() ?? null,
         createdAt: t.createdAt.toISOString(),
       };
@@ -375,8 +395,9 @@ export class MessagesService {
     tx: TxClient,
     businessId: string,
     t: ThreadRow,
+    viewerId: string,
   ): Promise<MessageThreadDetail> {
-    const [thread] = await this.firmThreads(tx, businessId, [t]);
+    const [thread] = await this.firmThreads(tx, businessId, [t], viewerId);
     const rows = await tx.message.findMany({
       where: { businessId, threadId: t.id },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -454,7 +475,7 @@ export class MessagesService {
         select: threadSelect,
       });
       return {
-        items: await this.firmThreads(tx, businessId, rows.slice(0, q.limit)),
+        items: await this.firmThreads(tx, businessId, rows.slice(0, q.limit), actor.userId),
         nextCursor: nextCursor(rows, q.limit),
       };
     });
@@ -481,7 +502,7 @@ export class MessagesService {
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<MessageThreadDetail> {
     const detail = await this.inFirm(businessId, async (tx) =>
-      this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, id)),
+      this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, id), actor.userId),
     );
     await this.audit.log('message_thread.viewed', { type: 'message_thread', id });
     return detail;
@@ -548,7 +569,12 @@ export class MessagesService {
           messageId: message.id,
         },
       );
-      return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
+      return this.firmDetail(
+        tx,
+        businessId,
+        await this.thread(tx, businessId, actor, thread.id),
+        actor.userId,
+      );
     });
     await this.notify(
       businessId,
@@ -690,7 +716,12 @@ export class MessagesService {
           { clientId: t.clientId },
         );
       }
-      const [thread] = await this.firmThreads(tx, businessId, [{ ...t, repliesEnabled }]);
+      const [thread] = await this.firmThreads(
+        tx,
+        businessId,
+        [{ ...t, repliesEnabled }],
+        actor.userId,
+      );
       return thread as MessageThread;
     });
   }
@@ -699,7 +730,7 @@ export class MessagesService {
     return this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
       await this.markSide(tx, businessId, t.id, 'firm', true);
-      return (await this.firmThreads(tx, businessId, [t]))[0] as MessageThread;
+      return (await this.firmThreads(tx, businessId, [t], actor.userId))[0] as MessageThread;
     });
   }
 
@@ -707,7 +738,115 @@ export class MessagesService {
     return this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
       await this.markSide(tx, businessId, t.id, 'firm', false);
-      return (await this.firmThreads(tx, businessId, [t]))[0] as MessageThread;
+      return (await this.firmThreads(tx, businessId, [t], actor.userId))[0] as MessageThread;
+    });
+  }
+
+  /**
+   * MSG-F22: who owns the conversation (null: unassigned), by New Message's Assign Staff rule
+   * (MSG-F16): an active Owner or Admin, or a Staff member assigned to the thread's client. The
+   * client's own assigned staff member never changes here.
+   */
+  async assign(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    userId: string | null,
+  ): Promise<MessageThread> {
+    return this.inFirm(businessId, async (tx) => {
+      const t = await this.thread(tx, businessId, actor, id, true);
+      if (userId) {
+        const member = await tx.membership.findFirst({
+          where: { businessId, userId, status: 'ACTIVE' },
+          select: { role: true },
+        });
+        if (!member) throw notFound();
+        if (legacyFirmRole(member.role) === 'STAFF') {
+          const theirs = await tx.client.count({
+            where: { businessId, id: t.clientId as string, assignedUserId: userId },
+          });
+          if (!theirs)
+            throw new BadRequestException({
+              code: 'ASSIGNEE_CANNOT_REACH',
+              message: 'This staff member does not work with this client',
+            });
+        }
+      }
+      if (t.assignedUserId !== userId) {
+        await tx.messageThread.update({ where: { id: t.id }, data: { assignedUserId: userId } });
+        await this.audit.logIn(
+          tx,
+          userId ? 'message_thread.assigned' : 'message_thread.unassigned',
+          { type: 'message_thread', id: t.id },
+          { clientId: t.clientId, assignedUserId: userId, previousUserId: t.assignedUserId },
+        );
+      }
+      const [thread] = await this.firmThreads(
+        tx,
+        businessId,
+        [{ ...t, assignedUserId: userId }],
+        actor.userId,
+      );
+      return thread as MessageThread;
+    });
+  }
+
+  /**
+   * MSG-F22: Mute stops the caller's own internal alerts for the conversation (the bell and email
+   * notices to staff); the client's messages still arrive and the thread stays in the inbox.
+   */
+  async setMuted(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    muted: boolean,
+  ): Promise<MessageThread> {
+    return this.inFirm(businessId, async (tx) => {
+      const t = await this.thread(tx, businessId, actor, id);
+      const where = { businessId, threadId: t.id, userId: actor.userId };
+      const had = await tx.messageThreadMute.findFirst({ where, select: { id: true } });
+      if (muted && !had) {
+        await tx.messageThreadMute.create({ data: where, select: { id: true } });
+      } else if (!muted && had) {
+        await tx.messageThreadMute.deleteMany({ where });
+      }
+      if (muted !== !!had) {
+        await this.audit.logIn(
+          tx,
+          muted ? 'message_thread.muted' : 'message_thread.unmuted',
+          { type: 'message_thread', id: t.id },
+          { clientId: t.clientId },
+        );
+      }
+      return (await this.firmThreads(tx, businessId, [t], actor.userId))[0] as MessageThread;
+    });
+  }
+
+  /**
+   * MSG-F22: Archive takes the conversation out of the active inbox, its whole history kept;
+   * Restore brings it back. A client's new message brings an archived one back too.
+   */
+  async setArchived(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    archived: boolean,
+  ): Promise<MessageThread> {
+    return this.inFirm(businessId, async (tx) => {
+      const t = await this.thread(tx, businessId, actor, id, true);
+      let archivedAt = t.archivedAt;
+      if ((t.archivedAt !== null) !== archived) {
+        archivedAt = archived ? new Date() : null;
+        await tx.messageThread.update({ where: { id: t.id }, data: { archivedAt } });
+        await this.audit.logIn(
+          tx,
+          archived ? 'message_thread.archived' : 'message_thread.restored',
+          { type: 'message_thread', id: t.id },
+          { clientId: t.clientId },
+        );
+      }
+      const [thread] = await this.firmThreads(tx, businessId, [{ ...t, archivedAt }], actor.userId);
+      return thread as MessageThread;
     });
   }
 
@@ -1027,6 +1166,16 @@ export class MessagesService {
             clientId: me.clientId,
           },
         );
+        // MSG-F22: the client wrote again, so an archived conversation is back in the inbox.
+        if (t.archivedAt) {
+          await tx.messageThread.update({ where: { id: t.id }, data: { archivedAt: null } });
+          await this.audit.logIn(
+            tx,
+            'message_thread.restored',
+            { type: 'message_thread', id: t.id },
+            { clientId: me.clientId, reason: 'client_message' },
+          );
+        }
         return {
           message: this.toMine(new Map(), me.userId, row, me.household),
           userId: me.userId,

@@ -61,6 +61,12 @@ export interface NotifyEventInput {
    * (q27). Up to 20 user ids.
    */
   toUserIds?: readonly string[];
+  /**
+   * Members this occurrence skips on every channel (no bell item, no email copy), for any event:
+   * those who muted the conversation a message is in (MSG-F22). It never adds anyone. Up to 50
+   * user ids; none is the same as leaving it out.
+   */
+  excludeUserIds?: readonly string[];
 }
 
 /** What `notify` did: the bell items written, and `failed` when the database step failed. */
@@ -447,6 +453,14 @@ export class Notifier {
       if (chosen.some((id) => typeof id !== 'string' || !UUID.test(id)))
         throw new NotificationInputError(`${event}: ids must be UUIDs`);
     }
+    const skipped = input.excludeUserIds;
+    if (skipped !== undefined) {
+      if (skipped.length > 50)
+        throw new NotificationInputError(`${event}: exclude at most 50 members`);
+      if (skipped.some((id) => typeof id !== 'string' || !UUID.test(id)))
+        throw new NotificationInputError(`${event}: ids must be UUIDs`);
+    }
+    const excluded = new Set(skipped?.map((id) => id.toLowerCase()));
     const what = `${event} for ${def.kind} ${recordId.toLowerCase()}`;
     const bell = input.channels?.inApp ?? true;
     const mail = EMAIL_EVENTS.has(event) && (input.channels?.email ?? true);
@@ -489,7 +503,11 @@ export class Notifier {
         }
         const seen = new Set<string>();
         const to = recipients.filter(
-          (r) => r.userId !== actorId && !seen.has(r.userId) && seen.add(r.userId),
+          (r) =>
+            r.userId !== actorId &&
+            !excluded.has(r.userId) &&
+            !seen.has(r.userId) &&
+            seen.add(r.userId),
         );
         if (to.length === 0) return [];
         reached.clients = to
