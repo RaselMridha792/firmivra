@@ -462,6 +462,8 @@ export function produces(actions: { type: string; config: Record<string, unknown
     if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
       out.add('client.tags_changed');
     if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
+    // A status set by a rule is a status change (a priority has no event).
+    if (a.type === 'UPDATE_CLIENT_STATUS') out.add('client.status_changed');
     // An intake form sent is a sent form (and, with a near due date, one coming due).
     if (a.type === 'SEND_INTAKE') {
       out.add('intake.sent');
