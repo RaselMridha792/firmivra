@@ -36,7 +36,8 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { DATABASE } from '../../database/database.module.js';
 import { memberNames } from '../../workspaces/common.js';
 import { conflict, day, firmToday, notFound, toDate } from './invoice-view.js';
-import { scheduleTotal } from './invoices.service.js';
+import { InvoiceNotices } from './invoice-notices.js';
+import { InvoicesService, scheduleTotal } from './invoices.service.js';
 
 // IP-F18 (Octavia's Invoices & Payments review, Oct 27): a recurring invoice's own page and its
 // management. Pause stops the next invoices; Resume starts again from the next send day on or after
@@ -111,6 +112,8 @@ export class RecurringSchedulesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly invoices: InvoicesService,
+    private readonly notices: InvoiceNotices,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -253,6 +256,35 @@ export class RecurringSchedulesService {
     });
   }
 
+  /**
+   * IP-F18 Send Now (Owner and Admin): the next period's invoice is made now and goes to the
+   * client (as Send does), and the schedule moves to the period after. 409 RECURRING_STATE unless
+   * the schedule is active.
+   */
+  async sendNow(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<RecurringInvoiceDetail> {
+    const { detail, made } = await this.inFirm(businessId, async (tx) => {
+      const r = await this.load(tx, businessId, actor, id);
+      if (r.status !== 'ACTIVE' || waiting(r)) {
+        throw stateError('Only an active recurring invoice can send its next invoice now');
+      }
+      const made = await this.invoices.makePeriodInvoice(tx, businessId, id, {
+        send: 'now',
+        actorUserId: actor.userId,
+      });
+      return {
+        detail: await this.detail(tx, businessId, await this.load(tx, businessId, actor, id)),
+        made,
+      };
+    });
+    if (made?.opened)
+      await this.notices.send('invoice.sent', businessId, made.invoiceId, actor.userId);
+    return detail;
+  }
+
   /** Auto-send on or off (AutoPay is not offered: it needs a provider and the client's consent). */
   update(
     businessId: string,
@@ -343,6 +375,19 @@ export class RecurringSchedulesController {
     @Body(new ZodValidationPipe(NoBody)) _body: z.output<typeof NoBody>,
   ): Promise<RecurringInvoiceDetail> {
     return this.schedules.act(tenant.businessId, actorOf(auth, tenant), id, 'resume');
+  }
+
+  /** IP-F18: the next period's invoice now, sent to the client. */
+  @Post(':id/send-now')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  sendNow(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(NoBody)) _body: z.output<typeof NoBody>,
+  ): Promise<RecurringInvoiceDetail> {
+    return this.schedules.sendNow(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   @Post(':id/end')
