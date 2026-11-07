@@ -175,6 +175,11 @@ export const AutomationActionTypeInfo = z.object({
   contactsClient: z.boolean(),
   /** Acts for the record's client (a task, a message, a tag): an event with no client can't use it. */
   needsClient: z.boolean(),
+  /**
+   * Acts on the event's own record of this kind (a lead's follow-up, a tax return's approval):
+   * offered only on that kind's events. Absent: it acts for the client.
+   */
+  recordKind: z.string().nullable().optional(),
 });
 export type AutomationActionTypeInfo = z.infer<typeof AutomationActionTypeInfo>;
 
