@@ -5,7 +5,6 @@ import {
   DashboardCardPreview,
   DashboardCardSettings,
   DashboardCardTemplate,
-  DeleteDashboardCardQuery,
   OrderDashboardCardsRequest,
   PreviewDashboardCardRequest,
   UpdateDashboardCardRequest,
@@ -42,12 +41,6 @@ export function createDashboardClient(request: ApiRequest) {
           method: 'PATCH',
           body: parseInput(UpdateDashboardCardRequest, body),
         }),
-      remove: async (id: string, query: DeleteDashboardCardQuery): Promise<DashboardCardSettings> =>
-        request(
-          DashboardCardSettings,
-          `${card(id)}${toQuery(parseInput(DeleteDashboardCardQuery, query))}`,
-          { method: 'DELETE' },
-        ),
       order: async (body: OrderDashboardCardsRequest): Promise<DashboardCardSettings> =>
         request(DashboardCardSettings, `${CARDS}/order`, {
           method: 'PUT',

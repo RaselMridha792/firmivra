@@ -17,7 +17,7 @@ import {
 export const DASHBOARD_CARD_SLOTS = 6;
 
 /** Kinds whose engagements are tax returns: the only services a `tax:` card may name. */
-export const TAX_SERVICE_KINDS = [
+export const DASHBOARD_TAX_SERVICE_KINDS = [
   'ANNUAL_TAX',
   'QUARTERLY_TAX',
 ] as const satisfies readonly z.infer<typeof ServiceKind>[];
@@ -119,7 +119,7 @@ export function dashboardCardProblem(card: {
     )
       return 'STATUS_NOT_ALLOWED';
     if (tax) {
-      if (serviceKind && !(TAX_SERVICE_KINDS as readonly string[]).includes(serviceKind))
+      if (serviceKind && !(DASHBOARD_TAX_SERVICE_KINDS as readonly string[]).includes(serviceKind))
         return 'STATUS_NOT_FOR_SERVICE';
     } else if (!serviceKind) return 'SERVICE_REQUIRED';
   }
@@ -196,7 +196,10 @@ const cardFields = {
   label: Label,
 };
 
-/** POST .../dashboard-cards: a new card in the first free slot (409 CARDS_FULL after six). */
+/**
+ * POST .../dashboard-cards: a new card in the first free slot. After six, 409 CARDS_FULL: change
+ * or switch off one of them instead.
+ */
 export const CreateDashboardCardRequest = z.strictObject({
   ...cardFields,
   enabled: z.boolean().optional().default(true),
@@ -211,13 +214,10 @@ export const UpdateDashboardCardRequest = z.strictObject({
 });
 export type UpdateDashboardCardRequest = z.input<typeof UpdateDashboardCardRequest>;
 
-/** DELETE .../dashboard-cards/{id}?version=: the slots after it move up. */
-export const DeleteDashboardCardQuery = z.strictObject({
-  version: z.coerce.number().int().min(1),
-});
-export type DeleteDashboardCardQuery = z.input<typeof DeleteDashboardCardQuery>;
-
-/** PUT .../dashboard-cards/order: every saved card's id, in the new order (slot 1 first). */
+/**
+ * PUT .../dashboard-cards/order: every saved card's id, in the new order (slot 1 first). A card is
+ * never removed, only switched off (`enabled: false`), so a firm keeps at most six.
+ */
 export const OrderDashboardCardsRequest = z.strictObject({
   ids: z.array(z.uuid()).min(1).max(DASHBOARD_CARD_SLOTS),
 });
