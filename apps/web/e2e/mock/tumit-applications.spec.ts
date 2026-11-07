@@ -102,10 +102,8 @@ test('approves an application and refreshes its status, list and counts', async 
   await expect(page.getByTestId('approved-firm-summary')).toContainText('Approved on');
   // Once approved: no decision buttons, a link to the firm site, and the owner invite in the timeline.
   await expect(page.getByRole('button', { name: 'Approve Application' })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: /Open Firm Workspace/ })).toHaveAttribute(
-    'href',
-    /^https?:\/\/app\.[^/]+\/$/,
-  );
+  // SA-APP-F12: no shortcut into the firm's private workspace from the console.
+  await expect(page.getByRole('link', { name: /Open Firm Workspace/ })).toHaveCount(0);
   await expect(page.getByText('(404) 555-0103', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('link', { name: 'riley@sample-ledger.example.test' }),
@@ -200,7 +198,7 @@ test('pending, approved and unreadable application pages stay within a 375px vie
     },
     {
       name: 'Sample Riverside Tax Co',
-      state: page.getByRole('link', { name: /Open Firm Workspace/ }),
+      state: page.getByTestId('approved-firm-summary'),
     },
   ];
   for (const { name, state } of pages) {

@@ -1,11 +1,18 @@
 import type { Metadata } from 'next';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { ApplicationDetail } from '../_components/application-detail';
 
 export const metadata: Metadata = { title: 'Firm application' };
 
-export default async function Application({ params }: { params: Promise<{ id: string }> }) {
+export default async function Application({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
-  // Server-side config (CLAUDE.md: site URLs come from config, never from code).
-  const appBaseUrl = new URL('/', process.env['APP_BASE_URL'] ?? 'http://app.localhost:3000').href;
-  return <ApplicationDetail id={id} appBaseUrl={appBaseUrl} />;
+  // SA-APP-F11: Back returns to the list exactly as it was left (a path on this site only).
+  const from = safeOrigin((await searchParams)[ORIGIN_PARAM]);
+  return <ApplicationDetail id={id} backTo={from} />;
 }

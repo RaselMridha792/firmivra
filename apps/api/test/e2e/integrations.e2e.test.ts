@@ -120,6 +120,7 @@ const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
   staffA: person('staff-a'),
+  managerA: person('manager-a'),
   clientA: person('client-a'),
   ownerB: person('owner-b'),
 };
@@ -234,6 +235,7 @@ beforeAll(async () => {
     ['a', people.ownerA.id, 'OWNER'],
     ['a', people.adminA.id, 'ADMIN'],
     ['a', people.staffA.id, 'STAFF'],
+    ['a', people.managerA.id, 'MANAGER'],
     ['b', people.ownerB.id, 'OWNER'],
   ] as const) {
     await inFirm(firm, (tx) =>
@@ -1272,3 +1274,46 @@ describe('another firm', () => {
 });
 
 void z;
+
+describe('who may connect, configure and disconnect (IN-Y20)', () => {
+  it('only the Owner and Admin; Staff and the other roles view only; another firm never', async () => {
+    const c = await connectionOf('website_forms');
+    // Staff reads; a grid role reads only what its grid gives (a Manager has no Integrations right
+    // by default); only an Owner or Admin may act.
+    expect(
+      IntegrationsOverview.parse(ok(await call('get', '/integrations', people.staffA))).canManage,
+    ).toBe(false);
+    expectError(await call('get', '/integrations', people.managerA), 403, 'FORBIDDEN');
+    for (const who of [people.staffA, people.managerA]) {
+      expectError(await connect('microsoft365', {}, who), 403, 'FORBIDDEN');
+      expectError(
+        await call('patch', `/integrations/connections/${c.id}/settings`, who, {
+          syncMode: 'MANUAL',
+        }),
+        403,
+        'FORBIDDEN',
+      );
+      expectError(
+        await call('post', `/integrations/connections/${c.id}/disconnect`, who, { confirm: true }),
+        403,
+        'FORBIDDEN',
+      );
+    }
+    for (const who of [people.ownerA, people.adminA])
+      expect(
+        IntegrationsOverview.parse(ok(await call('get', '/integrations', who))).canManage,
+      ).toBe(true);
+    // Firm B's Owner can't reach firm A's connection at all.
+    expectError(
+      await call(
+        'patch',
+        `/integrations/connections/${c.id}/settings`,
+        people.ownerB,
+        { syncMode: 'MANUAL' },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+  });
+});

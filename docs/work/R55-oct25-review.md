@@ -35,7 +35,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1314 merged: the platform integration wizard's Save and continue, Draft saved, and Keep or Discard on Cancel (SA-INT-R1, R2); broadcasts without the legacy side panel and with Save and continue (SA-COM-R7, R8); Statuses in the report builder (SA-RPT-R8).
 - #1315 merged: connect copy in each provider's own terms and the registry's facts before connecting (IN-Y11, Y12).
 - #1319 merged: New Message asks before unsaved edits are lost (SA-COM-R5); Reports' firm links open the Super Admin's own firm-scoped views (SA-RPT-R4, R5).
-- #1321 (`rasel/R55-sa-com-2`): New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
+- #1321 merged: New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
+- SA com 3 (`rasel/R55-sa-com-3`): Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -133,7 +134,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - Its subtitle says what connecting does for that provider and sign-in method: the provider's page for OAuth, a write-only API key, a provider link, or built in. Website Forms and API & Webhooks say what is set up there and what is not.
   - A read-only list from the registry shows sign-in, sync direction, how often, and whether a Test environment exists, before anything is connected.
 - **IN-Y18:** one connection per provider per environment, already refused by the API ("connects at once, once per environment") with the Manage-connection notice.
-- **IN-Y20 (Owner/Admin connect, configure and disconnect; Staff view only):** a role change, so it waits for Rasel.
+- **IN-Y20 (Rasel, Nov 7: yes):** connect, configure, sync and disconnect are for the firm's Owner and Admin only, on the server (canManageIntegrations) and on screen (canManage). Staff views. A grid role views only what its grid gives (a Manager has no Integrations right by default). Another firm's Owner gets 404.
 
 **For Review 2: Super Admin light items (review of Oct 31)**
 - **The shared date range** (`packages/ui` DateRangePicker) takes an opt-in `strict` (the lead: backward compatible, existing screens unchanged unless they opt in).
@@ -158,6 +159,14 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   Ticket numbers open the exact ticket.
 - **Merge fields (SA-COM-R4):** New Message's Merge Field buttons open one chooser over the central list (ADMIN_COMM_MERGE_FIELDS, the same six as Templates) and insert at the cursor of the subject or the body. The API fills each field per recipient, and a field with no value is left empty.
 - **MRR (SA-RPT-R3):** the overview's Revenue Trend shows MRR at each month's end, from the paying subscriptions' daily rollup (platform_mrr_daily, never list prices), beside Collected payments (payments received). 0 where the rollup has no day yet.
+- **Insert Image (SA-COM-R2):** New Message's toolbar has Insert image, the same picker as Templates (upload or the library, clean files only). It puts a reference ("[Image: name]") at the cursor, as a template does. Inline images stay apart from attachments.
+- **Applications list (SA-APP-F11):** tab, status, date range, search and page live in the address. Detail links carry the list in `?from=`, so the detail's Back and the browser's Back open the list exactly as it was. Back follows only a path on this site.
+- **No workspace shortcut (SA-APP-F12):** "Open Firm Workspace" is gone from Application and Firm detail. The server already refuses a Super Admin session any firm route (no firm context for the ADMIN pool) except through the owner-approved support grant, which is SA-FRM-F09 to F13's path.
+- **Rasel (Nov 7), the order after these:**
+  1. Firm Applications (SA-APP-F01 to F12) as soon as R1's schema merges.
+  2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
+  3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
+- **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
 - **SA-PIP-PL01's menu** (Add Lead, Add Opportunity, Build Pipeline) already had text names, so the date popup was the open part.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).
