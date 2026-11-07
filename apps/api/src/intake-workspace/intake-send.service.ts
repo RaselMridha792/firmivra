@@ -257,6 +257,25 @@ export class IntakeSendService {
         form.serviceId,
         body.engagementId,
       );
+      // A9: the client's own appointment this form is for (never another client's, or a
+      // cancelled one); the appointment then shows the form and whether it is done.
+      if (body.appointmentId) {
+        const appointment = await tx.appointment.findFirst({
+          where: {
+            businessId,
+            id: body.appointmentId,
+            clientId: to.clientId!,
+            status: { not: 'CANCELLED' },
+          },
+          select: { id: true },
+        });
+        if (!appointment) {
+          throw conflict(
+            'APPOINTMENT_MISMATCH',
+            "That appointment is not this client's, or it is cancelled",
+          );
+        }
+      }
       if (body.channel === 'PORTAL') {
         const login = await tx.clientAccount.findFirst({
           where: { businessId, clientId: to.clientId!, status: 'ACTIVE' },
@@ -310,6 +329,7 @@ export class IntakeSendService {
         messageBody: body.message,
         remindersEnabled: body.reminders?.enabled ?? settings?.remindersEnabled ?? true,
         allowSaveResume: body.allowSaveAndContinue,
+        ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
       };
       // The member's own draft of this form for this engagement is the one that is sent.
       const draft = await tx.intake.findFirst({
@@ -356,6 +376,7 @@ export class IntakeSendService {
           formId: form.id,
           engagementId: to.engagementId,
           fromDraft: draft !== null,
+          ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
         },
       );
       return { replay: false as const, id: intake.id };

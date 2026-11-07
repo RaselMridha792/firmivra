@@ -54,6 +54,7 @@ const SETTING_FIELDS = {
   minNoticeHours: 'Minimum notice',
   maxWindowDays: 'Booking window',
   defaultReminders: 'Default reminders',
+  requiredIntakeFormId: 'Required intake form',
 } as const;
 type SettingField = keyof typeof SETTING_FIELDS;
 
@@ -414,6 +415,15 @@ function SettingsForm({
   const [reminders, setReminders] = useState<ReminderRow[]>(() =>
     rowsFromReminders(c.defaultReminders),
   );
+  // Octavia's A9: the service intake this type asks for; sent from the appointment, which then
+  // shows whether it is completed.
+  const [intakeForm, setIntakeForm] = useState(c.requiredIntakeFormId ?? '');
+  const forms = useApiQuery(['intake-forms', 'published', 'for-types'], () =>
+    api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' }),
+  );
+  const formChoices = (forms.data ?? []).filter(
+    (f) => f.id === c.requiredIntakeFormId || !c.serviceId || f.service?.id === c.serviceId,
+  );
   const [saved, setSaved] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingField, string>>>({});
   const save = useApiMutation(
@@ -426,6 +436,7 @@ function SettingsForm({
         minNoticeHours: Number(notice),
         maxWindowDays: Number(windowDays),
         defaultReminders: remindersFromRows(reminders),
+        requiredIntakeFormId: intakeForm || null,
       });
       setSaved('Settings saved.');
     },
@@ -550,6 +561,29 @@ function SettingsForm({
           value={windowDays}
           onChange={(e) => setWindowDays(e.target.value)}
         />
+      </div>
+      <div data-testid="type-intake">
+        <Select
+          label="Required intake form"
+          disabled={off}
+          value={intakeForm}
+          error={fieldErrors.requiredIntakeFormId}
+          onChange={(e) => {
+            setIntakeForm(e.target.value);
+            setFieldErrors(({ requiredIntakeFormId: _, ...rest }) => rest);
+          }}
+          options={[
+            {
+              value: '',
+              label: forms.isPending ? 'Loading forms…' : 'None',
+            },
+            ...formChoices.map((f) => ({ value: f.id, label: f.name })),
+          ]}
+        />
+        <p className="mt-1 text-xs text-muted">
+          {c.serviceId ? "Published forms of this type's service. " : 'Published intake forms. '}
+          Send it from the appointment: the appointment then shows whether the client completed it.
+        </p>
       </div>
       <TypeReminders
         typeId={type.id}
