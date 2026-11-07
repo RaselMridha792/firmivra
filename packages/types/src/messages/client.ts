@@ -29,6 +29,7 @@ import {
   SetNoteReminderRequest,
   UnreadCount,
   UpdateInternalNoteRequest,
+  SetMessageThreadAssigneeRequest,
   UpdateMessageThreadRequest,
 } from './schemas.js';
 import {
@@ -124,6 +125,22 @@ export function createMessagesClient(request: ApiRequest) {
     /** Marks the client's latest message unread again. 409 NOTHING_TO_MARK if it has none. */
     markUnread: async (id: string): Promise<MessageThread> =>
       request(MessageThread, `${thread(id)}/unread`, { method: 'POST', body: {} }),
+    /** MSG-F22: the conversation's owner (null: unassigned). 400 ASSIGNEE_CANNOT_REACH. */
+    assign: async (id: string, body: SetMessageThreadAssigneeRequest): Promise<MessageThread> =>
+      request(MessageThread, `${thread(id)}/assignee`, {
+        method: 'PUT',
+        body: parseInput(SetMessageThreadAssigneeRequest, body),
+      }),
+    /** MSG-F22: silences the caller's internal alerts for it; messages still arrive. */
+    mute: async (id: string): Promise<MessageThread> =>
+      request(MessageThread, `${thread(id)}/mute`, { method: 'POST', body: {} }),
+    unmute: async (id: string): Promise<MessageThread> =>
+      request(MessageThread, `${thread(id)}/mute`, { method: 'DELETE', body: {} }),
+    /** MSG-F22: out of the active inbox, its history kept; a client's new message restores it. */
+    archive: async (id: string): Promise<MessageThread> =>
+      request(MessageThread, `${thread(id)}/archive`, { method: 'POST', body: {} }),
+    restore: async (id: string): Promise<MessageThread> =>
+      request(MessageThread, `${thread(id)}/restore`, { method: 'POST', body: {} }),
     /**
      * A file New Message sent (a message's attachment of kind FILE): a 5-minute download link,
      * only once its scan passed (409 SCAN_PENDING or FILE_BLOCKED). The author, the Owner and

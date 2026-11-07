@@ -74,6 +74,16 @@ const title = (s: string) => s.charAt(0) + s.slice(1).toLowerCase().replaceAll('
 type Query = ReturnType<typeof useApiQuery<AdminFirmReport>>;
 
 /**
+ * SA-RPT-R5: the Super Admin's own views of one firm (never the firm's workspace): its
+ * subscription found by name, Billing for the firm, and Support for the firm.
+ */
+const firmLinks = (businessId: string, name?: string) => ({
+  subscriptions: `/subscriptions${name ? `?search=${encodeURIComponent(name)}` : ''}`,
+  billing: `/billing?firm=${businessId}`,
+  support: `/support?firm=${businessId}`,
+});
+
+/**
  * Firm Report Detail (docx §3; firm-report-detail-dashboard.jpg). One firm's report for the
  * period: the header, the firm card, and eight tabs. Six are pages of this report; Billing opens
  * the console's Billing module, and Documents stays shut: a firm's documents are its own data,
@@ -159,13 +169,17 @@ export function FirmReport({ businessId, tab }: { businessId: string; tab: FirmT
                     {
                       label: 'Subscriptions',
                       icon: CurrencyDollar,
-                      onSelect: () => router.push('/subscriptions'),
+                      onSelect: () => router.push(firmLinks(businessId, firm?.name).subscriptions),
                     },
-                    { label: 'Billing', icon: CreditCard, onSelect: () => router.push('/billing') },
+                    {
+                      label: 'Billing',
+                      icon: CreditCard,
+                      onSelect: () => router.push(firmLinks(businessId).billing),
+                    },
                     {
                       label: 'Support tickets',
                       icon: Headset,
-                      onSelect: () => router.push('/support'),
+                      onSelect: () => router.push(firmLinks(businessId).support),
                     },
                     {
                       label: 'Audit & Security',
@@ -207,7 +221,7 @@ export function FirmReport({ businessId, tab }: { businessId: string; tab: FirmT
             );
           if (t.id === 'billing')
             return (
-              <Link key={t.id} href="/billing" className={cls}>
+              <Link key={t.id} href={firmLinks(businessId).billing} className={cls}>
                 {t.label}
               </Link>
             );
@@ -574,7 +588,10 @@ function SubscriptionsTab({ query }: { query: Query }) {
         title="Subscription"
         testId="firm-subscription"
         action={
-          <Link href="/subscriptions" className="text-sm font-medium text-action">
+          <Link
+            href={firmLinks(query.data?.firm.id ?? '', query.data?.firm.name).subscriptions}
+            className="text-sm font-medium text-action"
+          >
             Open Subscriptions
           </Link>
         }
@@ -619,7 +636,10 @@ function SupportTab({ query }: { query: Query }) {
         title="Open Support Tickets"
         testId="firm-support"
         action={
-          <Link href="/support" className="text-sm font-medium text-action">
+          <Link
+            href={query.data ? firmLinks(query.data.firm.id).support : '/support'}
+            className="text-sm font-medium text-action"
+          >
             Open Support
           </Link>
         }

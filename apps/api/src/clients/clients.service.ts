@@ -244,6 +244,7 @@ export class ClientsService {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
     const days = await this.dayBounds(businessId, q.lastActivityFrom, q.lastActivityTo);
+    const completed = await this.dayBounds(businessId, q.completedFrom, q.completedTo);
     const owing = q.owes ? await this.owing(businessId, q.owes) : null;
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
@@ -252,28 +253,39 @@ export class ClientsService {
       q.status === 'archived' ? { archivedAt: { not: null } } : {},
       q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
       q.clientStatus ? { status: q.clientStatus } : {},
-      q.serviceId
+      // D4: a dashboard service card's list, exactly what it counts.
+      q.serviceId && (q.engagementStatus || completed)
         ? {
-            OR: [
-              {
-                engagements: {
-                  some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-                },
+            engagements: {
+              some: {
+                serviceId: q.serviceId,
+                ...(q.engagementStatus ? { status: q.engagementStatus } : {}),
+                ...(completed ? { completedAt: { gte: completed.start, lt: completed.end } } : {}),
               },
-              // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
-              {
-                advisoryRecords: {
-                  some: {
-                    archivedAt: null,
-                    workstreams: {
-                      some: { serviceId: q.serviceId, status: { in: [...ENROLLED_WORKSTREAMS] } },
+            },
+          }
+        : q.serviceId
+          ? {
+              OR: [
+                {
+                  engagements: {
+                    some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+                  },
+                },
+                // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
+                {
+                  advisoryRecords: {
+                    some: {
+                      archivedAt: null,
+                      workstreams: {
+                        some: { serviceId: q.serviceId, status: { in: [...ENROLLED_WORKSTREAMS] } },
+                      },
                     },
                   },
                 },
-              },
-            ],
-          }
-        : {},
+              ],
+            }
+          : {},
       days ? { lastActivityAt: { gte: days.start, lt: days.end } } : {},
       owing ? { id: { in: owing } } : {},
       term

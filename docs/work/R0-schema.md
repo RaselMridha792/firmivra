@@ -147,6 +147,14 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - PRT-1: `client_accounts.selected_office_id` (picked at registration) and `clients.office_id` (assigned, reassignable). Both are composite FKs to `firm_offices` (RESTRICT), set only to an ACTIVE, unarchived location (triggers); a later deactivation keeps them.
   - PRT-3: new table `client_portal_settings` (one row per firm, no row means the defaults; RLS forced, no DELETE): `show_corporate_office`, `show_local_office`, `allow_phone`, `allow_sms` (off), `allow_email`, `allow_secure_message`, `allow_appointment_link` (off).
   - No backfill.
+- Nov 7 (Rasel's approval in R1's window, the schema batch; shapes as the lead specified; R1 adds this line): `r1_schema_batch_nov7` (R1, branch `rasel/R1-schema-batch-nov7`, opened after `r1_client_office_portal_contact`).
+  - MSG-F16: new table `client_timeline_entries` (insert-only; one entry per source record; `ClientTimelineKind` enum).
+  - L8: new table `lead_follow_ups` (issue #1051; the lead stays fixed), backfilled from each lead's `next_action_*`.
+  - A9: `appointment_types.required_intake_template_id` (the firm's reusable template, not a version) and `intakes.appointment_id`.
+  - PAY-3: `payment_settings.default_card_processor` and `ach_processor` (Stripe).
+  - SM12: new table `staff_draft_attachments` (files under the draft's own folder; deleted with the draft).
+  - SEC-6: `memberships.is_security_admin`, and `staff_security_defaults.mfa_required`, which can be off only with a documented, approved exception.
+  - RP-F18: `report_definitions.show_legend`.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.

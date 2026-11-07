@@ -15,6 +15,8 @@ const thread = (over: Partial<MessageThread> = {}): MessageThread => ({
   lastMessage: null,
   unreadCount: 0,
   automated: false,
+  assignedTo: null,
+  mutedByMe: false,
   archivedAt: null,
   createdAt: '2026-10-20T12:00:00.000Z',
   ...over,

@@ -41,6 +41,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { HtmlFrame } from '../../templates/_components/html-preview';
+import { CommsHelp } from './communications-help';
 import { RescheduleDialog, SaveTemplateDialog, useAct } from './communication-actions';
 import {
   COMM_ERRORS,
@@ -137,8 +138,8 @@ export function ResultsScreen({ id }: { id: string }) {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-3xl font-bold wrap-break-word text-heading">
-              {d.subject ?? d.name}
+            <h1 className="flex flex-wrap items-center gap-2 font-display text-3xl font-bold wrap-break-word text-heading">
+              {d.subject ?? d.name} <CommsHelp area="results" />
             </h1>
             <Badge tone="neutral">{channelOf(d.channel).label} Campaign</Badge>
             <StatusPill status={d.status} />
@@ -271,8 +272,8 @@ export function ResultsScreen({ id }: { id: string }) {
           {tab === 'Overview' ? (
             <>
               <section className={card} aria-label="Campaign performance" data-testid="performance">
-                <h2 className="mb-3 font-display text-xl font-bold text-heading">
-                  Campaign Performance
+                <h2 className="mb-3 flex items-center gap-2 font-display text-xl font-bold text-heading">
+                  Campaign Performance <CommsHelp area="performance" />
                 </h2>
                 {m.totalRecipients === 0 ? (
                   <p className={quiet}>No delivery data yet.</p>
@@ -450,7 +451,9 @@ export function ResultsScreen({ id }: { id: string }) {
             </button>
           </section>
           <section className={card} aria-label="Actions" data-testid="side-actions">
-            <h2 className="mb-2 font-display text-lg font-bold text-heading">Actions</h2>
+            <h2 className="mb-2 flex items-center gap-2 font-display text-lg font-bold text-heading">
+              Actions <CommsHelp area="actions" />
+            </h2>
             <ul className="flex flex-col gap-1.5">
               {[
                 { label: 'Duplicate Campaign', icon: Copy, onClick: duplicate, show: true },
@@ -645,7 +648,9 @@ function RecipientTable({
   return (
     <div className="flex flex-col gap-3" data-testid="recipient-table">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="mr-auto font-display text-xl font-bold text-heading">Recipient Activity</h2>
+        <h2 className="mr-auto flex items-center gap-2 font-display text-xl font-bold text-heading">
+          Recipient Activity <CommsHelp area="activity" />
+        </h2>
         <label className="flex h-10 w-44 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-muted focus-within:outline-2 focus-within:outline-focus">
           <MagnifyingGlass aria-hidden weight="bold" className="size-4 shrink-0" />
           <span className="sr-only">Search recipients</span>

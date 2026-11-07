@@ -83,7 +83,7 @@ async function tokenFor(email: string): Promise<string> {
 }
 
 async function firm(
-  method: 'get' | 'post' | 'patch',
+  method: 'get' | 'post' | 'patch' | 'delete',
   path: string,
   who: { email: string },
   body?: object,
@@ -484,6 +484,61 @@ describe('reach and isolation', () => {
 describe('notices', () => {
   const secret = randomUUID();
   const mail = () => outbox.splice(0).filter((m) => m.template === 'message.received');
+
+  it('MSG-F22: a member who muted the conversation gets no email; the message still arrives', async () => {
+    const t = await startThread({ subject: 'Muted', body: 'Hello' });
+    expect(
+      Thread.parse(
+        expectOk(await firm('post', `/message-threads/${t.id}/mute`, people.adminA, {})).body,
+      ).mutedByMe,
+    ).toBe(true);
+    mail();
+    expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body: 'Reply' }), 201);
+    expect(
+      mail()
+        .map((m) => m.to)
+        .sort(),
+    ).toEqual([people.ownerA.email, people.staffA.email].sort());
+    const detail = ThreadDetail.parse(
+      expectOk(await firm('get', `/message-threads/${t.id}`, people.adminA)).body,
+    );
+    expect(detail.messages.map((m) => m.body)).toEqual(['Hello', 'Reply']);
+    // No bell item for the muted member either (the Notifier's excludeUserIds); the rest get one.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      expect(to.has(people.adminA.id)).toBe(false);
+      expect(to.has(people.ownerA.id)).toBe(true);
+      expect(to.has(people.staffA.id)).toBe(true);
+    } finally {
+      await owner.$disconnect();
+    }
+    // Unmuted, the next run of unread messages reaches them again.
+    expectOk(await firm('delete', `/message-threads/${t.id}/mute`, people.adminA, {}));
+    expectOk(await firm('post', `/message-threads/${t.id}/read`, people.ownerA, {}));
+    expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body: 'Again' }), 201);
+    expect(mail().map((m) => m.to)).toContain(people.adminA.email);
+  });
+
+  it("MSG-F22: a client's new message brings an archived conversation back to the inbox", async () => {
+    const t = await startThread({ subject: 'Archived then answered', body: 'Hello' });
+    const archived = Thread.parse(
+      expectOk(await firm('post', `/message-threads/${t.id}/archive`, people.ownerA, {})).body,
+    );
+    expect(archived.archivedAt).not.toBeNull();
+    expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body: 'Answer' }), 201);
+    const back = ThreadDetail.parse(
+      expectOk(await firm('get', `/message-threads/${t.id}`, people.ownerA)).body,
+    );
+    expect(back.archivedAt).toBeNull();
+    expect(back.unreadCount).toBe(1);
+  });
 
   it('emails the primary login, with no text and once per unread run; a bell item too', async () => {
     mail();

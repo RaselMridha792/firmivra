@@ -255,6 +255,16 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/message-threads/:id/read': { ...thread, body: {} },
   // Found, but the thread's only message is the firm's own: nothing to mark unread.
   'POST /api/v1/business/message-threads/:id/unread': { ...thread, body: {}, expect: 409 },
+  // MSG-F22: the thread's owner is one of the firm's own members.
+  'PUT /api/v1/business/message-threads/:id/assignee': {
+    ...thread,
+    bodyIds: { userId: 'adminUser' },
+    body: { userId: PH },
+  },
+  'POST /api/v1/business/message-threads/:id/mute': { ...thread, body: {} },
+  'DELETE /api/v1/business/message-threads/:id/mute': thread,
+  'POST /api/v1/business/message-threads/:id/archive': { ...thread, body: {} },
+  'POST /api/v1/business/message-threads/:id/restore': { ...thread, body: {} },
   // Messages Settings (R60): the default assignee must be one of the firm's own members.
   'PATCH /api/v1/business/message-settings': {
     params: {},
