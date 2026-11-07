@@ -155,6 +155,7 @@ export function ReportBuilder() {
         date: fixed ? { rule: 'FIXED', ...fixed } : { rule: 'ROLLING', preset: preset as never },
         chartType: chart as ReportDefinitionView['chartType'],
         showDataLabels: false,
+        showLegend: true,
         includeTaxRevenue: false,
       }
     : undefined;

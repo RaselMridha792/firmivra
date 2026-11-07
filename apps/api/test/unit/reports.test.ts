@@ -306,6 +306,7 @@ describe('definitions', () => {
       date: { rule: 'FIXED' as const, from: '2026-01-01', to: '2026-02-01' },
       chartType: 'PIE' as const,
       showDataLabels: false,
+      showLegend: true,
       includeTaxRevenue: false,
     };
     const row = toRow(view);
@@ -396,6 +397,7 @@ describe('the computation', () => {
     date: { rule: 'FIXED' as const, from: range.from, to: range.to },
     chartType: 'AUTO' as const,
     showDataLabels: false,
+    showLegend: true,
     includeTaxRevenue: false,
     ...over,
   });
