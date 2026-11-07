@@ -1284,6 +1284,26 @@ function ActionField({
         : [],
   );
   const text = typeof value === 'string' ? value : value == null ? '' : String(value);
+  // AU-F26: a task template or a service of the firm: the catalog brings the firm's own.
+  if (field.type === 'TASK_TEMPLATE' || field.type === 'SERVICE') {
+    return (
+      <Select
+        label={label}
+        value={text}
+        onChange={(e) => onChange(e.target.value || null)}
+        options={[
+          {
+            value: '',
+            label: field.type === 'SERVICE' ? 'Choose a service' : 'No template',
+          },
+          ...(text && !field.choices.some((c) => c.value === text)
+            ? [{ value: text, label: 'No longer available: choose again' }]
+            : []),
+          ...field.choices,
+        ]}
+      />
+    );
+  }
   if (field.type === 'INTAKE_FORM') {
     const rows = intakeForms.data ?? [];
     return (

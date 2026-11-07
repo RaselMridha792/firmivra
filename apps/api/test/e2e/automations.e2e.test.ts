@@ -360,6 +360,7 @@ describe('the catalog', () => {
       'CREATE_TASK',
       'SEND_CLIENT_MESSAGE',
       'SEND_CLIENT_EMAIL',
+      'SEND_CLIENT_SMS',
       'REQUEST_DOCUMENTS',
       'SEND_INTAKE',
       'ASSIGN_CLIENT',
@@ -367,6 +368,8 @@ describe('the catalog', () => {
       'UPDATE_CLIENT_PRIORITY',
       'ADD_CLIENT_TAGS',
       'REMOVE_CLIENT_TAGS',
+      'CREATE_DEADLINE',
+      'ADD_SERVICE',
       'INVITE_TO_BOOK',
       'SCHEDULE_LEAD_FOLLOW_UP',
       'REQUEST_APPROVAL',
@@ -3450,5 +3453,199 @@ describe('Invite to book, lead follow-up and approval requests (AU-F27)', () => 
         catalog.actions.filter((a) => a.recordKind).map((a) => [a.type, a.recordKind]),
       ),
     ).toEqual({ SCHEDULE_LEAD_FOLLOW_UP: 'lead', REQUEST_APPROVAL: 'tax_return' });
+  });
+});
+
+describe('Create task from a template, text messages, deadlines and services (AU-F26)', () => {
+  const newClient = (name: string, data: object = {}) =>
+    inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: { businessId: firms.a, displayName: `${name} ${run} (fake)`, ...data },
+            select: { id: true },
+          })
+        ).id,
+    );
+  const stepFor = async (ruleId: string, clientId: string) => {
+    const page = await runs(`?ruleId=${ruleId}`);
+    return (await runDetail(page.items.find((r) => r.client?.id === clientId)!.id)).actions[0]!;
+  };
+  const pause = (id: string) => call('post', `/rules/${id}/pause`, ownerA, {});
+
+  it('creates a task from the firm’s template, visible to the client; another firm’s template is refused', async () => {
+    const ours = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.taskTemplate.create({
+            data: { businessId: firms.a, name: `Onboarding ${run}` },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const theirs = await inFirm(
+      'b',
+      async (tx) =>
+        (
+          await tx.taskTemplate.create({
+            data: { businessId: firms.b, name: `Theirs ${run}` },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const task = (taskTemplateId: string) => ({
+      id: 'task',
+      type: 'CREATE_TASK',
+      config: { title: 'Welcome {{client.name}}', taskTemplateId, clientVisible: true },
+    });
+    const foreign = await createRule(clientCreated([task(theirs)]), { name: mark('Their tpl') });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const choices = catalog.actions
+      .find((a) => a.type === 'CREATE_TASK')
+      ?.fields.find((f) => f.key === 'taskTemplateId')
+      ?.choices.map((c) => c.value);
+    expect(choices).toContain(ours);
+    expect(choices).not.toContain(theirs);
+
+    const live = await createRule(clientCreated([task(ours)]), { name: mark('Template task') });
+    ok(await activate(live.id));
+    const id = await newClient('Templated');
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const made = await stepFor(live.id, id);
+    expect(made).toMatchObject({ status: 'SUCCESS', result: { kind: 'task' } });
+    expect(
+      await inFirm('a', (tx) =>
+        tx.task.findFirstOrThrow({
+          where: { businessId: firms.a, id: made.result!.id },
+          select: { templateId: true, clientVisible: true, title: true },
+        }),
+      ),
+    ).toEqual({
+      templateId: ours,
+      clientVisible: true,
+      title: `Welcome Templated ${run} (fake)`,
+    });
+    ok(await pause(live.id));
+  });
+
+  it('texts only through Messages: with texting off, nothing is sent and the step says why', async () => {
+    const live = await createRule(
+      clientCreated([
+        { id: 'sms', type: 'SEND_CLIENT_SMS', config: { body: 'Hi {{client.firstName}}' } },
+      ]),
+      { name: mark('Text') },
+    );
+    ok(await activate(live.id));
+    const id = await newClient('Texty', { phone: '+15555550123' });
+    expect(await engine.scanRule(firms.a, live.id)).toMatchObject({ started: 1 });
+    const step = await stepFor(live.id, id);
+    expect(step).toMatchObject({ status: 'FAILED', retryable: false });
+    expect(step.errorCode).toMatch(/^[A-Z_]+$/);
+    // Nothing went out: no sent or queued text for this client.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.outboundMessageRecipient.count({
+          where: {
+            businessId: firms.a,
+            clientId: id,
+            outbound: { status: { in: ['SENT', 'PARTIAL', 'SENDING', 'SCHEDULED'] } },
+          },
+        }),
+      ),
+    ).toBe(0);
+    ok(await pause(live.id));
+  });
+
+  it('creates a deadline through Compliance & Deadlines, once', async () => {
+    const deadline = {
+      id: 'deadline',
+      type: 'CREATE_DEADLINE',
+      config: {
+        name: 'Annual report for {{client.name}}',
+        deadlineType: 'ANNUAL_REPORT',
+        dueInDays: 30,
+        priority: 'HIGH',
+      },
+    };
+    const first = await createRule(clientCreated([deadline]), { name: mark('Deadline') });
+    ok(await activate(first.id));
+    const again = await createRule(clientCreated([deadline]), { name: mark('Deadline again') });
+    ok(await activate(again.id));
+    const id = await newClient('Deadlined');
+    expect(await engine.scanRule(firms.a, first.id)).toMatchObject({ started: 1 });
+    expect(await engine.scanRule(firms.a, again.id)).toMatchObject({ started: 1 });
+    const rows = await inFirm('a', (tx) =>
+      tx.complianceDeadline.findMany({
+        where: { businessId: firms.a, clientId: id },
+        select: { name: true, type: true, priority: true, dueOn: true, status: true },
+      }),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: `Annual report for Deadlined ${run} (fake)`,
+      type: 'ANNUAL_REPORT',
+      priority: 'HIGH',
+      status: 'UPCOMING',
+    });
+    const days = (rows[0]!.dueOn.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(28);
+    expect(days).toBeLessThan(31);
+    expect(await stepFor(again.id, id)).toMatchObject({
+      status: 'SUCCESS',
+      detail: 'The client already has this deadline',
+    });
+    for (const r of [first, again]) ok(await pause(r.id));
+  });
+
+  it('adds the firm’s service through Engagements without billing, never twice; another firm’s is refused', async () => {
+    const service = (firm: 'a' | 'b', name: string) =>
+      inFirm(
+        firm,
+        async (tx) =>
+          (
+            await tx.service.create({
+              data: { businessId: firms[firm], kind: 'BOOKKEEPING', name: `${name} ${run}` },
+              select: { id: true },
+            })
+          ).id,
+      );
+    const ours = await service('a', 'Monthly books');
+    const theirs = await service('b', 'Their books');
+    const add = (serviceId: string) => ({ id: 'svc', type: 'ADD_SERVICE', config: { serviceId } });
+    const foreign = await createRule(clientCreated([add(theirs)]), { name: mark('Their svc') });
+    expectError(await activate(foreign.id), 409, 'NOT_READY');
+    const catalog = AutomationCatalog.parse(ok(await call('get', '/catalog', ownerA)));
+    const choices = catalog.actions
+      .find((a) => a.type === 'ADD_SERVICE')
+      ?.fields.find((f) => f.key === 'serviceId')
+      ?.choices.map((c) => c.value);
+    expect(choices).toContain(ours);
+    expect(choices).not.toContain(theirs);
+
+    const first = await createRule(clientCreated([add(ours)]), { name: mark('Add svc') });
+    ok(await activate(first.id));
+    const again = await createRule(clientCreated([add(ours)]), { name: mark('Add svc again') });
+    ok(await activate(again.id));
+    const id = await newClient('Serviced');
+    expect(await engine.scanRule(firms.a, first.id)).toMatchObject({ started: 1 });
+    expect(await engine.scanRule(firms.a, again.id)).toMatchObject({ started: 1 });
+    const engagements = await inFirm('a', (tx) =>
+      tx.engagement.findMany({
+        where: { businessId: firms.a, clientId: id },
+        select: { serviceId: true, title: true, nextBillingOn: true },
+      }),
+    );
+    // One service, named for the service, with no billing started.
+    expect(engagements).toEqual([
+      { serviceId: ours, title: `Monthly books ${run}`, nextBillingOn: null },
+    ]);
+    expect(await stepFor(again.id, id)).toMatchObject({
+      status: 'SUCCESS',
+      detail: 'The client already has this service open',
+    });
+    for (const r of [first, again]) ok(await pause(r.id));
   });
 });
