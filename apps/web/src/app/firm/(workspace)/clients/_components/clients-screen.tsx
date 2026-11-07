@@ -57,10 +57,24 @@ function listQuery(filters: ClientFilters, search: string, manager: boolean) {
     ...(range?.from ? { lastActivityFrom: range.from } : {}),
     ...(range?.to ? { lastActivityTo: range.to } : {}),
     ...(filters.owes ? { owes: filters.owes } : {}),
+    // D4: a dashboard service card's clients.
+    ...(filters.serviceId && filters.engagementStatus
+      ? { engagementStatus: filters.engagementStatus }
+      : {}),
+    ...(filters.serviceId && filters.completedFrom ? { completedFrom: filters.completedFrom } : {}),
+    ...(filters.serviceId && filters.completedTo ? { completedTo: filters.completedTo } : {}),
   } satisfies ListClientsQuery;
 }
 
 type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] } | null;
+
+/** A dashboard service card's clients (D4) in words: "Completed engagements, Nov 1 to Nov 7". */
+const ENGAGEMENT_WORDS: Record<string, string> = {
+  PENDING: 'Pending engagements',
+  ACTIVE: 'Active engagements',
+  COMPLETED: 'Completed engagements',
+  CANCELLED: 'Cancelled engagements',
+};
 
 /**
  * The firm's Clients list (clients.jpg): KPI cards, tabs by stage and service, filters, Add New
@@ -197,6 +211,32 @@ export function ClientsScreen({
           />
         </div>
         <div className="flex min-w-0 flex-col gap-4 rounded-b-xl bg-surface p-3 shadow-md">
+          {filters.serviceId &&
+          (filters.engagementStatus || filters.completedFrom || filters.completedTo) ? (
+            <div
+              className="flex flex-wrap items-center gap-2 text-sm"
+              data-testid="engagement-filter"
+            >
+              <span className="text-muted">
+                {services.find((s) => s.id === filters.serviceId)?.name ?? 'One service'}:
+              </span>
+              <span className="font-semibold text-heading">
+                {[
+                  ENGAGEMENT_WORDS[filters.engagementStatus] ?? 'Engagements',
+                  [filters.completedFrom, filters.completedTo].filter(Boolean).join(' to '),
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+              </span>
+              <Button
+                variant="ghost"
+                aria-label="Show every open engagement of this service"
+                onClick={() => change({ engagementStatus: '', completedFrom: '', completedTo: '' })}
+              >
+                Show all
+              </Button>
+            </div>
+          ) : null}
           <ClientsFilterRow
             filters={filters}
             services={services}

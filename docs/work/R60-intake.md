@@ -392,7 +392,18 @@ Progress (Dashboard D4, D5; the lead's go, Nov 7):
     unchanged.
   - Tests: API e2e `dashboard-cards` 10 of 10 (each card's number is its list's total, for Owner
     and Staff), `dashboard` and `clients` suites, isolation 19 of 19, unit 3 of 3.
-- Next: the Settings screen and the dashboard's rendering (PR 2).
+- Screen, branch `rasel/R60-dashboard-cards-web` (#1317's API on `main`):
+  - Settings > Dashboard Cards (`/settings/dashboard-cards`, Owner and Admin in the menu): the
+    defaults until a card is saved, with Start from the defaults; Add Card and Edit choose the
+    service, what it counts, the status and the label with the shared rule checked first and a
+    live count for This Month; each card switches off and moves up or down.
+  - The dashboard's top row: Total Clients and New Leads, the firm's service cards (the defaults,
+    Returns In Progress and Accepted Returns, keep their places and links), then Outstanding
+    Invoices and Appointments Today. Each service card opens its list in that list's address.
+  - Clients reads `engagement`, `completedFrom` and `completedTo` with `service`; Tax Returns
+    reads `serviceId`. Each shows the filter in words with Show all.
+  - Two of R60's older specs fixed on the way: Outstanding Invoices' Status is the list's own
+    (R56's charts added "Status counted"), and the KPI spec waits for the cards to be links.
 
 ## Handoff (Oct 23): start here
 
