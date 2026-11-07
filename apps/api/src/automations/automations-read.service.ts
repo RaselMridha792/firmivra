@@ -12,7 +12,7 @@ import { firmTimeZone } from '../appointments/calendar-data.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { day, memberNames, memberRef, notFound } from '../workspaces/common.js';
-import { actionOf, eventOf } from './catalog.js';
+import { actionOf, eventOf, RESOURCE_PAGES } from './catalog.js';
 import { type Perms, autoErrors, hhmm, iso, mayAct, permsOf } from './automations.common.js';
 import {
   actionSummary,
@@ -255,6 +255,74 @@ export class AutomationsReadService {
             path: `actions.${i}.config.memberUserIds`,
           });
       }
+      // Create task's template and Add service's service: live ones of this firm (never another's).
+      const taskTemplateId = a.config.taskTemplateId;
+      if (typeof taskTemplateId === 'string') {
+        const live = await tx.taskTemplate.count({
+          where: { businessId, id: taskTemplateId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The task template is not one of the firm’s live templates',
+            path: `actions.${i}.config.taskTemplateId`,
+          });
+      }
+      const serviceId = a.config.serviceId;
+      if (typeof serviceId === 'string') {
+        const live = await tx.service.count({
+          where: { businessId, id: serviceId, archivedAt: null },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The service is not one of the firm’s live services',
+            path: `actions.${i}.config.serviceId`,
+          });
+      }
+      // Send resource's resource: a published portal resource (on one of the portal's resource
+      // pages) or link of this firm, never another firm's or a draft.
+      const resourceId = a.config.resourceId;
+      if (typeof resourceId === 'string') {
+        const live = await tx.contentItem.count({
+          where: {
+            businessId,
+            id: resourceId,
+            publishedAt: { not: null },
+            OR: [{ kind: 'EXTERNAL_LINK' }, { kind: 'RESOURCE', category: { in: RESOURCE_PAGES } }],
+          },
+        });
+        if (live === 0)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The resource is not one of the firm’s published portal resources',
+            path: `actions.${i}.config.resourceId`,
+          });
+      }
+      // Request approval's reviewer: an active member of this firm, and never the rule's owner,
+      // who asks for it (nobody approves their own request).
+      const reviewer = a.config.reviewerUserId;
+      if (typeof reviewer === 'string') {
+        const m = await this.actingMember(tx, businessId, reviewer);
+        const path = `actions.${i}.config.reviewerUserId`;
+        if (!m)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer is not an active member of the firm',
+            path,
+          });
+        else if (reviewer === rule.ownerUserId)
+          out.push({
+            code: 'INVALID_ACTION_CONFIG',
+            severity: 'BLOCK',
+            message: 'The reviewer can’t be the rule’s owner, who asks for the approval',
+            path,
+          });
+      }
       const assignee = a.config.assigneeUserId;
       if (typeof assignee === 'string') {
         const m = await this.actingMember(tx, businessId, assignee);
@@ -350,11 +418,12 @@ export class AutomationsReadService {
         businessId,
         now: new Date(),
         today: ctx.today,
+        timezone: ctx.timezone,
         since,
         ...(def.trigger.source ? { source: def.trigger.source } : {}),
       },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit
@@ -398,9 +467,9 @@ export class AutomationsReadService {
         offsetValue: def.trigger.offsetValue ?? null,
         offsetUnit: def.trigger.offsetUnit ?? null,
       },
-      { businessId, now, today: ctx.today, since },
+      { businessId, now, today: ctx.today, timezone: ctx.timezone, since },
     );
-    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions));
+    const hit = found.filter((c) => matches(c.fields, def.matchMode, def.conditions, ctx.today));
     const clientIds = [
       ...new Set(
         hit

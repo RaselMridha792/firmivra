@@ -19,7 +19,16 @@ import {
   runInclude,
 } from './automations-read.service.js';
 import type { SettingsBody } from './automations-input.js';
-import { ACTIONS, ASSIGNEE_FIELD, EVENTS, MODULES, TAGS_FIELD, VARIABLES } from './catalog.js';
+import {
+  ACTIONS,
+  CLIENT_TAGS_FIELD,
+  EVENTS,
+  MEMBER_FIELDS,
+  MODULES,
+  RESOURCE_PAGES,
+  TAGS_FIELD,
+  VARIABLES,
+} from './catalog.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 const DAY = 86_400_000;
@@ -52,21 +61,57 @@ export class AutomationsOverviewService {
    * its active members, read in the firm's scope. Never another firm's.
    */
   async catalog(businessId: string): Promise<AutomationCatalog> {
-    const { tags, members } = await this.read.inFirm(businessId, async (tx) => ({
-      tags: await tx.tag.findMany({
-        where: { businessId, archivedAt: null },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
+    const { tags, members, types, taskTemplates, services, resources } = await this.read.inFirm(
+      businessId,
+      async (tx) => ({
+        tags: await tx.tag.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        members: await tx.membership.findMany({
+          where: { businessId, status: 'ACTIVE' },
+          select: { userId: true, user: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        }),
+        types: await tx.appointmentType.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        taskTemplates: await tx.taskTemplate.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        services: await tx.service.findMany({
+          where: { businessId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        resources: await tx.contentItem.findMany({
+          where: {
+            businessId,
+            publishedAt: { not: null },
+            OR: [{ kind: 'EXTERNAL_LINK' }, { kind: 'RESOURCE', category: { in: RESOURCE_PAGES } }],
+          },
+          select: { id: true, title: true },
+          orderBy: { title: 'asc' },
+        }),
       }),
-      members: await tx.membership.findMany({
-        where: { businessId, status: 'ACTIVE' },
-        select: { userId: true, user: { select: { name: true } } },
-        orderBy: { createdAt: 'asc' },
-      }),
-    }));
+    );
+    // A setting naming one of the firm's records offers the firm's own (another firm's never).
+    const settingChoices: Record<string, { value: string; label: string }[]> = {
+      TASK_TEMPLATE: taskTemplates.map((t) => ({ value: t.id, label: t.name })),
+      SERVICE: services.map((t) => ({ value: t.id, label: t.name })),
+      RESOURCE: resources.map((r) => ({ value: r.id, label: r.title })),
+    };
+    const people = members.map((m) => ({ value: m.userId, label: m.user.name }));
     const choices: Record<string, { value: string; label: string }[]> = {
       [TAGS_FIELD.field]: tags.map((t) => ({ value: t.id, label: t.name })),
-      [ASSIGNEE_FIELD.field]: members.map((m) => ({ value: m.userId, label: m.user.name })),
+      [CLIENT_TAGS_FIELD.field]: tags.map((t) => ({ value: t.id, label: t.name })),
+      ...Object.fromEntries(MEMBER_FIELDS.map((f) => [f, people])),
+      appointmentTypeId: types.map((t) => ({ value: t.id, label: t.name })),
     };
     return {
       modules: Object.entries(MODULES).map(([module, m]) => ({
@@ -80,7 +125,12 @@ export class AutomationsOverviewService {
           choices[f.field] ? { ...f, options: choices[f.field]! } : f,
         ),
       })),
-      actions: ACTIONS,
+      actions: ACTIONS.map((a) => ({
+        ...a,
+        fields: a.fields.map((f) =>
+          settingChoices[f.type] ? { ...f, choices: settingChoices[f.type]! } : f,
+        ),
+      })),
       variables: VARIABLES,
     };
   }

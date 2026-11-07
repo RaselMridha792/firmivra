@@ -29,7 +29,18 @@ const pending = person('pending');
 const ids = { a: '', b: '', c: '', d: '' };
 const DAY = 86_400_000;
 
+let portal = '';
+const env = loadEnv({
+  ...process.env,
+  NODE_ENV: 'test',
+  AUTH_MODE: 'local',
+  LOG_LEVEL: 'silent',
+  DATABASE_URL_APP: fx.appUrl,
+});
+const IMAGE_ID = '0199d2b0-6c00-7000-8000-0000000000aa';
+
 beforeAll(async () => {
+  portal = new URL(env.PORTAL_BASE_URL).origin;
   const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   const firm = await runInScope(db, { kind: 'platform' }, async (tx) => {
     for (const [u, pool] of [
@@ -124,6 +135,19 @@ beforeAll(async () => {
       publishStartsAt: new Date(now - DAY),
       visibility: 'billing',
     });
+    // CM-F08: formatted, with what the portal must never show (a script, an outside image,
+    // another firm's image, an http link), published before the others.
+    ids.d = await announce('Formatted (fake)', {
+      subject: 'Formatted',
+      body:
+        '<p style="text-align:center"><span style="font-family:Georgia, serif">Hello</span><script>alert(1)</script></p>' +
+        `<p><img src="${portal}/api/v1/portal/${slug}/email-images/${IMAGE_ID}.png" onerror="x()"></p>` +
+        '<p><img src="https://evil.example/pixel.png"></p>' +
+        `<p><img src="${portal}/api/v1/portal/${fx.firmA.slug}/email-images/${IMAGE_ID}.png"></p>` +
+        '<p><a class="fv-button" href="https://pay.example.test/x">Pay now</a> <a href="http://plain.example.test">plain</a></p>',
+      publishStartsAt: new Date(now - 3 * DAY),
+      visibility: 'dashboard',
+    });
     // Not shown: ended, not started, expired (archived), a draft, an email, someone else's.
     await announce('Ended (fake)', { subject: 'Ended', publishEndsAt: new Date(now - 1) });
     await announce('Later (fake)', { subject: 'Later', publishStartsAt: new Date(now + DAY) });
@@ -144,13 +168,6 @@ beforeAll(async () => {
     ]);
   });
   await db.$disconnect();
-  const env = loadEnv({
-    ...process.env,
-    NODE_ENV: 'test',
-    AUTH_MODE: 'local',
-    LOG_LEVEL: 'silent',
-    DATABASE_URL_APP: fx.appUrl,
-  });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -176,11 +193,14 @@ describe('GET /portal/{firmSlug}/me/announcements', () => {
   it('shows the client the announcements published to them, live now, newest first, as text', async () => {
     const res = await mine(reader);
     expect(res.status).toBe(200);
-    expect(MyAnnouncementList.parse(res.body).items).toEqual([
+    const items = MyAnnouncementList.parse(res.body).items;
+    expect(items.map((i) => i.id)).toEqual([ids.b, ids.a, ids.d]);
+    expect(items.slice(0, 2)).toEqual([
       {
         id: ids.b,
         title: null,
         body: 'Pay online now.',
+        html: 'Pay online now.',
         where: 'billing',
         publishedAt: expect.any(String),
         endsAt: null,
@@ -189,11 +209,31 @@ describe('GET /portal/{firmSlug}/me/announcements', () => {
         id: ids.a,
         title: 'Extended Office Hours',
         body: 'We are open late.\nSee you & yours.',
+        html: '<p>We are open <strong>late</strong>.</p><p>See you &amp; yours.</p>',
         where: 'dashboard',
         publishedAt: expect.any(String),
         endsAt: expect.any(String),
       },
     ]);
+  });
+
+  it("shows the firm's formatting, cleaned: no script, no outside or other firm's image (CM-F08)", async () => {
+    const items = MyAnnouncementList.parse((await mine(reader)).body).items;
+    const d = items.find((i) => i.id === ids.d);
+    // The snippet stays plain text.
+    expect(d?.body).not.toContain('<');
+    const html = d?.html ?? '';
+    expect(html).toContain(
+      '<p style="text-align:center"><span style="font-family:Georgia, serif">Hello</span></p>',
+    );
+    expect(html).toContain(`src="${portal}/api/v1/portal/${slug}/email-images/${IMAGE_ID}.png"`);
+    expect(html).not.toContain('script');
+    expect(html).not.toContain('onerror');
+    expect(html).not.toContain('evil.example');
+    expect(html).not.toContain(`/portal/${fx.firmA.slug}/`);
+    expect(html).not.toContain('http://plain');
+    expect(html).toMatch(/<a [^>]*class="fv-button"[^>]*>Pay now<\/a>/);
+    expect(html).toContain('rel="noopener noreferrer"');
   });
 
   it('shows another client only theirs (an unknown place reads as the dashboard)', async () => {

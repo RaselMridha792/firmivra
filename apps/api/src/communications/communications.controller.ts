@@ -39,8 +39,15 @@ import {
   type SegmentPage,
   type SegmentPreview,
 } from '@firmivra/types';
+import {
+  ConfirmEmailImageUploadRequest,
+  CreateEmailImageUploadRequest,
+  type EmailImage,
+  type UploadPutTicket as ImageTicket,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import { LeadEmailService } from '../leads/lead-email.service.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
@@ -68,6 +75,7 @@ import {
   CreateSegmentBody,
   PreviewSegmentBody,
   SegmentMembersQ,
+  SegmentPeopleQ,
   SegmentsQ,
   SetConsentBody,
   SetSegmentMembersBody,
@@ -102,6 +110,7 @@ export class CommunicationsController {
     private readonly campaigns: CommunicationsService,
     private readonly results: CommunicationResultsService,
     private readonly extras: CommunicationExtrasService,
+    private readonly images: LeadEmailService,
   ) {}
 
   // ----- Overview, lists, readiness -----
@@ -138,6 +147,35 @@ export class CommunicationsController {
   ): Promise<CommunicationAttachment> {
     const w = who(auth, tenant);
     return this.extras.confirm(w.tenant, w.userId, body);
+  }
+
+  /**
+   * CM-F08: an image in an email's or an announcement's content, step 1. The firm's email images
+   * (the image service Templates provides, TP-F07): under this firm's prefix, served at its public
+   * address. Communications' own access, as its other writes.
+   */
+  @Post('images')
+  imageTicket(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(CreateEmailImageUploadRequest))
+    body: Out<typeof CreateEmailImageUploadRequest>,
+  ): Promise<ImageTicket> {
+    return this.images.imageTicket(tenant.businessId, auth.userId, body);
+  }
+
+  /** Step 3: only this member's ticket in this firm (410 UPLOAD_EXPIRED); other bytes are 409. */
+  @Post('images/confirm')
+  @HttpCode(200)
+  async confirmImage(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ConfirmEmailImageUploadRequest))
+    body: Out<typeof ConfirmEmailImageUploadRequest>,
+  ): Promise<EmailImage> {
+    const image = await this.images.confirmImage(tenant.businessId, auth.userId, body);
+    await this.extras.imageAdded(image.id);
+    return image;
   }
 
   @Get()
@@ -219,6 +257,17 @@ export class CommunicationsController {
   ): Promise<SegmentPreview> {
     const w = who(auth, tenant);
     return this.segments.preview(w.tenant, w.userId, body);
+  }
+
+  /** CM-F18: the people a member may add to a list, by name, within their reach. */
+  @Get('segments/people')
+  segmentPeople(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(SegmentPeopleQ)) q: Out<typeof SegmentPeopleQ>,
+  ): Promise<SegmentMemberPage> {
+    const w = who(auth, tenant);
+    return this.segments.people(w.tenant, w.userId, q);
   }
 
   @Get('segments/:id')

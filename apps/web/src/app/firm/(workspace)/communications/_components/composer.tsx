@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CONTENT_FONTS,
   ApiRequestError,
   TEMPLATE_ATTACHMENT_ACCEPT,
   TEMPLATE_ATTACHMENT_MAX_BYTES,
@@ -37,6 +38,9 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
+import { HtmlFrame } from '../../templates/_components/html-preview';
+import { IMAGE_SIZING, useContentImages } from '../../templates/_components/content-tools';
+import { ClosingMenu } from './closing-menu';
 import { SaveTemplateDialog } from './communication-actions';
 import { RecipientsModal } from './recipients-modal';
 import { ReviewDialog } from './review-dialog';
@@ -223,6 +227,8 @@ function ComposerForm({
     api.communications.preview(d.id),
   );
   const readOnly = !d.editable;
+  // CM-F08: images in an email's or an announcement's content (the firm's email images).
+  const images = useContentImages('communications');
   const mine = (senders.data ?? []).filter((s) => s.channel === channel);
   const dirty = JSON.stringify(form) !== JSON.stringify(formOf(d));
   // CM-F09: the API refuses a window that ends before it starts; say so on Show Until at once.
@@ -585,15 +591,42 @@ function ComposerForm({
               </p>
             </div>
           ) : (
-            <RichTextEditor
-              label="Message"
-              required
-              value={form.body}
-              onChange={(html) => set({ body: html })}
-              maxLength={50_000}
-              disabled={readOnly}
-            />
+            <div className="flex flex-col gap-1">
+              {images.fileInput}
+              <RichTextEditor
+                label="Message"
+                required
+                value={form.body}
+                onChange={(html) => set({ body: html })}
+                maxLength={50_000}
+                disabled={readOnly}
+                // CM-F10: the five mail-safe fonts; CM-F08: an image, sized and placed.
+                fonts={CONTENT_FONTS}
+                imageSizing={IMAGE_SIZING}
+                onInsertImage={images.insert}
+              />
+              {images.busy ? <p className="text-xs text-muted">Uploading the image…</p> : null}
+              {images.problem ? (
+                <p role="alert" className="text-xs text-danger">
+                  {images.problem}
+                </p>
+              ) : null}
+            </div>
           )}
+          {/* CM-F11: a reusable closing, the firm's or the member's own, added at the end. */}
+          <ClosingMenu
+            channel={channel}
+            disabled={readOnly}
+            onInsert={(closing) =>
+              set({
+                body:
+                  channel === 'SMS'
+                    ? `${form.body.trimEnd()}${form.body.trim() ? '\n\n' : ''}${closing}`
+                    : `${form.body}${closing}`,
+              })
+            }
+            onNotice={notice}
+          />
 
           <Select
             label="Personalize"
@@ -838,9 +871,19 @@ function ComposerForm({
                 {preview.data.subject ? (
                   <p className="mb-1 font-semibold text-heading">{preview.data.subject}</p>
                 ) : null}
-                <p className="max-h-40 overflow-hidden whitespace-pre-wrap text-text">
-                  {plain(preview.data.body) || 'Your message appears here.'}
-                </p>
+                {channel === 'SMS' || !preview.data.body ? (
+                  <p className="max-h-40 overflow-hidden whitespace-pre-wrap text-text">
+                    {plain(preview.data.body) || 'Your message appears here.'}
+                  </p>
+                ) : (
+                  // As the email or announcement will look (CM-F08, CM-F10).
+                  <HtmlFrame
+                    html={preview.data.body}
+                    title="Message preview"
+                    className="h-48 bg-surface"
+                    testId="composer-preview"
+                  />
+                )}
               </div>
             ) : (
               <p className={quiet}>

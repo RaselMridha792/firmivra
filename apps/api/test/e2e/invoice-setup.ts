@@ -75,11 +75,18 @@ export const expectOk = (res: Response, status = 200) => {
   expect(res.status, JSON.stringify(res.body)).toBe(status);
   return res;
 };
-/** A calendar date `n` days from today in New York (the test firm's time zone). */
-export const nyDay = (n = 0) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(Date.now() + n * 86_400_000),
+/**
+ * A calendar date `n` days from today in New York (the test firm's time zone), moved by whole
+ * calendar days, never by 24 hours: a day with a clock change is 23 or 25 hours long.
+ */
+export const nyDay = (n = 0) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
   );
+  const day = new Date(`${today}T12:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + n);
+  return day.toISOString().slice(0, 10);
+};
 
 /**
  * `stripe`: the Stripe the API talks to (a `FakeStripeGateway`); left out, the environment's (none
@@ -228,7 +235,7 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     return token;
   };
 
-  type Method = 'get' | 'post' | 'put';
+  type Method = 'get' | 'post' | 'put' | 'patch';
   const firm = async (
     method: Method,
     path: string,

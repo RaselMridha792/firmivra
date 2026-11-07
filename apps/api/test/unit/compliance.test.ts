@@ -362,6 +362,29 @@ describe('atRiskClients', () => {
     expect(list[1]).toMatchObject({ highPriorityUpcomingCount: 1 });
     expect(list[2]).toMatchObject({ waitingOnClientCount: 1 });
   });
+  // CD-Y10 (Octavia, Oct 28): the formula's edges, as the overview's At Risk help says them.
+  it('is overdue from the day after the effective due date; the window counts today and its last day', () => {
+    const at = (rows: Parameters<typeof atRiskClients>[0]) =>
+      atRiskClients(rows, today, 7).map((c) => [
+        c.client.id,
+        c.overdueCount,
+        c.highPriorityUpcomingCount,
+        c.waitingOnClientCount,
+      ]);
+    // Due today: not overdue, and in the window.
+    expect(at([row('a', '2026-10-15')])).toEqual([]);
+    expect(at([row('a', '2026-10-15', 'UPCOMING', 'HIGH')])).toEqual([['a', 0, 1, 0]]);
+    // Yesterday: overdue, whatever its priority.
+    expect(at([row('a', '2026-10-14', 'UPCOMING', 'LOW')])).toEqual([['a', 1, 0, 0]]);
+    // The window's last day counts; the day after does not.
+    expect(at([row('a', '2026-10-22', 'WAITING_ON_CLIENT')])).toEqual([['a', 0, 0, 1]]);
+    expect(at([row('a', '2026-10-23', 'WAITING_ON_CLIENT', 'HIGH')])).toEqual([]);
+    // An extension moves the date it is judged by; closed work never counts.
+    expect(at([{ ...row('a', '2026-10-01'), extendedDueOn: d('2026-11-30') }])).toEqual([]);
+    for (const status of ['COMPLETED', 'NOT_APPLICABLE']) {
+      expect(at([row('a', '2026-10-01', status, 'HIGH')])).toEqual([]);
+    }
+  });
 });
 
 describe('figures and CSV', () => {

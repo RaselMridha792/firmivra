@@ -172,3 +172,108 @@ describe('recurring invoices from Create Invoice (IP-F05)', () => {
     expect([soon.status, codeOf(soon)]).toEqual([409, 'RECURRING_END_TOO_SOON']);
   });
 });
+
+describe('managing a recurring invoice (IP-F18, Octavia Oct 27)', () => {
+  const started = async () => {
+    const d = await create();
+    const sent = Invoice.parse(
+      expectOk(await t.firm('post', `/${d.id}/send`, t.people.ownerA, {})).body,
+    );
+    return { invoice: sent, id: sent.recurring!.id };
+  };
+  const one = (id: string, who = t.people.ownerA, businessId?: string) =>
+    t.firm('get', `/recurring/${id}`, who, undefined, businessId);
+  const act = (id: string, action: string, who = t.people.ownerA, businessId?: string) =>
+    t.firm('post', `/recurring/${id}/${action}`, who, {}, businessId);
+
+  it('shows its schedule, invoices, next send days in the firm zone and history', async () => {
+    const { invoice, id } = await started();
+    const d = expectOk(await one(id)).body as Record<string, unknown> & {
+      upcoming: string[];
+      invoices: { id: string; periodOn: string }[];
+      history: { action: string; by: string | null }[];
+    };
+    expect(d).toMatchObject({
+      id,
+      status: 'ACTIVE',
+      occurrences: 1,
+      startOn: nyDay(0),
+      nextSendOn: nyDay(21),
+      timezone: 'America/New_York',
+      waiting: false,
+      autoSend: false,
+      autopay: false,
+      amountCents: 45_000,
+    });
+    expect(d.upcoming).toEqual([nyDay(21), nyDay(42), nyDay(63)]);
+    expect(d.invoices).toEqual([expect.objectContaining({ id: invoice.id, periodOn: nyDay(0) })]);
+    expect(d.history.map((h) => h.action)).toEqual(['started', 'created']);
+    expect(JSON.stringify(d.history)).not.toMatch(/bookkeeping|35000/);
+  });
+
+  it('pauses, resumes from the next day on or after today, and ends; each audited', async () => {
+    const { id } = await started();
+    const paused = expectOk(await act(id, 'pause')).body as { status: string; upcoming: [] };
+    expect(paused).toMatchObject({ status: 'PAUSED', upcoming: [] });
+    expect([(await act(id, 'pause')).status, codeOf(await act(id, 'pause'))]).toEqual([
+      409,
+      'RECURRING_STATE',
+    ]);
+    // Paused past its send day (started 23 days ago, every 3 weeks: due 2 days ago): resuming
+    // goes to the next send day ahead and does not make the missed period afterwards.
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.recurringInvoice.update({
+        where: { businessId_id: { businessId: t.ids.firmA, id } },
+        data: {
+          startOn: new Date(`${nyDay(-23)}T00:00:00Z`),
+          nextSendOn: new Date(`${nyDay(-2)}T00:00:00Z`),
+        },
+      }),
+    );
+    const resumed = expectOk(await act(id, 'resume')).body as { nextSendOn: string };
+    expect(resumed).toMatchObject({ status: 'ACTIVE', nextSendOn: nyDay(19) });
+    const ended = expectOk(await act(id, 'end')).body;
+    expect(ended).toMatchObject({ status: 'ENDED', nextSendOn: null, upcoming: [] });
+    expect(codeOf(await act(id, 'resume'))).toBe('RECURRING_STATE');
+    expect((await schedule(id)).invoices).toHaveLength(1);
+    expect((await audits(id)).map((a) => a.action)).toEqual([
+      'recurring_invoice.created',
+      'recurring_invoice.started',
+      'recurring_invoice.paused',
+      'recurring_invoice.resumed',
+      'recurring_invoice.ended',
+    ]);
+  });
+
+  it('turns Auto-send on and off; AutoPay cannot be set; a waiting schedule is changed on its draft', async () => {
+    const { id } = await started();
+    expect(
+      expectOk(await t.firm('patch', `/recurring/${id}`, t.people.ownerA, { autoSend: true })).body,
+    ).toMatchObject({ autoSend: true, autopay: false });
+    expect(
+      (await t.firm('patch', `/recurring/${id}`, t.people.ownerA, { autopay: true })).status,
+    ).toBe(400);
+    const draft = await create();
+    const waitingId = draft.recurring!.id;
+    expect(expectOk(await one(waitingId)).body).toMatchObject({ waiting: true, status: 'PAUSED' });
+    expect(codeOf(await act(waitingId, 'resume'))).toBe('RECURRING_STATE');
+    expect((await act(id, 'restart')).status).toBe(404);
+  });
+
+  it('Staff read their clients\x27 and change none; another firm and unknown ids are not found', async () => {
+    const { id } = await started();
+    expect((await one(id, t.people.staffA)).status).toBe(200);
+    expect((await act(id, 'pause', t.people.staffA)).status).toBe(403);
+    expect(
+      (await t.firm('patch', `/recurring/${id}`, t.people.staffA, { autoSend: true })).status,
+    ).toBe(403);
+    for (const res of [
+      await one(id, t.people.ownerB, t.ids.firmB),
+      await act(id, 'end', t.people.ownerB, t.ids.firmB),
+      await one('0199c3b0-0000-7000-8000-00000000ffff'),
+    ]) {
+      expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
+    }
+    expect(expectOk(await one(id)).body).toMatchObject({ status: 'ACTIVE' });
+  });
+});

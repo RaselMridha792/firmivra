@@ -10,11 +10,27 @@ import { NotesService } from '../messages/notes.service.js';
 import { OutboundMessagesService } from '../messages/outbound.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
 import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
+import { LeadPipelineTabsService } from '../leads/lead-pipeline-tabs.service.js';
+import { TaxReturnReviewService } from '../tax-returns/review.service.js';
+import { ComplianceDeadlineActionsService } from '../compliance/compliance-deadline-actions.service.js';
+import { EngagementsService } from '../engagements/engagements.service.js';
+import {
+  type AutomationOperator,
+  CreateComplianceDeadlineRequest,
+  CreateEngagementRequest,
+} from '@firmivra/types';
 import { Notifier } from '../notifications/notifier.js';
 import { TaskWriteService } from '../tasks/task-write.service.js';
 import { day, lockClient } from '../workspaces/common.js';
 import { reassignClientTasks } from '../workspaces/tasks.service.js';
-import { actionOf, RULE_CLIENT_PRIORITIES, RULE_CLIENT_STATUSES } from './catalog.js';
+import {
+  actionOf,
+  RESOURCE_PAGES,
+  RULE_CLIENT_PRIORITIES,
+  RULE_CLIENT_STATUSES,
+} from './catalog.js';
 import { mayAct } from './automations.common.js';
 import { AutomationsReadService } from './automations-read.service.js';
 import { fill, matches, viewOf } from './logic.js';
@@ -26,6 +42,7 @@ type Action = {
   config: Record<string, unknown>;
   delayMinutes: number;
   dependsOn: string | null;
+  onlyIf?: { field: string; operator: AutomationOperator; value?: unknown }[];
 };
 type Outcome =
   | { ok: true; kind: string | null; id: string | null; detail: string | null }
@@ -72,6 +89,11 @@ export class AutomationEngine {
     private readonly outbound: OutboundMessagesService,
     private readonly documentRequests: DocumentRequestsService,
     private readonly intakeSend: IntakeSendService,
+    private readonly leadFollowUps: LeadPipelineTabsService,
+    private readonly taxReview: TaxReturnReviewService,
+    private readonly deadlines: ComplianceDeadlineActionsService,
+    private readonly engagements: EngagementsService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -170,6 +192,7 @@ export class AutomationEngine {
           businessId,
           now,
           today: ctx.today,
+          timezone: ctx.timezone,
           since: v.createdAt,
           ...(view.trigger.source ? { source: view.trigger.source } : {}),
         },
@@ -179,6 +202,7 @@ export class AutomationEngine {
           c.fields,
           v.matchMode,
           view.conditions.map((c2) => ({ ...c2, value: c2.value ?? undefined })),
+          ctx.today,
         ),
       );
       if (hit.length === 0) return [];
@@ -352,6 +376,25 @@ export class AutomationEngine {
           continue;
         }
       }
+      // AU-F26 Conditional branch: the action's own conditions, on the record as it is now.
+      if (
+        action.onlyIf?.length &&
+        !(await this.stillHolds(businessId, run, action.onlyIf, plan.today, plan.timezone))
+      ) {
+        await this.finish(
+          businessId,
+          e.id,
+          {
+            ok: false,
+            code: 'CONDITION_NOT_MET',
+            retryable: false,
+            detail: 'Its condition was not met, so it was skipped',
+          },
+          'SKIPPED',
+        );
+        state.set(e.actionKey, 'SKIPPED');
+        continue;
+      }
       if (actionOf(action.type)?.contactsClient) {
         const until = quietUntil(now, plan.timezone, plan.quiet);
         if (until) {
@@ -474,6 +517,9 @@ export class AutomationEngine {
         const ctx = run.clientId ? await loadRecordContext(tx, businessId, run.clientId) : null;
         // AU-F18 to F20: only an action that needs no client (Notify staff) runs without one.
         if (info.needsClient && (!run.clientId || !ctx)) return { error: 'NO_CLIENT' as const };
+        // An action on the event's own record runs only on that kind of record.
+        if (info.recordKind && (run.recordKind !== info.recordKind || !run.recordId))
+          return { error: 'WRONG_RECORD' as const };
         const found = run.recordId ? await this.labelOf(tx, businessId, run, today) : '';
         const firm = await tx.business.findFirst({
           where: { id: businessId },
@@ -502,6 +548,7 @@ export class AutomationEngine {
           OWNER_UNAVAILABLE: 'The rule’s owner is no longer an active member',
           NOT_PERMITTED: 'The owner may not do this in the module',
           NO_CLIENT: 'The record has no client to act for',
+          WRONG_RECORD: 'This action works on another kind of record',
         }[prepared.error];
         return { ok: false, code: prepared.error, retryable: false, detail };
       }
@@ -534,6 +581,11 @@ export class AutomationEngine {
                 : client?.assignedUserId
                   ? { assignedUserId: client.assignedUserId }
                   : {}),
+              // AU-F26: a template of the firm fills what the rule leaves out; visibility as set.
+              ...(typeof cfg.taskTemplateId === 'string' ? { templateId: cfg.taskTemplateId } : {}),
+              ...(typeof cfg.clientVisible === 'boolean'
+                ? { clientVisible: cfg.clientVisible }
+                : {}),
             });
             return { ok: true, kind: 'task', id: created.id, detail: 'Task created' };
           }
@@ -768,6 +820,132 @@ export class AutomationEngine {
                   ? `${result} tag(s) added`
                   : `${result} tag(s) removed`,
             };
+          }
+          // AU-F26 Send SMS: Messages' outbound text, as Send client email sends an email, so
+          // consent, opt-in, the firm's texting setting and the provider all hold. With texting off
+          // or not set up, nothing is sent and the step gives Messages' own reason.
+          case 'SEND_CLIENT_SMS': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            const draft = await this.outbound.create(businessId, actor, {
+              channel: 'SMS',
+              subject: null,
+              body: (text('body') ?? '').slice(0, 1_600) || 'Hello',
+              templateId: null,
+              clientIds: [run.clientId as string],
+              leadIds: [],
+            });
+            if (draft.counts.canReceive === 0) {
+              const reason = draft.recipients[0]?.reason ?? 'NO_CONTACT';
+              await this.outbound.cancel(businessId, actor, draft.id, draft.updatedAt);
+              return {
+                ok: false,
+                code: reason,
+                retryable: false,
+                detail: `Messages can't text this client (${reason.toLowerCase().replace(/_/g, ' ')})`,
+              };
+            }
+            const sent = await this.outbound.send(businessId, actor, draft.id, draft.updatedAt);
+            if (sent.status === 'FAILED')
+              return {
+                ok: false,
+                code: 'SEND_FAILED',
+                retryable: false,
+                detail: 'Messages could not send the text; its delivery log has the reason',
+              };
+            return {
+              ok: true,
+              kind: 'outbound_message',
+              id: sent.id,
+              detail: sent.status === 'SENT' ? 'Text sent' : 'Text queued by Messages',
+            };
+          }
+          // AU-F26 Create deadline: Compliance's own create, for the client. The same deadline
+          // (client, name, type and day) is never added twice.
+          case 'CREATE_DEADLINE': {
+            const clientId = run.clientId as string;
+            const name = (text('name') ?? '').slice(0, 200) || 'Deadline';
+            const type = typeof cfg.deadlineType === 'string' ? cfg.deadlineType : 'OTHER';
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : 0;
+            const dueOn = addDays(today, days);
+            const existing = await this.inFirm(businessId, (tx) =>
+              tx.complianceDeadline.findFirst({
+                where: {
+                  businessId,
+                  clientId,
+                  name,
+                  type: type as never,
+                  dueOn: new Date(`${dueOn}T00:00:00.000Z`),
+                  archivedAt: null,
+                },
+                select: { id: true },
+              }),
+            );
+            if (existing)
+              return {
+                ok: true,
+                kind: 'deadline',
+                id: existing.id,
+                detail: 'The client already has this deadline',
+              };
+            const created = await this.deadlines.create(
+              businessId,
+              actor,
+              CreateComplianceDeadlineRequest.parse({
+                clientId,
+                name,
+                type,
+                dueOn,
+                ...(typeof cfg.priority === 'string' ? { priority: cfg.priority } : {}),
+                clientVisible: cfg.clientVisible === true,
+              }),
+            );
+            return { ok: true, kind: 'deadline', id: created.id, detail: 'Deadline created' };
+          }
+          // AU-F26 Add service: Engagements' own create (no billing date, so no billing starts). A
+          // client with this service already open (pending or active) gets nothing new.
+          case 'ADD_SERVICE': {
+            const clientId = run.clientId as string;
+            const serviceId = typeof cfg.serviceId === 'string' ? cfg.serviceId : null;
+            if (!serviceId)
+              return {
+                ok: false,
+                code: 'SERVICE_REQUIRED',
+                retryable: false,
+                detail: 'Choose a service',
+              };
+            const found = await this.inFirm(businessId, async (tx) => ({
+              open: await tx.engagement.findFirst({
+                where: { businessId, clientId, serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+                select: { id: true },
+              }),
+              service: await tx.service.findFirst({
+                where: { businessId, id: serviceId },
+                select: { name: true },
+              }),
+            }));
+            if (found.open)
+              return {
+                ok: true,
+                kind: 'engagement',
+                id: found.open.id,
+                detail: 'The client already has this service open',
+              };
+            const added = await this.engagements.create(
+              businessId,
+              actor,
+              clientId,
+              CreateEngagementRequest.parse({
+                serviceId,
+                title: (text('title') || found.service?.name || 'Service').slice(0, 200),
+              }),
+            );
+            return { ok: true, kind: 'engagement', id: added.id, detail: 'Service added' };
           }
           // AU-F27 Request intake: Intake Forms' own send (IntakeSendService.send), so every Intake
           // rule holds (a published form, the client's open service for it, portal or email, the
@@ -1007,6 +1185,194 @@ export class AutomationEngine {
                     : 'Client priority updated',
             };
           }
+          // AU-F26 Send resource: a portal message linking one of the firm's published portal
+          // resources (its page) or links; never a file outside them. Portal resources are for
+          // business clients (Content's rule), so an individual client gets nothing.
+          case 'SEND_RESOURCE': {
+            const resourceId = typeof cfg.resourceId === 'string' ? cfg.resourceId : null;
+            const found = await this.inFirm(businessId, async (tx) => ({
+              item: resourceId
+                ? await tx.contentItem.findFirst({
+                    where: {
+                      businessId,
+                      id: resourceId,
+                      publishedAt: { not: null },
+                      kind: { in: ['RESOURCE', 'EXTERNAL_LINK'] },
+                    },
+                    select: { kind: true, category: true, title: true },
+                  })
+                : null,
+              firm: await tx.business.findFirst({
+                where: { id: businessId },
+                select: { slug: true },
+              }),
+              who: await tx.client.findFirst({
+                where: { businessId, id: run.clientId as string },
+                select: { accountType: true },
+              }),
+            }));
+            const page =
+              found.item?.kind === 'EXTERNAL_LINK'
+                ? 'external-links'
+                : found.item?.category && RESOURCE_PAGES.includes(found.item.category)
+                  ? found.item.category
+                  : null;
+            if (!found.item || !page)
+              return {
+                ok: false,
+                code: 'RESOURCE_UNAVAILABLE',
+                retryable: false,
+                detail: 'The resource is no longer published',
+              };
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            if (found.who?.accountType !== 'BUSINESS')
+              return {
+                ok: false,
+                code: 'BUSINESS_ONLY',
+                retryable: false,
+                detail: 'Portal resources are for business clients',
+              };
+            const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${found.firm?.slug ?? ''}/resources/${page}`;
+            const intro = (text('message') ?? '').slice(0, 2_000);
+            const thread = await this.messages.create(businessId, actor, run.clientId as string, {
+              subject: found.item.title.slice(0, 200),
+              body: `${intro ? `${intro}\n\n` : ''}${found.item.title}: ${link}`,
+              repliesEnabled: true,
+            });
+            return { ok: true, kind: 'message_thread', id: thread.id, detail: 'Resource sent' };
+          }
+          // AU-F27 appointment request: an invitation through Messages, as Send client message
+          // sends one, with the link to the client's portal Appointments page. It never books: the
+          // client picks a time there, under Appointments' own rules.
+          case 'INVITE_TO_BOOK': {
+            if (client?.archivedAt)
+              return {
+                ok: false,
+                code: 'CLIENT_ARCHIVED',
+                retryable: false,
+                detail: 'The client is archived',
+              };
+            if (!client?.email)
+              return {
+                ok: false,
+                code: 'NO_CONTACT',
+                retryable: false,
+                detail: 'The client has no email address',
+              };
+            const firm = await this.inFirm(businessId, (tx) =>
+              tx.business.findFirst({ where: { id: businessId }, select: { slug: true } }),
+            );
+            const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm?.slug ?? ''}/appointments`;
+            const intro = (text('message') ?? '').slice(0, 2_000);
+            const thread = await this.messages.create(businessId, actor, run.clientId as string, {
+              subject: (text('subject') || 'Book a time with us').slice(0, 200),
+              body: `${intro ? `${intro}\n\n` : ''}Choose a time that suits you: ${link}`,
+              repliesEnabled: true,
+            });
+            return {
+              ok: true,
+              kind: 'message_thread',
+              id: thread.id,
+              detail: 'Invitation sent; nothing is booked until the client picks a time',
+            };
+          }
+          // AU-F27 follow-up: Leads' own follow-up (an open lead only; Leads audits it).
+          case 'SCHEDULE_LEAD_FOLLOW_UP': {
+            const types = ['CALL', 'EMAIL', 'SMS', 'APPOINTMENT', 'SEND_DOCUMENTS', 'FOLLOW_UP'];
+            const type = (
+              types.includes(cfg.followUpType as string) ? cfg.followUpType : 'FOLLOW_UP'
+            ) as 'FOLLOW_UP';
+            const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : 1;
+            await this.leadFollowUps.setFollowUp(
+              businessId,
+              { userId: member.userId, role: member.role },
+              run.recordId as string,
+              {
+                type,
+                dueAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+                notes: text('notes')?.slice(0, 500) || null,
+              },
+            );
+            return {
+              ok: true,
+              kind: 'lead',
+              id: run.recordId,
+              detail: 'Follow-up scheduled',
+            };
+          }
+          // AU-F27 approval request: a PENDING step through Tax Returns' own add. Automations never
+          // decides it (Tax Returns: its reviewer or an approver). Nobody approves their own: the
+          // reviewer is never the rule's owner (checked at activation too) nor the return's
+          // preparer. The same pending step for the same reviewer is never added twice.
+          case 'REQUEST_APPROVAL': {
+            const reviewer = typeof cfg.reviewerUserId === 'string' ? cfg.reviewerUserId : null;
+            const step = (text('step') || 'Review').slice(0, 100);
+            const returnId = run.recordId as string;
+            if (!reviewer)
+              return {
+                ok: false,
+                code: 'REVIEWER_REQUIRED',
+                retryable: false,
+                detail: 'Choose a reviewer',
+              };
+            const current = await this.inFirm(businessId, async (tx) => ({
+              ret: await tx.taxReturn.findFirst({
+                where: { businessId, id: returnId },
+                select: { preparerUserId: true },
+              }),
+              pending: await tx.taxReturnApproval.count({
+                where: {
+                  businessId,
+                  taxReturnId: returnId,
+                  status: 'PENDING',
+                  step,
+                  assignedUserId: reviewer,
+                },
+              }),
+            }));
+            if (!current.ret)
+              return {
+                ok: false,
+                code: 'NOT_FOUND',
+                retryable: false,
+                detail: 'The tax return no longer exists',
+              };
+            if (reviewer === member.userId || reviewer === current.ret.preparerUserId)
+              return {
+                ok: false,
+                code: 'SELF_APPROVAL',
+                retryable: false,
+                detail:
+                  reviewer === member.userId
+                    ? 'The reviewer is the rule’s owner, who asks for the approval'
+                    : 'The reviewer prepared this return',
+              };
+            if (current.pending > 0)
+              return {
+                ok: true,
+                kind: 'tax_return',
+                id: returnId,
+                detail: 'Already pending with this reviewer',
+              };
+            await this.taxReview.addApproval(
+              { businessId, role: member.role, kind: 'staff' },
+              member.userId,
+              returnId,
+              { step, assignedUserId: reviewer },
+            );
+            return {
+              ok: true,
+              kind: 'tax_return',
+              id: returnId,
+              detail: 'Approval requested (pending)',
+            };
+          }
           case 'ADD_CLIENT_NOTE': {
             const note = await this.notes.create(businessId, actor, run.clientId as string, {
               body: (text('body') ?? '').slice(0, 10_000),
@@ -1045,6 +1411,41 @@ export class AutomationEngine {
         detail: 'The action failed and can be tried again',
       };
     }
+  }
+
+  /**
+   * AU-F26 Conditional branch: do an action's conditions hold for the run's record now? The
+   * record is read by its event's own loader (the run's occurrence of it), so the fields are the
+   * ones the rule's conditions test.
+   */
+  private async stillHolds(
+    businessId: string,
+    run: { sourceEventKey: string; recordId: string | null },
+    onlyIf: { field: string; operator: AutomationOperator; value?: unknown }[],
+    today: string,
+    timezone: string,
+  ): Promise<boolean> {
+    if (!run.recordId) return false;
+    const [event, , ...rest] = run.sourceEventKey.split(':');
+    const occurrence = rest.join(':');
+    const rows = await this.inFirm(businessId, (tx) =>
+      loadCandidates(
+        tx,
+        event as string,
+        { timing: 'IMMEDIATE', offsetValue: null, offsetUnit: null },
+        {
+          businessId,
+          now: new Date(),
+          today,
+          timezone,
+          since: new Date(0),
+          recordId: run.recordId as string,
+          limit: 50,
+        },
+      ),
+    );
+    const record = rows.find((c) => c.occurrence === occurrence) ?? rows[0];
+    return !!record && matches(record.fields, 'ALL', onlyIf, today);
   }
 
   private async labelOf(

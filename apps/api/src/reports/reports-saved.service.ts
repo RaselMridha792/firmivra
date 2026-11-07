@@ -72,6 +72,9 @@ export class ReportsSavedService {
       if (q.tab === 'shared') and.push({ ownerUserId: { not: userId } });
       if (q.tab === 'favorites') and.push({ favorites: { some: { userId } } });
       if (q.search) and.push({ name: { contains: q.search, mode: 'insensitive' } });
+      if (q.updatedWithinDays) {
+        and.push({ updatedAt: { gte: new Date(Date.now() - q.updatedWithinDays * 86_400_000) } });
+      }
       const where: Prisma.ReportDefinitionWhereInput = { AND: and };
       const [total, rows] = await Promise.all([
         tx.reportDefinition.count({ where }),

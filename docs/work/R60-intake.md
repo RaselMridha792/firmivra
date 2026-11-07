@@ -222,6 +222,33 @@ Progress (Templates, Oct 28 review):
     its own inline look, since an email has no stylesheet) and an image's width within 24 to 600
     px.
   - Preview shows the content as an email does, in a sandboxed frame. SMS stays plain text.
+- Composer content, branch `rasel/R60-comms-rich`: CM-F08 and CM-F10 (the lead's answers, Nov 7).
+  - Email and Announcement take an image (`business/communications/images` and `/confirm`,
+    Communications' own access) and the Font menu with the five mail-safe fonts
+    (`CONTENT_FONTS`). The shared sanitizer keeps exactly those fonts.
+  - The composer's preview, the review dialog and Sent History's Message tab show the message as it
+    will look, in the sandboxed frame. SMS stays text.
+  - The portal's Announcements page shows the announcement's formatting through
+    `sanitizeForPortal`: https links open apart, images only from that firm's email-images
+    address. The dashboard card, bells and notices keep the plain `body`. This is a one-off
+    exception the lead gave for `client-portal/portal-announcements.ts` and the portal's
+    announcement card.
+- Segments, branch `rasel/R60-comms-segments` (stacked on #1286): CM-F13 to F18.
+  - Owner and Last Refreshed columns. The API now stamps Last Refreshed only when the rules, the
+    audience or a list's members change, never on a rename, and the dialog sends only what
+    changed.
+  - Match all or any of the rules (saved rule groups are kept).
+  - The live count with "at" time, an example of who matches and the summary.
+  - A saved segment's rules are edited in place; view-only roles see the exact reason.
+  - View Members adds and removes a list's people by name through the new `GET segments/people`
+    (within the member's reach, masked), saved together with `PUT .../members` (audited).
+- Closing, branch `rasel/R60-comms-closing` (stacked on #1288): CM-F11. It was re-tested against
+  MSG-F02, whose stores already exist, so there is no schema change:
+  - the firm's signature (`message_settings.signature`, set by an Owner or Admin in Messages
+    Settings);
+  - the member's own (`business/me/message-signature`).
+  The composer's Insert Closing adds either at the end (as text for an SMS), or opens Edit My
+  Signature. A missing one says why. It is text and formatting only and sends nothing.
 - Word import, branch `rasel/R60-template-docx`: TP-F16.
   - Import Template takes a Word document for a formatted kind (not SMS or Task), up to the
     module's 10 MB.

@@ -16,6 +16,7 @@ import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { uploadFile } from '../../../../../lib/upload';
 import { KINDS, TEMPLATES_KEY, TEMPLATE_ERRORS, kindOf, quiet } from './templates-shared';
 import { StructurePreview } from './structure-panel';
+import { HtmlFrame } from './html-preview';
 
 const GROUP_LABEL: Record<MergeField['group'], string> = {
   CLIENT: 'Client',
@@ -27,10 +28,6 @@ const GROUP_LABEL: Record<MergeField['group'], string> = {
   WORKFLOW: 'Workflow',
   CUSTOM: 'Custom',
 };
-
-/** A rendered template's HTML as its own small page, for the sandboxed preview frame. */
-export const previewDocument = (html: string) =>
-  `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:12px;font:14px/1.5 system-ui,sans-serif;color:CanvasText;background:Canvas;overflow-wrap:anywhere}img{max-width:100%;height:auto}a.fv-button{display:inline-block;padding:10px 18px;border-radius:6px;background:LinkText;color:Canvas;font-weight:600;text-decoration:none}</style></head><body>${html}</body></html>`;
 
 /** Preview with sample data: unresolved merge fields are flagged, and a test send never changes the template. */
 export function PreviewDialog({
@@ -106,13 +103,7 @@ export function PreviewDialog({
             ) : (
               // TP-F07: as an email shows it (images, alignment, the button), in a frame that runs
               // nothing (sandbox); the API cleaned the HTML already.
-              <iframe
-                title={`Content of ${template.name}`}
-                sandbox=""
-                srcDoc={previewDocument(p.body)}
-                className="h-80 w-full rounded-lg border border-divider bg-surface"
-                data-testid="preview-body"
-              />
+              <HtmlFrame html={p.body} title={`Content of ${template.name}`} />
             )}
             {p.sms ? (
               <p className="text-xs text-muted">

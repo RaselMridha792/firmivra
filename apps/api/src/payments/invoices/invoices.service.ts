@@ -911,6 +911,36 @@ export class InvoicesService {
   }
 
   /**
+   * IP-F10 (Octavia, Oct 27): Resend. An open invoice with something still to pay goes to the client
+   * again: its `invoice.sent` email (when the invoice emails the client) and bell item, as on Send.
+   * Nothing on the invoice changes; the resend is audited. 409 NOT_RESENDABLE for a draft,
+   * scheduled, paid or canceled one, or one with nothing left to pay.
+   */
+  async resend(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
+    const invoice = await this.inFirm(businessId, async (tx) => {
+      const row = await this.load(tx, businessId, actor, id);
+      const { today } = await firmToday(tx, businessId);
+      const view = await invoiceOf(tx, businessId, row, today);
+      if (view.status !== 'OPEN' || view.balanceDueCents <= 0) {
+        throw conflict(
+          'NOT_RESENDABLE',
+          'Only a sent invoice with something still to pay can be sent again',
+        );
+      }
+      if (await this.checkClient(tx, businessId, row.clientId, null)) throw archived();
+      await this.audit.logIn(
+        tx,
+        'invoice.resent',
+        { type: 'invoice', id },
+        { clientId: row.clientId, number: row.number },
+      );
+      return view;
+    });
+    await this.notices.send('invoice.sent', businessId, id, actor.userId);
+    return invoice;
+  }
+
+  /**
    * Cancels a draft, scheduled or open invoice. Its open Checkout Sessions are expired at Stripe
    * first, so nobody can pay it afterwards; a payment Stripe is still settling is 409. A canceled
    * draft loses `scheduled_for` (the portal never shows it); a canceled SCHEDULED one keeps it.
@@ -981,7 +1011,7 @@ export class InvoicesService {
  * out: the lines, less the discount (a percent one in whole cents), plus the schedule's tax rate on
  * its taxable lines (R55's IP-F03).
  */
-function scheduleTotal(r: {
+export function scheduleTotal(r: {
   lines: { quantity: Prisma.Decimal; unitAmountCents: number; taxable: boolean }[];
   discountType: 'FIXED' | 'PERCENT';
   discountPercent: Prisma.Decimal | null;

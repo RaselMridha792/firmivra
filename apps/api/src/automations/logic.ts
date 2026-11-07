@@ -23,7 +23,12 @@ export const invalidDefinition = (details: Detail[]) =>
   });
 
 const TOKEN = /\{\{\s*([a-zA-Z.]+)\s*\}\}/g;
-const isDate = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+/** A real calendar day, YYYY-MM-DD (never the 13th month or February 30th). */
+const isDate = (v: unknown) =>
+  typeof v === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+  !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) &&
+  new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
 
 // ---------- Structure ----------
 
@@ -41,8 +46,7 @@ export function structureProblems(def: Def): Detail[] {
     if (def.trigger.source && !event.confirmation)
       add('trigger.source', 'Only a confirmed external outcome has a source to choose');
   }
-  def.conditions.forEach((c, i) => {
-    const at = `conditions.${i}`;
+  const checkCondition = (c: Def['conditions'][number], at: string) => {
     const f = event?.conditionFields.find((x) => x.field === c.field);
     if (event && !f) return add(`${at}.field`, 'This event has no such field');
     if (!f) return;
@@ -70,13 +74,25 @@ export function structureProblems(def: Def): Detail[] {
     if (Array.isArray(c.value)) return add(`${at}.value`, 'This operator takes one value');
     if ((f.type === 'NUMBER' || f.type === 'MONEY') && typeof c.value !== 'number')
       add(`${at}.value`, 'Enter a number');
-    if (f.type === 'DATE' && !isDate(c.value)) add(`${at}.value`, 'Enter a date');
+    const days = c.operator === 'WITHIN_LAST' || c.operator === 'WITHIN_NEXT';
+    if (f.type === 'DATE' && days) {
+      if (
+        typeof c.value !== 'number' ||
+        !Number.isInteger(c.value) ||
+        c.value < 0 ||
+        c.value > 3660
+      )
+        add(`${at}.value`, 'Enter a number of days (0 to 3660)');
+    } else if (f.type === 'DATE' && !isDate(c.value)) add(`${at}.value`, 'Enter a date');
     if (f.type === 'BOOLEAN' && typeof c.value !== 'boolean')
       add(`${at}.value`, 'Choose yes or no');
     if (f.type === 'TEXT' && typeof c.value !== 'string') add(`${at}.value`, 'Enter text');
-  });
+  };
+  def.conditions.forEach((c, i) => checkCondition(c, `conditions.${i}`));
   def.actions.forEach((a, i) => {
     const at = `actions.${i}`;
+    // AU-F26 Conditional branch: an action's own conditions, on the event's fields.
+    (a.onlyIf ?? []).forEach((c, j) => checkCondition(c, `${at}.onlyIf.${j}`));
     if (a.dependsOn != null && !def.actions.slice(0, i).some((x) => x.id === a.dependsOn))
       add(`${at}.dependsOn`, 'Depend on an earlier action of this rule');
     const info = actionOf(a.type);
@@ -84,6 +100,9 @@ export function structureProblems(def: Def): Detail[] {
     // AU-F18 to F20: an event about the firm itself has no client to act for.
     if (event && !event.hasClient && info.needsClient)
       add(`${at}.type`, 'This event has no client: choose an action that needs none');
+    // An action on the event's own record (a lead, a tax return) only fits that kind's events.
+    if (event && info.recordKind && event.recordKind !== info.recordKind)
+      add(`${at}.type`, `This action works on a ${info.recordKind.replace(/_/g, ' ')}'s events`);
     for (const [key, value] of Object.entries(a.config)) {
       const f = info.fields.find((x) => x.key === key);
       if (!f) {
@@ -120,6 +139,9 @@ export function structureProblems(def: Def): Detail[] {
         case 'MEMBER':
         case 'DOCUMENT_CATEGORY':
         case 'INTAKE_FORM':
+        case 'TASK_TEMPLATE':
+        case 'SERVICE':
+        case 'RESOURCE':
           if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value)) add(path, 'Choose one');
           break;
         case 'TAGS':
@@ -193,6 +215,10 @@ const OPERATOR_WORDS: Record<AutomationOperator, string> = {
   CONTAINS: 'contains',
   EXISTS: 'is set',
   NOT_EXISTS: 'is not set',
+  ON: 'is on',
+  WITHIN_LAST: 'is within the last',
+  WITHIN_NEXT: 'is within the next',
+  NOT_CONTAINS: 'does not contain',
 };
 
 export function triggerSummary(t: {
@@ -222,7 +248,8 @@ export function appliesTo(
       c.value === undefined
         ? ''
         : ` ${Array.isArray(c.value) ? c.value.map(word).join(', ') : word(c.value)}`;
-    return `${f?.label ?? c.field} ${OPERATOR_WORDS[c.operator]}${value}`;
+    const unit = c.operator === 'WITHIN_LAST' || c.operator === 'WITHIN_NEXT' ? ' days' : '';
+    return `${f?.label ?? c.field} ${OPERATOR_WORDS[c.operator]}${value}${unit}`;
   });
   return parts.join(matchMode === 'ANY' ? ' or ' : ' and ');
 }
@@ -285,6 +312,16 @@ export function stored(def: Def, defaults: Defaults) {
       config: a.config,
       delayMinutes: a.delayMinutes,
       dependsOn: a.dependsOn ?? null,
+      // AU-F26 Conditional branch: kept with the action (and its version).
+      ...(a.onlyIf?.length
+        ? {
+            onlyIf: a.onlyIf.map((c) => ({
+              field: c.field,
+              operator: c.operator,
+              ...(c.value === undefined ? {} : { value: c.value }),
+            })),
+          }
+        : {}),
     })),
     settings: {
       preventDuplicatesDays: def.settings.preventDuplicatesDays ?? defaults.defaultDedupeDays,
@@ -339,6 +376,7 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
         config?: Record<string, never>;
         delayMinutes?: number;
         dependsOn?: string | null;
+        onlyIf?: { field: string; operator: AutomationOperator; value?: unknown }[];
       };
       return {
         id: x.id,
@@ -346,6 +384,17 @@ export function viewOf(v: VersionRow): AutomationDefinitionView {
         config: x.config ?? {},
         delayMinutes: x.delayMinutes ?? 0,
         dependsOn: x.dependsOn ?? null,
+        ...(Array.isArray(x.onlyIf) && x.onlyIf.length
+          ? {
+              onlyIf: x.onlyIf.map((c) => ({
+                field: c.field,
+                operator: c.operator,
+                ...(c.value === undefined || c.value === null
+                  ? {}
+                  : { value: c.value as string | number | boolean | string[] }),
+              })),
+            }
+          : {}),
       };
     }),
     settings: {
@@ -397,9 +446,11 @@ export type FieldValue = string | number | boolean | string[] | null;
 const same = (a: unknown, b: unknown) =>
   typeof a === 'string' && typeof b === 'string' ? a.toLowerCase() === b.toLowerCase() : a === b;
 
+/** `today` is the firm's day (YYYY-MM-DD): Within the last or next N days counts from it. */
 export function conditionHolds(
   fields: Record<string, FieldValue>,
   c: { field: string; operator: AutomationOperator; value?: unknown },
+  today?: string,
 ): boolean {
   const v = fields[c.field] ?? null;
   const set = v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
@@ -434,6 +485,21 @@ export function conditionHolds(
         typeof want === 'string' &&
         v.toLowerCase().includes(want.toLowerCase())
       );
+    case 'NOT_CONTAINS':
+      return (
+        typeof want === 'string' &&
+        !(typeof v === 'string' && v.toLowerCase().includes(want.toLowerCase()))
+      );
+    case 'ON':
+      return typeof v === 'string' && typeof want === 'string' && v === want;
+    case 'WITHIN_LAST':
+    case 'WITHIN_NEXT': {
+      if (typeof v !== 'string' || typeof want !== 'number' || !today) return false;
+      const diff = Math.round(
+        (Date.parse(`${v}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000,
+      );
+      return c.operator === 'WITHIN_LAST' ? diff <= 0 && -diff <= want : diff >= 0 && diff <= want;
+    }
   }
 }
 
@@ -441,11 +507,12 @@ export function matches(
   fields: Record<string, FieldValue>,
   mode: 'ALL' | 'ANY',
   conditions: { field: string; operator: AutomationOperator; value?: unknown }[],
+  today?: string,
 ): boolean {
   if (conditions.length === 0) return true;
   return mode === 'ANY'
-    ? conditions.some((c) => conditionHolds(fields, c))
-    : conditions.every((c) => conditionHolds(fields, c));
+    ? conditions.some((c) => conditionHolds(fields, c, today))
+    : conditions.every((c) => conditionHolds(fields, c, today));
 }
 
 // ---------- Loops ----------
@@ -462,6 +529,10 @@ export function produces(actions: { type: string; config: Record<string, unknown
     if (a.type === 'ADD_CLIENT_TAGS' || a.type === 'REMOVE_CLIENT_TAGS')
       out.add('client.tags_changed');
     if (a.type === 'ASSIGN_CLIENT') out.add('client.assignment_changed');
+    // A new deadline is one approaching.
+    if (a.type === 'CREATE_DEADLINE') out.add('deadline.approaching');
+    // A follow-up set is one coming due.
+    if (a.type === 'SCHEDULE_LEAD_FOLLOW_UP') out.add('lead.follow_up_due');
     // A status set by a rule is a status change (a priority has no event).
     if (a.type === 'UPDATE_CLIENT_STATUS') out.add('client.status_changed');
     // An intake form sent is a sent form (and, with a near due date, one coming due).
@@ -542,6 +613,9 @@ export function forTemplate(def: Def): Def {
         f?.type === 'TAGS' ||
         f?.type === 'DOCUMENT_CATEGORY' ||
         f?.type === 'INTAKE_FORM' ||
+        f?.type === 'TASK_TEMPLATE' ||
+        f?.type === 'SERVICE' ||
+        f?.type === 'RESOURCE' ||
         f?.type === 'MEMBERS'
       )
         continue;

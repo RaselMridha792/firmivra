@@ -11,6 +11,10 @@ import {
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
 import { IntakeWorkspaceModule } from '../intake-workspace/intake-workspace.module.js';
+import { LeadsModule } from '../leads/leads.controller.js';
+import { TaxReturnsModule } from '../tax-returns/tax-returns.controller.js';
+import { ComplianceModule } from '../compliance/compliance.module.js';
+import { EngagementsModule } from '../engagements/engagements.controller.js';
 import { TasksModule } from '../tasks/tasks.module.js';
 import { AUTOMATION_FILES, S3AutomationFiles } from './automation-files.js';
 import { AutomationJob } from './automation.job.js';
@@ -36,6 +40,10 @@ import { TemplatesService } from './templates.service.js';
     NotificationsModule,
     DocumentsModule,
     IntakeWorkspaceModule,
+    LeadsModule,
+    TaxReturnsModule,
+    ComplianceModule,
+    EngagementsModule,
   ],
   controllers: [AutomationsController],
   providers: [
