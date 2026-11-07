@@ -459,6 +459,19 @@ export class BookkeepingReportsService {
         });
         if (!published) throw errors.notThisClients('report');
         if (published.status !== 'PUBLISHED') throw errors.reportNotPublished();
+        // The client gets the latest generated version: it is recorded as sent (the database
+        // stamps when, and a sent version stays sent).
+        const latest = await tx.bookkeepingReportVersion.findFirst({
+          where: { businessId, reportId: id },
+          orderBy: { version: 'desc' },
+          select: { id: true, deliveryStatus: true },
+        });
+        if (latest && latest.deliveryStatus !== 'SENT') {
+          await tx.bookkeepingReportVersion.update({
+            where: { id: latest.id },
+            data: { deliveryStatus: 'SENT', sentByUserId: actor.userId, deliveryError: null },
+          });
+        }
         return {
           status: 'DELIVERED',
           deliveredAt: new Date(),

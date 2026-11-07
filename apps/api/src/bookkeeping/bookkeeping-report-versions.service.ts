@@ -202,6 +202,7 @@ export class BookkeepingReportVersionsService {
       generatedAt: Date;
       generatedByUserId: string | null;
       deliveryStatus: 'NOT_SENT' | 'SENT' | 'FAILED';
+      sentAt: Date | null;
       parameters: Prisma.JsonValue;
       summary: Prisma.JsonValue;
     },
@@ -213,6 +214,7 @@ export class BookkeepingReportVersionsService {
       generatedAt: v.generatedAt.toISOString(),
       generatedBy: v.generatedByUserId ? (names.get(v.generatedByUserId) ?? null) : null,
       deliveryStatus: v.deliveryStatus,
+      sentAt: v.sentAt?.toISOString() ?? null,
       period: { start: p.periodStart, end: p.periodEnd },
       figures: v.summary as unknown as BookkeepingReportFigures,
     };
