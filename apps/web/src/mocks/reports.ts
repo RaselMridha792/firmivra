@@ -1683,6 +1683,8 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
               (query.includeArchived ? true : !r.archived) &&
               (!query.category || r.category === query.category) &&
               (query.tab !== 'favorites' || r.favorite) &&
+              (!query.updatedWithinDays ||
+                Date.parse(r.updatedAt) >= Date.now() - query.updatedWithinDays * 86_400_000) &&
               (!term || r.name.toLowerCase().includes(term)),
           )
           // RP-F12: sorted as the API sorts (name or last change, either way).
