@@ -30,7 +30,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1301 merged: Create task from a template and visible to the client, Send client text message, Create deadline and Add service (AU-F26; ComplianceDeadlineActionsService and EngagementsService exported: the lead's one-off exceptions).
 - #1304 merged: Conditional branch as an action's Only if, and Send resource (AU-F26).
 - #1308 (`rasel/R55-au-yellow`): AU-Y evidence: rule states, a rule that matches nothing, the server permission matrix, and time boundaries across the clock change; the evidence map below.
-- IN yellow A (`rasel/R55-in-yellow`): honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category (IN-Y01, Y03, Y04, Y06).
+- IN yellow (`rasel/R55-in-yellow`): honest provider states and Ready to Connect, readiness filter, filter chips with Clear all, featured follows the category, Keep draft or Discard on a request, and the disconnect outcome (IN-Y01, Y03, Y04, Y05, Y06, Y17).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -119,6 +119,11 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - **Readiness filter:** Connectable now or Coming soon, apart from the status tabs.
 - **Filter chips:** each active filter shows as a chip you can remove, with Clear all and the shown count.
 - **Marketplace:** the featured row follows the category, as the search does.
+- **Request modal:** Cancel on a started request asks Keep draft or Discard; Escape or close keeps the draft (IN-Y05).
+- **Disconnect (IN-Y17):** the dialog states the outcome before you confirm, using the default retention:
+  - tokens and credentials removed at once, and the connection marked Disconnected;
+  - imported records and audit and sync history kept, and none of the clients' data deleted;
+  - a later reconnect doesn't duplicate records.
 - **IN-Y20 (Owner/Admin connect, configure and disconnect; Staff view only):** a role change, so it waits for Rasel.
 
 **Default (lead, Nov 4; shown at Review 2):** an event is never listed when every rule on it would fail. Staff Management (AU-F19), Integrations (AU-F20) and firm-wide Communications sends (AU-F18) have no client, and today's actions (Create Task, Send Client Message, Add Client Note) all need one, so those events ship in the same PR as the first staff-facing action (AU-F26 Internal Notification / AU-F27 Notify Assigned Staff or Team).

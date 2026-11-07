@@ -1,4 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  integrationManageFixture,
+  MANAGE_INTEGRATION_ID,
+} from '../../src/mocks/integrations-manage';
 import { IntegrationEnvironment, IntegrationTab } from '@firmivra/types';
 import { integrationOverviewFixture } from '../../src/mocks/integrations';
 import { setupFixture } from '../../src/mocks/integrations-connect';
@@ -122,4 +126,44 @@ test('a provider not enabled yet reads so and offers no Connect; readiness and c
   await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/overview-readiness.png' });
   await chips.getByRole('button', { name: 'Clear all filters' }).click();
   await expect(chips).toHaveCount(0);
+});
+
+test('Cancel on a started request asks Keep draft or Discard; Escape keeps it (IN-Y05)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixtures(page);
+  await page.goto(app('/integrations/marketplace'));
+  const open = page.getByRole('button', { name: 'Request Integration' }).first();
+  await open.click();
+  const name = page.getByLabel('Provider / software name');
+  await name.fill('Synthetic Ledger');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  const ask = page.getByRole('alertdialog', { name: 'Keep this request as a draft?' });
+  await expect(ask).toBeVisible();
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/request-keep-draft.png' });
+  await ask.getByRole('button', { name: 'Keep draft' }).click();
+  await open.click();
+  await expect(name).toHaveValue('Synthetic Ledger');
+  await page.keyboard.press('Escape');
+  await open.click();
+  await expect(name).toHaveValue('Synthetic Ledger');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Discard' }).click();
+  await open.click();
+  await expect(name).toHaveValue('');
+});
+
+test('Disconnect says what happens before it happens (IN-Y17)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.route(
+    `**/api/v1/business/integrations/connections/${MANAGE_INTEGRATION_ID}**`,
+    (route) => route.fulfill({ json: integrationManageFixture() }),
+  );
+  await page.goto(app(`/integrations/${MANAGE_INTEGRATION_ID}`));
+  await page.getByRole('button', { name: 'Disconnect' }).first().click();
+  const outcome = page.getByTestId('disconnect-outcome');
+  await expect(outcome).toContainText('None of your clients');
+  await expect(outcome).toContainText('kept');
+  await page.screenshot({ path: 'e2e/mock/r55-screenshots/integrations/disconnect.png' });
 });
