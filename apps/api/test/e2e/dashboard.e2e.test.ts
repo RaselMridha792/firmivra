@@ -29,11 +29,18 @@ type Person = (typeof people)[keyof typeof people];
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY);
-/** The firm's today and tomorrow (no settings row: America/New_York). */
-const nyDay = (offset: number) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(Date.now() + offset * DAY),
+/**
+ * The firm's today, plus or minus whole calendar days (no settings row: America/New_York). Counted
+ * on the calendar date, not in 24-hour steps, which land a day off across a clock change.
+ */
+const nyDay = (offset: number) => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
   );
+  const d = new Date(`${today}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
 
 let app: INestApplication;
 const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
