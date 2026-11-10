@@ -1857,3 +1857,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   `TAG` and `STAGE`, export `clientIds`), each naming the clients first, audited per client.
   Message, document or intake request and service wait for those flows to take several clients.
   Clients e2e 41 of 41, client mock specs 24 of 24.
+- Nov 10: Client office on the profile (`rasel/R60-clients-office`, stacked on Clients bulk),
+  PRT-1 part 2: `GET /business/clients/{id}/office` (Clients VIEW, Staff their own clients; the
+  office with `active`, the sign-up choice, the active locations, `canChange`) and `PUT` (Owner
+  and Admin; an active location of the firm or null, else 400 OFFICE_NOT_AVAILABLE; audited as
+  `client.office_changed` {from, to}; the same office writes nothing). The client Overview gets
+  a Local Office card with Change Office. API e2e 4 of 4; isolation cases added (GET, and PUT with
+  `officeId` as `firmOffice`), green apart from the two other sessions' exports; mock 6 of 6 with
+  r23-client-record.

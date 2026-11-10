@@ -24,6 +24,7 @@ import {
   UpdateClientProfileRequest,
   UpdateClientRequest,
   UpdateMyProfileRequest,
+  SetClientOfficeRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
 import { timelineOf } from './client-timeline';
@@ -368,6 +369,20 @@ export function createClientsMock(
   options: { role?: MockFirmRole; empty?: boolean } = {},
 ): ClientsClient {
   const staffOnly = options.role === 'STAFF';
+  /** PRT-1 part 2: two synthetic locations, and the offices changed in this session. */
+  const MOCK_OFFICES = [
+    {
+      id: '0199d000-0000-7000-8000-000000000001',
+      name: 'Auburn Office',
+      addressLines: ['123 Main St', 'Auburn, GA 30011'],
+    },
+    {
+      id: '0199d000-0000-7000-8000-000000000002',
+      name: 'Lawrenceville Office',
+      addressLines: ['456 Pine Rd, Suite 200', 'Lawrenceville, GA 30046'],
+    },
+  ];
+  const officeOf = new Map<string, string | null>();
   const empty = options.empty ?? mockedEmpty('clients');
   let rows: ClientRecord[] = empty
     ? []
@@ -625,6 +640,49 @@ export function createClientsMock(
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         fileName: 'clients.csv',
         rowCount: clientIds ? items.length : listed.total,
+      };
+    },
+    // PRT-1 part 2: client 1 chose Lawrenceville at sign-up and has it; the others have none.
+    office: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const current = officeOf.has(row.id)
+        ? (officeOf.get(row.id) ?? null)
+        : row.id.endsWith('1')
+          ? MOCK_OFFICES[1]!.id
+          : null;
+      const office = MOCK_OFFICES.find((o) => o.id === current) ?? null;
+      return {
+        office: office ? { ...office, active: true } : null,
+        chosenAtSignUp: row.id.endsWith('1')
+          ? { id: MOCK_OFFICES[1]!.id, name: MOCK_OFFICES[1]!.name }
+          : null,
+        choices: MOCK_OFFICES,
+        canChange: options.role !== 'STAFF',
+      };
+    },
+    setOffice: async (id, body) => {
+      await pause();
+      if (options.role === 'STAFF')
+        throw new ApiRequestError(403, 'FORBIDDEN', 'This action is not permitted');
+      const row = find(parseInput(ClientId, id));
+      const { officeId } = parseInput(SetClientOfficeRequest, body);
+      if (officeId && !MOCK_OFFICES.some((o) => o.id === officeId)) {
+        throw new ApiRequestError(
+          400,
+          'OFFICE_NOT_AVAILABLE',
+          'Choose one of the firm’s active locations.',
+        );
+      }
+      officeOf.set(row.id, officeId);
+      const office = MOCK_OFFICES.find((o) => o.id === officeId) ?? null;
+      return {
+        office: office ? { ...office, active: true } : null,
+        chosenAtSignUp: row.id.endsWith('1')
+          ? { id: MOCK_OFFICES[1]!.id, name: MOCK_OFFICES[1]!.name }
+          : null,
+        choices: MOCK_OFFICES,
+        canChange: true,
       };
     },
     // E4: the list's services as enrollments (the newest year's), plus a finished one for

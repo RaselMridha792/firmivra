@@ -84,6 +84,13 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/timeline': { params: { id: 'client' } },
   // E4: the client's services and the module record that opens each.
   'GET /api/v1/business/clients/:id/services': { params: { id: 'client' } },
+  // PRT-1 part 2: the client's local office, and changing it (Owner and Admin).
+  'GET /api/v1/business/clients/:id/office': { params: { id: 'client' } },
+  'PUT /api/v1/business/clients/:id/office': {
+    params: { id: 'client' },
+    bodyIds: { officeId: 'firmOffice' },
+    body: { officeId: PLACEHOLDER },
+  },
   'PUT /api/v1/business/clients/:id/tags': {
     params: { id: 'client' },
     body: { tags: ['Fake tag'] },
