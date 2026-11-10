@@ -114,6 +114,12 @@ const record = {
   firm: null,
   ownerInvite: null,
   history: [{ type: 'SUBMITTED', at, by: null, message: null }],
+  // SA-APP-F06 to F08, Y03.
+  assignedReviewer: null,
+  lastActivity: { at, event: 'SUBMITTED' },
+  requestState: { state: 'NONE', at: null },
+  requests: [],
+  can: { requestInfo: true, approve: true, decline: true, assign: true, resendOwnerInvite: false },
 };
 
 async function rejection(promise: Promise<unknown>) {
@@ -274,6 +280,9 @@ describe('api.firmApplications: Super Admin', () => {
     await api.decline(id, { reason: 'Not a tax practice.' });
     await api.saveNotes(id, { notes: '  ' });
     await api.resendOwnerInvite(id);
+    await api.open(id);
+    await api.assignReviewer(id, { userId: id });
+    await api.assignReviewer(id, { userId: null });
     const base = `/api/v1/admin/firm-applications/${id}`;
     expect(calls.map((c) => [`${c.method} ${c.url}`, c.body])).toEqual([
       [`GET ${base}`, undefined],
@@ -283,6 +292,9 @@ describe('api.firmApplications: Super Admin', () => {
       [`POST ${base}/decline`, { reason: 'Not a tax practice.' }],
       [`PUT ${base}/notes`, { notes: null }],
       [`POST ${base}/owner-invite`, {}],
+      [`POST ${base}/open`, undefined],
+      [`PUT ${base}/reviewer`, { userId: id }],
+      [`PUT ${base}/reviewer`, { userId: null }],
     ]);
   });
 
@@ -367,6 +379,10 @@ describe('api.firmApplications: a stored form the API could not read', () => {
     contactPhone: null,
     submittedAt: at,
     decidedAt: at,
+    assignedReviewer: null,
+    lastActivity: { at, event: 'DECIDED' },
+    requestState: { state: 'NONE', at: null },
+    accountStatus: 'PENDING_SETUP',
   };
   const firm = {
     id,

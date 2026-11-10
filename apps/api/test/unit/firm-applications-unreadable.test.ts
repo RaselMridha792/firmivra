@@ -71,11 +71,18 @@ const db = {
   membership: { findMany: vi.fn().mockResolvedValue([]) },
   user: { findMany: vi.fn().mockResolvedValue([]) },
   platformOwnerInvite: { findMany: vi.fn().mockResolvedValue([]) },
+  // SA-APP-F03 to F09: no requests, responses, files or activity rows for this application.
+  firmApplicationInfoRequest: { findMany: vi.fn().mockResolvedValue([]) },
+  firmApplicationResponse: { findMany: vi.fn().mockResolvedValue([]) },
+  firmApplicationResponseFile: { findMany: vi.fn().mockResolvedValue([]) },
+  auditLog: { findMany: vi.fn().mockResolvedValue([]) },
 };
 const service = new FirmApplicationsService(
   { db } as unknown as AdminPrisma,
   { log: vi.fn().mockResolvedValue(undefined) } as never,
   { send: vi.fn().mockResolvedValue(undefined) } as never,
+  {} as never,
+  {} as never,
   {} as never,
   {} as never,
   {} as never,

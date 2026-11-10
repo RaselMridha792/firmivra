@@ -2,8 +2,11 @@
 
 import {
   ENTITY_TYPES,
+  FIRM_APPLICATION_ACTIVITY_LABELS,
+  FIRM_APPLICATION_STATUS_LABELS,
   FIRM_SERVICES,
   FIRM_PLANS,
+  type FirmApplicationListItem,
   type FirmApplicationReviewStatus,
   type ListFirmApplicationsQuery,
 } from '@firmivra/types';
@@ -35,21 +38,68 @@ import {
   NoApplicationPermission,
   StatusPill,
 } from './application-ui';
+import { etText, requestStateText } from './application-review';
+
+const ACCOUNT_LABELS: Record<NonNullable<FirmApplicationListItem['accountStatus']>, string> = {
+  PENDING_SETUP: 'Pending Setup',
+  ACTIVE: 'Active',
+  SUSPENDED: 'Suspended',
+  CLOSED: 'Closed',
+};
+
+/** The small screen's review facts (SA-APP-F06 to F08, Y01). */
+function ReviewFacts({ application }: { application: FirmApplicationListItem }) {
+  return (
+    <>
+      <div className="col-span-2">
+        <dt className="text-xs text-muted">Last activity</dt>
+        <dd className="mt-1 text-text">
+          {FIRM_APPLICATION_ACTIVITY_LABELS[application.lastActivity.event]},{' '}
+          {etText(application.lastActivity.at)}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted">Reviewer</dt>
+        <dd className="mt-1 wrap-anywhere">{application.assignedReviewer?.name ?? 'Unassigned'}</dd>
+      </div>
+      <div>
+        <dt className="text-xs text-muted">Information request</dt>
+        <dd className="mt-1 wrap-anywhere">{requestStateText(application.requestState)}</dd>
+      </div>
+      {application.accountStatus ? (
+        <div className="col-span-2">
+          <dt className="text-xs text-muted">Account</dt>
+          <dd className="mt-1">{ACCOUNT_LABELS[application.accountStatus]}</dd>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 type Tab = 'all' | FirmApplicationReviewStatus;
 type DateRange = 'all' | '7' | '30' | 'month';
 type StatusFilter = '' | FirmApplicationReviewStatus;
+// SA-APP-Y04: All, Pending, In Review, Awaiting Information, Approved, Declined; All is the sum.
+const STATUS_ORDER: FirmApplicationReviewStatus[] = [
+  'PENDING_REVIEW',
+  'IN_REVIEW',
+  'INFO_REQUESTED',
+  'APPROVED',
+  'DECLINED',
+];
 const tabs: { id: Tab; label: string }[] = [
   { id: 'all', label: 'All Applications' },
-  { id: 'PENDING_REVIEW', label: 'Pending' },
-  { id: 'APPROVED', label: 'Approved' },
-  { id: 'DECLINED', label: 'Declined' },
+  ...STATUS_ORDER.map((id) => ({ id, label: FIRM_APPLICATION_STATUS_LABELS[id] })),
 ];
 const statuses: { value: StatusFilter; label: string }[] = [
   { value: '', label: 'All statuses' },
-  { value: 'PENDING_REVIEW', label: 'Pending Review' },
-  { value: 'APPROVED', label: 'Approved' },
-  { value: 'DECLINED', label: 'Declined' },
+  ...STATUS_ORDER.map((value) => ({ value, label: FIRM_APPLICATION_STATUS_LABELS[value] })),
+];
+type Order = 'newest' | 'oldest' | 'activity';
+const ORDERS: { value: Order; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'activity', label: 'Last activity' },
 ];
 const pageSize = 5;
 
@@ -66,7 +116,7 @@ function rangeBounds(value: DateRange): Pick<ListFirmApplicationsQuery, 'from' |
 
 // SA-APP-F11: the list's view in the address, so the detail's Back and the browser's Back open it
 // exactly as it was. Defaults stay out of the address.
-const TAB_IDS = ['all', 'PENDING_REVIEW', 'APPROVED', 'DECLINED'];
+const TAB_IDS = ['all', ...STATUS_ORDER];
 const RANGES = ['all', '7', '30', 'month'];
 
 export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListView }) {
@@ -85,12 +135,16 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
     rangeBounds(RANGES.includes(initial.range) ? (initial.range as DateRange) : 'all'),
   );
   const [page, setPage] = useState(pageOf(initial.page));
+  const [order, setOrder] = useState<Order>(() =>
+    ORDERS.some((o) => o.value === initial.order) ? (initial.order as Order) : 'newest',
+  );
   const view: ListView = {
     tab,
     status: statusFilter,
     range: dateRange,
     search,
     page: String(page),
+    order,
   };
   useEffect(() => writeListQuery(view, LIST_DEFAULTS));
   /** A detail link carries the list as it is now. */
@@ -102,7 +156,7 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
   const query: ListFirmApplicationsQuery = {
     page,
     pageSize,
-    order: 'newest',
+    order,
     ...(searchText ? { search: searchText } : {}),
     ...(statusFilter || (tab === 'all' ? undefined : tab)
       ? { status: statusFilter || (tab === 'all' ? undefined : tab) }
@@ -173,14 +227,16 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
         className="flex flex-wrap gap-x-4 gap-y-0 rounded-t-card border border-border bg-surface px-4 pt-3"
       >
         {tabs.map(({ id, label }) => {
-          const value =
-            id === 'all'
-              ? count?.all
-              : id === 'PENDING_REVIEW'
-                ? count?.pendingReview
-                : id === 'APPROVED'
-                  ? count?.approved
-                  : count?.declined;
+          const value = !count
+            ? undefined
+            : {
+                all: count.all,
+                PENDING_REVIEW: count.pendingReview,
+                IN_REVIEW: count.inReview,
+                INFO_REQUESTED: count.awaitingInformation,
+                APPROVED: count.approved,
+                DECLINED: count.declined,
+              }[id];
           return (
             <button
               key={id}
@@ -201,7 +257,7 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
       </div>
 
       <div
-        className="grid min-w-0 grid-cols-1 items-end gap-4 border-x border-border bg-surface p-4 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid min-w-0 grid-cols-1 items-end gap-4 border-x border-border bg-surface p-4 sm:grid-cols-2 xl:grid-cols-4"
         data-testid="application-filters"
       >
         <SearchBox
@@ -250,6 +306,24 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
             <option value="month">This month</option>
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-sm text-muted">
+          Sort by
+          <select
+            aria-label="Sort applications"
+            value={order}
+            onChange={(event) => {
+              setOrder(event.target.value as Order);
+              setPage(1);
+            }}
+            className={`${selectClass} min-w-0 w-full max-w-full`}
+          >
+            {ORDERS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -324,6 +398,7 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
                             {day}, {time}
                           </dd>
                         </div>
+                        <ReviewFacts application={application} />
                       </dl>
                       <Link
                         aria-label={`Open application for ${application.legalName}`}
@@ -347,7 +422,9 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
                     { label: 'Services' },
                     { label: 'Requested Plan' },
                     { label: 'Submitted' },
-                    { label: 'Status', className: 'w-28 2xl:w-36' },
+                    { label: 'Last Activity' },
+                    { label: 'Reviewer' },
+                    { label: 'Status', className: 'w-32 2xl:w-40' },
                     { label: 'Action', center: true, className: 'w-28 2xl:w-36' },
                   ]}
                 >
@@ -398,8 +475,25 @@ export function ApplicationList({ initial = LIST_DEFAULTS }: { initial?: ListVie
                           {day}
                           <span className="block">{time}</span>
                         </td>
+                        <td className={`${cellClass} break-words`} data-testid="last-activity">
+                          {FIRM_APPLICATION_ACTIVITY_LABELS[application.lastActivity.event]}
+                          <span className="block text-muted">
+                            {etText(application.lastActivity.at)}
+                          </span>
+                        </td>
+                        <td className={`${cellClass} break-words`}>
+                          {application.assignedReviewer?.name ?? 'Unassigned'}
+                        </td>
                         <td className={cellClass}>
                           <StatusPill status={application.status} />
+                          <span className="mt-1 block text-muted" data-testid="request-state">
+                            {requestStateText(application.requestState)}
+                          </span>
+                          {application.accountStatus ? (
+                            <span className="block text-muted">
+                              Account: {ACCOUNT_LABELS[application.accountStatus]}
+                            </span>
+                          ) : null}
                         </td>
                         <td className={`${cellClass} text-center`}>
                           <Link

@@ -176,7 +176,8 @@ test('usage shows its totals and chart, and follows the range and the subject', 
   await page.getByRole('combobox', { name: 'Scope' }).selectOption('CATALOG');
   await expect(page.getByTestId('usage-connected')).toContainText('Connected Firms');
   await expect(page.getByTestId('plan-distribution')).toContainText(
-    'Connected firms are not counted by plan yet.',
+    // SA-INT-R3: counted by plan from the rollup; none in the mock.
+    'No firm has connected this yet.',
   );
   await expect(page.getByTestId('usage-alerts')).toContainText('No alerts in this range.');
 });
