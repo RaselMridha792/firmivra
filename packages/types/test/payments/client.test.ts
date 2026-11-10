@@ -80,14 +80,19 @@ describe('api.invoices (firm)', () => {
           idempotencyKey: key,
         }),
       () => api.voidPayment(id, paymentId, { reason: ' Wrong invoice ' }),
+      () => api.list({ archived: 'only' }),
+      () => api.archive(id),
+      () => api.deleteDraft(id),
+      () => api.restore(id),
     ]) {
       await call().catch(() => undefined);
     }
     const one = `/api/v1/business/invoices/${id}`;
     expect(calls.map((c) => [`${c.method} ${c.url}`, c.body])).toEqual([
-      ['GET /api/v1/business/invoices?limit=25', undefined],
+      // IP-F10: archived invoices are left out unless asked for.
+      ['GET /api/v1/business/invoices?archived=exclude&limit=25', undefined],
       [
-        `GET /api/v1/business/invoices?clientId=${id}&status=OPEN&search=INV-2026&limit=25`,
+        `GET /api/v1/business/invoices?clientId=${id}&status=OPEN&archived=exclude&search=INV-2026&limit=25`,
         undefined,
       ],
       [`GET ${one}`, undefined],
@@ -134,6 +139,10 @@ describe('api.invoices (firm)', () => {
         },
       ],
       [`POST ${one}/offline-payments/${paymentId}/void`, { reason: 'Wrong invoice' }],
+      ['GET /api/v1/business/invoices?archived=only&limit=25', undefined],
+      [`POST ${one}/archive`, {}],
+      [`DELETE ${one}`, undefined],
+      [`POST ${one}/restore`, {}],
     ]);
   });
 
@@ -358,6 +367,7 @@ describe('api.invoices (firm)', () => {
       issuedAt: at,
       paidAt: at,
       canceledAt: null,
+      archivedAt: null,
       createdAt: at,
       updatedAt: at,
       lines: [

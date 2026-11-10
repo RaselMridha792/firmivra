@@ -16,6 +16,11 @@ import type {
 import type { z } from 'zod';
 import { addDays, timeOfDayFromDb, timeOfDayToDb } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
+import {
+  type ReassignAuthority,
+  returnReassignAuthority,
+} from '../tax-returns/return-authority.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import {
@@ -161,6 +166,7 @@ export class TaskWriteService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly reader: TaskReadService,
+    private readonly grants: PermissionGrantsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -321,10 +327,24 @@ export class TaskWriteService {
     body: UpdateBody,
   ): Promise<TaskDetail> {
     const { version, ...changes } = body;
+    let reassign = 'free' as ReassignAuthority;
     const task = await this.inFirm(businessId, async (tx) => {
       const { client, current } = await this.open(tx, businessId, actor, id);
       if (version !== undefined && version !== current.updatedAt.toISOString()) {
         throw taskErrors.saveConflict();
+      }
+      // TX-F18: a task of a tax return's engagement is reassigned by the return's own people.
+      if (
+        changes.assignedUserId !== undefined &&
+        (changes.assignedUserId ?? null) !== (current.assignedUserId ?? null)
+      ) {
+        reassign = await returnReassignAuthority(
+          tx,
+          this.grants,
+          businessId,
+          actor,
+          current.engagementId,
+        );
       }
       if (current.archivedAt && changes.status === undefined) throw taskClosed();
       if (changes.assignedUserId) {
@@ -416,6 +436,7 @@ export class TaskWriteService {
         ...(changes.assignedUserId === undefined
           ? {}
           : { assignedUserId: task.assignedTo?.userId ?? null }),
+        ...(reassign === 'override' ? { override: true } : {}),
       },
     );
     return task;

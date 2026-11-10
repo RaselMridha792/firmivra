@@ -107,6 +107,11 @@ describe('seed', () => {
       'firm_application_info_requests',
       'firm_application_responses',
       'firm_application_response_files',
+      // Firm closure (Nov 10): no grant, log or exceptional-access request until a firm closes or a
+      // request is made.
+      'firm_data_download_grants',
+      'firm_data_download_log',
+      'firm_exceptional_access_requests',
     ];
     const empty: string[] = [];
     for (const t of tables) {

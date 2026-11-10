@@ -8,6 +8,8 @@ import { useFirm } from '../../../../components/firm-context';
 
 const menu: [label: string, href: string][] = [
   ['Overview', '/settings/overview'],
+  // Octavia's settings review (P0, OV-1): Locations, right below Overview.
+  ['Locations', '/settings/locations'],
   ['Company Profile', '/settings/profile'],
   ['Branding', '/settings/branding'],
   ['Client portal', '/settings/portal'],

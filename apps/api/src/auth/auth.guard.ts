@@ -63,6 +63,7 @@ export class AuthGuard implements CanActivate {
       cognitoSub: claims.sub,
       pool: user.pool,
       ...(claims.session ? { session: claims.session } : {}),
+      ...(claims.authTime === undefined ? {} : { authTime: claims.authTime }),
     };
     req.auth = auth;
     const store = requestContext.getStore();

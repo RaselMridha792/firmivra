@@ -73,7 +73,9 @@ import {
   createServicesPricingClient,
   createSettingsClient,
   createSettingsOverviewClient,
+  createLocationsClient,
   createStaffClient,
+  createMySecurityClient,
   createSupportAccessClient,
   createTasksClient,
   createBookkeepingClient,
@@ -109,6 +111,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createLocationsMock } from '../mocks/locations';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
 import { createAdminFirmProfileMock } from '../mocks/admin-firm-profile-api';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
@@ -163,6 +166,7 @@ import {
 } from '../mocks/settings-admin';
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
+import { createMySecurityMock } from '../mocks/my-security';
 import { createTasksMock } from '../mocks/tasks';
 import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createAutomationsMock } from '../mocks/automations';
@@ -219,6 +223,9 @@ export const api = {
     dev && mocked('staff')
       ? createStaffMock({ role: MOCK_ROLE, empty: mockedEmpty('staff') })
       : createStaffClient(request, options.baseUrl),
+  /** My Profile's Security card (SM14 part B): my own sessions and password, any staff role. */
+  mySecurity:
+    dev && mocked('mySecurity') ? createMySecurityMock() : createMySecurityClient(request),
   /** Teams & Departments and the org chart (R42 contract). Mock shares api.staff's rows. */
   departments:
     dev && mocked('departments')
@@ -229,6 +236,11 @@ export const api = {
     dev && mocked('roles')
       ? createRolesMock({ role: MOCK_ROLE, empty: mockedEmpty('roles') })
       : createRolesClient(request),
+  /** Settings > Locations (R1's contract): the firm's offices, their people, hours and schedules. */
+  locations:
+    dev && mocked('locations')
+      ? createLocationsMock({ role: MOCK_ROLE, empty: mockedEmpty('locations') })
+      : createLocationsClient(request),
   /** Settings > Overview (R42 contract). */
   settingsOverview:
     dev && mocked('settingsOverview')

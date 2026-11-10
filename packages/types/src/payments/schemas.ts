@@ -427,6 +427,11 @@ export const InvoiceListItem = z.object({
   issuedAt: DateTime.nullable(),
   paidAt: DateTime.nullable(),
   canceledAt: DateTime.nullable(),
+  /**
+   * IP-F10 (Rasel, Nov 7): archived, never deleted. Out of the lists unless asked for; the money it
+   * took still counts. Null while it is not archived.
+   */
+  archivedAt: DateTime.nullable(),
   createdAt: DateTime,
   updatedAt: DateTime,
 });
@@ -469,6 +474,11 @@ export type Invoice = z.infer<typeof Invoice>;
 export const ListInvoicesQuery = z.strictObject({
   clientId: z.uuid().optional(),
   status: InvoiceStatus.optional(),
+  /**
+   * IP-F10: archived invoices. `exclude` (the default) leaves them out; `only` lists them alone;
+   * `include` lists every invoice (the overview, whose cards count all the money).
+   */
+  archived: z.enum(['exclude', 'only', 'include']).optional().default('exclude'),
   search: SearchText.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),
@@ -1129,6 +1139,15 @@ export const InvoiceErrorCode = z.enum([
    * moment (a refund with the same `idempotencyKey`).
    */
   'PAYMENT_PROVIDER_UNAVAILABLE',
+  /**
+   * 409 (IP-F10, archive): only a draft is archived for now. Paid and canceled ones follow once the
+   * database lets their `archived_at` change (R1); an open or upcoming one is still owed.
+   */
+  'NOT_ARCHIVABLE',
+  /** 409 (IP-F10, delete): only a draft never sent is deleted (archived); archive any other. */
+  'NOT_DELETABLE',
+  /** 409 (IP-F10): the invoice is archived; restore it first. */
+  'INVOICE_ARCHIVED',
 ]);
 export type InvoiceErrorCode = z.infer<typeof InvoiceErrorCode>;
 
@@ -1151,6 +1170,9 @@ export const INVOICE_ERRORS = {
   AMOUNT_TOO_LARGE: 'The payment is more than the balance due on this invoice.',
   DUPLICATE_CHECK_NUMBER: 'This check number is already recorded on this invoice.',
   ALREADY_VOIDED: 'This payment is voided already. Reload to see it.',
+  NOT_ARCHIVABLE: 'Only a draft invoice can be archived for now.',
+  NOT_DELETABLE: 'Only a draft that was never sent can be deleted. Archive this one instead.',
+  INVOICE_ARCHIVED: 'This invoice is archived. Restore it first.',
   CLIENT_ARCHIVED: 'This client is archived. Restore the client first.',
   NOT_PAYABLE: 'This invoice is not open for payment. Reload to see its status.',
   PAYMENT_IN_PROGRESS:

@@ -49,8 +49,10 @@ const LIST_ERRORS: Record<string, string> = {
  * 50 at a time (Load more). Row actions: Edit, Reschedule, and the menu (View Details, Confirm,
  * Send Reminder, Join Meeting). Another member's appointment shows as Busy.
  */
-export function ListScreen() {
+export function ListScreen({ serviceKind }: { serviceKind?: 'BUSINESS_DEVELOPMENT' } = {}) {
   const router = useRouter();
+  // Advisory B5: opened from Business Advisory, only its meetings, with the whole list a click away.
+  const [onlyAdvisory, setOnlyAdvisory] = useState(serviceKind === 'BUSINESS_DEVELOPMENT');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<AppointmentDisplayStatus | ''>('');
   const [period, setPeriod] = useState<Period>('next30');
@@ -64,6 +66,7 @@ export function ListScreen() {
     limit,
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(status ? { status } : {}),
+    ...(onlyAdvisory ? { serviceKind: 'BUSINESS_DEVELOPMENT' as const } : {}),
   };
   const agenda = useApiQuery([...SCHEDULING, 'agenda', 'list', query], () =>
     api.scheduling.agenda(query),
@@ -172,8 +175,26 @@ export function ListScreen() {
           className="flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm"
         >
           <h2 id="appointments-list" className="text-lg font-bold text-heading">
-            Appointments
+            {onlyAdvisory ? 'Business Advisory Meetings' : 'Appointments'}
           </h2>
+          {onlyAdvisory ? (
+            <p
+              className="flex flex-wrap items-center gap-2 text-sm text-text"
+              data-testid="advisory-filter"
+            >
+              Showing Business Advisory meetings only.
+              <button
+                type="button"
+                className="font-medium text-link hover:underline"
+                onClick={() => {
+                  setOnlyAdvisory(false);
+                  router.replace('/calendar/list');
+                }}
+              >
+                Show all appointments
+              </button>
+            </p>
+          ) : null}
           {message || error ? (
             <p
               role={error ? 'alert' : 'status'}
