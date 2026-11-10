@@ -56,6 +56,12 @@ import {
   UpdateAdminFeatureRequest,
   UpdateAdminMaintenanceRequest,
   UpdateAdminRetentionPolicyRequest,
+  AdminRestorePreview,
+  AdminRestorePreviewRequest,
+  AdminRestoreRequest,
+  AdminRestoreResult,
+  AdminSettingsHistory,
+  AdminSettingsHistoryQuery,
 } from './schemas.js';
 
 const BASE = '/admin/system-settings';
@@ -301,6 +307,24 @@ export function createAdminSettingsClient(request: ApiRequest) {
         AdminDefaultSetVersions,
         `${BASE}/defaults/${parseInput(z.enum(['firm', 'user']), kind)}/versions`,
       ),
+
+    // History and restore (SA-SYS-A2)
+    /** A section's newest saves and restores, each with its changed fields. */
+    history: async (query: AdminSettingsHistoryQuery): Promise<AdminSettingsHistory> =>
+      request(
+        AdminSettingsHistory,
+        `${BASE}/history${toQuery(parseInput(AdminSettingsHistoryQuery, query))}`,
+      ),
+    /** What restoring a save would change; saves nothing. */
+    restorePreview: async (body: AdminRestorePreviewRequest): Promise<AdminRestorePreview> =>
+      request(
+        AdminRestorePreview,
+        `${BASE}/restore/preview`,
+        post(parseInput(AdminRestorePreviewRequest, body)),
+      ),
+    /** The preview, applied, with the Super Admin's password again. */
+    restore: async (body: AdminRestoreRequest): Promise<AdminRestoreResult> =>
+      request(AdminRestoreResult, `${BASE}/restore`, post(parseInput(AdminRestoreRequest, body))),
   };
 }
 export type AdminSettingsClient = ReturnType<typeof createAdminSettingsClient>;
