@@ -1821,3 +1821,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: My Profile phone (`rasel/R60-my-profile-phone`, from main), Overview guide item 20:
+  `PUT /business/me/phone` (every firm role, themselves only) sets or removes the number on their
+  login (`Phone`, any country, E.164); a new number is not verified (the database clears it); the
+  same number changes nothing; audited as `staff_phone.changed` or `.removed` without the number.
+  My Profile gets a Mobile Phone section (add, change, remove, then Send Code and Verify, shared
+  with My Settings' card, which now points to My Profile). R55's Security card (#1344) goes under
+  the profile card unchanged. API e2e 14 of 14, isolation coverage green, mock 3 of 3 with the
+  notifications spec. Photo needs a column for a member's photo key (Needs from others).
