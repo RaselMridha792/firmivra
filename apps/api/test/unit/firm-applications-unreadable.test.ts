@@ -40,6 +40,7 @@ const row: FirmApplication = {
   businessId: summary.id,
   einLast4: null,
   einHash: null,
+  assignedReviewerUserId: null,
   createdAt: new Date('2026-10-01T12:00:00Z'),
   updatedAt: new Date('2026-10-02T12:00:00Z'),
 };
