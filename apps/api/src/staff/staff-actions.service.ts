@@ -6,7 +6,7 @@ import { InvitesService, lockStaffInvites } from '../auth/invites.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { notFound } from '../workspaces/common.js';
 import {
-  assertManages,
+  assertActsOn,
   lockTarget,
   mapStaffDbError,
   requireManager,
@@ -24,7 +24,7 @@ export class MemberChanged extends Error {}
  * Deactivate's work inside the caller's transaction (Staff Management, and Settings > Locations'
  * Deactivate Manager): ends access to this firm only, keeps the record, cancels an open invite,
  * signs the sessions out and audits `membership.deactivated`. The caller checked who may do it
- * (assertManages) and that `target` is not DEACTIVATED. Lock order as TeamService's: the
+ * (assertActsOn) and that `target` is not DEACTIVATED. Lock order as TeamService's: the
  * per-person invite lock, the invites, then the membership. MemberChanged when the member changed
  * since `target` was read. Returns the sessions signed out.
  */
@@ -127,7 +127,7 @@ export class StaffActionsService {
     const { businessId } = actor;
     return this.change(actor, async (tx) => {
       const target = await lockTarget(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'lock');
       if (target.status === 'LOCKED') return result('LOCKED');
       if (target.status !== 'ACTIVE')
         throw staffConflict('NOT_ACTIVE', 'Only an active member can be locked');
@@ -155,7 +155,7 @@ export class StaffActionsService {
     const { businessId } = actor;
     return this.change(actor, async (tx) => {
       const target = await lockTarget(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'lock');
       if (target.status === 'ACTIVE') return result('ACTIVE');
       if (target.status !== 'LOCKED')
         throw staffConflict('NOT_LOCKED', 'This account is not locked');
@@ -184,7 +184,7 @@ export class StaffActionsService {
     const { businessId } = actor;
     return this.change(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'deactivate');
       if (target.status === 'DEACTIVATED') return result('DEACTIVATED');
       const sessionsRevoked = await deactivateMemberIn(
         tx,
@@ -202,7 +202,7 @@ export class StaffActionsService {
     const { businessId } = actor;
     return this.change(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'deactivate');
       if (target.status !== 'INVITED')
         throw staffConflict('NOT_INVITED', 'This person has no open invite');
       await lockStaffInvites(tx, businessId, target.userId);
@@ -228,7 +228,7 @@ export class StaffActionsService {
     await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       await requireManager(tx, actor);
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'resendInvitation');
       if (target.status !== 'INVITED')
         throw staffConflict('NOT_INVITED', 'This person has no open invite');
     });
@@ -252,7 +252,7 @@ export class StaffActionsService {
     const { businessId } = actor;
     const joined = await this.change(actor, async (tx) => {
       const target = await this.find(tx, businessId, id);
-      assertManages(actor, target);
+      await assertActsOn(tx, actor, target, 'deactivate');
       if (target.status === 'ACTIVE' || target.status === 'INVITED')
         return { done: result(target.status) };
       if (target.status !== 'DEACTIVATED')

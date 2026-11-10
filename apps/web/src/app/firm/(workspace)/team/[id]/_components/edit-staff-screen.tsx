@@ -172,8 +172,9 @@ export function EditStaffScreen({ id }: { id: string }) {
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   const m = member.data;
   const failed = member.isError ? errorMessage(member.error, MEMBER_ERRORS) : undefined;
-  // Owner and Admin change other members; nobody changes their own access here.
-  const manages = canManage(role) && m !== undefined && !m.isYou;
+  // SM14: the API's word (authority.edit): never yourself or the Original Owner; an Admin only the
+  // roles below Admin.
+  const manages = m?.authority.edit ?? false;
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
@@ -185,11 +186,21 @@ export function EditStaffScreen({ id }: { id: string }) {
           </Callout>
         ) : m?.isYou ? (
           <Callout icon={Info} tone="navy" surface="plain" size="compact">
-            This is your own account. Another Owner or Admin changes your role and access.
+            {m.authority.originalOwner
+              ? "This is your own account, the firm's Original Owner's: nobody else changes it."
+              : 'This is your own account. Another Owner or Admin changes your role and access.'}
           </Callout>
         ) : m && !canManage(role) ? (
           <Callout icon={Info} tone="navy" surface="plain" size="compact">
             Only an Owner or an Admin can change staff accounts. You can read this one.
+          </Callout>
+        ) : m?.authority.originalOwner ? (
+          <Callout icon={Info} tone="navy" surface="plain" size="compact">
+            This is the firm&apos;s Original Owner. Only they can change their own account.
+          </Callout>
+        ) : m && !manages ? (
+          <Callout icon={Info} tone="navy" surface="plain" size="compact">
+            Admins change the roles below Admin only. An Owner changes this account.
           </Callout>
         ) : null}
         <EditForm
@@ -313,7 +324,14 @@ function EditForm({
   };
 
   const departments = (o?.departments ?? []).map((d) => ({ value: d.id, label: d.name }));
-  const roles = (o?.roles ?? []).map((r) => ({ value: r.role, label: r.label }));
+  // SM14: the roles you may give this member (Owner only from the Original Owner).
+  const givable = new Set(m?.authority.roles ?? []);
+  const roles = [
+    ...(givable.has('OWNER') ? [{ value: 'OWNER' as const, label: FIRM_ROLE_LABELS.OWNER }] : []),
+    ...(o?.roles ?? [])
+      .filter((r) => givable.has(r.role))
+      .map((r) => ({ value: r.role, label: r.label })),
+  ];
   // Keep the member's own values choosable while the options load or when they are missing.
   const roleOptions =
     m && !roles.some((r) => r.value === m.role)
@@ -450,7 +468,7 @@ function EditForm({
           <div className="flex min-w-0 flex-col gap-1">
             <Select
               label="Role *"
-              disabled={locked}
+              disabled={locked || !m?.authority.changeRole}
               options={[{ value: '', label: 'Select a role' }, ...roleOptions]}
               value={form.role}
               error={errors.role}

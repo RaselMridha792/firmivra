@@ -40,6 +40,7 @@ import {
   type TaxReturnWorkspaceClient,
   TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
+import { registerServiceEngagement } from './service-engagements';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
 import { teamFixtures } from './team';
@@ -585,6 +586,21 @@ function seedAll(): Stored[] {
   return rows;
 }
 
+/** A return's tax engagement in mock mode, registered so Upload and Request in place work. */
+function engagementOf(returnId: string, taxYear: number, c: { id: string; name: string }) {
+  const id = `0199c1e0-0000-7000-8000-${returnId.slice(-12)}`;
+  const title = `${taxYear} Tax Return`;
+  registerServiceEngagement({
+    id,
+    clientId: c.id,
+    clientName: c.name,
+    kind: 'ANNUAL_TAX',
+    title,
+    status: 'ACTIVE',
+  });
+  return { id, title };
+}
+
 export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWorkspaceClient {
   const role = options.role ?? 'OWNER';
   const me = role === 'STAFF' ? SAM() : role === 'ADMIN' ? ADAM() : OLIVIA();
@@ -649,7 +665,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         email: c.email,
         phone: c.phone,
       },
-      engagement: null,
+      // TX-F08 to F10 (SH3): the return's engagement, known to the documents mock.
+      engagement: engagementOf(r.id, r.taxYear, c),
       statusReason: r.statusReason,
       filingStatus: r.filingStatus,
       amends: amends ? { id: amends.id, taxYear: amends.taxYear, formType: amends.formType } : null,

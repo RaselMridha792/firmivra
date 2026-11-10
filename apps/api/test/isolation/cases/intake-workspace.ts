@@ -75,12 +75,15 @@ const sendIds = {
   formId: 'intakeTemplate',
   engagementId: 'engagement',
   assignedUserId: 'adminUser',
+  // A9: the client's appointment the form is for.
+  appointmentId: 'appointment',
 };
 const sendFields = {
   recipient: { kind: 'CLIENT', id: PLACEHOLDER },
   formId: PLACEHOLDER,
   engagementId: PLACEHOLDER,
   assignedUserId: PLACEHOLDER,
+  appointmentId: PLACEHOLDER,
   channel: 'PORTAL',
   subject: 'Fake subject',
   message: 'Fake message',

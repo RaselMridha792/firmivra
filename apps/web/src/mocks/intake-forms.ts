@@ -32,6 +32,7 @@ import {
   UpdateIntakeSettingsRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { appointmentIntakes } from './appointment-intakes';
 import { mockIntakeAnswers } from './intake-forms-answers';
 
 /** The categories with a mock service, and the service kind (one of the built-in forms' six). */
@@ -624,6 +625,13 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       };
       event(r, 'SENT', `Form sent by ${input.channel.toLowerCase()}`);
       s.assigned.unshift(r);
+      // A9: a form sent for an appointment shows on that appointment.
+      if (input.appointmentId)
+        appointmentIntakes().set(input.appointmentId, {
+          id: r.id,
+          name: form.name,
+          completed: false,
+        });
       form.usageCount += 1;
       form.lastUsedAt = at;
       s.idempotent.set(input.idempotencyKey, r.id);

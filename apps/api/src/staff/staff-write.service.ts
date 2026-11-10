@@ -17,8 +17,9 @@ import { writeMemberGrid } from './staff-permissions.service.js';
 import { StaffReadService } from './staff-read.service.js';
 import { type NewAccountSecurity, newAccountSecurity } from './staff-security-defaults.service.js';
 import {
-  assertManages,
+  assertActsOn,
   assertMayGive,
+  assertRoleChange,
   customRoleFor,
   invalid,
   lockTarget,
@@ -443,7 +444,7 @@ export class StaffWriteService {
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         await requireManager(tx, actor);
         const target = await lockTarget(tx, businessId, id);
-        assertManages(actor, target);
+        const tiers = await assertActsOn(tx, actor, target, 'edit');
         // Before the version: another firm's department, team or member is 404 either way.
         await this.checkRefs(tx, businessId, id, {
           departmentIds: a?.departmentIds,
@@ -489,7 +490,8 @@ export class StaffWriteService {
               ? null
               : target.customRoleId;
         if (role !== target.role || customRoleId !== target.customRoleId) {
-          assertMayGive(actor, role);
+          // SM14: Owner given or taken away only by the Original Owner (mayChangeRole).
+          assertRoleChange(tiers.actor, target.role, role);
           if (role !== target.role) memberData.role = role;
           if (customRoleId !== target.customRoleId) memberData.customRoleId = customRoleId;
         }

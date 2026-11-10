@@ -42,7 +42,7 @@ export function manageTabsConnection(state: 'data' | 'attention' = 'data') {
         {
           key: 'create_missing_clients',
           label: 'Create clients that do not exist yet',
-          help: 'New QuickBooks customers become LVP Pro clients.',
+          help: 'New QuickBooks customers become Firmivra clients.',
           type: 'TOGGLE',
           choices: [],
           defaultValue: true,
@@ -290,7 +290,7 @@ export function customConnectionFixture() {
       name: 'API & Webhooks',
       category: 'CUSTOM',
       summary: 'Custom connections',
-      description: 'Send LVP Pro events to your own systems over a signed https webhook.',
+      description: 'Send Firmivra events to your own systems over a signed https webhook.',
       logo: 'custom_api',
       badge: null,
       authMethod: 'NONE',

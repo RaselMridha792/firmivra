@@ -40,7 +40,7 @@ Contract: `packages/types/src/staff/` (R42). Module: `apps/api/src/staff/`.
 
 ## Octavia's review of Oct 23 (CHANGE-LIST section B): SM1, SM2, SM4, SM6, SM7 (Oct 24)
 
-R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) and SM14 (account authority) are not R55's here; SM14 waits for Rasel's word.
+R60 took SM8 to SM13 (#1079, merged). SM5 (drafts) is not R55's here. SM14 (account authority) is R55's since Rasel's default of Nov 7: the rules and the defaults are in R55-oct25-review.md, "SM14, account authority".
 
 - **SM1, Bulk Upload stops at Validate & Preview (#1090).** Reproduced on the local API: a 500. When no row could be imported, the preview stored an empty list, which the table's CHECK refuses. The downloaded template's sample department ("Tax Services") makes every row invalid in most firms, so it failed straight away.
   - Now the preview answers `previewToken: null` with every row's errors, and the screen says no row can be imported yet.

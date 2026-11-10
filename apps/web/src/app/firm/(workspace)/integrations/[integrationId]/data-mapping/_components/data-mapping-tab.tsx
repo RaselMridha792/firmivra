@@ -14,7 +14,7 @@ import { CardTitle, EmptyLine, formatDirection } from '../../_components/manage-
 import { integrationError, ManageShell, Notice } from '../../_components/manage-shell';
 
 /**
- * Data Mapping (the spec: LVP Pro field ↔ external field, with Configure Mapping). One card per
+ * Data Mapping (the spec: Firmivra field ↔ external field, with Configure Mapping). One card per
  * mapping scope the provider defines (clients, invoices...). Configure Mapping edits a scope's
  * pairs from the provider's own field lists and saves them all at once (PUT .../mappings); a
  * local field is mapped once.
@@ -174,7 +174,7 @@ function ScopeCard({
               className="grid items-end gap-2 rounded-control border border-border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_auto]"
             >
               <Select
-                label="LVP Pro field"
+                label="Firmivra field"
                 value={row.localField}
                 onChange={(event) => update(index, { localField: event.target.value })}
                 options={[
@@ -255,7 +255,7 @@ function ScopeCard({
             <thead className="bg-table-head text-xs font-semibold text-heading">
               <tr>
                 <th scope="col" className="px-3 py-2">
-                  LVP Pro Field
+                  Firmivra Field
                 </th>
                 <th scope="col" className="w-12 px-3 py-2">
                   <span className="sr-only">Direction</span>
