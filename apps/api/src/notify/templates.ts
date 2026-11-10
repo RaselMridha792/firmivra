@@ -369,7 +369,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
-  'firm-application.info-requested': (d, _b, options) => ({
+  'firm-application.info-requested': (d, b, options) => ({
     channel: 'email',
     subject: 'Your Firmivra application: more information needed',
     blocks: [
@@ -378,7 +378,11 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
         `We are reviewing the application for ${required(d, 'legalName')} and need more information.`,
       ),
       quote('What we need', requiredText(d, 'message')),
-      ...(options.canReply ? [text('Reply to this email with the details.')] : []),
+      button('Send the information', link(d, 'link', options)),
+      small(
+        `The link is for this application only and works until ${dateTime(d, 'expiresAt', b.timeZone)}.`,
+      ),
+      ...(options.canReply ? [text('Questions? Reply to this email.')] : []),
     ],
   }),
 

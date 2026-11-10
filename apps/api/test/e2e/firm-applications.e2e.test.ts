@@ -371,8 +371,10 @@ describe('GET /admin/firm-applications', () => {
   });
 
   it('refuses bad filters with 400', async () => {
+    // INFO_REQUESTED and IN_REVIEW are statuses now (SA-APP-F02, F03); an unknown one is refused.
     for (const q of [
-      'status=INFO_REQUESTED',
+      'status=PENDING',
+      'order=busiest',
       'pageSize=500',
       'businessId=x',
       'from=2026-10-07T00:00:00Z&to=2026-10-01T00:00:00Z',
@@ -387,7 +389,10 @@ describe('GET /admin/firm-applications', () => {
     expect(c.pendingReview).toBeGreaterThanOrEqual(2);
     expect(c.approvedThisMonth).toBeGreaterThanOrEqual(1);
     expect(c.declinedThisMonth).toBeGreaterThanOrEqual(1);
-    expect(c.all).toBe(c.pendingReview + c.approved + c.declined);
+    // SA-APP-Y04: All is the sum of the five statuses.
+    expect(c.all).toBe(
+      c.pendingReview + c.inReview + c.awaitingInformation + c.approved + c.declined,
+    );
   });
 });
 
@@ -526,7 +531,16 @@ describe('an application whose stored form cannot be read', () => {
   it("lists it from the table's own columns, and filters it by status like any other", async () => {
     const body = await list();
     expect(body.total).toBe(4);
-    expect(body.items.find((i) => i.id === oddIds.legacy)).toEqual({
+    const { assignedReviewer, lastActivity, requestState, accountStatus, ...legacy } =
+      body.items.find((i) => i.id === oddIds.legacy) ?? ({} as never);
+    // SA-APP-F06 to F08, Y01: nobody assigned, no request, and its latest event.
+    expect({ assignedReviewer, requestState }).toEqual({
+      assignedReviewer: null,
+      requestState: { state: 'NONE', at: null },
+    });
+    expect(lastActivity.at).toEqual(expect.any(String));
+    void accountStatus;
+    expect(legacy).toEqual({
       id: oddIds.legacy,
       status: 'APPROVED',
       legalName: `Sample Older ${odd} 6`,

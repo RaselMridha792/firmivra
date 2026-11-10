@@ -43,6 +43,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
+import { YearSelect } from '../../../../../../components/year-select';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { formatPhone } from '../../../clients/_components/client-parts';
@@ -852,7 +853,6 @@ function EditForm({
   const [v, setV] = useState(start);
   const [error, setError] = useState('');
   const put = (next: Partial<Draft>) => setV((x) => ({ ...x, ...next }));
-  const years = Array.from({ length: 8 }, (_, n) => String(new Date().getFullYear() - n));
   return (
     <form
       className="flex flex-col gap-4"
@@ -901,17 +901,13 @@ function EditForm({
             ...folders.map((f) => ({ value: f.id, label: f.name })),
           ]}
         />
-        <Select
+        {/* Advisory B34: rolling years; the year the document has is always offered. */}
+        <YearSelect
           label="Tax Year"
           value={v.taxYear}
-          onChange={(e) => put({ taxYear: e.target.value })}
-          options={[
-            { value: '', label: 'None' },
-            ...[...new Set([...(start.taxYear ? [start.taxYear] : []), ...years])].map((y) => ({
-              value: y,
-              label: y,
-            })),
-          ]}
+          empty="None"
+          stored={[start.taxYear]}
+          onChange={(taxYear) => put({ taxYear })}
         />
         <Input
           label="Expires On"

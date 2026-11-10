@@ -3,6 +3,8 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AppointmentRecord, MemberRef } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
+import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -86,6 +88,7 @@ export class SchedulingWriteService {
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
+    private readonly grants: PermissionGrantsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -356,8 +359,24 @@ export class SchedulingWriteService {
         }
         const wanted = body.staffUserIds[0];
         if (!wanted) throw errors.unsupported('Choose a staff member');
-        if (wanted !== current.staffUserId.toLowerCase())
+        if (wanted !== current.staffUserId.toLowerCase()) {
           await activeMember(tx, businessId, wanted);
+          // TX-F18: an appointment of a tax return's engagement, as Reschedule.
+          const authority = await returnReassignAuthority(
+            tx,
+            this.grants,
+            businessId,
+            actor,
+            current.engagementId,
+          );
+          if (authority === 'override')
+            await this.audit.logIn(
+              tx,
+              'appointment.reassigned_override',
+              { type: 'appointment', id: current.id },
+              { staffUserId: wanted },
+            );
+        }
         staffUserId = wanted;
       }
       const staff = await activeMember(tx, businessId, staffUserId);
@@ -744,9 +763,11 @@ export class SchedulingWriteService {
     if (input.generate && !(await this.hasVideoIntegration(tx, businessId))) {
       throw errors.videoNotConnected();
     }
-    return (
-      input.videoUrl ?? input.details ?? (await linkOf(this.links, tx, businessId, staffUserId))
-    );
+    const link =
+      input.videoUrl ?? input.details ?? (await linkOf(this.links, tx, businessId, staffUserId));
+    // Advisory B11: Generate on a staff member with no link is refused, never saved without one.
+    if (input.generate && !link) throw errors.videoLinkMissing();
+    return link;
   }
 
   /** The location details after an edit; unchanged unless the form sent something for them. */
@@ -771,13 +792,15 @@ export class SchedulingWriteService {
       return this.locationOf(tx, businessId, kind, staffUserId, {
         details: body.details,
         videoUrl: body.videoUrl,
-        generate: false,
+        generate: kind === 'VIDEO' && body.generateVideoLink === true,
       });
     }
     if (sent) {
       if (kind === 'VIDEO') {
         const typed = body.videoUrl !== undefined ? body.videoUrl : body.details;
-        return typed ?? (await linkOf(this.links, tx, businessId, staffUserId));
+        const link = typed ?? (await linkOf(this.links, tx, businessId, staffUserId));
+        if (body.generateVideoLink && !link) throw errors.videoLinkMissing();
+        return link;
       }
       return body.details ?? null;
     }
