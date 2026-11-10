@@ -13,7 +13,10 @@ export interface MemberState {
   /** Why the member could not be read, in the screen's words. */
   failed: string | undefined;
   notFound: boolean;
-  /** Owner and Admin change other members; nobody changes their own access here. */
+  /**
+   * The signed-in person may change this member (SM14, the API's `authority.edit`): never
+   * themselves, never the Original Owner, an Admin only the roles below Admin.
+   */
   manages: boolean;
   /** The signed-in role may change members at all (the Notes card shows only then). */
   admin: boolean;
@@ -29,7 +32,7 @@ export function useMember(id: string): MemberState {
     pending: query.isPending,
     failed: query.isError ? errorMessage(query.error, MEMBER_ERRORS) : undefined,
     notFound: query.isError && errorCode(query.error) === 'NOT_FOUND',
-    manages: canManage(role) && m !== undefined && !m.isYou,
+    manages: m?.authority.edit ?? false,
     admin: canManage(role),
   };
 }

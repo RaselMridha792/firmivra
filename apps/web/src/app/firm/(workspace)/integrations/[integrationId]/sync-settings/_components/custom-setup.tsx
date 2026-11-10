@@ -15,7 +15,7 @@ import { integrationError, Notice } from '../../_components/manage-shell';
 
 /**
  * Custom API & Webhooks (the spec's route for systems not in the catalog; the `custom_api`
- * provider): where LVP Pro sends events, how it signs them, which events, and the address outside
+ * provider): where Firmivra sends events, how it signs them, which events, and the address outside
  * systems post to. A secret is write-only: it is typed once, sent, and only its last four
  * characters come back; it is never shown or kept in the page.
  */
