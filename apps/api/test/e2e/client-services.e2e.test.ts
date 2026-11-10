@@ -95,7 +95,7 @@ beforeAll(async () => {
         await tx.engagement.create({
           data: {
             businessId,
-            clientId: ids.c1,
+            clientId: ids.c1!,
             serviceId,
             title,
             status,
@@ -113,8 +113,8 @@ beforeAll(async () => {
       await tx.taxReturn.create({
         data: {
           businessId,
-          clientId: ids.c1,
-          engagementId: ids.tax,
+          clientId: ids.c1!,
+          engagementId: ids.tax!,
           taxYear: 2024,
           filingType: 'INDIVIDUAL',
         },
@@ -124,8 +124,8 @@ beforeAll(async () => {
       await tx.taxReturn.create({
         data: {
           businessId,
-          clientId: ids.c1,
-          engagementId: ids.tax,
+          clientId: ids.c1!,
+          engagementId: ids.tax!,
           taxYear: 2025,
           filingType: 'INDIVIDUAL',
         },
@@ -136,12 +136,12 @@ beforeAll(async () => {
     ).id;
     ids.payrollClient = (
       await tx.payrollClient.create({
-        data: { businessId, clientId: ids.c1, engagementId: ids.payroll },
+        data: { businessId, clientId: ids.c1!, engagementId: ids.payroll },
       })
     ).id;
     ids.plan = (
       await tx.taxPlan.create({
-        data: { businessId, clientId: ids.c1, name: 'Fake 2026 plan', planYear: 2026 },
+        data: { businessId, clientId: ids.c1!, name: 'Fake 2026 plan', planYear: 2026 },
       })
     ).id;
     // An advisory enrollment with no engagement (Octavia's E3).
