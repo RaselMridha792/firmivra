@@ -1821,3 +1821,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: Clients PR 1 of the Nov 10 queue, branch `rasel/R60-clients-activity`: E2 Last Activity
+  worked out when the list is read (Rasel's word of Oct 26: messages, documents uploaded or
+  requested, tasks completed, appointments held, invoices sent or paid, e-signs completed, notes,
+  and the e-sign column), for the column and the From/To filter; `r23-client-record` moved onto the
+  clients mock (5 of 5); `clients-work.e2e`'s `nyDay` counts calendar days. Clients e2e 32 of 32.
