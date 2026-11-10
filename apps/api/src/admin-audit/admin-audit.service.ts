@@ -288,12 +288,14 @@ export class AdminAuditService {
           orderBy: { name: 'asc' },
           take: 500,
         }),
+        // Every action the code writes (several hundred, and growing), so an action late in the
+        // alphabet is never cut from the Action filter; the cap only bounds a runaway.
         tx.auditLog.findMany({
           where: { createdAt: { gte: since } },
           select: { action: true },
           distinct: ['action'],
           orderBy: { action: 'asc' },
-          take: 500,
+          take: 5000,
         }),
         tx.auditLog.findMany({
           where: { createdAt: { gte: since } },

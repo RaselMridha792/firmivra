@@ -162,6 +162,12 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - New tables `firm_application_info_requests` (one OPEN per application, the token's hash only, closed once), `firm_application_responses` (same application, insert-only) and `firm_application_response_files` (under `tenant/<application>/applications/<response>/`, PDF/JPG/PNG up to 10 MB, scanned).
   - Platform data: platform scope reads and writes; admins read and write requests.
   - The `applications.review` key needs no rows (no default holder). No backfill.
+- Nov 10 (Rasel's approval in R1's window, FIRMS.md section F; R1 adds this line): `r1_firm_closure_access` (R1, branch `rasel/R1-firms`).
+  - `businesses.closed_at`, set by the database on closure and never after (existing closed firms take `updated_at`).
+  - `firm_data_download_grants`: AUTOMATIC 30 days after closure, REQUESTED up to day 90, the token's hash only, revoked once.
+  - `firm_data_download_log` (insert-only, counts only).
+  - `firm_exceptional_access_requests`: identity, authority, document, scope, READ_ONLY window; reviewed by the platform owner only; PENDING to APPROVED or DENIED, APPROVED to REVOKED.
+  - `platform_admins.is_platform_owner`: at most one, set by the owner role only. Platform data; a firm sees none of it.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.

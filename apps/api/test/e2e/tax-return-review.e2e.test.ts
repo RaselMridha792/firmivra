@@ -580,6 +580,117 @@ describe('review', () => {
     );
   });
 
+  it("TX-F18: only the step's reviewer decides it; an Owner or Admin as the override, recorded", async () => {
+    const id = ids.r!;
+    const added = ok(
+      await call('post', `/tax-returns/${id}/approvals`, ownerA, {
+        step: 'Staff Review',
+        assignedUserId: staffA.id,
+      }),
+      TaxApprovalList,
+    );
+    const step = added.items.find((a) => a.step === 'Staff Review')!;
+    // Each member reads whether the step is theirs to decide.
+    const as = async (who: typeof ownerA) =>
+      ok(await call('get', `/tax-returns/${id}/approvals`, who), TaxApprovalList).items.find(
+        (a) => a.id === step.id,
+      )!;
+    expect((await as(staffA)).canDecide).toBe(true);
+    expect((await as(ownerA)).canDecide).toBe(true);
+    // A step assigned to someone else is not Staff's, even with the client in reach.
+    const other = ok(
+      await call('post', `/tax-returns/${id}/approvals`, ownerA, {
+        step: 'Admin Review',
+        assignedUserId: adminA.id,
+      }),
+      TaxApprovalList,
+    ).items.find((a) => a.step === 'Admin Review')!;
+    expect(
+      ok(await call('get', `/tax-returns/${id}/approvals`, staffA), TaxApprovalList).items.find(
+        (a) => a.id === other.id,
+      )!.canDecide,
+    ).toBe(false);
+    expectError(
+      await call('post', `/tax-returns/${id}/approvals/${other.id}/approve`, staffA, {}),
+      403,
+      'FORBIDDEN',
+    );
+    // The Owner decides Staff's step as the override, and the audit says so.
+    ok(
+      await call('post', `/tax-returns/${id}/approvals/${step.id}/approve`, ownerA, {}),
+      TaxApprovalList,
+    );
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'tax_return.approval', entityId: id },
+        select: { metadata: true },
+      }),
+    );
+    expect(
+      rows.some(
+        (r) =>
+          (r.metadata as { approvalId?: string; override?: boolean } | null)?.approvalId ===
+            step.id && (r.metadata as { override?: boolean }).override === true,
+      ),
+    ).toBe(true);
+    // The assignee decides theirs without the override.
+    ok(
+      await call('post', `/tax-returns/${id}/approvals/${other.id}/approve`, adminA, {}),
+      TaxApprovalList,
+    );
+    expect((await as(staffA)).canDecide).toBe(false);
+  });
+
+  it("TX-F18: a task of the return's engagement is reassigned by the return's people or the override", async () => {
+    const id = ids.r!;
+    // The return is prepared in client c1's engagement; Staff is c1's assignee, not its reviewer.
+    const engagementId = await inFirm('a', async (tx) => {
+      const e = await tx.engagement.findFirstOrThrow({
+        where: { businessId: firms.a, clientId: ids.c1 },
+        select: { id: true },
+      });
+      await tx.taxReturn.update({ where: { id }, data: { engagementId: e.id } });
+      return e.id;
+    });
+    const created = await call('post', '/tasks', ownerA, {
+      clientId: ids.c1,
+      engagementId,
+      title: 'Gather W-2s (fake)',
+      assignedUserId: staffA.id,
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const taskId = (created.body as { id: string }).id;
+    expectError(
+      await call('patch', `/tasks/${taskId}`, staffA, { assignedUserId: adminA.id }),
+      403,
+      'FORBIDDEN',
+    );
+    // The return's reviewer may; then the Owner as the override, recorded.
+    const byReviewer = await call('patch', `/tasks/${taskId}`, adminA, {
+      assignedUserId: adminA.id,
+    });
+    expect(byReviewer.status, JSON.stringify(byReviewer.body)).toBe(200);
+    const byOwner = await call('patch', `/tasks/${taskId}`, ownerA, { assignedUserId: staffA.id });
+    expect(byOwner.status, JSON.stringify(byOwner.body)).toBe(200);
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'task.updated', entityId: taskId },
+        select: { metadata: true },
+      }),
+    );
+    const overrides = rows.filter((r) => (r.metadata as { override?: boolean } | null)?.override);
+    expect(overrides).toHaveLength(1);
+    // A task tied to no return is as before: Staff reassigns their own client's task.
+    const free = await call('post', '/tasks', staffA, {
+      clientId: ids.c1,
+      title: 'Call back (fake)',
+    });
+    expect(free.status, JSON.stringify(free.body)).toBe(201);
+    const freeId = (free.body as { id: string }).id;
+    const moved = await call('patch', `/tasks/${freeId}`, staffA, { assignedUserId: staffA.id });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+  });
+
   it('keeps the authorizations and their signatures', async () => {
     const id = ids.r!;
     expect(

@@ -161,6 +161,48 @@ test('A report previews its figures, generates numbered versions and downloads o
   await page.screenshot({ path: test.info().outputPath('balance-sheet.png') });
 });
 
+test('A Quarterly Review and a Year-to-Date Summary show the net income by month and generate a version (BK-RPT)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${app}/bookkeeping/clients/${GREEN}?tab=reports`);
+  const tab = page.getByTestId('reports-tab');
+  for (const [type, label] of [
+    ['QUARTERLY_REVIEW', 'Q3 2026'],
+    ['YEAR_TO_DATE_SUMMARY', '2026'],
+  ] as const) {
+    await tab.getByRole('button', { name: 'Generate Report' }).click();
+    const add = page.getByTestId('add-report');
+    await add.getByLabel('Report').selectOption(type);
+    await add.getByLabel('Period').fill(label);
+    // Due first: the tab lists by due date, latest first.
+    await add.getByLabel('Due (optional)').fill('2027-01-15');
+    await page.getByRole('dialog').getByRole('button', { name: 'Add Report' }).click();
+    await expect(add).toBeHidden();
+  }
+  await tab.getByRole('button', { name: 'Actions for Quarterly Review' }).first().click();
+  await page.getByRole('menuitem', { name: 'Figures & Versions' }).click();
+  const dialog = page.getByTestId('figures-dialog');
+  await expect(dialog.getByTestId('report-totals')).toHaveText(
+    'Net income $9,080.00 · 3 months · 1 uncategorized',
+  );
+  // The days are the dialog's subtitle.
+  await expect(page.getByRole('dialog')).toContainText('Jul 1, 2026 – Sep 30, 2026');
+  await expect(dialog.getByTestId('figures-notes')).toHaveCount(0);
+  await expect(dialog).toContainText('Net Income by Month');
+  await page.getByRole('dialog').getByRole('button', { name: 'Generate Version' }).click();
+  await expect(dialog.getByTestId('report-versions')).toContainText('Version 1');
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
+
+  await tab.getByRole('button', { name: 'Actions for Year-to-Date Summary' }).first().click();
+  await page.getByRole('menuitem', { name: 'Figures & Versions' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Jan 1, 2026 – Oct 31, 2026');
+  await expect(dialog.getByTestId('report-totals')).toContainText('10 months');
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Generate Version' }),
+  ).toBeEnabled();
+});
+
 test('A report is never approved past an open reconciliation; Mark Report Complete picks an approved report (BK-RPT)', async ({
   page,
 }) => {

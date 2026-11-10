@@ -8,6 +8,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
+import { StaffSessions } from './staff-sessions.js';
 import { accountLocked, httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
@@ -220,6 +221,7 @@ export class SignInService {
     private readonly audit: AuditService,
     @Inject(ENV) env: Env,
     private readonly notifier: Notifier,
+    private readonly staffSessions: StaffSessions,
   ) {
     for (const [pool, secret] of Object.entries(poolSecrets(env))) {
       if (secret) {
@@ -407,6 +409,15 @@ export class SignInService {
     const user = await this.findUser(place, email);
     try {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
+      // SEC-5: a new password signs the person out everywhere. Cognito already ended the refresh
+      // tokens; ending the firm sessions makes the access tokens still in browsers fail now.
+      if (pool === 'STAFF' && user) {
+        await this.staffSessions
+          .revokeForUser(user.id)
+          .catch((e: unknown) =>
+            this.logger.warn(`Sessions not revoked after reset: ${errorName(e)}`),
+          );
+      }
       await this.passed(place, RESET, { emailKey, reservationId });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) {

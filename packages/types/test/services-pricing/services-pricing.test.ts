@@ -39,14 +39,26 @@ describe('api.servicesPricing', () => {
     );
   });
 
-  it('needs a price unless it is a quote, and a frequency when recurring', () => {
-    expect(ok({ pricingType: 'FIXED' })).toBe(false);
-    expect(ok({ pricingType: 'FIXED', basePriceCents: 9900 })).toBe(true);
-    expect(ok({ pricingType: 'CUSTOM_QUOTE' })).toBe(true);
+  it('activating needs a price unless it is a quote, and a frequency when recurring', () => {
+    const live = (body: object) => ok({ activate: true, ...body });
+    expect(live({ pricingType: 'FIXED' })).toBe(false);
+    expect(live({ pricingType: 'FIXED', basePriceCents: 9900 })).toBe(true);
+    expect(live({ pricingType: 'CUSTOM_QUOTE' })).toBe(true);
     expect(
-      ok({ pricingType: 'RECURRING', basePriceCents: 19900, billingFrequency: 'ONE_TIME' }),
+      live({ pricingType: 'RECURRING', basePriceCents: 19900, billingFrequency: 'ONE_TIME' }),
     ).toBe(false);
     expect(ok({ pricingType: 'FIXED', basePriceCents: -1 })).toBe(false);
+  });
+
+  it('S2: a draft keeps unfinished work; activating needs the category and description', () => {
+    const quote = (body: object) => ok({ pricingType: 'CUSTOM_QUOTE', ...body });
+    expect(ok({ pricingType: 'FIXED' })).toBe(true);
+    expect(quote({ categoryId: '', shortDescription: '' })).toBe(true);
+    expect(quote({ categoryId: null, shortDescription: null })).toBe(true);
+    expect(quote({ activate: true })).toBe(true);
+    expect(quote({ categoryId: '', activate: true })).toBe(false);
+    expect(quote({ shortDescription: '  ', activate: true })).toBe(false);
+    expect(quote({ categoryId: 'not-an-id' })).toBe(false);
   });
 
   it('has no total for a quote-required package, never $0, and says so (S9)', () => {

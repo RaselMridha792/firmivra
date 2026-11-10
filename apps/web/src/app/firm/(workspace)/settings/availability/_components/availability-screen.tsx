@@ -9,6 +9,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { AVAILABILITY } from '../../../calendar/_components/shared';
 import { BlockedTimes } from './blocked-times';
+import { MeetingLink } from './meeting-link';
 import { WorkingHours } from './working-hours';
 
 /**
@@ -56,6 +57,13 @@ export function AvailabilityScreen() {
                   Working hours are set by an Owner or Admin. Ask them for a change.
                 </p>
               )}
+              {shown ? (
+                <MeetingLink
+                  key={`link-${shown.member.userId}`}
+                  member={shown}
+                  editable={manager || shown.member.userId === me.user.id}
+                />
+              ) : null}
               <BlockedTimes
                 members={members}
                 timeZone={timezone}
