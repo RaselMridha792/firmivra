@@ -1841,3 +1841,9 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   client), View on each file and View Request Details; New Message and Reply show To, Where and the
   notifier's real email notice; Overview's Portal Access is Business Advisory B3's card (send with
   the recipient confirmed, resend, revoke). Mock 64 of 64 across the client and messages specs.
+- Nov 10: Clients additions, branch `rasel/R60-clients-filters` (stacked on
+  `rasel/R60-clients-e8-e10`): Added Last 30 Days and Archived tabs; More Filters (deadline, next
+  appointment, type, location, balance, missing documents, tag, source, priority) with Apply,
+  Clear and chips, kept in the address; the list API's new filters. Clients e2e 37 of 37, mock 45
+  of 47 (D1 needed the responsible party: fixed on the E5 branch; `r60-dashboard-lists`' appointment
+  menu test fails independently of these branches). Export, Bulk Actions and linked profiles next.
