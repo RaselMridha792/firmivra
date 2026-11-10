@@ -1,15 +1,19 @@
 'use client';
 
 import {
+  type AcceptedPayments as AcceptedChoices,
+  PAYMENT_PROCESSOR_LABELS,
   PAYMENTS_SETUP_ERRORS,
   PAYMENTS_SETUP_STAGE_LABELS,
+  type PaymentProcessor,
   type PaymentsSetup,
   paymentsSetupStage,
   type PaymentsSetupStage,
+  type SaveAcceptedPaymentsRequest,
   type StripeOnboardingReturn,
 } from '@firmivra/types';
-import { Badge, Button, Select, Toggle } from '@firmivra/ui';
-import { ArrowRight, ArrowSquareOut, CreditCard, Info } from '@phosphor-icons/react';
+import { Badge, Button, Modal, Select, Toggle } from '@firmivra/ui';
+import { ArrowRight, ArrowSquareOut, CreditCard, Info, LockSimple } from '@phosphor-icons/react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
@@ -163,11 +167,7 @@ export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
             </ProviderCard>
           </div>
           <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-            <AcceptedPayments
-              setup={setup.data}
-              loading={setup.isPending}
-              unavailable={unavailable}
-            />
+            <AcceptedPayments />
             <PayoutSettings
               setup={setup.data}
               loading={setup.isPending}
@@ -306,36 +306,65 @@ function ExternalButton({
   );
 }
 
-/** One accepted method: its name, its line, and its switch (read only: what checkout offers). */
-function Method({ name, line, on }: { name: string; line: string; on: boolean }) {
+/** Why a control can't change now: the connection or setup it needs (IP-F14). */
+function LockLine({ text }: { text: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-divider py-3">
-      <div className="min-w-0">
-        <p className="font-semibold text-heading">{name}</p>
-        <p className="text-sm text-muted">{line}</p>
+    <p className="flex items-start gap-1.5 text-xs text-muted">
+      <LockSimple aria-hidden weight="bold" className="mt-0.5 size-3.5 shrink-0" />
+      <span>{text}</span>
+    </p>
+  );
+}
+
+/** One accepted method: its name, its line, its switch, and what a locked one needs. */
+function Method({
+  name,
+  line,
+  on,
+  lock,
+  onChange,
+  testId,
+}: {
+  name: string;
+  line: string;
+  on: boolean;
+  lock: string | null;
+  onChange?: (on: boolean) => void;
+  testId: string;
+}) {
+  return (
+    <div data-testid={testId} className="flex flex-col gap-1 border-t border-divider py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-heading">{name}</p>
+          <p className="text-sm text-muted">{line}</p>
+        </div>
+        <span className="flex items-center gap-2 text-sm text-text">
+          <Toggle
+            checked={on}
+            disabled={lock !== null || !onChange}
+            label={name}
+            onChange={(next) => onChange?.(next)}
+          />
+          {on ? 'On' : 'Off'}
+        </span>
       </div>
-      <span className="flex items-center gap-2 text-sm text-text">
-        <Toggle checked={on} disabled label={name} onChange={() => undefined} />
-        {on ? 'On' : 'Off'}
-      </span>
+      {lock ? <LockLine text={lock} /> : null}
     </div>
   );
 }
 
+const ACCEPTED = [...PAYMENTS_SETUP, 'accepted'];
+
 /**
- * Accepted Client Payments: what clients can pay with today. Stripe is the only connected card
- * processor; checkout takes cards only (bank debits wait until a refund can wait for their
- * settlement, R7); PayPal needs its connection. Nothing here can change yet, so there is no Save.
+ * Accepted Client Payments (PAY-3, IP-F14): cards on or off and their processor, saved with Save
+ * Changes. Only a processor that can take payments is offered; bank payments and PayPal stay off
+ * and say why. Turning cards off asks first: clients then see no Pay Now.
  */
-function AcceptedPayments({
-  setup,
-  loading,
-  unavailable,
-}: {
-  setup: PaymentsSetup | undefined;
-  loading: boolean;
-  unavailable: boolean;
-}) {
+function AcceptedPayments() {
+  const query = useApiQuery(ACCEPTED, () => api.paymentsSetup.accepted());
+  // Kept here: a save remounts the form on the saved values, and the message must outlive it.
+  const [done, setDone] = useState<string | null>(null);
   return (
     <section
       aria-label="Accepted Client Payments"
@@ -348,53 +377,144 @@ function AcceptedPayments({
           Choose which payment methods clients can use when paying invoices.
         </p>
       </div>
-      {loading ? (
-        <Quiet>Loading…</Quiet>
-      ) : unavailable ? (
-        <Quiet>{UNAVAILABLE}</Quiet>
-      ) : !setup ? (
-        <Quiet>{NOT_LOADED}</Quiet>
-      ) : (
-        <>
-          <div className="grid items-center gap-2 sm:grid-cols-[1fr_minmax(0,14rem)]">
-            <span className="font-semibold text-heading">Default card processor</span>
-            <Select
-              label="Default card processor"
-              hideLabel
-              disabled
-              value={setup.chargesEnabled ? 'STRIPE' : ''}
-              options={
-                setup.chargesEnabled
-                  ? [{ value: 'STRIPE', label: 'Stripe' }]
-                  : [{ value: '', label: 'None connected yet' }]
-              }
-              onChange={() => undefined}
-            />
-          </div>
-          <div>
-            <Method
-              name="Credit / debit cards"
-              line={
-                setup.chargesEnabled
-                  ? 'Visa, Mastercard, American Express, Discover, through Stripe'
-                  : 'On once Stripe can take payments'
-              }
-              on={setup.chargesEnabled}
-            />
-            <Method
-              name="ACH bank payments"
-              line="Secure bank transfers (U.S. only); not offered at checkout yet"
-              on={false}
-            />
-            <Method name="PayPal checkout" line="Connect PayPal to enable" on={false} />
-          </div>
-          <p className="text-xs text-muted">
-            Clients see only the methods that are on. A payment shows as paid only once the provider
-            confirms it.
-          </p>
-        </>
-      )}
+      <PageState query={query}>
+        {(saved) => (
+          <AcceptedForm key={JSON.stringify(saved)} saved={saved} done={done} setDone={setDone} />
+        )}
+      </PageState>
     </section>
+  );
+}
+
+const choicesOf = (a: AcceptedChoices): SaveAcceptedPaymentsRequest => ({
+  acceptCard: a.acceptCard,
+  defaultCardProcessor: a.defaultCardProcessor,
+  acceptAch: a.acceptAch,
+  achProcessor: a.achProcessor,
+});
+
+function AcceptedForm({
+  saved,
+  done,
+  setDone,
+}: {
+  saved: AcceptedChoices;
+  done: string | null;
+  setDone: (message: string | null) => void;
+}) {
+  const start = choicesOf(saved);
+  const [form, setForm] = useState(start);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const save = useApiMutation(
+    (body: SaveAcceptedPaymentsRequest) => api.paymentsSetup.saveAccepted(body),
+    { invalidate: ACCEPTED },
+  );
+  const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  const change = (patch: Partial<SaveAcceptedPaymentsRequest>) => {
+    setDone(null);
+    setForm({ ...form, ...patch });
+  };
+  const commit = () =>
+    save.mutate(form, {
+      onSuccess: () => {
+        setConfirmOff(false);
+        setDone('Accepted payments saved.');
+      },
+    });
+  const processor = PAYMENT_PROCESSOR_LABELS[form.defaultCardProcessor];
+  const processors = saved.readyProcessors.length
+    ? saved.readyProcessors.map((p) => ({ value: p, label: PAYMENT_PROCESSOR_LABELS[p] }))
+    : [{ value: form.defaultCardProcessor, label: `${processor} (not ready)` }];
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <div className="grid items-center gap-2 sm:grid-cols-[1fr_minmax(0,14rem)]">
+          <span className="font-semibold text-heading">Default card processor</span>
+          <Select
+            label="Default card processor"
+            hideLabel
+            disabled={saved.locks.card !== null}
+            value={form.defaultCardProcessor}
+            options={processors}
+            onChange={(e) => change({ defaultCardProcessor: e.target.value as PaymentProcessor })}
+          />
+        </div>
+      </div>
+      <div>
+        {/* The card lock (IP-F14) is said once, on the cards switch below. */}
+        <Method
+          testId="method-card"
+          name="Credit / debit cards"
+          line={
+            form.acceptCard
+              ? `Visa, Mastercard, American Express, Discover, through ${processor}`
+              : 'Off: clients see no Pay Now on their invoices'
+          }
+          on={form.acceptCard && saved.locks.card === null}
+          lock={saved.locks.card}
+          onChange={(on) => change({ acceptCard: on })}
+        />
+        <Method
+          testId="method-ach"
+          name="ACH bank payments"
+          line={`Secure bank transfers (U.S. only), through ${PAYMENT_PROCESSOR_LABELS[form.achProcessor]}`}
+          on={false}
+          lock={saved.locks.ach}
+        />
+        <Method
+          testId="method-paypal"
+          name="PayPal checkout"
+          line="Clients pay with their PayPal account"
+          on={false}
+          lock={saved.locks.paypal}
+        />
+      </div>
+      <p className="text-xs text-muted">
+        Clients see only the methods that are on. A payment shows as paid only once the provider
+        confirms it.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          disabled={!dirty || save.isPending}
+          onClick={() => (start.acceptCard && !form.acceptCard ? setConfirmOff(true) : commit())}
+        >
+          {save.isPending ? 'Saving…' : 'Save Changes'}
+        </Button>
+        <Button variant="secondary" disabled={!dirty} onClick={() => setForm(start)}>
+          Cancel
+        </Button>
+        {done ? (
+          <p role="status" className="text-sm text-success">
+            {done}
+          </p>
+        ) : null}
+        {save.error ? (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(save.error, PAYMENTS_SETUP_ERRORS)} Your changes are kept.
+          </p>
+        ) : null}
+      </div>
+      <Modal
+        open={confirmOff}
+        title="Turn off card payments?"
+        onClose={() => setConfirmOff(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmOff(false)}>
+              Keep cards on
+            </Button>
+            <Button disabled={save.isPending} onClick={commit}>
+              Turn off
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text">
+          Clients will see no Pay Now on their invoices until you turn cards back on. Payments
+          already made stay as they are, and you can still record payments yourself.
+        </p>
+      </Modal>
+    </>
   );
 }
 

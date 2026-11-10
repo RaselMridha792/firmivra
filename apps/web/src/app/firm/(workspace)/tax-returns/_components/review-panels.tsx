@@ -32,6 +32,7 @@ import {
   useRejection,
   type Notice,
 } from './return-actions';
+import { blankIssue, issueBody, type IssueDraft, ReturnIssueChoice } from './issues-panel';
 import {
   BLOCKER_LABEL,
   TR_KEY,
@@ -270,6 +271,11 @@ export function ValidationPanel({
           ) : (
             <p className={quiet}>Add the checks the reviewer runs on this return.</p>
           )}
+          {/* TX-F20: a line marked Valid is the firm's check, never the provider's or IRS's. */}
+          <p className="text-xs text-muted">
+            Checks recorded by the firm; Valid is not a provider&apos;s or the IRS&apos;s
+            validation.
+          </p>
           <div className="flex flex-wrap justify-between gap-2">
             <button type="button" className={textButton} onClick={() => setAdding(true)}>
               + Add Validation Item
@@ -391,6 +397,16 @@ export function ApprovalsPanel({
   const [step, setStep] = useState('');
   const [assignee, setAssignee] = useState('');
   const [note, setNote] = useState('');
+  // TX-F19: Return to Preparer with a new validation issue or the open ones.
+  const [raise, setRaise] = useState(false);
+  const [issue, setIssue] = useState<IssueDraft>(() => blankIssue());
+  const [linked, setLinked] = useState<string[]>([]);
+  const startReturn = (a: TaxApproval) => {
+    setRaise(false);
+    setIssue(blankIssue(detail.preparer?.userId));
+    setLinked([]);
+    setReturning(a);
+  };
   return (
     <Panel
       title="Required Approvals"
@@ -444,7 +460,7 @@ export function ApprovalsPanel({
                     >
                       Approve
                     </button>
-                    <button type="button" className={textButton} onClick={() => setReturning(a)}>
+                    <button type="button" className={textButton} onClick={() => startReturn(a)}>
                       Return to Preparer
                     </button>
                   </span>
@@ -498,12 +514,14 @@ export function ApprovalsPanel({
           title="Return to Preparer"
           subtitle={returning.step}
           confirm="Return to Preparer"
-          disabled={!note.trim()}
+          disabled={!note.trim() || (raise && !issue.note.trim())}
           onConfirm={() =>
             void act(
               () =>
                 api.taxReturnWorkspace.returnToPreparer(detail.id, returning.id, {
                   note: note.trim(),
+                  ...(raise ? { issue: issueBody(issue) } : {}),
+                  ...(linked.length ? { issueIds: linked } : {}),
                 }),
               'Returned to the preparer.',
             ).then((r) => {
@@ -521,6 +539,15 @@ export function ApprovalsPanel({
             value={note}
             maxLength={2000}
             onChange={(e) => setNote(e.target.value)}
+          />
+          <ReturnIssueChoice
+            returnId={detail.id}
+            raise={raise}
+            onRaise={setRaise}
+            draft={issue}
+            onDraft={setIssue}
+            linked={linked}
+            onLinked={setLinked}
           />
         </Dialog>
       ) : null}
@@ -1644,7 +1671,10 @@ export function NextSteps({ detail }: { detail: TaxReturnDetail }) {
   ];
   const extra = detail.blockers.filter(
     (b) =>
-      b === 'ORIGINAL_NOT_FILED' || b === 'NO_FILING_TRANSMITTED' || b === 'FILINGS_NOT_ACCEPTED',
+      b === 'ORIGINAL_NOT_FILED' ||
+      b === 'NO_FILING_TRANSMITTED' ||
+      b === 'FILINGS_NOT_ACCEPTED' ||
+      b === 'VALIDATION_ISSUES_OPEN',
   );
   return (
     <Panel title="Next Steps" testId="next-steps">

@@ -209,6 +209,11 @@ const dev = process.env.NODE_ENV !== 'production';
  */
 /** One documents mock, shared with the library mock so an upload confirms against it. */
 const documentsMock = dev && mocked('documents') ? createDocumentsMock({ role: MOCK_ROLE }) : null;
+/** One locations mock, shared with the Settings Overview mock (its Location Management rows). */
+const locationsMock =
+  dev && mocked('locations')
+    ? createLocationsMock({ role: MOCK_ROLE, empty: mockedEmpty('locations') })
+    : null;
 
 export const api = {
   ...createApiClient(options),
@@ -241,14 +246,15 @@ export const api = {
       ? createRolesMock({ role: MOCK_ROLE, empty: mockedEmpty('roles') })
       : createRolesClient(request),
   /** Settings > Locations (R1's contract): the firm's offices, their people, hours and schedules. */
-  locations:
-    dev && mocked('locations')
-      ? createLocationsMock({ role: MOCK_ROLE, empty: mockedEmpty('locations') })
-      : createLocationsClient(request),
+  locations: locationsMock ?? createLocationsClient(request),
   /** Settings > Overview (R42 contract). */
   settingsOverview:
     dev && mocked('settingsOverview')
-      ? createSettingsOverviewMock({ role: MOCK_ROLE, empty: mockedEmpty('settingsOverview') })
+      ? createSettingsOverviewMock({
+          role: MOCK_ROLE,
+          empty: mockedEmpty('settingsOverview'),
+          ...(locationsMock ? { locations: locationsMock } : {}),
+        })
       : createSettingsOverviewClient(request),
   /** Settings > Company Profile & Branding beyond api.settings (R42 contract). */
   branding:

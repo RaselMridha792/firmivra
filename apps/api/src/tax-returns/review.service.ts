@@ -23,6 +23,7 @@ import { DATABASE } from '../database/database.module.js';
 import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { isUniqueViolation, memberNames, memberRef, notAMember } from '../workspaces/common.js';
+import { ISSUES_BLOCK, openErrorIssues, TaxReturnIssuesService } from './issues.service.js';
 import { notFound } from './tax-return-rules.js';
 import {
   blockersOf,
@@ -75,6 +76,7 @@ export class TaxReturnReviewService {
     private readonly grants: PermissionGrantsService,
     private readonly returns: TaxReturnWorkspaceService,
     @Inject(REPORT_FILES) private readonly files: ReportFiles,
+    private readonly issues: TaxReturnIssuesService,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -127,6 +129,13 @@ export class TaxReturnReviewService {
       SELECT status::text AS status FROM memberships
       WHERE business_id = ${businessId}::uuid AND user_id = ${userId}::uuid FOR SHARE`;
     if (m?.status !== 'ACTIVE') throw notAMember();
+  }
+
+  /** TX-F20: no filing (a transmission or a paper filing) while an Error issue is open. */
+  private async notBlockedByIssues(tx: TxClient, businessId: string, id: string) {
+    if ((await openErrorIssues(tx, businessId, id)) === 0) return;
+    const r = await tx.taxReturn.findUniqueOrThrow({ where: { id }, select: detailSelect });
+    throw conflict('STATUS_BLOCKED', ISSUES_BLOCK, { blockers: blockersOf(r) });
   }
 
   // ---------- Filings and transmissions ----------
@@ -326,6 +335,7 @@ export class TaxReturnReviewService {
       const f = await this.filing(tx, businessId, id, filingId);
       if (f.filingMethod !== 'EFILE')
         throw invalid('A paper filing has no transmissions', 'filingId');
+      await this.notBlockedByIssues(tx, businessId, id);
       await tx.taxReturnFilingAttempt
         .create({
           data: {
@@ -416,6 +426,7 @@ export class TaxReturnReviewService {
       const f = await this.filing(tx, businessId, id, filingId);
       if (f.filingMethod !== 'PAPER')
         throw invalid('Only a paper filing is filed on paper', 'filingId');
+      await this.notBlockedByIssues(tx, businessId, id);
       await tx.taxReturnFiling.update({
         where: { id: filingId },
         data: {
@@ -595,6 +606,8 @@ export class TaxReturnReviewService {
           blockers: blockersOf(r),
         });
       }
+      // TX-F20: a line marked Valid never clears an open Error issue.
+      await this.notBlockedByIssues(tx, tenant.businessId, id);
       await tx.taxReturn.update({
         where: { id },
         data: {
@@ -715,7 +728,7 @@ export class TaxReturnReviewService {
     approvalId: string,
     decision:
       | { status: 'APPROVED'; approvedDocumentId?: string | null; note?: string | null }
-      | { status: 'RETURNED'; note: string },
+      | ({ status: 'RETURNED' } & Out<typeof ReturnApprovalBody>),
   ) {
     const businessId = tenant.businessId;
     return this.write(tenant, async (tx) => {
@@ -734,6 +747,16 @@ export class TaxReturnReviewService {
       }
       if (step.status !== 'PENDING')
         throw conflict('RETURN_LOCKED', 'This step is decided already');
+      // TX-F19: returned with the issues the preparer must fix, raised now or already open.
+      const issueIds: string[] = [];
+      if (decision.status === 'RETURNED') {
+        if (decision.issueIds?.length) {
+          issueIds.push(...(await this.issues.openOf(tx, businessId, id, decision.issueIds)));
+        }
+        if (decision.issue) {
+          issueIds.push(await this.issues.createIn(tx, tenant, userId, id, decision.issue));
+        }
+      }
       await tx.taxReturnApproval.update({
         where: { id: approvalId },
         data: {
@@ -750,6 +773,7 @@ export class TaxReturnReviewService {
         approvalId,
         action: decision.status,
         ...(authority === 'override' ? { override: true } : {}),
+        ...(issueIds.length ? { issueIds } : {}),
       });
       return this.approvalsOf(tx, businessId, id, { tenant, userId });
     });
@@ -772,7 +796,7 @@ export class TaxReturnReviewService {
     approvalId: string,
     body: Out<typeof ReturnApprovalBody>,
   ) {
-    return this.decide(tenant, userId, id, approvalId, { status: 'RETURNED', note: body.note });
+    return this.decide(tenant, userId, id, approvalId, { status: 'RETURNED', ...body });
   }
 
   // ---------- Authorizations ----------

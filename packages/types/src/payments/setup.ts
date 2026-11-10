@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { type ApiRequest, parseInput } from '../client.js';
-import { StripeOnboardingStatus } from '../db-enums.js';
+import { PaymentProcessor, StripeOnboardingStatus } from '../db-enums.js';
 
 // Stripe Connect setup (R7): Settings > Payments in the firm workspace. Each firm is paid into its
 // own Stripe account (a Standard connected account that Firmivra creates and the firm's Owner
@@ -119,6 +119,70 @@ export const StripeOnboardingReturn = z.object({
 });
 export type StripeOnboardingReturn = z.infer<typeof StripeOnboardingReturn>;
 
+/** The processors' names on screen (PAY-3). Stripe only until another provider is built. */
+export const PAYMENT_PROCESSOR_LABELS: Readonly<Record<PaymentProcessor, string>> = {
+  STRIPE: 'Stripe',
+};
+
+/**
+ * Why a control of Accepted Client Payments can't change now (IP-F14): the connection or setup it
+ * needs, in words. Shared by the API and the mock so both say the same.
+ */
+export const ACCEPTED_PAYMENT_LOCKS = {
+  cardNotConnected:
+    'Connect Stripe first: the Owner starts it on the Stripe card above. Until then clients cannot pay by card.',
+  cardNotReady:
+    'Stripe cannot take payments yet: finish what the Stripe card above asks for. Until then clients cannot pay by card.',
+  ach: 'Not offered yet: checkout takes cards only for now, so bank payments stay off for every firm.',
+  paypal: 'Connect PayPal first. PayPal is not available in Firmivra yet, so it stays off.',
+} as const;
+
+/** The card lock for a firm's Stripe state: null once Stripe can take payments. */
+export function cardLock(stripe: { connected: boolean; chargesEnabled: boolean }): string | null {
+  if (stripe.chargesEnabled) return null;
+  return stripe.connected
+    ? ACCEPTED_PAYMENT_LOCKS.cardNotReady
+    : ACCEPTED_PAYMENT_LOCKS.cardNotConnected;
+}
+
+/**
+ * GET /business/payments/setup/accepted (Owner and Admin): Accepted Client Payments (PAY-3).
+ * Each method is on only where the firm chose it and its provider is ready; nothing turns on for
+ * every provider. A firm that never chose takes cards through Stripe once Stripe is ready.
+ */
+export const AcceptedPayments = z.object({
+  /** Credit and debit cards at checkout. Off: no Pay Now on new payments; past ones stay. */
+  acceptCard: z.boolean(),
+  defaultCardProcessor: PaymentProcessor,
+  /** Always false for now: checkout takes cards only (`locks.ach` says so). */
+  acceptAch: z.boolean(),
+  achProcessor: PaymentProcessor,
+  /** The processors connected and able to take payments now: the only choices offered. */
+  readyProcessors: z.array(PaymentProcessor),
+  /** Why each control can't change now, or null when it can (IP-F14). */
+  locks: z.object({
+    card: z.string().nullable(),
+    ach: z.string(),
+    paypal: z.string(),
+  }),
+  /** Clients see Pay Now on open invoices: cards on and their processor ready. */
+  onlinePayments: z.boolean(),
+});
+export type AcceptedPayments = z.infer<typeof AcceptedPayments>;
+
+/**
+ * PUT /business/payments/setup/accepted (Owner and Admin): Save Changes. 409 ACH_NOT_OFFERED
+ * (bank payments on) and PROCESSOR_NOT_READY (a card change while its processor can't take
+ * payments). Turning cards off is allowed; the screen confirms it first.
+ */
+export const SaveAcceptedPaymentsRequest = z.strictObject({
+  acceptCard: z.boolean(),
+  defaultCardProcessor: PaymentProcessor,
+  acceptAch: z.boolean(),
+  achProcessor: PaymentProcessor,
+});
+export type SaveAcceptedPaymentsRequest = z.input<typeof SaveAcceptedPaymentsRequest>;
+
 /** Stable `error.code` values of the setup routes, besides the generic ones in ApiError. */
 export const PaymentsSetupErrorCode = z.enum([
   /** 409 (refresh): the firm has no Stripe account yet; start onboarding first. */
@@ -127,6 +191,10 @@ export const PaymentsSetupErrorCode = z.enum([
   'PAYMENTS_ALREADY_SET_UP',
   /** 503: Stripe did not answer, or payments are not configured here. Nothing changed at Stripe. */
   'PAYMENT_PROVIDER_UNAVAILABLE',
+  /** 409 (accepted): bank payments are not offered at checkout yet. */
+  'ACH_NOT_OFFERED',
+  /** 409 (accepted): a card change while the chosen processor can't take payments. */
+  'PROCESSOR_NOT_READY',
 ]);
 export type PaymentsSetupErrorCode = z.infer<typeof PaymentsSetupErrorCode>;
 
@@ -137,6 +205,9 @@ export const PAYMENTS_SETUP_ERRORS = {
     'Stripe is already connected. Manage your account in your Stripe dashboard.',
   PAYMENT_PROVIDER_UNAVAILABLE:
     'Stripe is not answering right now. Nothing was changed. Try again in a moment.',
+  ACH_NOT_OFFERED: ACCEPTED_PAYMENT_LOCKS.ach,
+  PROCESSOR_NOT_READY:
+    'That processor cannot take payments yet, so card payments were not changed. Finish its setup first.',
 } as const satisfies Record<PaymentsSetupErrorCode, string>;
 
 const BASE = '/business/payments/setup';
@@ -177,6 +248,14 @@ export function createPaymentsSetupClient(request: ApiRequest) {
       request(StripeOnboardingLink, `${BASE}/onboarding/refresh`, {
         method: 'POST',
         body: parseInput(StartOnboardingRequest, {}),
+      }),
+    /** Owner and Admin: Accepted Client Payments (PAY-3). */
+    accepted: async (): Promise<AcceptedPayments> => request(AcceptedPayments, `${BASE}/accepted`),
+    /** Owner and Admin: Save Changes. 409 ACH_NOT_OFFERED or PROCESSOR_NOT_READY. */
+    saveAccepted: async (body: SaveAcceptedPaymentsRequest): Promise<AcceptedPayments> =>
+      request(AcceptedPayments, `${BASE}/accepted`, {
+        method: 'PUT',
+        body: parseInput(SaveAcceptedPaymentsRequest, body),
       }),
   };
 }

@@ -41,6 +41,7 @@ import {
   ValidationPanel,
   textButton,
 } from '../../_components/review-panels';
+import { IssuesPanel } from '../../_components/issues-panel';
 import {
   BLOCKER_LABEL,
   FILING_STATUS_LABEL,
@@ -520,7 +521,10 @@ function TabBody({
             />
             <ApprovalsPanel detail={detail} onNotice={onNotice} />
           </div>
-          <ValidationPanel detail={detail} onNotice={onNotice} />
+          <div className={two}>
+            <ValidationPanel detail={detail} onNotice={onNotice} />
+            <IssuesPanel detail={detail} onNotice={onNotice} />
+          </div>
           <div>
             <Link href={`/tax-returns/${detail.id}/review`} className={outlined}>
               Open Review, E-File &amp; Filing Status
