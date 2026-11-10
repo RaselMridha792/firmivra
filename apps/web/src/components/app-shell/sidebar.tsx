@@ -28,10 +28,10 @@ const words = (text: string) =>
     .map((w) => w.trim())
     .filter(Boolean);
 
-/** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
 /** A count badge's shape (its colour follows the menu). */
 const badgeLook = 'min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold';
 
+/** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
 export function Sidebar({
   subtitle,
   sections,
