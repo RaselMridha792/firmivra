@@ -149,6 +149,15 @@ export class SchedulingReadService {
       ];
       if (q.staffUserId) and.push({ staffUserId: q.staffUserId });
       if (q.clientId) and.push({ clientId: q.clientId });
+      // Advisory B5: a service kind, by the appointment's service or its engagement's.
+      if (q.serviceKind) {
+        and.push({
+          OR: [
+            { service: { kind: q.serviceKind } },
+            { engagement: { service: { kind: q.serviceKind } } },
+          ],
+        });
+      }
       if (q.status) and.push(displayStatusWhere(q.status));
       if (term) {
         // Staff search only what they see in full: a match on a name must not reveal who is

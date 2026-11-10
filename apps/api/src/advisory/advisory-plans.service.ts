@@ -42,8 +42,10 @@ type PlanShape = Prisma.AdvisoryPlanGetPayload<{ include: typeof planInclude }>;
 const NEXT_STATUS: Record<string, string[]> = {
   DRAFT: ['IN_REVIEW'],
   IN_REVIEW: ['DRAFT'],
-  FINALIZED: ['IN_PROGRESS'],
-  SENT: ['IN_PROGRESS'],
+  // B9 (Octavia): Modify Plan takes a finalized or sent plan back to DRAFT as the next revision;
+  // its finalized versions stay as they were, and finalizing again makes the next one.
+  FINALIZED: ['IN_PROGRESS', 'DRAFT'],
+  SENT: ['IN_PROGRESS', 'DRAFT'],
   IN_PROGRESS: ['COMPLETED'],
   COMPLETED: ['IN_PROGRESS'],
 };
@@ -321,6 +323,13 @@ export class AdvisoryPlansService {
       if (!ctx.perms.editPlans) throw advErrors.forbidden();
       const { tx } = ctx;
       const p = await this.editable(ctx, id, body.etag);
+      // B9: a finalized or sent plan is locked; only the wizard's place (`step`) moves.
+      if (
+        (p.status === 'FINALIZED' || p.status === 'SENT') &&
+        Object.entries(body).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
+      ) {
+        throw advErrors.planLocked();
+      }
       await tx.advisoryPlan.update({
         where: { businessId_id: { businessId, id } },
         data: {

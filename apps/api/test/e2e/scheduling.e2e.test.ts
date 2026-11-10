@@ -622,6 +622,43 @@ describe('agenda', () => {
     );
     expect(theirs.items.map((i) => i.id)).toEqual([b]);
   });
+
+  it("Advisory B5: filters by service kind, the appointment's own or its engagement's", async () => {
+    const n = freshDay();
+    const day = win(at(n, '00:00'), at(n + 1, '00:00'));
+    const advisory = await asOwner(ids.firmA, (tx) =>
+      tx.service.create({
+        data: { businessId: ids.firmA, kind: 'BUSINESS_DEVELOPMENT', name: `Advisory ${run}` },
+        select: { id: true },
+      }),
+    );
+    const meeting = await seed({
+      clientId: ids.c1,
+      staff: people.staffA,
+      startsAt: at(n, '09:00'),
+    });
+    const other = await seed({ clientId: ids.c2, staff: people.staffA2, startsAt: at(n, '11:00') });
+    await asOwner(ids.firmA, (tx) =>
+      tx.appointment.update({ where: { id: meeting }, data: { serviceId: advisory.id } }),
+    );
+    const found = async (q: string, who: Who = people.ownerA, firm = ids.firmA) =>
+      exact(
+        AgendaPage,
+        await call('get', `/appointments/agenda?${day}&${q}`, who, undefined, firm),
+      ).items.map((i) => i.id);
+    expect(await found('serviceKind=BUSINESS_DEVELOPMENT')).toEqual([meeting]);
+    expect((await found('')).sort()).toEqual([meeting, other].sort());
+    expect(await found('serviceKind=PAYROLL')).toEqual([]);
+    expectError(
+      await call('get', `/appointments/agenda?${day}&serviceKind=NOPE`, people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Another firm's advisory filter never shows firm A's meeting.
+    expect(await found('serviceKind=BUSINESS_DEVELOPMENT', people.ownerB, ids.firmB)).not.toContain(
+      meeting,
+    );
+  });
 });
 
 describe('options', () => {

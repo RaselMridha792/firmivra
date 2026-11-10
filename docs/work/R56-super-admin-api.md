@@ -552,4 +552,12 @@ PR bodies follow #1130's: what and why, the screenshot table (shots in `e2e/scre
 **Needs for Rasel:** the Frame 2 schema choice (document notes; intake and appointment links); the automatic request reminder and expiry have no job yet; `forms-documents` settings could link to Document Settings (R60 or Tumit).
 
 **Gotchas:** check `git log origin/main..HEAD --format=%B | grep -ci co-authored` is 0 before every push. Python with quotes goes in a script file (heredocs break). After merging main: rebuild `packages/types`, `prisma generate`, and delete `apps/web/.next/mock/dev/types` if typecheck names it. API tests: set `DATABASE_URL`/`DATABASE_URL_APP` to `firmivra_r56` (every migration through main is applied). Shots: `zz-r56-*-shots.spec.ts` (never committed); empty with `NEXT_PUBLIC_API_MOCK_EMPTY=documentLibrary`, offline with `R56_EXCLUDE=documentLibrary -c playwright.r56.config.ts`; 375 px shots must be 375 wide.
-
+- 2026-11-07 (lead: Business Advisory, High first, batches of about 6): Advisory batch 1 (B4 to B9) on `rasel/R56-advisory-batch1`:
+  - **B4:** the three Schedule Meeting links (header, Meetings tab, overview) open Schedule Appointment with the client, their advisory engagement (its service picks the advisory type) and `from`, so Cancel returns to the client and tab.
+  - **B5:** Upcoming Advisory Meetings opens Appointments filtered to Business Advisory meetings. The agenda gains `serviceKind`, by the appointment's service or its engagement's. The list says so and offers Show all.
+  - **B6:** Entity Type and Industry Other ask "Specify", and that text is what is saved (both are free text). A saved value outside the list opens as Other.
+  - **B7:** goal forms offer all eight statuses. Completed locks 100% and Not Started 0%; leaving Completed unlocks progress below 100.
+  - **B8:** milestone rows set owner and progress besides status.
+  - **B9:** View Snapshot in Version History. A finalized or sent plan is locked (409 PLAN_LOCKED; the wizard's step still moves), and Modify Plan (to DRAFT) starts the next revision with the versions kept.
+  - **Tests:** advisory e2e (lock, Modify Plan, revision), scheduling e2e (service-kind filter, firm B), mock `r56-advisory-review` (5), `r1-business-advisory-client-tabs` (the link).
+  - **Next:** B10 to B12, then B13 onward.
