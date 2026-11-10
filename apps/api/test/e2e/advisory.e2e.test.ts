@@ -1814,14 +1814,38 @@ describe('plans: finalize, versions and delivery', () => {
     const notReady = await finalize();
     expectError(notReady, 409, 'PLAN_NOT_READY');
     expect(JSON.stringify(notReady.body)).toMatch(/business name/);
+    // B13: the plan type, the summary and an explicit focus choice, each named.
+    expect(JSON.stringify(notReady.body)).toMatch(/plan type/);
     expect(JSON.stringify(notReady.body)).toMatch(/strategy summary/);
+    expect(JSON.stringify(notReady.body)).toMatch(/None \/ Not Applicable/);
     expect(JSON.stringify(notReady.body)).toMatch(/at least one goal/);
+    // An area and None / Not Applicable never stand together (400).
+    expectError(
+      await patchPlan(id, {
+        strategy: {
+          summary: 'Open a second shop',
+          noFocusArea: true,
+          areas: [{ area: 'EXPANSION', objective: 'A second shop' }],
+        },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Sections merge at their top keys; this change's choice wins over what was stored.
     ok(
       await patchPlan(id, {
-        profile: { businessName: 'Riley Bakery (fake)' },
-        strategy: { summary: 'Open a second shop' },
+        strategy: { areas: [{ area: 'EXPANSION', objective: 'A second shop' }] },
       }),
     );
+    expect((await plan(id)).strategy.areas).toHaveLength(1);
+    ok(
+      await patchPlan(id, {
+        planType: 'growth',
+        profile: { businessName: 'Riley Bakery (fake)' },
+        strategy: { summary: 'Open a second shop', noFocusArea: true },
+      }),
+    );
+    expect((await plan(id)).strategy).toMatchObject({ noFocusArea: true, areas: [] });
     const goalForPlan = await createGoal(shared.a2, {
       title: mark('Second shop'),
       planId: id,
@@ -1876,7 +1900,7 @@ describe('plans: finalize, versions and delivery', () => {
       targetYear: 2026,
       sourceDataAsOf: day(-5),
       profile: { businessName: 'Riley Bakery (fake)' },
-      strategy: { summary: 'Open a second shop' },
+      strategy: { summary: 'Open a second shop', noFocusArea: true },
     });
     expect(v1.goals.map((g) => g.title)).toEqual([goalForPlan.title]);
     expect(v1.recommendations.map((r) => r.title).sort()).toEqual([

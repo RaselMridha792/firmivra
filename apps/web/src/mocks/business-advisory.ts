@@ -1744,7 +1744,12 @@ export function createAdvisoryMock({
         if (req.step !== undefined) p.step = req.step;
         if (req.profile) p.profile = { ...p.profile, ...req.profile };
         if (req.assessment) p.assessment = { ...p.assessment, ...req.assessment };
-        if (req.strategy) p.strategy = { ...p.strategy, ...req.strategy };
+        if (req.strategy) {
+          p.strategy = { ...p.strategy, ...req.strategy };
+          // As the API (B13): this change's focus choice wins over what was stored.
+          if (req.strategy.noFocusArea === true) p.strategy.areas = [];
+          else if (req.strategy.areas?.length) p.strategy.noFocusArea = false;
+        }
         p.version++;
         p.updatedAt = nowIso();
         return planDetail(p);
@@ -1789,9 +1794,12 @@ export function createAdvisoryMock({
         // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
         const missing = [
           !p.profile.businessName && 'Add the business name (stage 1)',
-          !p.strategy.summary &&
-            !p.strategy.areas?.length &&
-            'Add the strategy summary or an area (stage 3)',
+          // B13: the plan type, the summary and an explicit focus choice.
+          !p.planType && 'Choose the plan type (stage 1)',
+          !p.strategy.summary && 'Add the strategy summary (stage 3)',
+          !p.strategy.areas?.length &&
+            p.strategy.noFocusArea !== true &&
+            'Choose a focus area, or None / Not Applicable (stage 3)',
           !goals.some((g) => g.planId === p.id && !g.archived) &&
             'Add at least one goal to the plan',
           !f.length && 'Add the financial figures',

@@ -101,6 +101,19 @@ const changedSince = (p: PlanShape, c: Content) =>
     strategy: c.strategy,
   });
 
+/**
+ * B13: a plan focuses on areas or on None / Not Applicable, never both. Sections merge at their top
+ * keys, so the choice this change makes wins: None clears the stored areas, an area clears None.
+ */
+function focusChoice(
+  merged: Record<string, unknown>,
+  sent: { noFocusArea?: boolean | undefined; areas?: unknown[] | undefined },
+): Prisma.InputJsonObject {
+  if (sent.noFocusArea === true) merged['areas'] = [];
+  else if (sent.areas?.length) merged['noFocusArea'] = false;
+  return merged as Prisma.InputJsonObject;
+}
+
 /** Business plans: the five-step plan, its status, immutable versions and delivery to the client. */
 @Injectable()
 export class AdvisoryPlansService {
@@ -345,7 +358,7 @@ export class AdvisoryPlansService {
             ? { assessment: mergeDocument(p.assessment, body.assessment) as Prisma.InputJsonObject }
             : {}),
           ...(body.strategy !== undefined
-            ? { strategy: mergeDocument(p.strategy, body.strategy) as Prisma.InputJsonObject }
+            ? { strategy: focusChoice(mergeDocument(p.strategy, body.strategy), body.strategy) }
             : {}),
         },
       });
@@ -522,9 +535,12 @@ export class AdvisoryPlansService {
       const missing: string[] = [];
       if (typeof content.profile.businessName !== 'string')
         missing.push('Add the business name (stage 1)');
+      // B13 (Octavia's §3): the plan type, the strategy summary and an explicit focus choice.
+      if (!p.planType) missing.push('Choose the plan type (stage 1)');
+      if (!content.strategy.summary) missing.push('Add the strategy summary (stage 3)');
       const areas = content.strategy.areas;
-      if (!content.strategy.summary && !(Array.isArray(areas) && areas.length > 0))
-        missing.push('Add the strategy summary or an area (stage 3)');
+      if (!(Array.isArray(areas) && areas.length > 0) && content.strategy.noFocusArea !== true)
+        missing.push('Choose a focus area, or None / Not Applicable (stage 3)');
       if (content.goals.length === 0) missing.push('Add at least one goal to the plan');
       if (!asOf) missing.push('Add the financial figures');
       else if (
