@@ -20,6 +20,7 @@ import { confirmAccess } from './confirm-access';
 // manage right) records that the authority confirmed the filing, once per occurrence. It records
 // the fact only: it never files, submits, charges or pays, and never changes the record. Shown
 // while the firm has the switch on; a confirmation already made shows to everyone who may see it.
+// Tax Returns (R60) uses it for the two outcomes of a filed return, accepted and rejected.
 
 export function ConfirmEventButton({
   event,
@@ -27,8 +28,15 @@ export function ConfirmEventButton({
   recordId,
   occurrence,
   what,
+  action = 'Confirm Filing',
+  done: doneLabel = 'Filing confirmed',
+  offer = true,
 }: {
-  event: 'payroll.filing_confirmed' | 'deadline.filing_confirmed';
+  event:
+    | 'payroll.filing_confirmed'
+    | 'deadline.filing_confirmed'
+    | 'tax_return.accepted'
+    | 'tax_return.rejected';
   /** The record's module: who may confirm follows its manage right, as on the API. */
   module: PermissionModule;
   recordId: string;
@@ -36,6 +44,12 @@ export function ConfirmEventButton({
   occurrence: string;
   /** "this payroll's filing": what the authority confirmed. */
   what: string;
+  /** The button and the dialog's title ("Confirm Accepted"). */
+  action?: string;
+  /** The line once it is confirmed ("Acceptance confirmed"). */
+  done?: string;
+  /** False: only an existing confirmation shows, no button (the record's state rules it out). */
+  offer?: boolean;
 }) {
   const { role } = useFirm();
   const { sees, may } = confirmAccess(role, module);
@@ -74,24 +88,30 @@ export function ConfirmEventButton({
       <p
         className="inline-flex items-center gap-1.5 text-sm font-medium text-success"
         data-testid="filing-confirmed"
+        data-event={event}
       >
         <SealCheck aria-hidden weight="fill" className="size-4" />
-        Filing confirmed {new Date(done.confirmedAt).toLocaleDateString('en-US')} by{' '}
+        {doneLabel} {new Date(done.confirmedAt).toLocaleDateString('en-US')} by{' '}
         {done.confirmedBy.name}
         {done.reference ? ` (${done.reference})` : ''}
       </p>
     );
   }
-  if (!may || !settings.data?.manualConfirmationEnabled) return null;
+  if (!offer || !may || !settings.data?.manualConfirmationEnabled) return null;
   return (
     <>
-      <Button variant="secondary" onClick={() => setOpen(true)} data-testid="confirm-filing">
-        <SealCheck aria-hidden weight="bold" className="size-4" /> Confirm Filing
+      <Button
+        variant="secondary"
+        onClick={() => setOpen(true)}
+        data-testid="confirm-filing"
+        data-event={event}
+      >
+        <SealCheck aria-hidden weight="bold" className="size-4" /> {action}
       </Button>
       {open ? (
         <Modal
           open
-          title="Confirm Filing"
+          title={action}
           subtitle={`For ${occurrence}`}
           onClose={() => setOpen(false)}
           footer={

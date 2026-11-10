@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { HttpsUrl } from '../content/schemas.js';
+import { ServiceKind } from '../db-enums.js';
 import { AppointmentEvent, checkMeetingMethods, TimeOfDay } from './schemas.js';
 
 // Appointments workspace (R42 contract, for Tumit's screens): the overview's KPIs, the Calendar /
@@ -151,6 +152,11 @@ export const AgendaQuery = z.strictObject({
   status: AppointmentDisplayStatus.optional(),
   staffUserId: z.uuid().optional(),
   clientId: z.uuid().optional(),
+  /**
+   * Octavia's Advisory B5: only appointments for a service of this kind, by the appointment's own
+   * service or its engagement's (BUSINESS_DEVELOPMENT: Business Advisory meetings).
+   */
+  serviceKind: ServiceKind.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional().default(200),
 });

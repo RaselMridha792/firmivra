@@ -113,6 +113,7 @@ describe('account.password-changed: a failing notifier never fails the reset', (
       { log: vi.fn() } as never,
       env,
       notifier as never,
+      { revokeForUser: vi.fn().mockResolvedValue(0) } as never,
     );
     // The rate limit's reservation and the user lookup are the database's; stubbed here.
     const steps = service as unknown as Record<string, unknown>;
