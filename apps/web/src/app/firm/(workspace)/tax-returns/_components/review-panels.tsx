@@ -22,6 +22,7 @@ import {
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { ConfirmEventButton } from '../../compliance/_components/confirm-event';
 import { useApiQuery } from '../../../../../lib/query';
 import {
   Dialog,
@@ -873,6 +874,9 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
     detail.workflowStatus === 'REJECTED' ||
     detail.workflowStatus === 'TRANSMITTED';
   const sent = filings.some((f) => f.status !== 'NOT_FILED');
+  const transmitted = ['TRANSMITTED', 'ACCEPTED', 'REJECTED', 'CLOSED'].includes(
+    detail.workflowStatus,
+  );
   const rejected = filings.filter((f) => f.status === 'REJECTED');
   const banner = rejected.length
     ? {
@@ -942,6 +946,35 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
           <span className="text-sm text-text">{banner.text}</span>
         </span>
       </div>
+      {/* AU-F31 (#1264) on the return: the authority's answer, confirmed once for its tax year
+          while Manual Event Confirmation is on. It records the fact; the status stays as it is. */}
+      {transmitted ? (
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden"
+          data-testid="confirm-outcome"
+        >
+          <ConfirmEventButton
+            event="tax_return.accepted"
+            module="TAX_RETURNS"
+            recordId={detail.id}
+            occurrence={String(detail.taxYear)}
+            what="this return's acceptance"
+            action="Confirm Accepted"
+            done="Acceptance confirmed"
+            offer={detail.workflowStatus !== 'REJECTED'}
+          />
+          <ConfirmEventButton
+            event="tax_return.rejected"
+            module="TAX_RETURNS"
+            recordId={detail.id}
+            occurrence={String(detail.taxYear)}
+            what="this return's rejection"
+            action="Confirm Rejected"
+            done="Rejection confirmed"
+            offer={detail.workflowStatus === 'TRANSMITTED' || detail.workflowStatus === 'REJECTED'}
+          />
+        </div>
+      ) : null}
       {q.isError ? (
         <p role="alert" className={quiet}>
           Filings are not available right now.
