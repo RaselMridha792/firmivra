@@ -40,6 +40,22 @@ describe('sessionFetch (SM4)', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['SESSION_EXPIRED', 'SESSION_IDLE'])(
+    'signs out at once on 401 %s (SEC-4), without a refresh',
+    async (code) => {
+      const page = signedIn();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(answer(401, { error: { code, message: 'Signed out' } })),
+      );
+      const res = await sessionFetch('/api/v1/business/clients');
+      expect(res.status).toBe(401);
+      expect(page.refresh).not.toHaveBeenCalled();
+      expect(page.end).toHaveBeenCalledTimes(1);
+      expect(page.replace).toHaveBeenCalledWith('/sign-in');
+    },
+  );
+
   it('refreshes once on any other 401 and sends the request again', async () => {
     const page = signedIn();
     const fetch = vi

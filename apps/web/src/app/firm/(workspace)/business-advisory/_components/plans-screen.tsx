@@ -118,8 +118,22 @@ export function BusinessPlans() {
           () => void act(() => api.advisory.restorePlan(p.id), `${p.name} restored.`),
         ),
       ];
+    // Octavia's B9: a finalized or sent plan is locked; Modify Plan starts its next draft
+    // revision, and every finalized version stays as it was.
+    const locked = p.status === 'FINALIZED' || p.status === 'SENT';
     const list: ActionMenuItem[] = [
-      item('Edit Plan', PencilSimple, () => router.push(`${BASE}/plans/${p.id}/edit`)),
+      locked
+        ? item(
+            'Modify Plan',
+            PencilSimple,
+            () =>
+              void act(async () => {
+                const d = await api.advisory.plan(p.id);
+                await api.advisory.setPlanStatus(p.id, { status: 'DRAFT', etag: d.etag });
+                router.push(`${BASE}/plans/${p.id}/edit`);
+              }, `${p.name} is a new draft revision; version ${p.currentVersion} stays as it was.`),
+          )
+        : item('Edit Plan', PencilSimple, () => router.push(`${BASE}/plans/${p.id}/edit`)),
     ];
     if (p.status === 'DRAFT')
       list.push(
@@ -335,6 +349,11 @@ export function BusinessPlans() {
 /** A plan's finalized versions: each one's source-data date and how it was delivered. */
 export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClose: () => void }) {
   const q = useApiQuery([...BA_KEY, 'versions', plan.id], () => api.advisory.versions(plan.id));
+  // Octavia's B9: each version opens as it was finalized.
+  const [open, setOpen] = useState<number>();
+  const snap = useApiQuery([...BA_KEY, 'version', plan.id, open ?? 0], async () =>
+    open ? api.advisory.version(plan.id, open) : null,
+  );
   return (
     <Modal
       open
@@ -364,6 +383,14 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
                 <span className="text-muted">
                   Figures as of {v.sourceDataAsOf ? dayText(v.sourceDataAsOf) : '—'}
                 </span>
+                <Button
+                  variant="secondary"
+                  onClick={() => setOpen(open === v.versionNo ? undefined : v.versionNo)}
+                  aria-expanded={open === v.versionNo}
+                  data-testid="view-snapshot"
+                >
+                  {open === v.versionNo ? 'Hide Snapshot' : 'View Snapshot'}
+                </Button>
                 {v.deliveredAt ? (
                   <Badge tone="purple">
                     Sent {dayText(v.deliveredAt)} ·{' '}
@@ -376,6 +403,41 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
             ))}
           </ul>
         )}
+        {open ? (
+          <section
+            className="mt-3 flex flex-col gap-2 rounded-lg bg-canvas p-3 text-sm"
+            data-testid="plan-snapshot"
+            aria-label={`Version ${open} snapshot`}
+          >
+            {snap.isPending ? (
+              <p className="text-muted">Loading the snapshot…</p>
+            ) : snap.data ? (
+              <>
+                <h3 className="font-semibold text-heading">
+                  Version {open}: {snap.data.planName} · {snap.data.targetYear}
+                </h3>
+                {snap.data.strategy.summary ? (
+                  <p className="text-text">{snap.data.strategy.summary}</p>
+                ) : null}
+                <p className="text-text">
+                  <span className="font-medium text-heading">Goals:</span>{' '}
+                  {snap.data.goals.length ? snap.data.goals.map((g) => g.title).join('; ') : 'None'}
+                </p>
+                <p className="text-text">
+                  <span className="font-medium text-heading">Recommendations:</span>{' '}
+                  {snap.data.recommendations.length
+                    ? snap.data.recommendations.map((r) => r.title).join('; ')
+                    : 'None'}
+                </p>
+                <p className="text-xs text-muted">
+                  A snapshot is read only: it is the plan as it was finalized.
+                </p>
+              </>
+            ) : (
+              <p className="text-muted">This version could not be loaded.</p>
+            )}
+          </section>
+        ) : null}
       </div>
     </Modal>
   );

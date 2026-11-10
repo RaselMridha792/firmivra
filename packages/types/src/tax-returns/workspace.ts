@@ -235,6 +235,11 @@ export const TaxReturnDetail = TaxReturnRow.extend({
   document: DocumentRef.nullable(),
   /** The workflow statuses it can move to now (the stepper's buttons). */
   canMoveTo: z.array(TaxReturnWorkflowStatus),
+  /**
+   * TX-F18: whether this member may move it to Ready to File or Closed: the return's reviewer, or
+   * an Owner or Admin with APPROVE as the override.
+   */
+  canFinalize: z.boolean(),
   /** Why it cannot move on to Ready to File, Transmitted or Accepted yet. */
   blockers: z.array(TaxReturnBlocker),
   /** Business returns only (null for an individual return). */
@@ -568,6 +573,11 @@ export const TaxApproval = z.object({
   approvedDocument: DocumentRef.nullable(),
   note: z.string().nullable(),
   createdAt: DateTime,
+  /**
+   * TX-F18: whether the member reading it may approve or return it now: its assignee (a step with
+   * no assignee: the return's reviewer), or an Owner or Admin with APPROVE as the override.
+   */
+  canDecide: z.boolean(),
 });
 export type TaxApproval = z.infer<typeof TaxApproval>;
 export const TaxApprovalList = z.object({ items: z.array(TaxApproval) });

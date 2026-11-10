@@ -413,6 +413,15 @@ function store() {
  * An in-memory `api.documents` (firm). `role: 'STAFF'` is Sam Staff: only the clients assigned to
  * them exist (as in the clients mock). Only client 1 has documents.
  */
+/** Advisory B12: a spec's switch for a firm with no document categories yet. */
+function noCategories(): boolean {
+  try {
+    return sessionStorage.getItem('firmivra-mock:document-categories') === 'none';
+  } catch {
+    return false;
+  }
+}
+
 export function createDocumentsMock(options: { role?: MockFirmRole } = {}): DocumentsClient {
   const s = store();
   const reachable = (clientId: string) => {
@@ -513,6 +522,8 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     },
     categories: async () => {
       await mockDelay();
+      // A spec shows a firm with none (Advisory B12): sessionStorage 'firmivra-mock:document-categories' = 'none'.
+      if (noCategories()) return [];
       return structuredClone(s.categories);
     },
     requests: async (clientId, query = {}) => {

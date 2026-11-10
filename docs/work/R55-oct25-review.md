@@ -39,7 +39,9 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1327 merged: Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
 - #1330 merged: report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
 - #1333 merged: a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
-- #1338 (`rasel/R55-account-authority`): SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
+- #1338 merged: SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
+- #1344 (`rasel/R55-my-security`): My Profile's Security card, my sessions with Sign Out All Other Sessions and Change Password with the current one first, any staff role (the lead's placement on My Profile).
+- #1357 (`rasel/R55-platform-rollups`): the daily job for the firm metrics, feature usage and integration usage rollups (per-firm reads under RLS), and the Usage page's plan distribution (SA-INT-R3).
 - PAY-3 + IP-F14 (`rasel/R55-accepted-payments`): Accepted Client Payments saves (Owner and Admin, `GET`/`PUT /business/payments/setup/accepted`): cards on or off through a ready processor (Stripe), bank payments and PayPal stay off; each locked control says what it needs; turning cards off asks first and takes Pay Now away (`paymentsEnabled`, checkout 409); the billing sections' version and values are untouched; audited with the methods only.
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
@@ -170,7 +172,12 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   1. Firm Applications (SA-APP-F01 to F12) as soon as R1's schema merges.
   2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
   3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
-- **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
+- **SA-INT-R3 and the platform rollups (Rasel's yes, Nov 10; the lead's option 3):** one platform job (`apps/api/src/platform-rollups/rollups.job.ts`), hourly, rewriting yesterday and today (UTC).
+  - It lists the firms in platform scope and reads each in its own scope (forBusiness, the normal RLS), one short transaction per firm. It writes only platform rows. No SECURITY DEFINER function, no schema.
+  - `platform_firm_metrics_daily` and `platform_feature_usage_daily`: one firm's own counts, keyed by its id (the Firm Report Detail's rows). `platform_integration_usage_daily`: sums with no firm id. Catalog entries get connected, active, connects, disconnects, firm requests and connected firms by plan; Firmivra's own integrations get requests from their logs and latency and volume from their runs.
+  - documents.generate counts 'document.uploaded' and 'agreement.created' (the lead's Review 2 default: no "generated" action exists).
+  - One task at a time (advisory lock); a firm that fails is logged by id and left out of that run; each run is audited with counts only. PLATFORM_ROLLUPS=on|off (off under tests).
+  - The Usage page's Plan Distribution reads connected firms by plan on the range's last day (firms without a plan are left out); its empty text is "No firm has connected this yet".
 - **SM14, account authority (Rasel's default through the lead, Nov 7; defaults 1 to 4 approved):**
   1. The Original Owner is the firm's first Owner membership (the account its application created). No schema change: nobody, the Original Owner included, can demote or deactivate that account, so it stays the first.
   2. Owner-level (the Original Owner and delegated Owners) acts on everyone below the Original Owner, other delegates included. Giving the Owner role, or taking it from a delegate, is the Original Owner's alone (Edit Staff and Settings > Users).
