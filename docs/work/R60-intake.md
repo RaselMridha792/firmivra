@@ -1843,9 +1843,3 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
   after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
   schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.
-- Nov 10: Settings Overview (`rasel/R60-settings-overview`, stacked on Locations), Overview guide
-  items 3 to 5 and 10 to 13 on R1's overview fields: Active Locations (Manage Locations), Staff
-  Users across all locations (Manage Users), Subscription & Locations (Manage Plan), Location
-  Management (the first 5, View All Locations, Add Location, and the same row actions as
-  Locations, now shared, with Activate added for an inactive office; no Delete), and the Location
-  Management quick link. Tumit's Overview spec updated for the new cards. Mock 5 of 5.
