@@ -3020,7 +3020,11 @@ describe('report figures and versions (BK-RPT part 1)', () => {
     );
 
     // A type not worked out yet, and a report with no period, say so.
-    const bs = await mkReport(bk, { reportType: 'YEAR_TO_DATE_SUMMARY', periodId: p.id });
+    const bs = await mkReport(bk, {
+      reportType: 'CUSTOM',
+      customName: 'Fake custom report',
+      periodId: p.id,
+    });
     expectError(
       await call('post', `/reports/${bs.id}/generate`, people.staffA, {}),
       409,
@@ -3299,18 +3303,167 @@ describe('report figures from statements, status and documents (BK-RPT part 2)',
       ),
     ).rejects.toThrow(/stays sent/);
 
-    // Another firm reaches none of it; Quarterly Review is not worked out yet.
+    // Another firm reaches none of it.
     expectError(
       await call('get', `/reports/${bs.id}/preview`, people.ownerB, undefined, ids.firmB),
       404,
       'NOT_FOUND',
     );
-    const qr = await mkReport(bk, { reportType: 'QUARTERLY_REVIEW', periodId: p.id });
-    expectError(
-      await call('post', `/reports/${qr.id}/generate`, people.staffA, {}),
-      409,
-      'REPORT_NOT_SUPPORTED',
+  });
+});
+
+describe('Quarterly Review and Year to Date Summary from the ledger (BK-RPT, Nov 10)', () => {
+  it('works out the days from the label or period, nets each month, generates versions, and firm B reaches none of it', async () => {
+    const bk = await bkOf(clients.assigned);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
     );
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const tag = randomUUID().slice(0, 6);
+    const acct = await mkAccount(bk, { name: `Fake summary checking ${tag}` });
+    const category = (name: string, type: 'INCOME' | 'EXPENSE') =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingCategory.create({
+          data: { ...A, name: `${name} ${tag}`, type },
+          select: { id: true },
+        }),
+      ).then((c) => c.id);
+    const fees = await category('Fake Summary Fees', 'INCOME');
+    const rent = await category('Fake Summary Rent', 'EXPENSE');
+    const mk = (
+      on: string,
+      cents: number,
+      direction: 'DEBIT' | 'CREDIT',
+      categoryId: string | null,
+    ) =>
+      asOwner(ids.firmA, (tx) =>
+        tx.bookkeepingTransaction.create({
+          data: {
+            ...A,
+            accountId: acct.id,
+            transactionDate: new Date(`${on}T00:00:00.000Z`),
+            description: 'Fake summary line',
+            amountCents: cents,
+            direction,
+            status: categoryId ? 'CATEGORIZED' : 'UNCATEGORIZED',
+            source: 'MANUAL',
+            categoryId,
+          },
+        }),
+      );
+    // 2037: a year no other bookkeeping test writes lines in.
+    await mk('2036-12-31', 4_444, 'CREDIT', fees); // the year before: in neither
+    await mk('2037-02-10', 50_000, 'CREDIT', fees); // the year, not the quarter
+    await mk('2037-07-01', 200_000, 'CREDIT', fees); // the first day of the quarter
+    await mk('2037-08-14', 60_000, 'DEBIT', rent);
+    await mk('2037-09-30', 2_500, 'DEBIT', null); // the last day of the quarter, uncategorized
+    await mk('2037-10-01', 9_000, 'DEBIT', rent); // the day after the quarter
+
+    const qr = await mkReport(bk, { reportType: 'QUARTERLY_REVIEW', periodLabel: 'Q3 2037' });
+    const preview = exact(
+      BookkeepingReportPreview,
+      await call('get', `/reports/${qr.id}/preview`, people.staffA),
+    );
+    expect(preview).toMatchObject({
+      supported: true,
+      period: { start: '2037-07-01', end: '2037-09-30' },
+      missingStatements: [],
+    });
+    const f = preview.figures!;
+    expect(f.totals).toEqual({
+      incomeCents: 200_000,
+      costOfGoodsCents: 0,
+      expensesCents: 60_000,
+      netIncomeCents: 140_000,
+      months: 3,
+      uncategorized: 1,
+    });
+    expect(f.sections.map((s) => s.title)).toEqual([
+      'Profit & Loss',
+      'Net Income by Month',
+      'Ledger',
+    ]);
+    expect(f.sections[1]!.rows).toEqual([
+      { label: 'Jul 2037', amountCents: 200_000, count: 1 },
+      { label: 'Aug 2037', amountCents: -60_000, count: 1 },
+      { label: 'Sep 2037', amountCents: 0, count: 1 },
+    ]);
+    expect(f.notes).toEqual([]);
+    const v1 = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${qr.id}/generate`, people.staffA, {}),
+    );
+    expect(v1).toMatchObject({ version: 1, period: { start: '2037-07-01', end: '2037-09-30' } });
+    expect(v1.figures.totals['netIncomeCents']).toBe(140_000);
+    const file = await call('get', `/reports/${qr.id}/versions/1/csv`, people.ownerA);
+    expect(file.status).toBe(200);
+    expect(file.text).toContain('Jul 2037');
+
+    // The year to date by its label: a past year, so the whole of it.
+    const ytd = await mkReport(bk, { reportType: 'YEAR_TO_DATE_SUMMARY', periodLabel: 'FY 2037' });
+    const y = exact(
+      BookkeepingReportPreview,
+      await call('get', `/reports/${ytd.id}/preview`, people.staffA),
+    );
+    expect(y.period).toEqual({ start: '2037-01-01', end: '2037-12-31' });
+    expect(y.figures!.totals).toMatchObject({
+      incomeCents: 250_000,
+      expensesCents: 69_000,
+      netIncomeCents: 181_000,
+      months: 12,
+    });
+    expect(y.figures!.sections[1]!.rows[1]).toEqual({
+      label: 'Feb 2037',
+      amountCents: 50_000,
+      count: 1,
+    });
+
+    // By its period: 1 January to the end of the period.
+    const p = await mkPeriod(bk);
+    const byPeriod = await mkReport(bk, { reportType: 'YEAR_TO_DATE_SUMMARY', periodId: p.id });
+    expect(
+      exact(
+        BookkeepingReportPreview,
+        await call('get', `/reports/${byPeriod.id}/preview`, people.staffA),
+      ).period,
+    ).toEqual({ start: `${p.periodEnd.slice(0, 4)}-01-01`, end: p.periodEnd });
+
+    // A label that says no days, with no period, says so.
+    const vague = await mkReport(bk, {
+      reportType: 'QUARTERLY_REVIEW',
+      periodLabel: 'Fake quarter',
+    });
+    expectError(
+      await call('post', `/reports/${vague.id}/generate`, people.staffA, {}),
+      409,
+      'NO_PERIOD',
+    );
+    expect(
+      exact(
+        BookkeepingReportPreview,
+        await call('get', `/reports/${vague.id}/preview`, people.staffA),
+      ),
+    ).toMatchObject({ supported: false, figures: null });
+
+    // Another firm reaches none of it, and makes no version.
+    for (const [method, path] of [
+      ['get', `/reports/${qr.id}/preview`],
+      ['post', `/reports/${ytd.id}/generate`],
+      ['get', `/reports/${qr.id}/versions`],
+    ] as const) {
+      expectError(
+        await call(method, path, people.ownerB, method === 'post' ? {} : undefined, ids.firmB),
+        404,
+        'NOT_FOUND',
+      );
+    }
+    expect(
+      exact(
+        BookkeepingReportVersionList,
+        await call('get', `/reports/${ytd.id}/versions`, people.staffA),
+      ).items,
+    ).toEqual([]);
   });
 });
 

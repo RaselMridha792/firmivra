@@ -622,6 +622,49 @@ describe('agenda', () => {
     );
     expect(theirs.items.map((i) => i.id)).toEqual([b]);
   });
+
+  it("Advisory B5: filters by service kind, the appointment's own or its engagement's", async () => {
+    const n = freshDay();
+    const day = win(at(n, '00:00'), at(n + 1, '00:00'));
+    const advisory = await asOwner(ids.firmA, (tx) =>
+      tx.service.create({
+        // Inactive, so the options' service list (an active one only) stays as it was.
+        data: {
+          businessId: ids.firmA,
+          kind: 'BUSINESS_DEVELOPMENT',
+          name: `Advisory ${run}`,
+          status: 'INACTIVE',
+        },
+        select: { id: true },
+      }),
+    );
+    const meeting = await seed({
+      clientId: ids.c1,
+      staff: people.staffA,
+      startsAt: at(n, '09:00'),
+    });
+    const other = await seed({ clientId: ids.c2, staff: people.staffA2, startsAt: at(n, '11:00') });
+    await asOwner(ids.firmA, (tx) =>
+      tx.appointment.update({ where: { id: meeting }, data: { serviceId: advisory.id } }),
+    );
+    const found = async (q: string, who: Who = people.ownerA, firm = ids.firmA) =>
+      exact(
+        AgendaPage,
+        await call('get', `/appointments/agenda?${day}&${q}`, who, undefined, firm),
+      ).items.map((i) => i.id);
+    expect(await found('serviceKind=BUSINESS_DEVELOPMENT')).toEqual([meeting]);
+    expect((await found('')).sort()).toEqual([meeting, other].sort());
+    expect(await found('serviceKind=PAYROLL')).toEqual([]);
+    expectError(
+      await call('get', `/appointments/agenda?${day}&serviceKind=NOPE`, people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Another firm's advisory filter never shows firm A's meeting.
+    expect(await found('serviceKind=BUSINESS_DEVELOPMENT', people.ownerB, ids.firmB)).not.toContain(
+      meeting,
+    );
+  });
 });
 
 describe('options', () => {
@@ -1144,6 +1187,84 @@ describe('schedule', () => {
       400,
       'SMS_UNAVAILABLE',
     );
+  });
+
+  it('Generate Zoom Link puts the staff member’s link on, refuses 409 VIDEO_LINK_MISSING without one, and the options name who has one (Advisory B11)', async () => {
+    const setLink = (businessId: string, userId: string, meetingUrl: string | null) =>
+      asOwner(businessId, (tx) =>
+        tx.membership.updateMany({ where: { businessId, userId }, data: { meetingUrl } }),
+      );
+    await asOwner(ids.firmA, (tx) =>
+      tx.integrationConnection.create({ data: { businessId: ids.firmA, provider: 'zoom' } }),
+    );
+    await setLink(ids.firmA, people.staffA.id, 'https://meet.example.test/b11-staff-a');
+    await setLink(ids.firmA, people.staffA2.id, null);
+    await setLink(ids.firmB, people.ownerB.id, 'https://meet.example.test/b11-owner-b');
+    try {
+      // Who has a link: ids only, never the link; another firm's member never.
+      const o = exact(SchedulingOptions, await call('get', '/appointments/options', people.staffA));
+      expect(o.meetingLinkStaff).toContain(people.staffA.id);
+      expect(o.meetingLinkStaff).not.toContain(people.staffA2.id);
+      expect(o.meetingLinkStaff).not.toContain(people.ownerB.id);
+      expect(JSON.stringify(o)).not.toContain('meet.example.test');
+      const b = exact(
+        SchedulingOptions,
+        await call('get', '/appointments/options', people.ownerB, undefined, ids.firmB),
+      );
+      expect(b.meetingLinkStaff).toEqual([people.ownerB.id]);
+
+      // No link: refused, and nothing is booked.
+      const count = () =>
+        asOwner(ids.firmA, (tx) => tx.appointment.count({ where: { businessId: ids.firmA } }));
+      const before = await count();
+      expectError(
+        await call(
+          'post',
+          '/appointments/schedule',
+          people.ownerA,
+          schedule({ generateVideoLink: true, staffUserIds: [people.staffA2.id] }),
+        ),
+        409,
+        'VIDEO_LINK_MISSING',
+      );
+      expect(await count()).toBe(before);
+      // A link: Generate puts it on.
+      expect((await scheduled({ generateVideoLink: true })).videoUrl).toBe(
+        'https://meet.example.test/b11-staff-a',
+      );
+
+      // An edit to Video that generates for a member with no link is refused too.
+      const phone = await scheduled({
+        method: 'PHONE',
+        details: '555-0100',
+        staffUserIds: [people.staffA2.id],
+      });
+      expectError(
+        await call('patch', `/appointments/${phone.id}/details`, people.ownerA, {
+          version: phone.version,
+          method: 'VIDEO',
+          generateVideoLink: true,
+        }),
+        409,
+        'VIDEO_LINK_MISSING',
+      );
+      // A pasted link still works for that member.
+      expect(
+        exact(
+          AppointmentRecord,
+          await call('patch', `/appointments/${phone.id}/details`, people.ownerA, {
+            version: phone.version,
+            method: 'VIDEO',
+            videoUrl: 'https://meet.example.test/b11-pasted',
+          }),
+        ).videoUrl,
+      ).toBe('https://meet.example.test/b11-pasted');
+    } finally {
+      await asOwner(ids.firmA, (tx) =>
+        tx.integrationConnection.deleteMany({ where: { businessId: ids.firmA } }),
+      );
+      await setLink(ids.firmB, people.ownerB.id, null);
+    }
   });
 
   it("is 404 for another firm's ids and for a client Staff may not book; 409 for an archived client or type", async () => {

@@ -28,6 +28,8 @@ import {
   StaffWorkScheduleId,
   StaffWorkScheduleListQuery,
   UsersQuery,
+  ChangeMyPasswordRequest,
+  SignOutOtherSessionsRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { badTextPaths } from '../workspaces/input.js';
@@ -71,3 +73,7 @@ export const StaffWorkScheduleIdParam = StaffWorkScheduleId;
 export const StaffWorkScheduleListQ = StaffWorkScheduleListQuery;
 export const SaveStaffWorkScheduleBody = clean(SaveStaffWorkScheduleRequest);
 export const SaveStaffSecurityDefaultsBody = clean(SaveStaffSecurityDefaultsRequest);
+
+// SM14 part B: My Profile's Security card.
+export const SignOutOthersBody = clean(SignOutOtherSessionsRequest);
+export const ChangeMyPasswordBody = clean(ChangeMyPasswordRequest);

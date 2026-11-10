@@ -38,12 +38,18 @@ export function refreshSession(refresh = session?.refresh): Promise<boolean> {
   return refreshing;
 }
 
-/** SM4: the firm signed this session out (Active Sessions): a refresh would not bring it back. */
+/** The codes of a session that is over: a refresh would not bring it back. */
+const ENDED = new Set(['SESSION_REVOKED', 'SESSION_EXPIRED', 'SESSION_IDLE']);
+
+/**
+ * SM4: the firm signed this session out (Active Sessions); SEC-4: it reached its 8 hours, or 15
+ * minutes passed without activity. A refresh would not bring it back.
+ */
 export async function isSessionRevoked(res: Response): Promise<boolean> {
   if (res.status !== 401) return false;
   try {
     const body = (await res.clone().json()) as { error?: { code?: unknown } };
-    return body.error?.code === 'SESSION_REVOKED';
+    return typeof body.error?.code === 'string' && ENDED.has(body.error.code);
   } catch {
     return false;
   }
