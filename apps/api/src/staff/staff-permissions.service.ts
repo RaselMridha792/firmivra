@@ -14,7 +14,7 @@ import { DATABASE } from '../database/database.module.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { notFound } from '../workspaces/common.js';
 import {
-  assertManages,
+  assertActsOn,
   cellKey,
   lockTarget,
   mapStaffDbError,
@@ -215,7 +215,7 @@ export class StaffPermissionsService {
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const by = await requireManager(tx, actor);
         const target = await lockTarget(tx, businessId, id);
-        assertManages(actor, target);
+        await assertActsOn(tx, actor, target, 'edit');
         const out = await writeMemberGrid(tx, {
           businessId,
           membershipId: id,
@@ -261,7 +261,7 @@ export class StaffPermissionsService {
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const by = await requireManager(tx, actor);
         const target = await lockTarget(tx, businessId, id);
-        assertManages(actor, target);
+        await assertActsOn(tx, actor, target, 'edit');
         if (target.role === 'OWNER')
           throw new BadRequestException({
             code: 'VALIDATION_FAILED',

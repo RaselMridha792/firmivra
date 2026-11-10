@@ -270,3 +270,27 @@ test("Schedule Appointment starts from the chosen type's reminders; edits by han
   await expect(card.getByLabel('Email Reminder amount')).toHaveValue('2');
   await expect(card.getByTestId('reminder-defaults-note')).toHaveCount(0);
 });
+
+test('A9: a type names its intake form; the appointment sends it and shows it waiting', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/types'));
+  const intake = page.getByTestId('type-intake');
+  await expect(intake).toBeVisible({ timeout: 60_000 });
+  await intake.getByLabel('Required intake form').selectOption({ index: 1 });
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+
+  // A client's appointment (mock appointment 1) sends one and then shows it, waiting.
+  await page.goto(app('/calendar/0199c0b0-0a10-7000-8000-000000000001'));
+  await page.getByTestId('send-intake').click();
+  const dialog = page.getByTestId('send-intake-dialog');
+  await dialog.getByLabel('Form').selectOption({ index: 1 });
+  await expect(dialog.getByLabel('Subject')).toHaveValue(/before your appointment$/);
+  await page.screenshot({ path: test.info().outputPath('send-intake.png') });
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Form' }).click();
+  await expect(page.getByTestId('detail-result')).toContainText('Intake form sent');
+  await expect(page.getByTestId('detail-related')).toContainText('(waiting)');
+  await expect(page.getByTestId('send-intake')).toHaveCount(0);
+});

@@ -33,7 +33,7 @@ import type { ScanOutcome, ScanResult } from '../storage/scan-results.service.js
 import { notFound } from '../workspaces/common.js';
 import type { CreateStaffDocumentUploadBody, UpdateStaffDocumentBody } from './staff-input.js';
 import {
-  assertManages,
+  assertActsOn,
   requireManager,
   type StaffActor,
   staffConflict,
@@ -183,7 +183,7 @@ export class StaffDocumentsService {
           select: targetSelect,
         });
         if (!target) throw notFound();
-        if (change) assertManages(actor, target as Target);
+        if (change) await assertActsOn(tx, actor, target as Target, 'edit');
         return fn(tx, target as Target);
       },
     );
