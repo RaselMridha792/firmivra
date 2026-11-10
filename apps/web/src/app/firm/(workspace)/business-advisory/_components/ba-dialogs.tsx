@@ -7,7 +7,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { AREA_LABEL, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today, errorText } from './ba-shared';
+import {
+  AREA_LABEL,
+  BA_KEY,
+  BUSINESS_STAGES,
+  GOAL_STATUS_OPTIONS,
+  today,
+  errorText,
+} from './ba-shared';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
 export function useMembers() {
@@ -325,10 +332,7 @@ export function AddGoalDialog({
             label="Status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            options={['NOT_STARTED', 'PLANNING', 'IN_PROGRESS', 'ON_TRACK', 'AT_RISK'].map((s) => ({
-              value: s,
-              label: GOAL_STATUS[s]!,
-            }))}
+            options={GOAL_STATUS_OPTIONS}
           />
           {members.length ? (
             <Select

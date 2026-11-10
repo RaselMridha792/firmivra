@@ -2,6 +2,7 @@ import {
   type AdminRef,
   ApiRequestError,
   ApproveFirmApplicationRequest,
+  AssignFirmReviewerRequest,
   type BusinessSummary,
   DeclineFirmApplicationRequest,
   type FirmApplicationCheck,
@@ -103,6 +104,18 @@ const fixture = ({ n, name, contact, email, hours, business, history = [], ...da
     suggestedSlug: null,
     firm: null,
     ownerInvite: null,
+    // Filled in by the mock's view(), as the API derives them.
+    assignedReviewer: null,
+    lastActivity: { at: hoursAgo(hours), event: 'SUBMITTED' },
+    requestState: { state: 'NONE', at: null },
+    requests: [],
+    can: {
+      requestInfo: false,
+      approve: false,
+      decline: false,
+      assign: false,
+      resendOwnerInvite: false,
+    },
     ...data,
     history: [...history, { type: 'SUBMITTED', at: hoursAgo(hours), by: null, message: null }],
   });
@@ -171,7 +184,70 @@ export function firmApplicationFixtures(): readonly Row[] {
         services: ['BOOKKEEPING', 'PAYROLL'],
       },
       internalNotes: 'Asked for the PTIN by email; waiting for the reply.',
+      status: 'INFO_REQUESTED',
+      requests: [
+        {
+          id: uuid('0199b6a4', 2),
+          reason: 'Please send your PTIN.',
+          requestedBy: ADMIN,
+          requestedAt: hoursAgo(DAY),
+          expiresAt: hoursAgo(DAY - 14 * DAY),
+          status: 'OPEN',
+          closedAt: null,
+          responses: [],
+        },
+      ],
       history: [done('INFO_REQUESTED', DAY, 'Please send your PTIN.')],
+    }),
+    // In Review, assigned, with an answered request: a text and two files (one still being checked).
+    fixture({
+      n: 9,
+      name: 'Sample Summit CPA Group',
+      contact: 'Morgan Sample',
+      email: 'morgan@sample-summit.example.test',
+      hours: 6 * DAY,
+      status: 'IN_REVIEW',
+      assignedReviewer: ADMIN,
+      requests: [
+        {
+          id: uuid('0199b6a4', 9),
+          reason: 'Please send a copy of your firm license.',
+          requestedBy: ADMIN,
+          requestedAt: hoursAgo(4 * DAY),
+          expiresAt: hoursAgo(4 * DAY - 14 * DAY),
+          status: 'RESPONDED',
+          closedAt: hoursAgo(2 * DAY),
+          responses: [
+            {
+              id: uuid('0199b6a5', 9),
+              text: 'Attached is our license and the signed letter.',
+              submittedAt: hoursAgo(2 * DAY),
+              files: [
+                {
+                  id: uuid('0199b6a6', 1),
+                  fileName: 'firm-license.pdf',
+                  contentType: 'application/pdf',
+                  sizeBytes: 182_000,
+                  scanStatus: 'CLEAN',
+                },
+                {
+                  id: uuid('0199b6a6', 2),
+                  fileName: 'signed-letter.png',
+                  contentType: 'image/png',
+                  sizeBytes: 640_000,
+                  scanStatus: 'PENDING',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      history: [
+        { ...done('RESPONSE_RECEIVED', 2 * DAY), by: null },
+        done('INFO_REQUESTED', 4 * DAY, 'Please send a copy of your firm license.'),
+        done('REVIEWER_ASSIGNED', 5 * DAY, ADMIN.name),
+        done('REVIEW_STARTED', 5 * DAY),
+      ],
     }),
     fixture({
       n: 3,
@@ -413,10 +489,43 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
   /** What the API returns: a copy, with the derived fields filled in. */
   const view = (row: Row): Row => {
     const invite = row.ownerInvite;
+    const open = ['PENDING_REVIEW', 'IN_REVIEW', 'INFO_REQUESTED'].includes(row.status);
+    const latest = row.requests[0];
+    const answer = latest?.responses[0];
+    const newest = row.history[0];
+    const ACTIVITY: Partial<Record<FirmApplicationEvent['type'], Row['lastActivity']['event']>> = {
+      SUBMITTED: 'SUBMITTED',
+      REVIEW_STARTED: 'REVIEW_STARTED',
+      INFO_REQUESTED: 'INFO_REQUESTED',
+      RESPONSE_RECEIVED: 'RESPONSE_RECEIVED',
+      NOTE_SAVED: 'NOTE_SAVED',
+      REVIEWER_ASSIGNED: 'REVIEWER_ASSIGNED',
+      APPROVED: 'DECIDED',
+      DECLINED: 'DECIDED',
+      OWNER_INVITED: 'OWNER_INVITED',
+    };
     return structuredClone({
       ...row,
+      lastActivity: {
+        at: newest?.at ?? row.submittedAt,
+        event: (newest && ACTIVITY[newest.type]) ?? 'SUBMITTED',
+      },
+      requestState: !latest
+        ? { state: 'NONE' as const, at: null }
+        : latest.status === 'OPEN'
+          ? { state: 'WAITING' as const, at: latest.requestedAt }
+          : answer
+            ? { state: 'RESPONDED' as const, at: answer.submittedAt }
+            : { state: 'NONE' as const, at: null },
+      can: {
+        requestInfo: open,
+        approve: open,
+        decline: open,
+        assign: open,
+        resendOwnerInvite: row.status === 'APPROVED' && invite?.status !== 'ACCEPTED',
+      },
       checks: checks(row),
-      suggestedSlug: row.status === 'PENDING_REVIEW' ? suggest(row.legalName) : null,
+      suggestedSlug: open ? suggest(row.legalName) : null,
       firm: firms.find((f) => f.firm.id === row.firm?.id)?.firm ?? null,
       ownerInvite:
         invite?.status === 'SENT' && invite.expiresAt < now()
@@ -430,7 +539,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     return row;
   };
   const pending = (row: Row) => {
-    if (row.status !== 'PENDING_REVIEW')
+    if (!['PENDING_REVIEW', 'IN_REVIEW', 'INFO_REQUESTED'].includes(row.status))
       throw fail(409, 'APPLICATION_DECIDED', 'This application is already decided');
     return row;
   };
@@ -549,7 +658,13 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
           contactPhone: r.contactPhone ?? r.primaryAdmin?.phone ?? null,
           submittedAt: r.submittedAt,
           decidedAt: r.decision?.at ?? null,
+          assignedReviewer: r.assignedReviewer,
+          lastActivity: view(r).lastActivity,
+          requestState: view(r).requestState,
+          accountStatus: firms.find((f) => f.firm.id === r.firm?.id)?.firm.status ?? null,
         }));
+      if (q.order === 'activity')
+        found.sort((a, b) => b.lastActivity.at.localeCompare(a.lastActivity.at));
       return page(found, q);
     },
 
@@ -565,6 +680,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       return {
         all: rows.length,
         pendingReview: count('PENDING_REVIEW'),
+        inReview: count('IN_REVIEW'),
+        awaitingInformation: count('INFO_REQUESTED'),
         approved: count('APPROVED'),
         declined: count('DECLINED'),
         approvedThisMonth: count('APPROVED', true),
@@ -609,9 +726,30 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { message } = parseInput(RequestFirmInfoRequest, body);
       const row = pending(find(key));
-      // Like the database: the same message as the last request is no change and no new entry.
-      if (lastRequest(row) === message) return view(row);
-      return save({ ...row, history: [event('INFO_REQUESTED', message), ...row.history] });
+      // Like the API: the same message as the open request is a double click: no change.
+      if (row.status === 'INFO_REQUESTED' && lastRequest(row) === message) return view(row);
+      const at = now();
+      return save({
+        ...row,
+        status: 'INFO_REQUESTED',
+        requests: [
+          {
+            id: uuid('0199b6a4', nextId++),
+            reason: message,
+            requestedBy: ADMIN,
+            requestedAt: at,
+            expiresAt: new Date(Date.now() + 2 * WEEK_MS).toISOString(),
+            status: 'OPEN',
+            closedAt: null,
+            responses: [],
+          },
+          // "Request again": the open one closes (its link stops working).
+          ...row.requests.map((r) =>
+            r.status === 'OPEN' ? { ...r, status: 'SUPERSEDED' as const, closedAt: at } : r,
+          ),
+        ],
+        history: [event('INFO_REQUESTED', message), ...row.history],
+      });
     },
 
     decline: async (id, body) => {
@@ -635,6 +773,53 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { notes } = parseInput(SaveFirmNotesRequest, body);
       return save({ ...find(key), internalNotes: notes });
+    },
+
+    open: async (id) => {
+      await mockDelay();
+      const row = find(parseInput(FirmApplicationId, id));
+      if (row.status !== 'PENDING_REVIEW') return view(row);
+      return save({
+        ...row,
+        status: 'IN_REVIEW',
+        history: [event('REVIEW_STARTED'), ...row.history],
+      });
+    },
+
+    reviewers: async () => {
+      await mockDelay();
+      return { items: [ADMIN, { userId: uuid('0199b6a2', 0xa2), name: 'Sam Reviewer' }] };
+    },
+
+    assignReviewer: async (id, body) => {
+      await mockDelay();
+      const key = parseInput(FirmApplicationId, id);
+      const { userId } = parseInput(AssignFirmReviewerRequest, body);
+      const row = pending(find(key));
+      const reviewer =
+        userId === null
+          ? null
+          : ([ADMIN, { userId: uuid('0199b6a2', 0xa2), name: 'Sam Reviewer' }].find(
+              (a) => a.userId === userId,
+            ) ?? null);
+      if (userId !== null && !reviewer) throw fail(404, 'NOT_FOUND', 'Not found');
+      return save({
+        ...row,
+        assignedReviewer: reviewer,
+        history: [event('REVIEWER_ASSIGNED', reviewer?.name ?? 'Unassigned'), ...row.history],
+      });
+    },
+
+    fileLink: async (id, fileId) => {
+      await mockDelay();
+      const row = find(parseInput(FirmApplicationId, id));
+      const file = row.requests
+        .flatMap((r) => r.responses.flatMap((x) => x.files))
+        .find((f) => f.id === fileId);
+      if (!file) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (file.scanStatus !== 'CLEAN')
+        throw fail(409, 'FILE_NOT_READY', 'This file is still being checked');
+      return { url: 'about:blank', fileName: file.fileName };
     },
 
     resendOwnerInvite: async (id) => {
