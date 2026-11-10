@@ -87,7 +87,8 @@ test('E6: closing Edit Details after a change asks Save, Discard or Keep Editing
   page,
 }) => {
   await open(page);
-  await names(page).first().click();
+  // A client with everything E5 requires, so Save Changes can save.
+  await names(page).filter({ hasText: 'Jamie Sample' }).click();
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });
   const edit = page.getByRole('button', { name: 'Edit details' });
   await edit.click();

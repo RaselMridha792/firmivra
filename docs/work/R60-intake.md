@@ -1831,3 +1831,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   the member's grid (`GET /business/clients/{id}/services` opens each module's own record), More
   past eleven tabs, and Active Services and Recent Activity on Overview. API e2e 3 of 3, mock 58 of
   58 across the client specs.
+- Nov 10: Clients E5, branch `rasel/R60-clients-required` (stacked on `rasel/R60-clients-tabs`):
+  Add New Client and Edit Details share `clientFormIssues` (D1's required fields, plus a
+  Business's responsible party: full name, email, phone, on R1's three columns of #1181), the
+  profile shows it, and the API refuses clearing it on a Business. The calendar's quick add stays
+  looser, as D1. Clients e2e 48 of 48, types 37 of 37, mock `r60-clients-required` 3 of 3.

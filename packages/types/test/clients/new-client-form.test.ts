@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NewClientForm } from '../../src/index.js';
+import { clientFormIssues, NewClientForm } from '../../src/index.js';
 
 // Fake values only (CLAUDE.md rule 9).
 const home = { line1: '1 Fake Street', city: 'Faketown', state: 'GA', postalCode: '30301' };
@@ -10,6 +10,7 @@ const individual = {
   phone: '(404) 555-0100',
   profile: { address: home },
 } as const;
+const party = { name: 'Fake Owner', email: 'Fake.Owner@example.test', phone: '(404) 555-0101' };
 
 const issues = (body: unknown) => {
   const result = NewClientForm.safeParse(body);
@@ -25,7 +26,7 @@ describe('NewClientForm (Octavia D1)', () => {
       ...individual,
       accountType: 'BUSINESS',
       displayName: 'Fake Bakery LLC',
-      profile: { businessName: 'Fake Bakery LLC', address: home },
+      profile: { businessName: 'Fake Bakery LLC', address: home, responsibleParty: party },
     };
     expect(NewClientForm.safeParse(business).success).toBe(true);
   });
@@ -42,10 +43,40 @@ describe('NewClientForm (Octavia D1)', () => {
     });
   });
 
-  it('asks a Business for its Business Name too', () => {
+  it('asks a Business for its Business Name and its responsible party too (E5)', () => {
     expect(issues({ ...individual, accountType: 'BUSINESS' })).toEqual({
       'profile.businessName': 'Enter the business name',
+      'profile.responsibleParty.name': "Enter the responsible party's full name",
+      'profile.responsibleParty.email': "Enter the responsible party's email",
+      'profile.responsibleParty.phone': "Enter the responsible party's phone",
     });
+  });
+
+  it("checks the responsible party's email and phone, and keeps them as typed (E5)", () => {
+    const business = {
+      ...individual,
+      accountType: 'BUSINESS',
+      profile: {
+        businessName: 'Fake Bakery LLC',
+        address: home,
+        responsibleParty: { ...party, email: 'nope', phone: '12' },
+      },
+    };
+    expect(Object.keys(issues(business)).sort()).toEqual([
+      'profile.responsibleParty.email',
+      'profile.responsibleParty.phone',
+    ]);
+    const ok = NewClientForm.parse({
+      ...business,
+      profile: { ...business.profile, responsibleParty: party },
+    });
+    expect(ok.profile?.responsibleParty).toEqual({
+      name: 'Fake Owner',
+      email: 'fake.owner@example.test',
+      phone: '+14045550101',
+    });
+    // An Individual is never asked for one.
+    expect(clientFormIssues({ ...individual, profile: { address: home } })).toEqual([]);
   });
 
   it('checks the format of the email, phone, state and ZIP', () => {

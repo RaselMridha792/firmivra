@@ -76,6 +76,16 @@ function Profile({ client }: { client: ClientRecord }) {
             <Field label="Entity type">{profile.entityType}</Field>
             <Field label="EIN">{masked(profile.einLast4, '••-•••')}</Field>
             <Field label="Contact person">{legalName || null}</Field>
+            {/* E5: the person linked to the business, not replacing it. */}
+            <Field label="Responsible party">
+              {profile.responsibleParty ? (
+                <span data-testid="responsible-party">
+                  <span className="block">{profile.responsibleParty.name}</span>
+                  <span className="block">{profile.responsibleParty.email}</span>
+                  <span className="block">{formatPhone(profile.responsibleParty.phone)}</span>
+                </span>
+              ) : null}
+            </Field>
           </>
         ) : (
           <>
