@@ -372,6 +372,11 @@ export const SchedulingOptions = z.object({
   portalEnabled: z.boolean(),
   /** A connected video integration (Integrations module): "Generate Zoom Link". */
   videoProvider: z.enum(['ZOOM', 'TEAMS', 'GOOGLE_MEET']).nullable(),
+  /**
+   * Advisory B11 (Octavia, Oct 25): the members with a default meeting link (Settings >
+   * Availability), which Generate Zoom Link uses. Ids only, never the links.
+   */
+  meetingLinkStaff: z.array(z.uuid()),
 });
 export type SchedulingOptions = z.infer<typeof SchedulingOptions>;
 
@@ -624,6 +629,8 @@ export const SchedulingErrorCode = z.enum([
   'SAVE_CONFLICT',
   /** 409: "Generate Zoom Link" with no video integration connected. */
   'VIDEO_NOT_CONNECTED',
+  /** 409: "Generate Zoom Link" while the staff member has no meeting link (Settings > Availability). */
+  'VIDEO_LINK_MISSING',
   /** 400: SMS reminders while the firm has no SMS sender or the contact no phone. */
   'SMS_UNAVAILABLE',
 ]);

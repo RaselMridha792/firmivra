@@ -345,6 +345,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
   const managers = () => {
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
   };
+  /** The mock member with no meeting link (Advisory B11). */
+  const videoOff = () => {
+    try {
+      return sessionStorage.getItem('firmivra-mock:video') === 'off';
+    } catch {
+      return false;
+    }
+  };
+  const NO_LINK = 'Theo Grant';
   const staffList = [
     staffRef(1, 'Morgan Avery'),
     staffRef(2, 'Priya Ramos'),
@@ -554,7 +563,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         ],
         smsEnabled: true,
         portalEnabled: true,
-        videoProvider: 'ZOOM',
+        // A spec switches Zoom off for the tab with sessionStorage 'firmivra-mock:video' = 'off'.
+        videoProvider: videoOff() ? null : 'ZOOM',
+        // Theo Grant has no meeting link yet (Advisory B11).
+        meetingLinkStaff: staffList.filter((m) => m.name !== NO_LINK).map((m) => m.userId),
       };
     },
     contacts: async (query) => {
@@ -598,6 +610,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       }
       if (input.generateVideoLink && input.method !== 'VIDEO')
         throw fail(400, 'VALIDATION_FAILED', 'Video links are for Zoom / Video');
+      if (
+        input.generateVideoLink &&
+        staffByIds(input.staffUserIds.slice(0, 1)).some((m) => m.name === NO_LINK)
+      )
+        throw fail(
+          409,
+          'VIDEO_LINK_MISSING',
+          'The staff member has no meeting link yet. Add it in Settings > Availability, or paste a link.',
+        );
       const type = TYPES().find((t) => t.id === input.typeId);
       if (!type) throw fail(404, 'NOT_FOUND', 'Appointment type not found');
       const staff = staffByIds(input.staffUserIds);

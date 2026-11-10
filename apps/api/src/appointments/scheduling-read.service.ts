@@ -17,6 +17,7 @@ import { AppointmentHistory } from './appointment-history.service.js';
 import { DAY, zonedDate, zonedInstant } from './calendar.js';
 import { activeMembers, type FirmActor, firmTimeZone, inFullWhere } from './calendar-data.js';
 import { errors } from './errors.js';
+import { MEETING_LINKS, type MeetingLinkStore } from './meeting-links.js';
 import { findSchedulingRow, schedulingSelect, toEntry, toRecord } from './scheduling-data.js';
 import {
   colorHex,
@@ -58,6 +59,7 @@ export class SchedulingReadService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly history: AppointmentHistory,
+    @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -241,6 +243,12 @@ export class SchedulingReadService {
         orderBy: { connectedAt: 'asc' },
         select: { provider: true },
       });
+      const staff = await activeMembers(tx, businessId);
+      const links = await this.links.get(
+        tx,
+        businessId,
+        staff.map((m) => m.userId),
+      );
       return {
         timezone: await firmTimeZone(tx, businessId),
         types: types.map((t) => ({
@@ -252,7 +260,7 @@ export class SchedulingReadService {
           methods: typeMethods(t).map(methodOf),
         })),
         services,
-        staff: await activeMembers(tx, businessId),
+        staff,
         offices,
         rooms,
         // No row means the column defaults (SMS off, portal on).
@@ -261,6 +269,8 @@ export class SchedulingReadService {
         videoProvider: video
           ? VIDEO_PROVIDERS[video.provider as keyof typeof VIDEO_PROVIDERS]
           : null,
+        // Advisory B11: whose link Generate can use; ids only, never a link.
+        meetingLinkStaff: staff.filter((m) => links.get(m.userId)).map((m) => m.userId),
       };
     });
   }
