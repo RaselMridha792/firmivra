@@ -353,6 +353,8 @@ function Form({ location, options }: { location?: LocationProfile; options: Loca
       }
       setV(initialValues(saved));
       await qc.invalidateQueries({ queryKey: [...LOCATIONS] });
+      // The Settings Overview counts and lists locations too.
+      await qc.invalidateQueries({ queryKey: ['settings', 'overview'] });
       router.push(`/settings/locations?saved=${encodeURIComponent(note)}`);
     } catch (e) {
       setFailure(e);
