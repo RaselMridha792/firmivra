@@ -36,7 +36,9 @@ test('B5: Upcoming Advisory Meetings opens Appointments on the advisory meetings
   );
   await page.screenshot({ path: test.info().outputPath('advisory-meetings.png') });
   await page.getByRole('button', { name: 'Show all appointments' }).click();
-  await expect(page.getByRole('heading', { name: 'Appointments', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Appointments', exact: true, level: 2 }),
+  ).toBeVisible();
   await expect(page.getByTestId('advisory-filter')).toHaveCount(0);
 });
 
@@ -96,7 +98,7 @@ test('B9: a finalized plan offers Modify Plan, not Edit; a version opens as a sn
   await page.getByTestId('view-snapshot').first().click();
   await expect(page.getByTestId('plan-snapshot')).toContainText('Version 1');
   await expect(page.getByTestId('plan-snapshot')).toContainText('read only');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Modify Plan' }).click();
   await expect(page).toHaveURL(/\/business-advisory\/plans\/[0-9a-f-]{36}\/edit/);

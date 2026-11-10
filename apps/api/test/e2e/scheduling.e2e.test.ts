@@ -628,7 +628,13 @@ describe('agenda', () => {
     const day = win(at(n, '00:00'), at(n + 1, '00:00'));
     const advisory = await asOwner(ids.firmA, (tx) =>
       tx.service.create({
-        data: { businessId: ids.firmA, kind: 'BUSINESS_DEVELOPMENT', name: `Advisory ${run}` },
+        // Inactive, so the options' service list (an active one only) stays as it was.
+        data: {
+          businessId: ids.firmA,
+          kind: 'BUSINESS_DEVELOPMENT',
+          name: `Advisory ${run}`,
+          status: 'INACTIVE',
+        },
         select: { id: true },
       }),
     );

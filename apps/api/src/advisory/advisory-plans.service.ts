@@ -383,11 +383,18 @@ export class AdvisoryPlansService {
       const p = await this.editable(ctx, id, body.etag);
       if (!(NEXT_STATUS[p.status] ?? []).includes(body.status))
         throw advErrors.invalidStatus(`A plan cannot go from ${p.status} to ${body.status}`);
-      if (body.status === 'DRAFT' && p.finalizedAt)
+      // B9: Modify Plan, a finalized or sent plan back to DRAFT, is its next revision: a draft again
+      // (finalizing makes the next version); its versions keep what was finalized and sent.
+      const revision = body.status === 'DRAFT' && (p.status === 'FINALIZED' || p.status === 'SENT');
+      if (body.status === 'DRAFT' && p.finalizedAt && !revision)
         throw advErrors.invalidStatus('A plan that was finalized cannot go back to a draft');
       await tx.advisoryPlan.update({
         where: { businessId_id: { businessId, id } },
-        data: { status: body.status, updatedByUserId: userId },
+        data: {
+          status: body.status,
+          updatedByUserId: userId,
+          ...(revision ? { finalizedAt: null } : {}),
+        },
       });
       await this.audit.logIn(
         tx,
