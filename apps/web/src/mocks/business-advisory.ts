@@ -1728,6 +1728,16 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
+        // B9, as the API: a finalized or sent plan is locked; only the wizard's place moves.
+        if (
+          (p.status === 'FINALIZED' || p.status === 'SENT') &&
+          Object.entries(req).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
+        )
+          throw fail(
+            409,
+            'PLAN_LOCKED',
+            'This plan is finalized. Modify Plan starts a new draft revision.',
+          );
         if (req.name !== undefined) p.name = req.name;
         if (req.targetYear !== undefined) p.targetYear = req.targetYear;
         if (req.planType !== undefined) p.planType = req.planType;
@@ -1747,8 +1757,9 @@ export function createAdvisoryMock({
         const allowed: Partial<Record<AdvisoryPlanRow['status'], AdvisoryPlanRow['status'][]>> = {
           DRAFT: ['IN_REVIEW'],
           IN_REVIEW: ['DRAFT'],
-          FINALIZED: ['IN_PROGRESS'],
-          SENT: ['IN_PROGRESS'],
+          // B9: Modify Plan takes a finalized or sent plan back to DRAFT (the next revision).
+          FINALIZED: ['IN_PROGRESS', 'DRAFT'],
+          SENT: ['IN_PROGRESS', 'DRAFT'],
           IN_PROGRESS: ['COMPLETED'],
           COMPLETED: ['IN_PROGRESS'],
         };

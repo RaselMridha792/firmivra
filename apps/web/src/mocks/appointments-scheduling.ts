@@ -489,6 +489,12 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         .filter((r) => !q.status || r.status === q.status)
         .filter((r) => !q.staffUserId || r.staff.some((x) => x.userId === q.staffUserId))
         .filter((r) => !q.clientId || r.contact.id === q.clientId)
+        // Advisory B5: the mock's services carry no kind; an advisory one says so in its name.
+        .filter(
+          (r) =>
+            q.serviceKind !== 'BUSINESS_DEVELOPMENT' ||
+            /advisory|business dev/i.test(r.service?.name ?? ''),
+        )
         .filter(
           (r) =>
             !search ||
