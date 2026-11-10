@@ -789,8 +789,13 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
     detail.workflowStatus === 'READY_TO_FILE' ||
     detail.workflowStatus === 'TRANSMITTED' ||
     detail.workflowStatus === 'REJECTED';
-  const blocked = next?.to === 'READY_TO_FILE' && detail.blockers.length > 0;
-  const others = detail.canMoveTo.filter((s) => s !== next?.to);
+  // TX-F18: Ready to File and Close are the reviewer's, or an Owner's or Admin's as the override.
+  const final = (s?: TaxReturnWorkflowStatus) => s === 'READY_TO_FILE' || s === 'CLOSED';
+  const notMine = final(next?.to) && !detail.canFinalize;
+  const blocked = notMine || (next?.to === 'READY_TO_FILE' && detail.blockers.length > 0);
+  const others = detail.canMoveTo.filter(
+    (s) => s !== next?.to && (detail.canFinalize || !final(s)),
+  );
   const button =
     'inline-flex min-h-11 items-center gap-2 rounded-control border border-action bg-surface px-4 font-medium text-action hover:bg-accent-soft';
   return (
@@ -826,7 +831,13 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
               type="button"
               className={`${primary} rounded-r-none`}
               disabled={blocked}
-              title={blocked ? detail.blockers.map((b) => BLOCKER_LABEL[b]).join('\n') : undefined}
+              title={
+                notMine
+                  ? "Only the return's reviewer, or an Owner or Admin, can do this"
+                  : blocked
+                    ? detail.blockers.map((b) => BLOCKER_LABEL[b]).join('\n')
+                    : undefined
+              }
               onClick={() =>
                 void act(
                   () => api.taxReturnWorkspace.changeStatus(detail.id, { workflowStatus: next.to }),
