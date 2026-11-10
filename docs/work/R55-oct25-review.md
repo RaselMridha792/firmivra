@@ -39,7 +39,9 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1327 merged: Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
 - #1330 merged: report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
 - #1333 merged: a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
-- #1338 (`rasel/R55-account-authority`): SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
+- #1338 merged: SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
+- #1344 (`rasel/R55-my-security`): SM14 part B, My Profile's Security card (my sessions, Sign Out All Other Sessions, Change Password with the current one first).
+- Firm Applications A (`rasel/R55-firm-applications`): In Review on open, Request Additional Information with its own record and link, Request again, decisions from every open status, the assigned reviewer, last activity, request state, response files, the new tabs and counts (SA-APP-F02, F03, F05 to F09, Y01, Y04).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -170,6 +172,15 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
   3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
 - **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
+- **Firm Applications (Oct 31 review, SA-APP-F01 to F10; Rasel's rules through the lead, Nov 10):**
+  - In Review on open is an explicit POST the detail page sends once (never a write in a GET); the list changes nothing.
+  - Awaiting Information is `INFO_REQUESTED`. A request keeps its own record (reason, who, when, 14-day link, only the token's hash). Request again closes the open one, whose link stops working. The same message as the open request is a double click: no change, no email.
+  - A response moves Awaiting Information back to In Review (Y02, part B); never back to Pending.
+  - Decline needs a reason; a request needs what is needed; approve takes no note (Y05).
+  - Last activity: submitted, review started, information requested, response received, note added, reviewer assigned, decision, invitation sent, in ET (America/New_York). The list sorts by it.
+  - Dashboard pending = Pending + In Review (Y04). All = the sum of the five tabs.
+  - "applications.review" has no default holder; admin routes admit Super Admins only until the Team guard. Assign and resend invitation stay Super Admin only (Y03).
+  - Response files open only once scanned clean, by a short-lived link, audited.
 - **SM14, account authority (Rasel's default through the lead, Nov 7; defaults 1 to 4 approved):**
   1. The Original Owner is the firm's first Owner membership (the account its application created). No schema change: nobody, the Original Owner included, can demote or deactivate that account, so it stays the first.
   2. Owner-level (the Original Owner and delegated Owners) acts on everyone below the Original Owner, other delegates included. Giving the Owner role, or taking it from a delegate, is the Original Owner's alone (Edit Staff and Settings > Users).
