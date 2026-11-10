@@ -823,6 +823,8 @@ export const AdvisoryGoalsQuery = z.strictObject({
   dueBefore: CalendarDate.optional(),
   search: SearchText.optional(),
   includeArchived: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** B25 (Octavia, Oct 25): Active (the default), Archived only, or All. Wins over includeArchived. */
+  view: z.enum(['active', 'archived', 'all']).optional(),
   sort: z
     .enum(['targetDate', 'title', 'status', 'progress', 'updated'])
     .optional()
