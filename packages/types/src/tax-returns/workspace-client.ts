@@ -9,6 +9,7 @@ import {
   ChangeTaxReturnStatusRequest,
   CreateTaxApprovalRequest,
   CreateTaxChecklistItemRequest,
+  CreateTaxValidationIssueRequest,
   CreateWorkspaceTaxReturnRequest,
   EfileReport,
   EfileReportQuery,
@@ -38,6 +39,9 @@ import {
   TaxReturnSummary,
   TaxReturnSummaryQuery,
   UpdateTaxChecklistItemRequest,
+  UpdateTaxValidationIssueRequest,
+  TaxValidationIssueId,
+  TaxValidationIssueList,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
   CorrectTaxReturnBusinessIdentityRequest,
@@ -223,6 +227,34 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
     /** Run Final Validation: records who ran it and when (no ERROR, warnings acknowledged). */
     finalValidation: async (id: string): Promise<TaxReturnDetail> =>
       request(TaxReturnDetail, `${ret(id)}/final-validation`, post()),
+
+    // Validation issues (TX-F19, F20)
+    issues: async (id: string): Promise<TaxValidationIssueList['items']> =>
+      (await request(TaxValidationIssueList, `${ret(id)}/issues`)).items,
+    /** Raise one: an ERROR blocks Ready to File and filing until it is resolved. */
+    raiseIssue: async (
+      id: string,
+      body: CreateTaxValidationIssueRequest,
+    ): Promise<TaxValidationIssueList['items']> =>
+      (
+        await request(
+          TaxValidationIssueList,
+          `${ret(id)}/issues`,
+          post(parseInput(CreateTaxValidationIssueRequest, body)),
+        )
+      ).items,
+    /** Resolve or reopen it, or hand it to someone else. */
+    updateIssue: async (
+      id: string,
+      issueId: string,
+      body: UpdateTaxValidationIssueRequest,
+    ): Promise<TaxValidationIssueList['items']> =>
+      (
+        await request(TaxValidationIssueList, sub(id, 'issues', issueId, TaxValidationIssueId), {
+          method: 'PATCH',
+          body: parseInput(UpdateTaxValidationIssueRequest, body),
+        })
+      ).items,
 
     // Approvals
     approvals: async (id: string): Promise<TaxApprovalList['items']> =>

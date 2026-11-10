@@ -18,6 +18,7 @@ import { FieldEncryption } from '../field-encryption/field-encryption.service.js
 import { zonedInstant } from '../reports/schedule-math.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { lockClient, memberNames, memberRef, notAMember } from '../workspaces/common.js';
+import { ISSUES_BLOCK } from './issues.service.js';
 import { notFound } from './tax-return-rules.js';
 import type {
   AmendBody,
@@ -735,6 +736,15 @@ export class TaxReturnWorkspaceService {
             );
           }
         }
+        // TX-F20: an unresolved Error issue blocks Ready to File and every filing (Transmitted,
+        // or Accepted without a transmission; the agency's answer to one sent is not blocked).
+        if (
+          r.issues.length > 0 &&
+          (to === 'READY_TO_FILE' ||
+            ((to === 'TRANSMITTED' || to === 'ACCEPTED') && r.workflowStatus !== 'TRANSMITTED'))
+        ) {
+          throw conflict('STATUS_BLOCKED', ISSUES_BLOCK);
+        }
         // TX-F18: the return's reviewer, or an Owner or Admin with APPROVE as the override.
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
           const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
@@ -850,6 +860,13 @@ export class TaxReturnWorkspaceService {
       'tax_return.filings_changed': ['FILING', 'Filings changed'],
       'tax_return.transmission': ['TRANSMISSION', 'Transmission recorded'],
       'tax_return.document': ['DOCUMENT', 'Documents changed'],
+      'tax_return.issue': ['VALIDATION', 'Validation issue updated'],
+    };
+    const ISSUE: Record<string, string> = {
+      raised: 'Validation issue raised',
+      resolved: 'Validation issue resolved',
+      reopened: 'Validation issue reopened',
+      reassigned: 'Validation issue reassigned',
     };
     return this.inFirm(tenant, async (tx) => {
       await this.find(tx, tenant, userId, id);
@@ -872,6 +889,10 @@ export class TaxReturnWorkspaceService {
           if (f.every((x) => x === 'preparerUserId' || x === 'reviewerUserId') && f.length) {
             k = ['ASSIGNED', 'Assignment changed'];
           }
+        }
+        if (l.action === 'tax_return.issue') {
+          const a = (l.metadata as { action?: string } | null)?.action ?? '';
+          k = ['VALIDATION', ISSUE[a] ?? k[1]];
         }
         return [
           {
