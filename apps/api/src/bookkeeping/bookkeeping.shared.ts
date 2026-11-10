@@ -62,10 +62,7 @@ export const errors = {
       "A transfer's other side is the same amount, the other way, on another of the client's accounts",
     ),
   reportNotSupported: () =>
-    conflict(
-      'REPORT_NOT_SUPPORTED',
-      'Figures for this report type are not worked out yet: Quarterly Review, Year to Date Summary and custom reports are not',
-    ),
+    conflict('REPORT_NOT_SUPPORTED', 'Figures for custom reports are not worked out yet'),
   noPeriod: () => conflict('NO_PERIOD', 'Set the bookkeeping period this report covers first'),
   // BK-RPT part 2.
   statementsMissing: (names: string) =>
