@@ -65,6 +65,7 @@ import {
   money,
   notFound,
   paymentsEnabled,
+  stripeReady,
   processing,
   toDate,
   dispatchTimes,
@@ -589,9 +590,9 @@ export class InvoicesService {
         where: { businessId_id: { businessId, id: invoiceId } },
         select: { totalCents: true, number: true },
       });
-      // Send Now always opens it; the daily run only with Auto-send on and payments ready.
-      const ready =
-        options.send === 'now' || (s.autoSend && (await paymentsEnabled(tx, businessId)));
+      // Send Now always opens it; the daily run only with Auto-send on and Stripe ready. Cards
+      // off (Settings > Payments) does not hold it: it goes out without Pay Now (lead, Nov 10).
+      const ready = options.send === 'now' || (s.autoSend && (await stripeReady(tx, businessId)));
       held =
         totalCents <= 0
           ? 'nothing_to_pay'

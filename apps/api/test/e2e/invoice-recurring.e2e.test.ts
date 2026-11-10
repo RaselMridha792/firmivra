@@ -365,6 +365,30 @@ describe('making the invoices of a recurring schedule (IP-F18, part 2)', () => {
     await run();
     const opened = (await made(ready)).find((i) => day(i.recurringPeriodOn) === nyDay(0))!;
     expect(opened.status).toBe('OPEN');
+    // PAY-3: cards off in Settings > Payments does not hold it; it goes without Pay Now.
+    const cardsOff = await dueToday();
+    expectOk(await t.firm('patch', `/recurring/${cardsOff}`, t.people.ownerA, { autoSend: true }));
+    // Cards off for this run only; the firm's settings row is put back as it was (or none).
+    const where = { businessId: t.ids.firmA };
+    const before = await t.inScope(t.ids.firmA, (tx) => tx.paymentSettings.findUnique({ where }));
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.paymentSettings.upsert({
+        where,
+        create: { ...where, acceptCard: false },
+        update: { acceptCard: false },
+      }),
+    );
+    try {
+      await run();
+    } finally {
+      await t.inScope(t.ids.firmA, (tx) =>
+        before
+          ? tx.paymentSettings.update({ where, data: { acceptCard: before.acceptCard } })
+          : tx.paymentSettings.delete({ where }),
+      );
+    }
+    const sent = (await made(cardsOff)).find((i) => day(i.recurringPeriodOn) === nyDay(0))!;
+    expect(sent.status).toBe('OPEN');
   });
 
   it('Send Now makes and sends the next one now; Staff may not; a paused one cannot', async () => {

@@ -36,13 +36,17 @@ export const dateIn = (timeZone: string, at: Date) =>
   new Intl.DateTimeFormat('en-CA', { timeZone }).format(at);
 
 /** The firm's Stripe account takes charges (its own row; RLS: this firm only). */
-export async function paymentsEnabled(tx: TxClient, businessId: string): Promise<boolean> {
+export async function stripeReady(tx: TxClient, businessId: string): Promise<boolean> {
   const account = await tx.stripeAccount.findUnique({
     where: { businessId },
     select: { chargesEnabled: true },
   });
-  if (!account?.chargesEnabled) return false;
-  return cardsAccepted(tx, businessId);
+  return account?.chargesEnabled ?? false;
+}
+
+/** Pay Now: Stripe takes charges and the firm takes cards (PAY-3). */
+export async function paymentsEnabled(tx: TxClient, businessId: string): Promise<boolean> {
+  return (await stripeReady(tx, businessId)) && cardsAccepted(tx, businessId);
 }
 
 /**
