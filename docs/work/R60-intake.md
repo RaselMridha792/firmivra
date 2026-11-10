@@ -480,6 +480,20 @@ Progress (TX-F18, Rasel's go on the role check; Nov 10):
   `appointment.reassigned_override`). One rule, `tax-returns/return-authority.ts`, used by the
   task update, Reschedule and the calendar's Edit Details. API e2e 86 of 86.
 
+Progress (TX-F19, F20 on R1's `tax_return_validation_issues`; Nov 10):
+- Branch `rasel/R60-tax-returns-issues` (on TX-F18's): `GET`/`POST /business/tax-returns/{id}/issues`
+  and `PATCH .../issues/{issueId}` (resolve, reopen, reassign). Return to Preparer takes `issue`
+  (raised with the decision) and `issueIds` (the open ones named); both go on the decision's audit
+  entry. An unresolved ERROR blocks Ready to File, Transmitted and Accepted before a transmission,
+  Run Final Validation, a transmission, a paper filing and the client record's Filed (new blocker
+  `VALIDATION_ISSUES_OPEN`); MANUAL_WARNING and INFO never block. Resolving: who raised it or the
+  return's reviewer (a warning or info also its responsible person), else the Owner or Admin
+  override, recorded. The screen: Validation Issues beside Return Validation and on Frame 3, and
+  the Return to Preparer dialog. Tax e2e 40 of 40, mock 30 of 30, isolation clean for the routes.
+- Note for Review 2: a durable link from a returned step to its issues would need a column
+  (`approval_id`); today the link is the decision's audit entry. Ask only if Octavia wants the
+  returned step to list its issues.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,

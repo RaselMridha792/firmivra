@@ -121,6 +121,8 @@ export const detailSelect = {
     select: { signedOn: true, esignRequest: { select: { status: true } } },
   },
   filings: { where: { required: true }, select: { status: true } },
+  // TX-F20: the unresolved Error issues, which block Ready to File and filing.
+  issues: { where: { severity: 'ERROR', resolvedAt: null }, select: { id: true } },
 } satisfies Prisma.TaxReturnSelect;
 export type DetailSource = Prisma.TaxReturnGetPayload<{ select: typeof detailSelect }>;
 
@@ -195,6 +197,10 @@ export function blockersOf(r: DetailSource): TaxReturnBlocker[] {
     }
   }
   if (r.amends && !r.amends.firstFiledAt) out.push('ORIGINAL_NOT_FILED');
+  // TX-F20: before it is filed, and after a rejection (a retransmission is a filing too).
+  if (r.issues.length > 0 && (step < 5 || r.workflowStatus === 'REJECTED')) {
+    out.push('VALIDATION_ISSUES_OPEN');
+  }
   return out;
 }
 

@@ -6,6 +6,7 @@ import {
   ChangeTaxReturnStatusRequest,
   CreateTaxApprovalRequest,
   CreateTaxChecklistItemRequest,
+  CreateTaxValidationIssueRequest,
   CreateWorkspaceTaxReturnRequest,
   EfileReportQuery,
   LinkTaxAuthorizationRequest,
@@ -18,6 +19,7 @@ import {
   TaxReturnsQuery,
   TaxReturnSummaryQuery,
   UpdateTaxChecklistItemRequest,
+  UpdateTaxValidationIssueRequest,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
   CorrectTaxReturnBusinessIdentityRequest,
@@ -38,6 +40,7 @@ import {
   type TaxReturnRow,
   type TaxReturnWorkflowStatus,
   type TaxReturnWorkspaceClient,
+  type TaxValidationIssue,
   TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
 import { registerServiceEngagement } from './service-engagements';
@@ -169,7 +172,14 @@ interface Stored {
   documents: TaxReturnDocument[];
   history: TaxReturnHistoryList['items'];
   activity: TaxReturnActivityList['items'];
+  /** TX-F19: the reviewer's validation issues (none seeded); `canResolve` is worked out on read. */
+  issues?: TaxValidationIssue[];
 }
+
+/** TX-F20: an unresolved Error issue blocks Ready to File and every filing. */
+const openErrors = (r: Stored) =>
+  (r.issues ?? []).some((i) => i.severity === 'ERROR' && !i.resolvedAt);
+const issuesBlock = () => fail(409, 'STATUS_BLOCKED', 'Resolve the validation errors first');
 
 const STEP: Partial<Record<TaxReturnWorkflowStatus, number>> = {
   IN_PREPARATION: 1,
@@ -245,6 +255,9 @@ function blockersOf(r: Stored, all: Stored[]): TaxReturnBlocker[] {
   }
   const original = r.amendsReturnId ? all.find((x) => x.id === r.amendsReturnId) : undefined;
   if (original && !original.firstFiledAt) out.push('ORIGINAL_NOT_FILED');
+  if (openErrors(r) && (step < 5 || r.workflowStatus === 'REJECTED')) {
+    out.push('VALIDATION_ISSUES_OPEN');
+  }
   return out;
 }
 
@@ -272,6 +285,14 @@ function blockersFor(r: Stored, to: TaxReturnWorkflowStatus, all: Stored[]): Tax
     !required.every((f) => done(f.status))
   ) {
     out.push('FILINGS_NOT_ACCEPTED');
+  }
+  // As the API (TX-F20): Ready to File, or Transmitted or Accepted without a transmission.
+  if (
+    openErrors(r) &&
+    (to === 'READY_TO_FILE' ||
+      ((to === 'TRANSMITTED' || to === 'ACCEPTED') && r.workflowStatus !== 'TRANSMITTED'))
+  ) {
+    out.push('VALIDATION_ISSUES_OPEN');
   }
   return [...new Set(out)];
 }
@@ -618,6 +639,25 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         a.status === 'PENDING' &&
         (role !== 'STAFF' || (a.assignedTo ?? r.reviewer)?.userId === me.userId),
     }));
+  // TX-F19: who raised it or the reviewer; a Manual Warning or Info also its responsible person;
+  // Owner and Admin as the override.
+  const ORDER = ['ERROR', 'MANUAL_WARNING', 'INFO'];
+  const issuesOf = (r: Stored) =>
+    copy(r.issues ?? [])
+      .sort(
+        (a, b) =>
+          Number(!!a.resolvedAt) - Number(!!b.resolvedAt) ||
+          ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity) ||
+          b.createdAt.localeCompare(a.createdAt),
+      )
+      .map((i) => ({
+        ...i,
+        canResolve:
+          role !== 'STAFF' ||
+          i.raisedBy?.userId === me.userId ||
+          r.reviewer?.userId === me.userId ||
+          (i.severity !== 'ERROR' && i.responsible?.userId === me.userId),
+      }));
   const find = (id: string) => {
     const r = rows.find((x) => x.id === id);
     if (!r || !reachable(r)) throw notFound();
@@ -765,6 +805,40 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     const m = team().find((t) => t.user.id === userId);
     if (!m) throw fail(409, 'NOT_A_MEMBER', 'Not an active member');
     return { userId, name: m.user.name };
+  };
+  /** As the API: the person an active member, the version a draft return, the line the return's. */
+  const raise = (
+    r: Stored,
+    b: ReturnType<typeof CreateTaxValidationIssueRequest.parse>,
+  ): TaxValidationIssue => {
+    const draft = b.draftDocumentId
+      ? r.documents.find((d) => d.kind === 'DRAFT_RETURN' && d.document.id === b.draftDocumentId)
+      : undefined;
+    if (b.draftDocumentId && !draft) {
+      throw fail(409, 'INVALID_DOCUMENT', "Choose one of this return's draft returns");
+    }
+    const line = b.checklistItemId
+      ? r.checklist.find((c) => c.id === b.checklistItemId)
+      : undefined;
+    if (b.checklistItemId && !line) {
+      throw fail(400, 'VALIDATION_FAILED', "Choose one of this return's checklist lines");
+    }
+    const issue: TaxValidationIssue = {
+      id: newId('0f10'),
+      severity: b.severity,
+      note: b.note,
+      responsible: memberRef(b.responsibleUserId),
+      draft: draft ? { id: draft.document.id, fileName: draft.document.fileName } : null,
+      step: line ? { id: line.id, label: line.label } : null,
+      raisedBy: me,
+      createdAt: nowIso(),
+      resolvedAt: null,
+      resolvedBy: null,
+      canResolve: true,
+    };
+    (r.issues ??= []).push(issue);
+    touch(r, 'VALIDATION', 'Validation issue raised');
+    return issue;
   };
 
   return {
@@ -1189,6 +1263,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const b = parseInput(RecordTaxFilingAttemptRequest, body);
       const r = find(id);
       const f = filingOf(r, filingId);
+      if (openErrors(r)) throw issuesBlock();
       if (f.attempts[0] && f.attempts[0].ackStatus !== 'REJECTED') {
         throw fail(409, 'ATTEMPT_PENDING', 'Wait for the last transmission');
       }
@@ -1241,6 +1316,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const r = find(id);
       const f = filingOf(r, filingId);
       if (f.filingMethod !== 'PAPER') throw fail(409, 'RETURN_LOCKED', 'Only a paper filing');
+      if (openErrors(r)) throw issuesBlock();
       f.paperFiledOn = b.paperFiledOn;
       f.mailTrackingNumber = b.mailTrackingNumber;
       f.status = 'PAPER_FILED';
@@ -1322,6 +1398,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (checks.some((c) => c.result === 'WARNING' && !c.acknowledgedAt)) {
         throw fail(409, 'STATUS_BLOCKED', 'Warnings');
       }
+      if (openErrors(r)) throw issuesBlock();
       r.finalValidatedAt = nowIso();
       r.finalValidatedBy = me;
       touch(r, 'VALIDATION', 'Final validation recorded');
@@ -1377,6 +1454,13 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const a = r.approvals.find((x) => x.id === approvalId);
       if (!a) throw notFound();
       if (a.status !== 'PENDING') throw fail(409, 'RETURN_LOCKED', 'Already decided');
+      // TX-F19: the open issues named must be this return's; a new one is raised with it.
+      for (const issueId of b.issueIds ?? []) {
+        const i = (r.issues ?? []).find((x) => x.id === issueId);
+        if (!i) throw notFound();
+        if (i.resolvedAt) throw fail(400, 'VALIDATION_FAILED', 'Name only the issues still open');
+      }
+      if (b.issue) raise(r, b.issue);
       a.status = 'RETURNED';
       a.decidedAt = nowIso();
       a.decidedBy = me;
@@ -1387,6 +1471,44 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       }
       touch(r, 'APPROVAL', `${a.step} returned to the preparer`);
       return decidable(r);
+    },
+
+    issues: async (id) => {
+      await mockDelay();
+      return issuesOf(find(id));
+    },
+    raiseIssue: async (id, body) => {
+      await mockDelay();
+      const r = find(id);
+      raise(r, parseInput(CreateTaxValidationIssueRequest, body));
+      return issuesOf(r);
+    },
+    updateIssue: async (id, issueId, body) => {
+      await mockDelay();
+      const b = parseInput(UpdateTaxValidationIssueRequest, body);
+      const r = find(id);
+      const i = (r.issues ?? []).find((x) => x.id === issueId);
+      if (!i) throw notFound();
+      if (b.resolved !== undefined && b.resolved !== !!i.resolvedAt) {
+        if (!issuesOf(r).find((x) => x.id === issueId)!.canResolve) {
+          throw fail(403, 'FORBIDDEN', 'Only who raised it or the reviewer can resolve this');
+        }
+        i.resolvedAt = b.resolved ? nowIso() : null;
+        i.resolvedBy = b.resolved ? me : null;
+        touch(
+          r,
+          'VALIDATION',
+          b.resolved ? 'Validation issue resolved' : 'Validation issue reopened',
+        );
+      }
+      if (
+        b.responsibleUserId !== undefined &&
+        b.responsibleUserId !== (i.responsible?.userId ?? null)
+      ) {
+        i.responsible = memberRef(b.responsibleUserId);
+        touch(r, 'VALIDATION', 'Validation issue reassigned');
+      }
+      return issuesOf(r);
     },
 
     authorizations: async (id) => {
