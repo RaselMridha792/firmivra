@@ -1826,3 +1826,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   requested, tasks completed, appointments held, invoices sent or paid, e-signs completed, notes,
   and the e-sign column), for the column and the From/To filter; `r23-client-record` moved onto the
   clients mock (5 of 5); `clients-work.e2e`'s `nyDay` counts calendar days. Clients e2e 32 of 32.
+- Nov 10: Clients E4, branch `rasel/R60-clients-tabs` (stacked on `rasel/R60-clients-activity`):
+  the profile's Services, Intake Forms, Tasks and Notes tabs, the service tabs by enrollment and
+  the member's grid (`GET /business/clients/{id}/services` opens each module's own record), More
+  past eleven tabs, and Active Services and Recent Activity on Overview. API e2e 3 of 3, mock 58 of
+  58 across the client specs.
