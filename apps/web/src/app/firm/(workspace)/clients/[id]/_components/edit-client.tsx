@@ -81,8 +81,15 @@ function bodies(client: ClientRecord, values: Values) {
  * Edit the client's contact details and profile. Checked with the contract's schemas before
  * anything is sent; SSN and EIN can be replaced but never read back (only the last 4 show).
  */
-export function EditClient({ client }: { client: ClientRecord }) {
-  const [open, setOpen] = useState(false);
+export function EditClient({
+  client,
+  initiallyOpen = false,
+}: {
+  client: ClientRecord;
+  /** `?edit=1` (TX-F07): opened from another module's Edit Client Details. */
+  initiallyOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
   /** Closing after an edit asks first (Octavia's E6): Save Changes, Discard Changes, Keep Editing. */
   const [leaving, setLeaving] = useState(false);
   const form = useForm<Values>({ defaultValues: initial(client) });

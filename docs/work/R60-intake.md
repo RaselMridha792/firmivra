@@ -457,6 +457,16 @@ Progress (Tax Returns shared pieces, Oct 26 review; Nov 7):
   Request in place through `ServiceDocumentsProvider`), F13 to F15 (SH4 `ServiceTasks` and Create
   Task prefilled). Mock returns get a registered tax engagement. Mock `r60-tax-returns-shared` 2 of
   2.
+Progress (TX-F07 and the TX-F06 decision; Nov 7):
+- TX-F06, for Review 2 (the lead accepted it, Nov 7): Create Appointment on a return opens the
+  shared Schedule form on that client and engagement, with Back, as Bookkeeping and Payroll do.
+  There is no separate panel; one would need the Schedule form made embeddable first.
+- Branch `rasel/R60-tax-returns-menu`: TX-F07. The row menu's ways out keep Back to the list as it
+  was: View Client Profile, Edit Client Details (new: the client's editor, `?edit=1`, with its Stay
+  or Discard guard), Documents, Request Client Information (`/documents/requests/new?clientId=`),
+  Send Message (New Message on the client, subject the return, Related To the return), Schedule
+  Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
+  Mock `r60-tax-returns-menu` 2 of 2.
 
 Progress (TX-F18, Rasel's go on the role check; Nov 10):
 - Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the

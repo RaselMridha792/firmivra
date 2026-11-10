@@ -2,7 +2,7 @@
 
 import { Badge } from '@firmivra/ui';
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { initials, publicPath } from '../../../../../components/app-shell/types';
 import { PageState } from '../../../../../components/page-state';
@@ -34,6 +34,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   const base = `/clients/${encodeURIComponent(id)}`;
   const record = useClientRecord(id);
   const router = useRouter();
+  const search = useSearchParams();
 
   return (
     <div className="flex flex-col gap-5">
@@ -90,7 +91,9 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
-                {client.archivedAt ? null : <EditClient client={client} />}
+                {client.archivedAt ? null : (
+                  <EditClient client={client} initiallyOpen={search.get('edit') === '1'} />
+                )}
                 <RequireRole roles={['OWNER', 'ADMIN']}>
                   <ArchiveAction client={client} />
                 </RequireRole>
