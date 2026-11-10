@@ -1821,3 +1821,15 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: Portal contact (`rasel/R60-portal-contact`, from main), PRT-3 on R1's
+  `client_portal_settings`: `GET`/`PUT /business/settings/portal-contact` (Owner and Admin; only
+  the switches sent change; audited as `client_portal.contact_updated` with what changed; the
+  response carries the corporate office from Company Profile and the active locations for the
+  preview) and `GET /portal/{slug}/me/contact` (the client's corporate and local office, the local
+  one from `clients.office_id` or, before a record is linked, the office chosen at registration,
+  shown only while active; texts only to a client who opted in; Message only while Messages is
+  on). Settings > Client portal gets the Contact Information card with a Live Preview; the
+  portal's Need Help cards, Appointments and My Services follow the switches. API e2e 9 of 9,
+  isolation coverage green, mock 14 of 14 with the portal specs. "Show office hours" has no
+  column (left out). r17-services fails the same on `main`. PRT-1 (the office at registration
+  and staff reassignment) is next.
