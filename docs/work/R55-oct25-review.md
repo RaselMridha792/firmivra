@@ -40,6 +40,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1330 merged: report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
 - #1333 merged: a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
 - #1338 (`rasel/R55-account-authority`): SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
+- S2/S4 (`rasel/R55-services-s2-s4`): a service draft saves with only its name and pricing type (no category, short description or price) and Save & Activate names each missing field; a live service still keeps them all (400 ACTIVATION_INCOMPLETE). `GET /business/catalog/packages` takes `status` (active, inactive, draft, archived, all; none is every package not archived), and the Packages screen reads `all`, so its Archived view and Restore work on the real API.
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
