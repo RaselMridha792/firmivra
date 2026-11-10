@@ -66,6 +66,12 @@ export const errors = {
     conflict('SAVE_CONFLICT', 'Someone saved this appointment after you opened it. Reload it.'),
   videoNotConnected: () =>
     conflict('VIDEO_NOT_CONNECTED', 'Connect a video meeting integration to generate a link.'),
+  // Advisory B11: Generate never saves an appointment without its link.
+  videoLinkMissing: () =>
+    conflict(
+      'VIDEO_LINK_MISSING',
+      'The staff member has no meeting link yet. Add it in Settings > Availability, or paste a link.',
+    ),
   smsUnavailable: () =>
     new BadRequestException({
       code: 'SMS_UNAVAILABLE',

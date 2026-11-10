@@ -16,7 +16,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { BASE, BA_KEY } from './ba-shared';
+import { ADVISORY_MEETINGS_HREF, BASE, BA_KEY } from './ba-shared';
 
 const TABS = [
   { href: BASE, label: 'Overview', match: (p: string) => p === BASE },
@@ -65,7 +65,7 @@ function Kpis() {
       tone: 'purple' as const,
       label: 'Upcoming Advisory Meetings',
       k: o?.upcomingMeetings,
-      href: '/calendar/list',
+      href: ADVISORY_MEETINGS_HREF,
     },
     {
       icon: Target,
