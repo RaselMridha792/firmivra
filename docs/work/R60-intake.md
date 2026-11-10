@@ -458,6 +458,15 @@ Progress (Tax Returns shared pieces, Oct 26 review; Nov 7):
   Task prefilled). Mock returns get a registered tax engagement. Mock `r60-tax-returns-shared` 2 of
   2.
 
+Progress (TX-F18, Rasel's go on the role check; Nov 10):
+- Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the
+  return's reviewer's); an Owner, or an Admin with APPROVE, decides it as the override, recorded as
+  `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
+  `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
+  of 37, mock 26 of 26.
+- Next (the lead, Nov 10): the same check on the return's tasks and schedule items (reassign), in
+  a small follow-up PR.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
