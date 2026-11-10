@@ -3,10 +3,13 @@ import {
   AdminDashboard,
   AdminSystemStatus,
   ApproveFirmApplicationRequest,
+  AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
   FirmApplicationCounts,
+  FirmApplicationFileLink,
   FirmApplicationId,
   FirmApplicationRecord,
+  FirmApplicationReviewers,
   FirmCounts,
   FirmId,
   FirmRecord,
@@ -83,6 +86,27 @@ export function createFirmApplicationsClient(request: ApiRequest) {
         method: 'PUT',
         body: parseInput(SaveFirmNotesRequest, body),
       }),
+    /**
+     * SA-APP-F02: the detail page says it was opened: Pending becomes In Review, once (any other
+     * status is left as it is). Never sent by the list.
+     */
+    open: async (id: string): Promise<FirmApplicationRecord> =>
+      request(FirmApplicationRecord, `${one(id)}/open`, { method: 'POST' }),
+    /** SA-APP-F06: who it can be assigned to. */
+    reviewers: async (): Promise<FirmApplicationReviewers> =>
+      request(FirmApplicationReviewers, `${BASE}/reviewers`),
+    /** SA-APP-F06: assign, reassign or unassign (Super Admin only). */
+    assignReviewer: async (
+      id: string,
+      body: AssignFirmReviewerRequest,
+    ): Promise<FirmApplicationRecord> =>
+      request(FirmApplicationRecord, `${one(id)}/reviewer`, {
+        method: 'PUT',
+        body: parseInput(AssignFirmReviewerRequest, body),
+      }),
+    /** A response file's short-lived link (scanned clean only). */
+    fileLink: async (id: string, fileId: string): Promise<FirmApplicationFileLink> =>
+      request(FirmApplicationFileLink, `${one(id)}/files/${parseInput(FirmApplicationId, fileId)}`),
     /**
      * Sends the owner a new activation link (the old one stops working). 409 INVITE_NOT_NEEDED;
      * 429 RATE_LIMITED.
