@@ -1833,3 +1833,11 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Management (the first 5, View All Locations, Add Location, and the same row actions as
   Locations, now shared, with Activate added for an inactive office; no Delete), and the Location
   Management quick link. Tumit's Overview spec updated for the new cards. Mock 5 of 5.
+- Nov 10: Security Alerts (`rasel/R60-settings-alerts`, stacked on the Overview), Overview guide
+  items 6 and 19. `GET /business/settings/security-alerts` (Owner and Admin) lists the alerts the
+  Overview counts (lockouts, failed sign-in bursts, MFA resets over 7 days; the count is now the
+  list's length), with no account named and no audit row per read, since the badge reads it on
+  every page. The Overview's View Alerts and a badge on Settings in the main menu (a link of its
+  own) open Security & Access on its open alerts; the 30-day failed sign-ins sit behind a link.
+  API e2e 7 of 7, isolation coverage green, mock 7 of 7, r29 updated for the badge link, web build
+  green.

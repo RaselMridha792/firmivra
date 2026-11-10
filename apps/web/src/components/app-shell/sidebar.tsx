@@ -29,6 +29,9 @@ const words = (text: string) =>
     .filter(Boolean);
 
 /** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
+/** A count badge's shape (its colour follows the menu). */
+const badgeLook = 'min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold';
+
 export function Sidebar({
   subtitle,
   sections,
@@ -177,15 +180,26 @@ export function Sidebar({
                         Soon
                       </span>
                     ) : null}
-                    {item.badge ? (
-                      <span
-                        className={`min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold ${brand ? 'bg-danger' : 'bg-brand-500'}`}
-                      >
+                    {item.badge && !item.badgeHref ? (
+                      <span className={`${badgeLook} ${brand ? 'bg-danger' : 'bg-brand-500'}`}>
                         {item.badge}
                       </span>
                     ) : null}
                   </>
                 );
+                // A badge with a page of its own sits over the row's right end, outside its link.
+                const badgeLink =
+                  item.badge && item.badgeHref ? (
+                    <Link
+                      href={item.badgeHref}
+                      onClick={onNavigate}
+                      aria-label={item.badgeLabel ?? String(item.badge)}
+                      data-testid="nav-badge-link"
+                      className={`${badgeLook} absolute top-1/2 -translate-y-1/2 hover:underline ${brand ? 'right-7 bg-danger' : 'right-9 bg-brand-500'}`}
+                    >
+                      {item.badge}
+                    </Link>
+                  ) : null;
                 // The firm menu as the firm-workspace designs draw it (dashboard, Integrations):
                 // 34 px rows of 14 px regular text, the open page semibold (R1, Oct 20).
                 const row = `flex items-start ${brand ? 'gap-3 px-3.5 py-1.5 text-sm leading-5 font-normal' : 'gap-2.5 px-6 py-2 text-base'}`;
@@ -250,13 +264,14 @@ export function Sidebar({
                 }
                 const active = item.href === current;
                 return (
-                  <li key={item.label} className={brand ? 'my-px' : undefined}>
+                  <li key={item.label} className={`relative ${brand ? 'my-px' : ''}`}>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
                       aria-current={active ? 'page' : undefined}
                       className={
                         row +
+                        (badgeLink ? ' pr-14' : '') +
                         (brand
                           ? ' ml-3 mr-3.5 rounded-control ' +
                             (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
@@ -268,6 +283,7 @@ export function Sidebar({
                     >
                       {body}
                     </Link>
+                    {badgeLink}
                   </li>
                 );
               })}
