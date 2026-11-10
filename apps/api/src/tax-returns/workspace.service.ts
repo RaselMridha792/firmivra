@@ -12,7 +12,7 @@ import { TAX_RETURN_IN_PROGRESS_STATUSES } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
-import type { TenantContext } from '../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { zonedInstant } from '../reports/schedule-math.js';
@@ -112,7 +112,13 @@ export class TaxReturnWorkspaceService {
       r.reviewerUserId,
       r.finalValidatedByUserId,
     ]);
-    return toDetail(r, names);
+    // TX-F18: Ready to File and Close are the reviewer's, or an Owner's or Admin's as the override.
+    const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
+    const canFinalize =
+      r.reviewerUserId === userId ||
+      ((role === 'OWNER' || role === 'ADMIN') &&
+        (await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE')));
+    return { ...toDetail(r, names), canFinalize };
   }
 
   private async activeMember(tx: TxClient, businessId: string, userId: string | null | undefined) {
@@ -729,11 +735,17 @@ export class TaxReturnWorkspaceService {
             );
           }
         }
+        // TX-F18: the return's reviewer, or an Owner or Admin with APPROVE as the override.
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
-          if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
+          const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
+          if (
+            (role !== 'OWNER' && role !== 'ADMIN') ||
+            !(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))
+          ) {
             throw new ForbiddenException({
               code: 'FORBIDDEN',
-              message: 'Ready to file and closing are for the reviewer or an approver',
+              message:
+                "Ready to file and closing are for the return's reviewer, or an Owner or Admin",
             });
           }
         }

@@ -19,6 +19,12 @@ import {
   reportFigures,
 } from './report-figures.js';
 import { type FigureContext, statementsMissing } from './report-figures-more.js';
+import {
+  SUMMARY_REPORT_TYPES,
+  type SummaryReportType,
+  summaryFigures,
+  summaryRange,
+} from './report-figures-summary.js';
 
 /**
  * BK-RPT (Octavia's Oct 25 Bookkeeping review): a report's figures from the client's ledger,
@@ -45,6 +51,7 @@ export class BookkeepingReportVersionsService {
         engagementId: true,
         reportType: true,
         basis: true,
+        periodLabel: true,
         period: { select: { id: true, periodStart: true, periodEnd: true, status: true } },
       },
     });
@@ -72,9 +79,17 @@ export class BookkeepingReportVersionsService {
     if (!(FIGURE_REPORT_TYPES as readonly string[]).includes(r.reportType)) {
       return { reason: 'type', period };
     }
-    if (!period || !r.period) return { reason: 'period', period: null };
+    // Rasel (Nov 10): the Quarterly Review and Year to Date Summary, by their period or label.
+    const summary = (SUMMARY_REPORT_TYPES as readonly string[]).includes(r.reportType)
+      ? summaryRange(r.reportType as SummaryReportType, period, r.periodLabel, isoDay(new Date()))
+      : null;
+    const range = summary ?? period;
+    if (!range || (!summary && !r.period)) return { reason: 'period', period: null };
     const category = { select: { id: true, name: true, type: true } };
-    const during = { gte: r.period.periodStart, lte: r.period.periodEnd };
+    const during = {
+      gte: new Date(`${range.start}T00:00:00.000Z`),
+      lte: new Date(`${range.end}T00:00:00.000Z`),
+    };
     const scope = { businessId, engagementId: r.engagementId };
     const rows = await tx.bookkeepingTransaction.findMany({
       where: { ...scope, transactionDate: during },
@@ -84,22 +99,39 @@ export class BookkeepingReportVersionsService {
         status: true,
         kind: true,
         receiptDocumentId: true,
+        transactionDate: true,
         account: { select: { id: true, name: true, type: true } },
         category,
         splits: { select: { amountCents: true, category } },
         transferPair: { select: { account: { select: { type: true } } } },
       },
     });
-    const lines: FigureLine[] = rows.map(({ receiptDocumentId, transferPair, ...l }) => ({
-      ...l,
-      hasReceipt: receiptDocumentId !== null,
-      transferPairAccountType: transferPair?.account.type ?? null,
-    }));
-    const ctx = await this.context(tx, businessId, r.engagementId, r.period, during);
+    const lines: FigureLine[] = rows.map(
+      ({ receiptDocumentId, transferPair, transactionDate, ...l }) => ({
+        ...l,
+        hasReceipt: receiptDocumentId !== null,
+        transferPairAccountType: transferPair?.account.type ?? null,
+        on: isoDay(transactionDate),
+      }),
+    );
+    const basis = r.basis === 'ACCRUAL' ? 'ACCRUAL' : 'CASH';
+    if (summary) {
+      return {
+        figures: summaryFigures(
+          r.reportType as SummaryReportType,
+          summary,
+          reportFigures('PROFIT_LOSS', basis, lines),
+          lines,
+        ),
+        period: summary,
+        missing: [],
+      };
+    }
+    const ctx = await this.context(tx, businessId, r.engagementId, r.period!, during);
     const type = r.reportType as FigureReportType;
     return {
-      figures: reportFigures(type, r.basis === 'ACCRUAL' ? 'ACCRUAL' : 'CASH', lines, ctx),
-      period,
+      figures: reportFigures(type, basis, lines, ctx),
+      period: range,
       missing: statementsMissing(type, ctx).map((a) => a.name),
     };
   }
@@ -188,8 +220,8 @@ export class BookkeepingReportVersionsService {
       supported: false,
       reason:
         out.reason === 'type'
-          ? 'Figures for this report type are not worked out yet: Quarterly Review, Year to Date Summary and custom reports are not.'
-          : 'Set the bookkeeping period this report covers first.',
+          ? 'Figures for custom reports are not worked out yet.'
+          : 'Set the bookkeeping period this report covers first (a Quarterly Review or Year to Date Summary can say it in its label instead, such as "Q3 2026" or "2026").',
       period: out.period,
       figures: null,
       missingStatements: [],

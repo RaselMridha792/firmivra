@@ -468,6 +468,15 @@ Progress (TX-F07 and the TX-F06 decision; Nov 7):
   Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
   Mock `r60-tax-returns-menu` 2 of 2.
 
+Progress (TX-F18, Rasel's go on the role check; Nov 10):
+- Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the
+  return's reviewer's); an Owner, or an Admin with APPROVE, decides it as the override, recorded as
+  `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
+  `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
+  of 37, mock 26 of 26.
+- Next (the lead, Nov 10): the same check on the return's tasks and schedule items (reassign), in
+  a small follow-up PR.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
@@ -1821,6 +1830,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: the tax return's Confirm (AU-F31 on the record page, #1264's endpoint), branch
+  `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
+  banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
+  `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
 - Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
   #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
   details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several

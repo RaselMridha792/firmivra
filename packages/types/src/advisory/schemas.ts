@@ -1186,6 +1186,8 @@ export const AdvisoryErrorCode = z.enum([
   'PLAN_NOT_READY',
   /** 409: the plan is archived. */
   'PLAN_ARCHIVED',
+  /** 409 (B9): a finalized or sent plan is locked; Modify Plan (status DRAFT) starts a revision. */
+  'PLAN_LOCKED',
   /** 409: a given net profit differs from revenue minus expenses. */
   'INCONSISTENT_FIGURES',
   /** 403: overriding figures that came from a source needs the permission. */

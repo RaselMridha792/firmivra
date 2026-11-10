@@ -894,6 +894,9 @@ model Business {
   legalName    String?        @map("legal_name")
   slug         String         @unique
   status       BusinessStatus @default(PENDING_SETUP)
+  /// R1 (Nov 10, SA-FRM-F03): when the firm was closed; set by the database when the status
+  /// becomes CLOSED, never changed after. The download windows count from it.
+  closedAt     DateTime?      @map("closed_at") @db.Timestamptz(3)
   termsUrl     String?        @map("terms_url")
   privacyUrl   String?        @map("privacy_url")
   /// The firm's own KMS key (per-business key, the fourth wall). Set at approval; platform only.
@@ -1002,6 +1005,9 @@ model Business {
   firmOfficeMembers      FirmOfficeMember[]
   // R55's D4 (Oct 25): the firm's Dashboard service-card templates.
   dashboardCardTemplates DashboardCardTemplate[]
+
+  dataDownloadGrants        FirmDataDownloadGrant[]
+  exceptionalAccessRequests FirmExceptionalAccessRequest[]
 
   @@map("businesses")
 }
@@ -1247,6 +1253,8 @@ model Membership {
   staffDraftAttachments StaffDraftAttachment[]
   mfaExceptionsApproved StaffSecurityDefaults[] @relation("StaffSecurityMfaExceptionApprovedBy")
 
+  dataDownloadGrants FirmDataDownloadGrant[]
+
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
   @@unique([businessId, id])
@@ -1316,9 +1324,12 @@ model ClientAccount {
 
 /// A Firmivra team member with platform rights (Super Admin).
 model PlatformAdmin {
-  userId    String       @id @map("user_id") @db.Uuid
-  role      PlatformRole @default(SUPER_ADMIN)
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  userId          String       @id @map("user_id") @db.Uuid
+  role            PlatformRole @default(SUPER_ADMIN)
+  /// R1 (Nov 10, SA-FRM-F09 and SA-TEAM-F01): the one platform owner (at most one; SQL only),
+  /// distinct from Super Admin and from any firm owner. Set in platform scope only.
+  isPlatformOwner Boolean      @default(false) @map("is_platform_owner")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user                    User                         @relation(fields: [userId], references: [id])
   /// R0 stage A: the org-chart row for this admin, if one exists yet (CREATING_TEAM 20261016_r0).
@@ -1347,6 +1358,11 @@ model PlatformAdmin {
   savedReports            PlatformSavedReport[]        @relation("PlatformSavedReportOwner")
   /// R60's request 7: the firm licenses this Super Admin verified.
   firmLicensesVerified    FirmLicense[]
+
+  downloadGrantsGiven      FirmDataDownloadGrant[]        @relation("DownloadGrantGrantedBy")
+  downloadGrantsRevoked    FirmDataDownloadGrant[]        @relation("DownloadGrantRevokedBy")
+  exceptionalAccessAsked   FirmExceptionalAccessRequest[] @relation("ExceptionalAccessRequestedBy")
+  exceptionalAccessReviews FirmExceptionalAccessRequest[] @relation("ExceptionalAccessReviewedBy")
 
   @@map("platform_admins")
 }
@@ -14843,4 +14859,119 @@ model FirmApplicationResponseFile {
 
   @@index([applicationId, responseId])
   @@map("firm_application_response_files")
+}
+
+/// R1 (Nov 10, SA-FRM-F07 and F08): the closed firm's owner may download the firm's retained
+/// records through a download-only link. AUTOMATIC: the 30 days after closure. REQUESTED: granted
+/// by a Super Admin after verifying the owner, up to 90 days after closure (never resetting the
+/// clock). Only the link token's SHA-256 is stored. A grant never reopens the workspace. Revoked
+/// once; never deleted.
+model FirmDataDownloadGrant {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  businessId      String                @map("business_id") @db.Uuid
+  /// The firm owner it is for (their membership in the closed firm).
+  ownerUserId     String                @map("owner_user_id") @db.Uuid
+  kind            FirmDownloadGrantKind
+  /// Why it was granted (REQUESTED); up to 1000 characters.
+  reason          String?
+  /// The Super Admin who granted it; null for AUTOMATIC.
+  grantedByUserId String?               @map("granted_by_user_id") @db.Uuid
+  /// Hex SHA-256 of the link token; never the token.
+  tokenHash       String                @unique @map("token_hash")
+  startsAt        DateTime              @default(now()) @map("starts_at") @db.Timestamptz(3)
+  expiresAt       DateTime              @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime?             @map("revoked_at") @db.Timestamptz(3)
+  revokedByUserId String?               @map("revoked_by_user_id") @db.Uuid
+  /// Up to 1000 characters.
+  revokeReason    String?               @map("revoke_reason")
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business  Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  owner     Membership            @relation(fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  grantedBy PlatformAdmin?        @relation("DownloadGrantGrantedBy", fields: [grantedByUserId], references: [userId], onDelete: Restrict)
+  revokedBy PlatformAdmin?        @relation("DownloadGrantRevokedBy", fields: [revokedByUserId], references: [userId], onDelete: Restrict)
+  log       FirmDataDownloadLog[]
+
+  @@unique([businessId, id])
+  @@index([businessId, expiresAt])
+  @@map("firm_data_download_grants")
+}
+
+enum FirmDownloadGrantKind {
+  AUTOMATIC
+  REQUESTED
+}
+
+/// R1 (Nov 10, SA-FRM-F07): what happened with a download grant: issued, each download, expiry,
+/// revocation. Counts only, never file names or content. Insert-only.
+model FirmDataDownloadLog {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  businessId  String            @map("business_id") @db.Uuid
+  grantId     String            @map("grant_id") @db.Uuid
+  event       FirmDownloadEvent
+  occurredAt  DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  /// Who did it (the owner downloading, the admin revoking); null for the system.
+  actorUserId String?           @map("actor_user_id") @db.Uuid
+  fileCount   Int?              @map("file_count")
+  bytes       BigInt?
+
+  grant FirmDataDownloadGrant @relation(fields: [businessId, grantId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, grantId, occurredAt])
+  @@map("firm_data_download_log")
+}
+
+enum FirmDownloadEvent {
+  ISSUED
+  DOWNLOADED
+  EXPIRED
+  REVOKED
+}
+
+/// R1 (Nov 10, SA-FRM-F11 to F13): a verified government or regulatory request to open a firm's
+/// workspace. Who asked and on what authority, the supporting document, the modules in scope, and
+/// the platform owner's review; access opens only once APPROVED, read-only, within its window
+/// (4 hours by default, set by the API). The request itself never changes; never deleted.
+model FirmExceptionalAccessRequest {
+  id                    String                  @id @default(uuid(7)) @db.Uuid
+  businessId            String                  @map("business_id") @db.Uuid
+  requestedByUserId     String                  @map("requested_by_user_id") @db.Uuid
+  /// The person and body making the request; up to 200 characters each.
+  requesterName         String                  @map("requester_name")
+  requesterOrganization String                  @map("requester_organization")
+  /// Up to 320 characters.
+  requesterContact      String                  @map("requester_contact")
+  /// The legal authority cited; 1 to 2000 characters.
+  legalAuthority        String                  @map("legal_authority")
+  /// The supporting legal document, under tenant/{businessId}/exceptional-access/{id}/.
+  documentS3Key         String?                 @unique @map("document_s3_key")
+  /// The modules access is limited to (1 to 20 codes).
+  scopeModules          String[]                @map("scope_modules")
+  /// Only READ_ONLY this round.
+  accessMode            String                  @default("READ_ONLY") @map("access_mode")
+  status                ExceptionalAccessStatus @default(PENDING)
+  windowStartsAt        DateTime?               @map("window_starts_at") @db.Timestamptz(3)
+  windowEndsAt          DateTime?               @map("window_ends_at") @db.Timestamptz(3)
+  /// The platform owner who reviewed it (SQL only: must be the platform owner).
+  reviewedByUserId      String?                 @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt            DateTime?               @map("reviewed_at") @db.Timestamptz(3)
+  /// Up to 2000 characters; required when DENIED.
+  decisionNote          String?                 @map("decision_note")
+  revokedAt             DateTime?               @map("revoked_at") @db.Timestamptz(3)
+  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  requestedBy PlatformAdmin  @relation("ExceptionalAccessRequestedBy", fields: [requestedByUserId], references: [userId], onDelete: Restrict)
+  reviewedBy  PlatformAdmin? @relation("ExceptionalAccessReviewedBy", fields: [reviewedByUserId], references: [userId], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@map("firm_exceptional_access_requests")
+}
+
+enum ExceptionalAccessStatus {
+  PENDING
+  APPROVED
+  DENIED
+  REVOKED
 }

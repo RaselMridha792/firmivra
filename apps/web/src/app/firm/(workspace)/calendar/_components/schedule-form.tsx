@@ -29,7 +29,10 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, createElement, useEffect, useRef, useState } from 'react';
+import { useFirm } from '../../../../../components/firm-context';
+import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -71,6 +74,8 @@ const SCHEDULE_ERRORS: Record<string, string> = {
     'Someone saved this appointment while you were editing. Reload to see their changes, then make yours again.',
   VIDEO_NOT_CONNECTED:
     'No video integration is connected, so a Zoom link cannot be made. Paste a link instead.',
+  VIDEO_LINK_MISSING:
+    'The staff member has no meeting link yet, so Generate Zoom Link has nothing to add. Paste a link, or add theirs in Settings > Availability.',
   SMS_UNAVAILABLE: 'Text reminders are not available for this firm or this contact.',
 };
 
@@ -191,6 +196,65 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
 }
 
 const minutesOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+/**
+ * Advisory B11: why Generate Zoom Link is off and what to do. The settings open in a new tab, so
+ * the appointment being written here is kept; Check again reads the firm's setup once more.
+ */
+function VideoNotice({
+  connected,
+  staffName,
+  canConnect,
+  canAddLink,
+  onRecheck,
+}: {
+  connected: boolean;
+  staffName: string;
+  canConnect: boolean;
+  canAddLink: boolean;
+  onRecheck: () => void;
+}) {
+  const link = 'font-semibold text-link underline';
+  return (
+    <div data-testid="video-notice">
+      <Callout icon={Info} tone="amber" surface="warning" size="compact">
+        <span className="flex flex-col gap-1">
+          {connected ? (
+            <span>
+              {staffName} has no meeting link yet, so Generate Zoom Link has nothing to add. Paste a
+              link above
+              {canAddLink
+                ? ', or add theirs in Settings > Availability.'
+                : ', or ask an Owner or Admin to add theirs in Settings > Availability.'}
+            </span>
+          ) : (
+            <span>
+              Zoom is not connected, so a link cannot be generated. Paste the meeting link above
+              {canConnect
+                ? ', or connect Zoom in Integrations.'
+                : '. An Owner or Admin connects Zoom in Integrations.'}
+            </span>
+          )}
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {connected && canAddLink ? (
+              <a href="/settings/availability" target="_blank" rel="noopener" className={link}>
+                Open Settings &gt; Availability (new tab)
+              </a>
+            ) : null}
+            {!connected && canConnect ? (
+              <a href="/integrations" target="_blank" rel="noopener" className={link}>
+                Open Integrations (new tab)
+              </a>
+            ) : null}
+            <button type="button" className={link} onClick={onRecheck}>
+              Check again
+            </button>
+          </span>
+        </span>
+      </Callout>
+    </div>
+  );
+}
 
 function Section({
   title,
@@ -458,6 +522,16 @@ function FormBody({
   useUnsavedChanges(JSON.stringify(form) !== initial);
   const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Advisory B11 (Octavia, Oct 25): Generate Zoom Link needs Zoom connected (Integrations) and the
+  // first staff member's meeting link (Settings > Availability); the form says which is missing
+  // and how to fix it, and never generates without both.
+  const { role } = useFirm();
+  const { me } = useMe();
+  const queryClient = useQueryClient();
+  const linkFor = form.staffUserIds[0];
+  const linkMissing = !!o.videoProvider && !!linkFor && !o.meetingLinkStaff.includes(linkFor);
+  const generating =
+    form.method === 'VIDEO' && form.generateVideoLink && !!o.videoProvider && !linkMissing;
   const [search, setSearch] = useState('');
   const [key] = useState(() => crypto.randomUUID());
   // Rasel (Oct 24): a new appointment starts from the chosen type's default reminders, still
@@ -593,11 +667,9 @@ function FormBody({
     officeId: form.method === 'IN_PERSON' ? form.officeId || null : null,
     roomId: form.method === 'IN_PERSON' ? form.roomId || null : null,
     details: form.details.trim() || null,
-    generateVideoLink: form.method === 'VIDEO' && form.generateVideoLink,
+    generateVideoLink: generating,
     videoUrl:
-      form.method === 'VIDEO' && !form.generateVideoLink && form.videoUrl.trim()
-        ? form.videoUrl.trim()
-        : null,
+      form.method === 'VIDEO' && !generating && form.videoUrl.trim() ? form.videoUrl.trim() : null,
     staffUserIds: form.staffUserIds,
     status: form.status,
     color: form.color || null,
@@ -1065,13 +1137,11 @@ function FormBody({
               <span className="flex items-center gap-2 text-sm text-text">
                 <Toggle
                   label="Generate Zoom Link"
-                  checked={form.generateVideoLink}
-                  disabled={form.method !== 'VIDEO' || !o.videoProvider}
+                  checked={generating}
+                  disabled={form.method !== 'VIDEO' || !o.videoProvider || linkMissing}
                   onChange={(on) => set('generateVideoLink', on)}
                 />
-                {o.videoProvider
-                  ? 'Generate Zoom Link'
-                  : 'Generate Zoom Link (connect video first)'}
+                Generate Zoom Link
               </span>
             </span>
             <div className="flex min-w-0 items-stretch gap-2">
@@ -1080,9 +1150,9 @@ function FormBody({
                 <Input
                   label="Video Meeting Link"
                   hideLabel
-                  placeholder={form.generateVideoLink ? 'Made when you schedule' : 'https://'}
-                  disabled={form.method !== 'VIDEO' || form.generateVideoLink}
-                  value={form.generateVideoLink ? '' : form.videoUrl}
+                  placeholder={generating ? 'Made when you schedule' : 'https://'}
+                  disabled={form.method !== 'VIDEO' || generating}
+                  value={generating ? '' : form.videoUrl}
                   error={errors.videoUrl}
                   onChange={(e) => set('videoUrl', e.target.value)}
                 />
@@ -1091,7 +1161,7 @@ function FormBody({
                 type="button"
                 aria-label="Copy the video link"
                 title={copied ? 'Copied' : 'Copy'}
-                disabled={!form.videoUrl.trim() || form.generateVideoLink}
+                disabled={!form.videoUrl.trim() || generating}
                 onClick={() =>
                   void navigator.clipboard
                     ?.writeText(form.videoUrl.trim())
@@ -1102,6 +1172,17 @@ function FormBody({
                 <Copy aria-hidden weight="bold" className="size-4" />
               </button>
             </div>
+            {form.method === 'VIDEO' && (!o.videoProvider || linkMissing) ? (
+              <VideoNotice
+                connected={!!o.videoProvider}
+                staffName={o.staff.find((s) => s.userId === linkFor)?.name ?? 'The staff member'}
+                canConnect={role === 'OWNER' || role === 'ADMIN'}
+                canAddLink={role === 'OWNER' || role === 'ADMIN' || linkFor === me.user.id}
+                onRecheck={() =>
+                  void queryClient.invalidateQueries({ queryKey: [...SCHEDULING, 'options'] })
+                }
+              />
+            ) : null}
           </div>
           {form.method === 'PHONE' || form.method === 'OTHER' ? (
             <Input
@@ -1422,7 +1503,7 @@ function FormBody({
                 [
                   'Video Link',
                   form.method === 'VIDEO'
-                    ? form.generateVideoLink
+                    ? generating
                       ? 'Will be generated'
                       : form.videoUrl || '—'
                     : '—',

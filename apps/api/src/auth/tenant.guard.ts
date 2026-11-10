@@ -70,7 +70,7 @@ export class TenantGuard implements CanActivate {
 
     // SM4: a staff sign-in is a session row in this firm; one the firm ended answers 401.
     if (membershipId && auth.session) {
-      await this.sessions.check(req, business.id, membershipId, auth.session);
+      await this.sessions.check(req, business.id, membershipId, auth.session, auth.authTime);
     }
 
     req.tenant = tenant;

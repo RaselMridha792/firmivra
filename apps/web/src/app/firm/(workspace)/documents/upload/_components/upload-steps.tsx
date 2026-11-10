@@ -9,11 +9,10 @@ import {
 } from '@firmivra/types';
 import { Badge, Input, Select, Toggle } from '@firmivra/ui';
 import { CheckCircle, WarningCircle } from '@phosphor-icons/react';
+import { YearSelect } from '../../../../../../components/year-select';
 import { FileIcon } from '../../_components/file-icon';
 import { folderOptions } from './document-info';
 import { savedName, sizeText, type QueuedFile, type SharedInfo } from './upload-state';
-
-const YEARS = Array.from({ length: 8 }, (_, n) => String(new Date().getFullYear() - n));
 
 export const engagementLabel = (e: Engagement) =>
   `${e.service.name}${e.taxYear ? ` ${e.taxYear}` : ''}${e.title && e.title !== e.service.name ? `: ${e.title}` : ''}`;
@@ -115,14 +114,12 @@ export function DetailsStep({
                   ...engagements.map((e) => ({ value: e.id, label: engagementLabel(e) })),
                 ]}
               />
-              <Select
+              {/* Advisory B34: rolling years, the service's year kept, and a custom one. */}
+              <YearSelect
                 label="Tax Year"
                 value={item.taxYear}
-                onChange={(event) => onChange(item.key, { taxYear: event.target.value })}
-                options={[
-                  { value: '', label: 'None' },
-                  ...YEARS.map((y) => ({ value: y, label: y })),
-                ]}
+                empty="None"
+                onChange={(taxYear) => onChange(item.key, { taxYear })}
               />
             </div>
           </li>
