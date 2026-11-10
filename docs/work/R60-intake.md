@@ -1821,3 +1821,14 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: Client office at sign-up (`rasel/R60-client-office`, from main), PRT-1 part 1 on R1's
+  `client_accounts.selected_office_id` and `clients.office_id`: public `GET /portal/{slug}/offices`
+  (active locations, primary first, full addresses; excluded in isolation as a public read);
+  `SignUpRequest.officeId` (optional on the API, 400 OFFICE_NOT_AVAILABLE for anything but an
+  active location of the firm), kept in the sealed sign-up session and written with the account
+  as accountType is; on approval a new record takes it, a linked record (approve with clientId,
+  or Link) only when staff never set one; a choice whose office closed meanwhile is dropped,
+  never failing the approval. The form's Your Office is required whenever the firm has an active
+  location. API e2e 6 of 6 plus sign-up, sign-ups and portal-info 75 of 75; isolation coverage
+  and body ids green; mock 5 of 5 (R17's two sign-up specs now pick an office). Part 2 (staff
+  reassign the office on the client record, audited) goes on the Clients stack.

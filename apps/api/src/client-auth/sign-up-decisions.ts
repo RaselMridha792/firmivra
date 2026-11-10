@@ -148,6 +148,7 @@ export async function approveAutomatically(
       version: true,
       email: true,
       accountType: true,
+      selectedOfficeId: true,
       user: { select: { name: true, phone: true } },
     },
   });
@@ -183,6 +184,7 @@ export async function approveAutomatically(
     email: account.email,
     phone: account.user.phone,
     accountType: account.accountType,
+    officeId: account.selectedOfficeId,
   });
   await tx.clientAccount.update({
     where: { id: account.id },

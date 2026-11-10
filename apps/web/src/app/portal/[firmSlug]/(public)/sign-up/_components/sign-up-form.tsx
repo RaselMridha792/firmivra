@@ -4,14 +4,14 @@ import { type AccountType, type LegalKind, PASSWORD_RULES, SignUpRequest } from 
 import { Button, Input } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, Eye, EyeOff, Circle } from 'lucide-react';
+import { ArrowRight, Check, Eye, EyeOff, Circle, MapPin } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { type FieldErrors, type Resolver, useForm, useWatch } from 'react-hook-form';
 import { useAuthReady } from '../../../../../../components/auth/use-auth-ready';
 import { portalAuth } from '../../../../../../lib/auth';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
 import { LegalDialog } from '../../_components/legal-dialog';
 import { SIGN_UP_ERRORS } from './shared';
@@ -35,9 +35,13 @@ const Fields = SignUpRequest.omit({ accepted: true });
 type Values = Omit<SignUpRequest, 'accepted'> & { confirm: string; agree: boolean };
 
 const fieldsResolver = zodResolver(Fields);
-const resolver: Resolver<Values> = async (values, context, options) => {
+/** `needsOffice`: the firm has active locations, so the person picks one (PRT-1). */
+const resolver: Resolver<Values, { needsOffice: boolean }> = async (values, context, options) => {
   const result = await fieldsResolver(values, context, options as never);
   const errors: FieldErrors<Values> = { ...(result.errors as FieldErrors<Values>) };
+  if (context?.needsOffice && !values.officeId) {
+    errors.officeId = { type: 'validate', message: 'Choose the office you will work with' };
+  }
   if (values.confirm !== values.password) {
     errors.confirm = { type: 'validate', message: 'The passwords do not match' };
   }
@@ -69,8 +73,12 @@ export function SignUpForm() {
   const queryClient = useQueryClient();
   const [show, setShow] = useState(false);
   const [reading, setReading] = useState<LegalKind | null>(null);
-  const form = useForm<Values>({
+  // Client Portal guide 2, 7.4 and 9.1 (PRT-1): the firm's active locations, full addresses.
+  const offices = useApiQuery(['portal-offices', slug], () => portalAuth(slug).offices());
+  const officeList = offices.data?.offices ?? [];
+  const form = useForm<Values, { needsOffice: boolean }>({
     resolver,
+    context: { needsOffice: officeList.length > 0 },
     defaultValues: {
       name: '',
       email: '',
@@ -84,6 +92,11 @@ export function SignUpForm() {
   const create = useApiMutation((body: SignUpRequest) => portalAuth(slug).signUp(body));
   const password = useWatch({ control: form.control, name: 'password' });
   const errors = form.formState.errors;
+  // One location: it is the choice (still shown, so the person sees where they are going).
+  const only = officeList.length === 1 ? officeList[0]?.id : undefined;
+  useEffect(() => {
+    if (only && !form.getValues('officeId')) form.setValue('officeId', only);
+  }, [only, form]);
 
   if (!signUpOpen || !legal.terms || !legal.privacy) {
     return (
@@ -110,6 +123,10 @@ export function SignUpForm() {
               if (errorCode(error) === 'TERMS_OUTDATED') {
                 form.setValue('agree', false);
                 void queryClient.invalidateQueries({ queryKey: ['portal-info', slug] });
+              }
+              if (errorCode(error) === 'OFFICE_NOT_AVAILABLE') {
+                form.setValue('officeId', undefined);
+                void queryClient.invalidateQueries({ queryKey: ['portal-offices', slug] });
               }
             },
           },
@@ -207,6 +224,51 @@ export function SignUpForm() {
             ))}
           </div>
         </fieldset>
+        {officeList.length ? (
+          <fieldset className="md:col-span-2" data-testid="sign-up-offices">
+            <legend className="text-lg font-bold text-heading">Your Office *</legend>
+            <p className="mb-2 text-sm text-text">
+              Choose the office you plan to visit or work with. Its contact details show in your
+              portal.
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              {officeList.map((office) => (
+                <label
+                  key={office.id}
+                  className="flex cursor-pointer gap-3 rounded-card border border-border p-4 has-checked:border-platform-blue has-checked:bg-folder-surface"
+                >
+                  <input
+                    type="radio"
+                    value={office.id}
+                    className={ACCOUNT_RADIO_CLASSES}
+                    aria-invalid={errors.officeId ? true : undefined}
+                    {...form.register('officeId')}
+                  />
+                  <span>
+                    <span className="block font-bold text-heading">{office.name}</span>
+                    {office.addressLines.length ? (
+                      <span className="flex gap-1.5 text-sm text-text">
+                        <MapPin aria-hidden className="mt-0.5 size-4 shrink-0" />
+                        <span>
+                          {office.addressLines.map((line) => (
+                            <span key={line} className="block">
+                              {line}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-sm text-text">Online / Remote</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {errors.officeId ? (
+              <p className="mt-1 text-xs text-danger">{errors.officeId.message}</p>
+            ) : null}
+          </fieldset>
+        ) : null}
         <div className="md:col-span-2">
           <div className="flex flex-wrap items-center gap-x-1 text-base text-text">
             <label className="flex min-h-11 items-center gap-3">

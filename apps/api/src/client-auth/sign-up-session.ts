@@ -41,6 +41,8 @@ const SignUpSession = z.object({
    * creates it, or when it takes over an unfinished one, never onto someone else's account before.
    */
   documents: z.array(z.uuid()).length(2),
+  /** The office chosen on the form (PRT-1); written with the account like accountType. */
+  officeId: z.uuid().nullable().default(null),
 });
 export type SignUpSession = z.infer<typeof SignUpSession>;
 
@@ -70,6 +72,12 @@ export function writeSignUpCookie(
 }
 
 export const signUpErrors = {
+  /** PRT-1: the chosen office is not one of the firm's active locations (GET .../offices). */
+  officeNotAvailable: () =>
+    new BadRequestException({
+      code: 'OFFICE_NOT_AVAILABLE',
+      message: 'Choose one of the offices listed.',
+    }),
   closed: () =>
     new ForbiddenException({
       code: 'SIGN_UP_CLOSED',
