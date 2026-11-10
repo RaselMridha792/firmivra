@@ -198,7 +198,10 @@ export function blockersOf(r: DetailSource): TaxReturnBlocker[] {
   return out;
 }
 
-export function toDetail(r: DetailSource, names: Map<string, string>): TaxReturnDetail {
+export function toDetail(
+  r: DetailSource,
+  names: Map<string, string>,
+): Omit<TaxReturnDetail, 'canFinalize'> {
   const row = toRow(r, names);
   return {
     ...row,

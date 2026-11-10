@@ -7,6 +7,7 @@ import { config } from 'dotenv';
 import { createPrismaClient } from '../src/client.js';
 import { seedQa } from './seed-qa-data.js';
 import { seedQaExtra } from './seed-qa-extra.js';
+import { seedQaRuns } from './seed-qa-runs.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -22,6 +23,7 @@ async function main() {
   if (missing.length) console.warn(`Firms not found (not created): ${missing.join(', ')}`);
   const extra = await seedQaExtra(prisma);
   console.warn(`QA part 2: LVP ${extra.lvp}, platform ${extra.platform}`);
+  console.warn(`QA part 3 (automation logs): LVP ${await seedQaRuns(prisma)}`);
   if (extra.documentKey)
     console.warn(`Upload qaFixturePdf() to the documents bucket at: ${extra.documentKey}`);
 }

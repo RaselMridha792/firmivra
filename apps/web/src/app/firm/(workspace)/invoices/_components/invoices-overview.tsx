@@ -11,6 +11,8 @@ import {
   ActionMenu,
   type ActionMenuSection,
   BulkBar,
+  Button,
+  Modal,
   DonutChart,
   Input,
   KpiCard,
@@ -22,7 +24,9 @@ import {
 } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
+  Archive,
   ArrowSquareOut,
+  Trash,
   ArrowsClockwise,
   LinkSimple,
   Scroll,
@@ -631,8 +635,8 @@ function MethodsChart() {
   );
 }
 
-type Tab = 'ALL' | InvoiceView;
-const TAB_IDS = new Set<string>(VIEW_ORDER);
+type Tab = 'ALL' | 'ARCHIVED' | InvoiceView;
+const TAB_IDS = new Set<string>([...VIEW_ORDER, 'ARCHIVED']);
 const SIZES = [10, 25, 50];
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -706,6 +710,11 @@ function InvoiceTable({
   }, [tab, clientId, service, status, from, to, search, page, size]);
   const [selected, setSelected] = useState<string[]>([]);
   const [canceling, setCanceling] = useState<InvoiceListItem>();
+  // IP-F10: Archive, Delete (a draft never sent: archived) and Restore, each confirmed.
+  const [archiving, setArchiving] = useState<{
+    i: InvoiceListItem;
+    how: 'archive' | 'delete' | 'restore';
+  }>();
   const [correcting, setCorrecting] = useState<InvoiceListItem>();
   // IP-F09: the row menu's dialogs.
   const [historyFor, setHistoryFor] = useState<{ i: InvoiceListItem; kind: InvoiceHistoryKind }>();
@@ -747,17 +756,25 @@ function InvoiceTable({
       (!term || `${i.number} ${i.client.displayName} ${i.title}`.toLowerCase().includes(term))
     );
   });
-  const rows = tab === 'ALL' ? filtered : filtered.filter((i) => inView(i, tab));
+  // IP-F10: archived invoices only on the Archived tab (the cards and charts count them all).
+  const live = filtered.filter((i) => !i.archivedAt);
+  const rows =
+    tab === 'ARCHIVED'
+      ? filtered.filter((i) => i.archivedAt)
+      : tab === 'ALL'
+        ? live
+        : live.filter((i) => inView(i, tab));
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages);
   const shown = rows.slice((current - 1) * size, current * size);
   const tabs = [
-    { id: 'ALL', label: 'All Invoices', count: filtered.length },
+    { id: 'ALL', label: 'All Invoices', count: live.length },
     ...VIEW_ORDER.map((v) => ({
       id: v,
       label: VIEW_LABEL[v],
-      count: filtered.filter((i) => inView(i, v)).length,
+      count: live.filter((i) => inView(i, v)).length,
     })),
+    { id: 'ARCHIVED', label: 'Archived', count: filtered.filter((i) => i.archivedAt).length },
   ];
   const clear = () => {
     setClientId('');
@@ -991,23 +1008,62 @@ function InvoiceTable({
             : []),
         ],
       },
-      ...(canChange && cancelable
+      ...(canChange && (manage(i).length || (cancelable && !i.archivedAt))
         ? [
             {
               title: 'Manage Invoice',
               items: [
-                {
-                  label: 'Cancel Invoice',
-                  icon: Prohibit,
-                  danger: true,
-                  onSelect: () => setCanceling(i),
-                },
+                ...(cancelable && !i.archivedAt
+                  ? [
+                      {
+                        label: 'Cancel Invoice',
+                        icon: Prohibit,
+                        danger: true,
+                        onSelect: () => setCanceling(i),
+                      },
+                    ]
+                  : []),
+                ...manage(i),
               ],
             },
           ]
         : []),
     ];
   };
+  /**
+   * IP-F10: never deleted. Archive a draft (paid and canceled ones once the database allows it);
+   * Delete a never-sent draft.
+   */
+  const manage = (i: InvoiceListItem) =>
+    i.archivedAt
+      ? [
+          {
+            label: 'Restore Invoice',
+            icon: ArrowCounterClockwise,
+            onSelect: () => setArchiving({ i, how: 'restore' }),
+          },
+        ]
+      : [
+          ...(i.status === 'DRAFT'
+            ? [
+                {
+                  label: 'Archive Invoice',
+                  icon: Archive,
+                  onSelect: () => setArchiving({ i, how: 'archive' }),
+                },
+              ]
+            : []),
+          ...(i.status === 'DRAFT' && !i.sentAt && !i.issuedAt
+            ? [
+                {
+                  label: 'Delete Draft',
+                  icon: Trash,
+                  danger: true,
+                  onSelect: () => setArchiving({ i, how: 'delete' }),
+                },
+              ]
+            : []),
+        ];
   const actions = (i: InvoiceListItem) => (
     <ActionMenu
       label={`Actions for ${i.number}`}
@@ -1266,6 +1322,17 @@ function InvoiceTable({
       {canceling ? (
         <InvoiceCancelForm invoice={canceling} onClose={() => setCanceling(undefined)} />
       ) : null}
+      {archiving ? (
+        <ArchiveDialog
+          invoice={archiving.i}
+          how={archiving.how}
+          onClose={() => setArchiving(undefined)}
+          onDone={(text) => {
+            setArchiving(undefined);
+            onNotice(text, 'success');
+          }}
+        />
+      ) : null}
       {historyFor ? (
         <InvoiceHistoryForm
           invoice={historyFor.i}
@@ -1429,5 +1496,82 @@ function Side({ paymentsEnabled, loaded }: { paymentsEnabled?: boolean; loaded: 
         </ul>
       </section>
     </aside>
+  );
+}
+
+/**
+ * IP-F10 (Rasel, Nov 7): invoices are archived, never deleted. Archive takes a draft, paid or
+ * canceled invoice out of the lists (its money still counts); Delete on a draft never sent
+ * archives it; Restore brings it back as it was.
+ */
+function ArchiveDialog({
+  invoice: i,
+  how,
+  onClose,
+  onDone,
+}: {
+  invoice: InvoiceListItem;
+  how: 'archive' | 'delete' | 'restore';
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const title =
+    how === 'restore' ? 'Restore Invoice' : how === 'delete' ? 'Delete Draft' : 'Archive Invoice';
+  const run = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (how === 'restore') await api.invoices.restore(i.id);
+      else if (how === 'delete') await api.invoices.deleteDraft(i.id);
+      else await api.invoices.archive(i.id);
+      await qc.invalidateQueries({ queryKey: [...INV_KEY] });
+      onDone(
+        how === 'restore'
+          ? `${i.number} restored.`
+          : how === 'delete'
+            ? `${i.number} deleted: it is kept under Archived.`
+            : `${i.number} archived.`,
+      );
+    } catch (e) {
+      setError(errorMessage(e, INVOICE_ERRORS));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      title={title}
+      subtitle={`${i.number} · ${i.client.displayName}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Keep It
+          </Button>
+          <Button disabled={busy} onClick={() => void run()}>
+            {title}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2 text-sm text-text" data-testid="archive-dialog">
+        <p>
+          {how === 'restore'
+            ? 'It goes back to the invoice lists as it was.'
+            : how === 'delete'
+              ? 'This draft was never sent. It leaves the lists and is kept under Archived: invoices are never deleted.'
+              : 'It leaves the invoice lists and is kept under Archived, and it can be restored.'}
+        </p>
+        {error ? (
+          <p role="alert" className="text-danger">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }

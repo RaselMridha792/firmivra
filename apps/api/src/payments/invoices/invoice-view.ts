@@ -131,6 +131,8 @@ export const invoiceSelect = {
   paidAt: true,
   canceledAt: true,
   cancelReason: true,
+  // IP-F10.
+  archivedAt: true,
   paymentTerms: true,
   notesToClient: true,
   internalNote: true,
@@ -365,6 +367,7 @@ export function toListItem(
     issuedAt: state.issuedAt,
     paidAt: iso(row.paidAt),
     canceledAt: iso(row.canceledAt),
+    archivedAt: iso(row.archivedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
