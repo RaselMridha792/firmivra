@@ -103,6 +103,7 @@ export type IndustryPack = z.infer<typeof IndustryPack>;
 
 export const FirmApplicationStatus = z.enum([
   'PENDING_REVIEW',
+  'IN_REVIEW',
   'INFO_REQUESTED',
   'APPROVED',
   'DECLINED',
@@ -2291,3 +2292,6 @@ export const ClientTimelineKind = z.enum([
   'OTHER',
 ]);
 export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;
+
+export const FirmApplicationInfoRequestStatus = z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED']);
+export type FirmApplicationInfoRequestStatus = z.infer<typeof FirmApplicationInfoRequestStatus>;
