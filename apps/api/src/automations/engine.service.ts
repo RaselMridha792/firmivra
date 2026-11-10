@@ -12,7 +12,7 @@ import { DocumentRequestsService } from '../storage/document-requests.service.js
 import { IntakeSendService } from '../intake-workspace/intake-send.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
-import { LeadPipelineTabsService } from '../leads/lead-pipeline-tabs.service.js';
+import { LeadFollowUpsService } from '../leads/lead-follow-ups.js';
 import { TaxReturnReviewService } from '../tax-returns/review.service.js';
 import { ComplianceDeadlineActionsService } from '../compliance/compliance-deadline-actions.service.js';
 import { EngagementsService } from '../engagements/engagements.service.js';
@@ -89,7 +89,7 @@ export class AutomationEngine {
     private readonly outbound: OutboundMessagesService,
     private readonly documentRequests: DocumentRequestsService,
     private readonly intakeSend: IntakeSendService,
-    private readonly leadFollowUps: LeadPipelineTabsService,
+    private readonly leadFollowUps: LeadFollowUpsService,
     private readonly taxReview: TaxReturnReviewService,
     private readonly deadlines: ComplianceDeadlineActionsService,
     private readonly engagements: EngagementsService,
@@ -1289,7 +1289,8 @@ export class AutomationEngine {
               types.includes(cfg.followUpType as string) ? cfg.followUpType : 'FOLLOW_UP'
             ) as 'FOLLOW_UP';
             const days = typeof cfg.dueInDays === 'number' ? cfg.dueInDays : 1;
-            await this.leadFollowUps.setFollowUp(
+            // L8: one more step, never a change to a step the firm planned.
+            await this.leadFollowUps.add(
               businessId,
               { userId: member.userId, role: member.role },
               run.recordId as string,
