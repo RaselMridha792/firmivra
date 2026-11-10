@@ -1847,3 +1847,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Clear and chips, kept in the address; the list API's new filters. Clients e2e 37 of 37, mock 45
   of 47 (D1 needed the responsible party: fixed on the E5 branch; `r60-dashboard-lists`' appointment
   menu test fails independently of these branches). Export, Bulk Actions and linked profiles next.
+- Nov 10: Clients Export, branch `rasel/R60-clients-export` (stacked on
+  `rasel/R60-clients-filters`): `POST /business/clients/export` (the list's filters, minimal
+  fields, at most 5,000 rows, a five-minute CSV link; the Owner, or the member's grid granting
+  Clients EXPORT, read in the controller since `@Access` lets the three base roles through);
+  Export's dialog previews the scope, count and columns. Clients e2e 38 of 38, mock 1 of 1.

@@ -5,11 +5,14 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { type Database, Prisma, type TxClient } from '@firmivra/db';
 import type {
   BulkClientsRequest,
   BulkClientsResponse,
+  ClientExportLink,
   ClientListItem,
   ClientListRow,
   ClientProfile,
@@ -17,6 +20,7 @@ import type {
   ClientServiceRef,
   ClientsSummary,
   CreateClientRequest,
+  ExportClientsRequest,
   ListClientsQuery,
   ListClientsResponse,
   UpdateClientProfileRequest,
@@ -27,6 +31,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { reassignClientTasks } from '../workspaces/tasks.service.js';
 import { uuidv7 } from './client-ids.js';
 import {
@@ -37,6 +42,7 @@ import {
 } from './client-secrets.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
+type ExportBody = z.output<typeof ExportClientsRequest>;
 type CreateBody = z.output<typeof CreateClientRequest>;
 type UpdateBody = z.output<typeof UpdateClientRequest>;
 type ProfileBody = z.output<typeof UpdateClientProfileRequest>;
@@ -226,6 +232,7 @@ export class ClientsService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly fe: FieldEncryption,
+    @Inject(REPORT_FILES) private readonly files: ReportFiles,
   ) {}
 
   /**
@@ -253,7 +260,12 @@ export class ClientsService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
-  async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<ListClientsResponse> {
+  async list(
+    businessId: string,
+    actor: ClientsActor,
+    q: ListQuery,
+    audited = true,
+  ): Promise<ListClientsResponse> {
     if (actor.role === 'STAFF' && q.assignedUserId) throw forbidden();
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
@@ -389,7 +401,9 @@ export class ClientsService {
       page.map((r) => r.id),
     );
     const latest = await this.activity(businessId, { ids: page.map((r) => r.id) });
-    await this.audit.log('clients.listed', { type: 'client' }, { count: page.length });
+    if (audited) {
+      await this.audit.log('clients.listed', { type: 'client' }, { count: page.length });
+    }
     return {
       items: page.map((row): ClientListRow => ({
         ...toListItem(row),
@@ -410,6 +424,87 @@ export class ClientsService {
    * The firm's clients who still owe documents or a balance (Octavia's E1), by the same rules as
    * the summary's Pending Documents and Balances Due cards, so a card's count is what its list shows.
    */
+  /**
+   * The list's clients as a CSV (Octavia's E2 additions): the same filters and reach as the list,
+   * minimal fields (never an SSN, EIN or date of birth), at most 5,000 rows, through the reports
+   * file store with a five-minute link. Audited once, with the count and the filter names.
+   */
+  async exportList(
+    businessId: string,
+    actor: ClientsActor,
+    q: ExportBody,
+  ): Promise<ClientExportLink> {
+    const rows: string[][] = [];
+    for (let page = 1; page <= 50; page++) {
+      const part = await this.list(businessId, actor, { ...q, page, limit: 100 }, false);
+      for (const c of part.items) {
+        rows.push([
+          c.displayName,
+          c.accountType === 'BUSINESS' ? 'Business' : 'Individual',
+          c.email ?? '',
+          c.phone ?? '',
+          c.status,
+          c.services.map((s) => s.name).join('; '),
+          c.assignedTo?.name ?? '',
+          String(c.missingDocuments),
+          (c.balanceDueCents / 100).toFixed(2),
+          c.lastActivityAt?.slice(0, 10) ?? '',
+          c.nextAppointmentAt?.slice(0, 10) ?? '',
+          c.createdAt.slice(0, 10),
+          c.archivedAt ? 'Yes' : 'No',
+        ]);
+      }
+      if (page * 100 >= part.total) break;
+    }
+    // A cell that a spreadsheet would read as a formula starts with a quote.
+    const cell = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
+    const quote = (v: string) => `"${cell(v).replace(/"/g, '""')}"`;
+    const head = [
+      'Client',
+      'Type',
+      'Email',
+      'Phone',
+      'Stage',
+      'Services',
+      'Assigned to',
+      'Missing documents',
+      'Balance due',
+      'Last activity',
+      'Next appointment',
+      'Added',
+      'Archived',
+    ];
+    const csv = `\uFEFF${[head, ...rows].map((r) => r.map(quote).join(',')).join('\r\n')}\r\n`;
+    const key = `tenant/${businessId}/reports/clients-${randomUUID()}.csv`;
+    const fileName = `clients-${new Date().toISOString().slice(0, 10)}.csv`;
+    let url: string;
+    try {
+      await this.files.put(key, Buffer.from(csv, 'utf8'), 'text/csv; charset=utf-8');
+      url = await this.files.presignDownload({ key, fileName, contentType: 'text/csv' });
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'FILE_STORE_UNAVAILABLE',
+        message: 'The file could not be saved. Try again shortly.',
+      });
+    }
+    await this.audit.log(
+      'clients.exported',
+      { type: 'client' },
+      {
+        rows: rows.length,
+        filters: Object.keys(q)
+          .filter((k) => q[k as keyof ExportBody] !== undefined)
+          .sort(),
+      },
+    );
+    return {
+      url,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      fileName,
+      rowCount: rows.length,
+    };
+  }
+
   private async owing(businessId: string, owes: 'DOCUMENTS' | 'BALANCE'): Promise<string[]> {
     const rows = await this.inFirm(businessId, (tx) =>
       owes === 'DOCUMENTS'
