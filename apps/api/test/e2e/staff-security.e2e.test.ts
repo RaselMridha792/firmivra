@@ -20,8 +20,13 @@ import {
   StaffSessionList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
-import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
-import { FIRM_SESSION_STARTED } from '../../src/auth/staff-sessions.js';
+import {
+  LOCAL_MFA_CODE,
+  LOCAL_PASSWORD,
+  LOCAL_RESET_CODE,
+} from '../../src/auth/identity/local-identity.provider.js';
+import { BACKGROUND_HEADER, FIRM_SESSION_STARTED } from '../../src/auth/staff-sessions.js';
+import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -592,5 +597,62 @@ describe('a real sign-in: the session row per firm and the revoke check (SM4)', 
     // A new sign-in is a new session, and it works.
     const fresh = await signIn(people.both.email);
     ok(await browse(fresh.access, 'a'));
+  });
+
+  it('15 minutes without activity end the session (SEC-4); a background request is no activity', async () => {
+    const web = await signIn(people.both.email);
+    ok(await browse(web.access, 'a'));
+    const [row] = (await rowsIn('a', member.both)).filter((r) => !r.revokedAt).slice(-1);
+    const setIdle = (minutes: number) =>
+      inFirm('a', (tx) =>
+        tx.staffSession.update({
+          where: { id: row?.id ?? '' },
+          data: { lastActiveAt: new Date(Date.now() - minutes * 60_000) },
+        }),
+      );
+    // A background request (the bell polling) is checked but does not count as activity.
+    await setIdle(2);
+    ok(await browse(web.access, 'a').set(BACKGROUND_HEADER, '1'));
+    const after = await inFirm('a', (tx) =>
+      tx.staffSession.findUniqueOrThrow({ where: { id: row?.id ?? '' } }),
+    );
+    expect(Date.now() - after.lastActiveAt.getTime()).toBeGreaterThan(90_000);
+    // Past 15 minutes: 401 SESSION_IDLE, and the session stays ended.
+    await setIdle(16);
+    expectError(await browse(web.access, 'a'), 401, 'SESSION_IDLE');
+    expectError(await browse(web.access, 'a'), 401, 'SESSION_REVOKED');
+    // Only this firm's session ended.
+    ok(await browse(web.access, 'b'));
+  });
+
+  it('8 hours after sign-in the session ends, whatever the activity (SEC-4)', async () => {
+    const tokens = app.get(TokenService);
+    const signedIn = Math.floor(Date.now() / 1000) - 8 * 3600 - 60;
+    const { token } = await tokens.signLocal(people.both.id, 'STAFF', randomUUID(), signedIn);
+    expectError(await browse(`fv_access=${token}`, 'a'), 401, 'SESSION_EXPIRED');
+    const { token: recent } = await tokens.signLocal(
+      people.both.id,
+      'STAFF',
+      randomUUID(),
+      Math.floor(Date.now() / 1000) - 7 * 3600,
+    );
+    ok(await browse(`fv_access=${recent}`, 'a'));
+  });
+
+  it('a new password signs the person out of every firm (SEC-5)', async () => {
+    const web = await signIn(people.both.email);
+    ok(await browse(web.access, 'a'));
+    ok(await browse(web.access, 'b'));
+    ok(
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/reset-password')
+        .set('origin', appOrigin)
+        .set('x-forwarded-for', viewer())
+        .send({ email: people.both.email, code: LOCAL_RESET_CODE, password: LOCAL_PASSWORD }),
+    );
+    expectError(await browse(web.access, 'a'), 401, 'SESSION_REVOKED');
+    expectError(await browse(web.access, 'b'), 401, 'SESSION_REVOKED');
+    expect((await rowsIn('a', member.both)).filter((r) => !r.revokedAt)).toHaveLength(0);
+    expect((await rowsIn('b', inB)).filter((r) => !r.revokedAt)).toHaveLength(0);
   });
 });
