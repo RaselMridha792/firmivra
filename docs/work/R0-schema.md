@@ -156,6 +156,12 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - SEC-6: `memberships.is_security_admin`, and `staff_security_defaults.mfa_required`, which can be off only with a documented, approved exception.
   - RP-F18: `report_definitions.show_legend`.
 - Nov 7 (Rasel's approval in R1's window, the Oct 31 Super Admin review; R1 adds this line): `r1_sa_small_batch` (R1, branch `rasel/R1-sa-small-batch`): `invoices.archived_at` (IP-F10: archived, never deleted) and `platform_integration_usage_daily.connected_firms_by_plan jsonb NOT NULL DEFAULT '{}'` (SA-INT-R3: whole, non-negative counts by plan code). No backfill.
+- Nov 7 (Rasel's approval in R1's window, FIRM-APPLICATIONS.md section D; R1 adds this line): `r1_firm_application_in_review` (the `IN_REVIEW` value, on its own) and `r1_firm_application_review` (R1, branch `rasel/R1-firm-applications`).
+  - `firm_applications.assigned_reviewer_user_id` (a platform admin).
+  - The review trigger's transitions: Pending to In Review on open, In Review to request or decide, an answered request back to In Review, never back to Pending.
+  - New tables `firm_application_info_requests` (one OPEN per application, the token's hash only, closed once), `firm_application_responses` (same application, insert-only) and `firm_application_response_files` (under `tenant/<application>/applications/<response>/`, PDF/JPG/PNG up to 10 MB, scanned).
+  - Platform data: platform scope reads and writes; admins read and write requests.
+  - The `applications.review` key needs no rows (no default holder). No backfill.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.

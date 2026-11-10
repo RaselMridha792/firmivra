@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import { runInScope } from '../src/client.js';
+import type { Prisma } from '../src/generated/prisma/client.js';
 import { connect, createTwoFirms, failure, type TwoFirms } from './r38-helpers.js';
 
 const { owner, db } = connect(inject('dbUrls'));
@@ -109,7 +110,11 @@ describe('information requests (SA-APP-F03)', () => {
       data: { status: 'SUPERSEDED', closedAt: new Date() },
     });
     await expect(request(ids.app)).resolves.toMatchObject({ status: 'OPEN' });
-    for (const data of [{ status: 'OPEN', closedAt: null }, { reason: 'Changed later (fake).' }]) {
+    const changes: Prisma.FirmApplicationInfoRequestUpdateInput[] = [
+      { status: 'OPEN', closedAt: null },
+      { reason: 'Changed later (fake).' },
+    ];
+    for (const data of changes) {
       expect(
         await failure(admin().firmApplicationInfoRequest.update({ where: { id: first.id }, data })),
         JSON.stringify(data),
