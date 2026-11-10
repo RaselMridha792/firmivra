@@ -34,6 +34,7 @@ import {
   errorText,
   outlined,
   quiet,
+  scheduleMeetingHref,
 } from './ba-shared';
 
 const TABS = [
@@ -126,7 +127,11 @@ export function ClientShell({
           >
             Edit Client
           </button>
-          <Link href="/calendar/new" className={outlined}>
+          <Link
+            href={scheduleMeetingHref(c, path)}
+            className={outlined}
+            data-testid="schedule-meeting"
+          >
             <CalendarDots aria-hidden weight="fill" className="size-5 text-action" /> Schedule
             Meeting
           </Link>

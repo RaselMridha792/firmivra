@@ -77,6 +77,8 @@ type CreateBody = z.output<typeof CreateInvoiceRequest>;
 type DraftBody = z.output<typeof UpdateInvoiceRequest>;
 
 export const archived = () => conflict('CLIENT_ARCHIVED', 'Restore the client first');
+/** IP-F10: an archived invoice changes only once restored. */
+const invoiceArchived = () => conflict('INVOICE_ARCHIVED', 'Restore this invoice first');
 export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed');
 
 const DAY = 86_400_000;
@@ -159,6 +161,7 @@ export class InvoicesService {
     await lockInvoice(tx, businessId, id);
     const current = await this.load(tx, businessId, actor, id);
     if (current.status !== 'DRAFT') throw notDraft();
+    if (current.archivedAt) throw invoiceArchived();
     return current;
   }
 
@@ -177,6 +180,7 @@ export class InvoicesService {
     await lockInvoice(tx, businessId, id);
     const current = await this.load(tx, businessId, actor, id);
     if (!editable(current.status)) throw notDraft();
+    if (current.archivedAt) throw invoiceArchived();
     return current;
   }
 
@@ -196,6 +200,12 @@ export class InvoicesService {
           { businessId, client: this.reach(actor) },
           q.clientId ? { clientId: q.clientId } : {},
           q.status ? { status: q.status } : {},
+          // IP-F10: archived ones only when asked for.
+          q.archived === 'include'
+            ? {}
+            : q.archived === 'only'
+              ? { archivedAt: { not: null } }
+              : { archivedAt: null },
           term
             ? {
                 OR: [
@@ -1122,6 +1132,7 @@ export class InvoicesService {
         if (current.status === 'PAID' || current.status === 'CANCELED') {
           throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
         }
+        if (current.archivedAt) throw invoiceArchived();
         if (processing(current)) throw paymentInProgress();
         if (holdsMoney(current)) throw conflict('HAS_PAYMENTS', INVOICE_ERRORS.HAS_PAYMENTS);
         await endDraftRecurrence(tx, this.audit, businessId, current);
@@ -1155,6 +1166,71 @@ export class InvoicesService {
       },
       CHECKOUT_LIMITS,
     );
+  }
+
+  // ---------- IP-F10: archive, never delete ----------
+
+  /**
+   * Archives a draft: it leaves the lists (`archived` asks for it) and nothing else about it
+   * changes. Paid and canceled invoices follow once the database lets their `archived_at` change
+   * (its rules keep them final); until then, and for one still owed, 409 NOT_ARCHIVABLE.
+   * Archiving one that is archived changes nothing and audits nothing.
+   */
+  archive(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
+    return this.setArchived(businessId, actor, id, 'archive');
+  }
+
+  /** Delete on a draft never sent archives it (the app never deletes an invoice). */
+  deleteDraft(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
+    return this.setArchived(businessId, actor, id, 'delete');
+  }
+
+  /** Back in the lists as it was. */
+  restore(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
+    return this.setArchived(businessId, actor, id, 'restore');
+  }
+
+  private async setArchived(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    how: 'archive' | 'delete' | 'restore',
+  ): Promise<Invoice> {
+    return this.inFirm(businessId, async (tx) => {
+      await this.load(tx, businessId, actor, id);
+      await lockInvoice(tx, businessId, id);
+      const current = await this.load(tx, businessId, actor, id);
+      const { today } = await firmToday(tx, businessId);
+      if (how === 'delete') {
+        const sent = await dispatchTimes(tx, businessId, [id]);
+        if (current.status !== 'DRAFT' || current.issuedAt || sent.get(id)) {
+          throw conflict('NOT_DELETABLE', INVOICE_ERRORS.NOT_DELETABLE);
+        }
+      } else if (how === 'archive' && current.status !== 'DRAFT') {
+        throw conflict('NOT_ARCHIVABLE', INVOICE_ERRORS.NOT_ARCHIVABLE);
+      }
+      const archive = how !== 'restore';
+      if (archive === (current.archivedAt !== null)) {
+        return await invoiceOf(tx, businessId, current, today);
+      }
+      await tx.invoice.update({
+        where: { businessId_id: { businessId, id } },
+        data: { archivedAt: archive ? new Date() : null },
+      });
+      const row = await this.load(tx, businessId, actor, id);
+      await this.audit.logIn(
+        tx,
+        how === 'delete' ? 'invoice.deleted' : archive ? 'invoice.archived' : 'invoice.restored',
+        { type: 'invoice', id },
+        {
+          clientId: row.clientId,
+          number: row.number,
+          status: row.status,
+          ...(how === 'delete' ? { archived: true } : {}),
+        },
+      );
+      return await invoiceOf(tx, businessId, row, today);
+    });
   }
 }
 

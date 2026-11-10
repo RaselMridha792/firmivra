@@ -40,7 +40,7 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1330 merged: report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
 - #1333 merged: a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
 - #1338 merged: SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
-- #1344 (`rasel/R55-my-security`): SM14 part B, My Profile's Security card (my sessions, Sign Out All Other Sessions, Change Password with the current one first).
+- #1344 (`rasel/R55-my-security`): My Profile's Security card, my sessions with Sign Out All Other Sessions and Change Password with the current one first, any staff role (the lead's placement on My Profile).
 - #1351 (`rasel/R55-firm-applications`): In Review on open, Request Additional Information with its own record and link, Request again, decisions from every open status, the assigned reviewer, last activity, request state, response files, the new tabs and counts (SA-APP-F02, F03, F05 to F09, Y01, Y04).
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
