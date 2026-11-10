@@ -3,15 +3,15 @@
 import { ApiRequestError } from '@firmivra/types';
 import { Badge, Button, Input, Modal, Textarea } from '@firmivra/ui';
 import { useState } from 'react';
-import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { api } from '../../../../../../lib/api';
+import { errorMessage } from '../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 
-// SM14 part C, SEC-6: the firm's two-factor requirement and the control that changes it, for
-// Settings > Security's MFA card. Self-contained (R55's piece of that card). Only an Owner or a
-// security administrator sees the change control; it asks for the current password (a fresh
-// sign-in) and a confirm, and turning it off records the approved exception. Staff sign-in still
-// asks every login for a code: the card says so.
+// SM14 part C, SEC-6: the firm's two-factor requirement and the control that changes it, in
+// Settings > Security's MFA card (one import there; the lead's placement, Nov 10). Only an Owner or
+// a security administrator sees the change control; it asks for the current password (a fresh
+// sign-in) and a confirm. Turning it off only records the firm's approved exception: Firmivra's
+// sign-in still asks every staff login for a code, and the card says so plainly.
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-US', {
@@ -145,18 +145,22 @@ export function MfaPolicyControl() {
           {p.exception.note}
           <span className="block text-xs text-muted">
             Recorded {when(p.exception.at)}
-            {p.exception.approvedBy ? ` by ${p.exception.approvedBy.name}` : ''}. Sign-in still asks
-            for a code.
+            {p.exception.approvedBy ? ` by ${p.exception.approvedBy.name}` : ''}.
           </span>
         </p>
       ) : null}
+      <p className="text-sm text-text" data-testid="mfa-enforced">
+        Firmivra&apos;s sign-in still asks every staff login for a code
+        {p.required ? '.' : ', whatever this records: turning it off only records the exception.'}
+      </p>
       {p.canChange ? (
         <Button variant="secondary" className="w-fit" onClick={() => setChanging(true)}>
           Change Requirement
         </Button>
       ) : (
         <p className="text-xs text-muted">
-          Only the Owner, or an Admin the Owner made a security administrator, may change this.
+          Only the Owner, or an Admin the Owner made a security administrator, may change this,
+          after signing in again. Each change is recorded in the audit log.
         </p>
       )}
       {changing ? (
