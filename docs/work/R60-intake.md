@@ -1821,3 +1821,9 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
+  #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
+  details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several
+  blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
+  after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
+  schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.

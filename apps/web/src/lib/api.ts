@@ -73,6 +73,7 @@ import {
   createServicesPricingClient,
   createSettingsClient,
   createSettingsOverviewClient,
+  createLocationsClient,
   createStaffClient,
   createSupportAccessClient,
   createTasksClient,
@@ -109,6 +110,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createLocationsMock } from '../mocks/locations';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
 import { createAdminFirmProfileMock } from '../mocks/admin-firm-profile-api';
 import { createAdminNotificationsMock } from '../mocks/admin-notifications-api';
@@ -229,6 +231,11 @@ export const api = {
     dev && mocked('roles')
       ? createRolesMock({ role: MOCK_ROLE, empty: mockedEmpty('roles') })
       : createRolesClient(request),
+  /** Settings > Locations (R1's contract): the firm's offices, their people, hours and schedules. */
+  locations:
+    dev && mocked('locations')
+      ? createLocationsMock({ role: MOCK_ROLE, empty: mockedEmpty('locations') })
+      : createLocationsClient(request),
   /** Settings > Overview (R42 contract). */
   settingsOverview:
     dev && mocked('settingsOverview')
