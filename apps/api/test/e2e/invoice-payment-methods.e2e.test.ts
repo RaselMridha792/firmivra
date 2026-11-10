@@ -49,7 +49,12 @@ const stripePaid = (invoiceId: string, amountCents: number, daysAgo = 0, refundC
     });
     await tx.payment.update({
       where: { id: p.id },
-      data: { status: 'SUCCEEDED', paidAt: new Date(Date.now() - daysAgo * 86_400_000) },
+      // Midday (New York) of that firm day: 400 days of 24 hours back can cross a daylight-saving
+      // change and land on the day before near midnight, which the range test then misses.
+      data: {
+        status: 'SUCCEEDED',
+        paidAt: daysAgo === 0 ? new Date() : new Date(`${nyDay(-daysAgo)}T17:00:00.000Z`),
+      },
     });
     if (refundCents > 0) {
       const refunded = await tx.paymentEvent.create({
