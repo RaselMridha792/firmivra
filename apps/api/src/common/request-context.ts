@@ -11,6 +11,8 @@ export interface AuthContext {
   pool: IdentityPool;
   /** The sign-in's id from the token (VerifiedToken.session); only ever stored hashed. */
   session?: string;
+  /** When the person signed in, in seconds (VerifiedToken.authTime): the 8-hour cap (SEC-4). */
+  authTime?: number;
 }
 
 export type TenantRole = MembershipRole | 'CLIENT';
