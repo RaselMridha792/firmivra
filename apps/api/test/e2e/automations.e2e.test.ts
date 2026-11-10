@@ -3333,8 +3333,13 @@ describe('Invite to book, lead follow-up and approval requests (AU-F27)', () => 
     const inDays = (next.nextActionAt!.getTime() - Date.now()) / 86_400_000;
     expect(inDays).toBeGreaterThan(1.9);
     expect(inDays).toBeLessThan(2.1);
-    // Leads' own record of it.
-    expect((await auditRows(open)).map((r) => r.action)).toContain('lead.follow_up_set');
+    // Leads' own record of it: one more follow-up step (L8), never a change to a planned one.
+    expect((await auditRows(open)).map((r) => r.action)).toContain('lead.follow_up_added');
+    expect(
+      await inFirm('a', (tx) =>
+        tx.leadFollowUp.count({ where: { businessId: firms.a, leadId: open, doneAt: null } }),
+      ),
+    ).toBe(1);
     // A closed lead has no follow-up: Leads refuses it, and the step says so.
     expect(await stepOfRecord(live.id, lost)).toMatchObject({
       status: 'FAILED',
