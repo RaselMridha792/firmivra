@@ -99,7 +99,7 @@ export class StaffSessions {
         .catch(() => undefined);
       throw idle();
     }
-    const background = req.headers[BACKGROUND_HEADER] === '1';
+    const background = req.headers?.[BACKGROUND_HEADER] === '1';
     try {
       if (!row) await this.start(req, businessId, membershipId, tokenHash);
       else if (!background && now - row.lastActiveAt.getTime() >= TOUCH_MS) {
