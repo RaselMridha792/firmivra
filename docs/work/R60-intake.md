@@ -474,8 +474,11 @@ Progress (TX-F18, Rasel's go on the role check; Nov 10):
   `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
   `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
   of 37, mock 26 of 26.
-- Next (the lead, Nov 10): the same check on the return's tasks and schedule items (reassign), in
-  a small follow-up PR.
+- Follow-up (the lead, Nov 10), branch `rasel/R60-tax-returns-reassign` on it: a task or
+  appointment of a live return's engagement is reassigned only by the return's preparer or
+  reviewer, or the Owner or Admin override (recorded: `override` on `task.updated`,
+  `appointment.reassigned_override`). One rule, `tax-returns/return-authority.ts`, used by the
+  task update, Reschedule and the calendar's Edit Details. API e2e 86 of 86.
 
 ## Handoff (Oct 23): start here
 
