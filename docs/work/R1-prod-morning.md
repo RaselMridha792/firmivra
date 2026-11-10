@@ -120,7 +120,7 @@ Also tell R1 who provides the company email (Google Workspace, Microsoft 365, Go
 
 ## 6. Prod bootstrap checklist (Oct 28)
 
-Prod (`v1.0.0`) is live and empty: no Super Admin, no LVP, no alarm subscriber, and empty Stripe keys. This is the order Rasel does the rest in. Each step needs his word; R1 runs nothing here on its own.
+Prod is live (it now follows main, step 2) and empty: no Super Admin, no LVP, no alarm subscriber, and empty Stripe keys. This is the order Rasel does the rest in. Each step needs his word; R1 runs nothing here on its own.
 
 **Placeholders only.** Addresses, subs, the legal name and keys never go in the repo, a PR or chat:
 - **Command lines:** typed by Rasel, or run by R1 from his word.
@@ -134,16 +134,17 @@ All commands run in Git Bash with `--profile firmivra-dev` (prod shares the acco
      `aws sns subscribe --topic-arn arn:aws:sns:us-east-1:778127141557:firmivra-prod-alarms --protocol email --notification-endpoint <ADDRESS>`
    - Rasel confirms the email AWS sends.
    - Check: `aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:778127141557:firmivra-prod-alarms` no longer shows `PendingConfirmation`.
-2. **The release tag** (`v1.1.0`, on the sha the Scrum thread gives once Deploy dev is green on it).
-   - Rasel runs:
-     ```
-     git fetch origin
-     git merge-base --is-ancestor <SHA> origin/main && echo "on main"
-     git tag -a v1.1.0 <SHA> -m "v1.1.0"
-     git push origin v1.1.0
-     ```
-   - Deploy prod waits for the `prod` environment's review: Actions → Deploy prod → the run → Review deployments → tick `prod` → Approve and deploy.
+2. **The release: prod follows main** (Rasel's card "Auto deploy", Oct 29; replaces the `v1.1.0` tag).
+   - **Done (Nov 10):** Rasel made both environment changes. The first automatic run, Deploy prod #3 (run 42760305751), deployed main `922851d7` after Deploy dev #947. It applied the 27 migrations since `v1.0.0` to the prod database (through `r1_sa_small_batch`), rolled the api and web, and got 200 on all six URLs. Later merges follow by themselves; the bootstrap below can start.
+   - Rasel, in the `prod` environment (Settings → Environments → prod):
+     - removes "Required reviewers";
+     - adds `main` to "Deployment branches and tags", next to `v*`, or the automatic run is refused.
+   - Then the first green Deploy dev on `main` after the auto-deploy PR deploys prod by itself. Nobody tags.
    - R1 watches the run and checks the six URLs. The bootstrap comes after this, so it runs on the new migrations.
+   - To stop it: the repository variable `AUTO_DEPLOY_PROD` set to `false` (Settings → Secrets and variables → Actions → Variables). Unset means on.
+   - To roll back (Rasel only):
+     1. set `AUTO_DEPLOY_PROD` to `false` first;
+     2. Actions → Deploy prod → Run workflow from `main`, with a `v*` tag or a commit of main, or push a `v*` tag.
 3. **The two Cognito users** (console, as on dev):
    - a Super Admin in `firmivra-prod-admins`;
    - LVP's Owner in `firmivra-prod-staff`.

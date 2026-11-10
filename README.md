@@ -79,6 +79,6 @@ Notes:
 1. Branch from `main`: `<name>/FIR-<issue>-short-name`.
 2. Open a PR into `main` (one ticket or one page per PR) using the template; your pair pre-reviews.
 3. CI must pass. Only Rasel approves and merges.
-4. A merge to `main` deploys to dev. Production deploys from a `v*` release tag after approval.
+4. A merge to `main` deploys to dev, and prod follows by itself once that dev deploy is green. `v*` release tags are for rollbacks.
 
 Schema and AWS changes go through Rasel: open a "Schema or infra request" issue.

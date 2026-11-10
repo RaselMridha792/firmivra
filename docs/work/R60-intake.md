@@ -1833,3 +1833,7 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
+- Nov 10: the tax return's Confirm (AU-F31 on the record page, #1264's endpoint), branch
+  `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
+  banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
+  `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
