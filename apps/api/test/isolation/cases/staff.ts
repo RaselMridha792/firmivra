@@ -193,6 +193,12 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'staffMembership' },
     body: { confirm: true },
   },
+  // SM14 part C, SEC-6: a member's security administration.
+  [`GET ${BASE}/:id/security-admin`]: { params: { id: 'staffMembership' } },
+  [`PUT ${BASE}/:id/security-admin`]: {
+    params: { id: 'staffMembership' },
+    body: { securityAdmin: true, confirm: true },
+  },
   [`GET ${BASE}/:id/login-history`]: { params: { id: 'staffMembership' } },
   [`GET ${BASE}/:id/activity`]: { params: { id: 'staffMembership' } },
   [`POST ${BASE}/:id/reset-password`]: {
