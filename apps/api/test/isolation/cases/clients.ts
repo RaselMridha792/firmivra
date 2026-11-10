@@ -71,6 +71,12 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { clientIds: 'client', assignedUserId: 'staffUser' },
     body: { action: 'ASSIGN', clientIds: [PLACEHOLDER], assignedUserId: PLACEHOLDER },
   },
+  // Export Selected: another firm's client refuses the export (404), nothing is made.
+  'POST /api/v1/business/clients/export': {
+    params: {},
+    bodyIds: { clientIds: 'client' },
+    body: { clientIds: [PLACEHOLDER] },
+  },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tags': { params: { id: 'client' } },

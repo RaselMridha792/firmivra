@@ -250,6 +250,11 @@ export const ExportClientsRequest = z.strictObject({
   tagId: z.uuid().optional(),
   source: LeadSource.optional(),
   priority: ClientPriority.optional(),
+  /**
+   * Bulk Actions' Export Selected: only these of the list's clients (each must be one the member
+   * reaches; 404 otherwise).
+   */
+  clientIds: z.array(z.uuid()).min(1).max(100).optional(),
 });
 export type ExportClientsRequest = z.input<typeof ExportClientsRequest>;
 
@@ -336,6 +341,21 @@ export const BulkClientsRequest = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('RESTORE'),
     clientIds: z.array(z.uuid()).min(1).max(100),
+  }),
+  /**
+   * Octavia's E2 additions: add one of the firm's live tags to each (a client that has it already
+   * is unchanged). Another firm's or an archived tag refuses the whole request (404).
+   */
+  z.strictObject({
+    action: z.literal('TAG'),
+    clientIds: z.array(z.uuid()).min(1).max(100),
+    tagId: z.uuid(),
+  }),
+  /** Octavia's E2 additions: set each one's stage (Inactive included); audited per client. */
+  z.strictObject({
+    action: z.literal('STAGE'),
+    clientIds: z.array(z.uuid()).min(1).max(100),
+    status: ClientStatus,
   }),
 ]);
 export type BulkClientsRequest = z.infer<typeof BulkClientsRequest>;

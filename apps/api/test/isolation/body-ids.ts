@@ -65,6 +65,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/tax-returns\/export$/,
     why: "the list's filter (D4, a dashboard card's tax service): another firm's service matches no return of this firm, so nothing of theirs is read (R60)",
   },
+  {
+    field: 'tagId',
+    routes: /^POST \/api\/v1\/business\/clients\/bulk$/,
+    why: "a record of the other bulk action (TAG): the route's one case carries ASSIGN; clients-work.e2e refuses another firm's tag (404) and changes nothing (R60)",
+  },
   ...['assignedUserId', 'serviceId', 'tagId'].map((field) => ({
     field,
     routes: /^POST \/api\/v1\/business\/clients\/export$/,

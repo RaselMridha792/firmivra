@@ -1852,3 +1852,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   fields, at most 5,000 rows, a five-minute CSV link; the Owner, or the member's grid granting
   Clients EXPORT, read in the controller since `@Access` lets the three base roles through);
   Export's dialog previews the scope, count and columns. Clients e2e 38 of 38, mock 1 of 1.
+- Nov 10: Clients Bulk Actions, branch `rasel/R60-clients-bulk` (stacked on
+  `rasel/R60-clients-export`): Add Tag, Change Status, Mark Inactive and Export Selected (bulk
+  `TAG` and `STAGE`, export `clientIds`), each naming the clients first, audited per client.
+  Message, document or intake request and service wait for those flows to take several clients.
+  Clients e2e 41 of 41, client mock specs 24 of 24.
