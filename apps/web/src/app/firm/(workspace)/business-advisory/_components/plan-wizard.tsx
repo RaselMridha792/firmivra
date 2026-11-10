@@ -56,6 +56,18 @@ const options = (list: string[], current: string, empty = 'Select…') => [
   })),
 ];
 
+/**
+ * Octavia's B6: Other takes a "specify" text, and that text is what is saved (both fields are
+ * free text). A saved value outside the list opens as Other with its text in the box.
+ */
+const splitOther = (list: string[], stored: string | null | undefined) =>
+  !stored
+    ? { choice: '', other: '' }
+    : list.includes(stored) && stored !== 'Other'
+      ? { choice: stored, other: '' }
+      : { choice: 'Other', other: stored === 'Other' ? '' : stored };
+const joinOther = (choice: string, other: string) => (choice === 'Other' ? other : choice);
+
 // ---------- The entry point the pages render ----------
 
 /** Create / Edit Business Plan (design 2): five steps on one plan. `planId` is missing until it is saved. */
@@ -145,7 +157,11 @@ interface ProfileForm {
   planType: string;
   businessName: string;
   entityType: string;
+  /** B6: the entity type when Other. */
+  entityOther: string;
   industry: string;
+  /** B6: the industry when Other. */
+  industryOther: string;
   years: string;
   stage: string;
   products: string;
@@ -171,8 +187,10 @@ const formOf = (plan?: AdvisoryPlanDetail): ProfileForm => {
     targetYear: String(plan?.targetYear ?? new Date().getFullYear()),
     planType: plan?.planType ?? '',
     businessName: p.businessName ?? '',
-    entityType: p.entityType ?? '',
-    industry: p.industry ?? '',
+    entityType: splitOther(ENTITY_TYPES, p.entityType).choice,
+    entityOther: splitOther(ENTITY_TYPES, p.entityType).other,
+    industry: splitOther(INDUSTRIES, p.industry).choice,
+    industryOther: splitOther(INDUSTRIES, p.industry).other,
     years: p.yearsInBusiness == null ? '' : String(p.yearsInBusiness),
     stage: p.businessStage ?? '',
     products: p.productsServices ?? '',
@@ -196,8 +214,8 @@ const orNull = (v: string) => v.trim() || null;
 const intOrNull = (v: string) => (v.trim() === '' ? null : Math.max(0, Math.round(Number(v))));
 const profileOf = (f: ProfileForm) => ({
   businessName: orNull(f.businessName),
-  entityType: orNull(f.entityType),
-  industry: orNull(f.industry),
+  entityType: orNull(joinOther(f.entityType, f.entityOther)),
+  industry: orNull(joinOther(f.industry, f.industryOther)),
   yearsInBusiness: intOrNull(f.years),
   businessStage: orNull(f.stage),
   productsServices: orNull(f.products),
@@ -265,8 +283,10 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
     setFilledFor(d.id);
     const fill: Partial<ProfileForm> = {
       businessName: d.businessName ?? '',
-      entityType: d.businessProfile.entityType ?? '',
-      industry: d.industry ?? '',
+      entityType: splitOther(ENTITY_TYPES, d.businessProfile.entityType).choice,
+      entityOther: splitOther(ENTITY_TYPES, d.businessProfile.entityType).other,
+      industry: splitOther(INDUSTRIES, d.industry).choice,
+      industryOther: splitOther(INDUSTRIES, d.industry).other,
       years:
         d.businessProfile.yearsInBusiness == null ? '' : String(d.businessProfile.yearsInBusiness),
       stage: d.businessStage ?? '',
@@ -295,8 +315,20 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
     'industry',
     'years',
   ];
-  const missing = (k: keyof ProfileForm) => tried && !form[k].trim();
-  const err = (k: keyof ProfileForm) => (missing(k) ? 'Required to continue' : undefined);
+  // B6: Other needs its text.
+  const otherFor: Partial<Record<keyof ProfileForm, keyof ProfileForm>> = {
+    entityOther: 'entityType',
+    industryOther: 'industry',
+  };
+  const missing = (k: keyof ProfileForm) => {
+    const of = otherFor[k];
+    return tried && (of ? form[of] === 'Other' && !form[k].trim() : !form[k].trim());
+  };
+  const err = (k: keyof ProfileForm) =>
+    missing(k) ? (otherFor[k] ? 'Say what it is to continue' : 'Required to continue') : undefined;
+  const othersMissing =
+    (form.entityType === 'Other' && !form.entityOther.trim()) ||
+    (form.industry === 'Other' && !form.industryOther.trim());
 
   const persist = async (toStep: number): Promise<string | undefined> => {
     if (plan) {
@@ -353,7 +385,7 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
       }}
       onNext={() => {
         setTried(true);
-        if (!clientId || required.some((k) => !form[k].trim())) {
+        if (!clientId || required.some((k) => !form[k].trim()) || othersMissing) {
           setError('Fill in the required fields to continue, or save as a draft.');
           return;
         }
@@ -484,6 +516,16 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               options={options(ENTITY_TYPES, form.entityType)}
               {...(err('entityType') ? { error: err('entityType')! } : {})}
             />
+            {form.entityType === 'Other' ? (
+              <Input
+                label="Specify entity type"
+                required
+                maxLength={60}
+                value={form.entityOther}
+                onChange={(e) => set('entityOther')(e.target.value)}
+                {...(err('entityOther') ? { error: err('entityOther')! } : {})}
+              />
+            ) : null}
             <Select
               label="Industry"
               required
@@ -492,6 +534,16 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               options={options(INDUSTRIES, form.industry)}
               {...(err('industry') ? { error: err('industry')! } : {})}
             />
+            {form.industry === 'Other' ? (
+              <Input
+                label="Specify industry"
+                required
+                maxLength={100}
+                value={form.industryOther}
+                onChange={(e) => set('industryOther')(e.target.value)}
+                {...(err('industryOther') ? { error: err('industryOther')! } : {})}
+              />
+            ) : null}
             <Input
               label="Years in Business"
               required

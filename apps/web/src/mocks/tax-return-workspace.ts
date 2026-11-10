@@ -460,6 +460,7 @@ function approvals(id: string, r: Stored): TaxApproval[] {
       approvedDocument: null,
       note: null,
       createdAt: ago(10),
+      canDecide: false,
     },
     {
       id: uid('0c10', Number(id.slice(-4)) * 2 + 1),
@@ -472,6 +473,7 @@ function approvals(id: string, r: Stored): TaxApproval[] {
       approvedDocument: null,
       note: null,
       createdAt: ago(10),
+      canDecide: false,
     },
   ];
 }
@@ -607,6 +609,15 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
 
   const clientOf = (r: Stored) => clients.find((c) => c.id === r.clientId)!;
   const reachable = (r: Stored) => role !== 'STAFF' || clientOf(r).staffs;
+  // TX-F18: a step is the assignee's (no assignee: the return's reviewer); Owner and Admin may
+  // decide any as the override.
+  const decidable = (r: Stored) =>
+    copy(r.approvals).map((a) => ({
+      ...a,
+      canDecide:
+        a.status === 'PENDING' &&
+        (role !== 'STAFF' || (a.assignedTo ?? r.reviewer)?.userId === me.userId),
+    }));
   const find = (id: string) => {
     const r = rows.find((x) => x.id === id);
     if (!r || !reachable(r)) throw notFound();
@@ -671,6 +682,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       firstFiledAt: r.firstFiledAt,
       document: null,
       canMoveTo: canMoveTo(r.workflowStatus),
+      // TX-F18: the reviewer, or an Owner or Admin as the override.
+      canFinalize: role !== 'STAFF' || r.reviewer?.userId === me.userId,
       blockers: blockersOf(r, rows),
       // As the API: copied from the client at creation, correctable until the first filing.
       businessIdentity:
@@ -1317,7 +1330,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
 
     approvals: async (id) => {
       await mockDelay();
-      return copy(find(id).approvals);
+      return decidable(find(id));
     },
     addApproval: async (id, body) => {
       await mockDelay();
@@ -1334,9 +1347,10 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         approvedDocument: null,
         note: null,
         createdAt: nowIso(),
+        canDecide: false,
       });
       touch(r, 'APPROVAL', 'Approval step added');
-      return copy(r.approvals);
+      return decidable(r);
     },
     approve: async (id, approvalId, body = {}) => {
       await mockDelay();
@@ -1354,7 +1368,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         : undefined;
       a.approvedDocument = doc ? { id: doc.document.id, fileName: doc.document.fileName } : null;
       touch(r, 'APPROVAL', `${a.step} approved`);
-      return copy(r.approvals);
+      return decidable(r);
     },
     returnToPreparer: async (id, approvalId, body) => {
       await mockDelay();
@@ -1372,7 +1386,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         r.statusReason = b.note;
       }
       touch(r, 'APPROVAL', `${a.step} returned to the preparer`);
-      return copy(r.approvals);
+      return decidable(r);
     },
 
     authorizations: async (id) => {

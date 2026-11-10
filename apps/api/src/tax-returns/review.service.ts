@@ -18,7 +18,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import type { TenantContext } from '../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
@@ -610,16 +610,51 @@ export class TaxReturnReviewService {
 
   // ---------- Approvals ----------
 
+  /**
+   * TX-F18 (Rasel's go on the role check): who may approve or return a step. Its assignee; a step
+   * with no assignee falls to the return's reviewer. Anyone else only as an Owner or Admin whose
+   * grid keeps APPROVE (the override), which the activity records.
+   */
+  private async authority(
+    tx: TxClient,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    assignedUserId: string | null,
+  ): Promise<'responsible' | 'override' | null> {
+    const r = await tx.taxReturn.findFirst({
+      where: { businessId: tenant.businessId, id },
+      select: { reviewerUserId: true },
+    });
+    const responsible = assignedUserId ?? r?.reviewerUserId ?? null;
+    if (responsible === userId) return 'responsible';
+    return (await this.mayOverride(tenant)) ? 'override' : null;
+  }
+
+  /** An Owner, or an Admin whose grid keeps APPROVE on Tax Returns. */
+  private async mayOverride(tenant: TenantContext): Promise<boolean> {
+    if (tenant.kind !== 'staff') return false;
+    const role = legacyFirmRole(tenant.role);
+    if (role !== 'OWNER' && role !== 'ADMIN') return false;
+    return this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE');
+  }
+
   private async approvalsOf(
     tx: TxClient,
     businessId: string,
     id: string,
+    viewer: { tenant: TenantContext; userId: string },
   ): Promise<TaxApprovalList['items']> {
     const rows = await tx.taxReturnApproval.findMany({
       where: { businessId, taxReturnId: id },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: { approvedDocument: { select: { id: true, fileName: true } } },
     });
+    const ret = await tx.taxReturn.findFirst({
+      where: { businessId, id },
+      select: { reviewerUserId: true },
+    });
+    const override = await this.mayOverride(viewer.tenant);
     const names = await memberNames(
       tx,
       businessId,
@@ -636,13 +671,16 @@ export class TaxReturnReviewService {
       approvedDocument: r.approvedDocument,
       note: r.note,
       createdAt: r.createdAt.toISOString(),
+      canDecide:
+        r.status === 'PENDING' &&
+        ((r.assignedUserId ?? ret?.reviewerUserId ?? null) === viewer.userId || override),
     }));
   }
 
   approvals(tenant: TenantContext, userId: string, id: string) {
     return this.inFirm(tenant, async (tx) => {
       await this.reach(tx, tenant, userId, id);
-      return this.approvalsOf(tx, tenant.businessId, id);
+      return this.approvalsOf(tx, tenant.businessId, id, { tenant, userId });
     });
   }
 
@@ -665,7 +703,7 @@ export class TaxReturnReviewService {
         },
       });
       await this.log(tx, tenant, id, 'approval', { action: 'added' });
-      return this.approvalsOf(tx, businessId, id);
+      return this.approvalsOf(tx, businessId, id, { tenant, userId });
     });
   }
 
@@ -687,13 +725,12 @@ export class TaxReturnReviewService {
         select: { status: true, assignedUserId: true },
       });
       if (!step) throw notFound();
-      if (step.assignedUserId !== userId) {
-        if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
-          throw new ForbiddenException({
-            code: 'FORBIDDEN',
-            message: 'This step is for its reviewer or an approver',
-          });
-        }
+      const authority = await this.authority(tx, tenant, userId, id, step.assignedUserId);
+      if (!authority) {
+        throw new ForbiddenException({
+          code: 'FORBIDDEN',
+          message: 'This step is for its assigned reviewer, or an Owner or Admin',
+        });
       }
       if (step.status !== 'PENDING')
         throw conflict('RETURN_LOCKED', 'This step is decided already');
@@ -709,8 +746,12 @@ export class TaxReturnReviewService {
             : {}),
         },
       });
-      await this.log(tx, tenant, id, 'approval', { approvalId, action: decision.status });
-      return this.approvalsOf(tx, businessId, id);
+      await this.log(tx, tenant, id, 'approval', {
+        approvalId,
+        action: decision.status,
+        ...(authority === 'override' ? { override: true } : {}),
+      });
+      return this.approvalsOf(tx, businessId, id, { tenant, userId });
     });
   }
 

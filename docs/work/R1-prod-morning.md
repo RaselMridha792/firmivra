@@ -120,7 +120,7 @@ Also tell R1 who provides the company email (Google Workspace, Microsoft 365, Go
 
 ## 6. Prod bootstrap checklist (Oct 28)
 
-Prod (`v1.0.0`) is live and empty: no Super Admin, no LVP, no alarm subscriber, and empty Stripe keys. This is the order Rasel does the rest in. Each step needs his word; R1 runs nothing here on its own.
+Prod is live (it now follows main, step 2) and empty: no Super Admin, no LVP, no alarm subscriber, and empty Stripe keys. This is the order Rasel does the rest in. Each step needs his word; R1 runs nothing here on its own.
 
 **Placeholders only.** Addresses, subs, the legal name and keys never go in the repo, a PR or chat:
 - **Command lines:** typed by Rasel, or run by R1 from his word.
@@ -135,6 +135,7 @@ All commands run in Git Bash with `--profile firmivra-dev` (prod shares the acco
    - Rasel confirms the email AWS sends.
    - Check: `aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:778127141557:firmivra-prod-alarms` no longer shows `PendingConfirmation`.
 2. **The release: prod follows main** (Rasel's card "Auto deploy", Oct 29; replaces the `v1.1.0` tag).
+   - **Done (Nov 10):** Rasel made both environment changes. The first automatic run, Deploy prod #3 (run 42760305751), deployed main `922851d7` after Deploy dev #947. It applied the 27 migrations since `v1.0.0` to the prod database (through `r1_sa_small_batch`), rolled the api and web, and got 200 on all six URLs. Later merges follow by themselves; the bootstrap below can start.
    - Rasel, in the `prod` environment (Settings → Environments → prod):
      - removes "Required reviewers";
      - adds `main` to "Deployment branches and tags", next to `v*`, or the automatic run is refused.
