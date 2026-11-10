@@ -24,7 +24,8 @@ test('three providers; Square and PayPal say why they cannot connect; what clien
   const accepted = page.getByTestId('accepted-payments');
   await expect(accepted.getByRole('switch', { name: 'Credit / debit cards' })).not.toBeChecked();
   await expect(accepted.getByRole('switch', { name: 'ACH bank payments' })).toBeDisabled();
-  await expect(accepted).toContainText('Connect PayPal to enable');
+  // Each locked method says what it needs (IP-F14).
+  await expect(accepted.getByTestId('method-paypal')).toContainText('Connect PayPal first');
   // Payouts wait for Stripe; no Stripe links before it is connected.
   await expect(page.getByTestId('payout-settings')).toContainText('Connect Stripe first');
   await expect(page.getByTestId('stripe-manage')).toHaveCount(0);

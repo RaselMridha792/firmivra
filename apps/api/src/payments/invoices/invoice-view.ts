@@ -41,7 +41,20 @@ export async function paymentsEnabled(tx: TxClient, businessId: string): Promise
     where: { businessId },
     select: { chargesEnabled: true },
   });
-  return account?.chargesEnabled ?? false;
+  if (!account?.chargesEnabled) return false;
+  return cardsAccepted(tx, businessId);
+}
+
+/**
+ * PAY-3: the firm takes cards at checkout (Settings > Payments, Accepted Client Payments). A firm
+ * that never chose takes them; one that turned them off shows no Pay Now on new payments.
+ */
+export async function cardsAccepted(tx: TxClient, businessId: string): Promise<boolean> {
+  const settings = await tx.paymentSettings.findUnique({
+    where: { businessId },
+    select: { acceptCard: true },
+  });
+  return settings?.acceptCard ?? true;
 }
 
 /** IP-F12: a payment's latest receipt to the client (RECEIPT_SENT invoice events). */

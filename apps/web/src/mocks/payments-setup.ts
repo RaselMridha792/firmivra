@@ -1,5 +1,9 @@
 import {
+  ACCEPTED_PAYMENT_LOCKS,
+  type AcceptedPayments,
   ApiRequestError,
+  cardLock,
+  PAYMENTS_SETUP_ERRORS,
   type PaymentsSetup,
   type PaymentsSetupClient,
   PaymentsSetupStage,
@@ -53,6 +57,26 @@ export function createPaymentsSetupMock(
 ): PaymentsSetupClient {
   let setup = setupAt(options.stage ?? 'NOT_CONNECTED');
   let links = 0;
+  // PAY-3: the firm's choices; a firm that never chose takes cards through Stripe.
+  let chosen = {
+    acceptCard: true,
+    defaultCardProcessor: 'STRIPE' as const,
+    achProcessor: 'STRIPE' as const,
+  };
+  const accepted = (): AcceptedPayments => {
+    const ready = setup.chargesEnabled ? (['STRIPE'] as const) : ([] as const);
+    return {
+      ...chosen,
+      acceptAch: false,
+      readyProcessors: [...ready],
+      locks: {
+        card: cardLock(setup),
+        ach: ACCEPTED_PAYMENT_LOCKS.ach,
+        paypal: ACCEPTED_PAYMENT_LOCKS.paypal,
+      },
+      onlinePayments: chosen.acceptCard && setup.chargesEnabled,
+    };
+  };
 
   const allowed = async (ownerOnly: boolean) => {
     await mockDelay();
@@ -91,6 +115,26 @@ export function createPaymentsSetupMock(
       await allowed(true);
       if (!setup.connected) throw fail(409, 'PAYMENTS_NOT_SET_UP', 'Stripe is not connected yet');
       return link();
+    },
+    accepted: async () => {
+      await allowed(false);
+      return accepted();
+    },
+    saveAccepted: async (body) => {
+      await allowed(false);
+      const before = accepted();
+      if (body.acceptAch) throw fail(409, 'ACH_NOT_OFFERED', PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED);
+      const cardChanged =
+        body.acceptCard !== before.acceptCard ||
+        body.defaultCardProcessor !== before.defaultCardProcessor;
+      if (cardChanged && !before.readyProcessors.includes(body.defaultCardProcessor))
+        throw fail(409, 'PROCESSOR_NOT_READY', PAYMENTS_SETUP_ERRORS.PROCESSOR_NOT_READY);
+      chosen = {
+        acceptCard: body.acceptCard,
+        defaultCardProcessor: body.defaultCardProcessor,
+        achProcessor: body.achProcessor,
+      };
+      return accepted();
     },
   };
 }
