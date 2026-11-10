@@ -1837,3 +1837,9 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
   banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
   `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
+- Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
+  #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
+  details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several
+  blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
+  after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
+  schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.
