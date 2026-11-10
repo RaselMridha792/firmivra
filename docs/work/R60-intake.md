@@ -1836,3 +1836,8 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   Business's responsible party: full name, email, phone, on R1's three columns of #1181), the
   profile shows it, and the API refuses clearing it on a Business. The calendar's quick add stays
   looser, as D1. Clients e2e 48 of 48, types 37 of 37, mock `r60-clients-required` 3 of 3.
+- Nov 10: Clients E8 to E10, branch `rasel/R60-clients-e8-e10` (stacked on
+  `rasel/R60-clients-required`): the Documents tab's Upload Document (Documents' upload for the
+  client), View on each file and View Request Details; New Message and Reply show To, Where and the
+  notifier's real email notice; Overview's Portal Access is Business Advisory B3's card (send with
+  the recipient confirmed, resend, revoke). Mock 64 of 64 across the client and messages specs.
