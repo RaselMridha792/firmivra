@@ -125,6 +125,9 @@ const WRITES: Record<
   },
   'POST /api/v1/admin/firm-applications/:id/owner-invite': { body: {}, app: 'approve' },
   'PUT /api/v1/admin/firm-applications/:id/notes': { body: { notes: 'Fake note' }, app: 'notes' },
+  // SA-APP-F02 and F06: open for review, and assign (here: unassign) the reviewer.
+  'POST /api/v1/admin/firm-applications/:id/open': { body: {}, app: 'open' },
+  'PUT /api/v1/admin/firm-applications/:id/reviewer': { body: { userId: null }, app: 'reviewer' },
   'POST /api/v1/admin/firms/:businessId/support-access': { body: { reason: 'Fake reason' } },
   'POST /api/v1/admin/audit/exports': { body: { format: 'CSV', query: { view: 'login' } } },
   'PUT /api/v1/admin/audit/policy': {
