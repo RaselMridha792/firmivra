@@ -94,6 +94,8 @@ describe('dashboard', () => {
       { forPlatform: () => ({ user: { count: userCount } }) } as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     );
     expect(await service.dashboard()).toEqual({
       pendingApplications: 3,

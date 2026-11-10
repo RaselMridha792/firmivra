@@ -40,6 +40,7 @@ import { MultiPick } from '../../team/new/_components/multi-pick';
 import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointments-parts';
 import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
+import { addedType } from './new-type';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
@@ -573,6 +574,31 @@ function FormBody({
       // A type without settings keeps the rows as they are.
       .catch(() => undefined);
   };
+  // B19: the type ids before Create Appointment Type was opened; after Check again, the one new
+  // id is the type just made, and is chosen.
+  const typesBeforeRef = useRef<Set<string> | null>(null);
+  const chooseType = (id: string, types = o.types) => {
+    const t = types.find((x) => x.id === id);
+    setForm((f) => {
+      const end = t
+        ? (() => {
+            const m = minutesOf(f.start) + t.durationMinutes;
+            return `${String(Math.min(Math.floor(m / 60), 23)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+          })()
+        : f.end;
+      return { ...f, typeId: id, end, serviceId: f.serviceId || t?.serviceId || '' };
+    });
+    if (t) loadTypeReminders(t.id, t.name);
+  };
+  const checkTypes = async () => {
+    const fresh = await api.scheduling.options();
+    queryClient.setQueryData([...SCHEDULING, 'options'], fresh);
+    const added = addedType(typesBeforeRef.current, fresh.types);
+    if (added) {
+      typesBeforeRef.current = null;
+      chooseType(added, fresh.types);
+    }
+  };
   const [draftId, setDraftId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [override, setOverride] = useState('');
@@ -779,25 +805,23 @@ function FormBody({
     year: 'numeric',
   });
   const timeLabel = (t: string) => TIMES.find((x) => x.value === t)?.label ?? t;
-  // Colour choices are the firm's own appointment type colours (data), named by their tone; a
-  // tone two colours share gets the type's name too.
-  const typeColours = [
-    ...new Map(o.types.filter((t) => colourTone(t.color)).map((t) => [t.color ?? '', t.name])),
-  ];
+  // Advisory B20 (Octavia, Oct 25): the Color comes from the appointment type, read-only; an
+  // appointment saved earlier with its own colour keeps showing it.
   const toneName = (value: string) => TONE_NAMES[colourTone(value) ?? 'grey'];
-  const colourChoices = [
-    { value: '', label: 'Type colour' },
-    ...typeColours.map(([value, typeName]) => ({
-      value,
-      label:
-        typeColours.filter(([v]) => toneName(v) === toneName(value)).length > 1
-          ? `${toneName(value)} (${typeName})`
-          : toneName(value),
-    })),
-  ];
-  if (form.color && !colourChoices.some((c) => c.value === form.color)) {
-    colourChoices.push({ value: form.color, label: 'Current colour' });
-  }
+  const ownColor = !!form.color && form.color.toLowerCase() !== (type?.color ?? '').toLowerCase();
+  // The field shows the colour's name; its title says where it comes from.
+  const colorText = ownColor
+    ? `${toneName(form.color)} (kept)`
+    : type?.color
+      ? toneName(type.color)
+      : type
+        ? 'Default'
+        : 'Choose a type';
+  const colorWhy = ownColor
+    ? 'This appointment kept the colour it was saved with. New appointments take their type’s.'
+    : type
+      ? `From the appointment type ${type.name} (Appointments > Types).`
+      : 'The appointment type sets the color (Appointments > Types).';
   const dotTone = colourTone(form.color || type?.color);
   const contactName = form.newContact ? form.name || '—' : (form.contact?.name ?? '—');
   const zoneShort = TIME_ZONES.find(([z]) => z === form.timezone)?.[1].match(/\(([A-Z]+)\)$/)?.[1];
@@ -1020,24 +1044,7 @@ function FormBody({
               ]}
               value={form.typeId}
               error={errors.typeId}
-              onChange={(e) => {
-                const t = o.types.find((x) => x.id === e.target.value);
-                setForm((f) => {
-                  const end = t
-                    ? (() => {
-                        const m = minutesOf(f.start) + t.durationMinutes;
-                        return `${String(Math.min(Math.floor(m / 60), 23)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-                      })()
-                    : f.end;
-                  return {
-                    ...f,
-                    typeId: e.target.value,
-                    end,
-                    serviceId: f.serviceId || t?.serviceId || '',
-                  };
-                });
-                if (t) loadTypeReminders(t.id, t.name);
-              }}
+              onChange={(e) => chooseType(e.target.value)}
             />
             <Select
               label="Related Service"
@@ -1049,6 +1056,37 @@ function FormBody({
               onChange={(e) => set('serviceId', e.target.value)}
             />
           </div>
+          {/* Advisory B19 (Octavia, Oct 25): a missing type is made in a new tab, so this draft is
+              kept; Check again reads the types once more and chooses the one just made. */}
+          <p
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+            data-testid="create-type"
+          >
+            {role === 'OWNER' || role === 'ADMIN' ? (
+              <a
+                href="/calendar/types"
+                target="_blank"
+                rel="noopener"
+                className="font-medium text-link underline"
+                onClick={() => {
+                  typesBeforeRef.current = new Set(o.types.map((t) => t.id));
+                }}
+              >
+                Create Appointment Type (new tab)
+              </a>
+            ) : (
+              <span className="text-muted">
+                An Owner or Admin creates appointment types (Appointments &gt; Types).
+              </span>
+            )}
+            <button
+              type="button"
+              className="font-medium text-link underline"
+              onClick={() => void checkTypes()}
+            >
+              Check again for new types
+            </button>
+          </p>
           <div className="grid gap-4 md:grid-cols-4">
             <Input
               label="Date *"
@@ -1224,14 +1262,15 @@ function FormBody({
               />
             </div>
             <div className="relative">
-              <Select
-                label="Color"
+              <Input
+                label="Color (from type)"
                 className="pl-8"
-                options={colourChoices}
-                value={form.color}
-                onChange={(e) => set('color', e.target.value)}
+                value={colorText}
+                readOnly
+                title={colorWhy}
+                data-testid="appointment-color"
               />
-              {/* The chosen colour, else the type's, in its tone. */}
+              {/* The appointment's own colour (an older one), else the type's, in its tone. */}
               <span
                 aria-hidden
                 className={`pointer-events-none absolute bottom-4 left-3 size-3 rounded-full ${TONE_DOTS[dotTone ?? 'blue']}`}
