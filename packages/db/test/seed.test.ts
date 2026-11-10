@@ -103,6 +103,10 @@ describe('seed', () => {
       'client_timeline_entries',
       'lead_follow_ups',
       'staff_draft_attachments',
+      // Firm application review (Nov 7): no request, response or file until a reviewer asks.
+      'firm_application_info_requests',
+      'firm_application_responses',
+      'firm_application_response_files',
     ];
     const empty: string[] = [];
     for (const t of tables) {
