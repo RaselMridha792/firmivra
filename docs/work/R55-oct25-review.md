@@ -178,7 +178,6 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   - documents.generate counts 'document.uploaded' and 'agreement.created' (the lead's Review 2 default: no "generated" action exists).
   - One task at a time (advisory lock); a firm that fails is logged by id and left out of that run; each run is audited with counts only. PLATFORM_ROLLUPS=on|off (off under tests).
   - The Usage page's Plan Distribution reads connected firms by plan on the range's last day (firms without a plan are left out); its empty text is "No firm has connected this yet".
-- **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
 - **Firm Applications (Oct 31 review, SA-APP-F01 to F10; Rasel's rules through the lead, Nov 10):**
   - In Review on open is an explicit POST the detail page sends once (never a write in a GET); the list changes nothing.
   - Awaiting Information is `INFO_REQUESTED`. A request keeps its own record (reason, who, when, 14-day link, only the token's hash). Request again closes the open one, whose link stops working. The same message as the open request is a double click: no change, no email.
