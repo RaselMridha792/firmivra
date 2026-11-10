@@ -19,7 +19,7 @@ test('nothing on to start; the tip and before-due options follow Settings', asyn
   await page.goto(`http://app.localhost:${port}/settings/payments`);
   await page.getByRole('switch', { name: 'Tipping' }).click();
   await page.getByRole('switch', { name: 'Payment before the due date' }).click();
-  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await page.getByTestId('billing-actions').getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Invoices & Payments' }).first().click();

@@ -17,7 +17,9 @@ test('the billing sections save, validate, cancel and reset with a confirmation'
     await expect(page.getByRole('switch', { name })).not.toBeChecked();
   }
   await expect(page.getByText('No taxes yet. Add the rates your firm charges.')).toBeVisible();
-  const save = page.getByRole('button', { name: 'Save Changes' });
+  // The billing sections' own buttons (Accepted Client Payments above has its own, PAY-3).
+  const actions = page.getByTestId('billing-actions');
+  const save = actions.getByRole('button', { name: 'Save Changes' });
   await expect(save).toBeDisabled();
 
   // A late fee needs its value before it can be saved.
@@ -35,7 +37,7 @@ test('the billing sections save, validate, cancel and reset with a confirmation'
 
   // Cancel restores the saved values.
   await page.getByRole('switch', { name: 'Tipping' }).click();
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await actions.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('switch', { name: 'Tipping' })).not.toBeChecked();
 
   // Taxes are configured here, never fixed.
