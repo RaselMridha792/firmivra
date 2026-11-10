@@ -1841,3 +1841,10 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   own) open Security & Access on its open alerts; the 30-day failed sign-ins sit behind a link.
   API e2e 7 of 7, isolation coverage green, mock 7 of 7, r29 updated for the badge link, web build
   green.
+- Nov 10: Collapsible main menu (`rasel/R60-sidebar-collapse`, stacked on Security Alerts),
+  Overview guide item 18: a button on the sidebar's edge collapses the firm menu to icons (72 px),
+  each named on hover and focus beside the menu and kept for screen readers, groups opening their
+  first page, counts on the icons; expanded on the first visit, remembered in this browser
+  (localStorage, the visit alone when storage is blocked); a phone keeps the full slide-out. Mock
+  1 of 1; r29, r33 and the alerts spec green. r28-logo's 5 failures (row spacing and the squarer
+  logos) fail the same on the Overview branch, without this change.
