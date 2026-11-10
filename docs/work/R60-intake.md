@@ -474,8 +474,11 @@ Progress (TX-F18, Rasel's go on the role check; Nov 10):
   `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
   `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
   of 37, mock 26 of 26.
-- Next (the lead, Nov 10): the same check on the return's tasks and schedule items (reassign), in
-  a small follow-up PR.
+- Follow-up (the lead, Nov 10), branch `rasel/R60-tax-returns-reassign` on it: a task or
+  appointment of a live return's engagement is reassigned only by the return's preparer or
+  reviewer, or the Owner or Admin override (recorded: `override` on `task.updated`,
+  `appointment.reassigned_override`). One rule, `tax-returns/return-authority.ts`, used by the
+  task update, Reschedule and the calendar's Edit Details. API e2e 86 of 86.
 
 ## Handoff (Oct 23): start here
 
@@ -1834,8 +1837,9 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
   banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
   `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
-- Nov 10: Clients PR 1 of the Nov 10 queue, branch `rasel/R60-clients-activity`: E2 Last Activity
-  worked out when the list is read (Rasel's word of Oct 26: messages, documents uploaded or
-  requested, tasks completed, appointments held, invoices sent or paid, e-signs completed, notes,
-  and the e-sign column), for the column and the From/To filter; `r23-client-record` moved onto the
-  clients mock (5 of 5); `clients-work.e2e`'s `nyDay` counts calendar days. Clients e2e 32 of 32.
+- Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
+  #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
+  details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several
+  blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
+  after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
+  schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.

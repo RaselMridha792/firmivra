@@ -49,6 +49,7 @@ import {
   NoApplicationPermission,
   StatusPill,
 } from './application-ui';
+import { RequestsCard, ReviewCard, useOpenForReview } from './application-review';
 
 type Action = 'approve' | 'request-info' | 'decline';
 
@@ -214,7 +215,9 @@ export function ApplicationRecord({
           ['Requested Start Date', account.requestedStartDate ?? 'As soon as possible'],
           ['Additional Information', account.additionalInfo],
         ];
-  const canDecide = application.status === 'PENDING_REVIEW';
+  // SA-APP-F05, Y03: Pending, In Review and Awaiting Information can be decided or asked again.
+  const canDecide = application.can.approve;
+  const waiting = application.requestState.state === 'WAITING';
 
   const openAction = (next: Action) => {
     approve.reset();
@@ -375,7 +378,7 @@ export function ApplicationRecord({
               onClick={() => openAction('request-info')}
             >
               <MessageSquare aria-hidden className="size-4" />
-              Request Information
+              {waiting ? 'Request Again' : 'Request Additional Information'}
             </Button>
             <Button
               variant="outline"
@@ -396,6 +399,8 @@ export function ApplicationRecord({
         <FieldCard icon={Building2} title="Business Information" fields={businessFields} />
         <FieldCard icon={UserRound} title="Primary Administrator" fields={adminFields} />
         <FieldCard icon={FileText} title="Account Details" fields={accountFields} />
+        <ReviewCard application={application} />
+        <RequestsCard application={application} />
         {firm ? (
           <>
             <Card className="!p-4">
@@ -457,7 +462,9 @@ export function ApplicationRecord({
             ? 'Approve application?'
             : action === 'decline'
               ? 'Decline application?'
-              : 'Request information'
+              : waiting
+                ? 'Request again'
+                : 'Request additional information'
         }
         onClose={() => setAction(null)}
       >
@@ -468,14 +475,16 @@ export function ApplicationRecord({
                 ? 'This creates the firm and sends its owner an activation link.'
                 : action === 'decline'
                   ? 'This reason will be sent to the applicant.'
-                  : 'This message will be sent to the applicant; the application stays pending.'}
+                  : waiting
+                    ? 'The earlier link stops working. The applicant gets a new email and link to answer on this application.'
+                    : 'The applicant gets an email with a link to answer on this application. The status becomes Awaiting Information.'}
             </p>
             <form onSubmit={submitDecision} className="mt-5">
               {action !== 'approve' && (
                 <label className="block text-sm font-medium text-text">
                   {action === 'decline'
                     ? 'Reason (sent to the applicant)'
-                    : 'Message to the applicant'}
+                    : 'What is needed (sent to the applicant)'}
                   <textarea
                     autoFocus
                     required
@@ -522,6 +531,8 @@ export function ApplicationRecord({
 function ApplicationDetailContent({ id, backTo }: { id: string; backTo: string | null }) {
   const { me } = useMe();
   const query = useApiQuery(applicationDetailKey(id), () => api.firmApplications.get(id));
+  // SA-APP-F02: opening a Pending application starts its review (an explicit POST).
+  useOpenForReview(me.platformAdmin ? query.data : undefined);
   if (!me.platformAdmin) return <NoApplicationPermission />;
   return (
     <ApplicationPageState query={query}>

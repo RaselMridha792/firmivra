@@ -208,6 +208,8 @@ describe('Firm onboarding, from application to an active firm', () => {
       'FIRM_ACTIVATED',
       'OWNER_INVITED',
       'APPROVED',
+      // SA-APP-F09: notes are in the history too (never their text).
+      'NOTE_SAVED',
       'INFO_REQUESTED',
       'SUBMITTED',
     ]);
