@@ -41,6 +41,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 import { type ReactNode, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
@@ -165,7 +166,11 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   const manager = useManager();
   const [dialog, setDialog] = useState<DialogName>();
   const go = (href: string) => () => router.push(href);
+  // TX-F07 (SH1): a way out to another module keeps Back to this list, as it was.
+  const navigate = useOriginNavigate();
+  const out = (href: string) => () => navigate(href);
   const client = `/clients/${row.client.id}`;
+  const about = `${row.taxYear} ${row.formType ?? 'Tax'} Return`;
   const filedOnce = row.status !== 'IN_PROGRESS';
   const open: ActionMenuItem = {
     label: 'Open / View Return',
@@ -175,7 +180,7 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   const profile: ActionMenuItem = {
     label: 'View Client Profile',
     icon: UserCircle,
-    onSelect: go(client),
+    onSelect: out(client),
   };
   const activity: ActionMenuItem = {
     label: 'Activity / Audit History',
@@ -190,10 +195,29 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   ];
   const client_: ActionMenuItem[] = [
     profile,
-    { label: 'Documents', icon: FolderOpen, onSelect: go(`${client}/documents`) },
-    { label: 'Request Client Information', icon: FileArrowUp, onSelect: go(`${client}/documents`) },
-    { label: 'Send Message', icon: ChatCircleDots, onSelect: go(`${client}/messages`) },
-    { label: 'Schedule Appointment', icon: CalendarPlus, onSelect: go('/calendar/new') },
+    // The client's canonical editor, with its Stay or Discard guard.
+    { label: 'Edit Client Details', icon: PencilSimpleLine, onSelect: out(`${client}?edit=1`) },
+    { label: 'Documents', icon: FolderOpen, onSelect: out(`${client}/documents`) },
+    // A document request for this client (Documents' own form).
+    {
+      label: 'Request Client Information',
+      icon: FileArrowUp,
+      onSelect: out(`/documents/requests/new?clientId=${row.client.id}`),
+    },
+    // New Message for this client, about this return (MSG-F13's Related To).
+    {
+      label: 'Send Message',
+      icon: ChatCircleDots,
+      onSelect: out(
+        `/messages/new?clientId=${row.client.id}&subject=${encodeURIComponent(about)}&related=tax_return:${row.id}`,
+      ),
+    },
+    // The shared Schedule form on this client (SH6).
+    {
+      label: 'Schedule Appointment',
+      icon: CalendarPlus,
+      onSelect: out(`/calendar/new?clientId=${row.client.id}`),
+    },
   ];
   const filing: ActionMenuItem[] = [
     {
