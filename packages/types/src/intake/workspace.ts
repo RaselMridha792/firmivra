@@ -368,6 +368,12 @@ export const SendIntakeFormRequest = z.strictObject({
   formId: z.uuid(),
   /** The client's engagement it belongs to; the API picks the open one for the form's service. */
   engagementId: z.uuid().optional(),
+  /**
+   * A9 (Octavia's Appointments review): the client's appointment this form is for (its type's
+   * required intake). The appointment then shows the form and whether it is completed. A client
+   * only; 409 APPOINTMENT_MISMATCH for another client's or a cancelled appointment.
+   */
+  appointmentId: z.uuid().optional(),
   channel: FormDeliveryChannel,
   subject: text(200),
   message: text(500, 'many'),
@@ -688,6 +694,8 @@ export type ResetIntakeSettingsRequest = z.input<typeof ResetIntakeSettingsReque
 export const IntakeWorkspaceErrorCode = z.enum([
   /** 409: this recipient already has this form open; resend it instead. */
   'FORM_ALREADY_OPEN',
+  /** 409 (A9): the appointment is not this client's, or it is cancelled. */
+  'APPOINTMENT_MISMATCH',
   /** 409: a published version cannot be edited: save a new draft version. */
   'FORM_PUBLISHED',
   /** 400: a question with no label or a choice question with no options (publish). */

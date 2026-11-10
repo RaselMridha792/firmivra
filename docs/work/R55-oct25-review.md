@@ -38,7 +38,8 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
 - #1321 merged: New Message's one merge-field chooser (SA-COM-R4) and MRR at each month end beside Collected payments (SA-RPT-R3).
 - #1327 merged: Insert Image in New Message (SA-COM-R2); integrations managed by the Owner and Admin only (IN-Y20); the applications list view in the address and no workspace shortcut (SA-APP-F11, F12).
 - #1330 merged: report builder exports to CSV, Excel and PDF from the same run (SA-RPT-R1).
-- #1333 (`rasel/R55-staff-sessions`): a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
+- #1333 merged: a staff session row per firm (SHA-256 of the firm and the sign-in's id), 401 SESSION_REVOKED and the web signs out, Login History from `auth.firm_session_started` (Rasel's approval through the lead, Nov 7).
+- #1338 (`rasel/R55-account-authority`): SM14 part A, the account authority rules on every staff route and Settings > Users, the detail's `authority` for the screens, the Original Owner badge; Integrations reads Firmivra, not LVP Pro.
 
 **For Review 2 (lead, Nov 7):** Send client email (AU-F25) goes through Messages, so a client's "email" is the portal message plus an email notice to the client's address; the text stays in the portal and is never in the email (Messages' rule). A client without portal access gets nothing: the step fails with Messages' reason (NO_PORTAL_ACCESS) and the draft is canceled.
 
@@ -169,6 +170,13 @@ Rasel (Nov 4): R55 owns Automations (AU-F01 to F33; AU-D stays deferred) and Int
   2. Firms (FRM-F01 to F13), the Team console guard, and System Settings restore through the audit's before and after (never secrets).
   3. Staff Management, Tasks A4, Leads L8, Services S2/S4 and Settings > Payments.
 - **SA-INT-R3:** R1 adds connected_firms_by_plan, then the read.
+- **SM14, account authority (Rasel's default through the lead, Nov 7; defaults 1 to 4 approved):**
+  1. The Original Owner is the firm's first Owner membership (the account its application created). No schema change: nobody, the Original Owner included, can demote or deactivate that account, so it stays the first.
+  2. Owner-level (the Original Owner and delegated Owners) acts on everyone below the Original Owner, other delegates included. Giving the Owner role, or taking it from a delegate, is the Original Owner's alone (Edit Staff and Settings > Users).
+  3. Reset MFA is owner-level only. An Admin acts only on the roles below Admin: Edit, Reset Password, Resend Invitation, Sign Out Sessions, Lock and Unlock, Deactivate and Reactivate. Below Admin, nobody acts on another account.
+  4. Owner-level access is given by promoting an existing member on Edit Staff. Invites and Create Staff stay below Owner.
+  - One rule (packages/types, `team/authority.ts`) for the API, which checks it on every staff route and on Settings > Users, and for the screens, which read the member detail's `authority`. The Original Owner has a badge.
+  - Self-service (part B, the lead's placement): a Security card on My Profile with Sign Out All Other Sessions and Change My Password, for every tier.
 - **Exports (SA-RPT-R1):**
   - The builder exports CSV, Excel (XLSX) and PDF from the same run and columns as the preview, each audited with its format. Excel and PDF use the reports' writers.
   - CSV holds the title, generated time, period and filters above the table. The PDF holds the title and period. The Excel sheet is the table.

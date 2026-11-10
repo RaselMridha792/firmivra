@@ -30,7 +30,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED } from '../../_components/quiet-card';
 import { RowMenu } from '../../_components/row-menu';
 import { CAPABILITY_ORDER } from '../../roles/_components/role-parts';
-import type { StaffAction } from './staff-actions';
+import { mayDo, type StaffAction } from './staff-actions';
 import { MEMBER_ERRORS, STATUS_LOOKS, dateTime, longDate } from './staff-parts';
 
 /**
@@ -115,10 +115,16 @@ export function ProfileCard({
         <BigAvatar name={member.name} src={member.avatarUrl} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-lg font-bold break-words text-heading">{member.name}</p>
-          <span className="w-fit">
+          <span className="flex w-fit flex-wrap gap-1.5">
             <Badge tone={status.tone} dot>
               {status.label}
             </Badge>
+            {/* SM14: the firm's Original Owner, apart from delegated Owners. */}
+            {member.authority.originalOwner ? (
+              <span data-testid="original-owner">
+                <Badge tone="info">Original Owner</Badge>
+              </span>
+            ) : null}
           </span>
           <p className="text-sm text-link">{member.jobTitle ?? '—'}</p>
           <p className="text-sm text-muted">
@@ -187,7 +193,11 @@ export function QuickActions({
     <SideCard title="Quick Actions" icon={Lightning} testId="quick-actions">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {TILES.map((tile) => {
-          const on = enabled && member !== undefined && fits(tile.action, member);
+          const on =
+            enabled &&
+            member !== undefined &&
+            mayDo(tile.action, member) &&
+            fits(tile.action, member);
           return (
             <button
               key={tile.action}

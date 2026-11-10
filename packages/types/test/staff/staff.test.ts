@@ -74,6 +74,19 @@ const detail = {
   invite: null,
   notes: null,
   isYou: true,
+  // SM14: one's own record, the Original Owner's: no actions.
+  authority: {
+    originalOwner: true,
+    edit: false,
+    changeRole: false,
+    resetPassword: false,
+    resetMfa: false,
+    resendInvitation: false,
+    signOutSessions: false,
+    lock: false,
+    deactivate: false,
+    roles: [],
+  },
   version: 'v1',
 };
 const account = {

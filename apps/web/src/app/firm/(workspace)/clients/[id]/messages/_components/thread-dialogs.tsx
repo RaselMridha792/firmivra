@@ -80,17 +80,40 @@ export function ThreadDialog({ threadId, onClose }: { threadId: string; onClose:
   );
 }
 
-export function NewThreadDialog({ clientId, onClose }: { clientId: string; onClose: () => void }) {
-  const [subject, setSubject] = useState('');
+export function NewThreadDialog({
+  clientId,
+  onClose,
+  engagementId,
+  initialSubject = '',
+  onSent,
+}: {
+  clientId: string;
+  onClose: () => void;
+  /** TX-F05: the service record the conversation is about (a tax return's engagement). */
+  engagementId?: string;
+  initialSubject?: string;
+  /** Called once the message is sent, before the dialog closes. */
+  onSent?: () => void;
+}) {
+  const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState('');
-  const create = useApiMutation(() => api.messages.create(clientId, { subject, body }), refresh);
+  const create = useApiMutation(
+    () =>
+      api.messages.create(clientId, { subject, body, ...(engagementId ? { engagementId } : {}) }),
+    refresh,
+  );
   return (
     <Modal open title="New Message" onClose={onClose}>
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          create.mutate(undefined, { onSuccess: onClose });
+          create.mutate(undefined, {
+            onSuccess: () => {
+              onSent?.();
+              onClose();
+            },
+          });
         }}
       >
         <Input

@@ -16,7 +16,7 @@ import { createElement, useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
-import { ActionModal, type StaffAction } from '../../_components/staff-actions';
+import { ActionModal, mayDo, type StaffAction } from '../../_components/staff-actions';
 import { MEMBER_ERRORS } from '../../_components/staff-parts';
 
 interface Item {
@@ -80,7 +80,13 @@ export function AccountButtons({
           <button
             key={item.action}
             type="button"
-            disabled={!enabled || !member || !fits(item.action, member) || resend.isPending}
+            disabled={
+              !enabled ||
+              !member ||
+              !mayDo(item.action, member) ||
+              !fits(item.action, member) ||
+              resend.isPending
+            }
             onClick={() => {
               if (!member) return;
               setDone('');

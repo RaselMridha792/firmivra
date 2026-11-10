@@ -95,6 +95,35 @@ export class IntakeSendService {
     return legacyFirmRole(tenant.role as Parameters<typeof legacyFirmRole>[0]) === 'STAFF';
   }
 
+  /**
+   * A9: the client's own appointment a form is for (never another client's, or a cancelled one);
+   * the appointment then shows the form and whether it is done. 409 APPOINTMENT_MISMATCH.
+   */
+  private async appointmentOf(
+    tx: TxClient,
+    businessId: string,
+    to: { clientId: string | null },
+    appointmentId: string,
+  ): Promise<void> {
+    const appointment = to.clientId
+      ? await tx.appointment.findFirst({
+          where: {
+            businessId,
+            id: appointmentId,
+            clientId: to.clientId,
+            status: { not: 'CANCELLED' },
+          },
+          select: { id: true },
+        })
+      : null;
+    if (!appointment) {
+      throw conflict(
+        'APPOINTMENT_MISMATCH',
+        "That appointment is not this client's, or it is cancelled",
+      );
+    }
+  }
+
   /** The form's template and its live version; 404, or 409 FORM_NOT_PUBLISHED. */
   private async liveForm(tx: TxClient, businessId: string, templateId: string) {
     const t = await tx.intakeTemplate.findFirst({
@@ -257,6 +286,7 @@ export class IntakeSendService {
         form.serviceId,
         body.engagementId,
       );
+      if (body.appointmentId) await this.appointmentOf(tx, businessId, to, body.appointmentId);
       if (body.channel === 'PORTAL') {
         const login = await tx.clientAccount.findFirst({
           where: { businessId, clientId: to.clientId!, status: 'ACTIVE' },
@@ -310,6 +340,7 @@ export class IntakeSendService {
         messageBody: body.message,
         remindersEnabled: body.reminders?.enabled ?? settings?.remindersEnabled ?? true,
         allowSaveResume: body.allowSaveAndContinue,
+        ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
       };
       // The member's own draft of this form for this engagement is the one that is sent.
       const draft = await tx.intake.findFirst({
@@ -356,6 +387,7 @@ export class IntakeSendService {
           formId: form.id,
           engagementId: to.engagementId,
           fromDraft: draft !== null,
+          ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
         },
       );
       return { replay: false as const, id: intake.id };
@@ -531,6 +563,8 @@ export class IntakeSendService {
         body.assignedUserId === undefined
           ? (before?.assignedUserId ?? null)
           : await this.assigneeFor(tx, businessId, body.assignedUserId, [], to);
+      // A9: a draft keeps an appointment only of its client, as sending checks.
+      if (body.appointmentId) await this.appointmentOf(tx, businessId, to, body.appointmentId);
       const dueOn =
         body.dueOn === undefined ? (prior['dueOn'] as string | null | undefined) : body.dueOn;
       const expiresOn =

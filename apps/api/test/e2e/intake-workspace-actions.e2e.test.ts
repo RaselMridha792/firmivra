@@ -19,6 +19,8 @@ import {
   INTAKE_FORMS,
   SendDraft,
   SendIntakeFormResult,
+  AppointmentRecord,
+  AppointmentTypeConfig,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AppModule } from '../../src/app.module.js';
@@ -410,6 +412,124 @@ describe('send a form', () => {
       to: `e***@client.test`,
     });
     ids.emailed = res.form.id;
+  });
+
+  it('A9: a type asks for its service form; a form sent for an appointment shows on it until completed; another client or a cancelled appointment is refused', async () => {
+    // A random day in 2031 (one staff member's appointments may not overlap), 15:00 to 16:00.
+    const base = Math.floor(Math.random() * 300);
+    const day = (n: number, h: number) => new Date(Date.UTC(2031, 0, 1 + base + n * 2, h));
+    const made = await inFirm('a', async (tx) => {
+      const client = async (name: string) => {
+        const c = await tx.client.create({
+          data: {
+            businessId: firms.a,
+            displayName: name,
+            email: `${name.split(' ')[0]!.toLowerCase()}-${run}@client.test`,
+          },
+          select: { id: true },
+        });
+        await tx.engagement.create({
+          data: {
+            businessId: firms.a,
+            clientId: c.id,
+            serviceId: ids.service!,
+            title: `${name} tax`,
+          },
+        });
+        return c.id;
+      };
+      const ada = await client('Ada Appointment (fake)');
+      const ben = await client('Ben Booked (fake)');
+      const type = await tx.appointmentType.create({
+        data: { businessId: firms.a, name: `Fake A9 consult ${run}`, durationMinutes: 30 },
+        select: { id: true },
+      });
+      const appointment = async (clientId: string, n: number, cancelled = false) =>
+        (
+          await tx.appointment.create({
+            data: {
+              businessId: firms.a,
+              clientId,
+              typeId: type.id,
+              staffUserId: ownerA.id,
+              startsAt: day(n, 15),
+              endsAt: day(n, 16),
+              locationKind: 'VIDEO',
+              ...(cancelled ? { status: 'CANCELLED', cancelledAt: new Date() } : {}),
+            },
+            select: { id: true },
+          })
+        ).id;
+      return {
+        ada,
+        type: type.id,
+        adaVisit: await appointment(ada, 1),
+        benVisit: await appointment(ben, 2),
+        adaCancelled: await appointment(ada, 3, true),
+      };
+    });
+
+    // The type asks for the service's form; an unknown form is 404.
+    const config = AppointmentTypeConfig.parse(
+      ok(
+        await call('put', `/appointment-types/${made.type}/config`, ownerA, {
+          requiredIntakeFormId: ids.template,
+        }),
+      ),
+    );
+    expect(config.requiredIntakeFormId).toBe(ids.template);
+    expect(
+      AppointmentTypeConfig.parse(
+        ok(await call('get', `/appointment-types/${made.type}/config`, ownerA)),
+      ).requiredIntakeFormId,
+    ).toBe(ids.template);
+    expectError(
+      await call('put', `/appointment-types/${made.type}/config`, ownerA, {
+        requiredIntakeFormId: randomUUID(),
+      }),
+      404,
+      'NOT_FOUND',
+    );
+
+    const toAda = (appointmentId: string) =>
+      sendBody({
+        recipient: { kind: 'CLIENT', id: made.ada },
+        channel: 'EMAIL',
+        appointmentId,
+      });
+    expectError(
+      await call('post', '/intakes/send', ownerA, toAda(made.benVisit)),
+      409,
+      'APPOINTMENT_MISMATCH',
+    );
+    expectError(
+      await call('post', '/intakes/send', ownerA, toAda(made.adaCancelled)),
+      409,
+      'APPOINTMENT_MISMATCH',
+    );
+    const sent = SendIntakeFormResult.parse(
+      ok(await call('post', '/intakes/send', ownerA, toAda(made.adaVisit))),
+    );
+    const row = await inFirm('a', (tx) =>
+      tx.intake.findFirstOrThrow({ where: { id: sent.form.id }, select: { appointmentId: true } }),
+    );
+    expect(row.appointmentId).toBe(made.adaVisit);
+
+    const related = async () =>
+      AppointmentRecord.parse(
+        ok(await call('get', `/appointments/${made.adaVisit}/record`, ownerA)),
+      ).related.intakeForm;
+    expect(await related()).toMatchObject({ id: sent.form.id, completed: false });
+    await inFirm('a', (tx) =>
+      tx.intake.update({ where: { id: sent.form.id }, data: { status: 'COMPLETED' } }),
+    );
+    expect(await related()).toMatchObject({ id: sent.form.id, completed: true });
+    // Another firm reaches neither the type's settings nor the appointment.
+    expectError(
+      await call('get', `/appointments/${made.adaVisit}/record`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
   });
 });
 

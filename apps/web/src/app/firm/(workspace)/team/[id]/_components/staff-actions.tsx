@@ -1,6 +1,6 @@
 'use client';
 
-import type { StaffActionResult } from '@firmivra/types';
+import type { StaffActionResult, StaffDetail } from '@firmivra/types';
 import { Button, Modal, Textarea } from '@firmivra/ui';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
@@ -18,6 +18,26 @@ export type StaffAction =
   | 'deactivate'
   | 'reactivate'
   | 'delete';
+
+/** SM14: which of the member's authority flags (from the API) allows each control. */
+const AUTHORITY: Record<StaffAction | 'resend', keyof StaffDetail['authority']> = {
+  resetPassword: 'resetPassword',
+  resetMfa: 'resetMfa',
+  resend: 'resendInvitation',
+  signOutAll: 'signOutSessions',
+  lock: 'lock',
+  unlock: 'lock',
+  deactivate: 'deactivate',
+  reactivate: 'deactivate',
+  delete: 'deactivate',
+};
+
+/**
+ * The signed-in person may take `action` on this member: the API's rule (nobody else changes the
+ * Original Owner; an Admin acts only below Admin and never resets MFA; never on oneself).
+ */
+export const mayDo = (action: StaffAction | 'resend', member: StaffDetail) =>
+  member.authority[AUTHORITY[action]] === true;
 
 const signedOut = (n: number) => (n ? ` ${n} session${n === 1 ? '' : 's'} signed out.` : '');
 

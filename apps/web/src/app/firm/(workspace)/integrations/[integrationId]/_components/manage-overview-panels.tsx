@@ -115,7 +115,8 @@ export function SyncControls({
     <Card data-testid="sync-controls" className="h-full p-5!">
       <CardTitle>Sync Controls</CardTitle>
       <p className="-mt-2 mb-3 text-sm text-text">
-        Automatically keep your data in sync between {provider?.name ?? 'the provider'} and LVP Pro.
+        Automatically keep your data in sync between {provider?.name ?? 'the provider'} and
+        Firmivra.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Button
@@ -343,7 +344,7 @@ export function MappingPreview({ detail }: { detail: IntegrationConnectionDetail
           <div>
             <h2 className="text-xl font-bold text-heading">Data Mapping</h2>
             <p className="text-xs text-action">
-              Map fields between {name ?? 'the provider'} and LVP Pro.
+              Map fields between {name ?? 'the provider'} and Firmivra.
             </p>
           </div>
         </div>
@@ -359,7 +360,7 @@ export function MappingPreview({ detail }: { detail: IntegrationConnectionDetail
           <table className="w-full text-left text-sm">
             <thead className="bg-table-head text-xs font-semibold text-heading">
               <tr>
-                <th className="px-3 py-2">LVP Pro Field</th>
+                <th className="px-3 py-2">Firmivra Field</th>
                 <th className="w-12 px-3 py-2">
                   <span className="sr-only">Direction</span>
                 </th>

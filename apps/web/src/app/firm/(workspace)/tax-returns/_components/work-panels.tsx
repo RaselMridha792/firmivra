@@ -22,19 +22,15 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
+import { useServiceDocuments } from '../../../../../components/service-documents';
+import { newTaskHref } from '../../tasks/_components/new-task-href';
+import { ServiceTasks } from '../../tasks/_components/service-tasks';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { Dialog, useAct, useMembers, type Notice } from './return-actions';
+import { Dialog, useAct, type Notice } from './return-actions';
 import { AddCheckDialog, Panel, smallButton, textButton, usePart } from './review-panels';
-import {
-  ACTIVITY_ICON,
-  STATUS_LABEL,
-  TR_KEY,
-  dateTimeText,
-  dayText,
-  quiet,
-  shortName,
-} from './tr-shared';
+import { ACTIVITY_ICON, STATUS_LABEL, TR_KEY, dateTimeText, dayText, quiet } from './tr-shared';
 
 // ---------- Workflow stepper ----------
 
@@ -423,9 +419,9 @@ function LinkDocumentDialog({
         onChange={(e) => setJurisdiction(e.target.value.toUpperCase())}
         {...(bad ? { error: 'Use US or a two-letter state code' } : {})}
       />
-      <Link href={`/clients/${detail.client.id}/documents`} className={textButton}>
+      <OriginLink href={`/clients/${detail.client.id}/documents`} className={textButton}>
         Upload in the client's Documents
-      </Link>
+      </OriginLink>
     </Dialog>
   );
 }
@@ -504,138 +500,74 @@ export function DocumentChecklist({ detail, limit }: { detail: TaxReturnDetail; 
           </tbody>
         </table>
       )}
-      <div className="flex flex-wrap gap-2">
-        <Link href={`/clients/${detail.client.id}/documents`} className={smallButton}>
-          Upload Documents
-        </Link>
-        <Link href={`/clients/${detail.client.id}/documents`} className={smallButton}>
-          Request Documents
-        </Link>
-      </div>
+      <DocumentButtons detail={detail} />
     </Panel>
   );
 }
 
 // ---------- Tasks ----------
 
-/** Upcoming Tasks: the client's open tasks; Add Task creates one for this client. */
-export function UpcomingTasks({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
-  const act = useAct(onNotice);
-  const members = useMembers();
-  const q = useApiQuery([...TR_KEY, 'tasks', detail.client.id], () =>
-    api.tasks.list({ clientId: detail.client.id, status: 'OPEN', limit: 20 }),
-  );
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState('');
-  const [due, setDue] = useState('');
-  const [who, setWho] = useState(detail.preparer?.userId ?? '');
-  const items = (q.data?.items ?? []).slice(0, 4);
+/**
+ * Upcoming Tasks (TX-F13 to F15, SH4): this client's open tasks on this return's engagement, with
+ * the shared inline status and task menu in place; Create Task opens Tasks on this client, return
+ * and year, and Back returns here.
+ */
+export function UpcomingTasks({ detail }: { detail: TaxReturnDetail; onNotice: Notice }) {
+  const create = newTaskHref({
+    clientId: detail.client.id,
+    ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
+    period: `Tax year ${detail.taxYear}`,
+  });
   return (
     <Panel
       title="Upcoming Tasks"
       icon={CheckSquare}
       testId="upcoming-tasks"
       action={
-        <Link href="/tasks" className={textButton}>
+        <OriginLink href={`/tasks?clientId=${detail.client.id}`} className={textButton}>
           View All
-        </Link>
+        </OriginLink>
       }
     >
-      {q.isError ? (
-        <p role="alert" className={quiet}>
-          Tasks are not available right now.
-        </p>
-      ) : !items.length ? (
-        <p className={quiet}>{q.isPending ? 'Loading…' : 'No open tasks for this client.'}</p>
-      ) : (
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Open tasks</caption>
-          <thead className="bg-table-head">
-            <tr>
-              {['Task', 'Due Date', 'Assigned To', 'Status'].map((h) => (
-                <th key={h} scope="col" className="px-2 py-1.5 font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((t) => {
-              const late = !!t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10);
-              return (
-                <tr key={t.id} className="border-b border-divider">
-                  <td className="px-2 py-1.5">
-                    <Link href={`/tasks/${t.id}`} className="text-link hover:underline">
-                      {t.title}
-                    </Link>
-                  </td>
-                  <td className="px-2 py-1.5 whitespace-nowrap">
-                    {t.dueOn ? dayText(t.dueOn) : '—'}
-                  </td>
-                  <td className="px-2 py-1.5">{shortName(t.assignedTo) ?? '—'}</td>
-                  <td className="px-2 py-1.5">
-                    <Badge tone={late ? 'danger' : 'warning'}>{late ? 'Overdue' : 'Pending'}</Badge>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      <ServiceTasks
+        clientId={detail.client.id}
+        {...(detail.engagement ? { engagementId: detail.engagement.id } : {})}
+        pageSize={4}
+        caption="Open tasks"
+        emptyText="No open tasks for this client."
+      />
       <div>
-        <button type="button" className={smallButton} onClick={() => setAdding(true)}>
-          <Plus aria-hidden weight="bold" className="size-4" /> Add Task
-        </button>
+        <OriginLink href={create} className={smallButton}>
+          <Plus aria-hidden weight="bold" className="size-4" /> Create Task
+        </OriginLink>
       </div>
-      {adding ? (
-        <Dialog
-          title="Add Task"
-          subtitle={`${detail.client.name}, ${detail.taxYear} ${detail.formType ?? 'return'}`}
-          confirm="Add Task"
-          disabled={!title.trim()}
-          onConfirm={() =>
-            void act(
-              () =>
-                api.tasks.create({
-                  clientId: detail.client.id,
-                  title: title.trim(),
-                  details: `Tax return ${detail.taxYear}${detail.formType ? ` ${detail.formType}` : ''}`,
-                  ...(due ? { dueOn: due } : {}),
-                  ...(who ? { assignedUserId: who } : {}),
-                  ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
-                }),
-              'Task added.',
-            ).then((r) => {
-              if (r) {
-                setAdding(false);
-                setTitle('');
-              }
-            })
-          }
-          onClose={() => setAdding(false)}
-          testId="add-task-dialog"
-        >
-          <Input
-            label="Task"
-            value={title}
-            maxLength={200}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <Input
-            label="Due date"
-            type="date"
-            value={due}
-            onChange={(e) => setDue(e.target.value)}
-          />
-          <Select
-            label="Assigned to"
-            value={who}
-            onChange={(e) => setWho(e.target.value)}
-            options={[{ value: '', label: 'Unassigned' }, ...members]}
-          />
-        </Dialog>
-      ) : null}
     </Panel>
+  );
+}
+
+/**
+ * Upload Documents and Request Documents (TX-F08 to F10, SH3): in place, for this client's return
+ * and year, when the return has its engagement; otherwise the client's Documents, with Back here.
+ */
+function DocumentButtons({ detail }: { detail: TaxReturnDetail }) {
+  const docs = useServiceDocuments();
+  if (!detail.engagement)
+    return (
+      <div className="flex flex-wrap gap-2">
+        <OriginLink href={`/clients/${detail.client.id}/documents`} className={smallButton}>
+          Upload or Request in the client's Documents
+        </OriginLink>
+      </div>
+    );
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" className={smallButton} onClick={() => docs.open('upload')}>
+        Upload Documents
+      </button>
+      <button type="button" className={smallButton} onClick={() => docs.open('request')}>
+        Request Documents
+      </button>
+    </div>
   );
 }
 
