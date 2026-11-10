@@ -468,6 +468,15 @@ Progress (TX-F07 and the TX-F06 decision; Nov 7):
   Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
   Mock `r60-tax-returns-menu` 2 of 2.
 
+Progress (TX-F18, Rasel's go on the role check; Nov 10):
+- Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the
+  return's reviewer's); an Owner, or an Admin with APPROVE, decides it as the override, recorded as
+  `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
+  `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
+  of 37, mock 26 of 26.
+- Next (the lead, Nov 10): the same check on the return's tasks and schedule items (reassign), in
+  a small follow-up PR.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,

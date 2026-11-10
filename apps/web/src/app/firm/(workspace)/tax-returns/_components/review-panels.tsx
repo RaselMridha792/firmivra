@@ -423,7 +423,13 @@ export function ApprovalsPanel({
                 {a.decidedAt ? (
                   <span className="text-xs text-muted">{dateTimeText(a.decidedAt)}</span>
                 ) : null}
-                {a.status === 'PENDING' ? (
+                {/* TX-F18: only the step's reviewer, or an Owner or Admin as the override. */}
+                {a.status === 'PENDING' && !a.canDecide ? (
+                  <span className="text-xs text-muted" data-testid="approval-waiting">
+                    For {a.assignedTo?.name ?? detail.reviewer?.name ?? 'the reviewer'} to decide
+                  </span>
+                ) : null}
+                {a.status === 'PENDING' && a.canDecide ? (
                   <span className="flex flex-wrap gap-x-3">
                     <button
                       type="button"
