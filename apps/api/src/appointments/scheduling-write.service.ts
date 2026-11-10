@@ -3,6 +3,8 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AppointmentRecord, MemberRef } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
+import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -86,6 +88,7 @@ export class SchedulingWriteService {
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
+    private readonly grants: PermissionGrantsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -356,8 +359,24 @@ export class SchedulingWriteService {
         }
         const wanted = body.staffUserIds[0];
         if (!wanted) throw errors.unsupported('Choose a staff member');
-        if (wanted !== current.staffUserId.toLowerCase())
+        if (wanted !== current.staffUserId.toLowerCase()) {
           await activeMember(tx, businessId, wanted);
+          // TX-F18: an appointment of a tax return's engagement, as Reschedule.
+          const authority = await returnReassignAuthority(
+            tx,
+            this.grants,
+            businessId,
+            actor,
+            current.engagementId,
+          );
+          if (authority === 'override')
+            await this.audit.logIn(
+              tx,
+              'appointment.reassigned_override',
+              { type: 'appointment', id: current.id },
+              { staffUserId: wanted },
+            );
+        }
         staffUserId = wanted;
       }
       const staff = await activeMember(tx, businessId, staffUserId);
