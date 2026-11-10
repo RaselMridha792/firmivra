@@ -2645,7 +2645,8 @@ describe('appointment type configuration', () => {
       call('put', `/appointment-types/${ids.typeA2}/config`, people.ownerA, body);
     expectError(await put({ eligibleStaffUserIds: [people.staffA.id] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ officeIds: [ids.office] }), 400, 'VALIDATION_FAILED');
-    expectError(await put({ requiredIntakeFormId: randomUUID() }), 400, 'VALIDATION_FAILED');
+    // A9: a required intake form is kept now; one that is not the firm's is 404.
+    expectError(await put({ requiredIntakeFormId: randomUUID() }), 404, 'NOT_FOUND');
     expectError(await put({ requiredDocuments: ['W-9'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ methods: ['PHONE', 'PHONE'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ methods: ['OTHER'] }), 400, 'VALIDATION_FAILED');

@@ -552,6 +552,13 @@ PR bodies follow #1130's: what and why, the screenshot table (shots in `e2e/scre
 **Needs for Rasel:** the Frame 2 schema choice (document notes; intake and appointment links); the automatic request reminder and expiry have no job yet; `forms-documents` settings could link to Document Settings (R60 or Tumit).
 
 **Gotchas:** check `git log origin/main..HEAD --format=%B | grep -ci co-authored` is 0 before every push. Python with quotes goes in a script file (heredocs break). After merging main: rebuild `packages/types`, `prisma generate`, and delete `apps/web/.next/mock/dev/types` if typecheck names it. API tests: set `DATABASE_URL`/`DATABASE_URL_APP` to `firmivra_r56` (every migration through main is applied). Shots: `zz-r56-*-shots.spec.ts` (never committed); empty with `NEXT_PUBLIC_API_MOCK_EMPTY=documentLibrary`, offline with `R56_EXCLUDE=documentLibrary -c playwright.r56.config.ts`; 375 px shots must be 375 wide.
+- 2026-11-07 (lead queue item 7): Appointments A9 on `rasel/R56-a9-intake`, on R1's #1303 columns:
+  - **Type setting:** Manage Appointment Types has **Required intake form**, a published form of the type's service. The API keeps it in `appointment_types.required_intake_template_id`: 404 for a form not the firm's, 400 for another service's.
+  - **Send:** an appointment of a client has **Send Intake Form** under Related Items. It sends through the intake send API with `appointmentId` (new), stored as `intakes.appointment_id` and audited. 409 APPOINTMENT_MISMATCH for another client's or a cancelled appointment.
+  - **Status:** the appointment's record shows the form under Related Items as waiting or completed.
+  - **Sending is explicit:** a booking never sends on its own (safe default, for Review 2).
+  - **A4 and S12:** no booking-link or embed control exists on appointment types or packages, so there is nothing to hide before launch.
+  - **Tests:** intake e2e (one new: the type's form, 404, the two refusals, the link, waiting then completed, firm B 404); scheduling e2e (an unknown form is 404 now); mock `r56-appointments-review` (A9).
 - 2026-11-07 (lead: Business Advisory, High first, batches of about 6): Advisory batch 1 (B4 to B9) on `rasel/R56-advisory-batch1`:
   - **B4:** the three Schedule Meeting links (header, Meetings tab, overview) open Schedule Appointment with the client, their advisory engagement (its service picks the advisory type) and `from`, so Cancel returns to the client and tab.
   - **B5:** Upcoming Advisory Meetings opens Appointments filtered to Business Advisory meetings. The agenda gains `serviceKind`, by the appointment's service or its engagement's. The list says so and offers Show all.

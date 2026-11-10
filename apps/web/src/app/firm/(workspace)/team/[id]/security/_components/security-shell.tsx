@@ -90,7 +90,9 @@ export function SecurityShell({
         </Callout>
       ) : m?.isYou ? (
         <Callout icon={Info} tone="navy" surface="plain" size="compact">
-          This is your own account. Another Owner or Admin changes your access and security.
+          {m.authority.originalOwner
+            ? "This is your own account, the firm's Original Owner's: nobody else changes it."
+            : 'This is your own account. Another Owner or Admin changes your access and security.'}
         </Callout>
       ) : m && !admin ? (
         <Callout icon={Info} tone="navy" surface="plain" size="compact">
@@ -118,10 +120,16 @@ export function SecurityShell({
                   <p className="font-display text-2xl font-bold break-words text-heading">
                     {m.name}
                   </p>
-                  <span className="w-fit">
+                  <span className="flex w-fit flex-wrap gap-1.5">
                     <Badge tone={STATUS_LOOKS[m.status].tone} dot>
                       {STATUS_LOOKS[m.status].label}
                     </Badge>
+                    {/* SM14: the firm's Original Owner, apart from delegated Owners. */}
+                    {m.authority.originalOwner ? (
+                      <span data-testid="original-owner">
+                        <Badge tone="info">Original Owner</Badge>
+                      </span>
+                    ) : null}
                   </span>
                   <p className="text-sm text-link">{m.jobTitle ?? '—'}</p>
                   <p className="text-sm text-link">

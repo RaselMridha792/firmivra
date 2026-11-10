@@ -450,6 +450,14 @@ Progress (MSG-F17, F23, F24; Nov 7):
   off with the reason; a client's is off ("Texts go to leads only"). A lead's Text switches the
   reply to Text. F24's evidence rows are in the PR body. Mock specs 41 of 41.
 
+Progress (Tax Returns shared pieces, Oct 26 review; Nov 7):
+- Branch `rasel/R60-tax-returns-shared`: TX-F03 (SH1 Back on every way out), F05 (Send Message in
+  place, the client's New Message dialog on the return's engagement), F06 (the shared Schedule
+  form on this client and engagement, with Back; no second panel), F08 to F10 (SH3 Upload and
+  Request in place through `ServiceDocumentsProvider`), F13 to F15 (SH4 `ServiceTasks` and Create
+  Task prefilled). Mock returns get a registered tax engagement. Mock `r60-tax-returns-shared` 2 of
+  2.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,

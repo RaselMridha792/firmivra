@@ -31,6 +31,7 @@ import {
   UpdateAppointmentDetailsRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { appointmentIntakes } from './appointment-intakes';
 
 /**
  * Mock data for `api.scheduling` (R42 contract, the Appointments workspace). Synthetic people
@@ -583,7 +584,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
 
     record: async (id) => {
       await mockDelay();
-      return copy(find(id));
+      const r = copy(find(id));
+      // A9: the intake form sent for this appointment, when there is one.
+      const intake = appointmentIntakes().get(id);
+      return intake ? { ...r, related: { ...r.related, intakeForm: intake } } : r;
     },
     schedule: async (body) => {
       await mockDelay();

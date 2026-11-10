@@ -40,7 +40,12 @@ export function SecurityOverview({ id }: { id: string }) {
         </Panel>
       </div>
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-2">
-        <SessionsCard id={id} name={member?.name} enabled={manages} limit={3} />
+        <SessionsCard
+          id={id}
+          name={member?.name}
+          enabled={member?.authority.signOutSessions ?? false}
+          limit={3}
+        />
         <LoginHistoryCard id={id} />
       </div>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-[5fr_4fr_3fr]">

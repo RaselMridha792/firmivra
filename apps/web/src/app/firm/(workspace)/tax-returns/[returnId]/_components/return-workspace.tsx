@@ -56,6 +56,9 @@ import {
   shortName,
 } from '../../_components/tr-shared';
 import { UnavailableReturn } from '../../_components/unavailable';
+import { OriginLink } from '../../../../../../components/origin-link';
+import { ServiceDocumentsProvider } from '../../../../../../components/service-documents';
+import { NewThreadDialog } from '../../../clients/[id]/messages/_components/thread-dialogs';
 import {
   ActivityPanel,
   ChecklistPanel,
@@ -122,38 +125,55 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
       </div>
     );
   }
+  // SH3 (TX-F08 to F10): Upload and Request open here, for this client's return and its year.
+  const docTarget = r?.engagement
+    ? {
+        clientId: r.client.id,
+        clientName: r.client.name,
+        engagementId: r.engagement.id,
+        service: 'Tax Returns',
+        period: `Tax year ${r.taxYear}`,
+        taxYear: r.taxYear,
+      }
+    : undefined;
   return (
-    <div className="flex min-w-0 flex-col gap-4" data-testid="return-workspace">
-      <Crumbs detail={r} />
-      {message ? (
-        <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
-      ) : null}
-      {r ? (
-        <Header detail={r} onNotice={notice} />
-      ) : (
-        <div className={`${card} h-32 animate-pulse`} aria-label="Loading" />
-      )}
-      {r?.archivedAt ? <ArchivedNotice detail={r} onNotice={notice} /> : null}
-      {r ? <InfoCards detail={r} onNotice={notice} /> : null}
-      {r ? (
-        <div className="min-w-0 [&_[role=tablist]]:justify-between [&_[role=tab]]:text-base">
-          <Tabs
-            label="Return sections"
-            variant="underline"
-            value={tab}
-            onChange={setTab}
-            items={TABS.map((t) => ({
-              id: t.id,
-              label: t.label,
-              ...(t.id === tab
-                ? { content: <TabBody tab={tab} detail={r} onNotice={notice} /> }
-                : {}),
-            }))}
+    <ServiceDocumentsProvider target={docTarget} onDone={(text) => notice(text, 'success')}>
+      <div className="flex min-w-0 flex-col gap-4" data-testid="return-workspace">
+        <Crumbs detail={r} />
+        {message ? (
+          <Toast
+            message={message.text}
+            tone={message.tone}
+            onDismiss={() => setMessage(undefined)}
           />
-        </div>
-      ) : null}
-      {r ? <ActionBar detail={r} onNotice={notice} /> : <BackLink />}
-    </div>
+        ) : null}
+        {r ? (
+          <Header detail={r} onNotice={notice} />
+        ) : (
+          <div className={`${card} h-32 animate-pulse`} aria-label="Loading" />
+        )}
+        {r?.archivedAt ? <ArchivedNotice detail={r} onNotice={notice} /> : null}
+        {r ? <InfoCards detail={r} onNotice={notice} /> : null}
+        {r ? (
+          <div className="min-w-0 [&_[role=tablist]]:justify-between [&_[role=tab]]:text-base">
+            <Tabs
+              label="Return sections"
+              variant="underline"
+              value={tab}
+              onChange={setTab}
+              items={TABS.map((t) => ({
+                id: t.id,
+                label: t.label,
+                ...(t.id === tab
+                  ? { content: <TabBody tab={tab} detail={r} onNotice={notice} /> }
+                  : {}),
+              }))}
+            />
+          </div>
+        ) : null}
+        {r ? <ActionBar detail={r} onNotice={notice} /> : <BackLink />}
+      </div>
+    </ServiceDocumentsProvider>
   );
 }
 
@@ -784,6 +804,7 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
   const act = useAct(onNotice);
   const [back, setBack] = useState<TaxReturnWorkflowStatus>();
   const [rejecting, setRejecting] = useState(false);
+  const [writing, setWriting] = useState(false);
   const next = NEXT[detail.workflowStatus];
   const goEfile =
     detail.workflowStatus === 'READY_TO_FILE' ||
@@ -802,15 +823,22 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
         <ArrowLeft aria-hidden weight="bold" className="size-5" /> Back to Returns
       </Link>
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/clients/${detail.client.id}/documents`} className={button}>
+        {/* TX-F03 (SH1): every way out keeps Back to this return. */}
+        <OriginLink href={`/clients/${detail.client.id}/documents`} className={button}>
           <UsersThree aria-hidden weight="fill" className="size-5" /> Client Portal
-        </Link>
-        <Link href={`/clients/${detail.client.id}/messages`} className={button}>
+        </OriginLink>
+        {/* TX-F05 (SH5): a message to this client about this return, written here. */}
+        <button type="button" className={button} onClick={() => setWriting(true)}>
           <ChatCircleDots aria-hidden weight="fill" className="size-5" /> Send Message
-        </Link>
-        <Link href="/calendar/new" className={button}>
+        </button>
+        {/* TX-F06 (SH6): the shared appointment form on this client and return's engagement;
+            Cancel or Back returns here without creating anything. */}
+        <OriginLink
+          href={`/calendar/new?clientId=${detail.client.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
+          className={button}
+        >
           <CalendarPlus aria-hidden weight="fill" className="size-5" /> Create Appointment
-        </Link>
+        </OriginLink>
         <span className="inline-flex">
           {goEfile ? (
             <button
@@ -882,6 +910,15 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
       ) : null}
       {rejecting ? (
         <RejectDialog row={detail} onClose={() => setRejecting(false)} onNotice={onNotice} />
+      ) : null}
+      {writing ? (
+        <NewThreadDialog
+          clientId={detail.client.id}
+          engagementId={detail.engagement?.id}
+          initialSubject={`${detail.taxYear} ${detail.formType ?? 'Tax'} Return`}
+          onClose={() => setWriting(false)}
+          onSent={() => onNotice('Message sent to the client.', 'success')}
+        />
       ) : null}
     </div>
   );
