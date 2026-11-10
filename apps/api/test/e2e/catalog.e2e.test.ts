@@ -398,6 +398,7 @@ describe('services', () => {
         categoryId: cat.id,
         shortDescription: 'x',
         pricingType: 'FIXED',
+        activate: true,
       }),
       400,
       'VALIDATION_FAILED',
@@ -418,6 +419,99 @@ describe('services', () => {
       'catalog.service.updated',
       'catalog.service.activated',
     ]);
+  });
+
+  it('S2: a draft keeps unfinished work; Save & Activate and Activate need it all', async () => {
+    const cat = await mkCategory();
+    // Only a name and a pricing type: no category, short description or price.
+    const draft = exact(
+      CatalogService,
+      await call('post', '/services', people.ownerA, {
+        name: name('draft'),
+        categoryId: '',
+        shortDescription: '',
+        pricingType: 'FIXED',
+        basePriceCents: null,
+      }),
+      201,
+    );
+    expect(draft).toMatchObject({ status: 'DRAFT', category: null, shortDescription: null });
+    // Save & Activate names every missing field.
+    const refused = await call('post', '/services', people.ownerA, {
+      name: name('draft'),
+      pricingType: 'RECURRING',
+      activate: true,
+    });
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect(
+      (refused.body as { error: { details: { path: string }[] } }).error.details
+        .map((d) => d.path)
+        .sort(),
+    ).toEqual(['basePriceCents', 'billingFrequency', 'categoryId', 'shortDescription']);
+    expectError(
+      await call('post', `/services/${draft.id}/activate`, people.ownerA),
+      400,
+      'ACTIVATION_INCOMPLETE',
+    );
+    // It is found under Drafts and All, and counted.
+    const drafts = exact(
+      CatalogServicePage,
+      await call('get', '/services?status=draft&pageSize=100', people.staffA),
+    );
+    expect(drafts.items.map((i) => i.id)).toContain(draft.id);
+    const all = exact(
+      CatalogServicePage,
+      await call('get', '/services?status=all&pageSize=100', people.staffA),
+    );
+    expect(all.items.map((i) => i.id)).toContain(draft.id);
+    // Resumed later: the rest is filled in, then it activates.
+    const resumed = exact(
+      CatalogService,
+      await call('patch', `/services/${draft.id}`, people.ownerA, {
+        version: draft.version,
+        categoryId: cat.id,
+        shortDescription: 'Now complete',
+        basePriceCents: 7_500,
+      }),
+    );
+    expect(resumed).toMatchObject({ status: 'DRAFT', category: { id: cat.id } });
+    // A draft may also clear them again.
+    const cleared = exact(
+      CatalogService,
+      await call('patch', `/services/${draft.id}`, people.ownerA, {
+        version: resumed.version,
+        categoryId: null,
+      }),
+    );
+    expect(cleared.category).toBeNull();
+    const back = exact(
+      CatalogService,
+      await call('patch', `/services/${draft.id}`, people.ownerA, {
+        version: cleared.version,
+        categoryId: cat.id,
+      }),
+    );
+    const live = exact(
+      CatalogService,
+      await call('post', `/services/${back.id}/activate`, people.ownerA),
+    );
+    expect(live).toMatchObject({ status: 'ACTIVE', shortDescription: 'Now complete' });
+    // A duplicate stays: a draft copy, found under Drafts after a fresh read.
+    const copy = exact(
+      CatalogService,
+      await call('post', `/services/${live.id}/duplicate`, people.ownerA),
+      201,
+    );
+    expect(copy.status).toBe('DRAFT');
+    expect(
+      exact(CatalogService, await call('get', `/services/${copy.id}`, people.staffA)).status,
+    ).toBe('DRAFT');
+    expect(
+      exact(
+        CatalogServicePage,
+        await call('get', '/services?status=draft&pageSize=100', people.staffA),
+      ).items.map((i) => i.id),
+    ).toContain(copy.id);
   });
 
   it('stores inclusions, line items and add-ons, and works out the total', async () => {
@@ -545,8 +639,18 @@ describe('services', () => {
         basePriceCents: null,
       }),
       400,
-      'VALIDATION_FAILED',
+      'ACTIVATION_INCOMPLETE',
     );
+    // Nor without its category or short description (S2: only a draft may clear them).
+    for (const cleared of [{ categoryId: null }, { categoryId: '' }, { shortDescription: '' }])
+      expectError(
+        await call('patch', `/services/${s.id}`, people.ownerA, {
+          version: saved.version,
+          ...cleared,
+        }),
+        400,
+        'ACTIVATION_INCOMPLETE',
+      );
     const audit = await asOwner(ids.firmA, (tx) =>
       tx.auditLog.findMany({ where: { entityId: s.id, action: 'catalog.service.updated' } }),
     );
@@ -924,9 +1028,39 @@ describe('packages', () => {
     const list = exact(ServicePackageList, await call('get', '/packages', people.staffA)).items;
     expect(list.map((p) => p.id)).not.toContain(pkg.id);
     expect(list.map((p) => p.id)).toContain(copy.id);
+
+    // S4: every view reaches its packages, the archived one too, for Restore.
+    const view = async (status: string) =>
+      exact(
+        ServicePackageList,
+        await call('get', `/packages?status=${status}`, people.staffA),
+      ).items.map((p) => [p.id, p.status]);
+    expect(await view('archived')).toContainEqual([pkg.id, 'ARCHIVED']);
+    expect(await view('archived')).not.toContainEqual([copy.id, 'DRAFT']);
+    expect(await view('draft')).toContainEqual([copy.id, 'DRAFT']);
+    expect(await view('draft')).not.toContainEqual([pkg.id, 'ARCHIVED']);
+    expect(await view('all')).toEqual(
+      expect.arrayContaining([
+        [pkg.id, 'ARCHIVED'],
+        [copy.id, 'DRAFT'],
+      ]),
+    );
+    expect(await view('active')).not.toContainEqual([pkg.id, 'ARCHIVED']);
+    expectError(
+      await call('get', '/packages?status=gone', people.staffA),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const restored = exact(
+      ServicePackage,
+      await call('post', `/packages/${pkg.id}/deactivate`, people.ownerA),
+    );
+    expect(restored.status).toBe('INACTIVE');
+    expect(await view('archived')).not.toContainEqual([pkg.id, 'ARCHIVED']);
     expect(await auditActions(pkg.id)).toEqual([
       'catalog.package.created',
       'catalog.package.archived',
+      'catalog.package.deactivated',
     ]);
   });
 });
