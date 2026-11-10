@@ -11,6 +11,7 @@ import { RolesGuard } from './auth/roles.guard.js';
 import { SignInModule } from './auth/sign-in.controller.js';
 import { PortalInfoModule } from './client-auth/portal-info.controller.js';
 import { PortalAnnouncementsModule } from './client-portal/portal-announcements.js';
+import { PortalContactModule } from './client-portal/portal-contact.js';
 import { PortalTabsModule } from './client-portal/portal-tabs.js';
 import { PaymentPreferencesModule } from './payments/preferences/payment-preferences.js';
 import { ClientSignUpsModule } from './client-auth/client-sign-ups.controller.js';
@@ -183,6 +184,7 @@ export class AppModule {
         PortalInfoModule,
         PortalAnnouncementsModule,
         PortalTabsModule,
+        PortalContactModule,
         PaymentPreferencesModule,
         SignUpModule,
         PortalSignInModule,
