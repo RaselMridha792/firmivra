@@ -73,11 +73,18 @@ export class LocalIdentityProvider implements IdentityProvider {
   }
 
   async refresh(pool: IdentityPool, username: string, refreshToken = ''): Promise<SessionTokens> {
-    // The sign-in's id rides in the refresh token, so a refresh keeps the session (SM4).
-    const sid = refreshToken.startsWith(LOCAL_REFRESH)
-      ? refreshToken.slice(LOCAL_REFRESH.length)
-      : '';
-    const { token, expiresIn } = await this.tokens.signLocal(username, pool, sid || undefined);
+    // The sign-in's id and time ride in the refresh token, so a refresh keeps the session (SM4)
+    // and its sign-in time (SEC-4).
+    const [sid = '', at = ''] = refreshToken.startsWith(LOCAL_REFRESH)
+      ? refreshToken.slice(LOCAL_REFRESH.length).split('.')
+      : [];
+    const authTime = /^\d+$/.test(at) ? Number(at) : undefined;
+    const { token, expiresIn } = await this.tokens.signLocal(
+      username,
+      pool,
+      sid || undefined,
+      authTime,
+    );
     return { accessToken: token, expiresIn };
   }
 
@@ -140,8 +147,9 @@ export class LocalIdentityProvider implements IdentityProvider {
   private async issue(sub: string, pool: IdentityPool): Promise<SessionTokens> {
     // One id per sign-in, as Cognito's origin_jti: in each access token, and kept by refresh.
     const sid = randomUUID();
-    const { token, expiresIn } = await this.tokens.signLocal(sub, pool, sid);
+    const authTime = Math.floor(Date.now() / 1000);
+    const { token, expiresIn } = await this.tokens.signLocal(sub, pool, sid, authTime);
     // The refresh token only has to exist: the sealed envelope around it is what is checked.
-    return { accessToken: token, refreshToken: `${LOCAL_REFRESH}${sid}`, expiresIn };
+    return { accessToken: token, refreshToken: `${LOCAL_REFRESH}${sid}.${authTime}`, expiresIn };
   }
 }

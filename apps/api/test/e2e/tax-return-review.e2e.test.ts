@@ -580,6 +580,67 @@ describe('review', () => {
     );
   });
 
+  it("TX-F18: only the step's reviewer decides it; an Owner or Admin as the override, recorded", async () => {
+    const id = ids.r!;
+    const added = ok(
+      await call('post', `/tax-returns/${id}/approvals`, ownerA, {
+        step: 'Staff Review',
+        assignedUserId: staffA.id,
+      }),
+      TaxApprovalList,
+    );
+    const step = added.items.find((a) => a.step === 'Staff Review')!;
+    // Each member reads whether the step is theirs to decide.
+    const as = async (who: typeof ownerA) =>
+      ok(await call('get', `/tax-returns/${id}/approvals`, who), TaxApprovalList).items.find(
+        (a) => a.id === step.id,
+      )!;
+    expect((await as(staffA)).canDecide).toBe(true);
+    expect((await as(ownerA)).canDecide).toBe(true);
+    // A step assigned to someone else is not Staff's, even with the client in reach.
+    const other = ok(
+      await call('post', `/tax-returns/${id}/approvals`, ownerA, {
+        step: 'Admin Review',
+        assignedUserId: adminA.id,
+      }),
+      TaxApprovalList,
+    ).items.find((a) => a.step === 'Admin Review')!;
+    expect(
+      ok(await call('get', `/tax-returns/${id}/approvals`, staffA), TaxApprovalList).items.find(
+        (a) => a.id === other.id,
+      )!.canDecide,
+    ).toBe(false);
+    expectError(
+      await call('post', `/tax-returns/${id}/approvals/${other.id}/approve`, staffA, {}),
+      403,
+      'FORBIDDEN',
+    );
+    // The Owner decides Staff's step as the override, and the audit says so.
+    ok(
+      await call('post', `/tax-returns/${id}/approvals/${step.id}/approve`, ownerA, {}),
+      TaxApprovalList,
+    );
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'tax_return.approval', entityId: id },
+        select: { metadata: true },
+      }),
+    );
+    expect(
+      rows.some(
+        (r) =>
+          (r.metadata as { approvalId?: string; override?: boolean } | null)?.approvalId ===
+            step.id && (r.metadata as { override?: boolean }).override === true,
+      ),
+    ).toBe(true);
+    // The assignee decides theirs without the override.
+    ok(
+      await call('post', `/tax-returns/${id}/approvals/${other.id}/approve`, adminA, {}),
+      TaxApprovalList,
+    );
+    expect((await as(staffA)).canDecide).toBe(false);
+  });
+
   it('keeps the authorizations and their signatures', async () => {
     const id = ids.r!;
     expect(

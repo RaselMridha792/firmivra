@@ -1887,7 +1887,25 @@ describe('plans: finalize, versions and delivery', () => {
     expect(v1.financials?.length).toBeGreaterThan(0);
     expect(v1.disclaimer).toMatch(/not guarantees/);
 
-    // An edit after finalizing leaves the version as it was, and the plan has to be finalized again to send.
+    // B9: a finalized plan is locked; Modify Plan (back to DRAFT) starts the next revision. The
+    // edit leaves the version as it was, and the plan has to be finalized again to send.
+    expectError(
+      await patchPlan(id, { profile: { businessName: 'Riley Bakery and Cafe (fake)' } }),
+      409,
+      'PLAN_LOCKED',
+    );
+    // The wizard's place still moves.
+    ok(await patchPlan(id, { step: 4 }));
+    expect(
+      AdvisoryPlanDetail.parse(
+        ok(
+          await call('post', `/plans/${id}/status`, ownerA, {
+            status: 'DRAFT',
+            etag: (await plan(id)).etag,
+          }),
+        ),
+      ),
+    ).toMatchObject({ status: 'DRAFT', currentVersion: 1 });
     ok(await patchPlan(id, { profile: { businessName: 'Riley Bakery and Cafe (fake)' } }));
     const v1After = AdvisoryVersionDetail.parse(
       ok(await call('get', `/plans/${id}/versions/1`, ownerA)),
@@ -1957,9 +1975,10 @@ describe('plans: finalize, versions and delivery', () => {
     expect(body).not.toMatch(/Hidden/);
     expect(body).not.toMatch(/1200000|1,200,000|300000|Internal/);
 
-    // Statuses after delivery.
-    expectError(await status('DRAFT'), 409, 'INVALID_STATUS');
+    // Statuses after delivery. A sent plan goes back to DRAFT only as Modify Plan (B9, above); a
+    // plan in progress does not go back at all.
     expect(AdvisoryPlanDetail.parse(ok(await status('IN_PROGRESS'))).status).toBe('IN_PROGRESS');
+    expectError(await status('DRAFT'), 409, 'INVALID_STATUS');
     expect(AdvisoryPlanDetail.parse(ok(await status('COMPLETED'))).status).toBe('COMPLETED');
     expect(
       AdvisoryPlanDetail.parse(

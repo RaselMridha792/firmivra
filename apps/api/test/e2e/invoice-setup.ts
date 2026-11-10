@@ -235,7 +235,7 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     return token;
   };
 
-  type Method = 'get' | 'post' | 'put' | 'patch';
+  type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
   const firm = async (
     method: Method,
     path: string,

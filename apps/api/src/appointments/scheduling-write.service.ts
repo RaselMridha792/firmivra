@@ -744,9 +744,11 @@ export class SchedulingWriteService {
     if (input.generate && !(await this.hasVideoIntegration(tx, businessId))) {
       throw errors.videoNotConnected();
     }
-    return (
-      input.videoUrl ?? input.details ?? (await linkOf(this.links, tx, businessId, staffUserId))
-    );
+    const link =
+      input.videoUrl ?? input.details ?? (await linkOf(this.links, tx, businessId, staffUserId));
+    // Advisory B11: Generate on a staff member with no link is refused, never saved without one.
+    if (input.generate && !link) throw errors.videoLinkMissing();
+    return link;
   }
 
   /** The location details after an edit; unchanged unless the form sent something for them. */
@@ -771,13 +773,15 @@ export class SchedulingWriteService {
       return this.locationOf(tx, businessId, kind, staffUserId, {
         details: body.details,
         videoUrl: body.videoUrl,
-        generate: false,
+        generate: kind === 'VIDEO' && body.generateVideoLink === true,
       });
     }
     if (sent) {
       if (kind === 'VIDEO') {
         const typed = body.videoUrl !== undefined ? body.videoUrl : body.details;
-        return typed ?? (await linkOf(this.links, tx, businessId, staffUserId));
+        const link = typed ?? (await linkOf(this.links, tx, businessId, staffUserId));
+        if (body.generateVideoLink && !link) throw errors.videoLinkMissing();
+        return link;
       }
       return body.details ?? null;
     }
