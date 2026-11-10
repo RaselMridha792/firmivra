@@ -129,6 +129,18 @@ export function createInvoicesClient(request: ApiRequest) {
      */
     resend: async (id: string): Promise<Invoice> =>
       request(Invoice, `${one(id)}/resend`, { method: 'POST', body: {} }),
+    /**
+     * IP-F10: archived, never deleted: a draft leaves the lists (paid and canceled ones once R1's
+     * database change lands). 409 NOT_ARCHIVABLE otherwise. Again: no change.
+     */
+    archive: async (id: string): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/archive`, { method: 'POST', body: {} }),
+    /** IP-F10: Delete on a draft that was never sent archives it. 409 NOT_DELETABLE otherwise. */
+    deleteDraft: async (id: string): Promise<Invoice> =>
+      request(Invoice, one(id), { method: 'DELETE' }),
+    /** IP-F10: back in the lists as it was. */
+    restore: async (id: string): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/restore`, { method: 'POST', body: {} }),
     /** Draft, scheduled or open. 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS or HAS_PAYMENTS. */
     cancel: async (id: string, body: CancelInvoiceRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/cancel`, {
