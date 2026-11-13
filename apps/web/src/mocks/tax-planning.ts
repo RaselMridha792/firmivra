@@ -950,7 +950,15 @@ export function createTaxPlanningMock({
           ...keep,
           ...input.inputs.map((n): PlanInput => ({
             key: n.key,
-            label: INPUT_CATALOG.find((c) => c.key === n.key)?.label ?? n.key,
+            // C06: an additional item is labelled from its key, as the API does.
+            label:
+              INPUT_CATALOG.find((c) => c.key === n.key)?.label ??
+              (n.key.startsWith('custom_')
+                ? n.key
+                    .slice(7)
+                    .replace(/_+/g, ' ')
+                    .replace(/^./, (c) => c.toUpperCase())
+                : n.key),
             kind: n.kind,
             taxYear: n.taxYear,
             amountCents: n.amountCents ?? null,
@@ -1136,6 +1144,9 @@ export function createTaxPlanningMock({
           event: 'SENT',
           createdAt: nowIso(),
         });
+        // C09: a plan sent for the client's review is Awaiting Client Review.
+        if (['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW'].includes(p.status))
+          p.status = 'AWAITING_CLIENT';
         return strip(p);
       }),
     archivePlan: (pid) =>
