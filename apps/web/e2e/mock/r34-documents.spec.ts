@@ -103,11 +103,10 @@ test('choosing a client shows that client’s real documents: icons, sizes, stat
   await expect(page.getByTestId('documents-table')).toContainText('Blocked');
   await expect(page.getByTestId('documents-table')).toContainText('Scan failed');
 
-  // Download works for a CLEAN document; a blocked one stays disabled.
-  const cleanRow = page.locator('tr', { hasText: 'Driver_License.jpg' });
-  await cleanRow.getByTestId('document-actions').click();
-  await expect(cleanRow.getByTestId('document-download')).toBeEnabled();
-  await cleanRow.getByTestId('document-actions').click(); // close the menu before the next action
+  // Download is offered for a CLEAN document (the menu opens outside the table: Clients V-005).
+  await page.getByRole('button', { name: 'Actions for Driver_License.jpg' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Download' })).toBeVisible();
+  await page.keyboard.press('Escape'); // close the menu before the next action
 
   // Status filters the loaded page client-side (the API has no scanStatus query param).
   await page.getByTestId('filter-status').selectOption('FAILED');

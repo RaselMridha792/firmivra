@@ -17,6 +17,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useClients, useMembers } from './task-data';
 import { ChecklistItems, type Item } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
@@ -92,12 +93,17 @@ type Unit = 'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR';
  * /tasks/recurring/new: Set Up Recurring Task. Save & Create Another (Octavia's A5) saves the
  * series once and starts a fresh form (a new key), saying what was saved.
  */
-export function RecurringFormScreen() {
+/** Where the form starts: a client and engagement from Create Task's Recurring switch (Review 2). */
+type Prefill = { clientId?: string | undefined; engagementId?: string | undefined };
+
+export function RecurringFormScreen({ prefill = {} }: { prefill?: Prefill }) {
   const [round, setRound] = useState(0);
   const [saved, setSaved] = useState<string>();
   return (
     <RecurringForm
       key={round}
+      // Save & Create Another starts empty; the first form keeps what it was opened with.
+      prefill={round === 0 ? prefill : {}}
       saved={saved}
       onAnother={(title) => {
         setSaved(title);
@@ -108,9 +114,11 @@ export function RecurringFormScreen() {
 }
 
 function RecurringForm({
+  prefill,
   saved,
   onAnother,
 }: {
+  prefill: Prefill;
   saved: string | undefined;
   onAnother: (title: string) => void;
 }) {
@@ -125,9 +133,13 @@ function RecurringForm({
   const [typeId, setTypeId] = useState('');
   const typeChoice = useTypeChoice(typeId);
   const [details, setDetails] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [engagementId, setEngagementId] = useState('');
-  const [serviceId, setServiceId] = useState('');
+  // Review 2 (Bookkeeping N05): switching to recurrence keeps the client and engagement, and the
+  // engagement's service is the service until another is chosen.
+  const [clientId, setClientId] = useState(prefill.clientId ?? '');
+  const [engagementId, setEngagementId] = useState(
+    prefill.clientId ? (prefill.engagementId ?? '') : '',
+  );
+  const [serviceChoice, setServiceChoice] = useState<string | null>(null);
   const [assignee, setAssignee] = useState('');
   const [extra, setExtra] = useState<string[]>([]);
   const [interval, setInterval] = useState('1');
@@ -170,6 +182,12 @@ function RecurringForm({
   const services = useApiQuery([...TASKS_KEY, 'services'], () =>
     api.servicesPricing.services({ status: 'active', pageSize: 100 }),
   );
+  const engagementService = engagements.data?.find((x) => x.id === engagementId)?.service.id;
+  const serviceId =
+    serviceChoice ??
+    (engagementService && services.data?.items.some((x) => x.id === engagementService)
+      ? engagementService
+      : '');
   const templates = useApiQuery([...TASKS_KEY, 'templates', 'active'], () =>
     api.taskWork.templates({ status: 'active' }),
   );
@@ -207,7 +225,7 @@ function RecurringForm({
     details,
     clientId,
     engagementId,
-    serviceId,
+    serviceChoice,
     assignee,
     extra,
     interval,
@@ -422,7 +440,7 @@ function RecurringForm({
                   id="rf-service"
                   className={field}
                   value={serviceId}
-                  onChange={(e) => setServiceId(e.target.value)}
+                  onChange={(e) => setServiceChoice(e.target.value)}
                 >
                   <option value="">
                     {services.isError ? 'Services are not available' : 'No service'}
@@ -882,7 +900,14 @@ function RecurringForm({
         </aside>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="secondary" onClick={() => guard.leave('/tasks')}>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            guard.leave(
+              safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM)) ?? '/tasks',
+            )
+          }
+        >
           Cancel
         </Button>
         <div className="flex flex-wrap items-center gap-3">

@@ -346,6 +346,15 @@ export function createTaxPlanningMock({
     label,
   }));
   const refOf = (clientId: string) => refs.find((r) => r.ref.id === clientId)?.ref;
+  /** C04: the clients a seeded tax deadline affects (fake), each with its own deadline. */
+  const affected = (from: number, n: number) => ({
+    clients: refs.slice(from, from + n).map((r, i) => ({
+      client: r.ref,
+      deadlineId: uid('d900', from + i + 1),
+      planId: null,
+    })),
+    clientCount: n,
+  });
   const library: PlanningStrategy[] = LIBRARY.map(
     ([name, category, description, eligibility], i) => ({
       id: uid('d200', i + 1),
@@ -611,6 +620,14 @@ export function createTaxPlanningMock({
     'NEEDS_DOCUMENTS',
     'ADDED_TO_PLAN',
   ];
+  /** The plan statuses the Active Planning Clients KPI counts (C01). */
+  const ACTIVE: string[] = [
+    'DRAFT',
+    'SCHEDULED',
+    'IN_PROGRESS',
+    'AWAITING_CLIENT',
+    'READY_FOR_REVIEW',
+  ];
   const strip = <T extends object>(x: T): Omit<T, '_versions' | '_events'> => {
     const {
       _versions: _v,
@@ -756,6 +773,7 @@ export function createTaxPlanningMock({
                 description: 'Fourth-quarter estimated payment',
                 scope: 'Individual & Business Clients',
                 kind: 'TAX_DEADLINE',
+                ...affected(0, 3),
               },
               {
                 id: 'ms-yearend',
@@ -764,6 +782,8 @@ export function createTaxPlanningMock({
                 description: 'Book year-end planning appointments',
                 scope: 'All Planning Clients',
                 kind: 'PLANNING_MILESTONE',
+                clients: [],
+                clientCount: 0,
               },
               {
                 id: 'tax-s',
@@ -772,6 +792,7 @@ export function createTaxPlanningMock({
                 description: null,
                 scope: 'Business Clients',
                 kind: 'TAX_DEADLINE',
+                ...affected(1, 4),
               },
             ];
         const kpi = (value: number) => ({
@@ -806,6 +827,7 @@ export function createTaxPlanningMock({
           disclaimer: TAX_PLANNING_DISCLAIMER,
           canCreatePlan: role !== 'STAFF',
           canSend: role !== 'STAFF',
+          planningServiceId: uid('d950', 1),
         };
       }),
     clients: (q = {}) =>
@@ -816,7 +838,17 @@ export function createTaxPlanningMock({
           .map(clientRow)
           .filter(
             (r) =>
-              (!term || r.client.name.toLowerCase().includes(term)) &&
+              (!term || `${r.client.name} ${r.planName ?? ''}`.toLowerCase().includes(term)) &&
+              (!query.active || (!!r.status && ACTIVE.includes(r.status))) &&
+              (!query.upcomingAppointment ||
+                (!!r.nextAppointmentAt && r.nextAppointmentAt <= `${day(30)}T23:59:59.999Z`)) &&
+              (!query.strategyStatus ||
+                plans.some(
+                  (p) =>
+                    p.id === r.planId &&
+                    p.strategies.some((s) => s.selected && s.status === query.strategyStatus),
+                )) &&
+              (!query.assignedUserId || r.assignedTo?.userId === query.assignedUserId) &&
               (!query.status || r.status === query.status) &&
               (!query.planYear || r.planYear === query.planYear) &&
               (!query.entityType || r.entityLabel === query.entityType) &&
@@ -1530,6 +1562,7 @@ export function createTaxPlanningMock({
                 description: 'Fourth-quarter estimated payment',
                 scope: 'Individual & Business Clients',
                 kind: 'TAX_DEADLINE',
+                ...affected(2, 2),
               },
               {
                 id: 'ms-yearend',
@@ -1538,6 +1571,8 @@ export function createTaxPlanningMock({
                 description: 'Book year-end planning appointments',
                 scope: 'All Planning Clients',
                 kind: 'PLANNING_MILESTONE',
+                clients: [],
+                clientCount: 0,
               },
               {
                 id: 'tax-s',
@@ -1546,6 +1581,7 @@ export function createTaxPlanningMock({
                 description: null,
                 scope: 'Business Clients',
                 kind: 'TAX_DEADLINE',
+                ...affected(3, 3),
               },
               {
                 id: 'tax-ext',
@@ -1554,6 +1590,7 @@ export function createTaxPlanningMock({
                 description: 'Individual returns on extension',
                 scope: 'Individual Clients',
                 kind: 'TAX_DEADLINE',
+                ...affected(0, 4),
               },
               ...plans
                 .filter((p) => p.nextDiscussionOn)
@@ -1564,6 +1601,8 @@ export function createTaxPlanningMock({
                   description: p.name,
                   scope: p.client.name,
                   kind: 'PLANNING_MILESTONE' as const,
+                  clients: [{ client: p.client, deadlineId: null, planId: p.id }],
+                  clientCount: 1,
                 })),
             ];
         return items

@@ -590,6 +590,7 @@ export function seedStore(empty: boolean): Store {
       kind: 'PAYROLL',
       title: 'Payroll',
       status: 'ACTIVE',
+      workspaceId: recId,
     });
     store.clients.push({
       id: recId,

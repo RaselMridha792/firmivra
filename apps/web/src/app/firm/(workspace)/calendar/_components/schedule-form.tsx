@@ -356,8 +356,12 @@ export function ScheduleForm({
   record?: AppointmentRecord;
   /** The date and hour picked on the calendar (`/calendar/new?date=&time=`). */
   at?: { date: string; time: string };
-  /** SH6: a service workspace's client and engagement (`?clientId=&engagementId=`). */
-  prefill?: { clientId?: string; engagementId?: string };
+  /**
+   * SH6: a service workspace's client and engagement (`?clientId=&engagementId=`). Tax Planning's
+   * Schedule a Planning Consultation (C02) sends only its service (`?serviceId=`): the client is
+   * then chosen in the form.
+   */
+  prefill?: { clientId?: string; engagementId?: string; serviceId?: string };
   /** Where Cancel goes when a workspace opened the form (its `from`). */
   cancelHref?: string;
 }) {
@@ -385,9 +389,11 @@ export function ScheduleForm({
             phone: c.phone,
             clientType: c.accountType,
           },
-          serviceId: engagement.data?.service.id,
+          serviceId: engagement.data?.service.id ?? prefill?.serviceId,
         }
-      : undefined;
+      : prefill?.serviceId
+        ? { contact: undefined, serviceId: prefill.serviceId }
+        : undefined;
     return (
       <FormBody
         options={options.data}
@@ -476,9 +482,12 @@ export function ScheduleHeader({ editing }: { editing: boolean }) {
   );
 }
 
-/** What a service workspace fills in: the client, and the engagement's service with its type. */
+/**
+ * What a service workspace fills in: the client, and the engagement's service with its type. Tax
+ * Planning (C02) fills in only its service; the client is then chosen in the form.
+ */
 interface Prefill {
-  contact: AppointmentContact;
+  contact: AppointmentContact | undefined;
   serviceId: string | undefined;
 }
 
@@ -486,6 +495,7 @@ interface Prefill {
 function prefilled(o: SchedulingOptions, base: Form, p: Prefill): Form {
   const serviceId = p.serviceId && o.services.some((x) => x.id === p.serviceId) ? p.serviceId : '';
   const type = serviceId ? o.types.find((t) => t.serviceId === serviceId) : undefined;
+  if (!p.contact) return { ...base, serviceId, typeId: type?.id ?? base.typeId };
   return {
     ...base,
     contact: p.contact,
