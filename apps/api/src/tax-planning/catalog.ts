@@ -93,4 +93,5 @@ export const RESOURCES: readonly ResourceDef[] = [
   },
 ];
 export const resourceOf = (key: string) => RESOURCES.find((r) => r.key === key);
-export const toResource = ({ summary: _summary, ...r }: ResourceDef): PlanningResource => r;
+/** C17 (Review 2): View shows a resource's summary, the words a client is sent with it. */
+export const toResource = (r: ResourceDef): PlanningResource => ({ ...r });
