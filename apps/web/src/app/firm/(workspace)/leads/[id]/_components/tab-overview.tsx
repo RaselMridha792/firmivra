@@ -183,13 +183,19 @@ export function OverviewTab() {
     </button>
   );
   const quick: { label: string; icon: Icon; href?: string; run?: () => void; off?: boolean }[] = [
-    { label: 'Send Intake Form', icon: FileText, href: '/intake-forms/send' },
+    { label: 'Send Intake Form', icon: FileText, href: `/intake-forms/send?leadId=${id}` },
     { label: 'Upload Document', icon: FileArrowUp, href: `${base}/documents` },
     { label: 'Add to Campaign', icon: PaperPlaneTilt, href: `${base}/campaigns` },
     { label: 'Change Status', icon: Tag, run: () => open('edit'), off: !lead },
+    // A lead that is already a client opens it; it is never converted again (Review Two).
     lead?.client
       ? { label: 'Open Client', icon: UserSwitch, href: `/clients/${lead.client.id}` }
-      : { label: 'Convert to Client', icon: UserPlus, href: `${base}/convert` },
+      : {
+          label: 'Convert to Client',
+          icon: UserPlus,
+          href: `${base}/convert`,
+          off: lead?.stage === 'CONVERTED' || lead?.stage === 'DECLINED',
+        },
     {
       label: 'Mark Not Qualified',
       icon: XCircle,
@@ -411,7 +417,7 @@ export function OverviewTab() {
           <CardFrame icon={Lightning} title="Quick Actions" testId="card-quick-actions">
             <div className="grid grid-cols-2 gap-2">
               {quick.map(({ label, icon: Glyph, href, run, off }) =>
-                href ? (
+                href && off ? null : href ? (
                   <Link key={label} href={href} className={`${outlineButton} ${quickButton}`}>
                     <Glyph aria-hidden weight="fill" className="size-4 shrink-0" /> {label}
                   </Link>
