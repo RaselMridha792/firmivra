@@ -6,6 +6,8 @@ import { useParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { dateText, formatPhone } from '../../_components/client-parts';
+import { RecentActivityCard } from '../activity/_components/client-activity-screen';
+import { ActiveServicesCard } from './client-services';
 import { ClientTagsCard } from './client-tags';
 import { useClientRecord } from './use-client-record';
 
@@ -158,8 +160,9 @@ function FirmDetails({ client }: { client: ClientRecord }) {
 }
 
 /**
- * Overview: profile (SSN and EIN as the last 4 only), contact, portal logins, firm details and the
- * client's tags.
+ * Overview: profile (SSN and EIN as the last 4 only), contact, portal logins, firm details, the
+ * client's tags, and (Octavia's E4) the services the client is enrolled in, separate from tags,
+ * with Recent Activity at the bottom.
  */
 export function ClientOverview() {
   const { id } = useParams<{ id: string }>();
@@ -170,9 +173,13 @@ export function ClientOverview() {
         <div data-testid="client-overview" className="grid gap-5 lg:grid-cols-2">
           <Profile client={client} />
           <Contact client={client} />
+          <ActiveServicesCard clientId={client.id} />
           <Portal client={client} />
           <FirmDetails client={client} />
           <ClientTagsCard client={client} />
+          <div className="lg:col-span-2">
+            <RecentActivityCard clientId={client.id} />
+          </div>
         </div>
       )}
     </PageState>

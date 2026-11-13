@@ -76,6 +76,8 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/tags': { params: { id: 'client' } },
   // MSG-F16: the client's Activity timeline.
   'GET /api/v1/business/clients/:id/timeline': { params: { id: 'client' } },
+  // E4: the client's services and the module record that opens each.
+  'GET /api/v1/business/clients/:id/services': { params: { id: 'client' } },
   'PUT /api/v1/business/clients/:id/tags': {
     params: { id: 'client' },
     body: { tags: ['Fake tag'] },

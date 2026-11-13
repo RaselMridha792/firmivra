@@ -32,10 +32,18 @@ const firms = {} as Record<'a' | 'b', { id: string }>;
 const DAY = 86_400_000;
 const ago = (days: number) => new Date(Date.now() - days * DAY);
 /** The firm's calendar day (no settings row: America/New_York). */
-const nyDay = (offset: number) =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(Date.now() + offset * DAY),
+const nyDay = (offset: number) => {
+  // Calendar days from today in New York, not 24-hour steps (a daylight-saving change between
+  // would land on the wrong day).
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(),
   );
+  const d = new Date(`${today}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+};
+/** 16:00 UTC on that New York day: 11:00 or 12:00 there, so never on another calendar day. */
+const onDay = (offset: number) => new Date(`${nyDay(offset)}T16:00:00.000Z`);
 
 let app: INestApplication;
 const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -513,5 +521,132 @@ describe('services from advisory enrollment (E3)', () => {
     // Firm B's tabs never see firm A's enrolments.
     const b = await summary(people.ownerB, 'b');
     expect(b.counts.byService.some((x) => x.id === svc)).toBe(false);
+  });
+});
+
+describe("E2: a client's Last Activity is its latest event", () => {
+  const e = {} as Record<'msg' | 'doc' | 'task' | 'note' | 'held' | 'both' | 'none', string>;
+
+  beforeAll(async () => {
+    await inFirm('a', async (tx) => {
+      const businessId = firms.a.id;
+      const owner = people.ownerA.id;
+      for (const key of Object.keys({
+        msg: 1,
+        doc: 1,
+        task: 1,
+        note: 1,
+        held: 1,
+        both: 1,
+        none: 1,
+      })) {
+        e[key as keyof typeof e] = (
+          await tx.client.create({ data: { businessId, displayName: `Activity ${key} (fake)` } })
+        ).id;
+      }
+      const message = async (clientId: string, at: Date) => {
+        const thread = await tx.messageThread.create({
+          data: { businessId, clientId, subject: 'Fake thread' },
+        });
+        await tx.message.create({
+          data: {
+            businessId,
+            threadId: thread.id,
+            senderUserId: owner,
+            direction: 'FIRM_TO_CLIENT',
+            body: 'Fake message',
+            createdAt: at,
+          },
+        });
+      };
+      const note = (clientId: string, at: Date) =>
+        tx.note.create({
+          data: { businessId, clientId, body: 'Fake note', authorUserId: owner, createdAt: at },
+        });
+      await message(e.msg, onDay(-3));
+      const engagement = await tx.engagement.create({
+        data: { businessId, clientId: e.doc, serviceId: ids.personal, title: 'Fake activity' },
+      });
+      const tag = randomUUID();
+      await tx.document.create({
+        data: {
+          businessId,
+          clientId: e.doc,
+          engagementId: engagement.id,
+          direction: 'CLIENT_TO_FIRM',
+          fileName: 'fake.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: tag.replace(/-/g, '').padEnd(64, '0'),
+          s3Key: `tenant/${businessId}/e2e/${tag}.pdf`,
+          createdAt: onDay(-4),
+        },
+      });
+      await tx.task.create({
+        data: {
+          businessId,
+          clientId: e.task,
+          title: 'Fake done task',
+          status: 'DONE',
+          completedAt: onDay(-5),
+        },
+      });
+      await note(e.note, onDay(-6));
+      const visit = (
+        clientId: string,
+        startsAt: Date,
+        status: 'COMPLETED' | 'SCHEDULED' | 'CANCELLED',
+      ) =>
+        tx.appointment.create({
+          data: {
+            businessId,
+            clientId,
+            staffUserId: owner,
+            startsAt,
+            endsAt: new Date(startsAt.getTime() + 3_600_000),
+            locationKind: 'PHONE',
+            status,
+            cancelledAt: status === 'CANCELLED' ? new Date() : null,
+          },
+        });
+      await visit(e.held, onDay(-7), 'COMPLETED');
+      // The latest of several: a note 6 days ago, then a message 2 days ago.
+      await note(e.both, onDay(-6));
+      await message(e.both, onDay(-2));
+      // None of these is activity: a canceled visit, one still to come, an open task, a draft.
+      await visit(e.none, onDay(-1), 'CANCELLED');
+      await visit(e.none, onDay(9), 'SCHEDULED');
+      await tx.task.create({ data: { businessId, clientId: e.none, title: 'Fake open task' } });
+      await tx.invoice.create({
+        data: { businessId, clientId: e.none, number: `INV-${randomUUID()}` },
+      });
+    });
+  });
+
+  it('is each kind of event, the latest of several, and null for none', async () => {
+    const rows = (await list('?limit=100')).items;
+    const at = (id: string) => rows.find((r) => r.id === id)?.lastActivityAt;
+    expect(at(e.msg)).toBe(onDay(-3).toISOString());
+    expect(at(e.doc)).toBe(onDay(-4).toISOString());
+    expect(at(e.task)).toBe(onDay(-5).toISOString());
+    expect(at(e.note)).toBe(onDay(-6).toISOString());
+    expect(at(e.held)).toBe(onDay(-7).toISOString());
+    expect(at(e.both)).toBe(onDay(-2).toISOString());
+    expect(at(e.none)).toBeNull();
+  });
+
+  it("filters on the firm's days, both ends included, by the latest event only", async () => {
+    const mine = Object.values(e);
+    const within = async (from: number, to: number) =>
+      (await list(`?limit=100&lastActivityFrom=${nyDay(from)}&lastActivityTo=${nyDay(to)}`)).items
+        .map((r) => r.id)
+        .filter((id) => mine.includes(id))
+        .sort();
+    expect(await within(-5, -4)).toEqual([e.doc, e.task].sort());
+    expect(await within(-4, -4)).toEqual([e.doc]);
+    expect(await within(-3, -2)).toEqual([e.msg, e.both].sort());
+    // Its note 6 days ago is not its latest event: the both-client is not in that day.
+    expect(await within(-6, -6)).toEqual([e.note]);
+    expect(await within(-30, 0)).toEqual(mine.filter((id) => id !== e.none).sort());
   });
 });

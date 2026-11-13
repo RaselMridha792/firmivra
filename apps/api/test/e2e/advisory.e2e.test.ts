@@ -801,7 +801,35 @@ describe('business plans', () => {
       400,
       'VALIDATION_FAILED',
     );
+    // B14: How the Business Operates, Opportunities and Threats are kept; funding stays.
+    const swot = AdvisoryPlanDetail.parse(
+      ok(
+        await patchPlan(
+          id,
+          {
+            assessment: {
+              operations: { howItOperates: 'Two baristas, one roaster (fake)' },
+              opportunities: ['Office park opening nearby'],
+              threats: ['Rising bean costs'],
+            },
+          },
+          staffA,
+        ),
+      ),
+    );
+    expect(swot.assessment).toMatchObject({
+      funding: { purpose: note },
+      operations: { howItOperates: 'Two baristas, one roaster (fake)' },
+      opportunities: ['Office park opening nearby'],
+      threats: ['Rising bean costs'],
+    });
+    expectError(
+      await patchPlan(id, { assessment: { threats: ['x'.repeat(301)] } }, staffA),
+      400,
+      'VALIDATION_FAILED',
+    );
     const rows = JSON.stringify(await auditFor(shared.a1));
+    expect(rows).not.toContain('Rising bean costs');
     expect(rows).not.toContain('Internal plan note');
     expect(rows).not.toContain('5000000');
     expect(rows).not.toContain('Grow the cafe');
@@ -1239,6 +1267,40 @@ describe('goals and milestones', () => {
       AdvisoryGoalDetail.parse(ok(await call('post', `/goals/${id}/restore`, ownerA))).archived,
     ).toBe(false);
     expectError(await call('post', `/goals/${id}/archive`, preparerA), 403, 'FORBIDDEN');
+  });
+
+  it('B25: Active, Archived and All goal views; B26: plans are found by the business name', async () => {
+    const g = await createGoal(shared.a1, { title: mark('View goal'), targetDate: day(60) });
+    ok(await call('post', `/goals/${g.id}/archive`, ownerA));
+    const ids = async (q: string) =>
+      AdvisoryGoalPage.parse(
+        ok(await call('get', `/goals?advisoryClientId=${shared.a1}&pageSize=100${q}`, ownerA)),
+      ).items.map((x) => x.id);
+    expect(await ids('')).not.toContain(g.id);
+    expect(await ids('&view=archived')).toContain(g.id);
+    expect(await ids('&view=all')).toContain(g.id);
+    expect(await ids('&includeArchived=true')).toContain(g.id);
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=archived&pageSize=100', ownerA)),
+      ).items.every((x) => x.archived),
+    ).toBe(true);
+    expectError(await call('get', '/goals?view=deleted', ownerA), 400, 'VALIDATION_FAILED');
+    // Another firm never lists them.
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=all&pageSize=100', ownerB, undefined, 'b')),
+      ).items.map((x) => x.id),
+    ).not.toContain(g.id);
+    ok(await call('post', `/goals/${g.id}/restore`, ownerA));
+
+    // B26: 'Bakery' is only in the business's name (Riley Bakery), not a plan or client name.
+    const bakery = AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerA)));
+    expect(bakery.items.map((x) => x.id)).toContain(shared.p2);
+    expect(
+      AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerB, undefined, 'b')))
+        .items,
+    ).toEqual([]);
   });
 });
 
@@ -1814,14 +1876,38 @@ describe('plans: finalize, versions and delivery', () => {
     const notReady = await finalize();
     expectError(notReady, 409, 'PLAN_NOT_READY');
     expect(JSON.stringify(notReady.body)).toMatch(/business name/);
+    // B13: the plan type, the summary and an explicit focus choice, each named.
+    expect(JSON.stringify(notReady.body)).toMatch(/plan type/);
     expect(JSON.stringify(notReady.body)).toMatch(/strategy summary/);
+    expect(JSON.stringify(notReady.body)).toMatch(/None \/ Not Applicable/);
     expect(JSON.stringify(notReady.body)).toMatch(/at least one goal/);
+    // An area and None / Not Applicable never stand together (400).
+    expectError(
+      await patchPlan(id, {
+        strategy: {
+          summary: 'Open a second shop',
+          noFocusArea: true,
+          areas: [{ area: 'EXPANSION', objective: 'A second shop' }],
+        },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Sections merge at their top keys; this change's choice wins over what was stored.
     ok(
       await patchPlan(id, {
-        profile: { businessName: 'Riley Bakery (fake)' },
-        strategy: { summary: 'Open a second shop' },
+        strategy: { areas: [{ area: 'EXPANSION', objective: 'A second shop' }] },
       }),
     );
+    expect((await plan(id)).strategy.areas).toHaveLength(1);
+    ok(
+      await patchPlan(id, {
+        planType: 'growth',
+        profile: { businessName: 'Riley Bakery (fake)' },
+        strategy: { summary: 'Open a second shop', noFocusArea: true },
+      }),
+    );
+    expect((await plan(id)).strategy).toMatchObject({ noFocusArea: true, areas: [] });
     const goalForPlan = await createGoal(shared.a2, {
       title: mark('Second shop'),
       planId: id,
@@ -1876,7 +1962,7 @@ describe('plans: finalize, versions and delivery', () => {
       targetYear: 2026,
       sourceDataAsOf: day(-5),
       profile: { businessName: 'Riley Bakery (fake)' },
-      strategy: { summary: 'Open a second shop' },
+      strategy: { summary: 'Open a second shop', noFocusArea: true },
     });
     expect(v1.goals.map((g) => g.title)).toEqual([goalForPlan.title]);
     expect(v1.recommendations.map((r) => r.title).sort()).toEqual([
@@ -1887,7 +1973,25 @@ describe('plans: finalize, versions and delivery', () => {
     expect(v1.financials?.length).toBeGreaterThan(0);
     expect(v1.disclaimer).toMatch(/not guarantees/);
 
-    // An edit after finalizing leaves the version as it was, and the plan has to be finalized again to send.
+    // B9: a finalized plan is locked; Modify Plan (back to DRAFT) starts the next revision. The
+    // edit leaves the version as it was, and the plan has to be finalized again to send.
+    expectError(
+      await patchPlan(id, { profile: { businessName: 'Riley Bakery and Cafe (fake)' } }),
+      409,
+      'PLAN_LOCKED',
+    );
+    // The wizard's place still moves.
+    ok(await patchPlan(id, { step: 4 }));
+    expect(
+      AdvisoryPlanDetail.parse(
+        ok(
+          await call('post', `/plans/${id}/status`, ownerA, {
+            status: 'DRAFT',
+            etag: (await plan(id)).etag,
+          }),
+        ),
+      ),
+    ).toMatchObject({ status: 'DRAFT', currentVersion: 1 });
     ok(await patchPlan(id, { profile: { businessName: 'Riley Bakery and Cafe (fake)' } }));
     const v1After = AdvisoryVersionDetail.parse(
       ok(await call('get', `/plans/${id}/versions/1`, ownerA)),
@@ -1957,9 +2061,10 @@ describe('plans: finalize, versions and delivery', () => {
     expect(body).not.toMatch(/Hidden/);
     expect(body).not.toMatch(/1200000|1,200,000|300000|Internal/);
 
-    // Statuses after delivery.
-    expectError(await status('DRAFT'), 409, 'INVALID_STATUS');
+    // Statuses after delivery. A sent plan goes back to DRAFT only as Modify Plan (B9, above); a
+    // plan in progress does not go back at all.
     expect(AdvisoryPlanDetail.parse(ok(await status('IN_PROGRESS'))).status).toBe('IN_PROGRESS');
+    expectError(await status('DRAFT'), 409, 'INVALID_STATUS');
     expect(AdvisoryPlanDetail.parse(ok(await status('COMPLETED'))).status).toBe('COMPLETED');
     expect(
       AdvisoryPlanDetail.parse(

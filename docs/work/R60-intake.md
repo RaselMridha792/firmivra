@@ -468,6 +468,32 @@ Progress (TX-F07 and the TX-F06 decision; Nov 7):
   Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
   Mock `r60-tax-returns-menu` 2 of 2.
 
+Progress (TX-F18, Rasel's go on the role check; Nov 10):
+- Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the
+  return's reviewer's); an Owner, or an Admin with APPROVE, decides it as the override, recorded as
+  `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
+  `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
+  of 37, mock 26 of 26.
+- Follow-up (the lead, Nov 10), branch `rasel/R60-tax-returns-reassign` on it: a task or
+  appointment of a live return's engagement is reassigned only by the return's preparer or
+  reviewer, or the Owner or Admin override (recorded: `override` on `task.updated`,
+  `appointment.reassigned_override`). One rule, `tax-returns/return-authority.ts`, used by the
+  task update, Reschedule and the calendar's Edit Details. API e2e 86 of 86.
+
+Progress (TX-F19, F20 on R1's `tax_return_validation_issues`; Nov 10):
+- Branch `rasel/R60-tax-returns-issues` (on TX-F18's): `GET`/`POST /business/tax-returns/{id}/issues`
+  and `PATCH .../issues/{issueId}` (resolve, reopen, reassign). Return to Preparer takes `issue`
+  (raised with the decision) and `issueIds` (the open ones named); both go on the decision's audit
+  entry. An unresolved ERROR blocks Ready to File, Transmitted and Accepted before a transmission,
+  Run Final Validation, a transmission, a paper filing and the client record's Filed (new blocker
+  `VALIDATION_ISSUES_OPEN`); MANUAL_WARNING and INFO never block. Resolving: who raised it or the
+  return's reviewer (a warning or info also its responsible person), else the Owner or Admin
+  override, recorded. The screen: Validation Issues beside Return Validation and on Frame 3, and
+  the Return to Preparer dialog. Tax e2e 40 of 40, mock 30 of 30, isolation clean for the routes.
+- Note for Review 2: a durable link from a returned step to its issues would need a column
+  (`approval_id`); today the link is the decision's audit entry. Ask only if Octavia wants the
+  returned step to list its issues.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
@@ -1821,15 +1847,13 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
-- Nov 10: Portal contact (`rasel/R60-portal-contact`, from main), PRT-3 on R1's
-  `client_portal_settings`: `GET`/`PUT /business/settings/portal-contact` (Owner and Admin; only
-  the switches sent change; audited as `client_portal.contact_updated` with what changed; the
-  response carries the corporate office from Company Profile and the active locations for the
-  preview) and `GET /portal/{slug}/me/contact` (the client's corporate and local office, the local
-  one from `clients.office_id` or, before a record is linked, the office chosen at registration,
-  shown only while active; texts only to a client who opted in; Message only while Messages is
-  on). Settings > Client portal gets the Contact Information card with a Live Preview; the
-  portal's Need Help cards, Appointments and My Services follow the switches. API e2e 9 of 9,
-  isolation coverage green, mock 14 of 14 with the portal specs. "Show office hours" has no
-  column (left out). r17-services fails the same on `main`. PRT-1 (the office at registration
-  and staff reassignment) is next.
+- Nov 10: the tax return's Confirm (AU-F31 on the record page, #1264's endpoint), branch
+  `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
+  banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
+  `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
+- Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
+  #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
+  details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several
+  blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
+  after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
+  schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.

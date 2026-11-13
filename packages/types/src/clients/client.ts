@@ -2,6 +2,7 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
 import { ClientTags, SetClientTagsRequest } from '../tags/schemas.js';
 import { ClientTimelinePage, ClientTimelineQuery } from './timeline.js';
+import { ClientServiceList } from './services.js';
 import {
   BulkClientsRequest,
   BulkClientsResponse,
@@ -67,6 +68,9 @@ export function createClientsClient(request: ApiRequest) {
         ClientTimelinePage,
         `${clientPath(id)}/timeline${toQuery(parseInput(ClientTimelineQuery, query))}`,
       ),
+    /** E4: the client's services, with the module record that opens each (when permitted). */
+    services: async (id: string): Promise<ClientServiceList['items']> =>
+      (await request(ClientServiceList, `${clientPath(id)}/services`)).items,
     /** Replace the client's tags. 400 UNKNOWN_TAG: a new name, for a member other than Owner or Admin. */
     setTags: async (id: string, body: SetClientTagsRequest): Promise<ClientTags> =>
       request(ClientTags, `${clientPath(id)}/tags`, {

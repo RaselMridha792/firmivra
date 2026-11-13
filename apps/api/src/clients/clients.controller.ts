@@ -39,6 +39,7 @@ import { type ClientsActor, ClientsService } from './clients.service.js';
 import { MyProfileController } from './my-profile.controller.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { ClientTimelineController, ClientTimelineService } from './client-timeline.controller.js';
+import { ClientServicesController, ClientServicesService } from './client-services.controller.js';
 import { MyProfileService } from './my-profile.service.js';
 import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
 import { TaxYearsService } from './tax-years.service.js';
@@ -170,7 +171,14 @@ export class ClientsController {
     MyTaxYearsController,
     MyProfileController,
     ClientTimelineController,
+    ClientServicesController,
   ],
-  providers: [ClientsService, TaxYearsService, MyProfileService, ClientTimelineService],
+  providers: [
+    ClientsService,
+    TaxYearsService,
+    MyProfileService,
+    ClientTimelineService,
+    ClientServicesService,
+  ],
 })
 export class ClientsModule {}

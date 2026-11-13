@@ -11,15 +11,22 @@ import {
   type MoreReportType,
   moreFigures,
 } from './report-figures-more.js';
+import { SUMMARY_REPORT_TYPES, type SummaryReportType } from './report-figures-summary.js';
 
 export type FigureReportType =
-  'PROFIT_LOSS' | 'TRIAL_BALANCE' | 'TRANSACTION_DETAIL' | 'UNCATEGORIZED' | MoreReportType;
+  | 'PROFIT_LOSS'
+  | 'TRIAL_BALANCE'
+  | 'TRANSACTION_DETAIL'
+  | 'UNCATEGORIZED'
+  | MoreReportType
+  | SummaryReportType;
 export const FIGURE_REPORT_TYPES: readonly FigureReportType[] = [
   'PROFIT_LOSS',
   'TRIAL_BALANCE',
   'TRANSACTION_DETAIL',
   'UNCATEGORIZED',
   ...MORE_REPORT_TYPES,
+  ...SUMMARY_REPORT_TYPES,
 ];
 
 export interface FigureLine {
@@ -35,6 +42,8 @@ export interface FigureLine {
   transferPairAccountType?: string | null;
   /** Whether a receipt is attached (Missing Documents and Status). */
   hasReceipt?: boolean;
+  /** The line's day (YYYY-MM-DD): the summaries' months. */
+  on?: string;
 }
 
 export interface FigureRow {
@@ -95,6 +104,10 @@ export function reportFigures(
     basis === 'ACCRUAL'
       ? 'Shown on the cash basis: the ledger holds bank and card lines, not invoices and bills.'
       : null;
+  if ((SUMMARY_REPORT_TYPES as readonly string[]).includes(type)) {
+    // A summary needs its range: report-figures-summary.ts (summaryFigures) works it out.
+    throw new Error(`${type} figures come from summaryFigures`);
+  }
   if ((MORE_REPORT_TYPES as readonly string[]).includes(type)) {
     return moreFigures(type as MoreReportType, { basis: 'CASH', basisNote }, counted, lines, ctx);
   }

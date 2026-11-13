@@ -5,6 +5,7 @@ import { Input, Select, Textarea, Toggle } from '@firmivra/ui';
 import { Info, X } from '@phosphor-icons/react';
 import { useId, useState } from 'react';
 import { ClientPicker } from './client-picker';
+import { NoDocumentTypes } from './no-document-types';
 import type { SharedInfo, UploadFor } from './upload-state';
 
 const DESTINATIONS: { id: UploadFor; title: string; hint: string; available: boolean }[] = [
@@ -119,6 +120,7 @@ export function DocumentInfo({
         disabled={disabled}
       />
 
+      {categories && !categories.some((c) => !c.archivedAt) ? <NoDocumentTypes /> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <Select
           label="Document Type *"
