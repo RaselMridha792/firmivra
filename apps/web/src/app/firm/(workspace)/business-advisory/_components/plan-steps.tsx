@@ -36,11 +36,12 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { AddActionItemDialog, AddRecommendationDialog } from './action-plans-screen';
 import { AddGoalDialog } from './ba-dialogs';
 import { Disclaimer } from './ba-shell';
+import { FIELD_HELP } from './field-help';
 import {
   ASSIGNEE_KIND,
   AREA_LABEL,
@@ -85,13 +86,17 @@ function useMove(plan: Plan) {
 /** A list of short lines (strengths, challenges): type one, add it, remove any. */
 function LineList({
   label,
+  hint,
   items,
   onChange,
 }: {
   label: string;
+  /** B14: helper text below the label, describing the add box. */
+  hint?: string;
   items: string[];
   onChange: (items: string[]) => void;
 }) {
+  const hintId = useId();
   const [text, setText] = useState('');
   const add = () => {
     const t = text.trim();
@@ -101,6 +106,11 @@ function LineList({
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="text-sm font-medium text-text">{label}</legend>
+      {hint ? (
+        <p id={hintId} className="text-sm text-muted">
+          {hint}
+        </p>
+      ) : null}
       <ul className="flex flex-wrap gap-2">
         {items.map((it) => (
           <li
@@ -127,6 +137,7 @@ function LineList({
           value={text}
           maxLength={300}
           placeholder={`Add one…`}
+          aria-describedby={hint ? hintId : undefined}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -162,11 +173,14 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
     targetMarket: a.sales?.targetMarket ?? '',
     competitors: a.sales?.competitors ?? '',
     differentiation: a.sales?.differentiation ?? '',
+    howItOperates: a.operations?.howItOperates ?? '',
     systems: a.operations?.systemsChallenges ?? '',
     staffing: a.operations?.staffing ?? '',
     efficiency: a.operations?.efficiencyOpportunities ?? '',
     strengths: a.strengths ?? [],
     challenges: a.challenges ?? [],
+    opportunities: a.opportunities ?? [],
+    threats: a.threats ?? [],
     dataSource: a.dataSource ?? '',
   });
   const [form, setForm] = useState(start);
@@ -197,12 +211,15 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
           differentiation: orNull(form.differentiation),
         },
         operations: {
+          howItOperates: orNull(form.howItOperates),
           systemsChallenges: orNull(form.systems),
           staffing: orNull(form.staffing),
           efficiencyOpportunities: orNull(form.efficiency),
         },
         strengths: form.strengths,
         challenges: form.challenges,
+        opportunities: form.opportunities,
+        threats: form.threats,
         ...(form.dataSource ? { dataSource: form.dataSource as never } : {}),
       },
     });
@@ -316,13 +333,15 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
           />
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="Amount needed ($)"
+              label="Amount Needed ($)"
+              hint={FIELD_HELP.amountNeeded}
               inputMode="decimal"
               value={form.amount}
               onChange={(e) => set('amount')(e.target.value)}
             />
             <Input
               label="Timing"
+              hint={FIELD_HELP.timing}
               maxLength={200}
               value={form.timing}
               onChange={(e) => set('timing')(e.target.value)}
@@ -330,6 +349,7 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
             <div className="sm:col-span-2">
               <Textarea
                 label="Purpose"
+                hint={FIELD_HELP.purpose}
                 rows={2}
                 maxLength={1000}
                 value={form.purpose}
@@ -339,6 +359,7 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
             <div className="sm:col-span-2">
               <Textarea
                 label="Readiness"
+                hint={FIELD_HELP.readiness}
                 rows={2}
                 maxLength={1000}
                 value={form.readiness}
@@ -351,25 +372,28 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
           <SectionHead
             icon={Storefront}
             title="Sales / Market"
-            subtitle="Customers, sales trend, market, competitors and what sets the business apart."
+            subtitle="Current customers, sales trend, market, competitors and what sets the business apart."
           />
           <div className="grid gap-3">
             <Textarea
-              label="Customers"
+              label="Current Customers"
+              hint={FIELD_HELP.currentCustomers}
               rows={2}
               maxLength={1000}
               value={form.customers}
               onChange={(e) => set('customers')(e.target.value)}
             />
             <Textarea
-              label="Sales trend"
+              label="Sales Trend"
+              hint={FIELD_HELP.salesTrend}
               rows={2}
               maxLength={1000}
               value={form.salesTrend}
               onChange={(e) => set('salesTrend')(e.target.value)}
             />
             <Textarea
-              label="Target market"
+              label="Target Market"
+              hint={FIELD_HELP.targetMarket}
               rows={2}
               maxLength={1000}
               value={form.targetMarket}
@@ -377,13 +401,15 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
             />
             <Textarea
               label="Competitors"
+              hint={FIELD_HELP.competitors}
               rows={2}
               maxLength={1000}
               value={form.competitors}
               onChange={(e) => set('competitors')(e.target.value)}
             />
             <Textarea
-              label="Differentiation"
+              label="What Sets Your Business Apart"
+              hint={FIELD_HELP.setsApart}
               rows={2}
               maxLength={1000}
               value={form.differentiation}
@@ -398,11 +424,20 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
           <SectionHead
             icon={Gear}
             title="Operations"
-            subtitle="Systems and process challenges, staffing and efficiency."
+            subtitle="How the business operates, its systems and process challenges, staffing and efficiency."
           />
           <div className="grid gap-3">
             <Textarea
-              label="Systems / process challenges"
+              label="How the Business Operates (optional)"
+              hint={FIELD_HELP.howItOperates}
+              rows={2}
+              maxLength={1000}
+              value={form.howItOperates}
+              onChange={(e) => set('howItOperates')(e.target.value)}
+            />
+            <Textarea
+              label="Systems / Process Challenges"
+              hint={FIELD_HELP.systems}
               rows={2}
               maxLength={1000}
               value={form.systems}
@@ -410,13 +445,15 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
             />
             <Textarea
               label="Staffing"
+              hint={FIELD_HELP.staffing}
               rows={2}
               maxLength={1000}
               value={form.staffing}
               onChange={(e) => set('staffing')(e.target.value)}
             />
             <Textarea
-              label="Efficiency opportunities"
+              label="Efficiency Opportunities"
+              hint={FIELD_HELP.efficiency}
               rows={2}
               maxLength={1000}
               value={form.efficiency}
@@ -424,18 +461,40 @@ export function AssessmentStep({ plan }: { plan: Plan }) {
             />
           </div>
         </section>
-        <section className={card} aria-label="Strengths and challenges" data-testid="step-swot">
-          <SectionHead icon={Flag} title="Strengths & Challenges" />
+        <section
+          className={card}
+          aria-label="Strengths, challenges, opportunities and threats"
+          data-testid="step-swot"
+        >
+          <SectionHead
+            icon={Flag}
+            title="Strengths, Challenges, Opportunities & Threats"
+            subtitle="Inside the business, then outside it. Opportunities and Threats are optional."
+          />
           <div className="grid gap-4">
             <LineList
               label="Strengths"
+              hint={FIELD_HELP.strengths}
               items={form.strengths}
               onChange={(v) => setForm((f) => ({ ...f, strengths: v }))}
             />
             <LineList
               label="Challenges"
+              hint={FIELD_HELP.weaknesses}
               items={form.challenges}
               onChange={(v) => setForm((f) => ({ ...f, challenges: v }))}
+            />
+            <LineList
+              label="Opportunities"
+              hint={FIELD_HELP.opportunities}
+              items={form.opportunities}
+              onChange={(v) => setForm((f) => ({ ...f, opportunities: v }))}
+            />
+            <LineList
+              label="Threats"
+              hint={FIELD_HELP.threats}
+              items={form.threats}
+              onChange={(v) => setForm((f) => ({ ...f, threats: v }))}
             />
           </div>
         </section>
@@ -1064,6 +1123,8 @@ export function ReviewStep({ plan }: { plan: Plan }) {
           ],
           ['Strengths', (plan.assessment.strengths ?? []).join(', ')],
           ['Challenges', (plan.assessment.challenges ?? []).join(', ')],
+          ['Opportunities', (plan.assessment.opportunities ?? []).join(', ')],
+          ['Threats', (plan.assessment.threats ?? []).join(', ')],
         ])}
         {summary('Goals & Strategy', 3, [
           ['Summary', plan.strategy.summary ?? ''],

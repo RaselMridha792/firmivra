@@ -125,6 +125,18 @@ describe('business plans', () => {
       false,
     );
     expect(AdvisoryPlanAssessment.safeParse({ dataSource: 'GUESS' }).success).toBe(false);
+    // B14: How the Business Operates, Opportunities and Threats are optional parts of it.
+    expect(
+      AdvisoryPlanAssessment.safeParse({
+        operations: { howItOperates: 'Two crews, one supplier, booked four weeks out' },
+        opportunities: ['New subdivision nearby'],
+        threats: ['Rising lumber costs'],
+      }).success,
+    ).toBe(true);
+    expect(AdvisoryPlanAssessment.safeParse({ operations: { howItOperates: null } }).success).toBe(
+      true,
+    );
+    expect(AdvisoryPlanAssessment.safeParse({ threats: ['x'.repeat(301)] }).success).toBe(false);
     expect(
       AdvisoryPlanStrategy.safeParse({
         areas: [

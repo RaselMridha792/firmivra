@@ -293,6 +293,14 @@ export class TaxOverviewService {
         disclaimer: DISCLAIMER,
         canCreatePlan: ctx.perms.create,
         canSend: ctx.perms.send,
+        planningServiceId:
+          (
+            await tx.service.findFirst({
+              where: { businessId, kind: 'TAX_PLANNING', status: 'ACTIVE', archivedAt: null },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { id: true },
+            })
+          )?.id ?? null,
       };
     });
   }
@@ -308,12 +316,24 @@ export class TaxOverviewService {
     return this.run(businessId, tenant, userId, async (ctx) => {
       const { tx } = ctx;
       const search = q.search ? likeEscape(q.search) : undefined;
+      // C22 (Review 2): the search finds a client by its name or by one of its plans' names.
       const clients = await tx.client.findMany({
         where: {
           businessId,
           archivedAt: null,
           ...this.read.clientReach(ctx),
-          ...(search ? { displayName: { contains: search, mode: 'insensitive' } } : {}),
+          ...(search
+            ? {
+                OR: [
+                  { displayName: { contains: search, mode: 'insensitive' } },
+                  {
+                    taxPlans: {
+                      some: { archivedAt: null, name: { contains: search, mode: 'insensitive' } },
+                    },
+                  },
+                ],
+              }
+            : {}),
         },
         select: clientLite,
         orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
@@ -338,6 +358,29 @@ export class TaxOverviewService {
       if (q.assignedUserId) rows = rows.filter((r) => r.assignedTo?.userId === q.assignedUserId);
       if (q.entityType)
         rows = rows.filter((r) => r.entityLabel?.toLowerCase() === q.entityType?.toLowerCase());
+      // C01 (Review 2): the overview's KPIs open these, counting the same plans they count (any
+      // plan not archived or closed, not only the client's current one).
+      const open = (id: string) =>
+        (byClient.get(id) ?? []).filter((p) => p.status !== 'CLOSED' && p.archivedAt === null);
+      if (q.active)
+        rows = rows.filter((r) =>
+          open(r.client.id).some((p) => (ACTIVE_STATUSES as readonly string[]).includes(p.status)),
+        );
+      if (q.strategyStatus)
+        rows = rows.filter((r) =>
+          open(r.client.id).some((p) =>
+            p.strategies.some((s) => s.selected && s.status === q.strategyStatus),
+          ),
+        );
+      if (q.upcomingAppointment) {
+        const until = Date.now() + 30 * DAY;
+        rows = rows.filter(
+          (r) =>
+            open(r.client.id).length > 0 &&
+            r.nextAppointmentAt !== null &&
+            Date.parse(r.nextAppointmentAt) <= until,
+        );
+      }
       const sign = q.direction === 'desc' ? -1 : 1;
       const key = (r: PlanningClientRow): string | number | null =>
         q.sort === 'status'
@@ -393,7 +436,7 @@ export class TaxOverviewService {
           name: true,
           description: true,
           dueOn: true,
-          client: { select: { accountType: true } },
+          client: { select: clientRefSelect },
         },
       }),
       tx.taxPlan.findMany({
@@ -409,12 +452,18 @@ export class TaxOverviewService {
           name: true,
           targetCompletionOn: true,
           nextDiscussionOn: true,
-          client: { select: { displayName: true } },
+          client: { select: clientRefSelect },
         },
         take: 2_000,
       }),
     ]);
-    const grouped = new Map<string, PlanningDeadline & { types: Set<string>; n: number }>();
+    // C04 (Review 2): each tax deadline keeps the clients it affects (each with its own
+    // compliance deadline), for the deadline's details.
+    type Affected = PlanningDeadline['clients'][number];
+    const grouped = new Map<
+      string,
+      Omit<PlanningDeadline, 'clients' | 'clientCount'> & { types: Set<string>; all: Affected[] }
+    >();
     for (const d of due) {
       const date = d.dueOn.toISOString().slice(0, 10);
       const k = `${d.name}|${date}`;
@@ -426,15 +475,17 @@ export class TaxOverviewService {
         scope: null,
         kind: 'TAX_DEADLINE' as const,
         types: new Set<string>(),
-        n: 0,
+        all: [],
       };
       g.types.add(d.client.accountType === 'BUSINESS' ? 'Business' : 'Individual');
-      g.n += 1;
+      g.all.push({ client: clientRef(d.client), deadlineId: d.id, planId: null });
       grouped.set(k, g);
     }
-    const items: PlanningDeadline[] = [...grouped.values()].map(({ types, n, ...g }) => ({
+    const items: PlanningDeadline[] = [...grouped.values()].map(({ types, all, ...g }) => ({
       ...g,
-      scope: clientId ? null : `${[...types].sort().join(' & ')} Clients (${n})`,
+      scope: clientId ? null : `${[...types].sort().join(' & ')} Clients (${all.length})`,
+      clients: [...all].sort((a, b) => a.client.name.localeCompare(b.client.name)).slice(0, 50),
+      clientCount: all.length,
     }));
     for (const p of plans) {
       const add = (d: Date | null, suffix: string, title: string) => {
@@ -447,6 +498,8 @@ export class TaxOverviewService {
             description: p.name,
             scope: p.client.displayName,
             kind: 'PLANNING_MILESTONE',
+            clients: [{ client: clientRef(p.client), deadlineId: null, planId: p.id }],
+            clientCount: 1,
           });
       };
       add(p.targetCompletionOn, 'target', 'Plan target completion');

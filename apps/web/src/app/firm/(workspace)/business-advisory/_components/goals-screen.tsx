@@ -32,6 +32,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { AddGoalDialog, ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { FIELD_HELP } from './field-help';
 import {
   AREA_LABEL,
   BASE,
@@ -543,6 +544,7 @@ function GoalForm({
       </div>
       <Textarea
         label="Description"
+        hint={FIELD_HELP.goalDescription}
         rows={3}
         maxLength={2000}
         value={description}
