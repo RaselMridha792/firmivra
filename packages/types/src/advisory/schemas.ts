@@ -449,13 +449,19 @@ export const AdvisoryPlanAssessment = z.strictObject({
     .optional(),
   operations: z
     .strictObject({
+      /** B14: How the Business Operates, optional, first in Operations. */
+      howItOperates: clearable(text(1_000, 'many')),
       systemsChallenges: clearable(text(1_000, 'many')),
       staffing: clearable(text(1_000, 'many')),
       efficiencyOpportunities: clearable(text(1_000, 'many')),
     })
     .optional(),
   strengths: z.array(text(300)).max(30).optional(),
+  /** Shown as the plan's weaknesses (internal limitations or gaps). */
   challenges: z.array(text(300)).max(30).optional(),
+  /** B14: the SWOT's optional external parts. */
+  opportunities: z.array(text(300)).max(30).optional(),
+  threats: z.array(text(300)).max(30).optional(),
   /** Where the financial figures came from. */
   dataSource: AdvisoryFinancialSource.optional(),
 });
