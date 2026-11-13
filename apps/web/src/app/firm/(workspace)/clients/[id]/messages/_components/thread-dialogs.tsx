@@ -7,6 +7,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { useClientRecord } from '../../_components/use-client-record';
 import { textareaClass, when } from './parts';
 
 const refresh = { invalidate: ['messages'] };
@@ -17,6 +18,38 @@ function Problem({ error }: { error: Error | null }) {
     <p role="alert" className="text-sm text-danger">
       {errorMessage(error, MESSAGE_ERRORS)}
     </p>
+  );
+}
+
+/**
+ * Octavia's E9: before sending, who it goes to, where and how they hear of it. A firm message goes
+ * to the client's portal conversation, and the client's active primary portal login gets an email
+ * notice (no message text), as the notifier does; no other channel is offered here until the
+ * channel rules are settled.
+ */
+function Recipient({ clientId }: { clientId: string }) {
+  const record = useClientRecord(clientId);
+  const c = record.data;
+  const login = c?.portalLogins.find((l) => l.portalRole === 'PRIMARY' && l.status === 'ACTIVE');
+  return (
+    <dl
+      className="grid gap-1 rounded-control border border-border bg-subtle p-3 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-4"
+      data-testid="message-recipient"
+      aria-label="Who this goes to"
+    >
+      <dt className="text-muted">To</dt>
+      <dd className="wrap-anywhere text-text">{c?.displayName ?? 'The client'}</dd>
+      <dt className="text-muted">Where</dt>
+      <dd className="text-text">Their client portal conversation</dd>
+      <dt className="text-muted">Notice</dt>
+      <dd className="wrap-anywhere text-text">
+        {record.isPending
+          ? '…'
+          : login
+            ? `An email to ${login.email} that a message is waiting (not the message itself)`
+            : 'None: they have no active portal login yet, so they see it once they sign in'}
+      </dd>
+    </dl>
   );
 }
 
@@ -68,6 +101,7 @@ export function ThreadDialog({ threadId, onClose }: { threadId: string; onClose:
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
               />
+              <Recipient clientId={t.client.id} />
               <Problem error={send.error} />
               <Button type="submit" className="self-end" disabled={send.isPending}>
                 {send.isPending ? 'Sending…' : 'Send Reply'}
@@ -135,6 +169,7 @@ export function NewThreadDialog({
             onChange={(e) => setBody(e.target.value)}
           />
         </div>
+        <Recipient clientId={clientId} />
         <Problem error={create.error} />
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? 'Sending…' : 'Send Message'}
