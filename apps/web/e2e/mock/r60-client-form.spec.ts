@@ -70,6 +70,11 @@ test('D1: each format is checked, and a complete client is created with its addr
   await dialog.getByLabel('Business email').fill('owner@fake-bakery.test');
   await dialog.getByLabel('Business phone').fill('404 555 0100');
   await dialog.getByLabel('ZIP code').fill('30301');
+  // E5: a Business also gives its responsible party.
+  const party = dialog.getByTestId('responsible-party');
+  await party.getByLabel('Full name *').fill('Fake Owner');
+  await party.getByLabel('Their email *').fill('fake.owner@fake-bakery.test');
+  await party.getByLabel('Their phone *').fill('404 555 0101');
   await dialog.getByRole('button', { name: 'Add Client' }).click();
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}$/, { timeout: 60_000 });
   // The record keeps what the form sent: the business's name, contact and address.

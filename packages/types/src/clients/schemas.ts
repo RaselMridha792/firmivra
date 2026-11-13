@@ -280,6 +280,11 @@ export const ClientProfile = z.object({
   preferredContactMethod: ContactMethod.nullable(),
   referralSource: z.string().nullable(),
   additionalInfo: z.string().nullable(),
+  /**
+   * Octavia's E5: a BUSINESS client's responsible party, the person linked to the business (not
+   * replacing it): full name, email and E.164 phone, all three or none.
+   */
+  responsibleParty: z.object({ name: z.string(), email: z.string(), phone: z.string() }).nullable(),
   updatedAt: DateTime.nullable(),
 });
 export type ClientProfile = z.infer<typeof ClientProfile>;
@@ -334,6 +339,15 @@ const ProfileFields = z.strictObject({
   preferredContactMethod: clearable(ContactMethod),
   referralSource: clearable(text(200)),
   additionalInfo: clearable(text(2000, 'many')),
+  /** E5: a Business client's responsible party, all three together; `null` clears it. */
+  responsibleParty: z
+    .strictObject({
+      name: text(200, 'one', 'Enter their full name'),
+      email: Email,
+      phone: Phone,
+    })
+    .nullable()
+    .optional(),
 });
 
 /**
@@ -362,16 +376,36 @@ export const CreateClientRequest = z.strictObject({
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
 
+/** What a firm form holds for a client, whichever form it is (Add New Client, Edit Details). */
+export interface ClientFormFields {
+  accountType?: 'INDIVIDUAL' | 'BUSINESS';
+  email?: string | null;
+  phone?: string | null;
+  profile?: {
+    businessName?: string | null;
+    address?: {
+      line1?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      country?: string;
+    } | null;
+    responsibleParty?: { name?: string; email?: string; phone?: string } | null;
+  } | null;
+}
+
 /**
- * The firm's new-client form (Octavia's D1, review of Oct 25): the name, email, phone and address
- * are required for both types (a home address for an Individual, the business's for a Business),
- * and a Business also gives its Business Name in `profile.businessName`. A US address takes a
- * state code and a 5-digit ZIP. The API takes the looser CreateClientRequest, which the calendar's
- * quick add uses with a name and a contact only.
+ * What the firm's client forms require (Octavia's D1 and E5, review of Oct 25), with the path of
+ * each missing field in the create request's shape: the email, phone and address for both types
+ * (a home address for an Individual, the business's for a Business; a US address takes a state
+ * code and a 5-digit ZIP), and for a Business its Business Name and its responsible party (full
+ * name, email and phone). The API takes the looser requests, which the calendar's quick add uses
+ * with a name and a contact only; it refuses clearing a Business's responsible party.
  */
-export const NewClientForm = CreateClientRequest.superRefine((body, ctx) => {
+export function clientFormIssues(body: ClientFormFields): { path: string[]; message: string }[] {
+  const out: { path: string[]; message: string }[] = [];
   const need = (path: string[], value: unknown, message: string) => {
-    if (typeof value !== 'string' || !value.trim()) ctx.addIssue({ code: 'custom', path, message });
+    if (typeof value !== 'string' || !value.trim()) out.push({ path, message });
   };
   need(['email'], body.email, 'Enter an email address');
   need(['phone'], body.phone, 'Enter a phone number');
@@ -383,15 +417,26 @@ export const NewClientForm = CreateClientRequest.superRefine((body, ctx) => {
   need(at('postalCode'), address?.postalCode, 'Enter the ZIP code');
   if ((address?.country ?? 'US') === 'US') {
     if (address?.state && !(address.state.toUpperCase() in US_STATES)) {
-      ctx.addIssue({ code: 'custom', path: at('state'), message: 'Choose the state' });
+      out.push({ path: at('state'), message: 'Choose the state' });
     }
     if (address?.postalCode && !/^\d{5}(-\d{4})?$/.test(address.postalCode)) {
-      ctx.addIssue({ code: 'custom', path: at('postalCode'), message: 'Enter a 5-digit ZIP code' });
+      out.push({ path: at('postalCode'), message: 'Enter a 5-digit ZIP code' });
     }
   }
   if (body.accountType === 'BUSINESS') {
     need(['profile', 'businessName'], body.profile?.businessName, 'Enter the business name');
+    const party = body.profile?.responsibleParty;
+    const rp = (key: string) => ['profile', 'responsibleParty', key];
+    need(rp('name'), party?.name, "Enter the responsible party's full name");
+    need(rp('email'), party?.email, "Enter the responsible party's email");
+    need(rp('phone'), party?.phone, "Enter the responsible party's phone");
   }
+  return out;
+}
+
+/** The firm's new-client form (Octavia's D1 and E5): CreateClientRequest plus clientFormIssues. */
+export const NewClientForm = CreateClientRequest.superRefine((body, ctx) => {
+  for (const issue of clientFormIssues(body)) ctx.addIssue({ code: 'custom', ...issue });
 });
 export type NewClientForm = z.input<typeof NewClientForm>;
 

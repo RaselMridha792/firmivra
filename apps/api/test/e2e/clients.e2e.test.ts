@@ -59,7 +59,7 @@ async function tokenFor(email: string): Promise<string> {
 }
 
 async function call(
-  method: 'get' | 'post' | 'patch',
+  method: 'get' | 'post' | 'patch' | 'put',
   path: string,
   who: { email: string },
   firm: 'a' | 'b' = 'a',
@@ -373,6 +373,64 @@ describe('create and update', () => {
     const locked = await call('patch', `/${c.id}`, people.ownerA, 'a', { displayName: 'Nope' });
     expect([locked.status, codeOf(locked)]).toEqual([409, 'CLIENT_ARCHIVED']);
     expect((await call('get', '/not-a-uuid', people.ownerA)).status).toBe(400);
+  });
+});
+
+describe("E5: a Business's responsible party", () => {
+  it('is set together and stored as typed, changed but never cleared, and audited by name', async () => {
+    const c = await create({
+      accountType: 'BUSINESS',
+      displayName: 'Party LLC (fake)',
+      email: email('party'),
+      profile: {
+        businessName: 'Party LLC (fake)',
+        responsibleParty: {
+          name: ' Rita Fake ',
+          email: 'Rita.Fake@Example.TEST',
+          phone: '(404) 555-0170',
+        },
+      },
+    });
+    expect(c.profile.responsibleParty).toEqual({
+      name: 'Rita Fake',
+      email: 'rita.fake@example.test',
+      phone: '+14045550170',
+    });
+    const put = (id: string, body: object) =>
+      call('put', `/${id}/profile`, people.ownerA, 'a', body);
+    const party = { name: 'Sam Fake', email: 'sam.fake@example.test', phone: '+14045550171' };
+    const changed = await put(c.id, { responsibleParty: party });
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(Profile.parse(changed.body).responsibleParty).toEqual(party);
+    for (const body of [
+      // A business keeps it.
+      { responsibleParty: null },
+      // All three, each well formed.
+      { responsibleParty: { name: 'Only A Name' } },
+      { responsibleParty: { ...party, email: 'not-an-email' } },
+      { responsibleParty: { ...party, phone: '12' } },
+      { responsibleParty: { ...party, name: '' } },
+    ]) {
+      const bad = await put(c.id, body);
+      expect([bad.status, codeOf(bad)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    // Other profile changes leave it as it is.
+    const other = await put(c.id, { entityType: 'LLC' });
+    expect(Profile.parse(other.body).responsibleParty).toEqual(party);
+    // It is a business's: an individual's stays empty or is cleared freely.
+    const individual = await create({ displayName: 'Person (fake)', email: email('person') });
+    expect(individual.profile.responsibleParty).toBeNull();
+    expect((await put(individual.id, { responsibleParty: null })).status).toBe(200);
+    // The audit names the field, never the person.
+    const logs = await inFirmA((tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: c.id, action: { in: ['client.created', 'client.profile_updated'] } },
+        select: { metadata: true },
+      }),
+    );
+    const text = JSON.stringify(logs);
+    expect(text).toContain('responsibleParty');
+    expect(text).not.toMatch(/rita|sam\.fake|555/i);
   });
 });
 
