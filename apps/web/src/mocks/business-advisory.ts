@@ -1685,9 +1685,12 @@ export function createAdvisoryMock({
               (!query.planType || p.planType === query.planType) &&
               (!query.advisorUserId || p.advisor?.userId === query.advisorUserId) &&
               (!t ||
-                [p.name, clientOf(p.advisoryClientId).name].some((v) =>
-                  v.toLowerCase().includes(t),
-                )),
+                // B26: the plan, the client and the business, as the API.
+                [
+                  p.name,
+                  clientOf(p.advisoryClientId).name,
+                  clients.find((c) => c.id === p.advisoryClientId)?.businessName ?? '',
+                ].some((v) => v.toLowerCase().includes(t))),
           )
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
           .map(planRow);
@@ -1728,13 +1731,28 @@ export function createAdvisoryMock({
         const p = findPlan(planId);
         if (p.status === 'ARCHIVED') throw fail(409, 'PLAN_ARCHIVED', 'This plan is archived');
         checkEtag(req.etag, p.version);
+        // B9, as the API: a finalized or sent plan is locked; only the wizard's place moves.
+        if (
+          (p.status === 'FINALIZED' || p.status === 'SENT') &&
+          Object.entries(req).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
+        )
+          throw fail(
+            409,
+            'PLAN_LOCKED',
+            'This plan is finalized. Modify Plan starts a new draft revision.',
+          );
         if (req.name !== undefined) p.name = req.name;
         if (req.targetYear !== undefined) p.targetYear = req.targetYear;
         if (req.planType !== undefined) p.planType = req.planType;
         if (req.step !== undefined) p.step = req.step;
         if (req.profile) p.profile = { ...p.profile, ...req.profile };
         if (req.assessment) p.assessment = { ...p.assessment, ...req.assessment };
-        if (req.strategy) p.strategy = { ...p.strategy, ...req.strategy };
+        if (req.strategy) {
+          p.strategy = { ...p.strategy, ...req.strategy };
+          // As the API (B13): this change's focus choice wins over what was stored.
+          if (req.strategy.noFocusArea === true) p.strategy.areas = [];
+          else if (req.strategy.areas?.length) p.strategy.noFocusArea = false;
+        }
         p.version++;
         p.updatedAt = nowIso();
         return planDetail(p);
@@ -1747,8 +1765,9 @@ export function createAdvisoryMock({
         const allowed: Partial<Record<AdvisoryPlanRow['status'], AdvisoryPlanRow['status'][]>> = {
           DRAFT: ['IN_REVIEW'],
           IN_REVIEW: ['DRAFT'],
-          FINALIZED: ['IN_PROGRESS'],
-          SENT: ['IN_PROGRESS'],
+          // B9: Modify Plan takes a finalized or sent plan back to DRAFT (the next revision).
+          FINALIZED: ['IN_PROGRESS', 'DRAFT'],
+          SENT: ['IN_PROGRESS', 'DRAFT'],
           IN_PROGRESS: ['COMPLETED'],
           COMPLETED: ['IN_PROGRESS'],
         };
@@ -1778,9 +1797,12 @@ export function createAdvisoryMock({
         // The API's wording (apps/api/src/advisory/advisory-plans.service.ts).
         const missing = [
           !p.profile.businessName && 'Add the business name (stage 1)',
-          !p.strategy.summary &&
-            !p.strategy.areas?.length &&
-            'Add the strategy summary or an area (stage 3)',
+          // B13: the plan type, the summary and an explicit focus choice.
+          !p.planType && 'Choose the plan type (stage 1)',
+          !p.strategy.summary && 'Add the strategy summary (stage 3)',
+          !p.strategy.areas?.length &&
+            p.strategy.noFocusArea !== true &&
+            'Choose a focus area, or None / Not Applicable (stage 3)',
           !goals.some((g) => g.planId === p.id && !g.archived) &&
             'Add at least one goal to the plan',
           !f.length && 'Add the financial figures',
@@ -1968,7 +1990,9 @@ export function createAdvisoryMock({
           .filter(
             (g) =>
               ids.has(g.advisoryClientId) &&
-              (query.includeArchived || !g.archived) &&
+              // B25: Active, Archived or All, as the API.
+              ((query.view ?? (query.includeArchived ? 'all' : 'active')) === 'all' ||
+                (query.view === 'archived' ? g.archived : !g.archived)) &&
               (!query.advisoryClientId || g.advisoryClientId === query.advisoryClientId) &&
               (!query.planId || g.planId === query.planId) &&
               (!query.status || goalStatus(g) === query.status) &&

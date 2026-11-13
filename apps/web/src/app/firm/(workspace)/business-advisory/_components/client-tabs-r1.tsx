@@ -16,6 +16,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
@@ -32,6 +33,7 @@ import {
   outlined,
   primary,
   quiet,
+  scheduleMeetingHref,
 } from './ba-shared';
 import { HealthFactors } from './client-overview';
 import { ClientShell, useAdvisoryClient } from './client-shell';
@@ -395,6 +397,8 @@ function UpcomingMeeting({ m }: { m: AdvisoryMeetingRow }) {
  */
 export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: string }) {
   const [page, setPage] = useState(1);
+  const client = useAdvisoryClient(advisoryClientId);
+  const path = usePathname();
   const upcoming = useApiQuery([...BA_KEY, 'client-meetings', advisoryClientId, 'upcoming'], () =>
     api.advisory.meetings({ advisoryClientId, when: 'upcoming', pageSize: PAGE }),
   );
@@ -440,7 +444,11 @@ export function ClientMeetingsTab({ advisoryClientId }: { advisoryClientId: stri
             title="Upcoming Meetings"
             subtitle="Advisory meetings booked in Appointments."
           />
-          <Link href="/calendar/new" className={primary}>
+          <Link
+            href={scheduleMeetingHref(client.data, path)}
+            className={primary}
+            data-testid="meetings-schedule"
+          >
             <Plus aria-hidden weight="bold" className="size-4" /> Schedule Meeting
           </Link>
         </div>

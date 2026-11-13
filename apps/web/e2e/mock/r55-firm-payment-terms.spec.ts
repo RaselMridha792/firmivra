@@ -42,7 +42,7 @@ test("the firm's own terms are kept in Settings and offered on Create Invoice", 
     'Net 45',
   ]);
   await terms.selectOption('net_45');
-  await page.getByRole('button', { name: 'Save Changes' }).click();
+  await page.getByTestId('billing-actions').getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Changes saved.' })).toBeVisible();
   await expect(own.getByRole('listitem')).toHaveText(['Net 45']);
   await own.scrollIntoViewIfNeeded();

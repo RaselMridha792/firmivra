@@ -109,6 +109,8 @@ interface Row {
   paidAt: string | null;
   canceledAt: string | null;
   cancelReason: string | null;
+  /** IP-F10: archived, never deleted; left out on the sample rows: none. */
+  archivedAt?: string | null;
   createdBy: MemberRef | null;
   /** IP-F02; left out on the sample rows: none. */
   paymentTerms?: PaymentTerm | null;
@@ -582,6 +584,7 @@ function toListItem(r: Row, day: string): InvoiceListItem {
     issuedAt: r.issuedAt,
     paidAt: r.paidAt,
     canceledAt: r.canceledAt,
+    archivedAt: r.archivedAt ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -864,6 +867,10 @@ export function createInvoicesMock(
         .filter(visible)
         .filter((r) => !q.clientId || r.clientId === q.clientId)
         .filter((r) => !q.status || r.status === q.status)
+        // IP-F10: archived ones only when asked for.
+        .filter((r) =>
+          q.archived === 'include' ? true : q.archived === 'only' ? !!r.archivedAt : !r.archivedAt,
+        )
         .map((r) => toListItem(r, day))
         .filter(
           (i) =>
@@ -944,6 +951,7 @@ export function createInvoicesMock(
       const engagementId = engagementOf(r.clientId, b.engagementId);
       // IP-F08: a scheduled invoice is edited like a draft and stays scheduled.
       if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') throw notDraft();
+      if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
       if (r.status === 'SCHEDULED' && (!b.scheduledFor || b.scheduledFor <= today()))
         throw fail(409, 'SCHEDULE_PASSED', 'Choose a send day after today');
       if (isArchived(r)) throw archived();
@@ -977,6 +985,7 @@ export function createInvoicesMock(
       manager();
       const r = find(parseInput(InvoiceId, id));
       if (r.status !== 'DRAFT') throw notDraft();
+      if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
       if (isArchived(r)) throw archived();
       if (figures(r).totalCents <= 0) {
         throw fail(409, 'ZERO_TOTAL', 'There is nothing to pay on this invoice; cancel it instead');
@@ -1218,6 +1227,7 @@ export function createInvoicesMock(
       if (r.status === 'PAID' || r.status === 'CANCELED') {
         throw fail(409, 'INVOICE_CLOSED', 'This invoice is paid or canceled');
       }
+      if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
       if (processing(r)) {
         throw fail(409, 'PAYMENT_IN_PROGRESS', 'A payment for this invoice is being processed');
       }
@@ -1243,6 +1253,32 @@ export function createInvoicesMock(
         updatedAt: at,
       };
       Object.assign(r, change);
+      return toInvoice(r, today());
+    },
+    // IP-F10, as the API: archived, never deleted.
+    archive: async (id) => {
+      await mockDelay();
+      manager();
+      const r = find(parseInput(InvoiceId, id));
+      if (r.status !== 'DRAFT')
+        throw fail(409, 'NOT_ARCHIVABLE', 'Only a draft invoice can be archived for now');
+      if (!r.archivedAt) Object.assign(r, { archivedAt: now(), updatedAt: now() });
+      return toInvoice(r, today());
+    },
+    deleteDraft: async (id) => {
+      await mockDelay();
+      manager();
+      const r = find(parseInput(InvoiceId, id));
+      if (r.status !== 'DRAFT' || r.issuedAt)
+        throw fail(409, 'NOT_DELETABLE', 'Only a draft that was never sent can be deleted');
+      if (!r.archivedAt) Object.assign(r, { archivedAt: now(), updatedAt: now() });
+      return toInvoice(r, today());
+    },
+    restore: async (id) => {
+      await mockDelay();
+      manager();
+      const r = find(parseInput(InvoiceId, id));
+      if (r.archivedAt) Object.assign(r, { archivedAt: null, updatedAt: now() });
       return toInvoice(r, today());
     },
     refund: async (id, payment, body) => {

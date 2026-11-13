@@ -160,12 +160,13 @@ beforeEach(() => {
 });
 
 describe('Request Information', () => {
-  it('emails the applicant with replies to Firmivra support, keeps it pending and adds it to the history', async () => {
+  it('emails the applicant a link to answer, with replies to Firmivra support; it awaits information and is in the history', async () => {
     const res = await post(`${base(ids.asked)}/request-info`, {
       message: 'Please send your PTIN.',
     }).expect(200);
     const a = FirmApplicationRecord.parse(res.body);
-    expect(a.status).toBe('PENDING_REVIEW');
+    // SA-APP-F03: Awaiting Information.
+    expect(a.status).toBe('INFO_REQUESTED');
     expect(a.history[0]).toMatchObject({
       type: 'INFO_REQUESTED',
       message: 'Please send your PTIN.',
@@ -181,6 +182,9 @@ describe('Request Information', () => {
           name: 'Casey Example 1',
           legalName: `Sample Review ${tag} 1`,
           message: 'Please send your PTIN.',
+          // The protected link to answer on this application (firm-application-workflow e2e).
+          link: expect.stringMatching(/\/apply\/respond#token=/) as string,
+          expiresAt: expect.any(Date) as Date,
         },
       },
     ]);
@@ -294,11 +298,14 @@ describe('every action', () => {
         'firm_application.notes_saved',
       ]),
     );
-    expect(
-      rows.every(
-        (r) => r.actorUserId === fx.users.admin.id && r.businessId === null && r.metadata === null,
-      ),
-    ).toBe(true);
+    expect(rows.every((r) => r.actorUserId === fx.users.admin.id && r.businessId === null)).toBe(
+      true,
+    );
+    // Ids only: a request names its request record, nothing else.
+    for (const r of rows)
+      expect(Object.keys((r.metadata ?? {}) as object)).toEqual(
+        r.action === 'firm_application.info_requested' ? ['requestId'] : [],
+      );
   });
 
   it('answers 404 for an unknown application, 400 for a bad body, 401 for a firm session', async () => {
@@ -372,7 +379,11 @@ describe('a review, its audit row and its email', () => {
         businessId: null,
         actorUserId: fx.users.admin.id,
         entityType: 'firm_application',
-        metadata: null,
+        // A request names its request record (an id); a decline nothing.
+        metadata:
+          row.action === 'firm_application.info_requested'
+            ? { requestId: expect.any(String) as string }
+            : null,
         requestId,
         userAgent: 'R4 review test',
         ip: expect.any(String) as string,

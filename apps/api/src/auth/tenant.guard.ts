@@ -70,7 +70,7 @@ export class TenantGuard implements CanActivate {
 
     // SM4: a staff sign-in is a session row in this firm; one the firm ended answers 401.
     if (membershipId && auth.session) {
-      await this.sessions.check(req, business.id, membershipId, auth.session);
+      await this.sessions.check(req, business.id, membershipId, auth.session, auth.authTime);
     }
 
     req.tenant = tenant;
@@ -133,8 +133,13 @@ export class TenantGuard implements CanActivate {
       };
     }
     if (auth.pool === 'CLIENT') {
+      // A locked client (Client Portal module) is no client of the firm until unlocked.
       const c = await firm.clientAccount.findFirst({
-        where: { userId: auth.userId, status: 'ACTIVE' },
+        where: {
+          userId: auth.userId,
+          status: 'ACTIVE',
+          OR: [{ clientId: null }, { client: { is: { portalLock: { is: null } } } }],
+        },
         select: { id: true },
       });
       return c

@@ -204,7 +204,8 @@ export class CatalogServicesService {
   async create(businessId: string, userId: string, body: CreateBody): Promise<CatalogService> {
     const id = await this.write(businessId, async (tx) => {
       await this.checkName(tx, businessId, body.name, undefined, body.allowDuplicateName);
-      await this.checkCategory(tx, businessId, body.categoryId);
+      // A draft may have no category yet (S2); activating needs one.
+      if (body.categoryId) await this.checkCategory(tx, businessId, body.categoryId);
       if (body.activate) this.checkComplete(completeness(body));
       const last = await tx.service.aggregate({ where: { businessId }, _max: { sortOrder: true } });
       const created = await tx.service.create({
@@ -251,14 +252,15 @@ export class CatalogServicesService {
       if (changes.name !== undefined && changes.name !== cur.name) {
         await this.checkName(tx, businessId, changes.name, id, allowDuplicateName);
       }
-      if (changes.categoryId !== undefined && changes.categoryId !== cur.categoryId) {
+      if (changes.categoryId && changes.categoryId !== cur.categoryId) {
         await this.checkCategory(tx, businessId, changes.categoryId);
       }
       const data = columns(changes);
+      // A cleared category or short description (null) is a change too (S2).
       const merged = {
         name: data.name ?? cur.name,
-        categoryId: data.categoryId ?? cur.categoryId,
-        description: data.description ?? cur.description,
+        categoryId: data.categoryId !== undefined ? data.categoryId : cur.categoryId,
+        description: data.description !== undefined ? data.description : cur.description,
         pricingType: data.pricingType ?? cur.pricingType,
         basePriceCents:
           data.basePriceCents !== undefined ? data.basePriceCents : cur.basePriceCents,
@@ -711,8 +713,8 @@ function columns(b: Partial<CreateBody>) {
 const completeness = (b: CreateBody) =>
   complete({
     name: b.name,
-    categoryId: b.categoryId,
-    description: b.shortDescription,
+    categoryId: b.categoryId ?? null,
+    description: b.shortDescription ?? null,
     pricingType: b.pricingType,
     basePriceCents: b.basePriceCents ?? null,
     billingFrequency: b.billingFrequency ?? null,

@@ -3,6 +3,7 @@ import type { Prisma, TxClient } from '@firmivra/db';
 import {
   LEAD_STATUS_LABELS,
   type LeadActivity,
+  type LeadFollowUp,
   type LeadPipelineStatus,
   type LeadProfile,
   type LeadRow,
@@ -253,6 +254,69 @@ const profileSelect = {
 } satisfies Prisma.LeadSelect;
 
 /** One lead the member reaches, as the Lead Profile; 404 for anyone else's, a draft or an archived lead. */
+/** Every step: unfinished first by date, then the finished ones, newest first. */
+export async function followUpsOf(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+): Promise<LeadFollowUp[]> {
+  const rows = await tx.leadFollowUp.findMany({
+    where: { businessId, leadId },
+    orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true,
+      actionType: true,
+      dueAt: true,
+      note: true,
+      doneAt: true,
+      outcome: true,
+    },
+  });
+  const view = (r: (typeof rows)[number]): LeadFollowUp => ({
+    id: r.id,
+    type: r.actionType,
+    dueAt: r.dueAt.toISOString(),
+    notes: r.note,
+    doneAt: r.doneAt?.toISOString() ?? null,
+    outcome: r.outcome,
+  });
+  const open = rows.filter((r) => !r.doneAt).map(view);
+  const done = rows
+    .filter((r) => r.doneAt)
+    .sort((a, b) => (b.doneAt as Date).getTime() - (a.doneAt as Date).getTime())
+    .map(view);
+  return [...open, ...done];
+}
+
+/**
+ * The steps, or, for a lead whose next action predates the steps (not adopted yet), that next
+ * action shown as its one unfinished step (read only: it is adopted on the first change).
+ */
+async function followUpsOrLegacy(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  lead: {
+    nextActionType: LeadFollowUp['type'] | null;
+    nextActionAt: Date | null;
+    nextActionNote: string | null;
+  },
+): Promise<LeadFollowUp[]> {
+  const steps = await followUpsOf(tx, businessId, leadId);
+  if (steps.some((s) => !s.doneAt) || !lead.nextActionType || !lead.nextActionAt) return steps;
+  return [
+    {
+      id: leadId,
+      type: lead.nextActionType,
+      dueAt: lead.nextActionAt.toISOString(),
+      notes: lead.nextActionNote,
+      doneAt: null,
+      outcome: null,
+    },
+    ...steps,
+  ];
+}
+
 export async function loadProfile(
   tx: TxClient,
   businessId: string,
@@ -333,6 +397,8 @@ export async function loadProfile(
       leads: twinLeads.map((l) => ({ id: l.id, name: `${l.firstName} ${l.lastName}`.trim() })),
       clients: twinClients.map((c) => ({ id: c.id, name: c.displayName })),
     },
+    // L8: the steps; a next action set before steps existed shows as the first one.
+    followUps: await followUpsOrLegacy(tx, businessId, id, r),
     archivedAt: r.archivedAt?.toISOString() ?? null,
     version: r.updatedAt.toISOString(),
   };
