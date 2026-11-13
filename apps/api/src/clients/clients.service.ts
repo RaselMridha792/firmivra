@@ -283,6 +283,12 @@ export class ClientsService {
     const active = days ? [...(await this.activity(businessId, { between: days })).keys()] : null;
     const completed = await this.dayBounds(businessId, q.completedFrom, q.completedTo);
     const owing = q.owes ? await this.owing(businessId, q.owes) : null;
+    // More Filters (Octavia's E2 additions): each narrows the list on the firm's days.
+    const added = q.addedFrom ? await this.dayBounds(businessId, q.addedFrom, undefined) : null;
+    const visits = await this.dayBounds(businessId, q.appointmentFrom, q.appointmentTo);
+    const day = (d: string | undefined) => (d ? new Date(`${d}T00:00:00Z`) : undefined);
+    const balance = q.balance ? await this.owing(businessId, 'BALANCE') : null;
+    const missing = q.documents ? await this.owing(businessId, 'DOCUMENTS') : null;
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
       this.reach(actor),
@@ -325,6 +331,45 @@ export class ClientsService {
           : {},
       active ? { id: { in: active } } : {},
       owing ? { id: { in: owing } } : {},
+      added?.start ? { createdAt: { gte: added.start } } : {},
+      q.deadlineFrom || q.deadlineTo
+        ? {
+            complianceDeadlines: {
+              some: {
+                status: { notIn: ['COMPLETED', 'NOT_APPLICABLE', 'CANCELLED'] },
+                dueOn: { gte: day(q.deadlineFrom), lte: day(q.deadlineTo) },
+              },
+            },
+          }
+        : {},
+      visits
+        ? {
+            appointments: {
+              some: { status: 'SCHEDULED', startsAt: { gte: visits.start, lt: visits.end } },
+            },
+          }
+        : {},
+      q.accountType ? { accountType: q.accountType } : {},
+      q.state ? { profile: { state: { equals: q.state, mode: 'insensitive' } } } : {},
+      q.place
+        ? {
+            profile: {
+              OR: [
+                { city: { contains: likeEscape(q.place), mode: 'insensitive' } },
+                { county: { contains: likeEscape(q.place), mode: 'insensitive' } },
+              ],
+            },
+          }
+        : {},
+      balance ? (q.balance === 'DUE' ? { id: { in: balance } } : { id: { notIn: balance } }) : {},
+      missing
+        ? q.documents === 'MISSING'
+          ? { id: { in: missing } }
+          : { id: { notIn: missing } }
+        : {},
+      q.tagId ? { tags: { some: { tagId: q.tagId } } } : {},
+      q.source ? { source: q.source } : {},
+      q.priority ? { priority: q.priority } : {},
       term
         ? {
             OR: [
