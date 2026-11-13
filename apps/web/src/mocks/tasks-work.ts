@@ -45,6 +45,7 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { mockStaff } from './clients';
+import { taskEngagementRef } from './service-engagements';
 
 /**
  * Mock data for `api.taskWork` (R55 contract, the Tasks module). Synthetic people and tasks only,
@@ -698,7 +699,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       const id = b['engagementId'] as string | null;
       if (id && !x.client) throw fail(400, 'VALIDATION_FAILED', 'Choose the client first');
       x.t.engagementId = id;
-      x.t.engagement = id ? { id, title: 'Project' } : null;
+      x.t.engagement = id ? taskEngagementRef(id) : null;
     }
     const { typeId, reminders, attachments, ...rest } = b;
     applyFields(x.t, rest);
@@ -909,7 +910,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         title: b.title,
         client,
         engagementId: b.engagementId ?? null,
-        engagement: b.engagementId ? { id: b.engagementId, title: 'Project' } : null,
+        engagement: b.engagementId ? taskEngagementRef(b.engagementId) : null,
         assignedTo: me,
         assignedUserId: me.userId,
         templateId: b.templateId ?? null,

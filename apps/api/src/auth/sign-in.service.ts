@@ -185,6 +185,19 @@ function literal(action: string): Prisma.Sql {
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** HKDF label for the key that turns a network into the keyed hash the audit rows keep. */
 const NETWORK_KEY_LABEL = 'fv-auth-network-key-v1';
+
+/**
+ * The keyed email a firm's portal sign-in writes on its failed attempts and locks (`emailKey`
+ * below, CLIENT pool), so the Client Portal module's Login History finds a client's own rows
+ * without the audit log ever holding the email. Undefined without the pool's secret.
+ */
+export function portalEmailKey(env: Env, businessId: string, email: string): string | undefined {
+  const secret = poolSecrets(env).CLIENT;
+  if (!secret) return undefined;
+  return createHmac('sha256', deriveKey(secret, 'CLIENT', EMAIL_KEY_LABEL))
+    .update(`${businessId}:${email.trim().toLowerCase()}`)
+    .digest('hex');
+}
 /** The most email keys the ceiling warning remembers before it prunes ended windows. */
 export const CEILING_WARNED_MAX = 10_000;
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */

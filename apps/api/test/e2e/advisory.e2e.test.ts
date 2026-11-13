@@ -801,7 +801,35 @@ describe('business plans', () => {
       400,
       'VALIDATION_FAILED',
     );
+    // B14: How the Business Operates, Opportunities and Threats are kept; funding stays.
+    const swot = AdvisoryPlanDetail.parse(
+      ok(
+        await patchPlan(
+          id,
+          {
+            assessment: {
+              operations: { howItOperates: 'Two baristas, one roaster (fake)' },
+              opportunities: ['Office park opening nearby'],
+              threats: ['Rising bean costs'],
+            },
+          },
+          staffA,
+        ),
+      ),
+    );
+    expect(swot.assessment).toMatchObject({
+      funding: { purpose: note },
+      operations: { howItOperates: 'Two baristas, one roaster (fake)' },
+      opportunities: ['Office park opening nearby'],
+      threats: ['Rising bean costs'],
+    });
+    expectError(
+      await patchPlan(id, { assessment: { threats: ['x'.repeat(301)] } }, staffA),
+      400,
+      'VALIDATION_FAILED',
+    );
     const rows = JSON.stringify(await auditFor(shared.a1));
+    expect(rows).not.toContain('Rising bean costs');
     expect(rows).not.toContain('Internal plan note');
     expect(rows).not.toContain('5000000');
     expect(rows).not.toContain('Grow the cafe');
