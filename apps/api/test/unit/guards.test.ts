@@ -180,7 +180,7 @@ describe('TenantGuard', () => {
     await expect(
       new TenantGuard(reflector, db, sessions).canActivate(ctx('ownerOrAdmin', req)),
     ).resolves.toBe(true);
-    expect(check).toHaveBeenCalledWith(req, FIRM, 'm-1', 'sid-1');
+    expect(check).toHaveBeenCalledWith(req, FIRM, 'm-1', 'sid-1', undefined);
     // A dev token (no sign-in id) opens no session.
     check.mockClear();
     const dev: Req = { auth: staff, params: {}, get: headers({ 'x-business-id': FIRM }) };

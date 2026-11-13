@@ -12,12 +12,13 @@ import { TAX_RETURN_IN_PROGRESS_STATUSES } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
-import type { TenantContext } from '../common/request-context.js';
+import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { zonedInstant } from '../reports/schedule-math.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { lockClient, memberNames, memberRef, notAMember } from '../workspaces/common.js';
+import { ISSUES_BLOCK } from './issues.service.js';
 import { notFound } from './tax-return-rules.js';
 import type {
   AmendBody,
@@ -112,7 +113,13 @@ export class TaxReturnWorkspaceService {
       r.reviewerUserId,
       r.finalValidatedByUserId,
     ]);
-    return toDetail(r, names);
+    // TX-F18: Ready to File and Close are the reviewer's, or an Owner's or Admin's as the override.
+    const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
+    const canFinalize =
+      r.reviewerUserId === userId ||
+      ((role === 'OWNER' || role === 'ADMIN') &&
+        (await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE')));
+    return { ...toDetail(r, names), canFinalize };
   }
 
   private async activeMember(tx: TxClient, businessId: string, userId: string | null | undefined) {
@@ -729,11 +736,26 @@ export class TaxReturnWorkspaceService {
             );
           }
         }
+        // TX-F20: an unresolved Error issue blocks Ready to File and every filing (Transmitted,
+        // or Accepted without a transmission; the agency's answer to one sent is not blocked).
+        if (
+          r.issues.length > 0 &&
+          (to === 'READY_TO_FILE' ||
+            ((to === 'TRANSMITTED' || to === 'ACCEPTED') && r.workflowStatus !== 'TRANSMITTED'))
+        ) {
+          throw conflict('STATUS_BLOCKED', ISSUES_BLOCK);
+        }
+        // TX-F18: the return's reviewer, or an Owner or Admin with APPROVE as the override.
         if ((to === 'READY_TO_FILE' || to === 'CLOSED') && r.reviewerUserId !== userId) {
-          if (!(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))) {
+          const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
+          if (
+            (role !== 'OWNER' && role !== 'ADMIN') ||
+            !(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))
+          ) {
             throw new ForbiddenException({
               code: 'FORBIDDEN',
-              message: 'Ready to file and closing are for the reviewer or an approver',
+              message:
+                "Ready to file and closing are for the return's reviewer, or an Owner or Admin",
             });
           }
         }
@@ -838,6 +860,13 @@ export class TaxReturnWorkspaceService {
       'tax_return.filings_changed': ['FILING', 'Filings changed'],
       'tax_return.transmission': ['TRANSMISSION', 'Transmission recorded'],
       'tax_return.document': ['DOCUMENT', 'Documents changed'],
+      'tax_return.issue': ['VALIDATION', 'Validation issue updated'],
+    };
+    const ISSUE: Record<string, string> = {
+      raised: 'Validation issue raised',
+      resolved: 'Validation issue resolved',
+      reopened: 'Validation issue reopened',
+      reassigned: 'Validation issue reassigned',
     };
     return this.inFirm(tenant, async (tx) => {
       await this.find(tx, tenant, userId, id);
@@ -860,6 +889,10 @@ export class TaxReturnWorkspaceService {
           if (f.every((x) => x === 'preparerUserId' || x === 'reviewerUserId') && f.length) {
             k = ['ASSIGNED', 'Assignment changed'];
           }
+        }
+        if (l.action === 'tax_return.issue') {
+          const a = (l.metadata as { action?: string } | null)?.action ?? '';
+          k = ['VALIDATION', ISSUE[a] ?? k[1]];
         }
         return [
           {

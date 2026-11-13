@@ -7,18 +7,21 @@ import type { ClientAccountStatus } from '@firmivra/types';
  * SIGNUP_PHONE_VERIFICATION=optional) the legal acceptances written when it completed (they see
  * only the "waiting" page, client-auth.yaml).
  * Unfinished sign-ups, declined, disabled and invited accounts cannot, and get the same answer
- * as a wrong password.
+ * as a wrong password. Nor can any login of a client the firm locked (Client Portal module, Lock
+ * Portal Access): sign-in, refresh and `GET me` all ask here, so a lock ends every session.
  */
 const maySignIn = (a: {
   status: ClientAccountStatus;
   emailVerifiedAt: Date | null;
   phoneVerifiedAt: Date | null;
   legalAcceptances: { id: string }[];
+  client: { portalLock: { id: string } | null } | null;
 }) =>
-  a.status === 'ACTIVE' ||
-  (a.status === 'PENDING_APPROVAL' &&
-    a.emailVerifiedAt !== null &&
-    (a.phoneVerifiedAt !== null || a.legalAcceptances.length > 0));
+  !a.client?.portalLock &&
+  (a.status === 'ACTIVE' ||
+    (a.status === 'PENDING_APPROVAL' &&
+      a.emailVerifiedAt !== null &&
+      (a.phoneVerifiedAt !== null || a.legalAcceptances.length > 0)));
 
 export interface PortalClient {
   userId: string;
@@ -44,6 +47,7 @@ export async function portalClient(
       emailVerifiedAt: true,
       phoneVerifiedAt: true,
       legalAcceptances: { select: { id: true }, take: 1 },
+      client: { select: { portalLock: { select: { id: true } } } },
       user: { select: { id: true, cognitoSub: true } },
     },
   });

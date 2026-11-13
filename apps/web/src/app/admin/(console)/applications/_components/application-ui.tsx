@@ -1,6 +1,10 @@
 'use client';
 
-import { ApiRequestError, type FirmApplicationReviewStatus } from '@firmivra/types';
+import {
+  ApiRequestError,
+  FIRM_APPLICATION_STATUS_LABELS,
+  type FirmApplicationReviewStatus,
+} from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import type { ReactNode } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -33,14 +37,13 @@ export const dateParts = (value: string) => {
   ];
 };
 
-const statusNames: Record<FirmApplicationReviewStatus, string> = {
-  PENDING_REVIEW: 'Pending Review',
-  APPROVED: 'Approved',
-  DECLINED: 'Declined',
-};
+// SA-APP-F02, F03: In Review and Awaiting Information, in the contract's words.
+const statusNames: Record<FirmApplicationReviewStatus, string> = FIRM_APPLICATION_STATUS_LABELS;
 
 const statusTones: Record<FirmApplicationReviewStatus, string> = {
   PENDING_REVIEW: 'bg-warning-soft text-warning',
+  IN_REVIEW: 'bg-info-soft text-info',
+  INFO_REQUESTED: 'bg-purple-soft text-purple',
   APPROVED: 'bg-success-soft text-success',
   DECLINED: 'bg-danger-soft text-danger',
 };

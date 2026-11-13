@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACCEPTED_PAYMENT_LOCKS,
   ApiRequestError,
+  cardLock,
   createPaymentsSetupClient,
   createRequest,
   INVOICE_ERRORS,
@@ -12,6 +14,7 @@ import {
   PaymentsSetupStage,
   paymentsSetupStage,
   setupRequirementsDue,
+  SaveAcceptedPaymentsRequest,
   StartOnboardingRequest,
   StripeOnboardingLink,
   StripeOnboardingReturn,
@@ -158,5 +161,33 @@ describe('setup schemas and helpers', () => {
     expect(InvoiceErrorCode.options).toContain('PAYMENTS_NOT_SET_UP');
     expect(InvoiceErrorCode.options).toContain('PAYMENT_PROVIDER_UNAVAILABLE');
     expect(INVOICE_ERRORS.PAYMENT_PROVIDER_UNAVAILABLE).toBeTruthy();
+  });
+});
+
+describe('Accepted Client Payments (PAY-3, IP-F14)', () => {
+  it('locks cards with what Stripe still needs, and frees them once Stripe takes payments', () => {
+    expect(cardLock({ connected: false, chargesEnabled: false })).toBe(
+      ACCEPTED_PAYMENT_LOCKS.cardNotConnected,
+    );
+    expect(cardLock({ connected: true, chargesEnabled: false })).toBe(
+      ACCEPTED_PAYMENT_LOCKS.cardNotReady,
+    );
+    expect(cardLock({ connected: true, chargesEnabled: true })).toBeNull();
+    expect(PAYMENTS_SETUP_ERRORS.ACH_NOT_OFFERED).toBe(ACCEPTED_PAYMENT_LOCKS.ach);
+  });
+
+  it('saves the four choices, all of them, and nothing else', () => {
+    const all = {
+      acceptCard: false,
+      defaultCardProcessor: 'STRIPE',
+      acceptAch: false,
+      achProcessor: 'STRIPE',
+    };
+    expect(SaveAcceptedPaymentsRequest.safeParse(all).success).toBe(true);
+    expect(SaveAcceptedPaymentsRequest.safeParse({ acceptCard: false }).success).toBe(false);
+    expect(
+      SaveAcceptedPaymentsRequest.safeParse({ ...all, defaultCardProcessor: 'SQUARE' }).success,
+    ).toBe(false);
+    expect(SaveAcceptedPaymentsRequest.safeParse({ ...all, extra: 1 }).success).toBe(false);
   });
 });

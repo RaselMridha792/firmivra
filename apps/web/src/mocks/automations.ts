@@ -1457,6 +1457,7 @@ export function createAutomationsMock({
           recent: runs.slice(0, 10).map(runRow),
           canCreate: role !== 'STAFF',
           canManage: role !== 'STAFF',
+          canManageTasks: role === 'OWNER' || role === 'ADMIN',
         };
       }),
     catalog: () => run(() => catalog()),

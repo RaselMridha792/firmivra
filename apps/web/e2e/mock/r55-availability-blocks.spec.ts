@@ -7,7 +7,10 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const url = `http://app.localhost:${port}/settings/availability`;
 const shots = 'e2e/mock/r55-screenshots/availability';
 
-/** Next Monday in New York, as the mock's first appointment (10:00 to 10:30, the Staff member). */
+/**
+ * Next Monday in New York, as the mock's first appointment (the Staff member's half hour at 10:00
+ * UTC-4, so 10:00 in summer and 9:00 in winter: the block below starts at 08:00 to hold it either way).
+ */
 function nextMonday(): string {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
     new Date(),
@@ -24,7 +27,7 @@ test('a whole-firm block over a booking lists it, then blocks only the free time
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(url);
   await page.getByLabel('Starts on').fill(nextMonday());
-  await page.getByLabel('Starts at').fill('09:00');
+  await page.getByLabel('Starts at').fill('08:00');
   await page.getByLabel('Ends on').fill(nextMonday());
   await page.getByLabel('Ends at').fill('12:00');
   await page.getByLabel('Reason (optional)').fill('Fake office training');
