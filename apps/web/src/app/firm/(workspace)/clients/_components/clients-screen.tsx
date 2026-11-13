@@ -1,11 +1,17 @@
 'use client';
 
-import type { ClientListRow, ListClientsQuery, TeamMember } from '@firmivra/types';
+import {
+  type ClientListRow,
+  type ListClientsQuery,
+  roleCan,
+  type TeamMember,
+} from '@firmivra/types';
 import { ActionMenu, Button, EmptyState, Tabs, Toast, type TabItem } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
   Archive,
   CaretDown,
+  DownloadSimple,
   Plus,
   ShieldCheck,
   Users,
@@ -18,7 +24,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { TEAM } from '../../../setup/_components/shared';
-import { AddClientDialog, BulkDialog, type BulkKind } from './clients-dialogs';
+import { AddClientDialog, BulkDialog, type BulkKind, ExportDialog } from './clients-dialogs';
 import { ClientsFilterRow } from './clients-filters';
 import { ClientsKpis } from './clients-kpis';
 import { ClientCards, ClientsTable, type RowAction } from './clients-table';
@@ -138,6 +144,9 @@ export function ClientsScreen({
   const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
+  const [exporting, setExporting] = useState(false);
+  // Export (E2 additions): the Owner, and roles whose grid grants it; the API checks the member.
+  const mayExport = !!role && roleCan(role, 'CLIENTS', 'EXPORT');
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
@@ -276,6 +285,17 @@ export function ClientsScreen({
                   : ''}
               </p>
             ) : null}
+            {mayExport ? (
+              <Button
+                variant="secondary"
+                data-testid="export-clients"
+                className="!min-h-9"
+                onClick={() => setExporting(true)}
+              >
+                <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                Export
+              </Button>
+            ) : null}
             <Button
               data-testid="add-client"
               onClick={() => setAdding(true)}
@@ -410,6 +430,17 @@ export function ClientsScreen({
 
       {adding ? (
         <AddClientDialog manager={manager} members={members} onClose={() => setAdding(false)} />
+      ) : null}
+      {exporting ? (
+        <ExportDialog
+          query={listQuery(filters, search, manager)}
+          total={list.data?.total ?? 0}
+          onClose={() => setExporting(false)}
+          onDone={(text) => {
+            setExporting(false);
+            setNotice(text);
+          }}
+        />
       ) : null}
       {pending ? (
         <BulkDialog

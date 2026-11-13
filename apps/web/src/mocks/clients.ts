@@ -17,6 +17,7 @@ import {
   roleCan,
   type ClientService,
   type ClientServiceWorkspace,
+  ExportClientsRequest,
   RequestNameChangeRequest,
   SetClientTaxYearRequest,
   TaxYear,
@@ -443,7 +444,7 @@ export function createClientsMock(
     return structuredClone(profile);
   };
 
-  return {
+  const mock: ClientsClient = {
     list: async (query = {}) => {
       await pause();
       const q = parseInput(ListClientsQuery, query);
@@ -589,6 +590,25 @@ export function createClientsMock(
       return { tags: [...(tags.get(row.id) ?? [])] };
     },
     // MSG-F16: what New Message's Add to Client Timeline wrote in this browser session.
+    // E2 additions: the list's clients as a CSV, for the roles whose grid grants Clients EXPORT.
+    exportList: async (body) => {
+      await pause();
+      const q = parseInput(ExportClientsRequest, body);
+      if (!roleCan(options.role ?? 'OWNER', 'CLIENTS', 'EXPORT')) {
+        throw fail(403, 'FORBIDDEN', 'You do not have access to this action');
+      }
+      const listed = await mock.list({ ...q, page: 1, limit: 100 });
+      const csv = [
+        'Client,Type,Email',
+        ...listed.items.map((c) => `${c.displayName},${c.accountType},${c.email ?? ''}`),
+      ].join('\n');
+      return {
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`,
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        fileName: 'clients.csv',
+        rowCount: listed.total,
+      };
+    },
     // E4: the list's services as enrollments (the newest year's), plus a finished one for
     // client 1; each opens its module's list, where the role's grid views it.
     services: async (id) => {
@@ -745,6 +765,7 @@ export function createClientsMock(
       }));
     },
   };
+  return mock;
 }
 
 /**
