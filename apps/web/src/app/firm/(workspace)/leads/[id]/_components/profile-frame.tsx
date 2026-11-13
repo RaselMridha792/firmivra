@@ -86,6 +86,8 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [dialog, setDialog] = useState<ProfileDialog | null>(null);
+  // Leads R2 7: a save says it saved, beside the values it changed.
+  const [saved, setSaved] = useState<string>();
   const query = useApiQuery(profileKey(id), () => api.leadPipeline.profile(id));
   const lead = query.data;
   const logCall = useApiMutation(
@@ -276,6 +278,11 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
             </div>
           </div>
         </div>
+        {saved ? (
+          <p role="status" data-testid="lead-saved" className="text-sm text-success">
+            {saved}
+          </p>
+        ) : null}
         {query.isError ? (
           <p
             role="status"
@@ -314,7 +321,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
         <LeadAppointmentDialog lead={lead} onClose={() => setDialog(null)} />
       ) : null}
       {dialog === 'edit' && lead ? (
-        <LeadEditDialog lead={lead} onClose={() => setDialog(null)} />
+        <LeadEditDialog lead={lead} onClose={() => setDialog(null)} onSaved={setSaved} />
       ) : null}
     </ProfileContext.Provider>
   );
