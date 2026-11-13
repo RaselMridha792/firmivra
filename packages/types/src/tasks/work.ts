@@ -213,8 +213,20 @@ export const TaskRow = z.object({
   kind: TaskKind,
   client: z.object({ id: z.uuid(), displayName: z.string() }),
   type: TaskLink.nullable(),
-  /** The engagement ("project") it belongs to. */
-  engagement: z.object({ id: z.uuid(), title: z.string() }).nullable(),
+  /**
+   * The engagement ("project") it belongs to. `workspace` is that service's workspace in Firmivra, when
+   * it has one, so Related To opens it (Review 2, Bookkeeping N05).
+   */
+  engagement: z
+    .object({
+      id: z.uuid(),
+      title: z.string(),
+      workspace: z
+        .object({ kind: z.enum(['BOOKKEEPING', 'PAYROLL', 'ADVISORY']), id: z.uuid() })
+        .nullable()
+        .optional(),
+    })
+    .nullable(),
   service: TaskLink.nullable(),
   /** The compliance deadline it works on. */
   deadline: TaskLink.nullable(),

@@ -279,7 +279,9 @@ export function TermsScreen({ id, initialTab }: { id: string; initialTab: TermsT
           {tab === 'service' ? (
             <ServiceTab key={working.id + working.updatedAt} t={working} act={act} />
           ) : null}
-          {tab === 'billing' ? <BillingTab t={working} clientId={id} /> : null}
+          {tab === 'billing' ? (
+            <BillingTab t={working} clientId={id} firmClientId={w?.client.id} />
+          ) : null}
           {tab === 'documents' ? (
             <DocumentsTab t={working} act={act} engagementId={w?.engagementId} manager={manager} />
           ) : null}
@@ -683,7 +685,7 @@ function TermsTabView({
             </Button>
           </div>
         ) : null}
-        <PaymentSchedule clientId={clientId} limit={5} />
+        <PaymentSchedule clientId={clientId} firmClientId={firmClientId} limit={5} />
       </div>
       <aside className="flex min-w-0 flex-col gap-4">
         <Section title="Quick Actions" icon={Lightning} testId="terms-actions">
@@ -920,7 +922,16 @@ function AgreementPreview({ t, clientName }: { t: BookkeepingTerms; clientName: 
   );
 }
 
-function PaymentSchedule({ clientId, limit }: { clientId: string; limit: number }) {
+function PaymentSchedule({
+  clientId,
+  firmClientId,
+  limit,
+}: {
+  clientId: string;
+  /** The firm's client record: View All lists only this client's invoices (Review 2, E01b). */
+  firmClientId: string | undefined;
+  limit: number;
+}) {
   const schedule = useApiQuery([...KEY(clientId), 'schedule', limit], () =>
     api.bookkeepingTerms.paymentSchedule(clientId, { pageSize: limit }),
   );
@@ -948,7 +959,10 @@ function PaymentSchedule({ clientId, limit }: { clientId: string; limit: number 
       subtitle="Upcoming and past invoices based on the agreed terms, from Invoices & Payments."
       testId="terms-schedule"
       aside={
-        <OriginLink href="/invoices" className={linkBtn}>
+        <OriginLink
+          href={firmClientId ? `/invoices?client=${firmClientId}` : '/invoices'}
+          className={linkBtn}
+        >
           View All
         </OriginLink>
       }
@@ -1073,7 +1087,15 @@ function ServiceTab({ t, act }: { t: BookkeepingTerms; act: Act }) {
 }
 
 /** Billing & Payments: how and when the client pays, and the full schedule. */
-function BillingTab({ t, clientId }: { t: BookkeepingTerms; clientId: string }) {
+function BillingTab({
+  t,
+  clientId,
+  firmClientId,
+}: {
+  t: BookkeepingTerms;
+  clientId: string;
+  firmClientId: string | undefined;
+}) {
   const rows: [string, string][] = [
     ['Billing frequency', FREQUENCY[t.billingFrequency]],
     ['Billed', t.billingTiming === 'ADVANCE' ? 'In advance' : 'In arrears'],
@@ -1127,7 +1149,7 @@ function BillingTab({ t, clientId }: { t: BookkeepingTerms; clientId: string }) 
           )}
         </Section>
       </div>
-      <PaymentSchedule clientId={clientId} limit={20} />
+      <PaymentSchedule clientId={clientId} firmClientId={firmClientId} limit={20} />
     </div>
   );
 }

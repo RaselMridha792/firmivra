@@ -38,13 +38,13 @@ test('the MFA card loads the firm accounts and says what is not recorded', async
   await expect(fact(mfa, 'Staff with 2FA set up')).toHaveText('Not recorded yet');
   await expect(mfa).not.toContainText('Could not load');
   await expect(mfa.getByTestId('mfa-error')).toHaveCount(0);
-  // Rasel (Oct 21): no "security admin" role; the Owner, or an Admin with Manage on Settings,
-  // which Users & Roles shows as the Admin column.
-  await expect(mfa).toContainText(
-    'Only the Owner, or an Admin whose role has Admin access to Settings in Users & Roles, may change this requirement',
+  // SEC-6 (SM14 part C): the Owner, or an Admin the Owner made a security administrator (a flag on
+  // the Admin's membership, not a role), changes the requirement here; sign-in still asks for a code.
+  await expect(mfa.getByTestId('mfa-policy-control')).toContainText('Required');
+  await expect(mfa.getByTestId('mfa-enforced')).toHaveText(
+    "Firmivra's sign-in still asks every staff login for a code.",
   );
-  await expect(mfa).not.toContainText('security admin');
-  await expect(mfa).toContainText('There is no setting to change it yet');
+  await expect(mfa).not.toContainText('There is no setting to change it yet');
   await expect(mfa.getByRole('link', { name: 'Review Users' })).toHaveAttribute(
     'href',
     '/settings/users',

@@ -139,6 +139,32 @@ export const TP_ERRORS: Record<string, string> = {
   FORBIDDEN: 'Your role cannot do this.',
 };
 
+/** C24 (Review 2): the entity presets; a custom entity can still be typed. */
+export const ENTITY_PRESETS = [
+  'Individual',
+  'Sole Proprietor',
+  'LLC',
+  'S Corp',
+  'C Corp',
+  'Partnership',
+] as const;
+
+/**
+ * C02 (Review 2): New Appointment with the firm's Tax Planning service chosen, and the client when
+ * known. `from` brings Back (and Cancel) to the Tax Planning page it was opened from.
+ */
+export const scheduleHref = (
+  serviceId: string | null | undefined,
+  from: string,
+  clientId?: string,
+): string => {
+  const q = new URLSearchParams();
+  if (clientId) q.set('clientId', clientId);
+  if (serviceId) q.set('serviceId', serviceId);
+  q.set('from', from);
+  return `/calendar/new?${q.toString()}`;
+};
+
 export const gold =
   'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-gold px-5 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50';
 export const primary =

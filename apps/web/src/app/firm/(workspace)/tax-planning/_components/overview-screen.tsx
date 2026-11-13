@@ -31,6 +31,7 @@ import {
   outlined,
   primary,
   quiet,
+  scheduleHref,
 } from './tp-shared';
 import type { KpiTrend } from '@firmivra/ui';
 
@@ -120,6 +121,7 @@ export function PlanningOverview() {
           icon: UsersThree,
           tone: 'blue' as const,
           label: 'Active Planning Clients',
+          href: '/tax-planning/clients?active=1',
           k: o.activePlanningClients,
           text: String(o.activePlanningClients.value),
         },
@@ -127,6 +129,7 @@ export function PlanningOverview() {
           icon: CalendarBlank,
           tone: 'amber' as const,
           label: 'Upcoming Planning Appointments',
+          href: '/tax-planning/clients?upcoming=1&sort=nextAppointment',
           k: o.upcomingAppointments,
           text: String(o.upcomingAppointments.value),
         },
@@ -134,6 +137,7 @@ export function PlanningOverview() {
           icon: FileText,
           tone: 'purple' as const,
           label: 'Strategies In Progress',
+          href: '/tax-planning/clients?strategy=IN_PROGRESS',
           k: o.strategiesInProgress,
           text: String(o.strategiesInProgress.value),
         },
@@ -141,6 +145,7 @@ export function PlanningOverview() {
           icon: CurrencyDollar,
           tone: 'green' as const,
           label: 'Projected Tax Savings',
+          href: '/tax-planning/reports',
           k: o.projectedSavings,
           text: money(o.projectedSavings.value),
         },
@@ -161,20 +166,39 @@ export function PlanningOverview() {
               icon: ChartBar,
               tone: 'blue' as const,
               label: 'Loading',
+              href: null,
               k: null,
               text: '—',
               i,
             }))
         ).map((x, i) => (
           <li key={x.label + i}>
-            <KpiCard
-              icon={x.icon}
-              tone={x.tone}
-              value={x.text}
-              label={x.label}
-              loading={q.isPending}
-              {...(x.k ? trend(x.k) : {})}
-            />
+            {/* C01 (Review 2): each KPI opens the list it counts. */}
+            {x.href ? (
+              <Link
+                href={x.href}
+                data-testid="kpi-link"
+                className="block rounded-xl transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-focus"
+              >
+                <KpiCard
+                  icon={x.icon}
+                  tone={x.tone}
+                  value={x.text}
+                  label={x.label}
+                  loading={q.isPending}
+                  {...(x.k ? trend(x.k) : {})}
+                />
+              </Link>
+            ) : (
+              <KpiCard
+                icon={x.icon}
+                tone={x.tone}
+                value={x.text}
+                label={x.label}
+                loading={q.isPending}
+                {...(x.k ? trend(x.k) : {})}
+              />
+            )}
           </li>
         ))}
       </ul>
@@ -208,7 +232,11 @@ export function PlanningOverview() {
             >
               <FileText aria-hidden weight="fill" className="size-4" /> Create Planning Plan
             </Link>
-            <Link href="/calendar" className={outlined}>
+            <Link
+              href={scheduleHref(o?.planningServiceId, '/tax-planning')}
+              className={outlined}
+              data-testid="schedule-consultation"
+            >
               <CalendarBlank aria-hidden weight="fill" className="size-4" /> Schedule a Planning
               Consultation
             </Link>
@@ -219,7 +247,11 @@ export function PlanningOverview() {
           <div className="grid grid-cols-2 gap-2">
             {[
               { label: 'Create Planning Plan', icon: FileText, href: '/tax-planning/plans/new' },
-              { label: 'Schedule Appointment', icon: CalendarBlank, href: '/calendar' },
+              {
+                label: 'Schedule Appointment',
+                icon: CalendarBlank,
+                href: scheduleHref(o?.planningServiceId, '/tax-planning'),
+              },
               {
                 label: 'Tax Savings Calculator',
                 icon: Calculator,
@@ -329,15 +361,19 @@ export function PlanningOverview() {
           ) : null}
           <ul>
             {(o?.deadlines ?? []).map((d) => (
-              <li
-                key={d.id}
-                className="grid grid-cols-[6.5rem_1fr] gap-3 border-t border-divider py-2 text-sm first:border-t-0 sm:grid-cols-[6.5rem_1fr_1fr]"
-              >
-                <span className="text-muted">{dayText(d.date)}</span>
-                <span className="font-medium text-heading">{d.title}</span>
-                <span className="col-span-2 text-xs text-muted sm:col-span-1 sm:text-sm">
-                  {d.description ?? d.scope}
-                </span>
+              <li key={d.id} className="border-t border-divider first:border-t-0">
+                {/* C04 (Review 2): each deadline opens its details and the clients it affects. */}
+                <Link
+                  href={`/tax-planning/calendar?item=${encodeURIComponent(d.id)}`}
+                  data-testid="deadline-link"
+                  className="grid grid-cols-[6.5rem_1fr] gap-3 py-2 text-sm hover:bg-canvas sm:grid-cols-[6.5rem_1fr_1fr]"
+                >
+                  <span className="text-muted">{dayText(d.date)}</span>
+                  <span className="font-medium text-link">{d.title}</span>
+                  <span className="col-span-2 text-xs text-muted sm:col-span-1 sm:text-sm">
+                    {d.description ?? d.scope}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
