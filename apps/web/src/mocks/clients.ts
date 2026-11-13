@@ -83,6 +83,7 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
       preferredContactMethod: null,
       referralSource: null,
       additionalInfo: null,
+      responsibleParty: null,
       updatedAt: null,
       ...data.profile,
     },
@@ -663,9 +664,13 @@ export function createClientsMock(
     updateProfile: async (id, body) => {
       await pause();
       const cid = parseInput(ClientId, id);
-      parseInput(UpdateClientProfileRequest, body);
+      const input = parseInput(UpdateClientProfileRequest, body);
       const row = find(cid);
       notArchived(row);
+      // As the API (E5): a Business keeps its responsible party.
+      if (input.responsibleParty === null && row.accountType === 'BUSINESS') {
+        throw fail(400, 'VALIDATION_FAILED', 'A business keeps its responsible party');
+      }
       return saveProfile(row, body);
     },
     taxYears: async (id) => {
