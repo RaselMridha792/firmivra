@@ -1240,6 +1240,40 @@ describe('goals and milestones', () => {
     ).toBe(false);
     expectError(await call('post', `/goals/${id}/archive`, preparerA), 403, 'FORBIDDEN');
   });
+
+  it('B25: Active, Archived and All goal views; B26: plans are found by the business name', async () => {
+    const g = await createGoal(shared.a1, { title: mark('View goal'), targetDate: day(60) });
+    ok(await call('post', `/goals/${g.id}/archive`, ownerA));
+    const ids = async (q: string) =>
+      AdvisoryGoalPage.parse(
+        ok(await call('get', `/goals?advisoryClientId=${shared.a1}&pageSize=100${q}`, ownerA)),
+      ).items.map((x) => x.id);
+    expect(await ids('')).not.toContain(g.id);
+    expect(await ids('&view=archived')).toContain(g.id);
+    expect(await ids('&view=all')).toContain(g.id);
+    expect(await ids('&includeArchived=true')).toContain(g.id);
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=archived&pageSize=100', ownerA)),
+      ).items.every((x) => x.archived),
+    ).toBe(true);
+    expectError(await call('get', '/goals?view=deleted', ownerA), 400, 'VALIDATION_FAILED');
+    // Another firm never lists them.
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=all&pageSize=100', ownerB, undefined, 'b')),
+      ).items.map((x) => x.id),
+    ).not.toContain(g.id);
+    ok(await call('post', `/goals/${g.id}/restore`, ownerA));
+
+    // B26: 'Bakery' is only in the business's name (Riley Bakery), not a plan or client name.
+    const bakery = AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerA)));
+    expect(bakery.items.map((x) => x.id)).toContain(shared.p2);
+    expect(
+      AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerB, undefined, 'b')))
+        .items,
+    ).toEqual([]);
+  });
 });
 
 describe('recommendations and action items', () => {
@@ -1814,14 +1848,38 @@ describe('plans: finalize, versions and delivery', () => {
     const notReady = await finalize();
     expectError(notReady, 409, 'PLAN_NOT_READY');
     expect(JSON.stringify(notReady.body)).toMatch(/business name/);
+    // B13: the plan type, the summary and an explicit focus choice, each named.
+    expect(JSON.stringify(notReady.body)).toMatch(/plan type/);
     expect(JSON.stringify(notReady.body)).toMatch(/strategy summary/);
+    expect(JSON.stringify(notReady.body)).toMatch(/None \/ Not Applicable/);
     expect(JSON.stringify(notReady.body)).toMatch(/at least one goal/);
+    // An area and None / Not Applicable never stand together (400).
+    expectError(
+      await patchPlan(id, {
+        strategy: {
+          summary: 'Open a second shop',
+          noFocusArea: true,
+          areas: [{ area: 'EXPANSION', objective: 'A second shop' }],
+        },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // Sections merge at their top keys; this change's choice wins over what was stored.
     ok(
       await patchPlan(id, {
-        profile: { businessName: 'Riley Bakery (fake)' },
-        strategy: { summary: 'Open a second shop' },
+        strategy: { areas: [{ area: 'EXPANSION', objective: 'A second shop' }] },
       }),
     );
+    expect((await plan(id)).strategy.areas).toHaveLength(1);
+    ok(
+      await patchPlan(id, {
+        planType: 'growth',
+        profile: { businessName: 'Riley Bakery (fake)' },
+        strategy: { summary: 'Open a second shop', noFocusArea: true },
+      }),
+    );
+    expect((await plan(id)).strategy).toMatchObject({ noFocusArea: true, areas: [] });
     const goalForPlan = await createGoal(shared.a2, {
       title: mark('Second shop'),
       planId: id,
@@ -1876,7 +1934,7 @@ describe('plans: finalize, versions and delivery', () => {
       targetYear: 2026,
       sourceDataAsOf: day(-5),
       profile: { businessName: 'Riley Bakery (fake)' },
-      strategy: { summary: 'Open a second shop' },
+      strategy: { summary: 'Open a second shop', noFocusArea: true },
     });
     expect(v1.goals.map((g) => g.title)).toEqual([goalForPlan.title]);
     expect(v1.recommendations.map((r) => r.title).sort()).toEqual([
