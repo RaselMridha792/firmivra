@@ -191,8 +191,10 @@ const AddOnInput = z.strictObject({
 
 const serviceFields = {
   name: text(120),
-  categoryId: z.uuid(),
-  shortDescription: text(300),
+  /** Needed to activate; a draft may leave it empty (Octavia's review S2). */
+  categoryId: clearable(z.uuid()),
+  /** Needed to activate; a draft may leave it empty (S2). */
+  shortDescription: clearable(text(300)),
   icon: CatalogIcon.nullable().optional(),
   kind: ServiceKind.optional(),
   pricingType: PricingType,
@@ -223,9 +225,34 @@ const recurring = (b: { pricingType?: PricingType; billingFrequency?: string | n
   b.pricingType !== 'RECURRING' || (b.billingFrequency ?? 'ONE_TIME') !== 'ONE_TIME';
 
 /**
+ * Save & Activate needs what a service needs to be sold; Save as Draft keeps unfinished work (S2).
+ * The API checks the same on activation (400 ACTIVATION_INCOMPLETE), and on any change to a live
+ * service.
+ */
+const activatable = (
+  b: {
+    activate?: boolean;
+    categoryId?: string | null;
+    shortDescription?: string | null;
+    pricingType?: PricingType;
+    basePriceCents?: number | null;
+    billingFrequency?: string | null;
+  },
+  ctx: z.RefinementCtx,
+) => {
+  if (!b.activate) return;
+  const gap = (path: string, message: string) =>
+    ctx.addIssue({ code: 'custom', message, path: [path] });
+  if (!b.categoryId) gap('categoryId', 'Choose a category');
+  if (!b.shortDescription) gap('shortDescription', 'Enter a short description');
+  if (!priced(b)) gap('basePriceCents', 'Enter the base price');
+  if (!recurring(b)) gap('billingFrequency', 'Choose how often it bills');
+};
+
+/**
  * POST /business/catalog/services: Save as Draft (`activate: false`) or Save & Activate.
- * Activating checks every required field (400 ACTIVATION_INCOMPLETE otherwise). A name already
- * used is 409 DUPLICATE_NAME unless `allowDuplicateName`.
+ * A draft needs only its name and pricing type; activating needs every required field (above).
+ * A name already used is 409 DUPLICATE_NAME unless `allowDuplicateName`.
  */
 export const CreateCatalogServiceRequest = z
   .strictObject({
@@ -233,20 +260,21 @@ export const CreateCatalogServiceRequest = z
     activate: z.boolean().default(false),
     allowDuplicateName: z.boolean().optional(),
   })
-  .refine(priced, { message: 'Enter the base price', path: ['basePriceCents'] })
-  .refine(recurring, { message: 'Choose how often it bills', path: ['billingFrequency'] });
+  .superRefine(activatable);
 export type CreateCatalogServiceRequest = z.input<typeof CreateCatalogServiceRequest>;
 
-/** PATCH /business/catalog/services/{id}: only the fields sent change; same id, same history. */
+/**
+ * PATCH /business/catalog/services/{id}: only the fields sent change; same id, same history. A
+ * draft keeps unfinished work (S2); a live service keeps everything it needs to be sold (400
+ * ACTIVATION_INCOMPLETE).
+ */
 export const UpdateCatalogServiceRequest = z
   .strictObject(serviceFields)
   .partial()
   .extend({
     version: z.string().min(1).max(100),
     allowDuplicateName: z.boolean().optional(),
-  })
-  .refine(priced, { message: 'Enter the base price', path: ['basePriceCents'] })
-  .refine(recurring, { message: 'Choose how often it bills', path: ['billingFrequency'] });
+  });
 export type UpdateCatalogServiceRequest = z.input<typeof UpdateCatalogServiceRequest>;
 
 /** Row menu > View Usage. */
@@ -361,6 +389,15 @@ export type ServicePackageRow = z.infer<typeof ServicePackageRow>;
 
 export const ServicePackageList = z.object({ items: z.array(ServicePackageRow) });
 export type ServicePackageList = z.infer<typeof ServicePackageList>;
+
+/**
+ * GET /business/catalog/packages by status (Octavia's review S4): `archived` and `all` reach the
+ * archived packages, for Restore. Without one, every package not archived (the pickers' list).
+ */
+export const CatalogPackagesQuery = z.strictObject({
+  status: z.enum(['active', 'inactive', 'draft', 'archived', 'all']).optional(),
+});
+export type CatalogPackagesQuery = z.input<typeof CatalogPackagesQuery>;
 
 /** GET /business/catalog/packages/{id}. */
 export const ServicePackage = ServicePackageRow.extend({

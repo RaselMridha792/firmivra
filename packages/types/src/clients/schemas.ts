@@ -106,6 +106,12 @@ export const ClientListRow = ClientListItem.extend({
   missingDocuments: z.number().int().nonnegative(),
   /** What the client owes on OPEN invoices, in cents. */
   balanceDueCents: z.number().int().nonnegative(),
+  /**
+   * Octavia's E2: the client's latest event: a message in its thread, a document uploaded or
+   * requested, a task completed, an appointment held, an invoice sent or paid, an e-sign
+   * completed or a note added. Worked out when the list is read; `lastActivityFrom`/`To` filter
+   * on it.
+   */
   lastActivityAt: DateTime.nullable(),
   /** The next SCHEDULED appointment; null when none is booked. */
   nextAppointmentAt: DateTime.nullable(),

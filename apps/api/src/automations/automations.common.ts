@@ -81,6 +81,19 @@ export function permsOf(tenant: TenantContext | undefined): Perms {
   };
 }
 
+/**
+ * Tasks A4 (Octavia's Tasks review of Oct 23): only the Owner and Admins manage task automations
+ * (the TASKS category): create, edit, turn on or off, archive. Other roles with the module's grid
+ * rights manage the other categories, and everyone works on the tasks they generate as usual.
+ */
+export function assertManagesCategory(perms: Perms, category: string): void {
+  if (category === 'TASKS' && !perms.admin)
+    throw new ForbiddenException({
+      code: 'FORBIDDEN',
+      message: 'Only the Owner or an Admin manages task automations',
+    });
+}
+
 /** May this person (by role) act in the module with the module's own permission? */
 export function mayAct(role: string, module: string): boolean {
   if (role === 'OWNER' || role === 'ADMIN') return true;

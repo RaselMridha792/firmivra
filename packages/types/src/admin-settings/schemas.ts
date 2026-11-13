@@ -684,3 +684,89 @@ export const AdminDefaultSetVersions = z.object({
   ),
 });
 export type AdminDefaultSetVersions = z.infer<typeof AdminDefaultSetVersions>;
+
+// ---------- History and restore (SA-SYS-A2) ----------
+// General, Branding and Email & Notifications keep their history in the audit log: each save's
+// row holds every changed field with its value before and after, when the value is short and plain
+// (a switch, a number, a choice, a colour). Text and long values are named only, never kept, so
+// they can't be restored; secrets are never in a section at all. Restore puts a save's fields back
+// to their earlier values and nothing else, with the section's version, the Super Admin's own
+// password again, and an audit row. Retention, legal holds and security rules are not sections:
+// restore never reaches them.
+
+/** The sections with a history: `email` is Email & Notifications. */
+export const AdminSettingsSectionKey = z.enum(['general', 'branding', 'email']);
+export type AdminSettingsSectionKey = z.infer<typeof AdminSettingsSectionKey>;
+
+/** A value the audit keeps: a switch, a number, a short text or choice, or none. */
+export const AdminSettingValue = z.union([z.boolean(), z.number(), z.string(), z.null()]);
+export type AdminSettingValue = z.infer<typeof AdminSettingValue>;
+
+/** One field a save changed, by its path in the section ("channels.sms"). */
+export const AdminSettingChange = z.object({
+  field: z.string(),
+  /** False for text and long values: named only, so they can't be restored. */
+  kept: z.boolean(),
+  from: AdminSettingValue,
+  to: AdminSettingValue,
+});
+export type AdminSettingChange = z.infer<typeof AdminSettingChange>;
+
+/** GET /admin/system-settings/history?section=: the section's newest saves and restores first. */
+export const AdminSettingsHistory = z.object({
+  section: AdminSettingsSectionKey,
+  /** The section's version now. */
+  version: z.number().int(),
+  items: z.array(
+    z.object({
+      eventId: z.uuid(),
+      at: DateTime,
+      by: z.string().nullable(),
+      kind: z.enum(['SAVED', 'RESTORED']),
+      /** The version the save started from. */
+      fromVersion: z.number().int().nullable(),
+      changes: z.array(AdminSettingChange),
+    }),
+  ),
+});
+export type AdminSettingsHistory = z.infer<typeof AdminSettingsHistory>;
+export const AdminSettingsHistoryQuery = z.strictObject({ section: AdminSettingsSectionKey });
+export type AdminSettingsHistoryQuery = z.input<typeof AdminSettingsHistoryQuery>;
+
+/** POST /admin/system-settings/restore/preview: what restoring that save would change. Saves nothing. */
+export const AdminRestorePreviewRequest = z.strictObject({ eventId: z.uuid() });
+export type AdminRestorePreviewRequest = z.input<typeof AdminRestorePreviewRequest>;
+export const AdminRestorePreview = z.object({
+  section: AdminSettingsSectionKey,
+  eventId: z.uuid(),
+  /** The section's version now: Restore sends it back (409 SAVE_CONFLICT if it moved). */
+  version: z.number().int(),
+  /** Each field that would change: its value now and the value it gets back. */
+  fields: z.array(
+    z.object({ field: z.string(), current: AdminSettingValue, restoreTo: AdminSettingValue }),
+  ),
+  /** Fields already at their earlier value: nothing to do for them. */
+  unchanged: z.array(z.string()),
+  /** Fields that save changed whose earlier value was not kept (text, long values). */
+  notKept: z.array(z.string()),
+});
+export type AdminRestorePreview = z.infer<typeof AdminRestorePreview>;
+
+/**
+ * POST /admin/system-settings/restore (Super Admin): the preview, applied. The Super Admin's own
+ * password again, every time (400 VALIDATION_FAILED on `password` when wrong; 5 tries in 15
+ * minutes). 409 SAVE_CONFLICT when the section moved since the preview, 409 NOTHING_TO_RESTORE.
+ * All or nothing.
+ */
+export const AdminRestoreRequest = z.strictObject({
+  eventId: z.uuid(),
+  version: z.number().int().min(1),
+  password: z.string().min(1, 'Enter your password').max(256),
+});
+export type AdminRestoreRequest = z.input<typeof AdminRestoreRequest>;
+export const AdminRestoreResult = z.object({
+  section: AdminSettingsSectionKey,
+  version: z.number().int(),
+  restored: z.array(z.string()),
+});
+export type AdminRestoreResult = z.infer<typeof AdminRestoreResult>;

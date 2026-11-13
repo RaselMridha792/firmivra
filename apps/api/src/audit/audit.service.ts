@@ -1,5 +1,10 @@
-import { Global, Inject, Injectable, Module } from '@nestjs/common';
+import { Global, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import {
+  copyPortalActivity,
+  PORTAL_ACTIVITY,
+  type PortalActivityDb,
+} from '../client-portal/portal-activity.js';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -22,9 +27,13 @@ export interface AuditAt {
  * Append-only audit log. Every action on client data calls `log` (CLAUDE.md rule 8).
  * Actor, firm, IP, user agent and request id come from the request context.
  * Metadata must never hold passwords, codes, tokens, SSNs or document content.
+ * A firm row whose action is one of a client's portal actions, written by that firm's client
+ * login, is also copied into the client's portal activity (client-portal/portal-activity.ts).
  */
 @Injectable()
 export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
@@ -42,6 +51,15 @@ export class AuditService {
     const data = this.row(action, entity, metadata, at);
     const client = data.businessId ? this.db.forBusiness(data.businessId) : this.db.forPlatform();
     await client.auditLog.create({ data });
+    const businessId = data.businessId;
+    if (businessId && this.copied(data)) {
+      // The audit row stands; a feed copy that fails never fails the client's action.
+      try {
+        await this.db.withScope({ kind: 'business', businessId }, (tx) => this.copy(tx, data));
+      } catch {
+        this.logger.warn(`Could not copy ${action} into the portal activity of firm ${businessId}`);
+      }
+    }
   }
 
   /**
@@ -56,7 +74,38 @@ export class AuditService {
     metadata?: Record<string, unknown>,
     at: AuditAt = {},
   ): Promise<void> {
-    await tx.auditLog.create({ data: this.row(action, entity, metadata, at) });
+    const data = this.row(action, entity, metadata, at);
+    await tx.auditLog.create({ data });
+    // In the caller's transaction, so the copy commits or rolls back with the action.
+    if (this.copied(data)) await this.copy(tx, data);
+  }
+
+  /** A firm row of a listed action by someone not known to be staff (sign-in has no tenant). */
+  private copied(data: ReturnType<AuditService['row']>): boolean {
+    const pool = requestContext.getStore()?.auth?.pool;
+    return (
+      !!data.businessId &&
+      !!data.actorUserId &&
+      data.action in PORTAL_ACTIVITY &&
+      pool !== 'STAFF' &&
+      pool !== 'ADMIN'
+    );
+  }
+
+  private copy(db: PortalActivityDb, data: ReturnType<AuditService['row']>): Promise<boolean> {
+    const tenant = requestContext.getStore()?.tenant;
+    return copyPortalActivity(
+      db,
+      {
+        businessId: data.businessId!,
+        actorUserId: data.actorUserId!,
+        action: data.action,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        ip: data.ip,
+      },
+      tenant?.kind === 'client' ? tenant.clientAccountId : undefined,
+    );
   }
 
   private row(
