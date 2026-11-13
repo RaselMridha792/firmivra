@@ -634,6 +634,8 @@ export const DocumentErrorCode = z.enum([
    * `PORTAL_BLOCKED_TEXT[source]`.
    */
   'FILE_BLOCKED',
+  /** 409: only a PDF, PNG or JPEG can be shown inline (Review 2, N03); download any other. */
+  'NOT_PREVIEWABLE',
 ]);
 export type DocumentErrorCode = z.infer<typeof DocumentErrorCode>;
 
@@ -663,4 +665,5 @@ export const DOCUMENT_ERRORS = {
   UPLOAD_FAILED: 'The upload did not go through. Check your connection and try again.',
   SCAN_PENDING: 'This file is still being checked. Try again in a moment.',
   FILE_BLOCKED: "This file couldn't be checked, so it can't be downloaded.",
+  NOT_PREVIEWABLE: 'Only PDF, PNG and JPEG files can be previewed. Download this one instead.',
 } as const satisfies Record<DocumentErrorCode, string>;

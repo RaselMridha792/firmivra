@@ -80,8 +80,8 @@ class MemoryStorage implements DocumentStorage {
     this.objects.delete(key);
     return Promise.resolve();
   }
-  presignDownload(file: { key: string }) {
-    return Promise.resolve(`memory:${file.key}?download`);
+  presignDownload(file: { key: string; preview?: boolean }) {
+    return Promise.resolve(`memory:${file.key}?${file.preview ? 'preview' : 'download'}`);
   }
   put(ticket: UploadTicket, bytes: Buffer) {
     this.uploads.send(ticket, bytes);
@@ -976,6 +976,51 @@ describe('firm lists, views and downloads', () => {
     );
   });
 
+  it('previews a clean PDF, PNG or JPEG inline for a minute, as a download is audited, and nothing else (Review 2, N03)', async () => {
+    const doc = await firmDoc(people.ownerA, {});
+    const res = await call('get', `/documents/${doc.id}/preview`, people.ownerA);
+    expect(res.status).toBe(200);
+    const link = res.body as { url: string; expiresAt: string };
+    expect(link.url).toMatch(/^memory:tenant\/.*\?preview$/);
+    expect(Date.parse(link.expiresAt) - Date.now()).toBeLessThanOrEqual(61_000);
+    const issued = (await auditOf(doc.id)).filter(
+      (a) => a.action === 'document.download_link_issued',
+    );
+    expect(issued.at(-1)?.metadata).toMatchObject({ preview: true });
+    // A download is still an attachment link.
+    const plain = await call('get', `/documents/${doc.id}/download`, people.ownerA);
+    expect((plain.body as { url: string }).url).toMatch(/\?download$/);
+    // The type is ours, not the file name's: any other stored type is refused first.
+    await asOwner(firms.a.id, (tx) =>
+      tx.document.update({ where: { id: doc.id }, data: { contentType: 'text/csv' } }),
+    );
+    expectError(
+      await call('get', `/documents/${doc.id}/preview`, people.ownerA),
+      409,
+      'NOT_PREVIEWABLE',
+    );
+    // A file still being checked, or one that failed, is never shown.
+    config.scanMode = 'guardduty';
+    const pending = await firmDoc(people.ownerA, {});
+    config.scanMode = 'local';
+    expectError(
+      await call('get', `/documents/${pending.id}/preview`, people.ownerA),
+      409,
+      'SCAN_PENDING',
+    );
+    await asOwner(firms.a.id, (tx) =>
+      tx.document.update({
+        where: { id: pending.id },
+        data: { scanStatus: 'INFECTED', scannedAt: new Date() },
+      }),
+    );
+    expectError(
+      await call('get', `/documents/${pending.id}/preview`, people.ownerA),
+      409,
+      'FILE_BLOCKED',
+    );
+  });
+
   it('gives Staff only their assigned clients, clients nothing, and firm B nothing of firm A', async () => {
     const doc = await firmDoc(people.ownerA, {});
     exact(FirmDocumentList, await call('get', `/clients/${ids.c1}/documents`, people.staffA));
@@ -994,6 +1039,7 @@ describe('firm lists, views and downloads', () => {
         `/clients/${ids.c1}/documents`,
         `/documents/${doc.id}`,
         `/documents/${doc.id}/download`,
+        `/documents/${doc.id}/preview`,
       ]) {
         expectError(await call('get', path, who, undefined, firm), 404, 'NOT_FOUND');
       }

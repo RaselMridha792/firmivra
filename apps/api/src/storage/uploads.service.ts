@@ -18,6 +18,8 @@ import {
   type DocumentStorage,
   GET_URL_SECONDS,
   multipartIdOf,
+  PREVIEW_TYPES,
+  PREVIEW_URL_SECONDS,
   statusOf,
   uploadTicket,
 } from './document-storage.js';
@@ -358,9 +360,19 @@ export class UploadsService {
    * Content-Encoding: anything else is FILE_BLOCKED. The portal passes its own FILE_BLOCKED
    * words (PORTAL_BLOCKED_TEXT) and the login, for the audit.
    */
+  /**
+   * Review 2 (N03): a one-minute inline link for a PDF, PNG or JPEG with a clean scan, checked and
+   * audited as a download is. 409 NOT_PREVIEWABLE for another type; SCAN_PENDING or FILE_BLOCKED.
+   */
+  async previewLink(doc: DocumentRow): Promise<DownloadLink> {
+    if (!PREVIEW_TYPES.has(doc.contentType)) throw refusal('NOT_PREVIEWABLE');
+    return this.downloadLink(doc, undefined, true);
+  }
+
   async downloadLink(
     doc: DocumentRow,
     portal?: { blocked: string; clientAccountId: string },
+    preview = false,
   ): Promise<DownloadLink> {
     const blocked = () => refusal('FILE_BLOCKED', portal?.blocked);
     if (doc.scanStatus === 'PENDING') throw refusal('SCAN_PENDING');
@@ -379,15 +391,18 @@ export class UploadsService {
         key: doc.s3Key,
         fileName: doc.fileName,
         contentType: doc.contentType,
+        ...(preview && { preview: true }),
       }),
     );
-    const expiresAt = new Date(Date.now() + GET_URL_SECONDS * 1000).toISOString();
+    const seconds = preview ? PREVIEW_URL_SECONDS : GET_URL_SECONDS;
+    const expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
     await this.audit.log(
       'document.download_link_issued',
       { type: 'document', id: doc.id },
       {
         clientId: doc.clientId,
         expiresAt,
+        ...(preview && { preview: true }),
         ...(portal && { clientAccountId: portal.clientAccountId }),
       },
     );

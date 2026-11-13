@@ -176,6 +176,15 @@ export class FirmDocumentsService {
     return this.uploads.downloadLink(row);
   }
 
+  /**
+   * Review 2 (N03): a one-minute inline link to show the file, with the download's reach (404
+   * first), then 409 NOT_PREVIEWABLE, SCAN_PENDING or FILE_BLOCKED.
+   */
+  async preview(businessId: string, actor: FirmActor, id: string): Promise<DownloadLink> {
+    const row = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
+    return this.uploads.previewLink(row);
+  }
+
   /** The firm's categories in order; archived ones too, for old documents. */
   async categories(businessId: string): Promise<DocumentCategory[]> {
     const rows = await this.database.forBusiness(businessId).documentCategory.findMany({
