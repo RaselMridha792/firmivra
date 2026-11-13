@@ -357,10 +357,40 @@ export class IntegrationInsightsService {
       series,
       totals: totalsOf(rows, sameUnit),
       subjects: breakdown,
-      // The rollup has no per-plan counts, and thresholds have no table (R0): both stay empty.
-      planDistribution: [],
+      // SA-INT-R3: connected firms by their current plan, on the range's last day (catalog only).
+      planDistribution: q.scope === 'CATALOG' ? await this.planDistribution(rows) : [],
+      // Thresholds have no table (R0): no alerts.
       alerts: [],
     };
+  }
+
+  /**
+   * SA-INT-R3: the platform rollup's connected_firms_by_plan, summed over the chosen catalog
+   * entries on the last day the range has rows for. Counts only; firms without a plan are left
+   * out (they have no plan to show).
+   */
+  private async planDistribution(rows: UsageRow[]): Promise<AdminUsageReport['planDistribution']> {
+    const last = rows.reduce<number | null>(
+      (latest, r) => (latest === null || r.day.getTime() > latest ? r.day.getTime() : latest),
+      null,
+    );
+    if (last === null) return [];
+    const byCode = new Map<string, number>();
+    for (const r of rows) {
+      if (r.day.getTime() !== last) continue;
+      const counts = (r.connectedFirmsByPlan ?? {}) as Record<string, unknown>;
+      for (const [code, n] of Object.entries(counts))
+        if (typeof n === 'number' && n > 0) byCode.set(code, (byCode.get(code) ?? 0) + n);
+    }
+    if (!byCode.size) return [];
+    const plans = await this.admin.db.platformPlan.findMany({
+      where: { code: { in: [...byCode.keys()] } },
+      select: { id: true, code: true, name: true },
+    });
+    return plans
+      .map((p) => ({ planId: p.id, planName: p.name, firms: byCode.get(p.code) ?? 0 }))
+      .filter((p) => p.firms > 0)
+      .sort((a, b) => b.firms - a.firms || a.planName.localeCompare(b.planName));
   }
 
   // ---------- The module's audit trail ----------

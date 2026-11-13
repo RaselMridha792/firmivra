@@ -11,6 +11,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   AdminFeatureEmergencyRequest,
   AdminFeatureKey,
@@ -38,10 +39,15 @@ import {
   UpdateAdminFeatureRequest,
   UpdateAdminMaintenanceRequest,
   UpdateAdminRetentionPolicyRequest,
+  AdminRestorePreviewRequest,
+  AdminRestoreRequest,
+  AdminSettingsHistoryQuery,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { poolSecrets } from '../auth/sealed.js';
-import { Roles } from '../auth/decorators.js';
+import { CurrentAuth, Roles } from '../auth/decorators.js';
+import { SignInModule } from '../auth/sign-in.controller.js';
+import type { AuthContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -58,6 +64,7 @@ import { AdminFeaturesService } from './admin-features.service.js';
 import { AdminOperationsService } from './admin-operations.service.js';
 import { AdminSettingsService } from './admin-settings.service.js';
 import { AdminHealthService } from './admin-health.service.js';
+import { SettingsRestoreService } from './settings-restore.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
@@ -80,11 +87,38 @@ export class AdminSettingsController {
     private readonly branding: AdminBrandingService,
     private readonly features: AdminFeaturesService,
     private readonly ops: AdminOperationsService,
+    private readonly restores: SettingsRestoreService,
   ) {}
 
   @Get()
   overview() {
     return this.settings.overview();
+  }
+
+  // ---------- History and restore (SA-SYS-A2) ----------
+
+  @Get('history')
+  history(@Query(pipe(AdminSettingsHistoryQuery)) q: Out<typeof AdminSettingsHistoryQuery>) {
+    return this.restores.history(q.section);
+  }
+
+  @Post('restore/preview')
+  @HttpCode(200)
+  restorePreview(
+    @Body(pipe(AdminRestorePreviewRequest)) body: Out<typeof AdminRestorePreviewRequest>,
+  ) {
+    return this.restores.preview(body.eventId);
+  }
+
+  /** The Super Admin's password again: 5 tries in 15 minutes from one address. */
+  @Post('restore')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @Body(pipe(AdminRestoreRequest)) body: Out<typeof AdminRestoreRequest>,
+  ) {
+    return this.restores.restore(auth.cognitoSub, body);
   }
 
   // ---------- Sections ----------
@@ -393,11 +427,12 @@ export class AdminSettingsController {
 }
 
 @Module({
-  imports: [NotifyModule],
+  imports: [NotifyModule, SignInModule],
   controllers: [AdminSettingsController],
   providers: [
     AdminPrisma,
     AdminSettingsService,
+    SettingsRestoreService,
     AdminHealthService,
     AdminBrandingService,
     AdminFeaturesService,

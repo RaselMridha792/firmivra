@@ -16,6 +16,18 @@ export const SelectField: Story = {
     />
   ),
 };
+export const SelectWithHint: Story = {
+  render: () => (
+    <Select
+      label="Category"
+      hint="Select the focus area that best fits this recommendation, or enter a suitable category."
+      options={[
+        { value: '', label: 'Choose a category' },
+        { value: 'growth', label: 'Revenue Growth' },
+      ]}
+    />
+  ),
+};
 export const CheckboxField: Story = { render: () => <Checkbox label="I agree to the Terms" /> };
 export const RadioGroup: Story = {
   render: () => (

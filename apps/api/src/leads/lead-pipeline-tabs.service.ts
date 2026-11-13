@@ -30,6 +30,7 @@ import {
   toActivity,
   visibleLead,
 } from './pipeline.shared.js';
+import { addSteps, adoptLegacy, syncNextAction } from './lead-follow-ups.js';
 
 type FollowUp = z.output<typeof SetFollowUpRequest>;
 type Complete = z.output<typeof CompleteFollowUpRequest>;
@@ -88,10 +89,22 @@ export class LeadPipelineTabsService {
   ): Promise<LeadProfile> {
     const profile = await this.inFirm(businessId, async (tx) => {
       await this.openLead(tx, businessId, actor, id);
-      await this.writeNext(tx, businessId, actor, id, body);
+      // L8: Save Follow-Up changes the next unfinished step, or adds the first one.
+      await adoptLegacy(tx, businessId, id, actor.userId);
+      const next = await this.nextStep(tx, businessId, id);
+      if (next) {
+        await tx.leadFollowUp.update({
+          where: { id: next.id },
+          data: { actionType: body.type, dueAt: new Date(body.dueAt), note: body.notes ?? null },
+        });
+        await this.logStep(tx, businessId, actor, id, body);
+      } else {
+        await addSteps(tx, businessId, id, actor.userId, [body]);
+      }
+      await syncNextAction(tx, businessId, id, actor.userId);
+      await this.audit.logIn(tx, 'lead.follow_up_set', { type: 'lead', id }, { type: body.type });
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log('lead.follow_up_set', { type: 'lead', id }, { type: body.type });
     return profile;
   }
 
@@ -102,41 +115,36 @@ export class LeadPipelineTabsService {
     body: Complete,
   ): Promise<LeadProfile> {
     const profile = await this.inFirm(businessId, async (tx) => {
-      const lead = await this.openLead(tx, businessId, actor, id);
-      if (!lead.nextActionType) {
-        throw conflict('NO_FOLLOW_UP', 'This lead has no follow-up to complete');
-      }
+      await this.openLead(tx, businessId, actor, id);
+      // L8: completes the next unfinished step; Next is one more step.
+      await adoptLegacy(tx, businessId, id, actor.userId);
+      const next = await this.nextStep(tx, businessId, id);
+      if (!next) throw conflict('NO_FOLLOW_UP', 'This lead has no follow-up to complete');
+      await tx.leadFollowUp.update({
+        where: { id: next.id },
+        data: { doneAt: new Date(), outcome: body.outcome ?? null },
+      });
       await tx.leadActivity.create({
         data: {
           businessId,
           leadId: id,
           kind: 'FOLLOW_UP_COMPLETED',
           actorUserId: actor.userId,
-          summary: ACTION_LABEL[lead.nextActionType],
+          summary: ACTION_LABEL[next.actionType],
           body: body.outcome ?? null,
-          metadata: { type: lead.nextActionType },
+          metadata: { type: next.actionType },
         },
       });
-      if (body.next) {
-        await this.writeNext(tx, businessId, actor, id, body.next);
-      } else {
-        await tx.lead.update({
-          where: { id },
-          data: {
-            nextActionType: null,
-            nextActionAt: null,
-            nextActionNote: null,
-            updatedByUserId: actor.userId,
-          },
-        });
-      }
+      if (body.next) await addSteps(tx, businessId, id, actor.userId, [body.next]);
+      await syncNextAction(tx, businessId, id, actor.userId);
+      await this.audit.logIn(
+        tx,
+        'lead.follow_up_completed',
+        { type: 'lead', id },
+        { next: body.next?.type ?? null },
+      );
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log(
-      'lead.follow_up_completed',
-      { type: 'lead', id },
-      { next: body.next?.type ?? null },
-    );
     return profile;
   }
 
@@ -153,22 +161,23 @@ export class LeadPipelineTabsService {
     return lead;
   }
 
-  private async writeNext(
+  /** The lead's next unfinished step (L8). */
+  private nextStep(tx: TxClient, businessId: string, leadId: string) {
+    return tx.leadFollowUp.findFirst({
+      where: { businessId, leadId, doneAt: null },
+      orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, actionType: true },
+    });
+  }
+
+  /** A changed step in the lead's timeline, as Save Follow-Up always recorded it. */
+  private async logStep(
     tx: TxClient,
     businessId: string,
     actor: PipelineActor,
     id: string,
     next: FollowUp,
   ): Promise<void> {
-    await tx.lead.update({
-      where: { id },
-      data: {
-        nextActionType: next.type,
-        nextActionAt: new Date(next.dueAt),
-        nextActionNote: next.notes ?? null,
-        updatedByUserId: actor.userId,
-      },
-    });
     await tx.leadActivity.create({
       data: {
         businessId,

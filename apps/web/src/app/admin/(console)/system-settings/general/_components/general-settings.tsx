@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { SettingsHistory } from '../../_components/settings-history';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
   Body,
@@ -334,6 +335,13 @@ export function GeneralSettings({ appUrl }: { appUrl: string }) {
                 onError: (e) => setStatus(failedStatus(e)),
               })
             }
+          />
+          <SettingsHistory
+            section="general"
+            onRestored={() => {
+              setDraft(undefined);
+              setStatus(null);
+            }}
           />
         </aside>
       </div>

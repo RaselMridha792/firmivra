@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
+  CatalogPackagesQuery,
   CreateServicePackageRequest,
   PackagePricing,
   PackagePricingRequest,
@@ -30,6 +31,17 @@ import {
 
 type CreateBody = z.output<typeof CreateServicePackageRequest>;
 type UpdateBody = z.output<typeof UpdateServicePackageRequest>;
+type PackageStatusFilter = NonNullable<CatalogPackagesQuery['status']>;
+
+/** Which packages a status shows (S4); `live` is every package not archived. */
+const PACKAGE_WHERE: Record<PackageStatusFilter | 'live', Prisma.ServicePackageWhereInput> = {
+  live: { archivedAt: null },
+  active: { status: 'ACTIVE', archivedAt: null },
+  inactive: { status: 'INACTIVE', archivedAt: null },
+  draft: { status: 'DRAFT', archivedAt: null },
+  archived: { archivedAt: { not: null } },
+  all: {},
+};
 
 const serviceBits = {
   id: true,
@@ -121,9 +133,10 @@ export class CatalogPackagesService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(businessId: string): Promise<ServicePackageRow[]> {
+  /** By status (S4); without one, every package not archived. */
+  async list(businessId: string, status?: PackageStatusFilter): Promise<ServicePackageRow[]> {
     const rows = await this.tenantPrisma.db.servicePackage.findMany({
-      where: { businessId, archivedAt: null },
+      where: { businessId, ...PACKAGE_WHERE[status ?? 'live'] },
       include: packageInclude,
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });

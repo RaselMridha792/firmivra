@@ -6,8 +6,9 @@ import { z } from 'zod';
 // Uncategorized; part 2 the General Ledger, Balance Sheet and Cash Flow (from the period's
 // statements), Reconciliation (with refunds and settlements), Bookkeeping Status and Missing
 // Documents. The ledger is bank and card lines, so figures are on the cash basis (an accrual
-// report says so). Errors: 404 NOT_FOUND; 409 REPORT_NOT_SUPPORTED (Quarterly Review, Year to
-// Date Summary and Custom, for now), NO_PERIOD (a report with no bookkeeping period to cover) and
+// report says so). The Quarterly Review and Year to Date Summary (Nov 10) take their days from
+// their period or their label ("Q3 2026", "2026"). Errors: 404 NOT_FOUND; 409
+// REPORT_NOT_SUPPORTED (custom reports, for now), NO_PERIOD (a report with no bookkeeping period to cover) and
 // STATEMENTS_MISSING (a Balance Sheet or Cash Flow with a reconciled account that has no
 // statement for the period).
 
@@ -32,6 +33,9 @@ export const BookkeepingReportFigures = z.object({
     'RECONCILIATION',
     'BOOKKEEPING_STATUS',
     'MISSING_DOCUMENTS',
+    // Rasel (Nov 10): the summaries, by their period or label.
+    'QUARTERLY_REVIEW',
+    'YEAR_TO_DATE_SUMMARY',
   ]),
   basis: z.literal('CASH'),
   basisNote: z.string().nullable(),

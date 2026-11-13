@@ -1,28 +1,42 @@
 'use client';
 
-import { Badge } from '@firmivra/ui';
+import { ActionMenu, Badge } from '@firmivra/ui';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { initials, publicPath } from '../../../../../components/app-shell/types';
+import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { LAST_CLIENTS_LIST } from '../../../../../lib/clients-place';
 import { ACCOUNT_TYPES, formatPhone, PortalBadge } from '../_components/client-parts';
 import { RETURNING, session } from '../_components/list-place';
 import { ArchiveAction } from './_components/archive-action';
+import { serviceTabs, useClientServices } from './_components/client-services';
 import { EditClient } from './_components/edit-client';
 import { useClientRecord } from './_components/use-client-record';
 
-const tabs: [label: string, path: string][] = [
+// Octavia's E4: the profile's sections, in the order of her 360° workspace. The service tabs (Tax
+// Returns, Bookkeeping, Payroll, Tax Planning, Advisory) come by enrollment and the member's grid,
+// between Intake Forms and Invoices, and open the module's record with Back here. Past the first
+// eleven, the rest go under More.
+const BEFORE: [label: string, path: string][] = [
   ['Overview', ''],
+  ['Services', '/services'],
   ['Documents', '/documents'],
-  ['Messages', '/messages'],
+  ['Intake Forms', '/intake-forms'],
+];
+const AFTER: [label: string, path: string][] = [
   ['Invoices', '/invoices'],
-  ['Signatures', '/signatures'],
+  ['Messages', '/messages'],
+  ['Tasks', '/tasks'],
+  ['Notes', '/notes'],
   // MSG-F16: the client's own timeline.
   ['Activity', '/activity'],
+  ['Signatures', '/signatures'],
 ];
+const INLINE = 11;
+type Tab = { label: string; href: string; service?: true };
 
 /**
  * One client: the header (name, type, portal status, contact, archive) and the tabs. A client
@@ -35,6 +49,15 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   const record = useClientRecord(id);
   const router = useRouter();
   const search = useSearchParams();
+  const openService = useOriginNavigate();
+  const services = useClientServices(id);
+  const tabs: Tab[] = [
+    ...BEFORE.map(([label, tab]) => ({ label, href: `${base}${tab}` })),
+    ...serviceTabs(services.data).map((t) => ({ ...t, service: true as const })),
+    ...AFTER.map(([label, tab]) => ({ label, href: `${base}${tab}` })),
+  ];
+  const more = tabs.slice(INLINE);
+  const inMore = more.find((t) => t.href === path);
 
   return (
     <div className="flex flex-col gap-5">
@@ -99,21 +122,48 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                 </RequireRole>
               </div>
             </header>
-            <nav aria-label="Client" className="flex gap-1 overflow-x-auto border-b border-border">
-              {tabs.map(([label, tab]) => {
-                const href = `${base}${tab}`;
-                const active = path === href;
-                return (
-                  <Link
-                    key={label}
-                    href={href}
-                    aria-current={active ? 'page' : undefined}
-                    className={`-mb-px whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${active ? 'border-brand-600 text-brand-600' : 'border-transparent text-muted hover:text-text'}`}
+            <nav
+              aria-label="Client"
+              className="flex items-center gap-1 overflow-x-auto border-b border-border"
+            >
+              {tabs.slice(0, INLINE).map((t) => {
+                const active = path === t.href;
+                const className = `-mb-px whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${active ? 'border-brand-600 text-brand-600' : 'border-transparent text-muted hover:text-text'}`;
+                return t.service ? (
+                  <OriginLink
+                    key={t.label}
+                    href={t.href}
+                    className={className}
+                    data-testid="service-tab"
                   >
-                    {label}
+                    {t.label}
+                  </OriginLink>
+                ) : (
+                  <Link
+                    key={t.label}
+                    href={t.href}
+                    aria-current={active ? 'page' : undefined}
+                    className={className}
+                  >
+                    {t.label}
                   </Link>
                 );
               })}
+              {more.length ? (
+                <ActionMenu
+                  className="ml-auto shrink-0"
+                  label="More client sections"
+                  trigger={inMore ? `More: ${inMore.label}` : 'More'}
+                  sections={[
+                    {
+                      items: more.map((t) => ({
+                        label: t.label,
+                        onSelect: () => (t.service ? openService(t.href) : router.push(t.href)),
+                      })),
+                    },
+                  ]}
+                />
+              ) : null}
             </nav>
             {children}
           </>

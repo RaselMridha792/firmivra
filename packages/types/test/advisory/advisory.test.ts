@@ -125,6 +125,18 @@ describe('business plans', () => {
       false,
     );
     expect(AdvisoryPlanAssessment.safeParse({ dataSource: 'GUESS' }).success).toBe(false);
+    // B14: How the Business Operates, Opportunities and Threats are optional parts of it.
+    expect(
+      AdvisoryPlanAssessment.safeParse({
+        operations: { howItOperates: 'Two crews, one supplier, booked four weeks out' },
+        opportunities: ['New subdivision nearby'],
+        threats: ['Rising lumber costs'],
+      }).success,
+    ).toBe(true);
+    expect(AdvisoryPlanAssessment.safeParse({ operations: { howItOperates: null } }).success).toBe(
+      true,
+    );
+    expect(AdvisoryPlanAssessment.safeParse({ threats: ['x'.repeat(301)] }).success).toBe(false);
     expect(
       AdvisoryPlanStrategy.safeParse({
         areas: [
@@ -139,6 +151,15 @@ describe('business plans', () => {
           { area: 'FUNDING', objective: 'a' },
           { area: 'FUNDING', objective: 'b' },
         ],
+      }).success,
+    ).toBe(false);
+    // B13: None / Not Applicable is a choice of its own, never with an area.
+    expect(AdvisoryPlanStrategy.safeParse({ noFocusArea: true, areas: [] }).success).toBe(true);
+    expect(AdvisoryPlanStrategy.safeParse({ noFocusArea: false }).success).toBe(true);
+    expect(
+      AdvisoryPlanStrategy.safeParse({
+        noFocusArea: true,
+        areas: [{ area: 'FUNDING', objective: 'Raise $250k' }],
       }).success,
     ).toBe(false);
   });
