@@ -1,6 +1,7 @@
 export * from './schemas.js';
 export * from './logo.js';
 export * from './overview.js';
+export * from './security-alerts.js';
 export * from './locations.js';
 export * from './branding.js';
 export * from './users.js';

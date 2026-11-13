@@ -1,6 +1,6 @@
 'use client';
 
-import type { UsersSummary } from '@firmivra/types';
+import type { SecurityAlertItem, UsersSummary } from '@firmivra/types';
 import { Badge, Button, Callout, Skeleton, Table } from '@firmivra/ui';
 import {
   CheckCircle,
@@ -13,7 +13,9 @@ import {
   ShieldWarning,
 } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { type ReactNode, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -34,7 +36,28 @@ const when = (iso: string) =>
     minute: '2-digit',
   });
 
-/** The 30 days the alert list looks back over. */
+/** What each open alert is, in words (no account is named: the log keeps only a key). */
+const ALERT_TEXT: Record<SecurityAlertItem['kind'], string> = {
+  LOCKOUT: 'Account locked after repeated failed sign-ins',
+  FAILED_SIGN_INS: 'Repeated failed sign-ins on one account',
+  MFA_RESET: 'Two-factor sign-in reset for a staff member',
+};
+
+function alertDetail(a: SecurityAlertItem): string {
+  const where =
+    a.pool === 'CLIENT'
+      ? 'Client portal'
+      : a.pool === 'STAFF'
+        ? 'Staff sign-in'
+        : 'Staff Management';
+  if (a.kind === 'LOCKOUT' && a.lockedUntil)
+    return `${where} · locked until ${when(a.lockedUntil)}`;
+  if (a.kind === 'FAILED_SIGN_INS' && a.attempts)
+    return `${where} · ${a.attempts} failed attempts within an hour`;
+  return where;
+}
+
+/** The 30 days the failed sign-in list looks back over. */
 const since = () => new Date(Date.now() - 30 * 86_400_000).toISOString();
 
 /**
@@ -47,7 +70,16 @@ const since = () => new Date(Date.now() - 30 * 86_400_000).toISOString();
 export function SecurityScreen() {
   // Users & Roles' counters (the same cache entry): every account of the firm, not a first page.
   const summary = useApiQuery(['users', 'summary'], () => api.users.summary());
-  const overview = useApiQuery(['settings', 'overview'], () => api.settingsOverview.get());
+  // The open alerts the Overview counts and the Settings badge shows (Overview guide 6, 19).
+  const alerts = useApiQuery(['settings', 'security-alerts'], () =>
+    api.settingsOverview.securityAlerts(),
+  );
+  // View Alerts and the badge open the page on the open alerts alone.
+  const onlyOpen = useSearchParams().get('alerts') === 'open';
+  const alertsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (onlyOpen) alertsRef.current?.scrollIntoView({ block: 'start' });
+  }, [onlyOpen]);
   // Fixed for the visit, so the query keeps its key.
   const [from] = useState(since);
   const failed = useApiQuery(['audit-log', 'security', 'failed'], () =>
@@ -146,42 +178,87 @@ export function SecurityScreen() {
           <CardLink href={'/integrations'}>Open Integrations</CardLink>
         </SettingsCard>
 
-        <SettingsCard
-          title="Security Alerts"
-          subtitle="Failed sign-ins in the last 30 days, newest first."
-          icon={ShieldWarning}
-          tone="red"
-          testId="security-alerts"
-          className="lg:col-span-2"
-          action={
-            overview.data ? (
-              <Badge tone={overview.data.securityAlerts ? 'warning' : 'success'}>
-                {overview.data.securityAlerts
-                  ? `${overview.data.securityAlerts} to review`
-                  : 'Nothing to review'}
-              </Badge>
-            ) : null
-          }
-        >
-          <Table
-            rows={failed.data?.items ?? []}
-            loading={failed.isPending}
-            rowKey={(e) => e.id}
-            caption="Failed sign-ins"
-            dense
-            showPagination={false}
-            columns={[
-              { id: 'at', label: 'When', cell: (e) => when(e.at) },
-              { id: 'who', label: 'Who', cell: (e) => e.actor?.name ?? 'Unknown account' },
-              { id: 'ip', label: 'IP Address', cell: (e) => e.ip ?? '—' },
-            ]}
-            emptyTitle={failed.isError ? 'Alerts are not available' : 'No failed sign-ins'}
-            emptyText={
-              failed.isError ? NOT_LOADED : 'Nobody failed to sign in in the last 30 days.'
+        <div ref={alertsRef} id="security-alerts" className="scroll-mt-4 lg:col-span-2">
+          <SettingsCard
+            title="Security Alerts"
+            subtitle={
+              onlyOpen
+                ? 'Open alerts from the last 7 days, newest first.'
+                : 'Open alerts from the last 7 days, and failed sign-ins in the last 30 days.'
             }
-          />
-          <CardLink href="/audit-log">Open Audit Log</CardLink>
-        </SettingsCard>
+            icon={ShieldWarning}
+            tone="red"
+            testId="security-alerts"
+            action={
+              alerts.data ? (
+                <Badge tone={alerts.data.count ? 'warning' : 'success'}>
+                  {alerts.data.count ? `${alerts.data.count} to review` : 'Nothing to review'}
+                </Badge>
+              ) : null
+            }
+          >
+            <h3 className="text-sm font-semibold text-heading">Open alerts</h3>
+            {alerts.isPending ? (
+              <Skeleton className="h-16" />
+            ) : !alerts.data ? (
+              <p className="rounded-lg bg-subtle p-3 text-sm text-muted">{NOT_LOADED}</p>
+            ) : alerts.data.items.length ? (
+              <ul className="flex flex-col divide-y divide-divider" data-testid="open-alerts">
+                {alerts.data.items.map((a) => (
+                  <li key={a.id} className="flex flex-wrap items-start gap-3 py-2 text-sm">
+                    <ShieldWarning
+                      aria-hidden
+                      weight="fill"
+                      className="mt-0.5 size-5 shrink-0 text-warning"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-heading">{ALERT_TEXT[a.kind]}</span>
+                      <span className="block text-muted">{alertDetail(a)}</span>
+                    </span>
+                    <time dateTime={a.at} className="shrink-0 text-muted">
+                      {when(a.at)}
+                    </time>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="rounded-lg bg-subtle p-3 text-sm text-muted">
+                No open alerts. Lockouts, repeated failed sign-ins and two-factor resets show here
+                for {alerts.data.windowDays} days.
+              </p>
+            )}
+            {onlyOpen ? (
+              <Link
+                href="/settings/security"
+                className="w-fit text-sm font-semibold text-link hover:underline"
+              >
+                Show failed sign-ins too
+              </Link>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold text-heading">Failed sign-ins</h3>
+                <Table
+                  rows={failed.data?.items ?? []}
+                  loading={failed.isPending}
+                  rowKey={(e) => e.id}
+                  caption="Failed sign-ins"
+                  dense
+                  showPagination={false}
+                  columns={[
+                    { id: 'at', label: 'When', cell: (e) => when(e.at) },
+                    { id: 'who', label: 'Who', cell: (e) => e.actor?.name ?? 'Unknown account' },
+                    { id: 'ip', label: 'IP Address', cell: (e) => e.ip ?? '—' },
+                  ]}
+                  emptyTitle={failed.isError ? 'Alerts are not available' : 'No failed sign-ins'}
+                  emptyText={
+                    failed.isError ? NOT_LOADED : 'Nobody failed to sign in in the last 30 days.'
+                  }
+                />
+              </>
+            )}
+            <CardLink href="/audit-log">Open Audit Log</CardLink>
+          </SettingsCard>
+        </div>
       </div>
       <div className="flex items-center gap-2 text-xs text-muted">
         <LockKey aria-hidden weight="fill" className="size-4" />
