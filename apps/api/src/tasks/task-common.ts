@@ -456,7 +456,16 @@ export const rowInclude = {
   assignedMember: { select: memberSelect },
   type: { select: { id: true, name: true } },
   service: { select: { id: true, name: true } },
-  engagement: { select: { id: true, title: true } },
+  // Review 2 (N05): the engagement's own workspace, so Related To can open it.
+  engagement: {
+    select: {
+      id: true,
+      title: true,
+      bookkeepingProfile: { select: { id: true } },
+      payrollClient: { select: { id: true } },
+      advisoryClient: { select: { id: true } },
+    },
+  },
   deadline: { select: { id: true, name: true } },
   dependsOn: { select: { id: true, title: true, status: true } },
   taskOccurrence: { select: { seriesId: true } },
@@ -516,6 +525,18 @@ export interface RowContext {
   total: Map<string, number>;
 }
 
+/** The Firmivra workspace an engagement has: bookkeeping, payroll or advisory (one each at most). */
+export function workspaceOf(e: {
+  bookkeepingProfile: { id: string } | null;
+  payrollClient: { id: string } | null;
+  advisoryClient: { id: string } | null;
+}): { kind: 'BOOKKEEPING' | 'PAYROLL' | 'ADVISORY'; id: string } | null {
+  if (e.bookkeepingProfile) return { kind: 'BOOKKEEPING', id: e.bookkeepingProfile.id };
+  if (e.payrollClient) return { kind: 'PAYROLL', id: e.payrollClient.id };
+  if (e.advisoryClient) return { kind: 'ADVISORY', id: e.advisoryClient.id };
+  return null;
+}
+
 export function toRow(t: RowShape, ctx: RowContext): TaskRow {
   const client = liveClient(t.client);
   return {
@@ -524,7 +545,9 @@ export function toRow(t: RowShape, ctx: RowContext): TaskRow {
     kind: t.kind,
     client: { id: client.id, displayName: client.displayName },
     type: t.type ? { id: t.type.id, name: t.type.name } : null,
-    engagement: t.engagement ? { id: t.engagement.id, title: t.engagement.title } : null,
+    engagement: t.engagement
+      ? { id: t.engagement.id, title: t.engagement.title, workspace: workspaceOf(t.engagement) }
+      : null,
     service: t.service ? { id: t.service.id, name: t.service.name } : null,
     deadline: t.deadline ? { id: t.deadline.id, name: t.deadline.name } : null,
     priority: t.priority,

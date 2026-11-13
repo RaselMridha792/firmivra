@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { useUrlTab } from '../../../../../lib/url-tab';
 import { useApiQuery } from '../../../../../lib/query';
 import { ClientMenu, ConnectDialog, useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -79,7 +80,8 @@ export function ClientWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const params = useSearchParams();
   const initial = (TABS.find((t) => t.toLowerCase() === params.get('tab')) ?? 'Overview') as TabId;
-  const [tab, setTab] = useState<TabId>(initial);
+  // Review 2 (N08): the tab is kept in the address, so Back from Terms comes to the same tab.
+  const [tab, setTab] = useUrlTab<TabId>(initial, (t) => t.toLowerCase());
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [connect, setConnect] = useState(false);
   const notice: Notice = (text, tone) => setMessage({ text, tone });
@@ -388,7 +390,7 @@ export function ClientWorkspace({ id }: { id: string }) {
               aria-label="Quick actions"
               data-testid="quick-actions"
             >
-              <button type="button" className={subtle} onClick={() => setTab('Reconciliation')}>
+              <button type="button" className={subtle} onClick={() => setTab('Transactions')}>
                 <Tag aria-hidden weight="fill" className="size-4 text-action" /> Categorize
                 Transactions
               </button>
