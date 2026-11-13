@@ -47,6 +47,27 @@ export interface ClientFilters {
   engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   completedFrom: string;
   completedTo: string;
+  /** Octavia's E2 additions: Added Last 30 Days (the creation date) and More Filters. */
+  addedFrom: string;
+  deadlineFrom: string;
+  deadlineTo: string;
+  appointmentFrom: string;
+  appointmentTo: string;
+  accountType: '' | 'INDIVIDUAL' | 'BUSINESS';
+  state: string;
+  area: string;
+  balance: '' | 'DUE' | 'NONE';
+  documents: '' | 'MISSING' | 'NONE';
+  tagId: string;
+  source: string;
+  priority: '' | 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+/** The day 29 days before today, here: Added Last 30 Days takes today and the 29 before it. */
+export function last30(now = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export const NO_FILTERS: ClientFilters = {
@@ -61,12 +82,29 @@ export const NO_FILTERS: ClientFilters = {
   engagementStatus: '',
   completedFrom: '',
   completedTo: '',
+  addedFrom: '',
+  deadlineFrom: '',
+  deadlineTo: '',
+  appointmentFrom: '',
+  appointmentTo: '',
+  accountType: '',
+  state: '',
+  area: '',
+  balance: '',
+  documents: '',
+  tagId: '',
+  source: '',
+  priority: '',
 };
 
 /** The tab that shows the same clients as these filters, or '' when none does. */
 export function tabFor(filters: ClientFilters): string {
   // A dashboard card's engagement status is narrower than any tab.
   if (filters.engagementStatus || filters.completedFrom || filters.completedTo) return '';
+  // The Archived and Added Last 30 Days views (Octavia's E2 additions), on their own.
+  const plain = !filters.serviceId && !filters.clientStatus;
+  if (filters.records === 'archived') return plain && !filters.addedFrom ? 'archived' : '';
+  if (filters.addedFrom) return plain && filters.addedFrom === last30() ? 'recent' : '';
   if (filters.serviceId) return filters.clientStatus ? '' : `service:${filters.serviceId}`;
   const byStage: Partial<Record<ClientStatus | '', string>> = {
     '': 'all',
@@ -77,19 +115,34 @@ export function tabFor(filters: ClientFilters): string {
   return byStage[filters.clientStatus] ?? '';
 }
 
-/** The filters a tab sets: a stage or a service, never both. */
+/**
+ * The filters a tab sets: a stage or a service, never both; Archived the archived records, and
+ * Added Last 30 Days the clients added since then. Leaving Archived for another tab shows current
+ * clients again.
+ */
 export function filtersForTab(
   id: string,
+  was?: Pick<ClientFilters, 'records'>,
 ): Pick<
   ClientFilters,
-  'serviceId' | 'clientStatus' | 'engagementStatus' | 'completedFrom' | 'completedTo'
+  | 'serviceId'
+  | 'clientStatus'
+  | 'engagementStatus'
+  | 'completedFrom'
+  | 'completedTo'
+  | 'records'
+  | 'addedFrom'
 > {
   const engagement = { engagementStatus: '', completedFrom: '', completedTo: '' } as const;
-  if (id.startsWith('service:')) return { serviceId: id.slice(8), clientStatus: '', ...engagement };
+  const base = { serviceId: '', clientStatus: '', ...engagement, addedFrom: '' } as const;
+  const records = was?.records === 'archived' ? 'active' : (was?.records ?? 'active');
+  if (id === 'archived') return { ...base, records: 'archived' };
+  if (id === 'recent') return { ...base, records: 'active', addedFrom: last30() };
+  if (id.startsWith('service:')) return { ...base, serviceId: id.slice(8), records };
   const stage = ({ active: 'ACTIVE', new: 'NEW', inactive: 'INACTIVE' } as const)[
     id as 'active' | 'new' | 'inactive'
   ];
-  return { serviceId: '', clientStatus: stage ?? '', ...engagement };
+  return { ...base, clientStatus: stage ?? '', records };
 }
 
 /**

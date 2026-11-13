@@ -74,6 +74,27 @@ const duplicateEmail = () =>
 const archived = () =>
   new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
 
+/**
+ * Clients Review 2: what else a list search finds. The Client ID: "CL-10024" or "10024", or the
+ * record's own id. A phone typed as shown, "(202) 555-0103" or "+1 202-555-0103": phones are kept
+ * as E.164, so its digits are matched (without a leading 1 when it has 11).
+ */
+export function searchExtras(search: string): Prisma.ClientWhereInput[] {
+  const text = search.trim();
+  const out: Prisma.ClientWhereInput[] = [];
+  const number = /^(?:CL-?)?(\d{1,9})$/i.exec(text)?.[1];
+  if (number) out.push({ clientNumber: Number(number) });
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+    out.push({ id: text.toLowerCase() });
+  }
+  if (/^[\d\s().+-]+$/.test(text)) {
+    const digits = text.replace(/\D/g, '');
+    const national = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+    if (national.length >= 4) out.push({ phone: { contains: national } });
+  }
+  return out;
+}
+
 /** LIKE wildcards in a search term are plain characters (Prisma's `contains` does not escape). */
 export function likeEscape(term: string): string {
   return term.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -262,6 +283,12 @@ export class ClientsService {
     const active = days ? [...(await this.activity(businessId, { between: days })).keys()] : null;
     const completed = await this.dayBounds(businessId, q.completedFrom, q.completedTo);
     const owing = q.owes ? await this.owing(businessId, q.owes) : null;
+    // More Filters (Octavia's E2 additions): each narrows the list on the firm's days.
+    const added = q.addedFrom ? await this.dayBounds(businessId, q.addedFrom, undefined) : null;
+    const visits = await this.dayBounds(businessId, q.appointmentFrom, q.appointmentTo);
+    const day = (d: string | undefined) => (d ? new Date(`${d}T00:00:00Z`) : undefined);
+    const balance = q.balance ? await this.owing(businessId, 'BALANCE') : null;
+    const missing = q.documents ? await this.owing(businessId, 'DOCUMENTS') : null;
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
       this.reach(actor),
@@ -304,12 +331,52 @@ export class ClientsService {
           : {},
       active ? { id: { in: active } } : {},
       owing ? { id: { in: owing } } : {},
+      added?.start ? { createdAt: { gte: added.start } } : {},
+      q.deadlineFrom || q.deadlineTo
+        ? {
+            complianceDeadlines: {
+              some: {
+                status: { notIn: ['COMPLETED', 'NOT_APPLICABLE', 'CANCELLED'] },
+                dueOn: { gte: day(q.deadlineFrom), lte: day(q.deadlineTo) },
+              },
+            },
+          }
+        : {},
+      visits
+        ? {
+            appointments: {
+              some: { status: 'SCHEDULED', startsAt: { gte: visits.start, lt: visits.end } },
+            },
+          }
+        : {},
+      q.accountType ? { accountType: q.accountType } : {},
+      q.state ? { profile: { state: { equals: q.state, mode: 'insensitive' } } } : {},
+      q.place
+        ? {
+            profile: {
+              OR: [
+                { city: { contains: likeEscape(q.place), mode: 'insensitive' } },
+                { county: { contains: likeEscape(q.place), mode: 'insensitive' } },
+              ],
+            },
+          }
+        : {},
+      balance ? (q.balance === 'DUE' ? { id: { in: balance } } : { id: { notIn: balance } }) : {},
+      missing
+        ? q.documents === 'MISSING'
+          ? { id: { in: missing } }
+          : { id: { notIn: missing } }
+        : {},
+      q.tagId ? { tags: { some: { tagId: q.tagId } } } : {},
+      q.source ? { source: q.source } : {},
+      q.priority ? { priority: q.priority } : {},
       term
         ? {
             OR: [
               { displayName: { contains: term, mode: 'insensitive' } },
               { email: { contains: term, mode: 'insensitive' } },
               { phone: { contains: term, mode: 'insensitive' } },
+              ...searchExtras(q.search ?? ''),
             ],
           }
         : {},
@@ -586,7 +653,10 @@ export class ClientsService {
     return {
       kpis: {
         totalClients: kpi(c.total_now, c.total_before),
-        newClients: kpi(c.new_now, c.new_before),
+        // Clients Review 2: New Clients counts what its New tab lists (stage NEW, not archived);
+        // the clients added this month are their own figure.
+        newClients: kpi(c.stage_new, null),
+        addedThisMonth: kpi(c.new_now, c.new_before),
         activeClients: kpi(c.active, null),
         pendingDocuments: kpi(c.pending_docs, null),
         balancesDue: kpi(c.balances, null),
@@ -665,6 +735,14 @@ export class ClientsService {
     const row = await this.write(businessId, async (tx) => {
       if (assignedUserId) await this.activeMember(tx, businessId, assignedUserId);
       await this.uniqueEmail(tx, businessId, body.email ?? null);
+      await this.phoneInUse(
+        tx,
+        businessId,
+        actor,
+        body.phone ?? null,
+        null,
+        body.allowDuplicatePhone,
+      );
       const client = await tx.client.create({
         data: {
           id,
@@ -705,11 +783,15 @@ export class ClientsService {
     body: UpdateBody,
   ): Promise<ClientRecord> {
     if (actor.role === 'STAFF' && body.assignedUserId !== undefined) throw forbidden();
-    const data = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
+    const { allowDuplicatePhone, ...changes } = body;
+    const data = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
     const row = await this.write(businessId, async (tx) => {
       const current = await this.findForChange(tx, businessId, actor, id);
       if (current.archivedAt) throw archived();
       if (body.assignedUserId) await this.activeMember(tx, businessId, body.assignedUserId);
+      if (body.phone && body.phone !== current.phone) {
+        await this.phoneInUse(tx, businessId, actor, body.phone, id, allowDuplicatePhone);
+      }
       if (body.email !== undefined && body.email !== current.email) {
         await this.uniqueEmail(tx, businessId, body.email);
       }
@@ -797,21 +879,42 @@ export class ClientsService {
     id: string,
     archive: boolean,
   ): Promise<ClientRecord> {
-    const { row, changed } = await this.inFirm(businessId, async (tx) => {
+    const { row, changed, details } = await this.inFirm(businessId, async (tx) => {
       const current = await this.findForChange(tx, businessId, actor, id);
-      if (!!current.archivedAt === archive) return { row: current, changed: false };
-      await tx.client.update({
+      if (!!current.archivedAt === archive) {
+        return { row: current, changed: false, details: undefined };
+      }
+      const after = await tx.client.update({
         where: { businessId_id: { businessId, id } },
         data: { archivedAt: archive ? new Date() : null },
+        select: { clientNumber: true, archivedAt: true },
       });
-      return { row: await this.find(tx, businessId, actor, id), changed: true };
+      return {
+        row: await this.find(tx, businessId, actor, id),
+        changed: true,
+        // Clients Review 2: the entry names the client and what changed, before and after.
+        details: {
+          clientNumber: `CL-${after.clientNumber}`,
+          changes: [
+            {
+              field: 'archivedAt',
+              from: iso(current.archivedAt),
+              to: iso(after.archivedAt),
+            },
+          ],
+        },
+      };
     });
     // Nothing changed: the answer is still a read of the client's record (its date of birth).
     if (!changed) {
       await this.audit.log('client.viewed', { type: 'client', id });
       return this.record(businessId, row);
     }
-    await this.audit.log(archive ? 'client.archived' : 'client.restored', { type: 'client', id });
+    await this.audit.log(
+      archive ? 'client.archived' : 'client.restored',
+      { type: 'client', id },
+      details,
+    );
     return this.record(businessId, row, {});
   }
 
@@ -865,6 +968,52 @@ export class ClientsService {
       select: { id: true },
     });
     if (!member) throw notFound();
+  }
+
+  /**
+   * Clients Review 2 (C2-038): a phone another client of the firm already has (archived ones too)
+   * pauses Add and Edit with 409 DUPLICATE_PHONE until the person confirms it. Phones are kept as
+   * E.164, so "(202) 555-0103" and "2025550103" are the same number here. The answer names only
+   * the matches the caller may see (Staff: their own clients) and counts them all; nothing is
+   * merged.
+   */
+  private async phoneInUse(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    phone: string | null,
+    exceptId: string | null,
+    allow: boolean | undefined,
+  ): Promise<void> {
+    if (!phone || allow) return;
+    const rows = await tx.client.findMany({
+      where: { businessId, phone, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 20,
+      select: {
+        id: true,
+        displayName: true,
+        clientNumber: true,
+        archivedAt: true,
+        assignedUserId: true,
+      },
+    });
+    if (rows.length === 0) return;
+    const visible =
+      actor.role === 'STAFF' ? rows.filter((r) => r.assignedUserId === actor.userId) : rows;
+    throw new ConflictException({
+      code: 'DUPLICATE_PHONE',
+      message: 'Another client has this phone number',
+      details: {
+        count: rows.length,
+        matches: visible.slice(0, 5).map((r) => ({
+          id: r.id,
+          name: r.displayName,
+          clientNumber: `CL-${r.clientNumber}`,
+          archived: r.archivedAt !== null,
+        })),
+      },
+    });
   }
 
   /**

@@ -2,24 +2,32 @@
 
 import { DOCUMENT_ERRORS, type FirmDocument } from '@firmivra/types';
 import { Button, Card, Table, type Column, type TableServerControl } from '@firmivra/ui';
+import { OriginLink } from '../../../../../../../components/origin-link';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
 import { dateText } from '../../../_components/client-parts';
 import { StatusPill } from './status-pill';
+/** Octavia's E8: a file opens its details in Documents (View), with Back to this tab. */
+function ViewLink({ row }: { row: FirmDocument }) {
+  return (
+    <OriginLink
+      href={`/documents/${row.id}`}
+      className="block min-w-0 font-medium wrap-anywhere text-link hover:underline"
+      data-testid="document-name"
+      aria-label={`View ${row.fileName}`}
+      title={row.fileName}
+    >
+      {row.fileName}
+    </OriginLink>
+  );
+}
+
 const columns: Column<FirmDocument>[] = [
   {
     id: 'name',
     label: 'Name',
-    cell: (row) => (
-      <span
-        className="block min-w-0 wrap-anywhere"
-        data-testid="document-name"
-        title={row.fileName}
-      >
-        {row.fileName}
-      </span>
-    ),
+    cell: (row) => <ViewLink row={row} />,
   },
   {
     id: 'category',
@@ -95,8 +103,8 @@ export function DocumentList({
       <div className="min-w-0 space-y-4 md:hidden" data-testid="documents-mobile-cards">
         {rows.map((row) => (
           <Card key={row.id} className="min-w-0 space-y-3" data-testid="document-card">
-            <h2 className="font-bold text-heading wrap-anywhere" data-testid="document-name">
-              {row.fileName}
+            <h2 className="font-bold text-heading wrap-anywhere">
+              <ViewLink row={row} />
             </h2>
             <dl className="grid min-w-0 grid-cols-2 gap-3 text-sm">
               <div className="min-w-0">

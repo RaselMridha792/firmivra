@@ -58,8 +58,9 @@ const addressLines = (a: Address): string[] => {
 /**
  * Company Profile is the source; Locations' main office fills what it leaves empty (guide 9.4).
  * The address comes whole from one of them, never a street from one and a city from the other.
+ * With no profile, a location's own details (the portal's contact card, client-portal/).
  */
-function contactOf(
+export function contactOf(
   profile: (Address & { contactPhone: string | null; contactEmail: string | null }) | null,
   office:
     | (Address & {

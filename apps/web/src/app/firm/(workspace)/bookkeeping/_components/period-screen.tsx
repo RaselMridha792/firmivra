@@ -6,6 +6,7 @@ import { Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { approveBlocked } from './recon-rules';
 import { useApiQuery } from '../../../../../lib/query';
 import { useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -170,13 +171,21 @@ export function PeriodScreen({ id }: { id: string }) {
           </button>
         ) : null}
         {r.status === 'READY_FOR_REVIEW' ? (
+          // Review 2 (R01 review): disabled for the same reasons as on the Reconciliation screen.
           <button
             type="button"
             className={btn}
+            disabled={!!approveBlocked(r)}
+            title={approveBlocked(r) ?? undefined}
             onClick={() => void act(() => api.bookkeeping.approveReconciliation(r.id), 'Approved.')}
           >
             Approve
           </button>
+        ) : null}
+        {r.status === 'READY_FOR_REVIEW' && approveBlocked(r) ? (
+          <span className="text-xs text-danger" data-testid="close-recon-blocked">
+            {approveBlocked(r)}
+          </span>
         ) : null}
         {r.status === 'APPROVED' && !closed ? (
           <button

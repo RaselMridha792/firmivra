@@ -11,6 +11,12 @@ export interface NavItem {
   href?: string;
   /** Count badge, for example pending applications. */
   badge?: number;
+  /**
+   * The badge opens its own page (Settings' security badge opens Security & Access's alerts), so
+   * it is a link of its own beside the item's, named by `badgeLabel`.
+   */
+  badgeHref?: string;
+  badgeLabel?: string;
   soon?: boolean;
   /** A group (the firm's Clients): a toggle that shows these items under it; no page of its own. */
   children?: readonly NavItem[];

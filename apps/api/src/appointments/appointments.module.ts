@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { AppointmentDraftsController } from './appointment-drafts.controller.js';
@@ -23,6 +24,7 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
  * appointments.
  */
 @Module({
+  imports: [PortalTabsModule],
   controllers: [
     AppointmentTypesController,
     AvailabilityController,

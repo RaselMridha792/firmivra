@@ -16,4 +16,17 @@ export const cases: CaseModule['cases'] = {
     body: { reason: 'Fake reason' },
   },
   'POST /api/v1/business/client-portal/clients/:id/unlock': client,
+  'GET /api/v1/business/client-portal/clients/:id/visibility': client,
+  'PUT /api/v1/business/client-portal/clients/:id/visibility': {
+    params: { id: 'client' },
+    body: { areas: { REPORTS: false } },
+  },
+  // Client X's login is ACTIVE: firm P deactivates it and gets it back.
+  'POST /api/v1/business/client-portal/clients/:id/deactivate': client,
+  // Not deactivated in this world: firm P's Owner gets the state's 409.
+  'POST /api/v1/business/client-portal/clients/:id/reactivate': { ...client, expect: 409 },
+  'POST /api/v1/business/client-portal/clients/:id/reset-access': client,
+  'POST /api/v1/business/client-portal/clients/:id/mfa/reset': client,
+  'GET /api/v1/business/client-portal/clients/:id/documents/summary': client,
+  'GET /api/v1/business/client-portal/clients/:id/forms/summary': client,
 };
