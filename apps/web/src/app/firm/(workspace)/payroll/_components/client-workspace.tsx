@@ -292,7 +292,8 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
         <nav
           aria-label="Payroll client tabs"
           role="tablist"
-          className="flex overflow-x-auto border-b border-divider"
+          // Review 2 (UX03): Settings and every other tab show, wrapping, with no sideways scroll.
+          className="flex flex-wrap border-b border-divider"
         >
           {TABS.map((t) => (
             <button
@@ -301,7 +302,7 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
               role="tab"
               aria-selected={current === t.id}
               onClick={() => setCurrent(t.id)}
-              className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${current === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
+              className={`-mb-px min-h-11 shrink-0 border-b-2 px-3 text-sm whitespace-nowrap ${current === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
             >
               {t.label}
             </button>
