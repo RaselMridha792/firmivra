@@ -45,6 +45,7 @@ const profile = {
   preferredContactMethod: 'EMAIL',
   referralSource: null,
   additionalInfo: null,
+  responsibleParty: null,
   updatedAt: at,
 };
 const record = {

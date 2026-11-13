@@ -27,6 +27,9 @@ type Field =
   | 'city'
   | 'state'
   | 'postalCode'
+  | 'rpName'
+  | 'rpEmail'
+  | 'rpPhone'
   | 'assignedUserId';
 const EMPTY_FORM: Record<Field, string> = {
   accountType: 'INDIVIDUAL',
@@ -38,6 +41,9 @@ const EMPTY_FORM: Record<Field, string> = {
   city: '',
   state: '',
   postalCode: '',
+  rpName: '',
+  rpEmail: '',
+  rpPhone: '',
   assignedUserId: '',
 };
 const STATE_OPTIONS = [
@@ -49,8 +55,8 @@ const STATE_OPTIONS = [
  * "Add New Client", the shared new-client form (the Clients list and the dashboard's + New and
  * quick action): a client with no portal login yet (POST /business/clients), then their record
  * opens. Name, email, phone and the address are required for both types, and a Business gives
- * its Business Name (Octavia's D1, checked with the contract's NewClientForm). Owner and Admin may
- * assign someone; a client Staff add is assigned to them.
+ * its Business Name and its responsible party (Octavia's D1 and E5, checked with the contract's
+ * NewClientForm). Owner and Admin may assign someone; a client Staff add is assigned to them.
  */
 export function AddClientDialog({
   manager,
@@ -84,7 +90,21 @@ export function AddClientDialog({
       phone: values.phone,
       ...(manager && values.assignedUserId ? { assignedUserId: values.assignedUserId } : {}),
       profile: {
-        ...(business ? { businessName: values.displayName } : {}),
+        ...(business
+          ? {
+              businessName: values.displayName,
+              // Sent once all three are typed; until then the form names what is missing.
+              ...(values.rpName.trim() && values.rpEmail.trim() && values.rpPhone.trim()
+                ? {
+                    responsibleParty: {
+                      name: values.rpName,
+                      email: values.rpEmail,
+                      phone: values.rpPhone,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
         address: {
           line1: values.line1,
           line2: values.line2,
@@ -99,8 +119,14 @@ export function AddClientDialog({
       const found: Partial<Record<Field, string>> = {};
       for (const issue of check.error.issues) {
         const last = String(issue.path.at(-1) ?? 'displayName');
-        // The Business Name is the name typed in the name field.
-        const name = (last === 'businessName' ? 'displayName' : last) as Field;
+        // The Business Name is the name typed in the name field; the responsible party's own.
+        const name = (
+          issue.path.includes('responsibleParty')
+            ? `rp${last.charAt(0).toUpperCase()}${last.slice(1)}`
+            : last === 'businessName'
+              ? 'displayName'
+              : last
+        ) as Field;
         found[name] ??= issue.message;
       }
       setErrors(found);
@@ -161,6 +187,32 @@ export function AddClientDialog({
             {...field('postalCode')}
           />
         </fieldset>
+        {business ? (
+          <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party">
+            <legend className="mb-1 text-sm font-semibold text-heading">Responsible party</legend>
+            <p className="text-sm text-muted sm:col-span-2">
+              The person who answers for the business. They are linked to it; the business stays the
+              client.
+            </p>
+            <div className="sm:col-span-2">
+              <Input label="Full name *" autoComplete="off" required {...field('rpName')} />
+            </div>
+            <Input
+              label="Their email *"
+              type="email"
+              autoComplete="off"
+              required
+              {...field('rpEmail')}
+            />
+            <Input
+              label="Their phone *"
+              type="tel"
+              autoComplete="off"
+              required
+              {...field('rpPhone')}
+            />
+          </fieldset>
+        ) : null}
         {manager ? (
           <Select
             label="Assigned to"

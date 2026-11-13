@@ -102,9 +102,9 @@ export class LeadPipelineTabsService {
         await addSteps(tx, businessId, id, actor.userId, [body]);
       }
       await syncNextAction(tx, businessId, id, actor.userId);
+      await this.audit.logIn(tx, 'lead.follow_up_set', { type: 'lead', id }, { type: body.type });
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log('lead.follow_up_set', { type: 'lead', id }, { type: body.type });
     return profile;
   }
 
@@ -137,13 +137,14 @@ export class LeadPipelineTabsService {
       });
       if (body.next) await addSteps(tx, businessId, id, actor.userId, [body.next]);
       await syncNextAction(tx, businessId, id, actor.userId);
+      await this.audit.logIn(
+        tx,
+        'lead.follow_up_completed',
+        { type: 'lead', id },
+        { next: body.next?.type ?? null },
+      );
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log(
-      'lead.follow_up_completed',
-      { type: 'lead', id },
-      { next: body.next?.type ?? null },
-    );
     return profile;
   }
 

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { type ApiRequest, parseInput } from '../client.js';
 
 // Client Portal module (firm workspace), Access & Security: Lock Portal Access and Unlock Portal
 // Access (Client Portal developer instructions 15 and 26). A lock stops the client's every login
@@ -25,20 +24,3 @@ export const LockClientPortalRequest = z.strictObject({
   reason: z.string().trim().max(PORTAL_LOCK_REASON_MAX).optional(),
 });
 export type LockClientPortalRequest = z.infer<typeof LockClientPortalRequest>;
-
-const base = (clientId: string) =>
-  `/business/client-portal/clients/${encodeURIComponent(clientId)}`;
-
-/** `api.clientPortal` (apps/web/src/lib/api.ts): the firm's management of one client's portal. */
-export function createClientPortalClient(request: ApiRequest) {
-  return {
-    lock: async (clientId: string, body: LockClientPortalRequest = {}): Promise<ClientPortalLock> =>
-      request(ClientPortalLock, `${base(clientId)}/lock`, {
-        method: 'POST',
-        body: parseInput(LockClientPortalRequest, body),
-      }),
-    unlock: async (clientId: string): Promise<ClientPortalLock> =>
-      request(ClientPortalLock, `${base(clientId)}/unlock`, { method: 'POST', body: {} }),
-  };
-}
-export type ClientPortalClient = ReturnType<typeof createClientPortalClient>;

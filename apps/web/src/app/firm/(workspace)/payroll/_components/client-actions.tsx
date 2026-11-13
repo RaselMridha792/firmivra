@@ -46,7 +46,8 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
-import { StopBillingDialog } from '../../../../../components/stop-billing-dialog';
+import { ServiceBillingDialog } from '../../../../../components/service-billing-dialog';
+import type { Scope } from '../../../../../lib/service-billing';
 import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 
 type Kind =
@@ -87,7 +88,8 @@ export function ClientActionMenu({
   const toOrigin = useOriginNavigate();
   const docs = useServiceDocuments();
   const [dialog, setDialog] = useState<Kind>();
-  const [billing, setBilling] = useState(false);
+  // Review 2 (cross-service, F13): the service and its billing pause in one place.
+  const [serviceBilling, setServiceBilling] = useState<Scope>();
   const options = { invalidate: [...PAYROLL_KEY] };
   const sync = useApiMutation(() => api.payroll.sync(client.id), options);
   // SH1: a page outside the workspace gets Back to this exact place.
@@ -156,31 +158,30 @@ export function ClientActionMenu({
     item(
       client.status === 'ON_HOLD' ? 'Resume Payroll Service' : 'Pause Payroll Service',
       client.status === 'ON_HOLD' ? Play : Pause,
-      () =>
-        client.status === 'ON_HOLD'
-          ? api.payroll
-              .resume(client.id)
-              .then(() => onNotice('Payroll service resumed.', 'success'))
-              .catch((e) => onNotice(errorMessage(e, PAYROLL_ERRORS), 'error'))
-          : setDialog('pause'),
+      () => setServiceBilling('service'),
     ),
-    // SH10: its own control; pausing never stops billing.
-    item('Stop Future Billing', CurrencyCircleDollar, () => setBilling(true)),
+    // SH10 and Review 2 (F13): billing pauses on its own, beside the service, in the same dialog.
+    item('Pause or Resume Billing', CurrencyCircleDollar, () => setServiceBilling('billing')),
     item('Archive Payroll Client', Archive, () => setDialog('archive')),
     item('Remove Payroll Service', Trash, () => setDialog('remove'), { danger: true }),
   ];
   return (
     <>
       <ActionMenu label={label} align={align} trigger={trigger} sections={[{ items }]} />
-      {billing ? (
-        <StopBillingDialog
-          engagementId={client.engagementId}
-          clientName={client.client.displayName}
+      {serviceBilling ? (
+        <ServiceBillingDialog
           service="Payroll"
-          onClose={() => setBilling(false)}
-          onDone={(text) => {
-            setBilling(false);
-            onNotice(text, 'success');
+          clientName={client.client.displayName}
+          engagementId={client.engagementId}
+          servicePaused={client.status === 'ON_HOLD'}
+          serviceNote="Payroll at the provider is not paused."
+          initialScope={serviceBilling}
+          pauseService={(reason) => api.payroll.pause(client.id, { reason })}
+          resumeService={() => api.payroll.resume(client.id)}
+          onClose={() => setServiceBilling(undefined)}
+          onDone={(text, tone) => {
+            setServiceBilling(undefined);
+            onNotice(text, tone);
           }}
         />
       ) : null}

@@ -36,10 +36,11 @@ test('says the interface stays English and the currency never converts old amoun
     'Changing the currency never converts past invoices or payments. They keep their original amounts and currencies.',
   );
 
-  // Each language is named in itself.
-  await language.selectOption({ label: 'Español (Estados Unidos)' });
-  await expect(language).toHaveValue('es-US');
+  // Each language is named in itself; Spanish waits for its translation (R60, the lead's queue).
+  await expect(language.locator('option', { hasText: 'Español' })).toHaveCount(0);
+  await language.selectOption({ label: 'Français (Canada)' });
+  await expect(language).toHaveValue('fr-CA');
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByTestId('preferences-saved')).toHaveText('Preferences saved.');
-  await expect(language).toHaveValue('es-US');
+  await expect(language).toHaveValue('fr-CA');
 });
