@@ -21,6 +21,7 @@ import {
   FILE_TYPES,
   type FieldErrors,
   type FileType,
+  FINAL_REMINDER_MINUTES,
   nextReminder,
   REMINDER_MINUTES,
   fileSizeOptions,
@@ -395,7 +396,7 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
                 ? [{ value: '', label: 'No reminders' }]
                 : afterSending(
                     withCurrent(
-                      REMINDER_MINUTES.filter((m) => m > first),
+                      FINAL_REMINDER_MINUTES.filter((m) => m > first),
                       n.finalReminderAfterMinutes,
                     ),
                   )
