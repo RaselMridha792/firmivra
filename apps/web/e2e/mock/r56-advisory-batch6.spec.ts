@@ -12,6 +12,10 @@ test('B14: the assessment shows the approved helper text and keeps the new SWOT 
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
+  // The mock dev server can answer 404 for a plan's edit pages when they are its first page
+  // (curl and next build serve them); opening the plan list first avoids that.
+  await page.goto(`${base}/plans`);
+  await expect(page.getByTestId('ba-plans')).toBeVisible({ timeout: 60_000 });
   await page.goto(`${startupPlan}/assessment`);
   const sales = page.getByTestId('step-sales');
   await expect(sales).toBeVisible({ timeout: 60_000 });
