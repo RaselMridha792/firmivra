@@ -58,6 +58,9 @@ export function SavingsCalculator() {
   const [base, setBase] = useState<Record<string, string>>({});
   const [strat, setStrat] = useState<Record<string, string>>({});
   const [result, setResult] = useState<CalculatorResult>();
+  // C26 (Review 2): the inputs the shown result was worked out from. Once they change, the result
+  // is marked stale and cannot be saved until it is calculated again.
+  const [calculatedFor, setCalculatedFor] = useState('');
   const [name, setName] = useState('');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [busy, setBusy] = useState(false);
@@ -74,16 +77,20 @@ export function SavingsCalculator() {
     baseline: pick(base) as never,
     strategy: pick(strat) as never,
   });
+  const stale = !!result && JSON.stringify(body()) !== calculatedFor;
   const calc = async () => {
     setBusy(true);
     try {
-      setResult(await api.taxPlanning.calculate(body()));
+      const sent = body();
+      setResult(await api.taxPlanning.calculate(sent));
+      setCalculatedFor(JSON.stringify(sent));
     } catch (e) {
       setMessage({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
     }
     setBusy(false);
   };
   const save = async () => {
+    if (stale) return;
     try {
       await api.taxPlanning.saveScenario({
         ...(name.trim() ? { name: name.trim() } : {}),
@@ -187,6 +194,16 @@ export function SavingsCalculator() {
         <div className="flex min-w-0 flex-col gap-4">
           <section className={card} aria-label="Result" data-testid="calc-result">
             <h2 className="mb-2 font-display text-lg font-bold text-heading">Estimated Result</h2>
+            {stale ? (
+              <p
+                role="status"
+                data-testid="calc-stale"
+                className="mb-2 rounded-lg bg-warning-soft p-3 text-sm text-warning"
+              >
+                The inputs changed after this result. It is out of date: Calculate again before you
+                save it.
+              </p>
+            ) : null}
             {!result ? (
               <p className={quiet}>Enter a baseline and a strategy, then calculate.</p>
             ) : result.differenceCents === null ? (
@@ -240,7 +257,9 @@ export function SavingsCalculator() {
                     onChange={(e) => setName(e.target.value)}
                   />
                 </div>
-                <Button onClick={() => void save()}>Save Scenario</Button>
+                <Button disabled={stale} onClick={() => void save()}>
+                  Save Scenario
+                </Button>
               </div>
             ) : null}
           </section>
