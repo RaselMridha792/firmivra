@@ -141,6 +141,15 @@ describe('business plans', () => {
         ],
       }).success,
     ).toBe(false);
+    // B13: None / Not Applicable is a choice of its own, never with an area.
+    expect(AdvisoryPlanStrategy.safeParse({ noFocusArea: true, areas: [] }).success).toBe(true);
+    expect(AdvisoryPlanStrategy.safeParse({ noFocusArea: false }).success).toBe(true);
+    expect(
+      AdvisoryPlanStrategy.safeParse({
+        noFocusArea: true,
+        areas: [{ area: 'FUNDING', objective: 'Raise $250k' }],
+      }).success,
+    ).toBe(false);
   });
 
   it('a change names its etag and a field; sections merge at their top keys', () => {

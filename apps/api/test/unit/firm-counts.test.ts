@@ -21,6 +21,8 @@ describe('firmCounts', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     );
     expect(await service.firmCounts()).toEqual({
       active: 5,
@@ -41,6 +43,8 @@ describe('firmCounts', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     );
     expect(await service.firmCounts()).toEqual({
       active: 0,
@@ -52,9 +56,10 @@ describe('firmCounts', () => {
 });
 
 describe('application counts', () => {
-  it('reads one statement grouped by status; all is the sum, an information request is pending', async () => {
+  it('reads one statement grouped by status; all is the sum of the five (SA-APP-Y04)', async () => {
     const queryRaw = vi.fn().mockResolvedValue([
       { status: 'PENDING_REVIEW', total: 4, month: 0 },
+      { status: 'IN_REVIEW', total: 3, month: 0 },
       { status: 'INFO_REQUESTED', total: 2, month: 0 },
       { status: 'APPROVED', total: 7, month: 3 },
       { status: 'DECLINED', total: 5, month: 1 },
@@ -67,10 +72,14 @@ describe('application counts', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     );
     expect(await service.counts()).toEqual({
-      all: 18,
-      pendingReview: 6,
+      all: 21,
+      pendingReview: 4,
+      inReview: 3,
+      awaitingInformation: 2,
       approved: 7,
       declined: 5,
       approvedThisMonth: 3,

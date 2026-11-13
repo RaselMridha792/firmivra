@@ -30,6 +30,11 @@ export const advErrors = {
       missing.map((m) => ({ path: 'plan', message: m })),
     ),
   planArchived: () => refusal('PLAN_ARCHIVED', 'Restore the plan before changing it'),
+  planLocked: () =>
+    refusal(
+      'PLAN_LOCKED',
+      'This plan is finalized. Modify Plan starts a new draft revision; its versions stay as they were',
+    ),
   inconsistent: () =>
     refusal('INCONSISTENT_FIGURES', 'Net profit must equal revenue minus expenses'),
   notThisClient: (what: string) =>

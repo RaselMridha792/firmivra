@@ -27,6 +27,9 @@ import {
   LeadTask,
   LogLeadActivityRequest,
   SetFollowUpRequest,
+  AddLeadFollowUpRequest,
+  UpdateLeadFollowUpRequest,
+  CompleteLeadFollowUpRequest,
   UpdateLeadRequest,
 } from './pipeline.js';
 import {
@@ -111,6 +114,33 @@ export function createLeadPipelineClient(request: ApiRequest) {
         LeadProfile,
         `${one(id)}/follow-up/complete`,
         post(parseInput(CompleteFollowUpRequest, body)),
+      ),
+
+    /** L8: a lead's follow-up steps. Each answers the lead's profile, its Next Action updated. */
+    addFollowUp: async (id: string, body: AddLeadFollowUpRequest): Promise<LeadProfile> =>
+      request(LeadProfile, `${one(id)}/follow-ups`, post(parseInput(AddLeadFollowUpRequest, body))),
+    updateFollowUp: async (
+      id: string,
+      followUpId: string,
+      body: UpdateLeadFollowUpRequest,
+    ): Promise<LeadProfile> =>
+      request(LeadProfile, `${one(id)}/follow-ups/${parseInput(z.uuid(), followUpId)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdateLeadFollowUpRequest, body),
+      }),
+    removeFollowUp: async (id: string, followUpId: string): Promise<LeadProfile> =>
+      request(LeadProfile, `${one(id)}/follow-ups/${parseInput(z.uuid(), followUpId)}`, {
+        method: 'DELETE',
+      }),
+    completeFollowUpStep: async (
+      id: string,
+      followUpId: string,
+      body: CompleteLeadFollowUpRequest = {},
+    ): Promise<LeadProfile> =>
+      request(
+        LeadProfile,
+        `${one(id)}/follow-ups/${parseInput(z.uuid(), followUpId)}/complete`,
+        post(parseInput(CompleteLeadFollowUpRequest, body)),
       ),
 
     activity: async (id: string, query: LeadActivityQuery = {}): Promise<LeadActivityPage> =>
