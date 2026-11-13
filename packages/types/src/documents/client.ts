@@ -75,12 +75,6 @@ export function createDocumentsClient(request: ApiRequest) {
     /** A 5-minute link, always a download (never inline). 409 SCAN_PENDING or FILE_BLOCKED. */
     download: async (id: string): Promise<DownloadLink> =>
       request(DownloadLink, `${doc(id)}/download`),
-    /**
-     * Review 2 (N03): a one-minute link that shows a PDF, PNG or JPEG inline, reached as a download
-     * is. 409 NOT_PREVIEWABLE for any other type, SCAN_PENDING or FILE_BLOCKED.
-     */
-    preview: async (id: string): Promise<DownloadLink> =>
-      request(DownloadLink, `${doc(id)}/preview`),
 
     /** The firm's categories in order; archived ones too, for old documents. */
     categories: async (): Promise<DocumentCategory[]> =>

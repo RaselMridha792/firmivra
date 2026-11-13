@@ -2,11 +2,11 @@
 
 import type { FirmDocument } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
-import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { DocumentViewer } from '../../documents/[id]/_components/document-viewer';
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -78,59 +78,24 @@ export function RecentDocuments({
   );
 }
 
-const PREVIEWABLE = new Set(['application/pdf', 'image/png', 'image/jpeg']);
-
 /**
- * Review 2 (N03): the file itself, inline. A PDF, PNG or JPEG with a clean virus check is shown
- * from a one-minute link on the storage host (never this site): an image as an image, a PDF in a
- * sandboxed frame. Anything else says why it is not shown, and Download stays beside it.
+ * Review 2 (N03): the file itself, in place. It reuses Documents' own viewer (an image as it is, a
+ * PDF drawn page by page), which reads the file through the library's clean-file link; other types
+ * and unchecked files say why there is no preview. Nothing here leaves Bookkeeping.
  */
-function Preview({ doc }: { doc: FirmDocument }) {
-  const can = PREVIEWABLE.has(doc.contentType) && doc.scanStatus === 'CLEAN';
-  // A fresh one-minute link each time the dialog opens; never cached or retried.
-  const link = useQuery({
-    queryKey: ['document-preview', doc.id],
-    queryFn: () => api.documents.preview(doc.id),
-    enabled: can,
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-  });
-  if (!can)
-    return (
-      <p className="rounded-control bg-canvas px-4 py-3 text-sm text-muted">
-        {PREVIEWABLE.has(doc.contentType)
-          ? 'The preview appears once the file passes its virus check.'
-          : 'Only PDF, PNG and JPEG files can be previewed here. Download this one to open it.'}
-      </p>
-    );
-  if (link.isPending) return <p className="text-sm text-muted">Loading the preview…</p>;
-  if (link.isError || !link.data)
+function Preview({ doc, onDownload }: { doc: FirmDocument; onDownload: () => void }) {
+  const lib = useApiQuery(['library-document', doc.id], () => api.documentLibrary.get(doc.id));
+  if (lib.isPending) return <p className="text-sm text-muted">Loading the preview…</p>;
+  if (lib.isError || !lib.data)
     return (
       <p className="text-sm text-muted">
         The preview could not be loaded. Download the file instead.
       </p>
     );
-  return doc.contentType === 'application/pdf' ? (
-    <div className="flex flex-col gap-1" data-testid="document-preview">
-      <iframe
-        src={link.data.url}
-        title={`Preview of ${doc.fileName}`}
-        sandbox="allow-scripts allow-same-origin"
-        referrerPolicy="no-referrer"
-        className="h-[60vh] w-full rounded-control border border-border"
-      />
-      <p className="text-xs text-muted">If the preview stays blank, use Download.</p>
+  return (
+    <div className="h-[60vh] min-h-0" data-testid="document-preview">
+      <DocumentViewer doc={lib.data} onDownload={onDownload} />
     </div>
-  ) : (
-    // eslint-disable-next-line @next/next/no-img-element -- a one-minute signed link, not a page asset
-    <img
-      src={link.data.url}
-      alt={`Preview of ${doc.fileName}`}
-      referrerPolicy="no-referrer"
-      className="max-h-[60vh] w-full rounded-control border border-border object-contain"
-      data-testid="document-preview"
-    />
   );
 }
 
@@ -171,7 +136,7 @@ function QuickView({ doc, onClose }: { doc: FirmDocument; onClose: () => void })
         </>
       }
     >
-      <Preview doc={doc} />
+      <Preview doc={doc} onDownload={() => download.mutate()} />
       <dl
         className="mt-3 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"
         data-testid="document-quick-view"

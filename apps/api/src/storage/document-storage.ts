@@ -24,13 +24,6 @@ export const PUT_URL_SECONDS = 240;
 export const MULTIPART_URL_SECONDS = 3_600;
 /** A download link works for 5 minutes. */
 export const GET_URL_SECONDS = 300;
-/** A preview link works for one minute: the dialog loads it straight away (Review 2, N03). */
-export const PREVIEW_URL_SECONDS = 60;
-/**
- * The stored types a firm member may preview inline (the lead's decision, Nov 14): PDF, PNG and
- * JPEG, by the type we stored, never by the file name. Every other link stays an attachment.
- */
-export const PREVIEW_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
 /**
  * Timeouts of every S3 call, in the style of notify's AWS_CLIENT (#113): 3 s to connect, 5 s for
@@ -130,16 +123,8 @@ export interface DocumentStorage {
    */
   read(key: string): Promise<Uint8Array | null>;
   remove(key: string): Promise<void>;
-  /**
-   * A GET that saves the object as an attachment named `fileName`. With `preview` (PDF, PNG or
-   * JPEG only), a one-minute GET that shows it inline as exactly that type instead.
-   */
-  presignDownload(file: {
-    key: string;
-    fileName: string;
-    contentType: string;
-    preview?: boolean;
-  }): Promise<string>;
+  /** A GET that saves the object as an attachment named `fileName`. */
+  presignDownload(file: { key: string; fileName: string; contentType: string }): Promise<string>;
 }
 
 /** The size of each part of a multipart upload of `sizeBytes`: all partSizeBytes but the last. */
@@ -436,29 +421,17 @@ export class S3DocumentStorage implements DocumentStorage {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
-  presignDownload(file: {
-    key: string;
-    fileName: string;
-    contentType: string;
-    preview?: boolean;
-  }): Promise<string> {
-    // A preview is inline only for the three types, as the stored type; anything else never is.
-    const inline = file.preview === true && PREVIEW_TYPES.has(file.contentType);
-    if (file.preview && !inline) throw new Error('Not a previewable type');
+  presignDownload(file: { key: string; fileName: string; contentType: string }): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: file.key,
-      ResponseContentDisposition: inline ? 'inline' : attachment(file.fileName),
-      ResponseContentType: inline ? file.contentType : downloadType(file.contentType),
+      ResponseContentDisposition: attachment(file.fileName),
+      ResponseContentType: downloadType(file.contentType),
       // Pinned by the signature, whatever a repeated PUT stores after the HEAD check: the
       // browser saves the bytes as they are, and nothing keeps a copy.
       ResponseContentEncoding: 'identity',
       ResponseCacheControl: 'private, no-store',
     });
-    // S3 cannot add X-Content-Type-Options to a presigned GET; the forced type and the one-minute
-    // expiry stand in for it, and the dialog sandboxes the frame.
-    return getSignedUrl(this.s3, command, {
-      expiresIn: inline ? PREVIEW_URL_SECONDS : GET_URL_SECONDS,
-    });
+    return getSignedUrl(this.s3, command, { expiresIn: GET_URL_SECONDS });
   }
 }

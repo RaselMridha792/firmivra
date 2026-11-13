@@ -127,16 +127,6 @@ export class DocumentsController {
     return this.documents.download(tenant.businessId, actorOf(auth, tenant), id);
   }
 
-  /** Review 2 (N03): show a PDF, PNG or JPEG inline for one minute, as a download is reached. */
-  @Get('documents/:id/preview')
-  preview(
-    @CurrentAuth() auth: AuthContext,
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id', docPipe) id: string,
-  ): Promise<DownloadLink> {
-    return this.documents.preview(tenant.businessId, actorOf(auth, tenant), id);
-  }
-
   @Get('document-categories')
   async categories(@CurrentTenant() tenant: TenantContext): Promise<DocumentCategoryList> {
     return { items: await this.documents.categories(tenant.businessId) };

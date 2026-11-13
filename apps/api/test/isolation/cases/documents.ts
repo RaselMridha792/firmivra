@@ -59,8 +59,6 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/documents/:id': { params: { id: 'document' } },
   // No file store in tests: found, then 503.
   'GET /api/v1/business/documents/:id/download': { params: { id: 'document' }, expect: 503 },
-  // Review 2 (N03): a clean PDF, so found and previewable, then 503 with no file store.
-  'GET /api/v1/business/documents/:id/preview': { params: { id: 'document' }, expect: 503 },
   'POST /api/v1/business/clients/:clientId/documents/uploads': {
     params: { clientId: 'client' },
     // The upload's serviceId is the client's engagement (storage/document-records.ts).

@@ -520,20 +520,6 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
       await mockDelay();
       return s.download(findDoc(id), 'firm');
     },
-    // Review 2 (N03): PDF, PNG and JPEG only, with the download's scan checks.
-    preview: async (id) => {
-      await mockDelay();
-      const d = findDoc(id);
-      if (!['application/pdf', 'image/png', 'image/jpeg'].includes(d.contentType))
-        throw fail(409, 'NOT_PREVIEWABLE', 'Only PDF, PNG and JPEG files can be previewed');
-      s.download(d, 'firm');
-      return {
-        url: d.contentType.startsWith('image/')
-          ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-          : `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock preview: ${d.fileName}`)}`,
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      };
-    },
     categories: async () => {
       await mockDelay();
       // A spec shows a firm with none (Advisory B12): sessionStorage 'firmivra-mock:document-categories' = 'none'.
