@@ -62,6 +62,7 @@ import {
   createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalContactClient,
   createPortalTabsClient,
   createPaymentPreferencesClient,
   createProfileChangesClient,
@@ -158,6 +159,7 @@ import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalContactMock } from '../mocks/portal-contact';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
 import {
@@ -276,6 +278,11 @@ export const api = {
     dev && mocked('portalTabs')
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
+  /** Client Portal > Contact Information (PRT-3), and the portal's contact card (`mine`). */
+  portalContact:
+    dev && mocked('portalContact')
+      ? createPortalContactMock({ role: MOCK_ROLE })
+      : createPortalContactClient(request),
   /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
   /** Help & Support's in-app message to the Firmivra team (D2): any member. */
   supportMessages:

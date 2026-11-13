@@ -41,6 +41,9 @@ test('the sign-up form checks its fields, shows the policies and starts a sign-u
   await form.getByRole('button', { name: 'Create Account' }).click();
   await expect(form.getByText('The passwords do not match')).toBeVisible();
 
+  // PRT-1: the firm has active locations, so the person picks theirs.
+  await expect(form.getByText('Choose the office you will work with')).toBeVisible();
+  await form.getByRole('radio', { name: /Lawrenceville Office/ }).check();
   await form.getByLabel('Confirm Password *').fill('Sample-pass-2026');
   await form.getByRole('button', { name: 'Create Account' }).click();
   await expect(page).toHaveURL(portal('/lvp/sign-up/verify-email'));

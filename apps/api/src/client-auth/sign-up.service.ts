@@ -21,6 +21,7 @@ import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
 import { canonicalIp, networkOf } from '../common/network.js';
+import { assignableOffice } from './client-records.js';
 import { PortalInfoService } from './portal-info.controller.js';
 import { type AutomaticDecision, approveAutomatically } from './sign-up-decisions.js';
 import {
@@ -228,10 +229,11 @@ export class SignUpService {
       await this.admitRequest(null);
       const firm = await this.portal.activeFirm(firmSlug);
       const documents = await this.currentDocuments(firm.id, input.accepted);
+      const officeId = await this.chosenOffice(firm.id, input.officeId);
       await this.admitEmail(firm.id, input.email);
       // Every path makes the attempt's login, so the work, timing and errors are the same.
       const userId = await this.createAttemptUser(input);
-      const accountId = await this.attach(firm, userId, input, true);
+      const accountId = await this.attach(firm, userId, { ...input, officeId }, true);
       if (accountId) {
         await this.sendCode(this.owner(firm.id, accountId, userId), 'EMAIL', input.email, firm);
       }
@@ -245,6 +247,7 @@ export class SignUpService {
         phone: input.phone,
         accountType: input.accountType,
         documents,
+        officeId,
       };
       const expiresAt = Math.floor(Date.now() / 1000) + SIGN_UP_SECONDS;
       await this.writeSession(res, session, expiresAt);
@@ -300,7 +303,12 @@ export class SignUpService {
               legalAcceptances: { none: {} },
               clientId: null,
             },
-            data: { emailVerifiedAt: new Date(), userId: s.userId, accountType: s.accountType },
+            data: {
+              emailVerifiedAt: new Date(),
+              userId: s.userId,
+              accountType: s.accountType,
+              selectedOfficeId: await assignableOffice(tx, s.businessId, s.officeId),
+            },
           });
           if (proved.count !== 1) throw signUpErrors.codeInvalid();
           // SMS fallback: the sign-up completes here, as verify-phone would complete it.
@@ -485,7 +493,7 @@ export class SignUpService {
         accountId = await this.attach(
           firm,
           s.userId,
-          { email, accountType: s.accountType },
+          { email, accountType: s.accountType, officeId: s.officeId },
           sendNow,
         );
       }
@@ -567,6 +575,24 @@ export class SignUpService {
     return user.id;
   }
 
+  /** The form's office (PRT-1): one of the firm's active locations, or 400 OFFICE_NOT_AVAILABLE. */
+  private async chosenOffice(businessId: string, officeId: string | undefined) {
+    if (!officeId) return null;
+    const open = await this.stillOpen(businessId, officeId);
+    if (!open) throw signUpErrors.officeNotAvailable();
+    return open;
+  }
+
+  /** The office if it is still an active location (it may have closed since the form). */
+  private async stillOpen(businessId: string, officeId: string | null | undefined) {
+    if (!officeId) return null;
+    const office = await this.db.forBusiness(businessId).firmOffice.findFirst({
+      where: { businessId, id: officeId, status: 'ACTIVE', archivedAt: null },
+      select: { id: true },
+    });
+    return office?.id ?? null;
+  }
+
   /**
    * Which account an attempt is for: a new pending account it owns, an unfinished sign-up it may
    * take over (left unchanged until it proves the email), or none (null) when the email belongs
@@ -576,7 +602,7 @@ export class SignUpService {
   private async attach(
     firm: Firm,
     userId: string,
-    details: { email: string; accountType: AccountType },
+    details: { email: string; accountType: AccountType; officeId?: string | null },
     notify: boolean,
     retried = false,
   ): Promise<string | null> {
@@ -599,7 +625,13 @@ export class SignUpService {
     }
     try {
       const account = await scope.clientAccount.create({
-        data: { businessId: firm.id, userId, email, accountType },
+        data: {
+          businessId: firm.id,
+          userId,
+          email,
+          accountType,
+          selectedOfficeId: await this.stillOpen(firm.id, details.officeId),
+        },
         select: { id: true },
       });
       await this.log(firm.id, userId, 'client_account.signed_up', account.id);

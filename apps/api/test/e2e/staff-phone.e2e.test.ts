@@ -1,5 +1,6 @@
 // End-to-end: a member verifies the mobile number on their login (R60's column requests 9 and 13),
-// GET /api/v1/business/me/phone, POST .../code and POST .../verify (contract in
+// GET /api/v1/business/me/phone, POST .../code and POST .../verify, and sets or removes it on My
+// Profile with PUT (Overview guide 20) (contract in
 // packages/types/src/notifications/staff-phone.ts). Codes live in R1's staff_phone_codes as an
 // HMAC; locally every code is 000000. A firm sees only its own codes. Synthetic data only.
 import { randomUUID } from 'node:crypto';
@@ -266,6 +267,91 @@ describe('the member’s own mobile number', () => {
 
   it('is for the firm’s members only: a client login gets 403', async () => {
     const res = await call(people.clientA, 'a', '', undefined, 'CLIENT');
+    expect(res.status).toBe(403);
+  });
+});
+
+// Overview guide 20 (R60): the member sets or removes their own number on My Profile.
+describe('PUT /business/me/phone', () => {
+  const put = async (who: Person, firm: 'a' | 'b', body: object) => {
+    const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
+    return request(app.getHttpServer())
+      .put('/api/v1/business/me/phone')
+      .send(body)
+      .set('x-business-id', firms[firm].id)
+      .set('authorization', `Bearer ${token}`);
+  };
+  const audits = (firm: 'a' | 'b', userId: string) =>
+    runInScope(db, { kind: 'business', businessId: firms[firm].id }, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: firms[firm].id,
+          entityId: userId,
+          action: { startsWith: 'staff_phone.' },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+
+  it('sets the member’s own number as typed, unverified, and audits it without the number', async () => {
+    const res = await put(people.staffA, 'a', { phone: '(404) 555-0121' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(StaffPhoneState.parse(res.body)).toMatchObject({
+      phone: '+14045550121',
+      verifiedAt: null,
+      codeSent: false,
+    });
+    const [row] = (await audits('a', people.staffA.id)).filter(
+      (a) => a.action === 'staff_phone.changed',
+    );
+    expect(row?.metadata).toEqual({ hadNumber: false, wasVerified: false });
+    expect(JSON.stringify(row)).not.toContain('5550121');
+    // Send Code now works for the new number.
+    expect((await call(people.staffA, 'a', '/code')).status).toBe(200);
+  });
+
+  it('a new number undoes a verification; the same number keeps it', async () => {
+    await put(people.ownerB, 'b', { phone: '+14045550131' });
+    await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.user.update({ where: { id: people.ownerB.id }, data: { phoneVerifiedAt: new Date() } }),
+    );
+    const same = StaffPhoneState.parse(
+      (await put(people.ownerB, 'b', { phone: '+14045550131' })).body,
+    );
+    expect(same.verifiedAt).not.toBeNull();
+    const changed = StaffPhoneState.parse(
+      (await put(people.ownerB, 'b', { phone: '+14045550132' })).body,
+    );
+    expect(changed).toMatchObject({ phone: '+14045550132', verifiedAt: null });
+  });
+
+  it('removes the number with null, then Send Code says there is none', async () => {
+    const res = await put(people.ownerB, 'b', { phone: null });
+    expect(StaffPhoneState.parse(res.body).phone).toBeNull();
+    expect((await audits('b', people.ownerB.id)).map((a) => a.action)).toContain(
+      'staff_phone.removed',
+    );
+    const code = await call(people.ownerB, 'b', '/code');
+    expect([code.status, code.body.error?.code]).toEqual([409, 'NO_PHONE']);
+  });
+
+  it('refuses a number without a country code, and anything but the number', async () => {
+    expect((await put(people.ownerB, 'b', { phone: '12345' })).status).toBe(400);
+    const extra = await put(people.ownerB, 'b', {
+      phone: '+14045550133',
+      userId: people.ownerA.id,
+    });
+    expect(extra.status).toBe(400);
+    expect((await state(people.ownerA, 'a')).phone).not.toBe('+14045550133');
+  });
+
+  it('is for the firm’s members only: a client login gets 403', async () => {
+    const { token } = await app.get(TokenService).signLocal(people.clientA.id, 'CLIENT');
+    const res = await request(app.getHttpServer())
+      .put('/api/v1/business/me/phone')
+      .send({ phone: '+14045550134' })
+      .set('x-business-id', firms.a.id)
+      .set('authorization', `Bearer ${token}`);
     expect(res.status).toBe(403);
   });
 });

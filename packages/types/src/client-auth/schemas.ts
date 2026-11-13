@@ -268,8 +268,28 @@ export const SignUpRequest = z.object({
     termsVersion: z.number().int().positive(),
     privacyVersion: z.number().int().positive(),
   }),
+  /**
+   * The office the person will visit or work with (Client Portal guide 2, 7.4 and 9.1; PRT-1),
+   * one of GET .../offices. It becomes their client record's local office on approval. The form
+   * asks for it whenever the firm has an active location; never picked from their city or state.
+   * 400 OFFICE_NOT_AVAILABLE for any other id.
+   */
+  officeId: z.uuid().optional(),
 });
 export type SignUpRequest = z.input<typeof SignUpRequest>;
+
+/** One active location as the sign-up form lists it: its name and full address. */
+export const PortalOffice = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** The street lines, then "City, ST 12345"; empty for a virtual office. */
+  addressLines: z.array(z.string()),
+});
+export type PortalOffice = z.infer<typeof PortalOffice>;
+
+/** GET /portal/{firmSlug}/offices: public, the firm's active locations, primary first. */
+export const PortalOffices = z.object({ offices: z.array(PortalOffice).max(200) });
+export type PortalOffices = z.infer<typeof PortalOffices>;
 
 /** Wrong email codes in one sign-up before it ends at CONTACT_FIRM (the same for every email). */
 export const SIGN_UP_WRONG_EMAIL_CODES = 5;

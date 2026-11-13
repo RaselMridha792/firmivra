@@ -82,6 +82,7 @@ test('Opportunity: dismissing needs a reason', async ({ page }) => {
 });
 
 test('Plan: create it, enter figures, override an estimate, finalize it', async ({ page }) => {
+  const year = new Date().getFullYear();
   await page.goto(`${base}/plans/new`);
   await page
     .getByTestId('step-client')
@@ -89,14 +90,29 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
     .selectOption({ label: 'Marcus Johnson' });
   await expect(page.getByTestId('client-card')).toContainText('Marcus Johnson');
   await page.getByLabel('Plan Name').fill('2026 Plan - Marcus');
+  // C05 (Review 2): Next names the required fields still missing.
+  await page.getByRole('button', { name: 'Next', exact: true }).first().click();
+  await expect(page.getByText(/Complete the required fields/)).toBeVisible();
+  await page.getByRole('combobox', { name: 'Filing Status *' }).selectOption({ index: 1 });
+  await page.getByRole('combobox', { name: 'Entity Type *' }).selectOption('Individual');
+  await page.getByRole('combobox', { name: 'Assigned To *' }).selectOption({ index: 1 });
+  await page.getByLabel('Target Completion Date *').fill(`${year}-12-15`);
   await page.getByTestId('step-goals-box').getByLabel('Reduce taxable income').check();
   await page.getByTestId('step-strategies-box').getByRole('checkbox').first().check();
+  // C07: Cancel with unsaved work asks first.
+  await page.getByTestId('plan-cancel').click();
+  await expect(page.getByTestId('leave-prompt')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).first().click();
   await page.waitForURL(/\/edit\/financials$/);
   await expect(page.getByTestId('step-financial')).toBeVisible();
   // A new plan is for this year; the wizard asks for it and the year before.
-  const year = new Date().getFullYear();
   await page.getByLabel(`Wages & Salary ${year - 1}`).fill('90000');
+  // C06: each figure keeps its source and as-of date; Add takes an additional item.
+  await page.getByLabel('Wages & Salary source').selectOption('Tax return');
+  await page.getByLabel('Additional item').fill('Home office costs');
+  await page.getByRole('button', { name: 'Add Item' }).click();
+  await page.getByLabel(`Home office costs ${year}`).fill('1200');
   await page.getByLabel(`Wages & Salary ${year}`).fill('95000');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.waitForURL(/\/edit\/goals$/);
@@ -117,6 +133,10 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
   await page.getByRole('button', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('Plan finalized.')).toBeVisible();
   await expect(page.getByTestId('step-review')).toContainText('Version 2');
+  // C08 and C25: the readiness list, and a kept version opens read-only.
+  await expect(page.getByTestId('readiness')).toContainText('Ready to finalize?');
+  await page.getByTestId('view-version').first().click();
+  await expect(page.getByTestId('version-view')).toContainText('Home office costs');
 });
 
 test('Calculator: a scenario is calculated with its assumptions, then saved', async ({ page }) => {
