@@ -150,7 +150,8 @@ describe('Settings > Client Portal > Features (portal tabs)', () => {
     const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const logs = await runInScope(db, { kind: 'business', businessId: firmId }, (tx) =>
       tx.auditLog.findMany({
-        where: { action: 'portal.tabs_changed' },
+        // This firm's rows only: the owner connection sees every firm's (other tests switch tabs).
+        where: { businessId: firmId, action: 'portal.tabs_changed' },
         select: { actorUserId: true, metadata: true },
       }),
     );
