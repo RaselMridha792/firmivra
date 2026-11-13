@@ -14,10 +14,13 @@ export interface TabItem {
 }
 /** `folder` is the original look; the others are the firm workspace designs. */
 export type TabsVariant = 'folder' | 'underline' | 'pill' | 'segmented';
+// Clients V-001: a one-line strip scrolls sideways only. The underline tabs sit a pixel over the
+// strip's border, which made a 1px vertical scrollbar; focus rings are drawn inside each tab so
+// the hidden vertical overflow never clips them.
 const bar = {
-  folder: 'flex overflow-x-auto border-b border-folder-border',
-  underline: 'flex gap-6 overflow-x-auto border-b border-divider',
-  pill: 'flex gap-1 overflow-x-auto',
+  folder: 'flex overflow-x-auto overflow-y-hidden border-b border-folder-border',
+  underline: 'flex gap-6 overflow-x-auto overflow-y-hidden border-b border-divider',
+  pill: 'flex gap-1 overflow-x-auto overflow-y-hidden',
   segmented: 'inline-flex rounded-lg border border-divider bg-surface p-0.5',
 };
 const tab = {
@@ -70,7 +73,7 @@ export function Tabs({ items, value, onChange, label, variant = 'folder' }: Tabs
                   ?.focus();
               }
             }}
-            className={`inline-flex shrink-0 items-center gap-2 text-sm ${tab[variant](value === item.id)}`}
+            className={`inline-flex shrink-0 items-center gap-2 text-sm focus-visible:outline-offset-[-2px] ${tab[variant](value === item.id)}`}
           >
             {item.icon ? <item.icon aria-hidden weight="fill" className="size-4" /> : null}
             {item.label}

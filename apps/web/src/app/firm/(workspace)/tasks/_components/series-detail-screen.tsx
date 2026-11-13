@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { OriginLink } from '../../../../../components/origin-link';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText, shortName } from './task-shared';
 
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
@@ -69,7 +70,13 @@ export function SeriesDetailScreen({ id }: { id: string }) {
                 <Badge tone={TONE[s.status]}>
                   {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
                 </Badge>
-                {s.summary} · {s.client.displayName}
+                {s.summary} · {/* Review 2 (N05): the client opens its record. */}
+                <OriginLink
+                  href={`/clients/${s.client.id}`}
+                  className="font-medium text-link hover:underline"
+                >
+                  {s.client.displayName}
+                </OriginLink>
               </>
             ) : (
               note

@@ -162,7 +162,7 @@ export function SignUpsScreen({
           <div
             role="tablist"
             aria-label="Sign-up status"
-            className="flex gap-6 overflow-x-auto border-b border-divider"
+            className="flex gap-6 overflow-x-auto overflow-y-hidden border-b border-divider"
           >
             {TABS.map((tab) => {
               const on = tab.status === place.status;
@@ -193,7 +193,7 @@ export function SignUpsScreen({
                       )
                       ?.focus();
                   }}
-                  className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium ${on ? 'border-action text-action' : 'border-transparent text-text hover:text-heading'}`}
+                  className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-1 text-sm font-medium focus-visible:outline-offset-[-2px] ${on ? 'border-action text-action' : 'border-transparent text-text hover:text-heading'}`}
                 >
                   {tab.label}
                   {/* No false zero while the counts load (spec, section 10). */}

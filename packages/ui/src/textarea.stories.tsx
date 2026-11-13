@@ -14,3 +14,15 @@ export const Default: Story = {
   },
 };
 export const WithError: Story = { args: { error: 'Enter a note.' } };
+export const WithHint: Story = {
+  args: {
+    label: 'Efficiency Opportunities',
+    hint: 'Describe changes that could save time, reduce costs, improve quality, or help the business serve customers better.',
+  },
+  play: async ({ canvasElement }) => {
+    const box = within(canvasElement).getByLabelText('Efficiency Opportunities');
+    await expect(box).toHaveAccessibleDescription(
+      'Describe changes that could save time, reduce costs, improve quality, or help the business serve customers better.',
+    );
+  },
+};

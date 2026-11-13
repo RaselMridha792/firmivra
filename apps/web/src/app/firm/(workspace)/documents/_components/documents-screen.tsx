@@ -69,7 +69,9 @@ export function DocumentsScreen() {
     <div className="flex flex-col gap-4" data-testid="documents-screen">
       <DocumentsHeader />
       <DocumentsStatCards />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr_280px]">
+      {/* Clients V-003, V-004, V-009: slim side panels; the table gets the widest region. The
+          right rail sits under it (three across) until the window is wide enough for it beside. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[13rem_minmax(0,1fr)_17rem]">
         <FoldersPanel
           categories={categories.data ?? []}
           selected={categoryId}
@@ -106,8 +108,7 @@ export function DocumentsScreen() {
             />
             {!clientId ? (
               <p className="py-10 text-center text-sm text-muted" data-testid="documents-no-client">
-                Choose a client above to see their documents. Firm-wide search across every client
-                needs a change to the API (apps/api/src/storage), outside this page.
+                Select a client to view their documents.
               </p>
             ) : documents.isPending || !client ? (
               <p className="py-10 text-center text-sm text-muted">Loading documents…</p>
@@ -155,7 +156,7 @@ export function DocumentsScreen() {
             )}
           </Card>
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 lg:col-span-2 lg:grid lg:grid-cols-3 lg:items-start 2xl:col-span-1 2xl:flex 2xl:flex-col">
           <QuickUploadCard />
           <DocumentRequestsCard />
           <RecentActivityCard />

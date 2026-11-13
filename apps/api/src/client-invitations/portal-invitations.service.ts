@@ -262,6 +262,14 @@ export class PortalInvitationsService {
     };
   }
 
+  /**
+   * The client's access as `access` reads it, in the caller's transaction in the firm's scope and
+   * not audited: the Client Portal module's header audits its own view.
+   */
+  readIn(tx: TxClient, actor: InvitationActor, clientId: string): Promise<ClientPortalAccess> {
+    return this.read(tx, actor, clientId);
+  }
+
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }

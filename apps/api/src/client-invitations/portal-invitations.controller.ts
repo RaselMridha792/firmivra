@@ -110,5 +110,6 @@ export class PortalInvitationOpenController {
       useFactory: (env: Env) => new PortalInvitationSeals(poolSecrets(env)),
     },
   ],
+  exports: [PortalInvitationsService],
 })
 export class PortalInvitationsModule {}

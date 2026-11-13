@@ -6,15 +6,16 @@ export const metadata: Metadata = { title: 'New signature request' };
 export default async function NewSignatureRequestPage({
   searchParams,
 }: {
-  searchParams: Promise<{ clientId?: string; templateId?: string }>;
+  searchParams: Promise<{ clientId?: string; templateId?: string; documentId?: string }>;
 }) {
   // Send for Signature on a client record opens this page with the client chosen, Use template
   // with the template chosen.
-  const { clientId, templateId } = await searchParams;
+  const { clientId, templateId, documentId } = await searchParams;
   return (
     <NewRequest
       clientId={typeof clientId === 'string' ? clientId : undefined}
       templateId={typeof templateId === 'string' ? templateId : undefined}
+      documentId={typeof documentId === 'string' ? documentId : undefined}
     />
   );
 }

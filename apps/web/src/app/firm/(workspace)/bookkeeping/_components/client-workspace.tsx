@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { useUrlTab } from '../../../../../lib/url-tab';
 import { useApiQuery } from '../../../../../lib/query';
 import { ClientMenu, ConnectDialog, useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -79,7 +80,8 @@ export function ClientWorkspace({ id }: { id: string }) {
   const router = useRouter();
   const params = useSearchParams();
   const initial = (TABS.find((t) => t.toLowerCase() === params.get('tab')) ?? 'Overview') as TabId;
-  const [tab, setTab] = useState<TabId>(initial);
+  // Review 2 (N08): the tab is kept in the address, so Back from Terms comes to the same tab.
+  const [tab, setTab] = useUrlTab<TabId>(initial, (t) => t.toLowerCase());
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [connect, setConnect] = useState(false);
   const notice: Notice = (text, tone) => setMessage({ text, tone });
@@ -251,11 +253,12 @@ export function ClientWorkspace({ id }: { id: string }) {
         <div
           role="tablist"
           aria-label="Client views"
-          className="relative flex overflow-x-auto border-b border-divider"
+          // Review 2 (desktop tabs): every tab shows, wrapping to a second row, with no sideways scroll.
+          className="relative flex flex-wrap border-b border-divider"
         >
           {TABS.map((t) => {
             const href = LINKS[t]?.(w);
-            const cls = `-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-4 text-sm whitespace-nowrap ${tab === t ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`;
+            const cls = `-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-3 text-sm whitespace-nowrap ${tab === t ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`;
             return href ? (
               <OriginLink key={t} href={href} role="tab" aria-selected={false} className={cls}>
                 {t}
@@ -388,7 +391,7 @@ export function ClientWorkspace({ id }: { id: string }) {
               aria-label="Quick actions"
               data-testid="quick-actions"
             >
-              <button type="button" className={subtle} onClick={() => setTab('Reconciliation')}>
+              <button type="button" className={subtle} onClick={() => setTab('Transactions')}>
                 <Tag aria-hidden weight="fill" className="size-4 text-action" /> Categorize
                 Transactions
               </button>

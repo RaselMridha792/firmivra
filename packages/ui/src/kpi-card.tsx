@@ -40,15 +40,31 @@ export interface KpiCardProps {
   /** The line under the number or the trend: "vs last month". */
   note?: string;
   loading?: boolean;
+  /**
+   * `top` lines every card's number up along one top edge, however its label wraps (Clients
+   * V-006: centred blocks of different heights staggered the counts). Left out: centred, as before.
+   */
+  align?: 'center' | 'top';
 }
 
 /** One number of a page's top row: icon tile, value, label, and how it moved. */
-export function KpiCard({ icon, tone, value, label, trend, note, loading }: KpiCardProps) {
+export function KpiCard({
+  icon,
+  tone,
+  value,
+  label,
+  trend,
+  note,
+  loading,
+  align = 'center',
+}: KpiCardProps) {
   const Arrow = trend?.direction === 'up' ? ArrowUp : ArrowDown;
   const colour =
     trend?.good === false ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success';
   return (
-    <div className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-md">
+    <div
+      className={`flex gap-4 rounded-xl bg-surface p-4 shadow-md ${align === 'top' ? 'h-full items-start' : 'items-center'}`}
+    >
       <IconTile icon={icon} tone={tone} />
       <div className="flex min-w-0 flex-col gap-1">
         {loading ? (
