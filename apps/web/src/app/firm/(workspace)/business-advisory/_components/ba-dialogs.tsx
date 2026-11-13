@@ -15,6 +15,8 @@ import {
   today,
   errorText,
 } from './ba-shared';
+import { GoalSuggestions } from './goal-templates';
+import { FIELD_HELP } from './field-help';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
 export function useMembers() {
@@ -312,6 +314,8 @@ export function AddGoalDialog({
           maxLength={300}
           onChange={(e) => setTitle(e.target.value)}
         />
+        {/* B24: the approved suggestions fill the name; nothing is created until Add. */}
+        <GoalSuggestions onPick={setTitle} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
             label="Area"
@@ -345,6 +349,7 @@ export function AddGoalDialog({
         </div>
         <Textarea
           label="Description"
+          hint={FIELD_HELP.goalDescription}
           rows={3}
           maxLength={2000}
           value={description}
