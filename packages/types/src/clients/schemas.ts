@@ -197,8 +197,13 @@ export const ClientsSummary = z.object({
   kpis: z.object({
     /** Clients not archived; previous: at the start of this month. */
     totalClients: ClientsKpi,
-    /** Clients added this month; previous: last month. */
+    /**
+     * Not archived, stage NEW: the New tab lists the same clients (Clients Review 2: it counted
+     * clients added this month, which differed from its tab); previous is null.
+     */
     newClients: ClientsKpi,
+    /** Clients added this month, archived ones too; previous: last month. */
+    addedThisMonth: ClientsKpi.optional(),
     /**
      * Not archived, stage ACTIVE (the Active tab lists the same clients with clientStatus=ACTIVE);
      * previous is null (stage changes keep no history).
@@ -373,6 +378,13 @@ export const CreateClientRequest = z.strictObject({
   assignedUserId: z.uuid().optional(),
   /** The same fields as the profile update; `{}` is the same as leaving it out. */
   profile: ProfileFields.optional(),
+  /**
+   * Clients Review 2 (C2-038): a phone another client of the firm already has is 409
+   * DUPLICATE_PHONE (details: `count` and the `matches` the caller may see, each with `id`,
+   * `name`, `clientNumber` and `archived`). Sent again with true once the person confirms it is a
+   * different client, it is saved. Nothing is ever merged.
+   */
+  allowDuplicatePhone: z.boolean().optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
 
@@ -448,8 +460,14 @@ export const UpdateClientRequest = z
     email: clearable(Email),
     phone: clearable(Phone),
     assignedUserId: z.uuid().nullable().optional(),
+    /** As on create: confirms a phone another client already has (409 DUPLICATE_PHONE). */
+    allowDuplicatePhone: z.boolean().optional(),
   })
-  .refine((body) => Object.values(body).some((v) => v !== undefined), 'Change at least one field');
+  .refine(
+    ({ allowDuplicatePhone: _confirm, ...body }) =>
+      Object.values(body).some((v) => v !== undefined),
+    'Change at least one field',
+  );
 export type UpdateClientRequest = z.input<typeof UpdateClientRequest>;
 
 // ---------- Tax status per year (firm) ----------

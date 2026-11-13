@@ -1,4 +1,10 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { InternalNote, MyNoteResponse } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
@@ -8,6 +14,8 @@ import { DATABASE } from '../database/database.module.js';
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+const archived = () =>
+  new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
 
 const noteSelect = {
   id: true,
@@ -77,6 +85,18 @@ export class NotesService {
     if (!row) throw notFound();
   }
 
+  /**
+   * Clients Review 2 (C2-036): an archived client's notes are read-only until it is restored, as
+   * the archive dialog says. The client's row is held FOR SHARE, so an archive at the same time
+   * waits for this note (or has committed and is seen here).
+   */
+  private async writable(tx: TxClient, businessId: string, clientId: string) {
+    const [row] = await tx.$queryRaw<{ archived_at: Date | null }[]>`
+      SELECT archived_at FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
+      FOR SHARE`;
+    if (row?.archived_at) throw archived();
+  }
+
   /** The note, if its client is in reach (404), and the actor may change it (403). */
   private async editable(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
     const [locked] = await tx.$queryRaw<{ id: string }[]>`
@@ -118,6 +138,7 @@ export class NotesService {
   ): Promise<InternalNote> {
     return this.inFirm(businessId, async (tx) => {
       await this.client(tx, businessId, actor, clientId);
+      await this.writable(tx, businessId, clientId);
       if (body.engagementId) {
         const engagement = await tx.engagement.findFirst({
           where: { businessId, clientId, id: body.engagementId },
@@ -148,6 +169,7 @@ export class NotesService {
   ): Promise<InternalNote> {
     return this.inFirm(businessId, async (tx) => {
       const note = await this.editable(tx, businessId, actor, id);
+      await this.writable(tx, businessId, note.clientId);
       const row = await tx.note.update({ where: { id }, data: { body: text }, select: noteSelect });
       await this.audit.logIn(tx, 'note.updated', { type: 'note', id }, { clientId: note.clientId });
       return (await this.toNotes(tx, businessId, actor, [row]))[0] as InternalNote;
@@ -157,6 +179,7 @@ export class NotesService {
   async remove(businessId: string, actor: ClientsActor, id: string): Promise<{ ok: true }> {
     await this.inFirm(businessId, async (tx) => {
       const note = await this.editable(tx, businessId, actor, id);
+      await this.writable(tx, businessId, note.clientId);
       await tx.note.delete({ where: { id } });
       await this.audit.logIn(tx, 'note.deleted', { type: 'note', id }, { clientId: note.clientId });
     });

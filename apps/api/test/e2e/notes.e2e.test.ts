@@ -295,6 +295,28 @@ describe('internal notes', () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(JSON.stringify(rows)).not.toContain(run);
   });
+
+  it("keeps an archived client's notes read-only until it is restored (Clients Review 2, 409)", async () => {
+    const created = expectOk(
+      await firm('post', '/clients', people.ownerA, { displayName: `Archived notes ${run}` }),
+      201,
+    ).body as { id: string };
+    const kept = await addNote({ body: 'Before archive' }, people.ownerA, created.id);
+    expectOk(await firm('post', `/clients/${created.id}/archive`, people.ownerA, {}));
+    for (const res of [
+      await firm('post', `/clients/${created.id}/notes`, people.ownerA, { body: 'While archived' }),
+      await firm('patch', `/notes/${kept.id}`, people.ownerA, { body: 'Changed' }),
+      await firm('delete', `/notes/${kept.id}`, people.ownerA, {}),
+    ]) {
+      expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    }
+    // Still readable, and unchanged.
+    const listed = expectOk(await firm('get', `/clients/${created.id}/notes`, people.ownerA))
+      .body as { items: { id: string; body: string }[] };
+    expect(listed.items.map((n) => [n.id, n.body])).toEqual([[kept.id, 'Before archive']]);
+    expectOk(await firm('post', `/clients/${created.id}/restore`, people.ownerA, {}));
+    expectOk(await firm('patch', `/notes/${kept.id}`, people.ownerA, { body: 'After restore' }));
+  });
 });
 
 describe('private notes', () => {
