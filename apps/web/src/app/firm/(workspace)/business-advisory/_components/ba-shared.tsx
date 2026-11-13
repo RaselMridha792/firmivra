@@ -23,6 +23,25 @@ import { errorCode, errorMessage } from '../../../../../lib/errors';
 export const BA_KEY = ['business-advisory'] as const;
 export const BASE = '/business-advisory';
 
+/**
+ * Octavia's B4: Schedule Meeting opens Schedule Appointment on this client and their advisory
+ * engagement (its service picks the advisory appointment type), and Cancel returns to `from`, the
+ * client and tab it was opened from.
+ */
+export function scheduleMeetingHref(
+  c: { client: { id: string }; engagementId: string | null } | undefined,
+  from: string,
+): string {
+  if (!c) return '/calendar/new';
+  const q = new URLSearchParams({ clientId: c.client.id });
+  if (c.engagementId) q.set('engagementId', c.engagementId);
+  q.set('from', from);
+  return `/calendar/new?${q.toString()}`;
+}
+
+/** Octavia's B5: Appointments with only the Business Advisory meetings, the full calendar a click away. */
+export const ADVISORY_MEETINGS_HREF = '/calendar/list?serviceKind=BUSINESS_DEVELOPMENT';
+
 type Tone = 'success' | 'info' | 'warning' | 'danger' | 'purple' | 'neutral';
 const pill =
   (labels: Record<string, string>, tones: Record<string, Tone>) =>
@@ -78,6 +97,26 @@ export const GOAL_STATUS: Record<string, string> = {
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
 };
+/**
+ * Octavia's B7: the goal forms offer all eight statuses. Completed is 100% and Not Started 0%
+ * (the API's rule), so those lock the progress; leaving Completed unlocks it below 100%. Overdue
+ * also shows on its own once an open goal passes its target date.
+ */
+export const GOAL_STATUS_OPTIONS = Object.entries(GOAL_STATUS).map(([value, label]) => ({
+  value,
+  label: value === 'OVERDUE' ? 'Overdue (also set by the target date)' : label,
+}));
+export function progressFor(
+  status: string,
+  before: string,
+  progress: string,
+): { progress: string; locked: boolean } {
+  if (status === 'COMPLETED') return { progress: '100', locked: true };
+  if (status === 'NOT_STARTED') return { progress: '0', locked: true };
+  if (before === 'COMPLETED' && Number(progress) >= 100) return { progress: '90', locked: false };
+  return { progress, locked: false };
+}
+
 export const GoalStatusPill = pill(GOAL_STATUS, {
   NOT_STARTED: 'neutral',
   PLANNING: 'info',
@@ -202,6 +241,8 @@ export const BA_ERRORS: Record<string, string> = {
   INVALID_STATUS: 'That does not fit the current status.',
   PLAN_NOT_READY: 'The plan is not ready yet.',
   PLAN_ARCHIVED: 'Restore the plan before changing it.',
+  PLAN_LOCKED:
+    'This plan is finalized. Use Modify Plan to start a new draft revision; its versions stay as they were.',
   INCONSISTENT_FIGURES: 'Net profit must be revenue minus expenses.',
   OVERRIDE_NOT_ALLOWED: 'Replacing figures from a source needs an override reason.',
   FINANCIALS_RESTRICTED: 'Financial figures are restricted for your role.',
