@@ -7,6 +7,7 @@ import {
   CreateBrandAssetUploadRequest,
   FIRM_ROLES,
   InviteUserRequest,
+  type LocationsClient,
   parseInput,
   ResetBrandingRequest,
   type SettingsOverview,
@@ -30,6 +31,8 @@ type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 interface Options {
   role?: MockRole;
   empty?: boolean;
+  /** Settings Overview: the locations mock, for the KPIs and Location Management (R1's fields). */
+  locations?: Pick<LocationsClient, 'list'>;
 }
 
 const fail = (status: number, code: string, message: string) =>
@@ -46,12 +49,23 @@ export function createSettingsOverviewMock(options: Options = {}): SettingsOverv
     get: async (): Promise<SettingsOverview> => {
       await allowed(options.role);
       const counts = staffCounts({ role: options.role, empty: options.empty });
+      const offices = options.locations ? await options.locations.list({ limit: 100 }) : null;
       const today = new Date().toISOString().slice(0, 10);
       const at = (daysAgo: number, time: string) =>
         new Date(Date.parse(`${today}T${time}:00Z`) - daysAgo * 86_400_000).toISOString();
       return {
         staffUsers: { value: counts.total, addedThisMonth: counts.addedThisMonth },
         securityAlerts: options.empty ? 0 : 1,
+        ...(offices
+          ? {
+              activeLocations: { value: offices.kpis.active, addedThisMonth: 0 },
+              locationAllowance: offices.kpis.subscription,
+              // The first 5, primary first, as the API sends them.
+              locations: [...offices.items]
+                .sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.name.localeCompare(b.name))
+                .slice(0, 5),
+            }
+          : {}),
         recentActivity: options.empty
           ? []
           : [

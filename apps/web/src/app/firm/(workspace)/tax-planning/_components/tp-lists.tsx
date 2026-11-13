@@ -2,6 +2,7 @@
 
 import type {
   PlanningClientRow,
+  PlanningDeadline,
   PlanningStrategy,
   TaxOpportunityRow,
   TaxPlanRow,
@@ -19,10 +20,16 @@ import {
   Toast,
   type Column,
 } from '@firmivra/ui';
-import { DotsThreeVertical, MagnifyingGlass, PaperPlaneTilt, Plus } from '@phosphor-icons/react';
+import {
+  ArrowRight,
+  DotsThreeVertical,
+  MagnifyingGlass,
+  PaperPlaneTilt,
+  Plus,
+} from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -30,6 +37,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { Disclaimer, TpShell } from './tp-shell';
 import {
   CATEGORY_LABEL,
+  ENTITY_PRESETS,
   OPP_STATUS,
   OppPill,
   PLAN_STATUS,
@@ -41,10 +49,12 @@ import {
   card,
   dayText,
   gold,
+  linkBtn,
   money,
   outlined,
   primary,
   quiet,
+  scheduleHref,
   subtle,
 } from './tp-shared';
 
@@ -91,23 +101,84 @@ const server = (
   onSort: () => undefined,
 });
 
+/** The Clients tab's own filters (C22), kept in the address so a KPI (C01) can open them. */
+const KPI_FILTERS: Record<string, string> = {
+  active: 'Active planning clients',
+  upcoming: 'Upcoming planning appointment (30 days)',
+  strategy: 'Strategies in progress',
+};
+
 /** /tax-planning/clients: every client with their current plan. */
 export function PlanningClients() {
   const router = useRouter();
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [hasPlan, setHasPlan] = useState('');
-  const [page, setPage] = useState(1);
-  const term = useDeferredValue(search.trim());
-  const q = useApiQuery([...TP_KEY, 'clients', term, status, hasPlan, page], () =>
-    api.taxPlanning.clients({
-      ...(term ? { search: term } : {}),
-      ...(status ? { status: status as never } : {}),
-      ...(hasPlan ? { hasPlan: hasPlan === 'yes' } : {}),
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const year = new Date().getFullYear();
+  const search = params.get('q') ?? '';
+  const status = params.get('status') ?? '';
+  const hasPlan = params.get('plan') ?? '';
+  const planYear = params.get('year') ?? '';
+  const staff = params.get('staff') ?? '';
+  const entity = params.get('entity') ?? '';
+  const active = params.get('active') === '1';
+  const upcoming = params.get('upcoming') === '1';
+  const strategy = params.get('strategy') === 'IN_PROGRESS' ? 'IN_PROGRESS' : '';
+  const sort = params.get('sort') === 'nextAppointment' ? 'nextAppointment' : 'name';
+  const page = Math.max(1, Number(params.get('page')) || 1);
+  const [text, setText] = useState(search);
+  const term = useDeferredValue(text.trim());
+  const [msg, setMsg] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [assigning, setAssigning] = useState<PlanningClientRow>();
+  const [closing, setClosing] = useState<{ row: PlanningClientRow; kind: 'close' | 'archive' }>();
+  const act = useAct(setMsg);
+  const here = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+  /** Changes the address in place; any change but the page goes back to page 1. */
+  const set = (over: Record<string, string | null>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(over)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, v);
+    }
+    if (!('page' in over)) next.delete('page');
+    router.replace(`${pathname}${next.toString() ? `?${next.toString()}` : ''}`, {
+      scroll: false,
+    });
+  };
+  const overview = useApiQuery([...TP_KEY, 'overview'], () => api.taxPlanning.overview());
+  const team = useApiQuery([...TP_KEY, 'team'], () => api.team.list());
+  const q = useApiQuery(
+    [
+      ...TP_KEY,
+      'clients',
+      term,
+      status,
+      hasPlan,
+      planYear,
+      staff,
+      entity,
+      active,
+      upcoming,
+      strategy,
+      sort,
       page,
-      pageSize: 10,
-    }),
+    ],
+    () =>
+      api.taxPlanning.clients({
+        ...(term ? { search: term } : {}),
+        ...(status ? { status: status as never } : {}),
+        ...(hasPlan ? { hasPlan: hasPlan === 'yes' } : {}),
+        ...(planYear ? { planYear: Number(planYear) } : {}),
+        ...(staff ? { assignedUserId: staff } : {}),
+        ...(entity ? { entityType: entity } : {}),
+        ...(active ? { active: true } : {}),
+        ...(upcoming ? { upcomingAppointment: true } : {}),
+        ...(strategy ? { strategyStatus: strategy } : {}),
+        sort,
+        page,
+        pageSize: 10,
+      }),
   );
+  const kpi = active ? 'active' : upcoming ? 'upcoming' : strategy ? 'strategy' : '';
   const cols: Column<PlanningClientRow>[] = [
     {
       id: 'name',
@@ -135,7 +206,13 @@ export function PlanningClients() {
           '—'
         ),
     },
+    { id: 'year', label: 'Year', cell: (r) => r.planYear ?? '—' },
     { id: 'status', label: 'Status', cell: (r) => <PlanPill status={r.status} /> },
+    {
+      id: 'next',
+      label: 'Next Appointment',
+      cell: (r) => (r.nextAppointmentAt ? dayText(r.nextAppointmentAt.slice(0, 10)) : '—'),
+    },
     { id: 'opp', label: 'Open Opportunities', cell: (r) => r.openOpportunities },
     {
       id: 'sav',
@@ -145,46 +222,44 @@ export function PlanningClients() {
     },
     { id: 'by', label: 'Assigned To', cell: (r) => r.assignedTo?.name ?? '—' },
   ];
+  const open = (r: PlanningClientRow) => !!r.planId && r.status !== 'CLOSED';
   return (
     <TpShell>
+      {msg ? (
+        <Toast tone={msg.tone} message={msg.text} onDismiss={() => setMsg(undefined)} />
+      ) : null}
       <section
         className={`${card} flex flex-col gap-3`}
         aria-label="Planning clients"
         data-testid="tp-clients"
       >
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           {searchBox(
-            search,
+            text,
             (v) => {
-              setSearch(v);
-              setPage(1);
+              setText(v);
+              set({ q: v.trim() || null });
             },
-            'Search clients',
+            'Search clients or plans',
           )}
-          <div className="w-44">
+          <div className="w-40">
             <Select
               label="Plan status"
               hideLabel
               value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => set({ status: e.target.value })}
               options={[
                 { value: '', label: 'All Statuses' },
                 ...Object.entries(PLAN_STATUS).map(([value, label]) => ({ value, label })),
               ]}
             />
           </div>
-          <div className="w-44">
+          <div className="w-40">
             <Select
               label="Has a plan"
               hideLabel
               value={hasPlan}
-              onChange={(e) => {
-                setHasPlan(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => set({ plan: e.target.value })}
               options={[
                 { value: '', label: 'All Clients' },
                 { value: 'yes', label: 'With a plan' },
@@ -192,10 +267,64 @@ export function PlanningClients() {
               ]}
             />
           </div>
+          <div className="w-32">
+            <Select
+              label="Planning year"
+              hideLabel
+              value={planYear}
+              onChange={(e) => set({ year: e.target.value })}
+              options={[
+                { value: '', label: 'All Years' },
+                ...[year + 1, year, year - 1, year - 2].map((y) => ({
+                  value: String(y),
+                  label: String(y),
+                })),
+              ]}
+            />
+          </div>
+          <div className="w-44">
+            <Select
+              label="Assigned staff"
+              hideLabel
+              value={staff}
+              onChange={(e) => set({ staff: e.target.value })}
+              options={[
+                { value: '', label: 'All Staff' },
+                ...(team.data ?? []).map((m) => ({ value: m.user.id, label: m.user.name })),
+              ]}
+            />
+          </div>
+          <div className="w-40">
+            <Select
+              label="Entity type"
+              hideLabel
+              value={entity}
+              onChange={(e) => set({ entity: e.target.value })}
+              options={[
+                { value: '', label: 'All Entities' },
+                ...ENTITY_PRESETS.map((v) => ({ value: v, label: v })),
+              ]}
+            />
+          </div>
           <Link href="/tax-planning/plans/new" className={`${gold} ml-auto`}>
             <Plus aria-hidden weight="bold" className="size-4" /> Create Planning Plan
           </Link>
         </div>
+        {kpi ? (
+          <p
+            className="flex flex-wrap items-center gap-2 text-sm text-muted"
+            data-testid="kpi-filter"
+          >
+            Showing: <span className="font-semibold text-heading">{KPI_FILTERS[kpi]}</span>
+            <button
+              type="button"
+              className="text-link underline"
+              onClick={() => set({ active: null, upcoming: null, strategy: null, sort: null })}
+            >
+              Show all clients
+            </button>
+          </p>
+        ) : null}
         <div className="relative">
           <Table
             rows={q.data?.items ?? []}
@@ -220,31 +349,188 @@ export function PlanningClients() {
                 sections={[
                   {
                     items: [
-                      r.planId
-                        ? {
-                            label: 'Open Plan',
-                            onSelect: () => router.push(`/tax-planning/plans/${r.planId}/edit`),
-                          }
-                        : {
-                            label: 'Create Plan',
-                            onSelect: () =>
-                              router.push(`/tax-planning/plans/new?clientId=${r.client.id}`),
-                          },
+                      ...(r.planId
+                        ? [
+                            {
+                              label: 'View Plan',
+                              onSelect: () =>
+                                router.push(`/tax-planning/plans/${r.planId}/edit/review`),
+                            },
+                          ]
+                        : []),
+                      ...(open(r)
+                        ? [
+                            {
+                              label: 'Edit Plan',
+                              onSelect: () => router.push(`/tax-planning/plans/${r.planId}/edit`),
+                            },
+                          ]
+                        : []),
+                      {
+                        label: 'Create Plan',
+                        onSelect: () =>
+                          router.push(`/tax-planning/plans/new?clientId=${r.client.id}`),
+                      },
+                    ],
+                  },
+                  {
+                    items: [
+                      {
+                        label: 'Schedule',
+                        onSelect: () =>
+                          router.push(
+                            scheduleHref(overview.data?.planningServiceId, here, r.client.id),
+                          ),
+                      },
+                      {
+                        label: 'Send Resource',
+                        onSelect: () =>
+                          router.push(`/tax-planning/resources?clientId=${r.client.id}`),
+                      },
                       {
                         label: 'Opportunities',
                         onSelect: () =>
                           router.push(`/tax-planning/opportunities?clientId=${r.client.id}`),
                       },
+                      ...(open(r)
+                        ? [{ label: 'Assign Staff', onSelect: () => setAssigning(r) }]
+                        : []),
                     ],
                   },
+                  ...(r.planId
+                    ? [
+                        {
+                          items: [
+                            ...(open(r)
+                              ? [
+                                  {
+                                    label: 'Close Plan',
+                                    onSelect: () => setClosing({ row: r, kind: 'close' as const }),
+                                  },
+                                ]
+                              : []),
+                            {
+                              label: 'Archive Plan',
+                              onSelect: () => setClosing({ row: r, kind: 'archive' as const }),
+                            },
+                          ],
+                        },
+                      ]
+                    : []),
                 ]}
               />
             )}
-            server={server(q.data, 10, page, setPage)}
+            server={server(q.data, 10, page, (n) => set({ page: n > 1 ? String(n) : null }))}
           />
         </div>
       </section>
+      {assigning?.planId ? (
+        <AssignStaff
+          row={assigning}
+          team={(team.data ?? []).map((m) => ({ id: m.user.id, name: m.user.name }))}
+          onClose={() => setAssigning(undefined)}
+          onSave={async (userId) => {
+            const planId = assigning.planId as string;
+            const done = await act(async () => {
+              const p = await api.taxPlanning.plan(planId);
+              return api.taxPlanning.updatePlan(planId, { assignedUserId: userId, etag: p.etag });
+            }, 'Staff assigned.');
+            if (done) setAssigning(undefined);
+          }}
+        />
+      ) : null}
+      {closing?.row.planId ? (
+        <Modal
+          open
+          title={closing.kind === 'close' ? 'Close this plan?' : 'Archive this plan?'}
+          onClose={() => setClosing(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setClosing(undefined)}>
+                Keep it
+              </Button>
+              <Button
+                onClick={async () => {
+                  const planId = closing.row.planId as string;
+                  const done =
+                    closing.kind === 'close'
+                      ? await act(async () => {
+                          const p = await api.taxPlanning.plan(planId);
+                          return api.taxPlanning.setStatus(planId, {
+                            status: 'CLOSED',
+                            etag: p.etag,
+                          });
+                        }, 'Plan closed.')
+                      : await act(() => api.taxPlanning.archivePlan(planId), 'Plan archived.');
+                  if (done) setClosing(undefined);
+                }}
+              >
+                {closing.kind === 'close' ? 'Close Plan' : 'Archive Plan'}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            {closing.kind === 'close'
+              ? `${closing.row.planName ?? 'The plan'} for ${closing.row.client.name} is closed: it can no longer be changed.`
+              : `${closing.row.planName ?? 'The plan'} for ${closing.row.client.name} leaves the lists. It is kept, and Restore brings it back.`}
+          </p>
+        </Modal>
+      ) : null}
     </TpShell>
+  );
+}
+
+/** C03 (Review 2): Assign Staff from the Clients menu: who works on the client's current plan. */
+function AssignStaff({
+  row,
+  team,
+  onClose,
+  onSave,
+}: {
+  row: PlanningClientRow;
+  team: { id: string; name: string }[];
+  onClose: () => void;
+  onSave: (userId: string | null) => Promise<void>;
+}) {
+  const [userId, setUserId] = useState(row.assignedTo?.userId ?? '');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title="Assign Staff"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await onSave(userId || null);
+              setBusy(false);
+            }}
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-muted">
+        {row.planName} for {row.client.name}
+      </p>
+      <Select
+        label="Assigned staff"
+        value={userId}
+        onChange={(e) => setUserId(e.target.value)}
+        options={[
+          { value: '', label: 'Not assigned' },
+          ...team.map((m) => ({ value: m.id, label: m.name })),
+        ]}
+      />
+    </Modal>
   );
 }
 
@@ -763,58 +1049,260 @@ function StrategyDialog({
   );
 }
 
-/** /tax-planning/calendar: tax deadlines and planning milestones. */
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const monthTitle = (month: string) =>
+  new Date(`${month}-15T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+const shiftMonth = (month: string, by: number) => {
+  const d = new Date(`${month}-15T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + by);
+  return d.toISOString().slice(0, 7);
+};
+const kindPill = (kind: PlanningDeadline['kind']) => (
+  <span
+    className={`w-fit rounded-pill px-2 py-0.5 text-xs font-medium ${kind === 'TAX_DEADLINE' ? 'bg-danger-soft text-danger' : 'bg-info-soft text-info'}`}
+  >
+    {kind === 'TAX_DEADLINE' ? 'Tax deadline' : 'Planning milestone'}
+  </span>
+);
+
+/**
+ * /tax-planning/calendar: tax deadlines and planning milestones for twelve months, as a list or a
+ * month calendar (C16), each opening its details and the clients it affects (C04). The view, the
+ * month and the open item live in the address.
+ */
 export function PlanningCalendar() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
   const [from] = useState(() => new Date().toISOString().slice(0, 10));
   const [to] = useState(() => new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10));
+  const view = params.get('view') === 'calendar' ? 'calendar' : 'list';
+  const first = from.slice(0, 7);
+  const last = to.slice(0, 7);
+  const asked = params.get('month') ?? '';
+  const month = /^\d{4}-\d{2}$/.test(asked) && asked >= first && asked <= last ? asked : first;
+  const openId = params.get('item');
   const q = useApiQuery([...TP_KEY, 'calendar', from, to], () =>
     api.taxPlanning.calendar({ from, to }),
   );
+  const set = (over: Record<string, string | null>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(over)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, v);
+    }
+    router.replace(`${pathname}${next.toString() ? `?${next.toString()}` : ''}`, {
+      scroll: false,
+    });
+  };
+  const here = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+  const opened = openId ? q.data?.find((d) => d.id === openId) : undefined;
   const groups = new Map<string, NonNullable<typeof q.data>>();
   for (const d of q.data ?? [])
     groups.set(d.date.slice(0, 7), [...(groups.get(d.date.slice(0, 7)) ?? []), d]);
+  const itemButton = (d: PlanningDeadline, compact: boolean) => (
+    <button
+      type="button"
+      onClick={() => set({ item: d.id })}
+      data-testid="calendar-item"
+      className={
+        compact
+          ? `block w-full truncate rounded px-1 text-left text-xs font-medium ${d.kind === 'TAX_DEADLINE' ? 'bg-danger-soft text-danger' : 'bg-info-soft text-info'}`
+          : 'font-medium text-link hover:underline'
+      }
+    >
+      {d.title}
+    </button>
+  );
+
+  // The month grid: the weeks that hold the month's days, Sunday first.
+  const start = new Date(`${month}-01T12:00:00Z`);
+  const lead = start.getUTCDay();
+  const daysIn = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0, 12),
+  ).getUTCDate();
+  const cells: (string | null)[] = [
+    ...Array.from({ length: lead }, () => null),
+    ...Array.from({ length: daysIn }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
   return (
     <TpShell>
       <section className={card} aria-label="Tax calendar" data-testid="tp-calendar">
-        <h2 className="mb-3 font-display text-xl font-bold text-heading">Tax Calendar</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <h2 className="mr-auto font-display text-xl font-bold text-heading">Tax Calendar</h2>
+          <div
+            role="group"
+            aria-label="Calendar view"
+            className="inline-flex rounded-control border border-divider p-0.5"
+          >
+            {(['calendar', 'list'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                data-testid={`view-${v}`}
+                onClick={() => set({ view: v === 'list' ? null : v })}
+                className={`min-h-9 rounded-control px-3 text-sm font-medium ${view === v ? 'bg-action text-on-action' : 'text-text hover:bg-canvas'}`}
+              >
+                {v === 'calendar' ? 'Calendar' : 'List'}
+              </button>
+            ))}
+          </div>
+        </div>
         {q.isError ? (
           <p role="alert" className={quiet}>
             The calendar is not available right now.
           </p>
         ) : null}
-        {q.data && q.data.length === 0 ? (
+        {view === 'list' && q.data && q.data.length === 0 ? (
           <p className={quiet}>
             There are no deadlines or planning milestones in the next twelve months.
           </p>
         ) : null}
-        {[...groups].map(([month, items]) => (
-          <div key={month} className="mb-4">
-            <h3 className="mb-1 text-sm font-semibold text-muted">
-              {new Date(`${month}-15T12:00:00Z`).toLocaleDateString('en-US', {
-                month: 'long',
-                year: 'numeric',
-              })}
-            </h3>
-            <ul>
-              {items.map((d) => (
-                <li
-                  key={d.id}
-                  className="grid grid-cols-[6.5rem_1fr] gap-3 border-t border-divider py-2 text-sm first:border-t-0 sm:grid-cols-[6.5rem_1fr_1fr_auto]"
-                >
-                  <span className="text-muted">{dayText(d.date)}</span>
-                  <span className="font-medium text-heading">{d.title}</span>
-                  <span className="text-muted">{d.description ?? d.scope}</span>
-                  <span
-                    className={`w-fit rounded-pill px-2 py-0.5 text-xs font-medium ${d.kind === 'TAX_DEADLINE' ? 'bg-danger-soft text-danger' : 'bg-info-soft text-info'}`}
+        {view === 'list'
+          ? [...groups].map(([m, items]) => (
+              <div key={m} className="mb-4">
+                <h3 className="mb-1 text-sm font-semibold text-muted">{monthTitle(m)}</h3>
+                <ul>
+                  {items.map((d) => (
+                    <li
+                      key={d.id}
+                      className="grid grid-cols-[6.5rem_1fr] gap-3 border-t border-divider py-2 text-sm first:border-t-0 sm:grid-cols-[6.5rem_1fr_1fr_auto]"
+                    >
+                      <span className="text-muted">{dayText(d.date)}</span>
+                      <span>{itemButton(d, false)}</span>
+                      <span className="text-muted">{d.description ?? d.scope}</span>
+                      {kindPill(d.kind)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          : null}
+        {view === 'calendar' ? (
+          <div data-testid="month-grid">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className={subtle}
+                disabled={month <= first}
+                onClick={() => set({ month: shiftMonth(month, -1) })}
+              >
+                Previous
+              </button>
+              <h3 className="font-display text-lg font-bold text-heading" aria-live="polite">
+                {monthTitle(month)}
+              </h3>
+              <button
+                type="button"
+                className={subtle}
+                disabled={month >= last}
+                onClick={() => set({ month: shiftMonth(month, 1) })}
+              >
+                Next
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <div className="grid min-w-[42rem] grid-cols-7 border-l border-t border-divider text-sm">
+                {WEEKDAYS.map((w) => (
+                  <div
+                    key={w}
+                    className="border-b border-r border-divider bg-canvas px-2 py-1 text-xs font-semibold text-muted"
                   >
-                    {d.kind === 'TAX_DEADLINE' ? 'Tax deadline' : 'Planning milestone'}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                    {w}
+                  </div>
+                ))}
+                {cells.map((day, i) => {
+                  const items = day ? (q.data ?? []).filter((d) => d.date === day) : [];
+                  return (
+                    <div
+                      key={day ?? `pad-${i}`}
+                      className={`min-h-24 border-b border-r border-divider p-1 ${day ? '' : 'bg-canvas'}`}
+                    >
+                      {day ? (
+                        <>
+                          <span className="block text-xs text-muted">{Number(day.slice(8))}</span>
+                          <ul className="flex flex-col gap-0.5">
+                            {items.map((d) => (
+                              <li key={d.id}>{itemButton(d, true)}</li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        ))}
+        ) : null}
       </section>
+      {openId && q.data ? (
+        <Modal
+          open
+          title={opened?.title ?? 'Not found'}
+          subtitle={opened ? dayText(opened.date) : undefined}
+          onClose={() => set({ item: null })}
+          footer={
+            <Button variant="secondary" onClick={() => set({ item: null })}>
+              Close
+            </Button>
+          }
+        >
+          {opened ? (
+            <div className="flex flex-col gap-3 text-sm" data-testid="deadline-details">
+              {kindPill(opened.kind)}
+              {opened.description ? <p className="text-text">{opened.description}</p> : null}
+              {opened.scope ? <p className="text-muted">{opened.scope}</p> : null}
+              <h3 className="font-semibold text-heading">
+                {opened.kind === 'TAX_DEADLINE' ? 'Affected clients' : 'Client'} (
+                {opened.clientCount})
+              </h3>
+              {opened.clients.length === 0 ? (
+                <p className={quiet}>No client is linked to this date.</p>
+              ) : (
+                <ul data-testid="affected-clients">
+                  {opened.clients.map((c) => (
+                    <li
+                      key={`${c.client.id}-${c.deadlineId ?? c.planId}`}
+                      className="flex items-center justify-between gap-2 border-t border-divider py-1.5 first:border-t-0"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Avatar name={c.client.name} size="sm" />
+                        {c.client.name}
+                      </span>
+                      <Link
+                        href={
+                          c.deadlineId
+                            ? `/compliance/${c.deadlineId}?from=${encodeURIComponent(here)}`
+                            : `/tax-planning/plans/${c.planId}/edit`
+                        }
+                        className="font-medium text-link"
+                      >
+                        {c.deadlineId ? 'Open deadline' : 'Open plan'}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {opened.clientCount > opened.clients.length ? (
+                <p className="text-muted">
+                  And {opened.clientCount - opened.clients.length} more. See them in Compliance
+                  &amp; Deadlines.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className={quiet}>That date is no longer on the calendar.</p>
+          )}
+        </Modal>
+      ) : null}
     </TpShell>
   );
 }
@@ -831,9 +1319,12 @@ export function PlanningResources() {
   const clients = useApiQuery([...TP_KEY, 'pick-clients'], () =>
     api.taxPlanning.clients({ pageSize: 100 }),
   );
-  const [clientId, setClientId] = useState('');
+  // C03 (Review 2): Send Resource from the Clients menu opens here with that client chosen.
+  const presetClient = useSearchParams().get('clientId') ?? '';
+  const [clientId, setClientId] = useState(presetClient);
   const [channel, setChannel] = useState<'PORTAL_MESSAGE' | 'EMAIL'>('PORTAL_MESSAGE');
   const [note, setNote] = useState('');
+  const presetName = clients.data?.items.find((c) => c.client.id === presetClient)?.client.name;
   return (
     <TpShell>
       {msg ? (
@@ -850,6 +1341,12 @@ export function PlanningResources() {
           </h2>
           {searchBox(search, setSearch, 'Search resources')}
         </div>
+        {presetName ? (
+          <p className="text-sm text-muted" data-testid="resource-for">
+            Choose a resource to send to{' '}
+            <span className="font-semibold text-heading">{presetName}</span>.
+          </p>
+        ) : null}
         {q.data && q.data.length === 0 ? <p className={quiet}>No resources match.</p> : null}
         <ul>
           {(q.data ?? []).map((r) => (
@@ -906,6 +1403,7 @@ export function PlanningResources() {
                     setMsg({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
                   }
                   setSending(undefined);
+                  setClientId(presetClient);
                 }}
               >
                 Send
@@ -986,7 +1484,20 @@ export function PlanningReports() {
         aria-label="Savings report"
         data-testid="tp-reports"
       >
-        <h2 className="font-display text-xl font-bold text-heading">Projected Savings by Plan</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-xl font-bold text-heading">Projected Savings by Plan</h2>
+          {/*
+            C18 (Review 2): the firm's own reports stay in Reports. This opens them on the Tax
+            category, with Back to Tax Planning, and Reports' own filters reach every service area.
+          */}
+          <Link
+            href={`/reports/library?category=TAX&from=${encodeURIComponent('/tax-planning/reports')}`}
+            className={linkBtn}
+            data-testid="open-in-reports"
+          >
+            Open Tax reports in Reports <ArrowRight aria-hidden weight="bold" className="size-3" />
+          </Link>
+        </div>
         <div className="relative">
           <Table
             rows={q.data?.items ?? []}

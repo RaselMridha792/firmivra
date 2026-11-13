@@ -23,7 +23,9 @@ export function useAllInvoices() {
     // IP-F06: the firm's calendar date, which every date rule on these screens counts from.
     let today = localToday();
     for (let page = 0; page < MAX_PAGES; page += 1) {
-      const res = await api.invoices.list({ limit: 100, cursor });
+      // IP-F10: archived ones too: the cards count all the money; the table leaves them to its
+      // Archived tab.
+      const res = await api.invoices.list({ limit: 100, cursor, archived: 'include' });
       items.push(...res.items);
       paymentsEnabled = res.paymentsEnabled;
       today = res.today;

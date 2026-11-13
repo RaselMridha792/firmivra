@@ -40,6 +40,20 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** IP-F10: a draft never sent to client X, archived, deleted (archived) and restored. */
+  archivableInvoice: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const row = await tx.invoice.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          number: `ISO-${randomUUID().slice(0, 8)}`,
+        },
+      });
+      return row.id;
+    },
+  },
   /** IP-F18: an active monthly recurring invoice to client X (one invoice made, the next in a month). */
   recurringInvoice: {
     clientPrivate: true,
@@ -181,6 +195,10 @@ export const cases: CaseModule['cases'] = {
   },
   // IP-F10: an open invoice with a balance goes to its client again.
   'POST /api/v1/business/invoices/:id/resend': { params: { id: 'openInvoice' }, body: {} },
+  // IP-F10: archived, never deleted.
+  'POST /api/v1/business/invoices/:id/archive': { params: { id: 'archivableInvoice' }, body: {} },
+  'DELETE /api/v1/business/invoices/:id': { params: { id: 'archivableInvoice' } },
+  'POST /api/v1/business/invoices/:id/restore': { params: { id: 'archivableInvoice' }, body: {} },
   'POST /api/v1/business/invoices/:id/cancel': {
     params: { id: 'invoice' },
     body: { reason: 'Billed by mistake' },

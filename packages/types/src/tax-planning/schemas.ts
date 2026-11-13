@@ -131,6 +131,21 @@ export const PlanningDeadline = z.object({
   /** The clients it affects, for the scope line ("Individual & Business Clients"). */
   scope: z.string().nullable(),
   kind: z.enum(['TAX_DEADLINE', 'PLANNING_MILESTONE']),
+  /**
+   * C04 (Review 2): the clients it affects, first 50 by name, each with its own compliance
+   * deadline (a tax deadline) or plan (a milestone), for the deadline's details.
+   */
+  clients: z
+    .array(
+      z.object({
+        client: ClientRef,
+        deadlineId: z.uuid().nullable(),
+        planId: z.uuid().nullable(),
+      }),
+    )
+    .max(50),
+  /** How many clients it affects in all. */
+  clientCount: z.number().int(),
 });
 export type PlanningDeadline = z.infer<typeof PlanningDeadline>;
 
@@ -160,6 +175,11 @@ export const TaxPlanningOverview = z.object({
   disclaimer: z.string(),
   canCreatePlan: z.boolean(),
   canSend: z.boolean(),
+  /**
+   * C02 (Review 2): the firm's active Tax Planning service, so Schedule a Planning Consultation
+   * opens New Appointment with it chosen; null when the firm has none.
+   */
+  planningServiceId: z.uuid().nullable(),
 });
 export type TaxPlanningOverview = z.infer<typeof TaxPlanningOverview>;
 
@@ -171,6 +191,12 @@ export const PlanningClientsQuery = z.strictObject({
   assignedUserId: z.uuid().optional(),
   entityType: z.string().max(60).optional(),
   hasPlan: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** C01: clients whose current plan is active (Draft to Needs Review), as the KPI counts them. */
+  active: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** C01: clients with a scheduled appointment in the next 30 days. */
+  upcomingAppointment: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** C01: clients whose current plan has a selected strategy in this status. */
+  strategyStatus: PlanStrategyStatus.optional(),
   sort: z.enum(['name', 'status', 'nextAppointment', 'savings']).optional().default('name'),
   direction: z.enum(['asc', 'desc']).optional().default('asc'),
   page: z.coerce.number().int().min(1).optional().default(1),

@@ -949,7 +949,10 @@ function Builder({
                 label="Rule Category *"
                 value={f.category}
                 onChange={(e) => set({ category: e.target.value as AutomationModule })}
-                options={catalog.modules.map((m) => ({ value: m.module, label: m.label }))}
+                // Tasks A4: task automations are the Owner's and Admins' (the API refuses others).
+                options={catalog.modules
+                  .filter((m) => m.module !== 'TASKS' || canOwn || f.category === 'TASKS')
+                  .map((m) => ({ value: m.module, label: m.label }))}
               />
               <Select
                 label="Priority"

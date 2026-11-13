@@ -56,7 +56,8 @@ const small =
 /** /services-pricing/packages: the firm's packages, what each costs and saves, and their actions. */
 export function PackagesScreen() {
   const router = useRouter();
-  const list = useApiQuery(PACKAGES, () => api.servicesPricing.packages());
+  // Every package, archived too, so each view and Restore reach it (S4).
+  const list = useApiQuery(PACKAGES, () => api.servicesPricing.packages({ status: 'all' }));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [view, setView] = useState<PackageView>('ACTIVE');
   const all = list.data ?? [];

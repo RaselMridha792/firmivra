@@ -24,6 +24,7 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { SettingsHistory } from '../../_components/settings-history';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
@@ -370,6 +371,13 @@ export function EmailSettings() {
               ))}
             </ul>
           </Card>
+          <SettingsHistory
+            section="email"
+            onRestored={() => {
+              setDraft(undefined);
+              setStatus(null);
+            }}
+          />
         </aside>
 
         <SectionCard
