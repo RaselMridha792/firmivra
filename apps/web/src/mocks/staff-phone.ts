@@ -2,6 +2,7 @@ import {
   ApiRequestError,
   parseInput,
   type StaffPhoneClient,
+  SetStaffPhoneRequest,
   type StaffPhoneState,
   VerifyStaffPhoneRequest,
 } from '@firmivra/types';
@@ -32,8 +33,20 @@ export function createStaffPhoneMock(): StaffPhoneClient {
       await pause();
       return current();
     },
+    /** My Profile: a new number is not verified; the same one changes nothing. */
+    set: async (body) => {
+      await pause();
+      const { phone } = parseInput(SetStaffPhoneRequest, body);
+      if (phone !== s.phone) {
+        Object.assign(s, { phone, verifiedAt: null, codeSent: false, resendAt: null });
+      }
+      return current();
+    },
     sendCode: async () => {
       await pause();
+      if (!s.phone) {
+        throw new ApiRequestError(409, 'NO_PHONE', 'You have no mobile number yet.');
+      }
       if (s.resendAt && Date.parse(s.resendAt) > Date.now()) {
         throw new ApiRequestError(
           429,

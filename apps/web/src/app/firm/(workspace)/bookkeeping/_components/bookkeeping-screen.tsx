@@ -27,6 +27,7 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -50,7 +51,7 @@ import {
   trendOf,
 } from './bookkeeping-shared';
 import { OriginLink } from '../../../../../components/origin-link';
-import { pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { pageOf, readListQuery, writeListQuery } from '../../../../../lib/list-query';
 import { BOOKKEEPING_VIEW, type BookkeepingView, dueRange } from './list-view';
 import {
   ServiceDocumentsProvider,
@@ -61,6 +62,8 @@ import { CatalogPlanSelect, useCatalogPlans } from '../../../../../components/ca
 
 const TABS = [
   { id: 'ALL', label: 'All Clients' },
+  // Review 2 (D01): the Active card's cohort, so its count and the rows are the same clients.
+  { id: 'ACTIVE', label: 'Active' },
   { id: 'ON_TRACK', label: 'On Track' },
   { id: 'NEEDS_ATTENTION', label: 'Needs Attention' },
   { id: 'MISSING_DOCUMENTS', label: 'Missing Documents' },
@@ -94,7 +97,17 @@ const SORT_KEY: Record<string, 'clientName' | 'plan' | 'status' | 'nextReportDue
 };
 
 /** /bookkeeping: the module home: KPIs, status and monthly charts, software, and the client list. */
-export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: BookkeepingView }) {
+export function BookkeepingScreen({
+  initial: fromServer = BOOKKEEPING_VIEW,
+}: {
+  initial?: BookkeepingView;
+}) {
+  // Review 2 (as Payroll F10): Browser Back restores this page with its first load's props, while
+  // the address holds the newest view; reading the address keeps the newest filters.
+  const params = useSearchParams();
+  const [initial] = useState<BookkeepingView>(() =>
+    params.size ? readListQuery(Object.fromEntries(params), BOOKKEEPING_VIEW) : fromServer,
+  );
   const [period, setPeriod] = useState<BookkeepingOverviewPeriod>(
     BookkeepingOverviewPeriod.safeParse(initial.period).data ?? 'THIS_MONTH',
   );
@@ -176,6 +189,8 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
       software,
       status,
       due,
+      custom?.reportDueFrom,
+      custom?.reportDueTo,
       term,
       page,
       pageSize,
@@ -218,6 +233,16 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
   ];
   const o = overview.data;
   const k = o?.kpis;
+  // Review 2 (D01, D02): the chart counts the cohort and filters the list shows; the overview's
+  // firm-wide breakdown stands in only until the list has answered.
+  const breakdown = (() => {
+    const rows = list.data?.cohortStatus;
+    if (!rows) return o?.statusBreakdown;
+    const items = Object.keys(STATUS_TONE)
+      .map((status) => ({ status, count: rows.find((r) => r.status === status)?.count ?? 0 }))
+      .filter((i) => i.count > 0);
+    return { total: items.reduce((n, i) => n + i.count, 0), items };
+  })();
   const noFigures = !!o && o.kpis.clientsWithFigures === 0;
   const reset = () => {
     setType('');
@@ -369,9 +394,9 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
             <button
               type="button"
               className={kpiButton}
-              aria-pressed={tab === 'ALL'}
-              aria-label="Active Bookkeeping Clients: show all of them in the list"
-              onClick={() => pick('ALL')}
+              aria-pressed={tab === 'ACTIVE'}
+              aria-label="Active Bookkeeping Clients: show them in the list"
+              onClick={() => pick('ACTIVE')}
             >
               <KpiCard
                 icon={UsersThree}
@@ -458,29 +483,27 @@ export function BookkeepingScreen({ initial = BOOKKEEPING_VIEW }: { initial?: Bo
             <DonutChart
               size="md"
               legend={false}
-              centerValue={o?.statusBreakdown.total ?? 0}
+              centerValue={breakdown?.total ?? 0}
               centerLabel="Clients"
-              segments={(o?.statusBreakdown.items ?? []).map((i) => ({
-                label: STATUS_LABEL[i.status],
+              segments={(breakdown?.items ?? []).map((i) => ({
+                label: STATUS_LABEL[i.status as keyof typeof STATUS_LABEL] ?? i.status,
                 value: i.count,
                 tone: STATUS_TONE[i.status] ?? 'grey',
               }))}
               emptyText="No bookkeeping clients yet"
             />
-            {o?.statusBreakdown.items.length ? (
+            {breakdown?.items.length ? (
               <CohortLegend
                 label="Filter the client list by bookkeeping status"
                 selected={STATUS_TONE[tab] ? tab : undefined}
                 onPick={(status) => pick(status as TabId)}
                 onClear={() => pick('ALL')}
-                rows={o.statusBreakdown.items.map((i) => ({
+                rows={breakdown.items.map((i) => ({
                   key: i.status,
-                  label: STATUS_LABEL[i.status],
+                  label: STATUS_LABEL[i.status as keyof typeof STATUS_LABEL] ?? i.status,
                   tone: STATUS_TONE[i.status] ?? 'grey',
                   count: i.count,
-                  percent: o.statusBreakdown.total
-                    ? Math.round((i.count / o.statusBreakdown.total) * 100)
-                    : 0,
+                  percent: breakdown.total ? Math.round((i.count / breakdown.total) * 100) : 0,
                 }))}
               />
             ) : null}

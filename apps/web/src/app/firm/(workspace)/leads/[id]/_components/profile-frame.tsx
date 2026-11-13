@@ -25,8 +25,10 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { createContext, type ReactNode, use, useState } from 'react';
+import { createContext, type MouseEvent, type ReactNode, use, useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { LAST_LEADS_LIST } from '../../../../../../lib/leads-place';
+import { listReturnHref, markReturning } from '../../../../../../lib/list-return';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { LeadAppointmentDialog } from '../../_components/lead-appointment-dialog';
@@ -96,6 +98,17 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
   );
   const name = lead ? fullName(lead.firstName, lead.lastName, 'Lead') : 'Lead';
   const base = `/leads/${id}`;
+  /** Converted and Not Qualified leads are not converted (again); as the list's row menu. */
+  const convertible = !lead || (lead.stage !== 'CONVERTED' && lead.stage !== 'DECLINED');
+  // R2 1: Back to Leads (and the breadcrumb) open the list as it was left, scrolled back.
+  const backToList = (event: MouseEvent<HTMLAnchorElement>) => {
+    const last = listReturnHref(LAST_LEADS_LIST, '/leads');
+    markReturning(LAST_LEADS_LIST);
+    if (last !== '/leads') {
+      event.preventDefault();
+      router.push(last);
+    }
+  };
   const sourceIcon = lead ? SOURCE_ICON[lead.source] : GlobeSimple;
   const SourceGlyph = sourceIcon;
 
@@ -103,7 +116,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
     <ProfileContext.Provider value={{ id, profile: lead, open: setDialog }}>
       <div className="flex flex-col gap-4" data-testid={`lead-tab-${tab}`}>
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-          <Link href="/leads" className="text-link">
+          <Link href="/leads" onClick={backToList} className="text-link">
             Leads
           </Link>
           <span aria-hidden className="text-muted">
@@ -115,6 +128,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
           <div className="flex min-w-0 flex-col gap-3 xl:flex-1">
             <Link
               href="/leads"
+              onClick={backToList}
               className="inline-flex min-h-9 w-fit items-center gap-2 rounded-control border border-action bg-surface px-3 text-sm font-medium text-action hover:bg-accent-soft"
             >
               <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to Leads
@@ -246,11 +260,25 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
                         icon: Lightning,
                         onSelect: () => router.push(`${base}/activity`),
                       },
-                      {
-                        label: 'Convert to Client',
-                        icon: UserSwitch,
-                        onSelect: () => router.push(`${base}/convert`),
-                      },
+                      // Leads (Review Two): a lead that is already a client is never converted
+                      // again; it opens its client instead, when it has one.
+                      ...(lead?.client
+                        ? [
+                            {
+                              label: 'Open Client',
+                              icon: UserSwitch,
+                              onSelect: () => router.push(`/clients/${lead.client?.id}`),
+                            },
+                          ]
+                        : convertible
+                          ? [
+                              {
+                                label: 'Convert to Client',
+                                icon: UserSwitch,
+                                onSelect: () => router.push(`${base}/convert`),
+                              },
+                            ]
+                          : []),
                     ],
                   },
                 ]}
@@ -294,14 +322,14 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
         ) : null}
         <nav
           aria-label="Lead profile"
-          className="flex overflow-x-auto border-b border-divider bg-surface px-2"
+          className="flex overflow-x-auto overflow-y-hidden border-b border-divider bg-surface px-2"
         >
-          {TABS.map((item) => (
+          {TABS.filter((item) => item.id !== 'convert' || convertible).map((item) => (
             <Link
               key={item.id}
               href={`${base}${item.path}`}
               aria-current={item.id === tab ? 'page' : undefined}
-              className={`-mb-px shrink-0 border-b-2 px-4 py-3 text-sm font-medium whitespace-nowrap ${item.id === tab ? 'border-action text-action' : 'border-transparent text-heading hover:text-action'}`}
+              className={`-mb-px shrink-0 border-b-2 px-4 py-3 text-sm font-medium whitespace-nowrap focus-visible:outline-offset-[-2px] ${item.id === tab ? 'border-action text-action' : 'border-transparent text-heading hover:text-action'}`}
             >
               {item.label}
             </Link>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Phone } from '../client-auth/schemas.js';
 import { type ApiRequest, parseInput } from '../client.js';
 
 const DateTime = z.iso.datetime({ offset: true });
@@ -6,8 +7,8 @@ const DateTime = z.iso.datetime({ offset: true });
 /**
  * GET /business/me/phone: the signed-in member's mobile number and whether they proved they hold
  * it (a code by text, R60's column request 9 and 13). The number is the one on their login, set
- * in their staff record; staff are offered texts only once it is verified, and a new number clears
- * the verification.
+ * in their staff record or by the member on My Profile; staff are offered texts only once it is
+ * verified, and a new number clears the verification.
  */
 export const StaffPhoneState = z.object({
   /** E.164, or null when the staff record has no number. */
@@ -30,6 +31,14 @@ export const VerifyStaffPhoneRequest = z.strictObject({
 export type VerifyStaffPhoneRequest = z.input<typeof VerifyStaffPhoneRequest>;
 
 /**
+ * PUT /business/me/phone (Octavia's Overview guide of Oct 18, item 20): the member sets their own
+ * mobile number on My Profile, or removes it (null). Any country, stored as E.164; a new number is
+ * not verified until a code proves it.
+ */
+export const SetStaffPhoneRequest = z.strictObject({ phone: Phone.nullable() });
+export type SetStaffPhoneRequest = z.input<typeof SetStaffPhoneRequest>;
+
+/**
  * The error codes of these routes: NO_PHONE (409, the staff record has no number), CODE_WAIT (429,
  * a code went out less than a minute ago; `retryAfter` seconds), CODE_LIMIT (429, the day's codes
  * for this member or the firm's texts are used up), CODE_INVALID (400: wrong, expired, used, or
@@ -48,6 +57,12 @@ export function createStaffPhoneClient(request: ApiRequest) {
   const base = '/business/me/phone';
   return {
     get: async (): Promise<StaffPhoneState> => request(StaffPhoneState, base),
+    /** My Profile: sets or removes (null) the member's own number. */
+    set: async (body: SetStaffPhoneRequest): Promise<StaffPhoneState> =>
+      request(StaffPhoneState, base, {
+        method: 'PUT',
+        body: parseInput(SetStaffPhoneRequest, body),
+      }),
     /** Texts a new code to the number. */
     sendCode: async (): Promise<StaffPhoneState> =>
       request(StaffPhoneState, `${base}/code`, { method: 'POST', body: {} }),

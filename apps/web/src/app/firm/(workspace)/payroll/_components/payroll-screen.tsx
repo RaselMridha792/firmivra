@@ -2,6 +2,7 @@
 
 import {
   type PayrollClientRow,
+  type PayrollClientStatus,
   PayrollClientsQuery,
   PayrollClientTab,
   PayrollOverviewPeriod,
@@ -35,7 +36,7 @@ import {
   Warning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -51,6 +52,7 @@ import {
 } from './payroll-widgets';
 import {
   ClientStatusPill,
+  CLIENT_STATUS_LABEL,
   FREQUENCY_LABEL,
   FREQUENCY_OPTIONS,
   PAYROLL_ERRORS,
@@ -65,7 +67,7 @@ import {
   quiet,
 } from './payroll-shared';
 import { OriginLink } from '../../../../../components/origin-link';
-import { pageOf, writeListQuery } from '../../../../../lib/list-query';
+import { pageOf, readListQuery, writeListQuery } from '../../../../../lib/list-query';
 import { PAYROLL_VIEW, type PayrollView } from './list-view';
 import { ServiceDocumentsProvider } from '../../../../../components/service-documents';
 
@@ -84,6 +86,9 @@ const PERIODS: { value: PayrollOverviewPeriod; label: string }[] = [
   { value: 'THIS_QUARTER', label: 'This Quarter' },
   { value: 'THIS_YEAR', label: 'This Year' },
 ];
+/** A view tab that is one status (On Track ... Not Started), as against All and Upcoming. */
+const isStatusTab = (t: PayrollClientTab) => t !== 'ALL' && t !== 'UPCOMING';
+
 const BLANK = {
   clientType: '',
   providerKey: '',
@@ -109,8 +114,15 @@ function viewFilters(view: PayrollView): typeof BLANK {
 }
 
 /** /payroll: the overview. KPI cards, charts, the client table with its seven views, and the side widgets. */
-export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollView }) {
+export function PayrollScreen({ initial: fromServer = PAYROLL_VIEW }: { initial?: PayrollView }) {
   const router = useRouter();
+  // Review 2 (F10): Browser Back brings this page back from the router's cache with the props of
+  // its first load, while the address holds the newest view (written in place below). Reading the
+  // address keeps the newest filters; the server's copy is only the first render's.
+  const params = useSearchParams();
+  const [initial] = useState<PayrollView>(() =>
+    params.size ? readListQuery(Object.fromEntries(params), PAYROLL_VIEW) : fromServer,
+  );
   const [period, setPeriod] = useState<PayrollOverviewPeriod>(
     PayrollOverviewPeriod.safeParse(initial.period).data ?? 'THIS_MONTH',
   );
@@ -184,10 +196,22 @@ export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollVie
   const rows = list.data?.items ?? [];
   const set = (change: Partial<typeof BLANK>) => {
     setFilters({ ...filters, ...change });
+    // Review 2 (F06): a status chosen here replaces a status tab, so the two never disagree.
+    if (change.status && isStatusTab(tab)) setTab('ALL');
     setPage(1);
   };
   const choose = (next: PayrollClientTab) => {
     setTab(next);
+    // Review 2 (F06): a status tab replaces the Status filter (On Hold from the chart included).
+    if (isStatusTab(next) && filters.status) setFilters((f) => ({ ...f, status: '' }));
+    setPage(1);
+    setSelected([]);
+  };
+  const filtered = !!(search.trim() || tab !== 'ALL' || Object.values(filters).some(Boolean));
+  const clearAll = () => {
+    setTab('ALL');
+    setFilters(BLANK);
+    setSearch('');
     setPage(1);
     setSelected([]);
   };
@@ -590,26 +614,36 @@ export function PayrollScreen({ initial = PAYROLL_VIEW }: { initial?: PayrollVie
                   rows={rows}
                   columns={columns}
                   rowKey={(r) => r.id}
-                  caption={TABS.find((t) => t.id === tab)?.label ?? 'Payroll clients'}
+                  caption={
+                    tab === 'ALL' && filters.status
+                      ? `${CLIENT_STATUS_LABEL[filters.status as PayrollClientStatus] ?? filters.status} clients`
+                      : (TABS.find((t) => t.id === tab)?.label ?? 'Payroll clients')
+                  }
                   dense
                   noun="clients"
                   pageSize={10}
                   loading={list.isPending}
                   emptyTitle={
-                    list.isError ? 'Payroll clients are not available' : 'No payroll clients'
+                    list.isError
+                      ? 'Payroll clients are not available'
+                      : filtered
+                        ? 'No clients match these filters'
+                        : 'No payroll clients'
                   }
                   emptyText={
                     list.isError
                       ? 'We could not load the payroll clients. Try again in a moment.'
-                      : 'Add a client with a payroll service to get started.'
+                      : filtered
+                        ? 'Change or clear the filters to see more clients.'
+                        : 'Add a client with a payroll service to get started.'
                   }
                   emptyAction={
                     <button
                       type="button"
-                      onClick={() => setDialog('add')}
+                      onClick={() => (filtered ? clearAll() : setDialog('add'))}
                       className="inline-flex min-h-11 items-center rounded-control bg-action px-4 text-sm font-medium text-on-action"
                     >
-                      Add Payroll Client
+                      {filtered ? 'Clear Filters' : 'Add Payroll Client'}
                     </button>
                   }
                   selection={{ selected, onChange: setSelected }}
