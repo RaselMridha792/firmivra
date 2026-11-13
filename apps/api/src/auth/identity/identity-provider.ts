@@ -107,4 +107,9 @@ export interface IdentityProvider {
    * up again, as the pool requires it. Ends every session. Nothing to do for an unknown login.
    */
   resetMfa(pool: IdentityPool, sub: string): Promise<void>;
+  /**
+   * Whether the login has an authenticator app set up (the Client Portal module's MFA status).
+   * Read only; false for an unknown login.
+   */
+  mfaEnabled(pool: IdentityPool, sub: string): Promise<boolean>;
 }
