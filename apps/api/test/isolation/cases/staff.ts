@@ -193,6 +193,15 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'staffMembership' },
     body: { confirm: true },
   },
+  // SM14 part C, SEC-6: a member's security administration.
+  [`GET ${BASE}/:id/security-admin`]: { params: { id: 'staffMembership' } },
+  // staffMembership is a Staff member: firm P's Owner reaches it and is told only an Admin can be
+  // one (409 NOT_ADMIN); firm Q gets 404 as everywhere.
+  [`PUT ${BASE}/:id/security-admin`]: {
+    params: { id: 'staffMembership' },
+    body: { securityAdmin: true, confirm: true },
+    expect: 409,
+  },
   [`GET ${BASE}/:id/login-history`]: { params: { id: 'staffMembership' } },
   [`GET ${BASE}/:id/activity`]: { params: { id: 'staffMembership' } },
   [`POST ${BASE}/:id/reset-password`]: {

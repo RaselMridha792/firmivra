@@ -5,6 +5,7 @@ import { GearSix, Lightbulb } from '@phosphor-icons/react';
 import { NeedHelpCard } from '../../../_components/need-help-card';
 import { useMember } from '../../_components/use-member';
 import { AccountButtons } from './account-buttons';
+import { SecurityAdminCard } from './security-admin-card';
 import { Panel } from './panel';
 import {
   AccountNotesCard,
@@ -38,6 +39,8 @@ export function SecurityOverview({ id }: { id: string }) {
         <Panel title="Account Actions" icon={GearSix} testId="account-actions">
           <AccountButtons member={member} enabled={manages} testId="account-buttons" />
         </Panel>
+        {/* SEC-6: an Admin's security administration (shown for Admins only). */}
+        {admin && member ? <SecurityAdminCard member={member} /> : null}
       </div>
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-2">
         <SessionsCard

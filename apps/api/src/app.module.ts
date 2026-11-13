@@ -11,12 +11,15 @@ import { RolesGuard } from './auth/roles.guard.js';
 import { SignInModule } from './auth/sign-in.controller.js';
 import { PortalInfoModule } from './client-auth/portal-info.controller.js';
 import { PortalAnnouncementsModule } from './client-portal/portal-announcements.js';
+import { PortalLockModule } from './client-portal/portal-lock.js';
+import { PortalManagementModule } from './client-portal/portal-management.js';
 import { PortalTabsModule } from './client-portal/portal-tabs.js';
 import { PaymentPreferencesModule } from './payments/preferences/payment-preferences.js';
 import { ClientSignUpsModule } from './client-auth/client-sign-ups.controller.js';
 import { PortalSignInModule } from './client-auth/portal-sign-in.controller.js';
 import { SignUpModule } from './client-auth/sign-up.controller.js';
 import { TenantGuard } from './auth/tenant.guard.js';
+import { PlatformRollupsModule } from './platform-rollups/rollups.job.js';
 import { BusinessModule } from './business/business.controller.js';
 import { ConfigModule } from './config/config.module.js';
 import type { Env } from './config/env.js';
@@ -182,6 +185,8 @@ export class AppModule {
         SignInModule,
         PortalInfoModule,
         PortalAnnouncementsModule,
+        PortalLockModule,
+        PortalManagementModule,
         PortalTabsModule,
         PaymentPreferencesModule,
         SignUpModule,
@@ -203,6 +208,8 @@ export class AppModule {
         ReportsModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
         BookkeepingModule,
+        // The platform's daily rollups (reports and integration usage).
+        PlatformRollupsModule,
       ],
       // Run in this order on every request. Each skips @Public() routes.
       providers: [

@@ -6,7 +6,7 @@ import { AuditService } from '../../audit/audit.service.js';
 import { ENV } from '../../config/config.module.js';
 import type { Env } from '../../config/env.js';
 import { DATABASE } from '../../database/database.module.js';
-import { conflict } from '../invoices/invoice-view.js';
+import { cardsAccepted, conflict } from '../invoices/invoice-view.js';
 import { MyInvoicesService } from '../invoices/my-invoices.service.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import {
@@ -69,7 +69,8 @@ export class CheckoutService {
           }
           if (mine.paymentProcessing) throw paymentInProgress();
           const account = await tx.stripeAccount.findUnique({ where: { businessId } });
-          if (!account?.chargesEnabled) {
+          // PAY-3: and the firm takes cards (Settings > Payments), as `canPay` says.
+          if (!account?.chargesEnabled || !(await cardsAccepted(tx, businessId))) {
             throw conflict('PAYMENTS_NOT_SET_UP', INVOICE_ERRORS.PAYMENTS_NOT_SET_UP);
           }
           if (!this.stripe) throw providerUnavailable();

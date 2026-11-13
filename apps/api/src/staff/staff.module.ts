@@ -10,6 +10,13 @@ import {
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
+import { MySecurityController } from './my-security.controller.js';
+import { MySecurityService } from './my-security.service.js';
+import {
+  MfaPolicyController,
+  MfaPolicyService,
+  StaffSecurityAdminController,
+} from './mfa-policy.service.js';
 import { StaffActionsService } from './staff-actions.service.js';
 import { StaffDocumentsController } from './staff-documents.controller.js';
 import { StaffDocumentsService, StaffUploadTokens } from './staff-documents.service.js';
@@ -53,6 +60,9 @@ import { UsersService } from './users.service.js';
     StaffWorkSchedulesController,
     StaffSecurityDefaultsController,
     UsersController,
+    MySecurityController,
+    MfaPolicyController,
+    StaffSecurityAdminController,
   ],
   providers: [
     StaffReadService,
@@ -68,6 +78,8 @@ import { UsersService } from './users.service.js';
     StaffWorkSchedulesService,
     StaffSecurityDefaultsService,
     UsersService,
+    MySecurityService,
+    MfaPolicyService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
     {

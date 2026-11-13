@@ -47,12 +47,15 @@ const services: (ServiceRef & { stages: string[] })[] = [
     stages: ['New', 'Preparation', 'Review', 'Filed'],
   },
   {
-    id: '0199b6a2-0000-7000-8000-0000000000b2',
+    // The Services & Pricing mock's Bookkeeping Services, so a task on this engagement can take its
+    // service from the catalog (Review 2, N05 / PY-F04).
+    id: '0199c0e0-0a00-7000-8000-000000000007',
     name: 'Bookkeeping',
     kind: 'BOOKKEEPING',
     stages: ['Monthly close'],
   },
-  { id: '0199b6a2-0000-7000-8000-0000000000c3', name: 'Payroll', kind: 'PAYROLL', stages: [] },
+  // The Services & Pricing mock's Payroll Services (Review 2, PY-F04).
+  { id: '0199c0e0-0a00-7000-8000-000000000006', name: 'Payroll', kind: 'PAYROLL', stages: [] },
 ];
 const ref = ({ stages: _s, ...service }: (typeof services)[number]) => service;
 

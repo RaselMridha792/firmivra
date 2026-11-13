@@ -131,6 +131,58 @@ test('Calculator: a scenario is calculated with its assumptions, then saved', as
   await expect(page.getByTestId('scenarios')).toContainText('Scenario');
 });
 
+test('Review 2 (C01, C02, C04, C16): KPIs open their lists, consultations open New Appointment, deadlines open their clients, the calendar switches view', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await expect(page.getByTestId('kpi-link')).toHaveCount(4);
+  await expect(page.getByTestId('schedule-consultation')).toHaveAttribute(
+    'href',
+    /^\/calendar\/new\?serviceId=[0-9a-f-]{36}&from=%2Ftax-planning$/,
+  );
+  await page.getByTestId('kpi-link').first().click();
+  await expect(page).toHaveURL(/\/tax-planning\/clients\?active=1$/);
+  await expect(page.getByTestId('kpi-filter')).toContainText('Active planning clients');
+  await page.getByRole('button', { name: 'Show all clients' }).click();
+  await expect(page.getByTestId('kpi-filter')).toHaveCount(0);
+
+  await page.goto(base);
+  await page.getByTestId('deadline-link').first().click();
+  await expect(page).toHaveURL(/\/tax-planning\/calendar\?item=tax-q4$/);
+  await expect(page.getByTestId('deadline-details')).toContainText('Affected clients');
+  await expect(page.getByTestId('affected-clients').getByRole('link').first()).toHaveAttribute(
+    'href',
+    /^\/compliance\/[0-9a-f-]{36}\?from=/,
+  );
+
+  await page.goto(`${base}/calendar`);
+  await page.getByTestId('view-calendar').click();
+  await expect(page).toHaveURL(/view=calendar/);
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await page.getByTestId('view-list').click();
+  await expect(page.getByTestId('month-grid')).toHaveCount(0);
+  await expect(page.getByTestId('tp-calendar')).toContainText('Q4 Estimated Tax Payment Due');
+});
+
+test('Review 2 (C03, C22): the Clients filters live in the address, and the menu reaches Schedule and Send Resource', async ({
+  page,
+}) => {
+  await page.goto(`${base}/clients`);
+  await page.getByRole('combobox', { name: 'Entity type' }).selectOption('Individual');
+  await expect(page).toHaveURL(/entity=Individual/);
+  await page.getByRole('combobox', { name: 'Planning year' }).selectOption({ index: 2 });
+  await expect(page).toHaveURL(/year=\d{4}/);
+  await page.goto(`${base}/clients`);
+  await page
+    .getByRole('button', { name: /^Actions for / })
+    .first()
+    .click();
+  await expect(page.getByRole('menuitem', { name: 'Schedule' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Send Resource' }).click();
+  await expect(page).toHaveURL(/\/tax-planning\/resources\?clientId=[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('resource-for')).toBeVisible();
+});
+
 test('No sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   for (const path of [

@@ -13,6 +13,9 @@ import {
   AdminBrandAsset,
   AdminBrandingSection,
   AdminEmailSection,
+  AdminRestorePreview,
+  AdminRestoreResult,
+  AdminSettingsHistory,
   AdminEmailStatus,
   AdminFeature,
   AdminFeatureList,
@@ -30,6 +33,7 @@ import {
   type UploadPutTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
@@ -78,10 +82,13 @@ async function call(
   path: string,
   body?: object,
   email = people.super1.email,
+  /** Another address, for the throttled routes (Restore counts 5 tries in 15 minutes per address). */
+  ip?: string,
 ) {
-  const req = request(app.getHttpServer())
+  let req = request(app.getHttpServer())
     [method](`/api/v1/admin/system-settings${path}`)
     .set('authorization', `Bearer ${await tokenFor(email)}`);
+  if (ip) req = req.set('x-forwarded-for', ip);
   return body === undefined ? req : req.send(body);
 }
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
@@ -226,6 +233,153 @@ describe('sections', () => {
       .get('/api/v1/admin/system-settings/general')
       .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
     expect([401, 403]).toContain(res.status);
+  });
+});
+
+describe('history and restore (SA-SYS-A2)', () => {
+  it('restores one save’s kept fields, names the text it could not keep, and leaves the rest', async () => {
+    const start = AdminEmailSection.parse(ok(await call('get', '/email')));
+    const original = start.value;
+    // Save A: a nested switch, a number, and a long text (named in the audit, never kept).
+    const a = AdminEmailSection.parse(
+      ok(
+        await call('put', '/email', {
+          version: start.version,
+          value: {
+            ...original,
+            channels: { ...original.channels, sms: !original.channels.sms },
+            maxRetries: original.maxRetries === 7 ? 6 : 7,
+            signature: `Fake signature for the restore test ${run} `.repeat(3).trim(),
+          },
+        }),
+      ),
+    );
+    // Save B, after it: another field, which a restore of A must leave alone.
+    const b = AdminEmailSection.parse(
+      ok(
+        await call('put', '/email', {
+          version: a.version,
+          value: { ...a.value, includeSignature: !a.value.includeSignature },
+        }),
+      ),
+    );
+
+    const history = AdminSettingsHistory.parse(ok(await call('get', '/history?section=email')));
+    expect(history.version).toBe(b.version);
+    const saveA = history.items.find((i) => i.fromVersion === start.version);
+    expect(saveA).toMatchObject({ kind: 'SAVED', by: 'Fake R55s ADMIN' });
+    expect(saveA?.changes).toEqual(
+      expect.arrayContaining([
+        {
+          field: 'channels.sms',
+          kept: true,
+          from: original.channels.sms,
+          to: !original.channels.sms,
+        },
+        { field: 'maxRetries', kept: true, from: original.maxRetries, to: a.value.maxRetries },
+        { field: 'signature', kept: false, from: null, to: null },
+      ]),
+    );
+
+    const preview = AdminRestorePreview.parse(
+      ok(await call('post', '/restore/preview', { eventId: saveA?.eventId })),
+    );
+    expect(preview).toMatchObject({ section: 'email', version: b.version, notKept: ['signature'] });
+    expect(preview.fields).toEqual([
+      { field: 'channels.sms', current: !original.channels.sms, restoreTo: original.channels.sms },
+      { field: 'maxRetries', current: a.value.maxRetries, restoreTo: original.maxRetries },
+    ]);
+
+    // The password again, every time; the version the preview saw.
+    const body = { eventId: preview.eventId, version: preview.version, password: LOCAL_PASSWORD };
+    expectError(
+      await call('post', '/restore', { ...body, password: 'wrong' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', '/restore', { ...body, version: start.version }),
+      409,
+      'SAVE_CONFLICT',
+    );
+    expect(AdminEmailSection.parse(ok(await call('get', '/email'))).version).toBe(b.version);
+    const result = AdminRestoreResult.parse(ok(await call('post', '/restore', body)));
+    expect(result).toEqual({
+      section: 'email',
+      version: b.version + 1,
+      restored: ['channels.sms', 'maxRetries'],
+    });
+    const now = AdminEmailSection.parse(ok(await call('get', '/email')));
+    expect(now.value).toEqual({
+      ...b.value,
+      channels: { ...b.value.channels, sms: original.channels.sms },
+      maxRetries: original.maxRetries,
+    });
+    // A restore is in the history too, and is audited against the save it restored.
+    const after = AdminSettingsHistory.parse(ok(await call('get', '/history?section=email')));
+    expect(after.items[0]).toMatchObject({ kind: 'RESTORED', fromVersion: b.version });
+    const audit = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.auditLog.findFirst({
+        where: { action: 'system_settings.section_restored', parentEventId: saveA?.eventId },
+      }),
+    );
+    expect(audit?.metadata).toMatchObject({ restoredFrom: saveA?.eventId });
+    expect(JSON.stringify(audit?.metadata)).not.toContain('Fake signature');
+    // Nothing left to restore from A; an unknown save is not in the history.
+    expectError(
+      await call('post', '/restore', { ...body, version: now.version }),
+      409,
+      'NOTHING_TO_RESTORE',
+    );
+    expectError(
+      await call('post', '/restore/preview', { eventId: randomUUID() }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    ok(await call('put', '/email', { version: now.version, value: original }));
+  });
+
+  it('restores Branding colours by their stored paths, and is for Super Admins only', async () => {
+    const start = AdminBrandingSection.parse(ok(await call('get', '/branding')));
+    const changed = AdminBrandingSection.parse(
+      ok(
+        await call('put', '/branding', {
+          version: start.version,
+          value: {
+            ...start.value,
+            colors: { ...start.value.colors, primary: '#123456', accent: '#654321' },
+          },
+        }),
+      ),
+    );
+    const history = AdminSettingsHistory.parse(ok(await call('get', '/history?section=branding')));
+    const save = history.items.find((i) => i.fromVersion === start.version);
+    const preview = AdminRestorePreview.parse(
+      ok(await call('post', '/restore/preview', { eventId: save?.eventId })),
+    );
+    expect(preview.fields.map((f) => f.field).sort()).toEqual(['colors.accent', 'primaryAccent']);
+    ok(
+      await call(
+        'post',
+        '/restore',
+        { eventId: preview.eventId, version: changed.version, password: LOCAL_PASSWORD },
+        undefined,
+        '203.0.113.21',
+      ),
+    );
+    const now = AdminBrandingSection.parse(ok(await call('get', '/branding')));
+    expect(now.value.colors).toEqual(start.value.colors);
+    for (const res of [
+      await call('get', '/history?section=branding', undefined, people.ownerA.email),
+      await call(
+        'post',
+        '/restore',
+        { eventId: preview.eventId, version: now.version, password: LOCAL_PASSWORD },
+        people.ownerA.email,
+        '203.0.113.22',
+      ),
+    ])
+      expect([401, 403]).toContain(res.status);
   });
 });
 

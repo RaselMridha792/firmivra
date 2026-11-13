@@ -245,6 +245,13 @@ function ledgerOf(c: {
 
 /** BK-RPT part 1: the mock's period for every report's figures. */
 const MOCK_REPORT_PERIOD = { start: '2026-10-01', end: '2026-10-31' };
+/** The days of a mock report: a summary's quarter or year so far, else the period. */
+const mockPeriodOf = (type: string) =>
+  type === 'QUARTERLY_REVIEW'
+    ? { start: '2026-07-01', end: '2026-09-30' }
+    : type === 'YEAR_TO_DATE_SUMMARY'
+      ? { start: '2026-01-01', end: '2026-10-31' }
+      : MOCK_REPORT_PERIOD;
 let reportVersionStore: Map<string, BookkeepingReportVersionRow[]> | undefined;
 /** The report versions generated in the page, made on first use. */
 const reportVersions = () => (reportVersionStore ??= new Map());
@@ -464,6 +471,65 @@ function mockFigures(type: string): BookkeepingReportFigures | null {
         },
       ],
       totals: { closeStepsDone: 3, closeStepsOpen: 5 },
+    };
+  }
+  if (type === 'QUARTERLY_REVIEW' || type === 'YEAR_TO_DATE_SUMMARY') {
+    // The summaries: the range's Profit & Loss, its net income month by month, and the ledger.
+    const months =
+      type === 'QUARTERLY_REVIEW'
+        ? [
+            { label: 'Jul 2026', amountCents: 310_000, count: 4 },
+            { label: 'Aug 2026', amountCents: 286_000, count: 4 },
+            { label: 'Sep 2026', amountCents: 312_000, count: 4 },
+          ]
+        : (
+            [
+              ['Jan', 80_000, 1],
+              ['Feb', 85_000, 1],
+              ['Mar', 90_000, 1],
+              ['Apr', 92_000, 1],
+              ['May', 88_000, 1],
+              ['Jun', 95_000, 1],
+              ['Jul', 93_000, 1],
+              ['Aug', 97_000, 2],
+              ['Sep', 94_000, 1],
+              ['Oct', 94_000, 2],
+            ] as const
+          ).map(([m, amountCents, count]) => ({ label: `${m} 2026`, amountCents, count }));
+    return {
+      ...base,
+      type,
+      sections: [
+        {
+          title: 'Profit & Loss',
+          rows: [
+            { label: 'Income', amountCents: 1_250_000 },
+            { label: 'Cost of Goods Sold', amountCents: 0 },
+            { label: 'Expenses', amountCents: 342_000 },
+            { label: 'Net Income', amountCents: 908_000 },
+          ],
+          totalCents: 908_000,
+        },
+        { title: 'Net Income by Month', rows: months, totalCents: 908_000 },
+        {
+          title: 'Ledger',
+          rows: [
+            { label: 'Lines', count: 12 },
+            { label: 'Uncategorized', count: 1 },
+            { label: 'Needs review', count: 0 },
+            { label: 'Excluded', count: 0 },
+          ],
+          totalCents: 0,
+        },
+      ],
+      totals: {
+        incomeCents: 1_250_000,
+        costOfGoodsCents: 0,
+        expensesCents: 342_000,
+        netIncomeCents: 908_000,
+        months: months.length,
+        uncategorized: 1,
+      },
     };
   }
   return null;
@@ -767,6 +833,7 @@ export function createBookkeepingMock({
         kind: 'BOOKKEEPING',
         title: 'Bookkeeping',
         status: 'ACTIVE',
+        workspaceId: cid,
       });
       const ws: Ws = {
         id: cid,
@@ -2256,14 +2323,13 @@ export function createBookkeepingMock({
           ? {
               supported: true,
               reason: null,
-              period: MOCK_REPORT_PERIOD,
+              period: mockPeriodOf(r.reportType),
               figures,
               missingStatements: mockMissingStatements(r.reportType),
             }
           : {
               supported: false,
-              reason:
-                'Figures for this report type are not worked out yet: Quarterly Review, Year to Date Summary and custom reports are not.',
+              reason: 'Figures for custom reports are not worked out yet.',
               period: MOCK_REPORT_PERIOD,
               figures: null,
               missingStatements: [],
@@ -2277,7 +2343,7 @@ export function createBookkeepingMock({
           throw fail(
             409,
             'REPORT_NOT_SUPPORTED',
-            'Figures for this report type are not worked out yet',
+            'Figures for custom reports are not worked out yet',
           );
         }
         if (mockMissingStatements(r.reportType).length)
@@ -2293,7 +2359,7 @@ export function createBookkeepingMock({
           generatedBy: 'Mock User',
           deliveryStatus: 'NOT_SENT' as const,
           sentAt: null,
-          period: MOCK_REPORT_PERIOD,
+          period: mockPeriodOf(r.reportType),
           figures,
         };
         reportVersions().set(rid, [v, ...list]);

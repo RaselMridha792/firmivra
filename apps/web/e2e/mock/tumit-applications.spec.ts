@@ -6,8 +6,11 @@ const admin = (path: string) => `http://admin.localhost:${port}${path}`;
 test('loads applications from the API mock, filters rows and pages results', async ({ page }) => {
   await page.goto(admin('/applications'));
   await expect(page.getByTestId('page-title')).toHaveText('Firm Applications');
-  await expect(page.getByRole('tab', { name: 'All Applications (8)' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Pending (4)' })).toBeVisible();
+  // SA-APP-Y04: Pending, In Review and Awaiting Information each have their own tab.
+  await expect(page.getByRole('tab', { name: 'All Applications (9)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'In Review (1)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Awaiting Information (1)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approved (3)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Declined (1)' })).toBeVisible();
 
@@ -18,18 +21,18 @@ test('loads applications from the API mock, filters rows and pages results', asy
   await expect(page.getByTestId('application-row')).toHaveCount(3);
   await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('');
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('7');
-  await expect(page.getByText(/of [1-6] applications/)).toBeVisible();
+  await expect(page.getByText(/of [1-8] applications/)).toBeVisible();
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('all');
   await expect(
     page.getByTestId('application-row').filter({ hasText: '(404) 555-010' }),
   ).not.toHaveCount(0);
   await page.getByRole('button', { name: 'Next applications page' }).click();
-  await expect(page.getByTestId('application-row')).toHaveCount(3);
-  await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
+  await expect(page.getByTestId('application-row')).toHaveCount(4);
+  await expect(page.getByText('Showing 6–9 of 9 applications')).toBeVisible();
   await page.getByRole('button', { name: 'Page 1' }).click();
-  await expect(page.getByText('Showing 1–5 of 8 applications')).toBeVisible();
+  await expect(page.getByText('Showing 1–5 of 9 applications')).toBeVisible();
   await page.getByRole('button', { name: 'Page 2' }).click();
-  await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
+  await expect(page.getByText('Showing 6–9 of 9 applications')).toBeVisible();
 });
 
 /** The most lines any one text piece of a cell takes (an email is two pieces, split at the @). */
@@ -83,7 +86,7 @@ test('reviews an unreadable application from its stored columns without losing a
     page.getByText('The application form could not be read', { exact: true }),
   ).toHaveCount(4);
   await expect(page.getByRole('button', { name: 'Approve Application' })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Request Information' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Request Additional Information' })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Decline Application' })).toBeEnabled();
 });
 
@@ -113,25 +116,35 @@ test('approves an application and refreshes its status, list and counts', async 
     page.getByText('Activation link sent to riley@sample-ledger.example.test.'),
   ).toBeVisible();
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
+  // Opening it started its review (SA-APP-F02), then it was approved.
+  await expect(page.getByRole('tab', { name: 'Pending (2)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approved (4)' })).toBeVisible();
 });
 
-test('requests information and leaves the application pending', async ({ page }) => {
+test('requests additional information: the application awaits the applicant (SA-APP-F03)', async ({
+  page,
+}) => {
   await page.goto(admin('/applications'));
   await page
     .getByRole('link', { name: /Open application for/ })
     .first()
     .click();
-  await page.getByRole('button', { name: 'Request Information' }).click();
+  // Opening a Pending application starts its review (SA-APP-F02).
+  await expect(page).toHaveURL(/\/applications\/[0-9a-f-]{36}/);
+  await expect(page.getByTestId('application-status')).toHaveText('In Review');
+  await page.getByRole('button', { name: 'Request Additional Information' }).click();
   await page
-    .getByRole('textbox', { name: 'Message to the applicant' })
+    .getByRole('textbox', { name: 'What is needed (sent to the applicant)' })
     .fill('Please send your business license.');
   await page.getByRole('dialog').getByRole('button', { name: 'Send request' }).click();
-  await expect(page.getByText('Please send your business license.')).toBeVisible();
-  await expect(page.getByTestId('application-status')).toHaveText('Pending Review');
+  await expect(page.getByTestId('application-status')).toHaveText('Awaiting Information');
+  await expect(page.getByTestId('requests-card')).toContainText(
+    'Please send your business license.',
+  );
+  await expect(page.getByRole('button', { name: 'Request Again' })).toBeVisible();
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (4)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (2)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Awaiting Information (2)' })).toBeVisible();
 });
 
 test('declines an application with a recorded reason and refreshed counts', async ({ page }) => {
@@ -149,7 +162,7 @@ test('declines an application with a recorded reason and refreshed counts', asyn
   await expect(page.getByText('The practice is outside our service scope.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve Application' })).toHaveCount(0);
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (2)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Declined (2)' })).toBeVisible();
 });
 

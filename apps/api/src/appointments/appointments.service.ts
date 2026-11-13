@@ -13,6 +13,8 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
+import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -85,6 +87,7 @@ export class AppointmentsService {
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
+    private readonly grants: PermissionGrantsService,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -324,7 +327,25 @@ export class AppointmentsService {
       const current = await this.openForChange(tx, businessId, actor, id);
       const staffUserId = (body.staffUserId ?? current.staffUserId).toLowerCase();
       const sameStaff = staffUserId === current.staffUserId.toLowerCase();
-      if (!sameStaff) await activeMember(tx, businessId, staffUserId);
+      if (!sameStaff) {
+        await activeMember(tx, businessId, staffUserId);
+        // TX-F18: an appointment of a tax return's engagement moves to another member only by the
+        // return's own people, or the Owner or Admin override (recorded).
+        const authority = await returnReassignAuthority(
+          tx,
+          this.grants,
+          businessId,
+          actor,
+          current.engagementId,
+        );
+        if (authority === 'override')
+          await this.audit.logIn(
+            tx,
+            'appointment.reassigned_override',
+            { type: 'appointment', id: current.id },
+            { staffUserId },
+          );
+      }
       const startsAt = new Date(body.startsAt);
       if (startsAt.getTime() === current.startsAt.getTime() && sameStaff) {
         return { before: current, after: null };

@@ -42,8 +42,10 @@ type PlanShape = Prisma.AdvisoryPlanGetPayload<{ include: typeof planInclude }>;
 const NEXT_STATUS: Record<string, string[]> = {
   DRAFT: ['IN_REVIEW'],
   IN_REVIEW: ['DRAFT'],
-  FINALIZED: ['IN_PROGRESS'],
-  SENT: ['IN_PROGRESS'],
+  // B9 (Octavia): Modify Plan takes a finalized or sent plan back to DRAFT as the next revision;
+  // its finalized versions stay as they were, and finalizing again makes the next one.
+  FINALIZED: ['IN_PROGRESS', 'DRAFT'],
+  SENT: ['IN_PROGRESS', 'DRAFT'],
   IN_PROGRESS: ['COMPLETED'],
   COMPLETED: ['IN_PROGRESS'],
 };
@@ -98,6 +100,19 @@ const changedSince = (p: PlanShape, c: Content) =>
     assessment: c.assessment,
     strategy: c.strategy,
   });
+
+/**
+ * B13: a plan focuses on areas or on None / Not Applicable, never both. Sections merge at their top
+ * keys, so the choice this change makes wins: None clears the stored areas, an area clears None.
+ */
+function focusChoice(
+  merged: Record<string, unknown>,
+  sent: { noFocusArea?: boolean | undefined; areas?: unknown[] | undefined },
+): Prisma.InputJsonObject {
+  if (sent.noFocusArea === true) merged['areas'] = [];
+  else if (sent.areas?.length) merged['noFocusArea'] = false;
+  return merged as Prisma.InputJsonObject;
+}
 
 /** Business plans: the five-step plan, its status, immutable versions and delivery to the client. */
 @Injectable()
@@ -234,6 +249,14 @@ export class AdvisoryPlansService {
                     client: { displayName: { contains: search, mode: 'insensitive' } },
                   },
                 },
+                // B26 (Octavia, Oct 25): the business's name too.
+                {
+                  advisoryClient: {
+                    client: {
+                      profile: { is: { businessName: { contains: search, mode: 'insensitive' } } },
+                    },
+                  },
+                },
               ],
             }
           : {}),
@@ -321,6 +344,13 @@ export class AdvisoryPlansService {
       if (!ctx.perms.editPlans) throw advErrors.forbidden();
       const { tx } = ctx;
       const p = await this.editable(ctx, id, body.etag);
+      // B9: a finalized or sent plan is locked; only the wizard's place (`step`) moves.
+      if (
+        (p.status === 'FINALIZED' || p.status === 'SENT') &&
+        Object.entries(body).some(([k, v]) => v !== undefined && k !== 'etag' && k !== 'step')
+      ) {
+        throw advErrors.planLocked();
+      }
       await tx.advisoryPlan.update({
         where: { businessId_id: { businessId, id } },
         data: {
@@ -336,7 +366,7 @@ export class AdvisoryPlansService {
             ? { assessment: mergeDocument(p.assessment, body.assessment) as Prisma.InputJsonObject }
             : {}),
           ...(body.strategy !== undefined
-            ? { strategy: mergeDocument(p.strategy, body.strategy) as Prisma.InputJsonObject }
+            ? { strategy: focusChoice(mergeDocument(p.strategy, body.strategy), body.strategy) }
             : {}),
         },
       });
@@ -374,11 +404,18 @@ export class AdvisoryPlansService {
       const p = await this.editable(ctx, id, body.etag);
       if (!(NEXT_STATUS[p.status] ?? []).includes(body.status))
         throw advErrors.invalidStatus(`A plan cannot go from ${p.status} to ${body.status}`);
-      if (body.status === 'DRAFT' && p.finalizedAt)
+      // B9: Modify Plan, a finalized or sent plan back to DRAFT, is its next revision: a draft again
+      // (finalizing makes the next version); its versions keep what was finalized and sent.
+      const revision = body.status === 'DRAFT' && (p.status === 'FINALIZED' || p.status === 'SENT');
+      if (body.status === 'DRAFT' && p.finalizedAt && !revision)
         throw advErrors.invalidStatus('A plan that was finalized cannot go back to a draft');
       await tx.advisoryPlan.update({
         where: { businessId_id: { businessId, id } },
-        data: { status: body.status, updatedByUserId: userId },
+        data: {
+          status: body.status,
+          updatedByUserId: userId,
+          ...(revision ? { finalizedAt: null } : {}),
+        },
       });
       await this.audit.logIn(
         tx,
@@ -506,9 +543,12 @@ export class AdvisoryPlansService {
       const missing: string[] = [];
       if (typeof content.profile.businessName !== 'string')
         missing.push('Add the business name (stage 1)');
+      // B13 (Octavia's §3): the plan type, the strategy summary and an explicit focus choice.
+      if (!p.planType) missing.push('Choose the plan type (stage 1)');
+      if (!content.strategy.summary) missing.push('Add the strategy summary (stage 3)');
       const areas = content.strategy.areas;
-      if (!content.strategy.summary && !(Array.isArray(areas) && areas.length > 0))
-        missing.push('Add the strategy summary or an area (stage 3)');
+      if (!(Array.isArray(areas) && areas.length > 0) && content.strategy.noFocusArea !== true)
+        missing.push('Choose a focus area, or None / Not Applicable (stage 3)');
       if (content.goals.length === 0) missing.push('Add at least one goal to the plan');
       if (!asOf) missing.push('Add the financial figures');
       else if (

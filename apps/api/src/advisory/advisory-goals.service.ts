@@ -188,7 +188,12 @@ export class AdvisoryGoalsService {
         ...(area ? { area } : {}),
         ...(q.ownerUserId ? { ownerUserId: q.ownerUserId } : {}),
         ...(q.dueBefore ? { targetDate: { lte: toDay(q.dueBefore) } } : {}),
-        ...(q.includeArchived ? {} : { archivedAt: null }),
+        // B25: Active, Archived or All; includeArchived (older callers) means All.
+        ...((q.view ?? (q.includeArchived ? 'all' : 'active')) === 'active'
+          ? { archivedAt: null }
+          : q.view === 'archived'
+            ? { archivedAt: { not: null } }
+            : {}),
         ...(search ? { title: { contains: search, mode: 'insensitive' } } : {}),
         AND: [statusFilter],
       };
