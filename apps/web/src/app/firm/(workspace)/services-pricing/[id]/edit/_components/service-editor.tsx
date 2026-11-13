@@ -531,6 +531,9 @@ export function ServiceEditor({
               Check the highlighted fields before saving.
             </p>
           ) : null}
+          <p data-testid="draft-note" className="text-xs text-muted">
+            A draft keeps unfinished work. Fields marked * are needed to activate.
+          </p>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"

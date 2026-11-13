@@ -354,6 +354,7 @@ export function LeadsScreen({
   /** The leads Convert to Client (bulk bar) is open for. */
   const [convertIds, setConvertIds] = useState<string[] | null>(null);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
+  const [saved, setSaved] = useState<string>();
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
@@ -617,6 +618,11 @@ export function LeadsScreen({
         </div>
       </header>
 
+      {saved ? (
+        <p role="status" data-testid="lead-saved" className="-mt-2 text-sm text-success">
+          {saved}
+        </p>
+      ) : null}
       {/* Every widget keeps its frame when its data cannot load (design rule 2). */}
       <LeadsSummary summary={summary.data} filters={filters} onFilter={changeFilters} />
       {summary.isError ? (
@@ -696,7 +702,11 @@ export function LeadsScreen({
         />
       ) : null}
       {editingLead ? (
-        <LeadEditDialog lead={editingLead} onClose={() => setEditingLead(null)} />
+        <LeadEditDialog
+          lead={editingLead}
+          onClose={() => setEditingLead(null)}
+          onSaved={setSaved}
+        />
       ) : null}
       {appointmentLead ? (
         <LeadAppointmentDialog lead={appointmentLead} onClose={() => setAppointmentLead(null)} />

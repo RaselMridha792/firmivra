@@ -8,6 +8,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
+import { StaffSessions } from './staff-sessions.js';
 import { accountLocked, httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
@@ -184,6 +185,19 @@ function literal(action: string): Prisma.Sql {
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** HKDF label for the key that turns a network into the keyed hash the audit rows keep. */
 const NETWORK_KEY_LABEL = 'fv-auth-network-key-v1';
+
+/**
+ * The keyed email a firm's portal sign-in writes on its failed attempts and locks (`emailKey`
+ * below, CLIENT pool), so the Client Portal module's Login History finds a client's own rows
+ * without the audit log ever holding the email. Undefined without the pool's secret.
+ */
+export function portalEmailKey(env: Env, businessId: string, email: string): string | undefined {
+  const secret = poolSecrets(env).CLIENT;
+  if (!secret) return undefined;
+  return createHmac('sha256', deriveKey(secret, 'CLIENT', EMAIL_KEY_LABEL))
+    .update(`${businessId}:${email.trim().toLowerCase()}`)
+    .digest('hex');
+}
 /** The most email keys the ceiling warning remembers before it prunes ended windows. */
 export const CEILING_WARNED_MAX = 10_000;
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
@@ -220,6 +234,7 @@ export class SignInService {
     private readonly audit: AuditService,
     @Inject(ENV) env: Env,
     private readonly notifier: Notifier,
+    private readonly staffSessions: StaffSessions,
   ) {
     for (const [pool, secret] of Object.entries(poolSecrets(env))) {
       if (secret) {
@@ -407,6 +422,15 @@ export class SignInService {
     const user = await this.findUser(place, email);
     try {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
+      // SEC-5: a new password signs the person out everywhere. Cognito already ended the refresh
+      // tokens; ending the firm sessions makes the access tokens still in browsers fail now.
+      if (pool === 'STAFF' && user) {
+        await this.staffSessions
+          .revokeForUser(user.id)
+          .catch((e: unknown) =>
+            this.logger.warn(`Sessions not revoked after reset: ${errorName(e)}`),
+          );
+      }
       await this.passed(place, RESET, { emailKey, reservationId });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) {

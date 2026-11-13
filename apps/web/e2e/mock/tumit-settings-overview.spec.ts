@@ -16,9 +16,9 @@ test('shows the KPIs, Quick Settings and recent activity', async ({ page }) => {
   await expect(page.getByTestId('recent-admin-activity')).toContainText(
     'Branding settings updated',
   );
-  // The platform's companies and applications keep their frames, with no numbers for a firm.
-  await expect(page.getByTestId('kpi-active-companies')).toContainText('—');
-  await expect(page.getByTestId('company-applications')).toContainText('none are shown to a firm');
+  // Octavia's review (Oct 18): the firm's own locations replace the platform's companies.
+  await expect(page.getByTestId('kpi-active-locations')).toContainText('2');
+  await expect(page.getByTestId('location-management')).toContainText('Auburn Office');
   await page.getByRole('link', { name: 'Manage Access' }).click();
   await expect(page).toHaveURL(/\/settings\/users$/, { timeout: 30_000 });
 });

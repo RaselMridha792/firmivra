@@ -91,6 +91,24 @@ describe('sections', () => {
       d: { from: null, to: true },
     });
   });
+
+  it('names a nested field by its path, so a restore can put it back (SA-SYS-A2)', () => {
+    expect(
+      changedFields(
+        { channels: { sms: false, email: true }, colors: null, signature: 'x' },
+        {
+          channels: { sms: true, email: true },
+          colors: { accent: '#123456' },
+          signature: 'y'.repeat(41),
+          primaryAccent: null,
+        },
+      ),
+    ).toEqual({
+      'channels.sms': { from: false, to: true },
+      'colors.accent': { from: null, to: '#123456' },
+      signature: { changed: true },
+    });
+  });
 });
 
 describe('default sets', () => {

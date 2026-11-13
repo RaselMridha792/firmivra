@@ -2295,3 +2295,12 @@ export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;
 
 export const FirmApplicationInfoRequestStatus = z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED']);
 export type FirmApplicationInfoRequestStatus = z.infer<typeof FirmApplicationInfoRequestStatus>;
+
+export const FirmDownloadGrantKind = z.enum(['AUTOMATIC', 'REQUESTED']);
+export type FirmDownloadGrantKind = z.infer<typeof FirmDownloadGrantKind>;
+
+export const FirmDownloadEvent = z.enum(['ISSUED', 'DOWNLOADED', 'EXPIRED', 'REVOKED']);
+export type FirmDownloadEvent = z.infer<typeof FirmDownloadEvent>;
+
+export const ExceptionalAccessStatus = z.enum(['PENDING', 'APPROVED', 'DENIED', 'REVOKED']);
+export type ExceptionalAccessStatus = z.infer<typeof ExceptionalAccessStatus>;

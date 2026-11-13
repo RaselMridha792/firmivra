@@ -11,7 +11,9 @@ const id = (v: Param) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? 
 /**
  * `?date=2026-09-20&time=08:00`: the empty hour picked on the calendar. A service workspace's
  * Schedule Appointment (SH6) adds `clientId` and `engagementId`: the form opens on that client and
- * the engagement's service, and Cancel returns to `from` without creating anything.
+ * the engagement's service, and Cancel returns to `from` without creating anything. Tax Planning's
+ * Schedule a Planning Consultation (C02) sends `serviceId` alone: its service is chosen and the
+ * client is picked in the form.
  */
 export default async function CalendarNewPage({
   searchParams,
@@ -21,10 +23,11 @@ export default async function CalendarNewPage({
     time?: Param;
     clientId?: Param;
     engagementId?: Param;
+    serviceId?: Param;
     from?: Param;
   }>;
 }) {
-  const { date, time, clientId, engagementId, from } = await searchParams;
+  const { date, time, clientId, engagementId, serviceId, from } = await searchParams;
   const at =
     typeof date === 'string' &&
     isCalendarDate(date) &&
@@ -35,7 +38,11 @@ export default async function CalendarNewPage({
   return (
     <ScheduleForm
       at={at}
-      prefill={{ clientId: id(clientId), engagementId: id(engagementId) }}
+      prefill={{
+        clientId: id(clientId),
+        engagementId: id(engagementId),
+        serviceId: id(serviceId),
+      }}
       cancelHref={safeOrigin(from) ?? undefined}
     />
   );

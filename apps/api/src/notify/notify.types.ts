@@ -98,7 +98,14 @@ export interface NotifyTemplates {
    */
   'firm-application.received': Record<string, never>;
   /** Request Information: the applicant replies to Firmivra support (`replyTo`). */
-  'firm-application.info-requested': { name: string; legalName: string; message: string };
+  /** SA-APP-F03: what is needed, and the protected link to answer (14 days). */
+  'firm-application.info-requested': {
+    name: string;
+    legalName: string;
+    message: string;
+    link: string;
+    expiresAt: Date;
+  };
   /** Approved: the owner's activation link (R2 invite), 7 days. */
   'firm-application.approved': { name: string; legalName: string; link: string; expiresAt: Date };
   /** Declined, with the reason the Super Admin wrote for the applicant. */

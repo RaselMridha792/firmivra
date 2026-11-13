@@ -563,6 +563,7 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     return { id: c.id, name: c.name, tone: c.tone };
   };
   const checkActivation = (sv: CatalogService) => {
+    if (!sv.category) throw fail(400, 'ACTIVATION_INCOMPLETE', 'Choose a category');
     if (sv.price.type !== 'CUSTOM_QUOTE' && sv.basePriceCents === null)
       throw fail(400, 'ACTIVATION_INCOMPLETE', 'Enter the base price');
     if (!sv.shortDescription)
@@ -573,7 +574,9 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
     input: Partial<UpdateCatalogServiceRequest> & Record<string, unknown>,
   ) => {
     if (input.name !== undefined) sv.name = input.name;
-    if (input.categoryId !== undefined) sv.category = activeCategory(input.categoryId);
+    // As the API (S2): a draft may clear its category; a changed one must be active.
+    if (input.categoryId !== undefined && input.categoryId !== (sv.category?.id ?? null))
+      sv.category = input.categoryId ? activeCategory(input.categoryId) : null;
     if (input.shortDescription !== undefined) sv.shortDescription = input.shortDescription;
     if (input.icon !== undefined) sv.icon = input.icon;
     if (input.kind !== undefined) sv.kind = input.kind;
@@ -740,9 +743,9 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       const sv: CatalogService = {
         id: uuid('0a00', s.next++),
         name: input.name,
-        shortDescription: input.shortDescription,
+        shortDescription: input.shortDescription ?? null,
         icon: input.icon ?? null,
-        category: activeCategory(input.categoryId),
+        category: input.categoryId ? activeCategory(input.categoryId) : null,
         price: { type: input.pricingType, amountCents: null, frequency: null },
         status: 'DRAFT',
         updatedAt: at,
@@ -927,9 +930,18 @@ export function createServicesPricingMock(options: Options = {}): ServicesPricin
       return { ok: true };
     },
 
-    packages: async () => {
+    packages: async (query = {}) => {
       await mockDelay();
-      return s.packages.map(
+      // As the API (S4): by status; without one, every package not archived.
+      const want = query.status;
+      const shown = s.packages.filter((p) =>
+        want === 'all'
+          ? true
+          : want === undefined
+            ? p.status !== 'ARCHIVED'
+            : p.status === want.toUpperCase(),
+      );
+      return shown.map(
         ({
           services: _s,
           pricing: _p,

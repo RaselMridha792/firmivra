@@ -3,6 +3,14 @@ import { ListScreen } from './_components/list-screen';
 
 export const metadata: Metadata = { title: 'Appointments: List' };
 
-export default function CalendarListPage() {
-  return <ListScreen />;
+type Props = { searchParams: Promise<{ serviceKind?: string | string[] }> };
+
+/** `?serviceKind=BUSINESS_DEVELOPMENT` (Advisory B5): only the Business Advisory meetings. */
+export default async function CalendarListPage({ searchParams }: Props) {
+  const { serviceKind } = await searchParams;
+  return (
+    <ListScreen
+      {...(serviceKind === 'BUSINESS_DEVELOPMENT' ? { serviceKind: 'BUSINESS_DEVELOPMENT' } : {})}
+    />
+  );
 }

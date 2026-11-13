@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { MyPhone } from './my-phone';
 import { useFirm } from '../../../../../components/firm-context';
 import { useMe } from '../../../../../components/signed-in';
+import { MySecurityCard } from '../../team/_components/my-security-card';
 
 /**
  * My Profile (Settings review, Overview items 9 and 20): the signed-in person's own details at this
@@ -54,6 +55,7 @@ export function MyProfileScreen() {
           .
         </p>
       </Card>
+      <MySecurityCard />
     </div>
   );
 }

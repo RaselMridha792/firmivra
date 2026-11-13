@@ -116,6 +116,9 @@ export function AutomationsScreen({
     (m) => counts.has(m.module) || m.module === category,
   );
   const canManage = o?.canManage ?? true;
+  // Tasks A4: a task automation is the Owner's and Admins' to change; others see it.
+  const managesRule = (r: { category: string }) =>
+    canManage && (r.category !== 'TASKS' || (o?.canManageTasks ?? true));
 
   const kpi = (
     id: string,
@@ -191,7 +194,7 @@ export function AutomationsScreen({
             <Toggle
               label={`${r.name} is ${r.status === 'ACTIVE' ? 'on' : 'off'}`}
               checked={r.status === 'ACTIVE'}
-              disabled={!canManage || toggle.isPending}
+              disabled={!managesRule(r) || toggle.isPending}
               onChange={() =>
                 toggle.mutate(r, {
                   onError: (e) => notice(errorMessage(e, AUTOMATION_ERRORS), 'error'),
@@ -514,7 +517,9 @@ export function AutomationsScreen({
                     </Link>
                   ) : undefined
                 }
-                rowActions={(r) => <RuleMenu row={r} onNotice={notice} canManage={canManage} />}
+                rowActions={(r) => (
+                  <RuleMenu row={r} onNotice={notice} canManage={managesRule(r)} />
+                )}
                 server={{
                   page: rules.data?.page ?? 1,
                   total: rules.data?.total ?? 0,

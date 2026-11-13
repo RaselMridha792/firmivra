@@ -128,16 +128,32 @@ export function emailOf(value: unknown): AdminEmailSettings {
 
 export const emailValue = (old: unknown, s: AdminEmailSettings): Json => ({ ...obj(old), ...s });
 
-/** The fields that changed, by name (values only for plain ones; never secrets or text bodies). */
-export function changedFields(before: Json, after: Json): Record<string, unknown> {
+/** A value the audit may keep: none, a switch, a number, or a short text or choice. */
+const plain = (x: unknown) =>
+  x === null ||
+  typeof x === 'boolean' ||
+  typeof x === 'number' ||
+  (typeof x === 'string' && x.length <= 40);
+const isObj = (x: unknown): x is Json => !!x && typeof x === 'object' && !Array.isArray(x);
+
+/**
+ * The fields that changed, by their path ("channels.sms"): values only for plain ones (never
+ * secrets or text bodies). These rows are the sections' history, which Restore reads (SA-SYS-A2).
+ */
+export function changedFields(before: Json, after: Json, prefix = ''): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(after)) {
-    if (JSON.stringify(before[k]) === JSON.stringify(v)) continue;
-    const plain = (x: unknown) =>
-      typeof x === 'boolean' || typeof x === 'number' || (typeof x === 'string' && x.length <= 40);
-    out[k] =
-      plain(v) && (before[k] === undefined || plain(before[k]))
-        ? { from: before[k] ?? null, to: v }
+    const was = before[k];
+    // A key that was missing reads as none: none to none is no change.
+    if (JSON.stringify(was ?? null) === JSON.stringify(v ?? null)) continue;
+    const path = `${prefix}${k}`;
+    if (isObj(v) && (was === undefined || was === null || isObj(was))) {
+      Object.assign(out, changedFields(obj(was), v, `${path}.`));
+      continue;
+    }
+    out[path] =
+      plain(v) && (was === undefined || plain(was))
+        ? { from: was ?? null, to: v }
         : { changed: true };
   }
   return out;

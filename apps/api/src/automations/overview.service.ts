@@ -226,6 +226,8 @@ export class AutomationsOverviewService {
         recent: await this.read.runRows(ctx, recent),
         canCreate: ctx.perms.write,
         canManage: ctx.perms.manage,
+        // Tasks A4: only the Owner and Admins manage task automations.
+        canManageTasks: ctx.perms.admin,
       };
     });
   }

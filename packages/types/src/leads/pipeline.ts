@@ -183,6 +183,17 @@ export type LeadOptions = z.infer<typeof LeadOptions>;
 
 // ---------- Add / edit a lead ----------
 
+// Leads R2 11 (Octavia, Nov 8): the three required fields say what is missing, in her words.
+const FirstName = text(60, 'one', 'First name is required');
+const LastName = text(60, 'one', 'Last name is required');
+/** Lower-cased like every email; blank and malformed are told apart. */
+const LeadEmail = z
+  .string()
+  .trim()
+  .min(1, 'Email is required')
+  .toLowerCase()
+  .pipe(z.email('Enter a valid email address').max(254, 'Use at most 254 characters'));
+
 const NextActionInput = z.strictObject({
   type: NextActionType,
   /** Required with every type, as the database requires it (CLOSE_LEAD: now). */
@@ -192,10 +203,10 @@ const NextActionInput = z.strictObject({
 
 /** POST /business/leads: Add New Lead. 409 POSSIBLE_DUPLICATE (same email or phone) unless allowed. */
 export const CreateLeadRequest = z.strictObject({
-  firstName: text(60),
-  lastName: text(60),
+  firstName: FirstName,
+  lastName: LastName,
   businessName: clearable(text(160)),
-  email: Email,
+  email: LeadEmail,
   phone: clearable(text(40)),
   source: LeadSource,
   sourceDetail: clearable(text(120)),
@@ -206,6 +217,8 @@ export const CreateLeadRequest = z.strictObject({
   priority: LeadPriority.default('WARM'),
   stage: LeadPipelineStatus.exclude(['CONVERTED']).default('SUBMITTED'),
   nextAction: NextActionInput.optional(),
+  /** L8 "+ Add Follow-Up": more steps, each its own action, date and time, and notes. */
+  followUps: z.array(NextActionInput).max(10).optional(),
   /** Create even though a lead with this email or phone exists (the screen asked first). */
   allowDuplicate: z.boolean().optional(),
 });
@@ -214,10 +227,10 @@ export type CreateLeadRequest = z.input<typeof CreateLeadRequest>;
 /** PATCH /business/leads/{id}: Edit (Contact Information, Lead Details, tags, assignment). */
 export const UpdateLeadRequest = z
   .strictObject({
-    firstName: text(60),
-    lastName: text(60),
+    firstName: FirstName,
+    lastName: LastName,
     businessName: clearable(text(160)),
-    email: Email,
+    email: LeadEmail,
     phone: clearable(text(40)),
     address: clearable(text(300, 'many')),
     dateOfBirth: CalendarDate.nullable(),
@@ -241,6 +254,23 @@ export type UpdateLeadRequest = z.input<typeof UpdateLeadRequest>;
 /** PUT /business/leads/{id}/follow-up: the Next Action / Follow-Up card (Save Follow-Up). */
 export const SetFollowUpRequest = NextActionInput;
 export type SetFollowUpRequest = z.input<typeof SetFollowUpRequest>;
+
+/** L8 POST /business/leads/{id}/follow-ups: one more step (409 LEAD_CLOSED on a closed lead). */
+export const AddLeadFollowUpRequest = NextActionInput;
+export type AddLeadFollowUpRequest = z.input<typeof AddLeadFollowUpRequest>;
+
+/** L8 PATCH /business/leads/{id}/follow-ups/{followUpId}: an unfinished step (409 FOLLOW_UP_DONE). */
+export const UpdateLeadFollowUpRequest = NextActionInput.partial().refine(
+  (b) => Object.keys(b).length > 0,
+  'Change something first',
+);
+export type UpdateLeadFollowUpRequest = z.input<typeof UpdateLeadFollowUpRequest>;
+
+/** L8 POST /business/leads/{id}/follow-ups/{followUpId}/complete: done, with its outcome. */
+export const CompleteLeadFollowUpRequest = z.strictObject({
+  outcome: clearable(text(500, 'many')),
+});
+export type CompleteLeadFollowUpRequest = z.input<typeof CompleteLeadFollowUpRequest>;
 
 /** POST /business/leads/{id}/follow-up/complete: logs it and clears or replaces the next one. */
 export const CompleteFollowUpRequest = z.strictObject({
@@ -390,6 +420,20 @@ export const LeadDocumentsAndForms = z.object({
 });
 export type LeadDocumentsAndForms = z.infer<typeof LeadDocumentsAndForms>;
 
+/**
+ * L8: one follow-up step of a lead. The lead's Next Action is its next unfinished step; a finished
+ * one keeps its outcome.
+ */
+export const LeadFollowUp = z.object({
+  id: z.uuid(),
+  type: NextActionType,
+  dueAt: DateTime,
+  notes: z.string().nullable(),
+  doneAt: DateTime.nullable(),
+  outcome: z.string().nullable(),
+});
+export type LeadFollowUp = z.infer<typeof LeadFollowUp>;
+
 /** GET /business/leads/{id}/profile: the Lead Profile header and Overview tab in one call. */
 export const LeadProfile = LeadRow.extend({
   address: z.string().nullable(),
@@ -413,6 +457,8 @@ export const LeadProfile = LeadRow.extend({
    * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
    */
   duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
+  /** L8: every follow-up step, unfinished first by date, then the finished ones, newest first. */
+  followUps: z.array(LeadFollowUp),
   archivedAt: DateTime.nullable(),
   version: z.string(),
 });

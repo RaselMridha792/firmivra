@@ -1,6 +1,6 @@
 'use client';
 
-import type { LeadActionType, LeadProfile, LeadTask } from '@firmivra/types';
+import type { LeadActionType, LeadFollowUp, LeadProfile, LeadTask } from '@firmivra/types';
 import { Badge, Button, Select, Textarea } from '@firmivra/ui';
 import { CheckSquare, Fire, PhoneCall } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -49,19 +49,156 @@ const dueText = (date: string | null) =>
       })
     : 'No due date';
 
+const pad = (n: number) => String(n).padStart(2, '0');
+/** "YYYY-MM-DD" of a time, on this device's calendar (as `stamp` shows it). */
+const localDate = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+/** "HH:MM" of a time, on this device's clock, exactly as saved (R2 5: never rounded). */
+const localTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+/** The half hours, and the saved time when it is between them, in order. */
+const timeOptions = (current: string) =>
+  (TIMES.includes(current) ? TIMES : [...TIMES, current].sort()).map((t) => ({
+    value: t,
+    label: timeText(t),
+  }));
+/** A new follow-up starts at 10:00 AM; a saved one opens at its own date and time. */
+const NEW_TIME = '10:00';
+
 /**
- * The Next Action / Follow-Up card: one action, one date and time (docx 8). It is "Overdue" in red
- * when the time has passed; completing it logs it and lets the next one be set.
+ * L8: every follow-up step, the next unfinished first. An unfinished step can be edited (into the
+ * form above), removed or completed; a finished one shows its outcome.
+ */
+function FollowUpSteps({
+  lead,
+  onEdit,
+  editing,
+  onMessage,
+}: {
+  lead: LeadProfile;
+  onEdit: (step: LeadFollowUp) => void;
+  editing: string | null;
+  onMessage: (text: string) => void;
+}) {
+  const options = { invalidate: LEAD_PIPELINE_KEY };
+  const remove = useApiMutation(
+    (id: string) => api.leadPipeline.removeFollowUp(lead.id, id),
+    options,
+  );
+  const done = useApiMutation(
+    (id: string) => api.leadPipeline.completeFollowUpStep(lead.id, id, {}),
+    options,
+  );
+  if (!lead.followUps.length) return null;
+  const busy = remove.isPending || done.isPending;
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      <ol className="flex flex-col divide-y divide-divider" data-testid="follow-up-steps">
+        {lead.followUps.map((f) => (
+          <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <span className="min-w-0 grow">
+              <span className={`font-semibold ${f.doneAt ? 'text-muted' : 'text-heading'}`}>
+                {ACTIONS.find((a) => a.value === f.type)?.label ?? f.type}
+              </span>{' '}
+              <span className="text-muted">{stamp(f.dueAt)}</span>
+              {f.notes ? <span className="block text-muted">{f.notes}</span> : null}
+              {f.doneAt ? (
+                <span className="block text-xs text-success">
+                  Done {stamp(f.doneAt)}
+                  {f.outcome ? `: ${f.outcome}` : ''}
+                </span>
+              ) : null}
+            </span>
+            {!f.doneAt ? (
+              <span className="flex flex-wrap gap-1">
+                <Button
+                  variant="ghost"
+                  disabled={busy || editing === f.id}
+                  onClick={() => onEdit(f)}
+                >
+                  Edit<span className="sr-only"> follow-up</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    remove.mutate(f.id, { onSuccess: () => onMessage('Follow-up removed.') })
+                  }
+                >
+                  Remove<span className="sr-only"> follow-up</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    done.mutate(f.id, {
+                      onSuccess: () => onMessage('Follow-up completed and logged.'),
+                    })
+                  }
+                >
+                  Complete<span className="sr-only"> follow-up</span>
+                </Button>
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {remove.isError || done.isError ? (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(remove.error ?? done.error)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The Next Action / Follow-Up card (docx 8, L8): the next step, "Overdue" in red when its time has
+ * passed, and every step. Save Follow-Up changes the next step (or sets the first); + Add Follow-Up
+ * adds another; a step's Edit puts it into the form to change it.
  */
 export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   const next = lead?.nextAction ?? null;
+  // R2 5: the form opens on the saved step, its date and time as the summary shows them, so a
+  // save that changes nothing keeps them.
   const [type, setType] = useState<LeadActionType>(next?.type ?? 'CALL');
-  const [date, setDate] = useState(() => (next ? next.dueAt.slice(0, 10) : ''));
-  const [time, setTime] = useState('10:00');
+  const [date, setDate] = useState(() => (next ? localDate(next.dueAt) : ''));
+  const [time, setTime] = useState(() => (next ? localTime(next.dueAt) : NEW_TIME));
   const [notes, setNotes] = useState(next?.notes ?? '');
   const [outcome, setOutcome] = useState('');
   const [message, setMessage] = useState<string>();
+  const [editing, setEditing] = useState<string | null>(null);
   const options = { invalidate: LEAD_PIPELINE_KEY };
+  const form = () => ({
+    type,
+    dueAt: new Date(`${date}T${time}:00`).toISOString(),
+    notes: notes.trim() || null,
+  });
+  const add = useApiMutation(() => api.leadPipeline.addFollowUp(lead?.id ?? '', form()), options);
+  const change = useApiMutation(
+    () => api.leadPipeline.updateFollowUp(lead?.id ?? '', editing ?? '', form()),
+    options,
+  );
+  const edit = (step: LeadFollowUp) => {
+    setEditing(step.id);
+    setType(step.type);
+    setDate(localDate(step.dueAt));
+    setTime(localTime(step.dueAt));
+    setNotes(step.notes ?? '');
+    setMessage(undefined);
+  };
+  /** Back to the next step's own values (after Save Step or Cancel Edit). */
+  const showNext = () => {
+    setEditing(null);
+    setType(next?.type ?? 'CALL');
+    setDate(next ? localDate(next.dueAt) : '');
+    setTime(next ? localTime(next.dueAt) : NEW_TIME);
+    setNotes(next?.notes ?? '');
+  };
   const save = useApiMutation(
     () =>
       api.leadPipeline.setFollowUp(lead?.id ?? '', {
@@ -88,6 +225,9 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
       ) : (
         <p className="mb-3 text-sm text-muted">No follow-up is scheduled.</p>
       )}
+      {lead ? (
+        <FollowUpSteps lead={lead} onEdit={edit} editing={editing} onMessage={setMessage} />
+      ) : null}
       <div className="flex flex-col gap-3">
         <Select
           label="Action Type"
@@ -115,7 +255,7 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
             value={time}
             disabled={!lead}
             onChange={(event) => setTime(event.target.value)}
-            options={TIMES.map((t) => ({ value: t, label: timeText(t) }))}
+            options={timeOptions(time)}
           />
         </div>
         <Textarea
@@ -127,17 +267,54 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
           onChange={(event) => setNotes(event.target.value)}
         />
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            disabled={!lead || !date || save.isPending}
-            onClick={() =>
-              save.mutate(undefined, { onSuccess: () => setMessage('Follow-up saved.') })
-            }
-          >
-            Save Follow-Up
-          </Button>
-          {save.isError ? (
+          {editing ? (
+            <>
+              <Button
+                disabled={!lead || !date || change.isPending}
+                onClick={() =>
+                  change.mutate(undefined, {
+                    onSuccess: (profile) => {
+                      setEditing(null);
+                      setMessage('Follow-up changed.');
+                      const n = profile.nextAction;
+                      setType(n?.type ?? 'CALL');
+                      setDate(n ? localDate(n.dueAt) : '');
+                      setTime(n ? localTime(n.dueAt) : NEW_TIME);
+                      setNotes(n?.notes ?? '');
+                    },
+                  })
+                }
+              >
+                Save Step
+              </Button>
+              <Button variant="secondary" onClick={showNext}>
+                Cancel Edit
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                disabled={!lead || !date || save.isPending}
+                onClick={() =>
+                  save.mutate(undefined, { onSuccess: () => setMessage('Follow-up saved.') })
+                }
+              >
+                Save Follow-Up
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={!lead || !date || add.isPending}
+                onClick={() =>
+                  add.mutate(undefined, { onSuccess: () => setMessage('Follow-up added.') })
+                }
+              >
+                + Add Follow-Up
+              </Button>
+            </>
+          )}
+          {save.isError || add.isError || change.isError ? (
             <p role="alert" className="text-sm text-danger">
-              {errorMessage(save.error)}
+              {errorMessage(save.error ?? add.error ?? change.error)}
             </p>
           ) : message ? (
             <p role="status" className="text-sm text-success">

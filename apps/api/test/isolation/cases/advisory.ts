@@ -218,9 +218,10 @@ export const cases: CaseModule['cases'] = {
     }),
   },
   [`GET ${BASE}/plans/:id`]: { params: { id: 'advisoryPlan' } },
+  // B9: the plan is finalized, so locked: only the wizard's place (`step`) moves.
   [`PATCH ${BASE}/plans/:id`]: {
     params: { id: 'advisoryPlan' },
-    body: { etag: ETAG, name: 'Fake renamed plan' },
+    body: { etag: ETAG, step: 4 },
   },
   [`POST ${BASE}/plans/:id/status`]: {
     params: { id: 'advisoryPlan' },
