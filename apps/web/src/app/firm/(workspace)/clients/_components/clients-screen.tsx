@@ -63,7 +63,27 @@ function listQuery(filters: ClientFilters, search: string, manager: boolean) {
       : {}),
     ...(filters.serviceId && filters.completedFrom ? { completedFrom: filters.completedFrom } : {}),
     ...(filters.serviceId && filters.completedTo ? { completedTo: filters.completedTo } : {}),
+    // Octavia's E2 additions. A range whose start is after its end is left out.
+    ...(filters.addedFrom ? { addedFrom: filters.addedFrom } : {}),
+    ...span('deadline', filters.deadlineFrom, filters.deadlineTo),
+    ...span('appointment', filters.appointmentFrom, filters.appointmentTo),
+    ...(filters.accountType ? { accountType: filters.accountType } : {}),
+    ...(/^[A-Z]{2}$/.test(filters.state) ? { state: filters.state } : {}),
+    ...(filters.area.trim() ? { place: filters.area.trim().slice(0, 100) } : {}),
+    ...(filters.balance ? { balance: filters.balance } : {}),
+    ...(filters.documents ? { documents: filters.documents } : {}),
+    ...(filters.tagId ? { tagId: filters.tagId } : {}),
+    ...(filters.source ? { source: filters.source as ListClientsQuery['source'] } : {}),
+    ...(filters.priority ? { priority: filters.priority } : {}),
   } satisfies ListClientsQuery;
+}
+
+function span<K extends 'deadline' | 'appointment'>(key: K, from: string, to: string) {
+  if (from && to && from > to) return {};
+  return {
+    ...(from ? { [`${key}From`]: from } : {}),
+    ...(to ? { [`${key}To`]: to } : {}),
+  } as Partial<Record<`${K}From` | `${K}To`, string>>;
 }
 
 type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] } | null;
@@ -161,8 +181,11 @@ export function ClientsScreen({
     { id: 'new', label: 'New', count: counts?.new },
     ...services.map((s) => ({ id: `service:${s.id}`, label: s.name, count: s.count })),
     { id: 'inactive', label: 'Inactive', count: counts?.inactive },
+    // Octavia's E2 additions: the creation date (New stays the stage) and the archived records.
+    { id: 'recent', label: 'Added Last 30 Days' },
+    { id: 'archived', label: 'Archived' },
   ];
-  const selectTab = (id: string) => change(filtersForTab(id));
+  const selectTab = (id: string) => change(filtersForTab(id, filters));
 
   // The list's states; its Try again reloads the cards and tabs too.
   const listAndSummary: typeof list = {

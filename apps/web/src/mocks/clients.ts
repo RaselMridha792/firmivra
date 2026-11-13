@@ -471,6 +471,35 @@ export function createClientsMock(
             (!q.lastActivityTo || last <= q.lastActivityTo)
           );
         })
+        // More Filters and Added Last 30 Days (E2 additions), as the API. The mock keeps no
+        // deadlines, priority or source, so those match no one.
+        .filter((r) => !q.addedFrom || r.createdAt.slice(0, 10) >= q.addedFrom)
+        .filter((r) => !q.accountType || r.accountType === q.accountType)
+        .filter((r) => !q.state || r.profile.address.state?.toUpperCase() === q.state)
+        .filter(
+          (r) =>
+            !q.place ||
+            (r.profile.address.city ?? '').toLowerCase().includes(q.place.toLowerCase()),
+        )
+        .filter((r) => {
+          if (!q.balance) return true;
+          return workOf(r.id).balanceDueCents > 0 === (q.balance === 'DUE');
+        })
+        .filter((r) => {
+          if (!q.documents) return true;
+          return workOf(r.id).missingDocuments > 0 === (q.documents === 'MISSING');
+        })
+        .filter((r) => {
+          if (!q.appointmentFrom && !q.appointmentTo) return true;
+          const next = workOf(r.id).nextAppointmentAt?.slice(0, 10);
+          return (
+            !!next &&
+            (!q.appointmentFrom || next >= q.appointmentFrom) &&
+            (!q.appointmentTo || next <= q.appointmentTo)
+          );
+        })
+        .filter(() => !q.deadlineFrom && !q.deadlineTo && !q.priority && !q.source)
+        .filter((r) => !q.tagId || (tags.get(r.id) ?? []).length > 0)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
       const start = q.page ? (q.page - 1) * q.limit : q.cursor ? Number(q.cursor) : 0;
       const page = matches.slice(start, start + q.limit);

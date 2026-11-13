@@ -4,9 +4,11 @@ import { Phone } from '../client-auth/schemas.js';
 import {
   ClientAccountType,
   ClientPortalRole,
+  ClientPriority,
   ClientStatus,
   ContactMethod,
   EngagementStatus,
+  LeadSource,
   ServiceKind,
 } from '../db-enums.js';
 import { US_STATES } from '../intake/options.js';
@@ -152,6 +154,35 @@ export const ListClientsQuery = z
      * unpaid balance on an OPEN invoice, overdue or not.
      */
     owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
+    // ---- Octavia's approved additions (Oct 25 review, E2 additions): Added Last 30 Days and
+    // More Filters. Each narrows the list; days are the firm's calendar days, both ends included.
+    /** Added on or after this day (Added Last 30 Days: the creation date, not the New stage). */
+    addedFrom: CalendarDate.optional(),
+    /** An open compliance deadline (not completed, cancelled or not applicable) due on these days. */
+    deadlineFrom: CalendarDate.optional(),
+    deadlineTo: CalendarDate.optional(),
+    /** A scheduled appointment on these days. */
+    appointmentFrom: CalendarDate.optional(),
+    appointmentTo: CalendarDate.optional(),
+    /** The primary client type, separate from the business's entity type. */
+    accountType: ClientAccountType.optional(),
+    /** The profile's state (two letters) and its city or county (part of either). */
+    state: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{2}$/, 'Use a two-letter state code')
+      .optional(),
+    place: SearchText.optional(),
+    /** DUE: an unpaid balance on an OPEN invoice; NONE: nothing owed. */
+    balance: z.enum(['DUE', 'NONE']).optional(),
+    /** MISSING: a document request still owed (REQUESTED or REJECTED); NONE: nothing owed. */
+    documents: z.enum(['MISSING', 'NONE']).optional(),
+    /** One of the firm's tags (Settings > Tags). */
+    tagId: z.uuid().optional(),
+    /** Where the client came from (the lead sources). */
+    source: LeadSource.optional(),
+    priority: ClientPriority.optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */
@@ -170,6 +201,14 @@ export const ListClientsQuery = z
   .refine((q) => !q.completedFrom || !q.completedTo || q.completedFrom <= q.completedTo, {
     message: 'The start is after the end',
     path: ['completedTo'],
+  })
+  .refine((q) => !q.deadlineFrom || !q.deadlineTo || q.deadlineFrom <= q.deadlineTo, {
+    message: 'The start is after the end',
+    path: ['deadlineTo'],
+  })
+  .refine((q) => !q.appointmentFrom || !q.appointmentTo || q.appointmentFrom <= q.appointmentTo, {
+    message: 'The start is after the end',
+    path: ['appointmentTo'],
   });
 export type ListClientsQuery = z.input<typeof ListClientsQuery>;
 
