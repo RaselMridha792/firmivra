@@ -2,6 +2,7 @@
 
 import {
   type ClientRecord,
+  clientFormIssues,
   ContactMethod,
   UpdateClientProfileRequest,
   UpdateClientRequest,
@@ -25,16 +26,28 @@ const OTHER_FIELDS = [
   'additionalInfo',
 ] as const;
 const ADDRESS_FIELDS = ['line1', 'line2', 'city', 'state', 'postalCode'] as const;
+/** E5: a Business's responsible party, sent as one (all three). */
+const PARTY_FIELDS = ['rpName', 'rpEmail', 'rpPhone'] as const;
 type Values = Record<
   | (typeof CONTACT_FIELDS)[number]
   | (typeof NAME_FIELDS)[number]
   | (typeof BUSINESS_FIELDS)[number]
   | (typeof OTHER_FIELDS)[number]
   | (typeof ADDRESS_FIELDS)[number]
+  | (typeof PARTY_FIELDS)[number]
   | 'ssn'
   | 'ein',
   string
 >;
+
+/** The form field an issue's path names (a responsible party's own fields are rp*). */
+function fieldOf(path: readonly PropertyKey[]): FieldPath<Values> {
+  const last = String(path.at(-1) ?? 'displayName');
+  if (path.includes('responsibleParty')) {
+    return `rp${last.charAt(0).toUpperCase()}${last.slice(1)}` as FieldPath<Values>;
+  }
+  return last as FieldPath<Values>;
+}
 
 function initial(client: ClientRecord): Values {
   const { profile } = client;
@@ -59,6 +72,9 @@ function initial(client: ClientRecord): Values {
     postalCode: profile.address.postalCode ?? '',
     ssn: '',
     ein: '',
+    rpName: profile.responsibleParty?.name ?? '',
+    rpEmail: profile.responsibleParty?.email ?? '',
+    rpPhone: formatPhone(profile.responsibleParty?.phone ?? null) ?? '',
   };
 }
 
@@ -68,18 +84,28 @@ function bodies(client: ClientRecord, values: Values) {
   const changed = <K extends keyof Values>(keys: readonly K[]) =>
     Object.fromEntries(keys.filter((k) => values[k] !== was[k]).map((k) => [k, values[k]]));
   const address = changed(ADDRESS_FIELDS);
+  // Sent once all three are typed; until then the required check names what is missing.
+  const party =
+    client.accountType === 'BUSINESS' &&
+    Object.keys(changed(PARTY_FIELDS)).length &&
+    PARTY_FIELDS.every((k) => values[k].trim())
+      ? { responsibleParty: { name: values.rpName, email: values.rpEmail, phone: values.rpPhone } }
+      : {};
   const profile = {
     ...changed([...NAME_FIELDS, ...BUSINESS_FIELDS, ...OTHER_FIELDS]),
     ...(values.ssn ? { ssn: values.ssn } : {}),
     ...(values.ein ? { ein: values.ein } : {}),
     ...(Object.keys(address).length ? { address } : {}),
+    ...party,
   };
   return { contact: changed(CONTACT_FIELDS), profile };
 }
 
 /**
  * Edit the client's contact details and profile. Checked with the contract's schemas before
- * anything is sent; SSN and EIN can be replaced but never read back (only the last 4 show).
+ * anything is sent, and (Octavia's E5) with the same required fields as Add New Client: email,
+ * phone and address, and for a Business its name and responsible party. SSN and EIN can be
+ * replaced but never read back (only the last 4 show).
  */
 export function EditClient({
   client,
@@ -108,17 +134,34 @@ export function EditClient({
 
   const submit = form.handleSubmit((values) => {
     const { contact, profile } = bodies(client, values);
+    // E5: what the record must hold once saved, whatever this edit changes.
+    const required = clientFormIssues({
+      accountType: client.accountType,
+      email: values.email,
+      phone: values.phone,
+      profile: {
+        businessName: values.businessName,
+        address: {
+          line1: values.line1,
+          city: values.city,
+          state: values.state,
+          postalCode: values.postalCode,
+          country: client.profile.address.country,
+        },
+        responsibleParty: { name: values.rpName, email: values.rpEmail, phone: values.rpPhone },
+      },
+    });
     const checks = [
       Object.keys(contact).length ? UpdateClientRequest.safeParse(contact) : null,
       Object.keys(profile).length ? UpdateClientProfileRequest.safeParse(profile) : null,
     ];
-    let valid = true;
+    let valid = required.length === 0;
+    for (const issue of required) form.setError(fieldOf(issue.path), { message: issue.message });
     for (const check of checks) {
       if (!check || check.success) continue;
       valid = false;
       for (const issue of check.error.issues) {
-        const name = String(issue.path.at(-1) ?? 'displayName') as FieldPath<Values>;
-        form.setError(name, { message: issue.message });
+        form.setError(fieldOf(issue.path), { message: issue.message });
       }
     }
     if (!valid) return;
@@ -153,8 +196,16 @@ export function EditClient({
             <div className="sm:col-span-2">
               <Input label="Name shown in lists" {...field('displayName')} />
             </div>
-            <Input label="Email" type="email" {...field('email')} />
-            <Input label="Phone" type="tel" {...field('phone')} />
+            <Input
+              label={business ? 'Business email *' : 'Email *'}
+              type="email"
+              {...field('email')}
+            />
+            <Input
+              label={business ? 'Business phone *' : 'Phone *'}
+              type="tel"
+              {...field('phone')}
+            />
             <Select
               label="Preferred contact"
               {...field('preferredContactMethod')}
@@ -171,7 +222,7 @@ export function EditClient({
             <legend className="mb-2 text-sm font-semibold text-text">Profile</legend>
             {business ? (
               <>
-                <Input label="Business name" {...field('businessName')} />
+                <Input label="Business name *" {...field('businessName')} />
                 <Input label="Entity type" placeholder="LLC, S corp..." {...field('entityType')} />
                 <Input
                   label={`New EIN${client.profile.einLast4 ? ` (now ends ${client.profile.einLast4})` : ''}`}
@@ -198,13 +249,25 @@ export function EditClient({
             )}
           </fieldset>
           <fieldset className="grid gap-4 sm:grid-cols-2">
-            <legend className="mb-2 text-sm font-semibold text-text">Address</legend>
-            <Input label="Street address" {...field('line1')} />
+            <legend className="mb-2 text-sm font-semibold text-text">
+              {business ? 'Business address' : 'Home address'}
+            </legend>
+            <Input label="Street address *" {...field('line1')} />
             <Input label="Apt, suite (optional)" {...field('line2')} />
-            <Input label="City" {...field('city')} />
-            <Input label="State" placeholder="GA" {...field('state')} />
-            <Input label="ZIP code" inputMode="numeric" {...field('postalCode')} />
+            <Input label="City *" {...field('city')} />
+            <Input label="State *" placeholder="GA" {...field('state')} />
+            <Input label="ZIP code *" inputMode="numeric" {...field('postalCode')} />
           </fieldset>
+          {business ? (
+            <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party-fields">
+              <legend className="mb-2 text-sm font-semibold text-text">Responsible party</legend>
+              <div className="sm:col-span-2">
+                <Input label="Full name *" autoComplete="off" {...field('rpName')} />
+              </div>
+              <Input label="Their email *" type="email" autoComplete="off" {...field('rpEmail')} />
+              <Input label="Their phone *" type="tel" autoComplete="off" {...field('rpPhone')} />
+            </fieldset>
+          ) : null}
           <fieldset className="grid gap-4">
             <legend className="mb-2 text-sm font-semibold text-text">Firm details</legend>
             <Input label="Referral source" {...field('referralSource')} />

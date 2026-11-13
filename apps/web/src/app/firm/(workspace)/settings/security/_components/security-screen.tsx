@@ -24,6 +24,7 @@ import {
   SettingsCard,
   SettingsHeader,
 } from '../../_components/settings-parts';
+import { MfaPolicyControl } from './mfa-policy-control';
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-US', {
@@ -79,11 +80,7 @@ export function SecurityScreen() {
           }
         >
           <MfaAccounts summary={summary} />
-          <p className="text-xs text-muted">
-            Only the Owner, or an Admin whose role has Admin access to Settings in Users & Roles,
-            may change this requirement, after signing in again, and each change is recorded in the
-            audit log. There is no setting to change it yet, so it stays on for every staff account.
-          </p>
+          <MfaPolicyControl />
           <CardLink href="/settings/users">Review Users</CardLink>
         </SettingsCard>
 

@@ -42,15 +42,17 @@ const STATS: Stat[] = [
 
 export function DocumentsStatCards() {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5" data-testid="stat-cards">
+    // Clients V-002: five cards in a row only where each label fits beside its icon; below that,
+    // fewer per row with the icon above the words, which wrap rather than run past the card.
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-5" data-testid="stat-cards">
       {STATS.map((stat) => (
-        <Card key={stat.label} className="flex items-start gap-4 p-4">
+        <Card key={stat.label} className="flex min-w-0 flex-col items-start gap-3 p-4">
           <span
-            className={`inline-flex size-14 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}
+            className={`inline-flex size-12 shrink-0 items-center justify-center rounded-full ${stat.iconBg}`}
           >
-            <stat.icon weight="regular" className={`size-7 ${stat.iconColor}`} aria-hidden="true" />
+            <stat.icon weight="regular" className={`size-6 ${stat.iconColor}`} aria-hidden="true" />
           </span>
-          <span>
+          <span className="min-w-0 break-words">
             <span
               className="block text-3xl font-bold text-heading"
               aria-label={`${stat.label}: not available yet`}

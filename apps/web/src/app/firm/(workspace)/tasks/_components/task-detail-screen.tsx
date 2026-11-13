@@ -29,6 +29,10 @@ import {
   timeText,
 } from './task-shared';
 import { beforeText } from './task-form-parts';
+import { workspacePath } from './new-task-href';
+import { OriginLink } from '../../../../../components/origin-link';
+
+const linkText = 'font-medium text-link hover:underline';
 
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
 function Card({ title, children, testId }: { title: string; children: ReactNode; testId: string }) {
@@ -160,8 +164,27 @@ export function TaskDetailScreen({ id }: { id: string }) {
             <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 text-sm">
               {(
                 [
-                  ['Client', t.client.displayName],
-                  ['Related To', t.engagement?.title ?? '—'],
+                  // Review 2 (N05): the client and the related engagement open their records.
+                  [
+                    'Client',
+                    <OriginLink key="client" href={`/clients/${t.client.id}`} className={linkText}>
+                      {t.client.displayName}
+                    </OriginLink>,
+                  ],
+                  [
+                    'Related To',
+                    t.engagement && workspacePath(t.engagement.workspace) ? (
+                      <OriginLink
+                        key="related"
+                        href={workspacePath(t.engagement.workspace)!}
+                        className={linkText}
+                      >
+                        {t.engagement.title}
+                      </OriginLink>
+                    ) : (
+                      (t.engagement?.title ?? '—')
+                    ),
+                  ],
                   ['Service', t.service?.name ?? '—'],
                   ['Assigned To', t.assignedTo ? shortName(t.assignedTo.name) : '—'],
                   ['Also assigned', t.additionalAssignees.map((a) => a.name).join(', ') || '—'],
@@ -181,7 +204,7 @@ export function TaskDetailScreen({ id }: { id: string }) {
                       ]
                     : []),
                   ...(t.series ? [['Series', t.series.title]] : []),
-                ] as [string, string][]
+                ] as [string, ReactNode][]
               ).map(([k, v]) => (
                 <div key={k} className="contents">
                   <dt className="text-text">{k}</dt>

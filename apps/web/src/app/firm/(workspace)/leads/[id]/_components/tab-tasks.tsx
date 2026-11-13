@@ -49,11 +49,25 @@ const dueText = (date: string | null) =>
       })
     : 'No due date';
 
-/** "HH:MM" of a time, local, on the half hour the picker offers. */
-const halfHour = (iso: string) => {
+const pad = (n: number) => String(n).padStart(2, '0');
+/** "YYYY-MM-DD" of a time, on this device's calendar (as `stamp` shows it). */
+const localDate = (iso: string) => {
   const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, '0')}:${d.getMinutes() < 30 ? '00' : '30'}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
+/** "HH:MM" of a time, on this device's clock, exactly as saved (R2 5: never rounded). */
+const localTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+/** The half hours, and the saved time when it is between them, in order. */
+const timeOptions = (current: string) =>
+  (TIMES.includes(current) ? TIMES : [...TIMES, current].sort()).map((t) => ({
+    value: t,
+    label: timeText(t),
+  }));
+/** A new follow-up starts at 10:00 AM; a saved one opens at its own date and time. */
+const NEW_TIME = '10:00';
 
 /**
  * L8: every follow-up step, the next unfinished first. An unfinished step can be edited (into the
@@ -149,9 +163,11 @@ function FollowUpSteps({
  */
 export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   const next = lead?.nextAction ?? null;
+  // R2 5: the form opens on the saved step, its date and time as the summary shows them, so a
+  // save that changes nothing keeps them.
   const [type, setType] = useState<LeadActionType>(next?.type ?? 'CALL');
-  const [date, setDate] = useState(() => (next ? next.dueAt.slice(0, 10) : ''));
-  const [time, setTime] = useState('10:00');
+  const [date, setDate] = useState(() => (next ? localDate(next.dueAt) : ''));
+  const [time, setTime] = useState(() => (next ? localTime(next.dueAt) : NEW_TIME));
   const [notes, setNotes] = useState(next?.notes ?? '');
   const [outcome, setOutcome] = useState('');
   const [message, setMessage] = useState<string>();
@@ -170,10 +186,18 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   const edit = (step: LeadFollowUp) => {
     setEditing(step.id);
     setType(step.type);
-    setDate(step.dueAt.slice(0, 10));
-    setTime(halfHour(step.dueAt));
+    setDate(localDate(step.dueAt));
+    setTime(localTime(step.dueAt));
     setNotes(step.notes ?? '');
     setMessage(undefined);
+  };
+  /** Back to the next step's own values (after Save Step or Cancel Edit). */
+  const showNext = () => {
+    setEditing(null);
+    setType(next?.type ?? 'CALL');
+    setDate(next ? localDate(next.dueAt) : '');
+    setTime(next ? localTime(next.dueAt) : NEW_TIME);
+    setNotes(next?.notes ?? '');
   };
   const save = useApiMutation(
     () =>
@@ -231,7 +255,7 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
             value={time}
             disabled={!lead}
             onChange={(event) => setTime(event.target.value)}
-            options={TIMES.map((t) => ({ value: t, label: timeText(t) }))}
+            options={timeOptions(time)}
           />
         </div>
         <Textarea
@@ -249,16 +273,21 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
                 disabled={!lead || !date || change.isPending}
                 onClick={() =>
                   change.mutate(undefined, {
-                    onSuccess: () => {
+                    onSuccess: (profile) => {
                       setEditing(null);
                       setMessage('Follow-up changed.');
+                      const n = profile.nextAction;
+                      setType(n?.type ?? 'CALL');
+                      setDate(n ? localDate(n.dueAt) : '');
+                      setTime(n ? localTime(n.dueAt) : NEW_TIME);
+                      setNotes(n?.notes ?? '');
                     },
                   })
                 }
               >
                 Save Step
               </Button>
-              <Button variant="secondary" onClick={() => setEditing(null)}>
+              <Button variant="secondary" onClick={showNext}>
                 Cancel Edit
               </Button>
             </>

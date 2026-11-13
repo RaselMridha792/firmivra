@@ -188,6 +188,14 @@ function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
       preferredContactMethod: p?.preferredContactMethod ?? null,
       referralSource: p?.referralSource ?? null,
       additionalInfo: p?.additionalInfo ?? null,
+      responsibleParty:
+        p?.responsiblePartyName && p.responsiblePartyEmail && p.responsiblePartyPhone
+          ? {
+              name: p.responsiblePartyName,
+              email: p.responsiblePartyEmail,
+              phone: p.responsiblePartyPhone,
+            }
+          : null,
       updatedAt: iso(p?.updatedAt ?? null),
     },
     portalLogins: row.accounts.map((a) => ({
@@ -208,8 +216,14 @@ const ENROLLED_WORKSTREAMS = ['ACCEPTED', 'IN_PROGRESS', 'AWAITING_CLIENT', 'ON_
 
 /** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
-  const { address, ssn: _s, ein: _e, dateOfBirth: _d, ...rest } = body;
+  const { address, ssn: _s, ein: _e, dateOfBirth: _d, responsibleParty, ...rest } = body;
   const data: Record<string, unknown> = { ...rest };
+  // E5: the three together, or none (client_profiles_responsible_party).
+  if (responsibleParty !== undefined) {
+    data['responsiblePartyName'] = responsibleParty?.name ?? null;
+    data['responsiblePartyEmail'] = responsibleParty?.email ?? null;
+    data['responsiblePartyPhone'] = responsibleParty?.phone ?? null;
+  }
   if (address) {
     data['addressLine1'] = address.line1;
     data['addressLine2'] = address.line2;
@@ -775,6 +789,16 @@ export class ClientsService {
     const row = await this.inFirm(businessId, async (tx) => {
       const current = await this.findForChange(tx, businessId, actor, id);
       if (current.archivedAt) throw archived();
+      // E5: a Business keeps its responsible party; it is changed, never cleared.
+      if (body.responsibleParty === null && current.accountType === 'BUSINESS') {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'The request is not valid',
+          details: [
+            { path: 'responsibleParty', message: 'A business keeps its responsible party' },
+          ],
+        });
+      }
       const data = { ...profileData(body), ...secrets };
       await tx.clientProfile.upsert({
         where: { clientId: current.id },

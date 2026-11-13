@@ -226,9 +226,9 @@ export class LeadFollowUpsService {
       await adoptLegacy(tx, businessId, id, actor.userId);
       await work(tx);
       await syncNextAction(tx, businessId, id, actor.userId);
+      await this.audit.logIn(tx, action, { type: 'lead', id }, metadata);
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log(action, { type: 'lead', id }, metadata);
     return profile;
   }
 

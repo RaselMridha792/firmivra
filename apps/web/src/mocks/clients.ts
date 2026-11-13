@@ -14,6 +14,9 @@ import {
   MyProfile,
   type MyProfileClient,
   parseInput,
+  roleCan,
+  type ClientService,
+  type ClientServiceWorkspace,
   RequestNameChangeRequest,
   SetClientTaxYearRequest,
   TaxYear,
@@ -80,6 +83,7 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
       preferredContactMethod: null,
       referralSource: null,
       additionalInfo: null,
+      responsibleParty: null,
       updatedAt: null,
       ...data.profile,
     },
@@ -556,6 +560,46 @@ export function createClientsMock(
       return { tags: [...(tags.get(row.id) ?? [])] };
     },
     // MSG-F16: what New Message's Add to Client Timeline wrote in this browser session.
+    // E4: the list's services as enrollments (the newest year's), plus a finished one for
+    // client 1; each opens its module's list, where the role's grid views it.
+    services: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const n = Number(row.id.slice(-12));
+      const role = options.role ?? 'OWNER';
+      const MODULE: Partial<Record<ServiceRef['kind'], ClientServiceWorkspace['module']>> = {
+        ANNUAL_TAX: 'TAX_RETURNS',
+        QUARTERLY_TAX: 'TAX_RETURNS',
+        BOOKKEEPING: 'BOOKKEEPING',
+        PAYROLL: 'PAYROLL',
+        TAX_PLANNING: 'TAX_PLANNING',
+        BUSINESS_DEVELOPMENT: 'BUSINESS_ADVISORY',
+      };
+      const year = new Date().getUTCFullYear() - 1;
+      const item = (
+        s: ServiceRef,
+        i: number,
+        status: ClientService['status'],
+        title: string,
+      ): ClientService => {
+        const area = MODULE[s.kind];
+        return {
+          id: `0199b6a5-0000-7000-8000-${String(n * 10 + i).padStart(12, '0')}`,
+          service: s,
+          title,
+          status,
+          since: row.createdAt,
+          assignedTo: row.assignedTo,
+          workspace: area && roleCan(role, area, 'VIEW') ? { module: area, id: null } : null,
+        };
+      };
+      const items = (work()[n]?.services ?? []).map((s, i) =>
+        item(s, i, 'ACTIVE', `${s.name} ${year}`),
+      );
+      const books = mockClientServices()[2];
+      if (n === 1 && books) items.push(item(books, 9, 'COMPLETED', `Bookkeeping ${year - 1}`));
+      return items;
+    },
     timeline: async (id, query = {}) => {
       await pause();
       const row = find(parseInput(ClientId, id));
@@ -620,9 +664,13 @@ export function createClientsMock(
     updateProfile: async (id, body) => {
       await pause();
       const cid = parseInput(ClientId, id);
-      parseInput(UpdateClientProfileRequest, body);
+      const input = parseInput(UpdateClientProfileRequest, body);
       const row = find(cid);
       notArchived(row);
+      // As the API (E5): a Business keeps its responsible party.
+      if (input.responsibleParty === null && row.accountType === 'BUSINESS') {
+        throw fail(400, 'VALIDATION_FAILED', 'A business keeps its responsible party');
+      }
       return saveProfile(row, body);
     },
     taxYears: async (id) => {
