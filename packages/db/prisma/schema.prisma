@@ -14805,9 +14805,10 @@ model FirmApplicationInfoRequest {
   /// When it was answered or superseded; set exactly when it is no longer OPEN.
   closedAt          DateTime?                        @map("closed_at") @db.Timestamptz(3)
 
-  application FirmApplication           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  requestedBy PlatformAdmin             @relation(fields: [requestedByUserId], references: [userId], onDelete: Restrict)
+  application FirmApplication               @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  requestedBy PlatformAdmin                 @relation(fields: [requestedByUserId], references: [userId], onDelete: Restrict)
   responses   FirmApplicationResponse[]
+  codes       FirmApplicationResponseCode[]
 
   /// Target of a response's same-application foreign key.
   @@unique([applicationId, id])
@@ -14859,6 +14860,31 @@ model FirmApplicationResponseFile {
 
   @@index([applicationId, responseId])
   @@map("firm_application_response_files")
+}
+
+/// R1 (Nov 10, Rasel's approval in R1's window): the one-time code the applicant types after
+/// opening an information request's link, sent to the application's contact email. Only its hex
+/// HMAC-SHA256 with the server key is kept, never the code. The database sets created_at, keeps
+/// expires_at within 10 minutes, lets only attempts (+1 at a time) and consumed_at (once) change,
+/// and consumes only the newest code of a request that is still open, before either expires.
+/// Platform data: the applicant's link writes in platform scope, admins read. Never deleted.
+model FirmApplicationResponseCode {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  requestId  String    @map("request_id") @db.Uuid
+  /// Hex HMAC-SHA256 of the code with the server key; never the code.
+  codeHash   String    @map("code_hash")
+  /// Wrong tries so far; the API refuses the code at its own limit.
+  attempts   Int       @default(0)
+  /// At most 10 minutes after created_at (the database's clock).
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// When it was used; set once, by the database's clock.
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request FirmApplicationInfoRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, createdAt(sort: Desc)])
+  @@map("firm_application_response_codes")
 }
 
 /// R1 (Nov 10, SA-FRM-F07 and F08): the closed firm's owner may download the firm's retained

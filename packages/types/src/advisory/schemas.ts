@@ -461,21 +461,31 @@ export const AdvisoryPlanAssessment = z.strictObject({
 });
 export type AdvisoryPlanAssessment = z.input<typeof AdvisoryPlanAssessment>;
 
-/** Stage 3, Goals & Strategy (`advisory_plans.strategy`): the areas the plan works on. */
-export const AdvisoryPlanStrategy = z.strictObject({
-  summary: clearable(text(3_000, 'many')),
-  areas: z
-    .array(
-      z.strictObject({
-        area: AdvisoryArea,
-        objective: text(500, 'many'),
-        notes: clearable(text(2_000, 'many')),
-      }),
-    )
-    .max(20)
-    .refine((a) => new Set(a.map((x) => x.area)).size === a.length, 'Use each area once')
-    .optional(),
-});
+/**
+ * Stage 3, Goals & Strategy (`advisory_plans.strategy`): the areas the plan works on. B13
+ * (Octavia's §3): a plan names its focus explicitly, one or more areas or `noFocusArea` (None /
+ * Not Applicable), never both.
+ */
+export const AdvisoryPlanStrategy = z
+  .strictObject({
+    summary: clearable(text(3_000, 'many')),
+    noFocusArea: z.boolean().optional(),
+    areas: z
+      .array(
+        z.strictObject({
+          area: AdvisoryArea,
+          objective: text(500, 'many'),
+          notes: clearable(text(2_000, 'many')),
+        }),
+      )
+      .max(20)
+      .refine((a) => new Set(a.map((x) => x.area)).size === a.length, 'Use each area once')
+      .optional(),
+  })
+  .refine((s) => !(s.noFocusArea && s.areas?.length), {
+    message: 'Choose focus areas or None / Not Applicable, not both',
+    path: ['noFocusArea'],
+  });
 export type AdvisoryPlanStrategy = z.input<typeof AdvisoryPlanStrategy>;
 
 export const AdvisoryFinancialRow = z.object({
@@ -813,6 +823,8 @@ export const AdvisoryGoalsQuery = z.strictObject({
   dueBefore: CalendarDate.optional(),
   search: SearchText.optional(),
   includeArchived: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** B25 (Octavia, Oct 25): Active (the default), Archived only, or All. Wins over includeArchived. */
+  view: z.enum(['active', 'archived', 'all']).optional(),
   sort: z
     .enum(['targetDate', 'title', 'status', 'progress', 'updated'])
     .optional()

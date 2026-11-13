@@ -107,6 +107,8 @@ describe('seed', () => {
       'firm_application_info_requests',
       'firm_application_responses',
       'firm_application_response_files',
+      // Firm application response codes (Nov 10): none until an applicant opens a request's link.
+      'firm_application_response_codes',
       // Firm closure (Nov 10): no grant, log or exceptional-access request until a firm closes or a
       // request is made.
       'firm_data_download_grants',
