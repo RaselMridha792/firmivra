@@ -21,6 +21,7 @@ import {
 } from './ba-shared';
 import { type WizardStep, WizardFrame, stepHref, useStepSave } from './plan-frame';
 import { AssessmentStep, ActionStep, ReviewStep, StrategyStep } from './plan-steps';
+import { SearchExistingClientDialog } from './search-existing-client';
 
 /** Free text in the API; the lists the form offers (a stored value outside them is kept). */
 const ENTITY_TYPES = [
@@ -270,6 +271,9 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
   const clients = useApiQuery([...BA_KEY, 'pick-clients'], () =>
     api.advisory.clients({ pageSize: 100 }),
   );
+  // B17: Search Existing Clients, beside the choice; the firm client's advisory id when they have one.
+  const [searching, setSearching] = useState(false);
+  const advisoryOf = new Map((clients.data?.items ?? []).map((c) => [c.client.id, c.id]));
   const detail = useApiQuery([...BA_KEY, 'client', clientId], () =>
     clientId ? api.advisory.client(clientId) : Promise.resolve(null),
   );
@@ -307,14 +311,27 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
     });
   }
 
-  const required: (keyof ProfileForm)[] = [
-    'name',
-    'targetYear',
-    'businessName',
-    'entityType',
-    'industry',
-    'years',
-  ];
+  // B13 (Octavia's §3): the plan's context, the business's identity, its address and contact and
+  // how they heard about us are required to move on; Website, team, products and notes are not.
+  // A draft still saves without them.
+  const REQUIRED: Partial<Record<keyof ProfileForm, string>> = {
+    name: 'Enter the plan name.',
+    planType: 'Choose the plan type.',
+    businessName: 'Enter the business name.',
+    entityType: 'Choose the entity type.',
+    industry: 'Choose the industry.',
+    years: 'Enter the years in business.',
+    stage: 'Choose the business stage.',
+    line1: 'Enter the street address.',
+    city: 'Enter the city.',
+    state: 'Choose the state.',
+    postalCode: 'Enter the ZIP code.',
+    contactName: 'Enter the primary contact’s name.',
+    phone: 'Enter the phone number.',
+    email: 'Enter the email address.',
+    referral: 'Choose how they heard about us.',
+  };
+  const required = Object.keys(REQUIRED) as (keyof ProfileForm)[];
   // B6: Other needs its text.
   const otherFor: Partial<Record<keyof ProfileForm, keyof ProfileForm>> = {
     entityOther: 'entityType',
@@ -325,7 +342,13 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
     return tried && (of ? form[of] === 'Other' && !form[k].trim() : !form[k].trim());
   };
   const err = (k: keyof ProfileForm) =>
-    missing(k) ? (otherFor[k] ? 'Say what it is to continue' : 'Required to continue') : undefined;
+    missing(k)
+      ? otherFor[k]
+        ? 'Say what it is to continue'
+        : (REQUIRED[k] ?? 'Required')
+      : undefined;
+  /** The field's error, when Next was tried with it blank. */
+  const errOf = (k: keyof ProfileForm) => (err(k) ? { error: err(k)! } : {});
   const othersMissing =
     (form.entityType === 'Other' && !form.entityOther.trim()) ||
     (form.industry === 'Other' && !form.industryOther.trim());
@@ -385,13 +408,20 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
       }}
       onNext={() => {
         setTried(true);
-        if (!clientId || required.some((k) => !form[k].trim()) || othersMissing) {
-          setError('Fill in the required fields to continue, or save as a draft.');
+        const blank = required.filter((k) => !form[k].trim()).length + (clientId ? 0 : 1);
+        if (blank || othersMissing) {
+          setError(
+            `Fill in the required fields to continue (${blank + (othersMissing ? 1 : 0)} missing, marked below), or save as a draft.`,
+          );
           return;
         }
         void persist(2).then((id) => id && router.push(stepHref(id, 2)));
       }}
     >
+      <p className="text-sm text-muted" data-testid="required-legend">
+        Fields marked * are needed to continue. Save as Draft keeps what you have entered at any
+        point.
+      </p>
       <div className="grid gap-4 lg:grid-cols-2">
         <section className={card} aria-label="Client selection" data-testid="step-client">
           <SectionHead
@@ -403,27 +433,37 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
             {plan ? (
               <Input label="Client" value={plan.client.name} readOnly />
             ) : (
-              <Select
-                label="Client"
-                required
-                value={clientId}
-                {...(tried && !clientId ? { error: 'Required' } : {})}
-                onChange={(e) => setClientId(e.target.value)}
-                options={[
-                  {
-                    value: '',
-                    label: clients.isError
-                      ? 'Advisory clients could not be loaded'
-                      : clients.data && !clients.data.items.length
-                        ? 'No advisory clients'
-                        : 'Choose a client…',
-                  },
-                  ...(clients.data?.items ?? []).map((c) => ({
-                    value: c.id,
-                    label: c.client.name,
-                  })),
-                ]}
-              />
+              <div className="flex min-w-0 flex-col gap-2">
+                <Select
+                  label="Client *"
+                  required
+                  value={clientId}
+                  {...(tried && !clientId ? { error: 'Choose the client.' } : {})}
+                  onChange={(e) => setClientId(e.target.value)}
+                  options={[
+                    {
+                      value: '',
+                      label: clients.isError
+                        ? 'Advisory clients could not be loaded'
+                        : clients.data && !clients.data.items.length
+                          ? 'No advisory clients'
+                          : 'Choose a client…',
+                    },
+                    ...(clients.data?.items ?? []).map((c) => ({
+                      value: c.id,
+                      label: c.client.name,
+                    })),
+                  ]}
+                />
+                <button
+                  type="button"
+                  className="self-start text-sm font-medium text-link underline"
+                  onClick={() => setSearching(true)}
+                  data-testid="search-existing-clients"
+                >
+                  Search Existing Clients
+                </button>
+              </div>
             )}
             {d ? (
               <div
@@ -459,15 +499,15 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           />
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.1fr)]">
             <Input
-              label="Plan Name"
+              label="Plan Name *"
               required
               maxLength={200}
               value={form.name}
               onChange={(e) => set('name')(e.target.value)}
-              {...(err('name') ? { error: err('name')! } : {})}
+              {...errOf('name')}
             />
             <Select
-              label="Target Year"
+              label="Target Year *"
               required
               value={form.targetYear}
               onChange={(e) => set('targetYear')(e.target.value)}
@@ -477,7 +517,9 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               }))}
             />
             <Select
-              label="Plan Type"
+              label="Plan Type *"
+              required
+              {...errOf('planType')}
               value={form.planType}
               onChange={(e) => set('planType')(e.target.value)}
               options={options(PLAN_TYPES, form.planType, 'Not set')}
@@ -495,12 +537,12 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           />
           <div className="grid gap-3 sm:grid-cols-3">
             <Input
-              label="Business Name"
+              label="Business Name *"
               required
               maxLength={200}
               value={form.businessName}
               onChange={(e) => set('businessName')(e.target.value)}
-              {...(err('businessName') ? { error: err('businessName')! } : {})}
+              {...errOf('businessName')}
             />
             <Input
               label="EIN"
@@ -509,16 +551,16 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               title="Kept masked on the client's record"
             />
             <Select
-              label="Entity Type"
+              label="Entity Type *"
               required
               value={form.entityType}
               onChange={(e) => set('entityType')(e.target.value)}
               options={options(ENTITY_TYPES, form.entityType)}
-              {...(err('entityType') ? { error: err('entityType')! } : {})}
+              {...errOf('entityType')}
             />
             {form.entityType === 'Other' ? (
               <Input
-                label="Specify entity type"
+                label="Specify entity type *"
                 required
                 maxLength={60}
                 value={form.entityOther}
@@ -527,16 +569,16 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               />
             ) : null}
             <Select
-              label="Industry"
+              label="Industry *"
               required
               value={form.industry}
               onChange={(e) => set('industry')(e.target.value)}
               options={options(INDUSTRIES, form.industry)}
-              {...(err('industry') ? { error: err('industry')! } : {})}
+              {...errOf('industry')}
             />
             {form.industry === 'Other' ? (
               <Input
-                label="Specify industry"
+                label="Specify industry *"
                 required
                 maxLength={100}
                 value={form.industryOther}
@@ -545,15 +587,17 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
               />
             ) : null}
             <Input
-              label="Years in Business"
+              label="Years in Business *"
               required
               inputMode="numeric"
               value={form.years}
               onChange={(e) => set('years')(e.target.value)}
-              {...(err('years') ? { error: err('years')! } : {})}
+              {...errOf('years')}
             />
             <Select
-              label="Business Stage"
+              label="Business Stage *"
+              required
+              {...errOf('stage')}
               value={form.stage}
               onChange={(e) => set('stage')(e.target.value)}
               options={options(BUSINESS_STAGES, form.stage, 'Not set')}
@@ -561,7 +605,7 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           </div>
           <div className="mt-3">
             <Textarea
-              label="Products/Services"
+              label="Products/Services (optional)"
               rows={4}
               maxLength={2000}
               value={form.products}
@@ -575,26 +619,34 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1fr)]">
               <div className="sm:col-span-3">
                 <Input
-                  label="Street Address"
+                  label="Street Address *"
+                  required
+                  {...errOf('line1')}
                   maxLength={200}
                   value={form.line1}
                   onChange={(e) => set('line1')(e.target.value)}
                 />
               </div>
               <Input
-                label="City"
+                label="City *"
+                required
+                {...errOf('city')}
                 maxLength={100}
                 value={form.city}
                 onChange={(e) => set('city')(e.target.value)}
               />
               <Select
-                label="State"
+                label="State *"
+                required
+                {...errOf('state')}
                 value={form.state}
                 onChange={(e) => set('state')(e.target.value)}
                 options={[{ value: '', label: '—' }, ...states]}
               />
               <Input
-                label="ZIP Code"
+                label="ZIP Code *"
+                required
+                {...errOf('postalCode')}
                 maxLength={20}
                 value={form.postalCode}
                 onChange={(e) => set('postalCode')(e.target.value)}
@@ -605,19 +657,25 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
             <SectionHead icon={Phone} title="Contact Information" />
             <div className="grid gap-3 sm:grid-cols-2">
               <Input
-                label="Primary Contact Name"
+                label="Primary Contact Name *"
+                required
+                {...errOf('contactName')}
                 maxLength={200}
                 value={form.contactName}
                 onChange={(e) => set('contactName')(e.target.value)}
               />
               <Input
-                label="Phone Number"
+                label="Phone Number *"
+                required
+                {...errOf('phone')}
                 maxLength={40}
                 value={form.phone}
                 onChange={(e) => set('phone')(e.target.value)}
               />
               <Input
-                label="Email Address"
+                label="Email Address *"
+                required
+                {...errOf('email')}
                 type="email"
                 maxLength={254}
                 value={form.email}
@@ -643,13 +701,13 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           />
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="Number of Employees"
+              label="Number of Employees (optional)"
               inputMode="numeric"
               value={form.employees}
               onChange={(e) => set('employees')(e.target.value)}
             />
             <Select
-              label="Plans to Hire in Next 12 Months?"
+              label="Plans to Hire in Next 12 Months? (optional)"
               value={form.hiring}
               onChange={(e) => set('hiring')(e.target.value)}
               options={options(['Yes', 'No', 'Not sure'], form.hiring, 'Not set')}
@@ -673,7 +731,9 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           />
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
             <Select
-              label="How did you hear about us?"
+              label="How did you hear about us? *"
+              required
+              {...errOf('referral')}
               value={form.referral}
               onChange={(e) => set('referral')(e.target.value)}
               options={options(REFERRAL_SOURCES, form.referral, 'Not set')}
@@ -688,6 +748,16 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
           </div>
         </section>
       </div>
+      {searching ? (
+        <SearchExistingClientDialog
+          advisoryOf={advisoryOf}
+          onClose={() => setSearching(false)}
+          onChosen={(id) => {
+            setClientId(id);
+            setSearching(false);
+          }}
+        />
+      ) : null}
     </WizardFrame>
   );
 }
