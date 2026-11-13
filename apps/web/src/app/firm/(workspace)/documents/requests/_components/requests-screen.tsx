@@ -246,6 +246,7 @@ export function RequestsScreen() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5" data-testid="request-cards">
         <KpiCard
+          align="top"
           icon={PaperPlaneTilt}
           tone="blue"
           value={count(s?.total)}
@@ -253,6 +254,7 @@ export function RequestsScreen() {
           note="All time"
         />
         <KpiCard
+          align="top"
           icon={Clock}
           tone="blue"
           value={count(s?.outstanding)}
@@ -260,6 +262,7 @@ export function RequestsScreen() {
           note="Awaiting documents"
         />
         <KpiCard
+          align="top"
           icon={ChartPieSlice}
           tone="blue"
           value={count(s?.partiallyReceived)}
@@ -267,6 +270,7 @@ export function RequestsScreen() {
           note="Some documents uploaded"
         />
         <KpiCard
+          align="top"
           icon={CheckCircle}
           tone="green"
           value={count(s?.completed)}
@@ -274,6 +278,7 @@ export function RequestsScreen() {
           note="All documents received"
         />
         <KpiCard
+          align="top"
           icon={WarningCircle}
           tone="red"
           value={count(s?.overdue)}

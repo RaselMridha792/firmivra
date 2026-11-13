@@ -50,6 +50,15 @@ import {
   timeText,
 } from './task-shared';
 import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
+import { recurringHref } from './new-task-href';
+
+/** The page Create Task was opened from (SH1), if any. */
+const openedFrom = () => safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM));
+/** `href` carrying this page's origin on, so the next page's Cancel and Back still find it. */
+const keepOrigin = (href: string) => {
+  const from = openedFrom();
+  return from ? withOrigin(href, from) : href;
+};
 
 /**
  * /tasks/new, /tasks/[id]/edit and /tasks/drafts/[id]: Create Task, Edit Task and a reopened draft
@@ -182,7 +191,11 @@ function Form({
   const [engagementId, setEngagementId] = useState(
     seed?.engagementId ?? prefill?.engagementId ?? '',
   );
-  const [serviceId, setServiceId] = useState(seed?.service?.id ?? template?.service?.id ?? '');
+  // Review 2 (Payroll F04, Bookkeeping N05): null until someone chooses, so a new task opened on
+  // a service's engagement takes that service; a task being edited or a draft keeps its own.
+  const [serviceChoice, setServiceChoice] = useState<string | null>(
+    seed ? (seed.service?.id ?? '') : (template?.service?.id ?? null),
+  );
   const [assignee, setAssignee] = useState(
     seed?.assignedUserId ??
       (template?.assignmentRule === 'SPECIFIC_USER' ? (template.assignedTo?.userId ?? '') : ''),
@@ -248,6 +261,12 @@ function Form({
   const services = useApiQuery([...TASKS_KEY, 'services'], () =>
     api.servicesPricing.services({ status: 'active', pageSize: 100 }),
   );
+  const engagementService = engagements.data?.find((x) => x.id === engagementId)?.service.id;
+  const serviceId =
+    serviceChoice ??
+    (engagementService && services.data?.items.some((x) => x.id === engagementService)
+      ? engagementService
+      : '');
   const candidates = useApiQuery([...TASKS_KEY, 'candidates'], () =>
     api.taskWork.overview({ view: 'all', pageSize: 100 }),
   );
@@ -365,7 +384,7 @@ function Form({
     details,
     clientId,
     engagementId,
-    serviceId,
+    serviceChoice,
     assignee,
     extra,
     priority,
@@ -781,7 +800,7 @@ function Form({
                   id="tf-service"
                   label="Service"
                   value={serviceId}
-                  onChange={setServiceId}
+                  onChange={setServiceChoice}
                   options={[
                     {
                       value: '',
@@ -940,7 +959,7 @@ function Form({
                   <Toggle
                     label="Recurring Task"
                     checked={false}
-                    onChange={() => guard.leave('/tasks/recurring/new')}
+                    onChange={() => guard.leave(keepOrigin(recurringHref(clientId, engagementId)))}
                   />
                   <span>
                     <span className="block font-medium">Recurring Task</span>
@@ -1086,7 +1105,13 @@ function Form({
           <Button
             variant="secondary"
             onClick={() =>
-              guard.leave(task ? `/tasks/${task.id}` : draft ? '/tasks?view=drafts' : '/tasks')
+              guard.leave(
+                task
+                  ? `/tasks/${task.id}`
+                  : draft
+                    ? '/tasks?view=drafts'
+                    : (openedFrom() ?? '/tasks'),
+              )
             }
           >
             Cancel

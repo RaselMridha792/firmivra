@@ -2,12 +2,12 @@
 
 import { DOCUMENT_ERRORS, type ClientListItem, type FirmDocument } from '@firmivra/types';
 import { Card, Table, type Column, type TableSort } from '@firmivra/ui';
-import { DotsThreeVertical } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
+import { DocumentActionDialog, DocumentRowMenu, type RowAction } from './document-row-actions';
 import { DocumentStatusBadge } from './document-status-badge';
 import { FileIcon } from './file-icon';
 
@@ -20,83 +20,10 @@ function dateText(iso: string): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
-type Download = ReturnType<typeof useApiMutation<string, void>>;
-
 /**
- * The row actions, shared by the table (desktop) and the card list (mobile, below 768px: the
- * design is a wide table, but a fixed-column table never reflows at 390px — apps/web/src/app/firm
- * /(workspace)/clients/[id]/documents already solves this the same way, cards under md:hidden).
- */
-function ActionsMenu({
-  row,
-  open,
-  onToggle,
-  download,
-}: {
-  row: FirmDocument;
-  open: boolean;
-  onToggle: () => void;
-  download: Download;
-}) {
-  return (
-    <span className="relative inline-block">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for ${row.fileName}`}
-        data-testid="document-actions"
-        onClick={onToggle}
-        className="inline-flex size-9 items-center justify-center rounded-control border border-border text-text hover:bg-canvas"
-      >
-        <DotsThreeVertical weight="bold" className="size-5" aria-hidden="true" />
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute top-full right-0 z-10 mt-1 w-56 rounded-md border border-border bg-surface py-1 shadow-md"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            disabled={row.scanStatus !== 'CLEAN' || download.isPending}
-            data-testid="document-download"
-            onClick={() => download.mutate(row.id)}
-            className="block w-full px-3 py-2 text-left text-sm text-text hover:bg-canvas disabled:text-muted"
-          >
-            Download
-          </button>
-          <Link
-            role="menuitem"
-            href={`/documents/${row.id}/share`}
-            data-testid="document-share"
-            className="block w-full px-3 py-2 text-left text-sm text-text hover:bg-canvas"
-          >
-            Share
-          </Link>
-          {['Rename', 'Move', 'Request e-sign', 'Archive'].map((label) => (
-            <button
-              key={label}
-              type="button"
-              role="menuitem"
-              disabled
-              title="Not built yet"
-              className="block w-full px-3 py-2 text-left text-sm text-muted"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * The library table, for the one selected client (the API has no firm-wide list: R34 PR). Row
- * actions: Download is real (the same route every document screen uses), and Share opens Share
- * Document (R56). The rest — Rename, Move, E-sign, Review, Archive — are not built on this table
- * yet, so the menu names them as not available rather than inventing a working control (R34 PR).
+ * The library table, for the one selected client. Row actions (Clients C2-051, V-005): Download,
+ * Share, Rename, Move, Request e-sign and Archive, in a menu that opens outside the table. The
+ * columns keep readable widths and the table scrolls sideways inside its region (V-004).
  */
 export function DocumentsTable({
   rows,
@@ -115,13 +42,23 @@ export function DocumentsTable({
   onToggleSelect: (id: string) => void;
   onToggleSelectAll: (checked: boolean) => void;
 }) {
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const toggleMenu = (id: string) => setOpenMenu((prev) => (prev === id ? null : id));
+  const [pending, setPending] = useState<{ action: RowAction; row: FirmDocument } | null>(null);
+  const [done, setDone] = useState<string>();
   const download = useApiMutation(async (id: string) => {
-    setOpenMenu(null);
     const link = await api.documents.download(id);
     window.location.assign(link.url);
   });
+  const menu = (row: FirmDocument) => (
+    <DocumentRowMenu
+      row={row}
+      client={client}
+      onDownload={(id) => download.mutate(id)}
+      onAction={(action, r) => {
+        setDone(undefined);
+        setPending({ action, row: r });
+      }}
+    />
+  );
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   const columns: Column<FirmDocument>[] = [
@@ -144,7 +81,7 @@ export function DocumentsTable({
       id: 'name',
       label: 'Name',
       sortable: true,
-      className: 'min-w-56',
+      className: 'w-72',
       cell: (row) => (
         <span className="flex min-w-0 items-center gap-3">
           <FileIcon contentType={row.contentType} />
@@ -164,16 +101,19 @@ export function DocumentsTable({
     {
       id: 'client',
       label: 'Client / Folder',
+      className: 'w-44',
       cell: () => <span className="text-text">{client.displayName}</span>,
     },
     {
       id: 'type',
       label: 'Type',
+      className: 'w-40',
       cell: (row) => <span className="text-text">{row.category?.name ?? 'Uncategorized'}</span>,
     },
     {
       id: 'date',
       label: 'Date Uploaded',
+      className: 'w-36',
       cell: (row) => (
         <time dateTime={row.createdAt} className="text-text">
           {dateText(row.createdAt)}
@@ -184,20 +124,14 @@ export function DocumentsTable({
       id: 'status',
       label: 'Status',
       sortable: true,
+      className: 'w-32',
       cell: (row) => <DocumentStatusBadge status={row.scanStatus} />,
     },
     {
       id: 'actions',
       label: 'Actions',
-      className: 'w-16 text-right',
-      cell: (row) => (
-        <ActionsMenu
-          row={row}
-          open={openMenu === row.id}
-          onToggle={() => toggleMenu(row.id)}
-          download={download}
-        />
-      ),
+      className: 'w-20 text-right',
+      cell: (row) => menu(row),
     },
   ];
   // Column.label is typed as a string, but Table only ever renders it as JSX ({column.label}), so
@@ -223,6 +157,11 @@ export function DocumentsTable({
 
   return (
     <div data-testid="documents-table">
+      {done ? (
+        <p role="status" className="mb-3 text-sm text-success" data-testid="document-action-done">
+          {done}
+        </p>
+      ) : null}
       {download.error ? (
         <p role="alert" className="mb-3 text-sm text-danger" data-testid="document-download-error">
           {errorMessage(download.error, DOCUMENT_ERRORS)}
@@ -235,7 +174,7 @@ export function DocumentsTable({
           rowKey={(row) => row.id}
           caption="Documents"
           showPagination={false}
-          tableClassName="table-fixed"
+          tableClassName="table-fixed min-w-[60rem]"
           dense
           server={{
             page: 1,
@@ -269,12 +208,7 @@ export function DocumentsTable({
                 </Link>
                 <p className="text-xs text-muted">{sizeText(row.sizeBytes)}</p>
               </div>
-              <ActionsMenu
-                row={row}
-                open={openMenu === row.id}
-                onToggle={() => toggleMenu(row.id)}
-                download={download}
-              />
+              {menu(row)}
             </div>
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -303,6 +237,17 @@ export function DocumentsTable({
           </Card>
         ))}
       </div>
+      {pending ? (
+        <DocumentActionDialog
+          action={pending.action}
+          row={pending.row}
+          onClose={() => setPending(null)}
+          onDone={(message) => {
+            setPending(null);
+            setDone(message);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

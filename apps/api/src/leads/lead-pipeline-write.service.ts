@@ -107,9 +107,15 @@ export class LeadPipelineWriteService {
         await addSteps(tx, businessId, lead.id, actor.userId, steps);
         await syncNextAction(tx, businessId, lead.id, actor.userId);
       }
+      // R2 7: audited in the same transaction, so an error always means nothing was saved.
+      await this.audit.logIn(
+        tx,
+        'lead.created',
+        { type: 'lead', id: lead.id },
+        { source: body.source },
+      );
       return loadProfile(tx, businessId, actor, lead.id, { unrestricted: true });
     });
-    await this.audit.log('lead.created', { type: 'lead', id: profile.id }, { source: body.source });
     if (!body.campaignId) return profile;
     // Into the campaign's audience (checked above), then the profile as it is now.
     await this.addToCampaign(businessId, actor, tenant, [profile.id], body.campaignId);
@@ -186,13 +192,16 @@ export class LeadPipelineWriteService {
       if (body.serviceIds)
         await this.setServices(tx, businessId, id, lead.serviceId, [...new Set(body.serviceIds)]);
       if (body.tags) await this.setTags(tx, businessId, actor, [id], body.tags, true);
+      // R2 7: audited in the same transaction, so a save either succeeds whole or reports a real
+      // failure; a committed change never comes back as an error.
+      await this.audit.logIn(
+        tx,
+        'lead.updated',
+        { type: 'lead', id },
+        { fields: Object.keys(body).filter((k) => k !== 'version') },
+      );
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log(
-      'lead.updated',
-      { type: 'lead', id },
-      { fields: Object.keys(body).filter((k) => k !== 'version') },
-    );
     return profile;
   }
 
@@ -236,60 +245,66 @@ export class LeadPipelineWriteService {
         select: { id: true, status: true, assignedUserId: true },
       });
       const base = { updatedByUserId: actor.userId };
-      switch (body.action) {
-        case 'ASSIGN': {
-          if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
-          const todo = rows
-            .filter((r) => r.assignedUserId !== body.assignedUserId)
-            .map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, assignedUserId: body.assignedUserId },
-          });
-          return todo;
+      const todo = await (async (): Promise<string[]> => {
+        switch (body.action) {
+          case 'ASSIGN': {
+            if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
+            const todo = rows
+              .filter((r) => r.assignedUserId !== body.assignedUserId)
+              .map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, assignedUserId: body.assignedUserId },
+            });
+            return todo;
+          }
+          case 'STAGE': {
+            const todo = rows.filter((r) => r.status !== body.stage).map((r) => r.id);
+            const closed = CLOSED_STATUSES.includes(body.stage as LeadPipelineStatus);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: {
+                ...base,
+                status: body.stage,
+                ...(closed
+                  ? { nextActionType: null, nextActionAt: null, nextActionNote: null }
+                  : {}),
+                ...(body.stage === 'DECLINED' ? { declineReason: NOT_QUALIFIED_REASON } : {}),
+              },
+            });
+            return todo;
+          }
+          case 'TAGS': {
+            const todo = rows.map((r) => r.id);
+            await this.setTags(tx, businessId, actor, todo, body.add, false);
+            await tx.lead.updateMany({ where: { businessId, id: { in: todo } }, data: base });
+            return todo;
+          }
+          case 'ARCHIVE': {
+            const todo = rows.map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, archivedAt: new Date(), archivedByUserId: actor.userId },
+            });
+            return todo;
+          }
+          // Back with the status, details and history it had: only the archive mark goes.
+          case 'RESTORE': {
+            const todo = rows.map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, archivedAt: null, archivedByUserId: null },
+            });
+            return todo;
+          }
         }
-        case 'STAGE': {
-          const todo = rows.filter((r) => r.status !== body.stage).map((r) => r.id);
-          const closed = CLOSED_STATUSES.includes(body.stage as LeadPipelineStatus);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: {
-              ...base,
-              status: body.stage,
-              ...(closed ? { nextActionType: null, nextActionAt: null, nextActionNote: null } : {}),
-              ...(body.stage === 'DECLINED' ? { declineReason: NOT_QUALIFIED_REASON } : {}),
-            },
-          });
-          return todo;
-        }
-        case 'TAGS': {
-          const todo = rows.map((r) => r.id);
-          await this.setTags(tx, businessId, actor, todo, body.add, false);
-          await tx.lead.updateMany({ where: { businessId, id: { in: todo } }, data: base });
-          return todo;
-        }
-        case 'ARCHIVE': {
-          const todo = rows.map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, archivedAt: new Date(), archivedByUserId: actor.userId },
-          });
-          return todo;
-        }
-        // Back with the status, details and history it had: only the archive mark goes.
-        case 'RESTORE': {
-          const todo = rows.map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, archivedAt: null, archivedByUserId: null },
-          });
-          return todo;
-        }
+      })();
+      // In the same transaction (R2 7): the changes and their audit rows commit together.
+      for (const id of todo) {
+        await this.audit.logIn(tx, `lead.bulk_${body.action.toLowerCase()}`, { type: 'lead', id });
       }
+      return todo;
     });
-    for (const id of changed) {
-      await this.audit.log(`lead.bulk_${body.action.toLowerCase()}`, { type: 'lead', id });
-    }
     return { changed: changed.length, skipped: ids.length - changed.length };
   }
 

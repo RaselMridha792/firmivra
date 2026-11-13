@@ -34,6 +34,11 @@ const LOCALES: [string, string][] = [
   ['fr-CA', 'Français (Canada)'],
   ['en-GB', 'English (United Kingdom)'],
 ];
+/**
+ * Hidden until the interface is translated (Octavia's review of Oct 20: Spanish saved but the
+ * screens stayed English). A firm that already chose it still sees its own choice.
+ */
+const HIDDEN_UNTIL_LAUNCH = new Set(['es-US']);
 const CURRENCIES: [string, string][] = [
   ['USD', 'US Dollar (USD)'],
   ['CAD', 'Canadian Dollar (CAD)'],
@@ -208,7 +213,11 @@ function PreferencesForm({
           />
           <Select
             label="Language & Region"
-            options={options(LOCALES)}
+            options={options(
+              LOCALES.filter(
+                ([value]) => !HIDDEN_UNTIL_LAUNCH.has(value) || value === prefs.locale,
+              ),
+            )}
             value={prefs.locale}
             aria-describedby={`${noteId}-language`}
             onChange={(e) => set('locale', e.target.value)}

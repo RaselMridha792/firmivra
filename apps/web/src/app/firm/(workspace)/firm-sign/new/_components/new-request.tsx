@@ -2,6 +2,7 @@
 
 import {
   ClientId,
+  DocumentId,
   CreateEsignRequestBody,
   ESIGN_ERRORS,
   EsignTemplateId,
@@ -32,7 +33,16 @@ import {
 } from './template-roles';
 
 /** Step 0 of a request (/firm-sign/new): its name, client and service; then the wizard. */
-export function NewRequest({ clientId, templateId }: { clientId?: string; templateId?: string }) {
+export function NewRequest({
+  clientId,
+  templateId,
+  documentId,
+}: {
+  clientId?: string;
+  templateId?: string;
+  /** Documents' Request e-sign (Clients C2-051): this client file goes into the new request. */
+  documentId?: string;
+}) {
   return (
     <EsignGate>
       {(role) =>
@@ -40,6 +50,7 @@ export function NewRequest({ clientId, templateId }: { clientId?: string; templa
           <StartForm
             fromClient={ClientId.safeParse(clientId).success ? clientId : undefined}
             fromTemplate={EsignTemplateId.safeParse(templateId).success ? templateId : undefined}
+            fromDocument={DocumentId.safeParse(documentId).success ? documentId : undefined}
             canListMembers={isOwnerOrAdmin(role)}
           />
         ) : (
@@ -55,10 +66,12 @@ export function NewRequest({ clientId, templateId }: { clientId?: string; templa
 function StartForm({
   fromClient,
   fromTemplate,
+  fromDocument,
   canListMembers,
 }: {
   fromClient?: string;
   fromTemplate?: string;
+  fromDocument?: string;
   canListMembers: boolean;
 }) {
   const router = useRouter();
@@ -97,7 +110,18 @@ function StartForm({
   const pending = create.isPending || use.isPending;
   const error = create.error ?? use.error;
 
-  function opened(r: EsignRequestDetail) {
+  async function opened(made: EsignRequestDetail) {
+    let r = made;
+    // From Documents' Request e-sign: the chosen file is the request's first document. If it
+    // can't be added, the wizard still opens, where Add from Documents is one step.
+    if (fromDocument) {
+      try {
+        await api.esign.addFromVault(r.id, { documentId: fromDocument });
+        r = await api.esign.get(r.id);
+      } catch {
+        // The draft stands without it.
+      }
+    }
     // The wizard opens on the draft just made; the lists and counters catch up behind it.
     queryClient.setQueryData(requestKey(r.id), r);
     void queryClient.invalidateQueries({ queryKey: ['esign', 'requests', 'list'] });

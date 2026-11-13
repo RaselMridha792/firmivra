@@ -833,6 +833,7 @@ export function createBookkeepingMock({
         kind: 'BOOKKEEPING',
         title: 'Bookkeeping',
         status: 'ACTIVE',
+        workspaceId: cid,
       });
       const ws: Ws = {
         id: cid,

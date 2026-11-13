@@ -18,13 +18,24 @@ export interface DateRangePickerProps {
    * date is before start date" until it is fixed. Left out, the control works as before.
    */
   strict?: boolean;
+  /** With `strict`: the words under a reversed range (Leads R2 13 uses its reviewer's own). */
+  reversedMessage?: string;
+  /** With `strict`: told when a reversed range is held back or fixed. */
+  onReversedChange?: (reversed: boolean) => void;
 }
 
 const field =
   'flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-sm text-text focus-within:outline-2 focus-within:outline-focus';
 
 /** A From and To date, each with the calendar icon; the browser's own calendar opens on click. */
-export function DateRangePicker({ label, value, onChange, strict = false }: DateRangePickerProps) {
+export function DateRangePicker({
+  label,
+  value,
+  onChange,
+  strict = false,
+  reversedMessage = 'End date is before start date',
+  onReversedChange,
+}: DateRangePickerProps) {
   const id = useId();
   const [held, setHeld] = useState<DateRange | null>(null);
   const shown = held ?? value;
@@ -32,8 +43,10 @@ export function DateRangePicker({ label, value, onChange, strict = false }: Date
   const change = (next: DateRange) => {
     if (strict && next.from && next.to && next.to < next.from) {
       setHeld(next);
+      onReversedChange?.(true);
       return;
     }
+    if (held) onReversedChange?.(false);
     setHeld(null);
     onChange(next);
   };
@@ -68,7 +81,7 @@ export function DateRangePicker({ label, value, onChange, strict = false }: Date
       </div>
       {strict && reversed ? (
         <p id={`${id}-error`} role="alert" className="text-xs text-danger">
-          End date is before start date
+          {reversedMessage}
         </p>
       ) : null}
     </fieldset>
