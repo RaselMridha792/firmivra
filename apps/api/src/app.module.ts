@@ -13,6 +13,7 @@ import { PortalInfoModule } from './client-auth/portal-info.controller.js';
 import { PortalAnnouncementsModule } from './client-portal/portal-announcements.js';
 import { PortalLockModule } from './client-portal/portal-lock.js';
 import { PortalManagementModule } from './client-portal/portal-management.js';
+import { PortalContactModule } from './client-portal/portal-contact.js';
 import { PortalTabsModule } from './client-portal/portal-tabs.js';
 import { PaymentPreferencesModule } from './payments/preferences/payment-preferences.js';
 import { ClientSignUpsModule } from './client-auth/client-sign-ups.controller.js';
@@ -188,6 +189,7 @@ export class AppModule {
         PortalLockModule,
         PortalManagementModule,
         PortalTabsModule,
+        PortalContactModule,
         PaymentPreferencesModule,
         SignUpModule,
         PortalSignInModule,

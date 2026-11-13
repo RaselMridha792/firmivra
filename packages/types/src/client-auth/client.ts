@@ -28,6 +28,7 @@ import {
   LinkSignUpRequest,
   type LegalKind,
   PortalInfo,
+  PortalOffices,
   RecordSignUpChecksRequest,
   ResendCodeRequest,
   RestoreSignUpAccessRequest,
@@ -56,6 +57,8 @@ export function createPortalAuthClient(request: ApiRequest, firmSlug: string) {
   return {
     info: async () => request(PortalInfo, `${portal}/info`),
     legal: async (kind: LegalKind) => request(LegalDocument, `${portal}/legal/${kind}`),
+    /** The firm's active locations for the sign-up form's office choice (PRT-1). */
+    offices: async () => request(PortalOffices, `${portal}/offices`),
 
     signUp: async (body: SignUpRequest) =>
       post(SignUpState, `${auth}/sign-up`, parseInput(SignUpRequest, body)),

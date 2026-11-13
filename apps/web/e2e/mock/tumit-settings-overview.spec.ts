@@ -12,7 +12,7 @@ test('shows the KPIs, Quick Settings and recent activity', async ({ page }) => {
   await expect(page).toHaveTitle('Settings overview');
   // Ten members are not deactivated; one joined this month.
   await expect(page.getByTestId('kpi-staff-users')).toContainText('101');
-  await expect(page.getByTestId('kpi-security-alerts')).toContainText('Review required');
+  await expect(page.getByTestId('kpi-security-alerts')).toContainText('Requires review');
   await expect(page.getByTestId('recent-admin-activity')).toContainText(
     'Branding settings updated',
   );

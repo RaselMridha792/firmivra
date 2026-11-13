@@ -1,6 +1,6 @@
 'use client';
 
-import { CaretRight } from '@phosphor-icons/react';
+import { ArrowLeft, CaretRight } from '@phosphor-icons/react';
 import {
   ApiRequestError,
   type FormDeliveryChannel,
@@ -10,6 +10,7 @@ import {
 } from '@firmivra/types';
 import { PageHeader } from '@firmivra/ui';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { useMe } from '../../../../../../components/signed-in';
@@ -120,7 +121,14 @@ const start = (formId: string): State => ({
  * is unreachable. Opened as /intake-forms/send?formId=... (Use Template, Save & Send) the form is
  * chosen already.
  */
-export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
+export function SendIntakeScreen({
+  initialFormId,
+  initialLeadId = '',
+}: {
+  initialFormId: string;
+  /** Leads R2 3: opened from this lead's profile; it is the recipient, and Back returns to it. */
+  initialLeadId?: string;
+}) {
   const { me } = useMe();
   const { firm } = useFirm();
   const forms = useApiQuery(FORMS_KEY, () =>
@@ -133,8 +141,32 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
     api.intakeForms.saveSendDraft(input.body, input.id),
   );
 
-  const [kind, setKind] = useState<Recipient['kind']>('CLIENT');
+  const [kind, setKind] = useState<Recipient['kind']>(initialLeadId ? 'LEAD' : 'CLIENT');
   const [state, setState] = useState<State>(() => start(initialFormId));
+  // R2 3: the lead it was opened from, chosen once it loads (choosing never sends anything).
+  const fromLead = useQuery({
+    queryKey: ['intake-forms', 'send', 'from-lead', initialLeadId],
+    queryFn: () => api.leadPipeline.profile(initialLeadId),
+    enabled: !!initialLeadId,
+  });
+  const [preset, setPreset] = useState(false);
+  if (!preset && fromLead.data && !state.recipient) {
+    setPreset(true);
+    const l = fromLead.data;
+    const lead: Recipient = {
+      kind: 'LEAD',
+      id: l.id,
+      name: `${l.firstName} ${l.lastName}`.trim(),
+      firstName: l.firstName,
+      email: l.email,
+      phone: l.phone,
+      portal: false,
+    };
+    setState((s) => ({ ...s, recipient: lead, channel: usableChannel(lead, s.channel) }));
+  }
+  const leadName = fromLead.data
+    ? `${fromLead.data.firstName} ${fromLead.data.lastName}`.trim()
+    : 'the lead';
   const [errors, setErrors] = useState<FieldErrors>({});
   const [notice, setNotice] = useState<SendNotice>();
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -262,6 +294,14 @@ export function SendIntakeScreen({ initialFormId }: { initialFormId: string }) {
             <span aria-current="page" className="font-semibold text-heading">
               Send Intake Form
             </span>
+            {initialLeadId ? (
+              <Link
+                href={`/leads/${initialLeadId}/documents`}
+                className="ml-auto inline-flex min-h-9 items-center gap-2 rounded-control border border-action bg-surface px-3 text-sm font-medium text-action hover:bg-accent-soft"
+              >
+                <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back to {leadName}
+              </Link>
+            ) : null}
           </nav>
         }
       />

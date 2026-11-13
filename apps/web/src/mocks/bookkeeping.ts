@@ -1377,12 +1377,20 @@ export function createBookkeepingMock({
               (!query.reportDueTo ||
                 (!!c.nextReportDueOn && c.nextReportDueOn <= query.reportDueTo)),
           );
+        // Review 2 (D01): ACTIVE and UPCOMING leave paused clients out, as the API does.
         const tabOf = (c: Ws, t: string) =>
-          t === 'ALL' ? true : t === 'UPCOMING' ? inUpcoming(c.nextReportDueOn) : c.status === t;
+          t === 'ALL'
+            ? true
+            : t === 'ACTIVE'
+              ? !c.paused
+              : t === 'UPCOMING'
+                ? inUpcoming(c.nextReportDueOn) && !c.paused
+                : c.status === t;
         const tabCounts = Object.fromEntries(
           (
             [
               'ALL',
+              'ACTIVE',
               'ON_TRACK',
               'NEEDS_ATTENTION',
               'MISSING_DOCUMENTS',
@@ -1409,6 +1417,14 @@ export function createBookkeepingMock({
           page: query.page,
           pageSize: query.pageSize,
           tabCounts,
+          // The chart's cohort: the selected cohort tab (or every client) under the filters.
+          cohortStatus: (() => {
+            const cohort = ['ACTIVE', 'UPCOMING'].includes(query.tab) ? query.tab : 'ALL';
+            const counts = new Map<string, number>();
+            for (const c of base.filter((x) => tabOf(x, cohort)))
+              counts.set(c.status, (counts.get(c.status) ?? 0) + 1);
+            return [...counts].map(([status, count]) => ({ status, count }));
+          })(),
         } as never;
       }),
     addClient: (body) =>

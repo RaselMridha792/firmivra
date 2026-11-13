@@ -132,23 +132,26 @@ function AddMenu({ onTemplates, manages }: { onTemplates: () => void; manages: b
  */
 export function TasksScreen({
   fromWorkflow = false,
-  view = 'mine',
+  view,
   savedTemplate,
+  clientId,
 }: {
   fromWorkflow?: boolean;
   view?: TaskView;
   savedTemplate?: string;
+  /** Review 2 (Bookkeeping Tasks tab): open on this client's tasks, every assignee. */
+  clientId?: string;
 }) {
   const { role } = useFirm();
   const manages = role === 'OWNER' || role === 'ADMIN';
-  const [tab, setTab] = useState<Tab>(view);
+  const [tab, setTab] = useState<Tab>(view ?? (clientId ? 'all' : 'mine'));
   const [kpi, setKpi] = useState<KpiFilter>();
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState({
     progress: '',
     priority: '',
     typeId: '',
-    clientId: '',
+    clientId: clientId ?? '',
     assignedUserId: '',
   });
   const [applied, setApplied] = useState(draft);

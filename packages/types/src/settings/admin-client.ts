@@ -9,6 +9,7 @@ import {
   UpdateBrandingRequest,
 } from './branding.js';
 import { SettingsOverview } from './overview.js';
+import { SecurityAlerts } from './security-alerts.js';
 import {
   FirmUserList,
   InviteUserRequest,
@@ -24,6 +25,9 @@ export function createSettingsOverviewClient(request: ApiRequest) {
   return {
     get: async (): Promise<SettingsOverview> =>
       request(SettingsOverview, '/business/settings/overview'),
+    /** The Security Alerts the Overview counts, newest first (Security & Access, the badge). */
+    securityAlerts: async (): Promise<SecurityAlerts> =>
+      request(SecurityAlerts, '/business/settings/security-alerts'),
   };
 }
 export type SettingsOverviewClient = ReturnType<typeof createSettingsOverviewClient>;

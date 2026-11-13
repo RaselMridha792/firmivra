@@ -1,4 +1,6 @@
+import { ApiRequestError } from '@firmivra/types';
 import { Badge } from '@firmivra/ui';
+import { errorMessage } from '../../../../../lib/errors';
 
 /** Every query of the Tax Planning module starts here: a change in one view refreshes the others. */
 export const TP_KEY = ['tax-planning'] as const;
@@ -7,7 +9,8 @@ export const PLAN_STATUS: Record<string, string> = {
   DRAFT: 'Draft',
   SCHEDULED: 'Scheduled',
   IN_PROGRESS: 'In Progress',
-  AWAITING_CLIENT: 'Awaiting Client',
+  // C09 (Review 2): a plan sent for the client's review.
+  AWAITING_CLIENT: 'Awaiting Client Review',
   READY_FOR_REVIEW: 'Needs Review',
   IMPLEMENTED: 'Implemented',
   CLOSED: 'Closed',
@@ -137,6 +140,37 @@ export const TP_ERRORS: Record<string, string> = {
   DOCUMENT_NOT_ALLOWED: 'That document does not belong to this client.',
   CALCULATION_UNAVAILABLE: 'The estimate could not be calculated now.',
   FORBIDDEN: 'Your role cannot do this.',
+};
+
+/**
+ * C08, C09 (Review 2): an error as the plan screens show it. A plan that is not ready names each
+ * missing item and where to fix it (the API's details), never only "not ready".
+ */
+export function planError(e: unknown): string {
+  if (e instanceof ApiRequestError && e.code === 'PLAN_NOT_READY' && e.details?.length)
+    return `Not ready yet. ${e.details.map((d) => d.message).join(' ')}`;
+  return errorMessage(e, TP_ERRORS);
+}
+
+/** C06 (Review 2): where a figure came from, kept with each one. */
+export const FIGURE_SOURCES = [
+  'Tax return',
+  'Client estimate',
+  'Bank or brokerage statement',
+  'Payroll records',
+  'Bookkeeping records',
+  'Manual entry',
+] as const;
+
+/** C06 (Review 2): an additional figure's key, from the name the firm gives it. */
+export const customKey = (name: string): string | null => {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 52);
+  return slug ? `custom_${slug}` : null;
 };
 
 /** C24 (Review 2): the entity presets; a custom entity can still be typed. */

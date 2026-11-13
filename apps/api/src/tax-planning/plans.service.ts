@@ -25,7 +25,7 @@ import {
   sentFields,
   toDay,
 } from '../workspaces/common.js';
-import { INPUT_KEYS } from './catalog.js';
+import { inputDef } from './catalog.js';
 import {
   type PlanShape,
   type TaxCtx,
@@ -58,6 +58,14 @@ import {
 import { estimateStrategy } from './tax-tables.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
+
+/** C09 (Review 2): the statuses a successful send moves to Awaiting Client Review. */
+const SENT_MOVES_TO_AWAITING: readonly string[] = [
+  'DRAFT',
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+];
 
 const NEXT_STATUS: Record<TaxPlanStatus, TaxPlanStatus[]> = {
   DRAFT: ['SCHEDULED', 'IN_PROGRESS', 'CLOSED'],
@@ -355,7 +363,7 @@ export class TaxPlansService {
       const seen = new Set<string>();
       body.inputs.forEach((input, i) => {
         const at = `inputs.${i}`;
-        const def = INPUT_KEYS.get(input.key);
+        const def = inputDef(input.key);
         if (!def) throw tpErrors.invalid(`${at}.key`, 'This figure is not one the plan takes');
         if (def.type === 'MONEY' && input.amountCents == null)
           throw tpErrors.invalid(`${at}.amountCents`, 'Enter an amount');
@@ -845,7 +853,7 @@ export class TaxPlansService {
         strategies,
         inputs: rows.map((r) => ({
           key: r.key,
-          label: INPUT_KEYS.get(r.key)?.label ?? r.key,
+          label: inputDef(r.key)?.label ?? r.key,
           kind: r.kind,
           taxYear: r.taxYear,
           amountCents: r.amountCents,
@@ -888,11 +896,22 @@ export class TaxPlansService {
     });
   }
 
-  private missingForFinal(plan: PlanShape, stale: boolean): string[] {
+  /**
+   * C08 (Review 2): what keeps a plan from being finalized, each named with where to fix it.
+   */
+  private missingForFinal(
+    plan: PlanShape,
+    inputs: { label: string; taxYear: number; asOf: string | null }[],
+  ): string[] {
     const missing: string[] = [];
     if (!plan.strategies.some((s) => s.selected && s.status !== 'DECLINED'))
-      missing.push('Select at least one strategy');
-    if (stale) missing.push('Some figures are out of date; review them');
+      missing.push(
+        'Select at least one strategy that is not declined: add or select one in Goals & Strategies.',
+      );
+    for (const i of inputs.filter((x) => isStale(x.asOf ? new Date(x.asOf) : null)))
+      missing.push(
+        `${i.label} (${i.taxYear}) is more than a year old: update it in Financial Overview.`,
+      );
     return missing;
   }
 
@@ -907,10 +926,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const plan = await this.editable(ctx, id, body.etag);
       const kept = await this.snapshotOf(ctx, plan);
-      const missing = this.missingForFinal(
-        plan,
-        kept.snapshot.inputs?.some((i) => isStale(i.asOf ? new Date(i.asOf) : null)) ?? false,
-      );
+      const missing = this.missingForFinal(plan, kept.snapshot.inputs ?? []);
       if (missing.length > 0) throw tpErrors.planNotReady(missing);
       const v = await this.keepVersion(ctx, plan, 'FINALIZED', kept);
       await this.audit.logIn(
@@ -941,10 +957,14 @@ export class TaxPlansService {
         orderBy: { version: 'desc' },
         select: { createdAt: true },
       });
+      // C09 (Review 2): each blocker says what to do.
       const missing: string[] = [];
-      if (!finalized) missing.push('Finalize the plan first');
+      if (!finalized)
+        missing.push('The plan is not finalized: use Finalize Plan in Review & Save first.');
       else if (plan.updatedAt > finalized.createdAt)
-        missing.push('The plan changed after it was finalized; finalize it again');
+        missing.push(
+          'The plan changed after it was finalized: use Finalize Plan in Review & Save again.',
+        );
       if (missing.length > 0) throw tpErrors.planNotReady(missing);
       const kept = await this.snapshotOf(ctx, plan);
       const lines = kept.snapshot.strategies.map((s) => {
@@ -977,11 +997,23 @@ export class TaxPlansService {
         FOR UPDATE`;
       const plan = await this.read.load(ctx, id);
       const v = await this.keepVersion(ctx, plan, 'SENT', prepared.kept);
+      // C09 (Review 2): a plan sent for the client's review is Awaiting Client Review, in every
+      // view. Its updated_at stays, so the finalized version still matches and it can be resent.
+      const awaiting = SENT_MOVES_TO_AWAITING.includes(plan.status);
+      if (awaiting)
+        await ctx.tx.$executeRaw`
+          UPDATE tax_plans SET status = 'AWAITING_CLIENT'
+          WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid`;
       await this.audit.logIn(
         ctx.tx,
         'tax_plan.sent',
         { type: 'tax_plan', id },
-        { clientId: plan.clientId, version: v.version, channel: body.channel },
+        {
+          clientId: plan.clientId,
+          version: v.version,
+          channel: body.channel,
+          ...(awaiting ? { from: plan.status, to: 'AWAITING_CLIENT' } : {}),
+        },
       );
       return this.read.detailById(ctx, id);
     });
