@@ -638,6 +638,41 @@ describe('the list, the overview and the exports', () => {
     expect(await q('tab=OVERDUE&status=ON_TRACK')).toEqual([]);
   });
 
+  it('the Active cohort leaves a paused client out, and the chart counts the cohort shown (Review 2, D01, D02)', async () => {
+    const page = async (query: string) =>
+      exact(
+        BookkeepingClientPage,
+        await call('get', `/clients?pageSize=100&${query}`, people.ownerA),
+      );
+    const charted = (p: BookkeepingClientPage) =>
+      (p.cohortStatus ?? []).reduce((n, c) => n + c.count, 0);
+    exact(
+      BookkeepingClientWorkspace,
+      await call('post', `/clients/${bks.davis}/pause`, people.ownerA, {
+        reason: 'Fake: on leave',
+      }),
+    );
+    try {
+      const active = await page('tab=ACTIVE');
+      expect(active.items.map((i) => i.id)).not.toContain(bks.davis);
+      expect(active.items.every((i) => !i.paused)).toBe(true);
+      expect(active.tabCounts.ACTIVE).toBe(active.total);
+      expect(charted(active)).toBe(active.total);
+      // Every client, paused ones too, and the chart counts the same rows.
+      const all = await page('tab=ALL');
+      expect(all.items.map((i) => i.id)).toContain(bks.davis);
+      expect(all.tabCounts.ACTIVE).toBe(active.total);
+      expect(charted(all)).toBe(all.total);
+      const upcoming = await page('tab=UPCOMING');
+      expect(charted(upcoming)).toBe(upcoming.total);
+      // The other filters narrow the chart too.
+      const green = await page('tab=ACTIVE&search=Green Leaf');
+      expect(green.cohortStatus).toEqual([{ status: 'ON_TRACK', count: 1 }]);
+    } finally {
+      await call('post', `/clients/${bks.davis}/resume`, people.ownerA, {});
+    }
+  });
+
   it('Staff see only the clients assigned to them', async () => {
     const page = exact(
       BookkeepingClientPage,
