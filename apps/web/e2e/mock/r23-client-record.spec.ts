@@ -26,9 +26,9 @@ test('the overview shows the record with the SSN masked', async ({ page }) => {
     'aria-current',
     'page',
   );
-  await expect(tabs.getByRole('link', { name: 'Signatures', exact: true })).toHaveAttribute(
+  await expect(tabs.getByRole('link', { name: 'Documents', exact: true })).toHaveAttribute(
     'href',
-    `/clients/${jamie}/signatures`,
+    `/clients/${jamie}/documents`,
   );
 });
 

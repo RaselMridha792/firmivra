@@ -105,6 +105,10 @@ export class LocalIdentityProvider implements IdentityProvider {
     return Promise.resolve();
   }
 
+  mfaEnabled(_pool: IdentityPool, sub: string): Promise<boolean> {
+    return Promise.resolve(this.mfaReady.has(sub));
+  }
+
   resetPassword(
     _pool: IdentityPool,
     sub: string | undefined,

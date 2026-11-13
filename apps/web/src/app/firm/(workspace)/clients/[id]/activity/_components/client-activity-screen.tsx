@@ -15,6 +15,7 @@ import {
   Phone,
   Pulse,
 } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { OriginLink } from '../../../../../../../components/origin-link';
@@ -121,5 +122,49 @@ function Entry({ entry: e }: { entry: ClientTimelineEntry }) {
         </OriginLink>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Octavia's E4: Recent Activity at the bottom of Overview: the newest entries of the same timeline
+ * (who or what, when, and the record it opens), with View All on the Activity tab.
+ */
+export function RecentActivityCard({ clientId }: { clientId: string }) {
+  const page = useApiQuery(['clients', clientId, 'timeline', 'recent'], () =>
+    api.clients.timeline(clientId, { limit: 5 }),
+  );
+  const items = page.data?.items ?? [];
+  return (
+    <Card
+      title={
+        <span className="flex flex-wrap items-center justify-between gap-2">
+          Recent Activity
+          <Link
+            href={`/clients/${clientId}/activity`}
+            className="text-sm font-medium text-link hover:underline"
+          >
+            View All
+          </Link>
+        </span>
+      }
+    >
+      <div data-testid="recent-activity">
+        {page.isPending ? (
+          <Skeleton className="h-16 w-full" />
+        ) : page.isError ? (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(page.error)}
+          </p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted">No activity yet.</p>
+        ) : (
+          <ol className="flex flex-col divide-y divide-divider" aria-label="Recent activity">
+            {items.map((e) => (
+              <Entry key={e.id} entry={e} />
+            ))}
+          </ol>
+        )}
+      </div>
+    </Card>
   );
 }
