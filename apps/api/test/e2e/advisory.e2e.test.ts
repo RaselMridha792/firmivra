@@ -1240,6 +1240,40 @@ describe('goals and milestones', () => {
     ).toBe(false);
     expectError(await call('post', `/goals/${id}/archive`, preparerA), 403, 'FORBIDDEN');
   });
+
+  it('B25: Active, Archived and All goal views; B26: plans are found by the business name', async () => {
+    const g = await createGoal(shared.a1, { title: mark('View goal'), targetDate: day(60) });
+    ok(await call('post', `/goals/${g.id}/archive`, ownerA));
+    const ids = async (q: string) =>
+      AdvisoryGoalPage.parse(
+        ok(await call('get', `/goals?advisoryClientId=${shared.a1}&pageSize=100${q}`, ownerA)),
+      ).items.map((x) => x.id);
+    expect(await ids('')).not.toContain(g.id);
+    expect(await ids('&view=archived')).toContain(g.id);
+    expect(await ids('&view=all')).toContain(g.id);
+    expect(await ids('&includeArchived=true')).toContain(g.id);
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=archived&pageSize=100', ownerA)),
+      ).items.every((x) => x.archived),
+    ).toBe(true);
+    expectError(await call('get', '/goals?view=deleted', ownerA), 400, 'VALIDATION_FAILED');
+    // Another firm never lists them.
+    expect(
+      AdvisoryGoalPage.parse(
+        ok(await call('get', '/goals?view=all&pageSize=100', ownerB, undefined, 'b')),
+      ).items.map((x) => x.id),
+    ).not.toContain(g.id);
+    ok(await call('post', `/goals/${g.id}/restore`, ownerA));
+
+    // B26: 'Bakery' is only in the business's name (Riley Bakery), not a plan or client name.
+    const bakery = AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerA)));
+    expect(bakery.items.map((x) => x.id)).toContain(shared.p2);
+    expect(
+      AdvisoryPlanPage.parse(ok(await call('get', '/plans?search=Bakery', ownerB, undefined, 'b')))
+        .items,
+    ).toEqual([]);
+  });
 });
 
 describe('recommendations and action items', () => {

@@ -1685,9 +1685,12 @@ export function createAdvisoryMock({
               (!query.planType || p.planType === query.planType) &&
               (!query.advisorUserId || p.advisor?.userId === query.advisorUserId) &&
               (!t ||
-                [p.name, clientOf(p.advisoryClientId).name].some((v) =>
-                  v.toLowerCase().includes(t),
-                )),
+                // B26: the plan, the client and the business, as the API.
+                [
+                  p.name,
+                  clientOf(p.advisoryClientId).name,
+                  clients.find((c) => c.id === p.advisoryClientId)?.businessName ?? '',
+                ].some((v) => v.toLowerCase().includes(t))),
           )
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
           .map(planRow);
@@ -1987,7 +1990,9 @@ export function createAdvisoryMock({
           .filter(
             (g) =>
               ids.has(g.advisoryClientId) &&
-              (query.includeArchived || !g.archived) &&
+              // B25: Active, Archived or All, as the API.
+              ((query.view ?? (query.includeArchived ? 'all' : 'active')) === 'all' ||
+                (query.view === 'archived' ? g.archived : !g.archived)) &&
               (!query.advisoryClientId || g.advisoryClientId === query.advisoryClientId) &&
               (!query.planId || g.planId === query.planId) &&
               (!query.status || goalStatus(g) === query.status) &&

@@ -249,6 +249,14 @@ export class AdvisoryPlansService {
                     client: { displayName: { contains: search, mode: 'insensitive' } },
                   },
                 },
+                // B26 (Octavia, Oct 25): the business's name too.
+                {
+                  advisoryClient: {
+                    client: {
+                      profile: { is: { businessName: { contains: search, mode: 'insensitive' } } },
+                    },
+                  },
+                },
               ],
             }
           : {}),
