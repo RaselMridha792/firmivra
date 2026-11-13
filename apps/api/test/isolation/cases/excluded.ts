@@ -32,6 +32,8 @@ export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/portal/:firmSlug/calculators/:key':
     'Public: one enabled calculator of the firm, only while its module is on',
   'GET /api/v1/portal/:firmSlug/legal/:kind': "Public: the firm's published terms and privacy",
+  'GET /api/v1/portal/:firmSlug/offices':
+    "Public: the firm's active locations (names and addresses) for the sign-up form's office choice",
   'POST /api/v1/portal/:firmSlug/auth/sign-up': SIGN_UP,
   'GET /api/v1/portal/:firmSlug/auth/sign-up': SIGN_UP,
   'POST /api/v1/portal/:firmSlug/auth/sign-up/verify-email': SIGN_UP,

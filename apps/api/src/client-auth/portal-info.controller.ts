@@ -15,6 +15,7 @@ import {
   type LegalVersion,
   type PortalContact,
   type PortalInfo,
+  type PortalOffices,
 } from '@firmivra/types';
 import { timeOfDayFromDb } from '../appointments/calendar.js';
 import { Public } from '../auth/decorators.js';
@@ -203,6 +204,28 @@ export class PortalInfoService {
     };
   }
 
+  /** The firm's active, unarchived locations, primary first (the sign-up form's office choice). */
+  async offices(firmSlug: string): Promise<PortalOffices> {
+    const firm = await this.activeFirm(firmSlug);
+    const rows = await this.db.forBusiness(firm.id).firmOffice.findMany({
+      where: { businessId: firm.id, status: 'ACTIVE', archivedAt: null },
+      orderBy: [{ isMain: 'desc' }, { name: 'asc' }, { id: 'asc' }],
+      take: 200,
+      select: {
+        id: true,
+        name: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postalCode: true,
+      },
+    });
+    return {
+      offices: rows.map((o) => ({ id: o.id, name: o.name, addressLines: addressLines(o) })),
+    };
+  }
+
   async legal(firmSlug: string, kind: string): Promise<LegalDocument> {
     const parsed = LegalKind.safeParse(kind);
     if (!parsed.success) throw notFound();
@@ -246,6 +269,12 @@ export class PortalInfoController {
   @Public()
   info(@Param('firmSlug') firmSlug: string): Promise<PortalInfo> {
     return this.portal.info(firmSlug);
+  }
+
+  @Get('offices')
+  @Public()
+  offices(@Param('firmSlug') firmSlug: string): Promise<PortalOffices> {
+    return this.portal.offices(firmSlug);
   }
 
   @Get('legal/:kind')
