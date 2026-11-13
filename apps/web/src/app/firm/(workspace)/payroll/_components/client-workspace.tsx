@@ -28,6 +28,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
+import { useUrlTab } from '../../../../../lib/url-tab';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ClientActionMenu } from './client-actions';
@@ -90,7 +91,8 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
   const router = useRouter();
   const ws = useApiQuery([...PAYROLL_KEY, 'client', id], () => api.payroll.getClient(id));
   const all = useApiQuery([...PAYROLL_KEY, 'order'], () => api.payroll.clients({ pageSize: 100 }));
-  const [current, setCurrent] = useState<TabId>(
+  // Review 2 (UX01, F05): the tab is kept in the address, so a refresh and Back keep it.
+  const [current, setCurrent] = useUrlTab<TabId>(
     (TABS.find((t) => t.id === tab)?.id ?? 'overview') as TabId,
   );
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
