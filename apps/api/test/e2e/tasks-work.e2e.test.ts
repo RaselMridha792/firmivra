@@ -394,6 +394,36 @@ describe('create and read a task', () => {
     expect(full.version).toBe(full.updatedAt);
   });
 
+  it("names the engagement's own workspace, so Related To can open it (Review 2, N05)", async () => {
+    const profile = await inFirm('a', (tx) =>
+      tx.bookkeepingProfile.create({
+        data: { businessId: firms.a, engagementId: engagements.e2 },
+        select: { id: true },
+      }),
+    );
+    const onBooks = await create({
+      clientId: clients.c2,
+      engagementId: engagements.e2,
+      title: 'Workspace task',
+    });
+    expect(onBooks.engagement).toEqual({
+      id: engagements.e2,
+      title: 'c2 (fake)',
+      workspace: { kind: 'BOOKKEEPING', id: profile.id },
+    });
+    const read = TaskDetail.parse(ok(await call('get', `/tasks/${onBooks.id}`, people.ownerA)));
+    expect(read.engagement?.workspace).toEqual({ kind: 'BOOKKEEPING', id: profile.id });
+    // An engagement with no service workspace has none.
+    const plain = await create({
+      clientId: clients.c1,
+      engagementId: engagements.e1,
+      title: 'Plain task',
+    });
+    expect(plain.engagement?.workspace).toBeNull();
+    // Firm B cannot read firm A's task, workspace or not.
+    expect((await call('get', `/tasks/${onBooks.id}`, people.ownerB)).status).toBe(404);
+  });
+
   it('refuses what the database could not hold, or a task could not do', async () => {
     const bad = async (body: object, code = 'VALIDATION_FAILED', status = 400) =>
       expectError(
