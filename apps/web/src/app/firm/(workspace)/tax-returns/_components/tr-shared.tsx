@@ -184,6 +184,7 @@ export const BLOCKER_LABEL: Record<TaxReturnBlocker, string> = {
   NO_FILING_TRANSMITTED: 'Record a transmission (or paper filing) first',
   FILINGS_NOT_ACCEPTED: 'Every required filing must be accepted or paper filed',
   ORIGINAL_NOT_FILED: 'The original return was never filed',
+  VALIDATION_ISSUES_OPEN: 'Resolve the open validation errors',
 };
 
 /** The module's error codes in plain words (lib/errors has the generic ones). */

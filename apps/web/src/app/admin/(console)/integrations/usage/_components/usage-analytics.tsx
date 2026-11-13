@@ -635,7 +635,7 @@ export function UsageAnalytics({ address }: { address: AddressQuery }) {
                       emptyText="No firms are connected in this range."
                     />
                   ) : (
-                    <QuietLine>Connected firms are not counted by plan yet.</QuietLine>
+                    <QuietLine>No firm has connected this yet.</QuietLine>
                   )
                 }
               </Frame>

@@ -206,6 +206,8 @@ export const CreateLeadRequest = z.strictObject({
   priority: LeadPriority.default('WARM'),
   stage: LeadPipelineStatus.exclude(['CONVERTED']).default('SUBMITTED'),
   nextAction: NextActionInput.optional(),
+  /** L8 "+ Add Follow-Up": more steps, each its own action, date and time, and notes. */
+  followUps: z.array(NextActionInput).max(10).optional(),
   /** Create even though a lead with this email or phone exists (the screen asked first). */
   allowDuplicate: z.boolean().optional(),
 });
@@ -241,6 +243,23 @@ export type UpdateLeadRequest = z.input<typeof UpdateLeadRequest>;
 /** PUT /business/leads/{id}/follow-up: the Next Action / Follow-Up card (Save Follow-Up). */
 export const SetFollowUpRequest = NextActionInput;
 export type SetFollowUpRequest = z.input<typeof SetFollowUpRequest>;
+
+/** L8 POST /business/leads/{id}/follow-ups: one more step (409 LEAD_CLOSED on a closed lead). */
+export const AddLeadFollowUpRequest = NextActionInput;
+export type AddLeadFollowUpRequest = z.input<typeof AddLeadFollowUpRequest>;
+
+/** L8 PATCH /business/leads/{id}/follow-ups/{followUpId}: an unfinished step (409 FOLLOW_UP_DONE). */
+export const UpdateLeadFollowUpRequest = NextActionInput.partial().refine(
+  (b) => Object.keys(b).length > 0,
+  'Change something first',
+);
+export type UpdateLeadFollowUpRequest = z.input<typeof UpdateLeadFollowUpRequest>;
+
+/** L8 POST /business/leads/{id}/follow-ups/{followUpId}/complete: done, with its outcome. */
+export const CompleteLeadFollowUpRequest = z.strictObject({
+  outcome: clearable(text(500, 'many')),
+});
+export type CompleteLeadFollowUpRequest = z.input<typeof CompleteLeadFollowUpRequest>;
 
 /** POST /business/leads/{id}/follow-up/complete: logs it and clears or replaces the next one. */
 export const CompleteFollowUpRequest = z.strictObject({
@@ -390,6 +409,20 @@ export const LeadDocumentsAndForms = z.object({
 });
 export type LeadDocumentsAndForms = z.infer<typeof LeadDocumentsAndForms>;
 
+/**
+ * L8: one follow-up step of a lead. The lead's Next Action is its next unfinished step; a finished
+ * one keeps its outcome.
+ */
+export const LeadFollowUp = z.object({
+  id: z.uuid(),
+  type: NextActionType,
+  dueAt: DateTime,
+  notes: z.string().nullable(),
+  doneAt: DateTime.nullable(),
+  outcome: z.string().nullable(),
+});
+export type LeadFollowUp = z.infer<typeof LeadFollowUp>;
+
 /** GET /business/leads/{id}/profile: the Lead Profile header and Overview tab in one call. */
 export const LeadProfile = LeadRow.extend({
   address: z.string().nullable(),
@@ -413,6 +446,8 @@ export const LeadProfile = LeadRow.extend({
    * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
    */
   duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
+  /** L8: every follow-up step, unfinished first by date, then the finished ones, newest first. */
+  followUps: z.array(LeadFollowUp),
   archivedAt: DateTime.nullable(),
   version: z.string(),
 });

@@ -4,6 +4,7 @@ import {
   CatalogService,
   CatalogServiceId,
   CatalogServicePage,
+  CatalogPackagesQuery,
   CatalogServicesQuery,
   CatalogSummary,
   CreateCatalogServiceRequest,
@@ -114,8 +115,14 @@ export function createServicesPricingClient(request: ApiRequest) {
       request(OkResponse, category(id), { method: 'DELETE' }),
 
     // Packages
-    packages: async (): Promise<ServicePackageList['items']> =>
-      (await request(ServicePackageList, `${BASE}/packages`)).items,
+    /** By status (S4); without one, every package not archived. */
+    packages: async (query: CatalogPackagesQuery = {}): Promise<ServicePackageList['items']> =>
+      (
+        await request(
+          ServicePackageList,
+          `${BASE}/packages${toQuery(parseInput(CatalogPackagesQuery, query))}`,
+        )
+      ).items,
     package: async (id: string): Promise<ServicePackage> => request(ServicePackage, pkg(id)),
     createPackage: async (body: CreateServicePackageRequest): Promise<ServicePackage> =>
       request(

@@ -14,6 +14,7 @@ import {
   TaxEstimateStatus,
   TaxFilingMethod,
   TaxFilingType,
+  TaxIssueSeverity,
   TaxJurisdictionStatus,
   TaxpayerFilingStatus,
   TaxReturnDocumentKind,
@@ -47,6 +48,7 @@ export const TaxFilingAttemptId = z.uuid();
 export const TaxChecklistItemId = z.uuid();
 export const TaxApprovalId = z.uuid();
 export const TaxAuthorizationId = z.uuid();
+export const TaxValidationIssueId = z.uuid();
 
 // ---------- Overview (Frame 1) ----------
 
@@ -192,6 +194,11 @@ export const TaxReturnBlocker = z.enum([
   'FILINGS_NOT_ACCEPTED',
   /** An amendment's original return was never filed. */
   'ORIGINAL_NOT_FILED',
+  /**
+   * TX-F20: an Error validation issue is not resolved. It blocks Ready to File and every filing
+   * (a transmission or a paper filing) until it is; Manual Warning and Info issues never block.
+   */
+  'VALIDATION_ISSUES_OPEN',
 ]);
 export type TaxReturnBlocker = z.infer<typeof TaxReturnBlocker>;
 
@@ -597,8 +604,75 @@ export const ApproveTaxApprovalRequest = z.strictObject({
 });
 export type ApproveTaxApprovalRequest = z.input<typeof ApproveTaxApprovalRequest>;
 
-/** POST .../approvals/{approvalId}/return: back to the preparer, with the review note. */
-export const ReturnTaxApprovalRequest = z.strictObject({ note: text(2000, 'many') });
+// ---------- Validation issues (TX-F19, F20) ----------
+
+/**
+ * A problem the reviewer found and handed to someone (Octavia's TX-F19). Severity (TX-F20): an
+ * ERROR blocks Ready to File and filing until it is resolved; a MANUAL_WARNING needs review but
+ * never blocks; INFO never blocks. Resolved, never deleted. A line marked Valid on the checklist
+ * does not resolve an issue, and nothing here is a provider's or the IRS's validation.
+ */
+export const TaxValidationIssue = z.object({
+  id: z.uuid(),
+  severity: TaxIssueSeverity,
+  note: z.string(),
+  /** Who must resolve it; empty until someone is assigned. */
+  responsible: MemberRef.nullable(),
+  /** The return's version it was found in: one of the return's draft returns. */
+  draft: DocumentRef.nullable(),
+  /** The checklist line (review step) it belongs to. */
+  step: z.object({ id: z.uuid(), label: z.string() }).nullable(),
+  raisedBy: MemberRef.nullable(),
+  createdAt: DateTime,
+  resolvedAt: DateTime.nullable(),
+  resolvedBy: MemberRef.nullable(),
+  /**
+   * Whether the member reading it may resolve or reopen it: who raised it, the return's reviewer,
+   * or an Owner or Admin with APPROVE as the override; for a Manual Warning or Info issue also the
+   * person responsible.
+   */
+  canResolve: z.boolean(),
+});
+export type TaxValidationIssue = z.infer<typeof TaxValidationIssue>;
+export const TaxValidationIssueList = z.object({ items: z.array(TaxValidationIssue) });
+export type TaxValidationIssueList = z.infer<typeof TaxValidationIssueList>;
+
+/** POST /business/tax-returns/{id}/issues (EDIT): raise a validation issue on the return. */
+export const CreateTaxValidationIssueRequest = z.strictObject({
+  severity: TaxIssueSeverity,
+  note: text(2000, 'many', 'Describe the issue'),
+  /** An active member of the firm. */
+  responsibleUserId: z.uuid().nullable().optional(),
+  /** One of this return's draft returns (its documents of kind DRAFT_RETURN). */
+  draftDocumentId: z.uuid().nullable().optional(),
+  /** One of this return's checklist lines. */
+  checklistItemId: z.uuid().nullable().optional(),
+});
+export type CreateTaxValidationIssueRequest = z.input<typeof CreateTaxValidationIssueRequest>;
+
+/**
+ * PATCH /business/tax-returns/{id}/issues/{issueId} (EDIT): resolve or reopen it (see
+ * `canResolve`), or hand it to someone else. Its severity and note never change.
+ */
+export const UpdateTaxValidationIssueRequest = z
+  .strictObject({
+    resolved: z.boolean(),
+    responsibleUserId: z.uuid().nullable(),
+  })
+  .partial()
+  .refine((b) => Object.keys(b).length > 0, 'Change something first');
+export type UpdateTaxValidationIssueRequest = z.input<typeof UpdateTaxValidationIssueRequest>;
+
+/**
+ * POST .../approvals/{approvalId}/return: back to the preparer, with the review note. TX-F19:
+ * with it, the reviewer may raise a validation issue (`issue`) or name the return's open issues
+ * the preparer must fix (`issueIds`); both are recorded on the decision.
+ */
+export const ReturnTaxApprovalRequest = z.strictObject({
+  note: text(2000, 'many'),
+  issue: CreateTaxValidationIssueRequest.optional(),
+  issueIds: z.array(z.uuid()).max(20).optional(),
+});
 export type ReturnTaxApprovalRequest = z.input<typeof ReturnTaxApprovalRequest>;
 
 // ---------- Authorizations: Form 8879, state, consent (Frame 3) ----------
