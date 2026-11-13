@@ -252,6 +252,27 @@ describe('list: search, filters and paging', () => {
     expect((await list('?status=all&search=4045559999')).items).toHaveLength(1);
   });
 
+  it('finds a client by its Client ID and by a phone typed as shown (Clients Review 2)', async () => {
+    const c = await create({ displayName: `Client ID Search ${run}`, phone: '+12025550173' });
+    const number = (
+      await inFirmA((tx) =>
+        tx.client.findUniqueOrThrow({ where: { id: c.id }, select: { clientNumber: true } }),
+      )
+    ).clientNumber;
+    const ids = async (q: string) =>
+      (await list(`?status=all&search=${encodeURIComponent(q)}`)).items.map((i) => i.id);
+    expect(await ids(`CL-${number}`)).toContain(c.id);
+    expect(await ids(`cl${number}`)).toContain(c.id);
+    expect(await ids(String(number))).toContain(c.id);
+    expect(await ids(c.id)).toEqual([c.id]);
+    for (const shown of ['(202) 555-0173', '202-555-0173', '+1 (202) 555-0173', '2025550173']) {
+      expect(await ids(shown), shown).toEqual([c.id]);
+    }
+    // Another firm finds nothing by it.
+    const b = await call('get', `?status=all&search=CL-${number}`, people.ownerB, 'b');
+    expect(ListResponse.parse(b.body).items.map((i) => i.id)).not.toContain(c.id);
+  });
+
   it('a search with a NUL or another control character is 400, never 500', async () => {
     for (const term of ['%00', `Fake%00${run}`, '%1B%5B31m', '%C2%85']) {
       const res = await call('get', `?search=${term}`, people.ownerA);
@@ -376,6 +397,73 @@ describe('create and update', () => {
   });
 });
 
+describe('a phone another client has (Clients Review 2, C2-038)', () => {
+  it('pauses Add and Edit with 409 DUPLICATE_PHONE until confirmed, naming only reachable matches', async () => {
+    const first = await create({ displayName: `Phone First ${run}`, phone: '+12025550188' });
+    const typed = await call('post', '', people.ownerA, 'a', {
+      displayName: `Phone Second ${run}`,
+      phone: '(202) 555-0188',
+    });
+    expect([typed.status, codeOf(typed)]).toEqual([409, 'DUPLICATE_PHONE']);
+    const details = (typed.body as { error: { details: unknown } }).error.details as {
+      count: number;
+      matches: { id: string; clientNumber: string; archived: boolean }[];
+    };
+    expect(details.count).toBe(1);
+    expect(details.matches).toEqual([expect.objectContaining({ id: first.id, archived: false })]);
+    expect(details.matches[0]?.clientNumber).toMatch(/^CL-\d+$/);
+    const confirmed = await create({
+      displayName: `Phone Second ${run}`,
+      phone: '(202) 555-0188',
+      allowDuplicatePhone: true,
+    });
+    expect(confirmed.phone).toBe('+12025550188');
+
+    const other = await create({ displayName: `Phone Third ${run}`, phone: '+12025550199' });
+    const edit = await call('patch', `/${other.id}`, people.ownerA, 'a', { phone: '202.555.0188' });
+    expect([edit.status, codeOf(edit)]).toEqual([409, 'DUPLICATE_PHONE']);
+    const edited = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      phone: '202.555.0188',
+      allowDuplicatePhone: true,
+    });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    // A client's own unchanged phone is never a duplicate of itself.
+    const same = await call('patch', `/${first.id}`, people.ownerA, 'a', {
+      phone: '+12025550188',
+      displayName: `Phone First Again ${run}`,
+    });
+    expect(same.status, JSON.stringify(same.body)).toBe(200);
+
+    // Staff are paused too, but see only their own clients among the matches.
+    const staff = await call('post', '', people.staffA, 'a', {
+      displayName: `Staff Phone ${run}`,
+      phone: '+12025550188',
+    });
+    expect([staff.status, codeOf(staff)]).toEqual([409, 'DUPLICATE_PHONE']);
+    expect((staff.body as { error: { details: { matches: unknown[] } } }).error.details).toEqual({
+      count: 3,
+      matches: [],
+    });
+    // Another firm's clients never count.
+    await create({ displayName: `Firm B Phone ${run}`, phone: '+12025550188' }, people.ownerB, 'b');
+  });
+});
+
+describe('the list summary (Clients Review 2)', () => {
+  it('New Clients counts what its New tab lists; the clients added this month are their own figure', async () => {
+    const res = await call('get', '/summary', people.ownerA);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const body = res.body as {
+      kpis: Record<string, { value: number; previous: number | null }>;
+      counts: { new: number };
+    };
+    expect(body.kpis['newClients']).toEqual({ value: body.counts.new, previous: null });
+    const newTab = await list('?clientStatus=NEW&limit=100');
+    expect(newTab.total).toBe(body.counts.new);
+    expect(body.kpis['addedThisMonth']?.value).toBeGreaterThan(0);
+  });
+});
+
 describe('the answer after a change', () => {
   it('a new assignee takes the open tasks the previous Staff assignee held, audited as a count', async () => {
     const { id } = await create({
@@ -484,6 +572,25 @@ describe('audit', () => {
     expect(text).not.toContain('audited-');
     expect(rows.find((r) => r.action === 'client.updated')?.metadata).toEqual({
       fields: ['displayName'],
+    });
+    // Clients Review 2: archive and restore name the client (its Client ID) and what changed.
+    const archivedRow = rows.find((r) => r.action === 'client.archived')?.metadata as {
+      clientNumber: string;
+      changes: { field: string; from: string | null; to: string | null }[];
+    };
+    expect(archivedRow.clientNumber).toMatch(/^CL-\d+$/);
+    expect(archivedRow.changes).toEqual([
+      { field: 'archivedAt', from: null, to: expect.stringMatching(/^\d{4}-/) },
+    ]);
+    await call('post', `/${c.id}/restore`, people.ownerA, 'a', {});
+    const restored = await inFirmA((tx) =>
+      tx.auditLog.findFirst({
+        where: { businessId: firms.a.id, entityId: c.id, action: 'client.restored' },
+      }),
+    );
+    expect(restored?.metadata).toEqual({
+      clientNumber: archivedRow.clientNumber,
+      changes: [{ field: 'archivedAt', from: archivedRow.changes[0]?.to, to: null }],
     });
   });
 });
