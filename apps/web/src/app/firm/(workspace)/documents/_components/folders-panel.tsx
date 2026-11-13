@@ -79,7 +79,7 @@ export function FoldersPanel({
         disabled
         data-testid="folder-archived"
         className="flex items-center justify-between gap-2 rounded-control px-2 py-2 text-left text-sm text-muted"
-        title="Documents are never archived yet: there is no archive action in the API."
+        title="Archived documents are not available yet. Every document stays in its client’s list."
       >
         <span className="flex items-center gap-2">
           <FolderOpen weight="fill" className="size-5 text-muted" aria-hidden="true" />
@@ -92,7 +92,7 @@ export function FoldersPanel({
         disabled
         data-testid="folder-trash"
         className="flex items-center justify-between gap-2 rounded-control px-2 py-2 text-left text-sm text-muted"
-        title="Documents are never deleted from this list yet: there is no delete action in the API."
+        title="Trash is empty: documents cannot be deleted here yet, so nothing is ever lost."
       >
         <span className="flex items-center gap-2">
           <Trash weight="regular" className="size-5 text-muted" aria-hidden="true" />

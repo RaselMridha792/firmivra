@@ -26,6 +26,25 @@ export const PORTAL_ACTIVITY: Readonly<Record<string, string>> = {
   'portal.cancellation_requested': 'service.cancellation_requested',
 };
 
+/** A member's action on the client's portal, in the client's activity (no content). */
+export async function recordStaffActivity(
+  db: Pick<TxClient, 'clientPortalActivity'>,
+  row: { businessId: string; clientId: string; userId: string; type: string; ip?: string | null },
+): Promise<void> {
+  await db.clientPortalActivity.create({
+    data: {
+      businessId: row.businessId,
+      clientId: row.clientId,
+      type: row.type,
+      entityType: 'client',
+      entityId: row.clientId,
+      actorKind: 'STAFF',
+      actorUserId: row.userId,
+      ip: row.ip && isIP(row.ip) ? row.ip : null,
+    },
+  });
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = /^[a-z_]{1,40}$/;
 

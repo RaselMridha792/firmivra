@@ -2033,6 +2033,8 @@ describe('filings, reports and year-end', () => {
       version: 1,
       source: 'import',
       documentId: doc.mine.id,
+      // Review 2 (B01): the saved row names its file.
+      fileName: 'register.pdf',
       requestedBy: { userId: people.staffA.id },
       runId: null,
     });
@@ -2048,6 +2050,7 @@ describe('filings, reports and year-end', () => {
       await call('get', `/clients/${pcId}/reports`, people.staffA),
     );
     expect(list.total).toBe(3);
+    expect(list.items.every((r) => r.fileName === 'register.pdf')).toBe(true);
     expect(
       exact(
         PayrollReportList,

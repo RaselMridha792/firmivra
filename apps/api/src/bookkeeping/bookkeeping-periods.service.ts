@@ -823,6 +823,9 @@ export class BookkeepingPeriodsService {
         if (r.status !== 'READY_FOR_REVIEW') {
           throw errors.reconState('The reconciliation is not waiting for review');
         }
+        // Review 2 (R01c, Octavia): the statement for this account and period comes first; a zero
+        // difference is a separate gate below.
+        if (!r.statementDocumentId) throw errors.reconStatement();
         // BK-R01: the ledger may have changed since the last save; approve on today's figures.
         const figures: Partial<LedgerFigures> = (await hasLedger(
           tx,

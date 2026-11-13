@@ -25,7 +25,16 @@ export const PORTAL_TAB_LABELS: Record<PortalTab, string> = {
 };
 
 /** Each tab on (true) or off. A tab the firm never switched is on. */
-export const PortalTabs = z.object({ tabs: z.record(PortalTab, z.boolean()) });
+export const PortalTabs = z.object({
+  tabs: z.record(PortalTab, z.boolean()),
+  /**
+   * `mine` only: the areas with no firm switch, as the Client Portal module set them for this
+   * client (on unless turned off for them). The five `tabs` there are this client's too.
+   */
+  more: z
+    .object({ APPOINTMENTS: z.boolean(), TASKS_REQUESTS: z.boolean(), REPORTS: z.boolean() })
+    .optional(),
+});
 export type PortalTabs = z.infer<typeof PortalTabs>;
 
 /** PUT /business/settings/portal-tabs: only the tabs sent change. */

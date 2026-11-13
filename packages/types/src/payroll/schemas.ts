@@ -827,6 +827,8 @@ export const PayrollReport = z.object({
   periodEnd: CalendarDate,
   version: z.number().int(),
   documentId: z.uuid().nullable(),
+  /** Review 2 (B01): the attached file's name, so the saved row says which file it is. */
+  fileName: z.string().nullable().optional(),
   source: z.enum(['provider', 'import']),
   pulledAt: DateTime,
   requestedBy: MemberRef.nullable(),
