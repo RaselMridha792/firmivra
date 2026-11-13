@@ -95,6 +95,10 @@ export interface FilterBarProps {
   onClear?: () => void;
   onReset?: () => void;
   resetLabel?: string;
+  /** How many More Filters are in force: shown on the button while the panel is closed. */
+  moreCount?: number;
+  /** Told when the panel opens or closes (a screen keeps choices pending until Apply). */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** The list filters: search, selects, "More Filters" with its panel, and Reset. */
@@ -105,14 +109,28 @@ export function FilterBar({
   onClear,
   onReset,
   resetLabel = 'Reset',
+  moreCount = 0,
+  onOpenChange,
 }: FilterBarProps) {
   const [open, setOpen] = useState(false);
+  const notifyRef = useRef(onOpenChange);
+  useEffect(() => {
+    notifyRef.current = onOpenChange;
+  });
+  const show = (next: boolean) => {
+    setOpen(next);
+    notifyRef.current?.(next);
+  };
   const panelId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const away = (event: MouseEvent) =>
-      rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
+    const away = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+        notifyRef.current?.(false);
+      }
+    };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
@@ -124,11 +142,17 @@ export function FilterBar({
           type="button"
           aria-expanded={open}
           aria-controls={panelId}
-          onClick={() => setOpen(!open)}
+          onClick={() => show(!open)}
           className="inline-flex h-10 items-center gap-2 rounded-lg border border-divider bg-surface px-4 text-sm font-semibold text-heading hover:bg-canvas"
         >
           <Funnel aria-hidden weight="fill" className="size-4.5" />
           More Filters
+          {moreCount > 0 ? (
+            <span className="rounded-pill bg-action px-2 text-xs font-semibold text-on-action">
+              {moreCount}
+              <span className="sr-only"> in force</span>
+            </span>
+          ) : null}
           <CaretDown aria-hidden weight="bold" className="size-3.5" />
         </button>
       ) : null}
@@ -146,7 +170,7 @@ export function FilterBar({
           id={panelId}
           role="region"
           aria-label="More filters"
-          onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
+          onKeyDown={(event) => event.key === 'Escape' && show(false)}
           className="absolute top-full right-0 z-20 mt-2 w-full max-w-5xl rounded-xl border border-divider bg-surface p-5 shadow-lg"
         >
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-divider [&>*]:lg:pr-6">
@@ -159,7 +183,7 @@ export function FilterBar({
             <Button
               onClick={() => {
                 onApply?.();
-                setOpen(false);
+                show(false);
               }}
             >
               Apply Filters

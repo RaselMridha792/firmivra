@@ -19,8 +19,9 @@ async function archive(page: Page, name: string) {
 async function showArchived(page: Page) {
   await page.getByRole('button', { name: /More Filters/ }).click();
   await page.getByLabel('Archived leads').check();
-  await page.keyboard.press('Escape');
-  await expect(page.getByLabel('Archived filter')).toContainText('Archived Leads');
+  // Leads R2 12: More Filters' choices take effect on Apply.
+  await page.getByRole('button', { name: 'Apply Filters' }).click();
+  await expect(page.getByLabel('Active filters')).toContainText('Archived Leads');
 }
 
 test('an archived lead is found under Archived Leads and restored as it was', async ({ page }) => {
