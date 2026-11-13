@@ -71,7 +71,10 @@ export function DocumentsTab() {
         title="Forms"
         testId="card-forms"
         action={
-          <Link href="/intake-forms/send" className="text-sm font-medium text-link underline">
+          <Link
+            href={`/intake-forms/send?leadId=${id}`}
+            className="text-sm font-medium text-link underline"
+          >
             Send Intake Form
           </Link>
         }
@@ -85,7 +88,7 @@ export function DocumentsTab() {
               : { text: 'Send an intake form to collect what you need before the first meeting.' })}
           >
             {state ? null : (
-              <Link href="/intake-forms/send" className={`${outlineButton} mt-2`}>
+              <Link href={`/intake-forms/send?leadId=${id}`} className={`${outlineButton} mt-2`}>
                 Send Intake Form
               </Link>
             )}

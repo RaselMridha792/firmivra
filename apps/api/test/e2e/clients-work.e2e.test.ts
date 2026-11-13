@@ -391,7 +391,9 @@ describe('GET /business/clients/summary', () => {
     const s = await summary(people.ownerA);
     expect(s.kpis).toEqual({
       totalClients: { value: 4, previous: 0 },
-      newClients: { value: 5, previous: 0 },
+      // Clients Review 2: New Clients is the New tab's count; the month's additions are their own.
+      newClients: { value: 1, previous: null },
+      addedThisMonth: { value: 5, previous: 0 },
       activeClients: { value: 1, previous: null },
       pendingDocuments: { value: 1, previous: null },
       balancesDue: { value: 1, previous: null },

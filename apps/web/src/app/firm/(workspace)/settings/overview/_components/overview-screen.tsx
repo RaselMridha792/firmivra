@@ -232,7 +232,15 @@ export function OverviewScreen() {
           tone="blue"
           testId="kpi-security-alerts"
           value={n(o?.securityAlerts)}
-          note={o && !o.securityAlerts ? 'Nothing to review' : 'Review required'}
+          note={
+            <span className="flex flex-col">
+              <span className="text-muted">
+                {o && !o.securityAlerts ? 'Nothing to review' : 'Requires review'}
+              </span>
+              {/* Overview guide 6: Security & Access, its open alerts (never Notifications). */}
+              <KpiLink href="/settings/security?alerts=open">View Alerts</KpiLink>
+            </span>
+          }
         />
       </div>
 

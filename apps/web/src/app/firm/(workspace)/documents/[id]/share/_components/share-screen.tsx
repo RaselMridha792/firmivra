@@ -340,8 +340,12 @@ export function ShareScreen({ id, portalBase }: { id: string; portalBase: string
   const logins = a?.clientLogins ?? [];
   const members = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
   const portalLink = portalBase ? `${portalBase.replace(/\/$/, '')}/${firm.slug}/documents` : '';
+  // C2-049 (Clients Review 2): an internal document goes only to the team. Its Team Member choice
+  // is the one shown checked, so the list and the share use it too (they listed the client's
+  // portal logins, an empty list for an internal file, under "Choose a team member").
+  const kind = internal ? 'MEMBER' : who;
   const choices =
-    who === 'CLIENT'
+    kind === 'CLIENT'
       ? logins.map((l) => ({
           value: l.id,
           label: `${l.name} (${l.email})${hasAccess(shares, 'CLIENT', l.id) ? ': has access' : ''}`,
@@ -361,7 +365,7 @@ export function ShareScreen({ id, portalBase }: { id: string; portalBase: string
     const ok = await act('The document was shared.', () =>
       api.documentLibrary.share(id, {
         recipient:
-          who === 'CLIENT'
+          kind === 'CLIENT'
             ? { kind: 'CLIENT', clientAccountId: recipient }
             : { kind: 'MEMBER', userId: recipient },
         canDownload: form.canDownload,

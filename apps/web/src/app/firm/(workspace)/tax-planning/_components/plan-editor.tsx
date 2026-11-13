@@ -14,20 +14,21 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { Disclaimer } from './tp-shell';
 import {
   CATEGORY_LABEL,
+  ENTITY_PRESETS,
+  FIGURE_SOURCES,
   FILING,
   GOALS,
   PLAN_STATUS,
   PRIORITY_LABEL,
   PlanPill,
   PriorityPill,
-  TP_ERRORS,
   TP_KEY,
   card,
   dateTimeText,
@@ -36,9 +37,11 @@ import {
   money,
   outlined,
   primary,
+  planError,
   quiet,
   subtle,
   toDollars,
+  customKey,
 } from './tp-shared';
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -247,12 +250,64 @@ function StepOne({
   const [discuss, setDiscuss] = useState(plan?.nextDiscussionOn ?? '');
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // C05 (Review 2): the required fields, named, once Next is tried.
+  const [tried, setTried] = useState(false);
+  const [initial] = useState(() =>
+    JSON.stringify([
+      plan?.client.id ?? presetClient,
+      String(plan?.planYear ?? year),
+      plan?.filingStatus ?? '',
+      plan?.entityType ?? '',
+      plan?.name ?? '',
+      plan?.planType ?? 'COMPREHENSIVE',
+      plan?.goals ?? [],
+      plan?.otherGoal ?? '',
+      plan?.notes ?? '',
+      plan?.assignedTo?.userId ?? '',
+      plan?.targetCompletionOn ?? '',
+      plan?.nextDiscussionOn ?? '',
+      [],
+    ]),
+  );
+  const dirty =
+    JSON.stringify([
+      clientId,
+      planYear,
+      filing,
+      entity,
+      name,
+      type,
+      goals,
+      other,
+      notes,
+      assigned,
+      target,
+      discuss,
+      picked,
+    ]) !== initial;
+  const problems: Record<string, string> = {
+    ...(clientId ? {} : { client: 'Choose the client' }),
+    ...(planYear ? {} : { year: 'Choose the planning year' }),
+    ...(filing ? {} : { filing: 'Choose the filing status' }),
+    ...(entity.trim() ? {} : { entity: 'Choose or type the entity type' }),
+    ...(name.trim() ? {} : { name: 'Enter the plan name' }),
+    ...(goals.length ? {} : { goals: 'Choose at least one planning goal' }),
+    ...(goals.includes('OTHER') && !other.trim() ? { other: 'Describe the other goal' } : {}),
+    ...(assigned ? {} : { assigned: 'Assign a team member' }),
+    ...(target ? {} : { target: 'Choose the target completion date' }),
+  };
+  const shown = (k: string) => (tried ? problems[k] : undefined);
   const client: PlanningClientRow['client'] | undefined =
     clients.data?.items.find((c) => c.client.id === clientId)?.client ?? plan?.client;
   const editable = !plan || plan.canEdit;
   const lib = library.data?.items.filter((s) => s.active && !s.archived) ?? [];
 
-  const save = async (next: boolean) => {
+  const save = async (next: boolean): Promise<boolean> => {
+    if (next && Object.keys(problems).length > 0) {
+      setTried(true);
+      onNotice(`Complete the required fields: ${Object.values(problems).join('; ')}.`, 'error');
+      return false;
+    }
     setBusy(true);
     try {
       if (plan) {
@@ -291,12 +346,17 @@ function StepOne({
         onNotice('Plan saved as a draft.', 'success');
         await onSaved(created.id, next);
       }
+      setBusy(false);
+      return true;
     } catch (e) {
-      onNotice(errorMessage(e, TP_ERRORS), 'error');
+      onNotice(planError(e), 'error');
+      setBusy(false);
+      return false;
     }
-    setBusy(false);
   };
+  // A draft keeps unfinished work: only the client, year and name are needed to save one.
   const ready = !!clientId && !!name.trim() && !!planYear;
+  const leave = useLeave(dirty && editable, () => save(false));
   const actions = (
     <div className="flex flex-wrap gap-2">
       <button
@@ -310,7 +370,7 @@ function StepOne({
       <button
         type="button"
         className={primary}
-        disabled={busy || !ready || !editable}
+        disabled={busy || !clientId || !editable}
         onClick={() => void save(true)}
       >
         Next <ArrowRight aria-hidden weight="bold" className="size-4" />
@@ -335,8 +395,9 @@ function StepOne({
             </p>
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <Select
-                label="Client"
+                label="Client *"
                 value={clientId}
+                error={shown('client')}
                 disabled={!!plan}
                 onChange={(e) => {
                   setClientId(e.target.value);
@@ -374,8 +435,9 @@ function StepOne({
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <Select
-                label="Planning Year"
+                label="Planning Year *"
                 value={planYear}
+                error={shown('year')}
                 onChange={(e) => setPlanYear(e.target.value)}
                 options={[year - 1, year, year + 1].map((y) => ({
                   value: String(y),
@@ -383,22 +445,24 @@ function StepOne({
                 }))}
               />
               <Select
-                label="Filing Status"
+                label="Filing Status *"
                 value={filing}
+                error={shown('filing')}
                 onChange={(e) => setFiling(e.target.value as never)}
                 options={[
-                  { value: '', label: 'Not applicable' },
+                  { value: '', label: 'Choose a filing status…' },
                   ...Object.entries(FILING).map(([value, label]) => ({ value, label })),
                 ]}
               />
-              <Input
-                label="Entity Type"
-                value={entity}
-                onChange={(e) => setEntity(e.target.value)}
-              />
+              <EntityField value={entity} onChange={setEntity} error={shown('entity')} />
             </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-              <Input label="Plan Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                label="Plan Name *"
+                value={name}
+                error={shown('name')}
+                onChange={(e) => setName(e.target.value)}
+              />
               <fieldset className="flex flex-col">
                 <legend className="mb-1 text-sm font-medium text-heading">Plan Type</legend>
                 {[
@@ -423,10 +487,17 @@ function StepOne({
             aria-label="Planning goals"
             data-testid="step-goals-box"
           >
-            <h2 className="font-display text-xl font-bold text-heading">Planning Goals</h2>
+            <h2 className="font-display text-xl font-bold text-heading">
+              Planning Goals <span className="text-danger">*</span>
+            </h2>
             <p className="-mt-1 text-sm text-muted">
-              Select the client&apos;s goals for this planning plan.
+              Select the client&apos;s goals for this planning plan: at least one.
             </p>
+            {shown('goals') ? (
+              <p role="alert" className="text-sm text-danger">
+                {shown('goals')}
+              </p>
+            ) : null}
             <div className="grid gap-x-4 sm:grid-cols-2">
               {Object.entries(GOALS).map(([g, label]) => (
                 <Checkbox
@@ -440,7 +511,12 @@ function StepOne({
               ))}
             </div>
             {goals.includes('OTHER') ? (
-              <Input label="Other goal" value={other} onChange={(e) => setOther(e.target.value)} />
+              <Input
+                label="Other goal *"
+                value={other}
+                error={shown('other')}
+                onChange={(e) => setOther(e.target.value)}
+              />
             ) : null}
           </section>
           <section className={card} aria-label="Plan notes">
@@ -527,8 +603,9 @@ function StepOne({
             <h2 className="font-display text-xl font-bold text-heading">Assign &amp; Schedule</h2>
             <div className="grid gap-3 sm:grid-cols-3">
               <Select
-                label="Assigned To"
+                label="Assigned To *"
                 value={assigned}
+                error={shown('assigned')}
                 onChange={(e) => setAssigned(e.target.value)}
                 options={[
                   { value: '', label: 'Select team member' },
@@ -536,9 +613,10 @@ function StepOne({
                 ]}
               />
               <Input
-                label="Target Completion Date"
+                label="Target Completion Date *"
                 type="date"
                 value={target}
+                error={shown('target')}
                 onChange={(e) => setTarget(e.target.value)}
               />
               <Input
@@ -551,52 +629,207 @@ function StepOne({
           </section>
         </div>
       </div>
+      <p className="text-xs text-muted">
+        <span className="text-danger">*</span> Required. Notes and planning strategies are optional.
+      </p>
       <footer className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/tax-planning" className={outlined}>
-          Cancel
-        </Link>
+        <CancelButton leave={leave} />
         {actions}
       </footer>
+      {leave.prompt}
     </>
   );
 }
 
+/**
+ * C24 (Review 2): the entity presets, and Other to type a custom one (kept as typed). A value
+ * that is not a preset (a custom one saved earlier) opens on Other with its text.
+ */
+function EntityField({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  error: string | undefined;
+}) {
+  const preset = (ENTITY_PRESETS as readonly string[]).includes(value);
+  // Typing a custom one, or a value from elsewhere (the client's record) that is no preset.
+  const [typing, setTyping] = useState(false);
+  const custom = typing || (!!value && !preset);
+  return (
+    <div className="flex flex-col gap-2">
+      <Select
+        label="Entity Type *"
+        value={custom ? 'OTHER' : value}
+        error={custom ? undefined : error}
+        onChange={(e) => {
+          if (e.target.value === 'OTHER') {
+            setTyping(true);
+            onChange('');
+          } else {
+            setTyping(false);
+            onChange(e.target.value);
+          }
+        }}
+        options={[
+          { value: '', label: 'Choose an entity type…' },
+          ...ENTITY_PRESETS.map((v) => ({ value: v, label: v })),
+          { value: 'OTHER', label: 'Other (type it)' },
+        ]}
+      />
+      {custom ? (
+        <Input
+          label="Custom entity type *"
+          value={value}
+          error={error}
+          maxLength={60}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type Leave = { go: (to: () => void) => void; prompt: ReactNode };
+
+/**
+ * C07 (Review 2): leaving a step with unsaved changes asks first: Save Draft, Discard or Keep
+ * Editing. `save` answers whether it saved. A Back out of the page (the origin bar) asks too.
+ */
+function useLeave(dirty: boolean, save: () => Promise<boolean>): Leave {
+  const [pending, setPending] = useState<(() => void) | null>(null);
+  const [saving, setSaving] = useState(false);
+  useUnsavedChanges(dirty);
+  const go = (to: () => void) => (dirty ? setPending(() => to) : to());
+  const prompt = pending ? (
+    <Modal
+      open
+      title="Leave without saving?"
+      onClose={() => setPending(null)}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => setPending(null)}>
+            Keep Editing
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const to = pending;
+              setPending(null);
+              to();
+            }}
+          >
+            Discard
+          </Button>
+          <Button
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              const saved = await save();
+              setSaving(false);
+              if (!saved) return;
+              const to = pending;
+              setPending(null);
+              to();
+            }}
+          >
+            Save Draft
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-text" data-testid="leave-prompt">
+        This step has changes that are not saved. Save them as a draft, discard them, or keep
+        editing.
+      </p>
+    </Modal>
+  ) : null;
+  return { go, prompt };
+}
+
+/** C07 (Review 2): Cancel on every step, back to Tax Planning, asking first when work is unsaved. */
+function CancelButton({ leave }: { leave: Leave }) {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      className={outlined}
+      data-testid="plan-cancel"
+      onClick={() => leave.go(() => router.push('/tax-planning'))}
+    >
+      Cancel
+    </button>
+  );
+}
+
+type Meta = { source: string; asOf: string };
+
+/**
+ * Financial Overview. C06 (Review 2): each figure keeps where it came from and its as-of date,
+ * and Add takes the firm's own additional items (an amount each), shown and kept with the rest.
+ */
 function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
+  const router = useRouter();
   const catalog = useApiQuery([...TP_KEY, 'input-catalog'], () => api.taxPlanning.inputCatalog());
   const year = plan.planYear;
-  const [vals, setVals] = useState<Record<string, string>>(() =>
+  const saved = plan.inputs ?? [];
+  const startVals = () =>
     Object.fromEntries(
-      (plan.inputs ?? []).map((i) => [
+      saved.map((i) => [
         `${i.key}|${i.kind}`,
         i.amountCents !== null ? toDollars(i.amountCents) : (i.textValue ?? ''),
       ]),
-    ),
-  );
-  const [busy, setBusy] = useState(false);
-  if (plan.inputs === null)
-    return (
-      <section className={card}>
-        <p className={quiet}>The financial figures are restricted for your role.</p>
-        <div className="mt-3">
-          <button type="button" className={outlined} onClick={onBack}>
-            Back
-          </button>
-        </div>
-      </section>
     );
-  const rows = catalog.data ?? [];
-  const save = async (go: boolean) => {
+  const startMeta = () => {
+    const out: Record<string, Meta> = {};
+    for (const i of saved) {
+      if (out[i.key] && i.kind !== 'PROJECTED') continue;
+      out[i.key] = { source: i.source, asOf: i.asOf ? i.asOf.slice(0, 10) : '' };
+    }
+    return out;
+  };
+  const startCustom = () => [
+    ...new Map(
+      saved.filter((i) => i.key.startsWith('custom_')).map((i) => [i.key, i.label]),
+    ).entries(),
+  ];
+  const [vals, setVals] = useState<Record<string, string>>(startVals);
+  const [meta, setMeta] = useState<Record<string, Meta>>(startMeta);
+  const [custom, setCustom] = useState<[string, string][]>(startCustom);
+  const [initial] = useState(() => JSON.stringify([startVals(), startMeta(), startCustom()]));
+  const [newName, setNewName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const dirty = JSON.stringify([vals, meta, custom]) !== initial;
+  const rows = [
+    ...(catalog.data ?? []).map((c) => ({
+      key: c.key,
+      label: c.label,
+      type: c.type,
+      group: c.group,
+    })),
+    ...custom.map(([key, label]) => ({
+      key,
+      label,
+      type: 'MONEY' as const,
+      group: 'Additional items',
+    })),
+  ];
+  const save = async (go: boolean): Promise<boolean> => {
     setBusy(true);
     try {
       const inputs = rows.flatMap((c) =>
         (['HISTORICAL', 'PROJECTED'] as const).flatMap((kind) => {
           const v = (vals[`${c.key}|${kind}`] ?? '').trim();
           if (!v) return [];
+          const m = meta[c.key];
           const base = {
             key: c.key,
             kind,
             taxYear: kind === 'HISTORICAL' ? year - 1 : year,
-            source: 'Manual entry',
+            source: m?.source || 'Manual entry',
+            asOf: m?.asOf ? `${m.asOf}T12:00:00.000Z` : null,
           };
           return [
             c.type === 'MONEY' ? { ...base, amountCents: dollars(v) } : { ...base, textValue: v },
@@ -606,18 +839,43 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
       if (inputs.length === 0) {
         onNotice('Enter at least one figure.', 'error');
         setBusy(false);
-        return;
+        return false;
       }
       await api.taxPlanning.saveInputs(plan.id, { inputs: inputs as never, etag: plan.etag });
       onNotice('Figures saved.', 'success');
       await onSaved();
+      setBusy(false);
       if (go) onNext?.();
+      return true;
     } catch (e) {
-      onNotice(errorMessage(e, TP_ERRORS), 'error');
+      onNotice(planError(e), 'error');
+      setBusy(false);
+      return false;
     }
-    setBusy(false);
   };
+  const leave = useLeave(dirty && plan.canEdit, () => save(false));
+  if (plan.inputs === null)
+    return (
+      <section className={card}>
+        <p className={quiet}>The financial figures are restricted for your role.</p>
+        <div className="mt-3 flex gap-2">
+          <button type="button" className={outlined} onClick={onBack}>
+            Back
+          </button>
+          <button type="button" className={outlined} onClick={() => router.push('/tax-planning')}>
+            Cancel
+          </button>
+        </div>
+      </section>
+    );
   const groups = [...new Set(rows.map((r) => r.group))];
+  const addItem = () => {
+    const key = customKey(newName);
+    if (!key) return onNotice('Name the item first.', 'error');
+    if (rows.some((r) => r.key === key)) return onNotice('That item is already listed.', 'error');
+    setCustom([...custom, [key, newName.trim()]]);
+    setNewName('');
+  };
   return (
     <>
       <section
@@ -627,28 +885,28 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
       >
         <h2 className="font-display text-xl font-bold text-heading">Financial Overview</h2>
         <p className="-mt-2 text-sm text-muted">
-          Enter what you know. A missing figure stays empty: nothing is estimated for you.
+          Enter what you know for {year - 1} (prior year) and {year} (projected), with where each
+          figure came from and its as-of date. A missing figure stays empty: nothing is estimated
+          for you.
         </p>
         {plan.staleData ? (
           <p role="status" className="rounded-lg bg-warning-soft p-2 text-sm text-warning">
-            The client&apos;s figures are old. Review them.
+            Some of the client&apos;s figures are more than a year old. Update them.
           </p>
         ) : null}
         {groups.map((g) => (
-          <div key={g}>
-            <h3 className="mb-1 text-sm font-semibold text-heading">{g}</h3>
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr]">
-              <span className="hidden text-xs font-semibold text-muted sm:block">Figure</span>
-              <span className="hidden text-xs font-semibold text-muted sm:block">
-                {year - 1} (prior year)
-              </span>
-              <span className="hidden text-xs font-semibold text-muted sm:block">
-                {year} (projected)
-              </span>
+          <div key={g} className="overflow-x-auto">
+            <h3 className="mb-1 text-sm font-semibold text-action">{g}</h3>
+            <div className="grid min-w-[44rem] grid-cols-[1.4fr_1fr_1fr_1.2fr_1fr] gap-x-3 gap-y-2">
+              <span className="text-xs font-semibold text-muted">Figure</span>
+              <span className="text-xs font-semibold text-muted">{year - 1} (prior year, $)</span>
+              <span className="text-xs font-semibold text-muted">{year} (projected, $)</span>
+              <span className="text-xs font-semibold text-muted">Source</span>
+              <span className="text-xs font-semibold text-muted">As of</span>
               {rows
                 .filter((r) => r.group === g)
                 .map((r) => (
-                  <div key={r.key} className="contents">
+                  <div key={r.key} className="contents" data-testid={`figure-${r.key}`}>
                     <span className="self-center text-sm text-heading">{r.label}</span>
                     <Input
                       label={`${r.label} ${year - 1}`}
@@ -664,21 +922,68 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
                       value={vals[`${r.key}|PROJECTED`] ?? ''}
                       onChange={(e) => setVals({ ...vals, [`${r.key}|PROJECTED`]: e.target.value })}
                     />
+                    <Select
+                      label={`${r.label} source`}
+                      hideLabel
+                      value={meta[r.key]?.source ?? ''}
+                      onChange={(e) =>
+                        setMeta({
+                          ...meta,
+                          [r.key]: { source: e.target.value, asOf: meta[r.key]?.asOf ?? '' },
+                        })
+                      }
+                      options={[
+                        { value: '', label: 'Choose a source…' },
+                        ...[
+                          ...FIGURE_SOURCES,
+                          ...(meta[r.key]?.source &&
+                          !(FIGURE_SOURCES as readonly string[]).includes(meta[r.key]!.source)
+                            ? [meta[r.key]!.source]
+                            : []),
+                        ].map((v) => ({ value: v, label: v })),
+                      ]}
+                    />
+                    <Input
+                      label={`${r.label} as of`}
+                      hideLabel
+                      type="date"
+                      value={meta[r.key]?.asOf ?? ''}
+                      onChange={(e) =>
+                        setMeta({
+                          ...meta,
+                          [r.key]: { source: meta[r.key]?.source ?? '', asOf: e.target.value },
+                        })
+                      }
+                    />
                   </div>
                 ))}
             </div>
           </div>
         ))}
-        {(plan.inputs ?? []).length ? (
-          <p className="text-xs text-muted">
-            Saved figures: {(plan.inputs ?? []).map((i) => `${i.label} (${i.source})`).join(', ')}
-          </p>
+        {plan.canEdit ? (
+          <div className="flex flex-wrap items-end gap-2" data-testid="add-figure">
+            <div className="w-72 max-w-full">
+              <Input
+                label="Additional item"
+                value={newName}
+                maxLength={60}
+                placeholder="Home office costs"
+                onChange={(e) => setNewName(e.target.value)}
+              />
+            </div>
+            <button type="button" className={subtle} onClick={addItem}>
+              <Plus aria-hidden weight="bold" className="size-4" /> Add Item
+            </button>
+          </div>
         ) : null}
       </section>
       <footer className="flex flex-wrap justify-between gap-3">
-        <button type="button" className={outlined} onClick={onBack}>
-          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
-        </button>
+        <span className="flex gap-2">
+          <button type="button" className={outlined} onClick={() => leave.go(onBack)}>
+            <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
+          </button>
+          <CancelButton leave={leave} />
+        </span>
         <span className="flex gap-2">
           <button
             type="button"
@@ -698,6 +1003,7 @@ function StepFinancial({ plan, onNotice, onSaved, onNext, onBack }: StepProps) {
           </button>
         </span>
       </footer>
+      {leave.prompt}
     </>
   );
 }
@@ -714,7 +1020,7 @@ function StepStrategies({ plan, onNotice, onSaved, onNext, onBack }: StepProps) 
       if (done) onNotice(done, 'success');
       await onSaved();
     } catch (e) {
-      onNotice(errorMessage(e, TP_ERRORS), 'error');
+      onNotice(planError(e), 'error');
     }
   };
   const move = (i: number, by: number) => {
@@ -852,9 +1158,15 @@ function StepStrategies({ plan, onNotice, onSaved, onNext, onBack }: StepProps) 
         ))}
       </section>
       <footer className="flex flex-wrap justify-between gap-3">
-        <button type="button" className={outlined} onClick={onBack}>
-          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
-        </button>
+        <span className="flex gap-2">
+          <button type="button" className={outlined} onClick={onBack}>
+            <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
+          </button>
+          {/* C07 (Review 2): Cancel on every step; this step saves each change as it is made. */}
+          <Link href="/tax-planning" className={outlined} data-testid="plan-cancel">
+            Cancel
+          </Link>
+        </span>
         <button type="button" className={primary} onClick={onNext}>
           Next <ArrowRight aria-hidden weight="bold" className="size-4" />
         </button>
@@ -1052,7 +1364,7 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
       if (done) onNotice(done, 'success');
       await onSaved();
     } catch (e) {
-      onNotice(errorMessage(e, TP_ERRORS), 'error');
+      onNotice(planError(e), 'error');
     }
   };
   const chosen = plan.strategies.filter((s) => s.selected);
@@ -1202,9 +1514,15 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
         </div>
       </section>
       <footer className="flex flex-wrap justify-between gap-3">
-        <button type="button" className={outlined} onClick={onBack}>
-          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
-        </button>
+        <span className="flex gap-2">
+          <button type="button" className={outlined} onClick={onBack}>
+            <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
+          </button>
+          {/* C07 (Review 2): Cancel on every step; this step saves each change as it is made. */}
+          <Link href="/tax-planning" className={outlined} data-testid="plan-cancel">
+            Cancel
+          </Link>
+        </span>
         <button type="button" className={primary} onClick={onNext}>
           Next <ArrowRight aria-hidden weight="bold" className="size-4" />
         </button>
@@ -1233,11 +1551,40 @@ function StepReview({
       await onSaved();
       return true;
     } catch (e) {
-      onNotice(errorMessage(e, TP_ERRORS), 'error');
+      onNotice(planError(e), 'error');
       return false;
     }
   };
   const chosen = plan.strategies.filter((s) => s.selected);
+  const [viewing, setViewing] = useState<number>();
+  // C08 (Review 2): what the plan still needs, each with where to fix it. Finalizing checks the
+  // strategies and the figures' age again on the server.
+  const checks: { done: boolean; text: string; fix: string; step: number }[] = [
+    {
+      done: !!plan.filingStatus && !!plan.entityType && plan.goals.length > 0,
+      text: 'Filing status, entity type and at least one planning goal',
+      fix: 'Client & Plan Details',
+      step: 1,
+    },
+    {
+      done: !!plan.assignedTo && !!plan.targetCompletionOn,
+      text: 'An assigned team member and a target completion date',
+      fix: 'Client & Plan Details',
+      step: 1,
+    },
+    {
+      done: !plan.staleData,
+      text: 'Figures less than a year old',
+      fix: 'Financial Overview',
+      step: 2,
+    },
+    {
+      done: chosen.some((s) => s.status !== 'DECLINED'),
+      text: 'At least one selected strategy that is not declined',
+      fix: 'Goals & Strategies',
+      step: 3,
+    },
+  ];
   return (
     <>
       <section
@@ -1246,6 +1593,29 @@ function StepReview({
         data-testid="step-review"
       >
         <h2 className="font-display text-xl font-bold text-heading">Review &amp; Save</h2>
+        <div data-testid="readiness">
+          <h3 className="mb-1 text-sm font-semibold text-heading">Ready to finalize?</h3>
+          <ul className="flex flex-col gap-1 text-sm">
+            {checks.map((c) => (
+              <li key={c.text} className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded-pill px-2 py-0.5 text-xs font-medium ${c.done ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'}`}
+                >
+                  {c.done ? 'Complete' : 'Missing'}
+                </span>
+                <span className="text-heading">{c.text}</span>
+                {c.done ? null : (
+                  <Link
+                    href={`/tax-planning/plans/${plan.id}/edit${PATHS[c.step - 1]}`}
+                    className="font-medium text-link"
+                  >
+                    Fix in {c.fix}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
         <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[10rem_1fr]">
           <dt className="text-muted">Client</dt>
           <dd className="text-heading">{plan.client.name}</dd>
@@ -1307,8 +1677,16 @@ function StepReview({
                 <span className="text-heading">
                   Version {v.version} · {v.event.toLowerCase()}
                 </span>
-                <span className="text-muted">
+                <span className="flex items-center gap-3 text-muted">
                   {v.createdBy?.name} · {dateTimeText(v.createdAt)}
+                  <button
+                    type="button"
+                    className="font-medium text-link"
+                    data-testid="view-version"
+                    onClick={() => setViewing(v.version)}
+                  >
+                    View
+                  </button>
                 </span>
               </li>
             ))}
@@ -1316,9 +1694,15 @@ function StepReview({
         </div>
       </section>
       <footer className="flex flex-wrap justify-between gap-3">
-        <button type="button" className={outlined} onClick={onBack}>
-          <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
-        </button>
+        <span className="flex gap-2">
+          <button type="button" className={outlined} onClick={onBack}>
+            <ArrowLeft aria-hidden weight="bold" className="size-4" /> Back
+          </button>
+          {/* C07 (Review 2): Cancel on every step; this step saves each change as it is made. */}
+          <Link href="/tax-planning" className={outlined} data-testid="plan-cancel">
+            Cancel
+          </Link>
+        </span>
         <span className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -1383,8 +1767,8 @@ function StepReview({
                       }),
                     'Plan sent.',
                   );
+                  // C09 (Review 2): a send that is refused stays open; the notice names why.
                   if (ok) setSending(false);
-                  else setSending(false);
                 }}
               >
                 Send
@@ -1411,6 +1795,136 @@ function StepReview({
           </div>
         </Modal>
       ) : null}
+      {viewing ? (
+        <VersionView
+          planId={plan.id}
+          version={viewing}
+          history={versions.data ?? []}
+          onClose={() => setViewing(undefined)}
+        />
+      ) : null}
     </>
+  );
+}
+
+/**
+ * C25 (Review 2): a kept version, read-only, as it was: who kept it and when, its tax year and how
+ * fresh its figures were, the strategies and figures, and what happened to the plan's versions
+ * after it (finalized, generated, sent).
+ */
+function VersionView({
+  planId,
+  version,
+  history,
+  onClose,
+}: {
+  planId: string;
+  version: number;
+  history: {
+    version: number;
+    event: string;
+    createdAt: string;
+    createdBy: { name: string } | null;
+  }[];
+  onClose: () => void;
+}) {
+  const v = useApiQuery([...TP_KEY, 'version', planId, version], () =>
+    api.taxPlanning.version(planId, version),
+  );
+  const d = v.data;
+  return (
+    <Modal
+      open
+      title={`Version ${version}`}
+      subtitle={d ? `${d.planName}: ${d.event.toLowerCase()}, read-only` : undefined}
+      onClose={onClose}
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      {v.isError ? <p className={quiet}>This version could not be loaded.</p> : null}
+      {d ? (
+        <div className="flex flex-col gap-3 text-sm" data-testid="version-view">
+          <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[10rem_1fr]">
+            <dt className="text-muted">Kept by</dt>
+            <dd className="text-heading">
+              {d.createdBy?.name ?? 'Former staff'} · {dateTimeText(d.createdAt)}
+            </dd>
+            <dt className="text-muted">Tax year</dt>
+            <dd className="text-heading">{d.taxYear}</dd>
+            <dt className="text-muted">Figures as of</dt>
+            <dd className="text-heading">
+              {d.sourceDataAsOf ? dateTimeText(d.sourceDataAsOf) : 'No dated figures'}
+            </dd>
+            <dt className="text-muted">Projected savings</dt>
+            <dd className="text-heading">
+              {d.projectedSavingsCents === null
+                ? 'N/A'
+                : `${money(d.projectedSavingsCents)} (estimated)`}
+            </dd>
+          </dl>
+          <div>
+            <h3 className="mb-1 font-semibold text-heading">Strategies</h3>
+            <ul>
+              {d.strategies.map((s) => (
+                <li key={s.name} className="border-t border-divider py-1 first:border-t-0">
+                  <span className="text-heading">{s.name}</span>{' '}
+                  <span className="text-muted">
+                    · {PRIORITY_LABEL[s.priority] ?? s.priority} ·{' '}
+                    {s.estimate.cents === null ? 'N/A' : money(s.estimate.cents)}
+                  </span>
+                  {s.assumptions ? (
+                    <span className="block text-xs text-muted">{s.assumptions}</span>
+                  ) : null}
+                </li>
+              ))}
+              {d.strategies.length === 0 ? <li className="text-muted">None</li> : null}
+            </ul>
+          </div>
+          {d.inputs ? (
+            <div>
+              <h3 className="mb-1 font-semibold text-heading">Figures</h3>
+              <ul>
+                {d.inputs.map((i) => (
+                  <li
+                    key={`${i.key}${i.kind}${i.taxYear}`}
+                    className="border-t border-divider py-1 first:border-t-0"
+                  >
+                    <span className="text-heading">
+                      {i.label} ({i.taxYear})
+                    </span>{' '}
+                    <span className="text-muted">
+                      · {i.amountCents !== null ? money(i.amountCents) : (i.textValue ?? '—')} ·{' '}
+                      {i.source}
+                      {i.asOf ? `, as of ${dateTimeText(i.asOf)}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div>
+            <h3 className="mb-1 font-semibold text-heading">Send and approval history</h3>
+            <ul>
+              {history
+                .filter((h) => h.version >= version)
+                .sort((a, b) => a.version - b.version)
+                .map((h) => (
+                  <li key={h.version} className="text-muted">
+                    Version {h.version} {h.event.toLowerCase()} by{' '}
+                    {h.createdBy?.name ?? 'Former staff'}, {dateTimeText(h.createdAt)}
+                  </li>
+                ))}
+            </ul>
+            <p className="mt-1 text-xs text-muted">
+              Client approval is recorded with each version once the approval step is in place.
+            </p>
+          </div>
+          <Disclaimer text={d.disclaimer} />
+        </div>
+      ) : null}
+    </Modal>
   );
 }

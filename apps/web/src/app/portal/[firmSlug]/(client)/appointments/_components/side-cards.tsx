@@ -13,8 +13,7 @@ import {
   MessageCircleMore,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePortalTabs } from '../../_components/portal-tabs';
-import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
+import { MyContactLinks, useMessagesAllowed } from '../../_components/my-contact';
 
 /** The right-hand column: Quick Actions, Need Help? and Be Prepared. */
 export function SideCards({
@@ -30,7 +29,7 @@ export function SideCards({
   onCancel: () => void;
   onHistory: () => void;
 }) {
-  const messagesOn = usePortalTabs(slug)('messages');
+  const messagesOn = useMessagesAllowed(slug);
   const actions: [string, LucideIcon, () => void][] = [
     ['Schedule an Appointment', CalendarPlus, onSchedule],
     ['Reschedule an Appointment', CalendarClock, onReschedule],
@@ -69,7 +68,7 @@ export function SideCards({
             <p className="text-sm text-text">Our team is here for you.</p>
           </div>
         </div>
-        <FirmContactLinks className="mb-4 text-text" />
+        <MyContactLinks slug={slug} className="mb-4 text-text" />
         {messagesOn ? (
           <Link
             href={`/${slug}/messages`}

@@ -20,11 +20,15 @@ import type { ReactNode } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { ButtonLink } from '../../../(public)/_components/button-link';
-import { FirmContactLinks } from '../../../(public)/_components/firm-contact';
 import { NotesCard } from '../messages/_components/notes-card';
 import { HelpfulResources } from '../business/_components/business-cards';
 import { TaxPaymentCard } from '../taxes/_components/tax-cards';
 import { AnnouncementCard } from '../../_components/announcements';
+import {
+  MyContactCard,
+  useAppointmentsAllowed,
+  useMessagesAllowed,
+} from '../../_components/my-contact';
 import { usePortalTabs } from '../../_components/portal-tabs';
 
 const dateTime = new Intl.DateTimeFormat('en-US', {
@@ -69,6 +73,33 @@ function LinkCard({
         </Link>
       </div>
     </Card>
+  );
+}
+
+/** Need Help's buttons, as Contact Information allows (Send a Message also needs Messages on). */
+function HelpButtons({
+  slug,
+  messages,
+  booking,
+}: {
+  slug: string;
+  messages: boolean;
+  booking: boolean;
+}) {
+  if (!messages && !booking) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {messages ? (
+        <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
+          Send a Message
+        </ButtonLink>
+      ) : null}
+      {booking ? (
+        <ButtonLink href={`/${slug}/appointments`} className="cursor-pointer">
+          Book Appointment
+        </ButtonLink>
+      ) : null}
+    </div>
   );
 }
 
@@ -118,6 +149,8 @@ function MessagesRightColumn({ slug, place }: { slug: string; place: Announcemen
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
   const next = upcoming.data?.[0];
+  const messages = useMessagesAllowed(slug);
+  const booking = useAppointmentsAllowed(slug);
   return (
     <aside
       aria-label="Help, appointments, and notes"
@@ -127,10 +160,8 @@ function MessagesRightColumn({ slug, place }: { slug: string; place: Announcemen
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
-        <FirmContactLinks className="mb-3" />
-        <ButtonLink href={`/${slug}/messages`} className="cursor-pointer">
-          Send a Message
-        </ButtonLink>
+        <MyContactCard slug={slug} className="mb-3" />
+        <HelpButtons slug={slug} messages={messages} booking={booking} />
       </Card>
       <LinkCard
         icon={CalendarDays}
@@ -172,21 +203,20 @@ function DefaultRightColumn({
   documentsPage: boolean;
   taxesPage: boolean;
 }) {
-  const tabOn = usePortalTabs(slug);
   const upcoming = useApiQuery(['my-appointments', slug, 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
   const next = upcoming.data?.[0];
+  const messages = useMessagesAllowed(slug);
+  const booking = useAppointmentsAllowed(slug);
   return (
     <aside aria-label="Help and shortcuts" className="flex w-full flex-col gap-4 lg:w-72">
       <AnnouncementCard slug={slug} place={place} />
       <Card className="bg-firm-primary! text-on-action">
         <h2 className="font-display text-2xl font-bold">Need Help?</h2>
         <p className="my-3 text-sm">Our team is here for you.</p>
-        <FirmContactLinks className="mb-3" />
-        {tabOn('messages') ? (
-          <ButtonLink href={`/${slug}/messages`}>Send a Message</ButtonLink>
-        ) : null}
+        <MyContactCard slug={slug} className="mb-3" />
+        <HelpButtons slug={slug} messages={messages} booking={booking} />
       </Card>
       <LinkCard
         icon={CalendarDays}
