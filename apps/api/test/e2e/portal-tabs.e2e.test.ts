@@ -127,7 +127,7 @@ describe('Settings > Client Portal > Features (portal tabs)', () => {
     expect(firm.status).toBe(200);
     expect(PortalTabs.parse(firm.body)).toEqual({ tabs: ALL_ON });
     const menu = await send('get', `/portal/${slug}/me/tabs`, client);
-    expect(PortalTabs.parse(menu.body)).toEqual({ tabs: ALL_ON });
+    expect(PortalTabs.parse(menu.body).tabs).toEqual(ALL_ON);
   });
 
   it('lets Owner and Admin switch tabs, audited by tab, and never Staff or a client', async () => {
@@ -214,7 +214,7 @@ describe('Settings > Client Portal > Features (portal tabs)', () => {
   it("keeps each firm's tabs its own", async () => {
     await save(owner, { MESSAGES: false });
     const other = await send('get', `/portal/${fx.firmA.slug}/me/tabs`, fx.users.clientA);
-    expect(PortalTabs.parse(other.body)).toEqual({ tabs: ALL_ON });
+    expect(PortalTabs.parse(other.body).tabs).toEqual(ALL_ON);
     expect(
       code(await send('get', `/portal/${fx.firmA.slug}/me/messages`, fx.users.clientA)),
     ).not.toBe('MODULE_OFF');

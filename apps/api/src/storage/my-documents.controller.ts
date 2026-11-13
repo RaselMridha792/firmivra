@@ -26,7 +26,7 @@ import type { PortalCaller } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
 import { MyDocumentsService } from './my-documents.service.js';
 import { MyPacketsService } from './my-packets.service.js';
-import { PortalTabsService } from '../client-portal/portal-tabs.js';
+import { PortalTabRoute, PortalTabsService } from '../client-portal/portal-tabs.js';
 
 const docPipe = new ZodValidationPipe(DocumentId);
 
@@ -102,7 +102,10 @@ export class MyDocumentsController {
     body: z.output<typeof CreateMyUploadRequest>,
   ): Promise<UploadTicket> {
     // With Upload Documents off, only a file the firm asked for (a document request) goes up.
-    if (!body.requestId) await this.tabs.assertOn(tenant.businessId, 'DOCUMENTS');
+    // The firm's switch and this client's own (Client Portal module, Portal Content).
+    if (!body.requestId && tenant.kind === 'client') {
+      await this.tabs.assertClientOn(tenant.businessId, tenant.clientAccountId, 'DOCUMENTS');
+    }
     return this.documents.createUpload(callerOf(auth, tenant), body);
   }
 
@@ -145,6 +148,7 @@ export class MyDocumentsController {
 
   // Request packets (R55, Frame 7): the client's sent requests with their checklists.
   @Get('request-packets')
+  @PortalTabRoute('TASKS_REQUESTS')
   async packets(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
@@ -153,6 +157,7 @@ export class MyDocumentsController {
   }
 
   @Get('request-packets/:id')
+  @PortalTabRoute('TASKS_REQUESTS')
   packet(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
@@ -162,6 +167,7 @@ export class MyDocumentsController {
   }
 
   @Post('request-packets/:id/submit')
+  @PortalTabRoute('TASKS_REQUESTS')
   @HttpCode(200)
   submitPacket(
     @CurrentAuth() auth: AuthContext,
