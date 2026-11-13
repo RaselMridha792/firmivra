@@ -21,6 +21,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useUrlTab } from '../../../../../lib/url-tab';
+import { RecentDocuments } from './recent-documents';
 import { useApiQuery } from '../../../../../lib/query';
 import { ClientMenu, ConnectDialog, useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -66,7 +67,8 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number];
 const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> = {
-  Documents: (w) => `/documents?clientId=${w.client.id}`,
+  // Review 2 (N02): Documents opens on this client and this bookkeeping service.
+  Documents: (w) => `/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
   Notes: (w) => `/clients/${w.client.id}`,
   // BK-E01: the client's Terms page (six areas).
@@ -491,7 +493,10 @@ export function ClientWorkspace({ id }: { id: string }) {
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="font-display text-lg font-bold text-heading">Recent Documents</h2>
-                  <OriginLink href={`/documents?clientId=${w.client.id}`} className={linkBtn}>
+                  <OriginLink
+                    href={`/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`}
+                    className={linkBtn}
+                  >
                     View All
                   </OriginLink>
                 </div>
@@ -501,6 +506,8 @@ export function ClientWorkspace({ id }: { id: string }) {
                     ? `, ${w.shared.outstandingDocumentRequests} requested`
                     : ''}
                 </p>
+                {/* Review 2 (N03): the newest documents, each viewed in place. */}
+                <RecentDocuments clientId={w.client.id} engagementId={w.engagementId} />
                 <UploadDocumentButton className={`${outlined} mt-3 min-h-9`} />
               </section>
               <section className={card} aria-label="Client notes" data-testid="shared-notes">
