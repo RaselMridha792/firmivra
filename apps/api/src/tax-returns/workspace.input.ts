@@ -5,6 +5,7 @@ import {
   ChangeTaxReturnStatusRequest,
   CreateTaxApprovalRequest,
   CreateTaxChecklistItemRequest,
+  CreateTaxValidationIssueRequest,
   CreateWorkspaceTaxReturnRequest,
   EfileReportQuery,
   LinkTaxAuthorizationRequest,
@@ -17,6 +18,7 @@ import {
   TaxReturnsQuery,
   TaxReturnSummaryQuery,
   UpdateTaxChecklistItemRequest,
+  UpdateTaxValidationIssueRequest,
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
   UpdateTaxReturnFilingRequest,
@@ -55,6 +57,8 @@ export const UpdateChecklistItemBody = clean(UpdateTaxChecklistItemRequest);
 export const ApprovalBody = clean(CreateTaxApprovalRequest);
 export const ApproveBody = clean(ApproveTaxApprovalRequest);
 export const ReturnApprovalBody = clean(ReturnTaxApprovalRequest);
+export const IssueBody = clean(CreateTaxValidationIssueRequest);
+export const UpdateIssueBody = clean(UpdateTaxValidationIssueRequest);
 export const SetAuthorizationsBody = clean(SetTaxAuthorizationsRequest);
 export const LinkAuthorizationBody = clean(LinkTaxAuthorizationRequest);
 export const WetSignatureBody = clean(WetSignatureRequest);

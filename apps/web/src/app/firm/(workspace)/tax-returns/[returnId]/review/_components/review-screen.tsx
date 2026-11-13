@@ -35,6 +35,7 @@ import {
   ValidationPanel,
   textButton,
 } from '../../../_components/review-panels';
+import { IssuesPanel } from '../../../_components/issues-panel';
 import {
   BLOCKER_LABEL,
   FILING_STATUS_LABEL,
@@ -160,6 +161,7 @@ export function ReviewScreen({ returnId }: { returnId: string }) {
             </div>
             <div className="flex min-w-0 flex-col gap-4">
               <ValidationPanel detail={r} onNotice={notice} compact />
+              <IssuesPanel detail={r} onNotice={notice} />
               <ApprovalsPanel detail={r} onNotice={notice} />
               <ReturnDocumentsPanel detail={r} onNotice={notice} limit={3} />
             </div>

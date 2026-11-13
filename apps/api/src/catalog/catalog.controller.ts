@@ -15,6 +15,7 @@ import {
   type CatalogService,
   CatalogServiceId,
   type CatalogServicePage,
+  CatalogPackagesQuery,
   CatalogServicesQuery,
   type CatalogSummary,
   CreateCatalogServiceRequest,
@@ -252,8 +253,11 @@ export class CatalogPackagesController {
   constructor(private readonly packages: CatalogPackagesService) {}
 
   @Get()
-  async list(@CurrentTenant() tenant: TenantContext): Promise<ServicePackageList> {
-    return { items: await this.packages.list(tenant.businessId) };
+  async list(
+    @CurrentTenant() tenant: TenantContext,
+    @Query(pipe(CatalogPackagesQuery)) q: z.output<typeof CatalogPackagesQuery>,
+  ): Promise<ServicePackageList> {
+    return { items: await this.packages.list(tenant.businessId, q.status) };
   }
 
   @Post()

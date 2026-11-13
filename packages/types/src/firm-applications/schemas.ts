@@ -3,6 +3,7 @@ import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { CalendarDate, ContactMethod } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
+import { BusinessStatus, ScanStatus } from '../db-enums.js';
 import { BusinessSummary } from '../schemas.js';
 
 // Firm applications (R4): a business applies on the firm site without an account; a Firmivra
@@ -266,12 +267,69 @@ export const FirmApplicationId = z.uuid();
 export const FirmId = z.uuid();
 
 /**
- * An application's status as the API returns it. Request Information keeps it PENDING_REVIEW (the
- * applicant answers by email and the Super Admin records it in the notes); approve and decline are
- * final. The database's FirmApplicationStatus also has INFO_REQUESTED, which Phase 1 never sets.
+ * An application's status (the Oct 31 review's workflow, SA-APP-F01 to F05): a new one is Pending;
+ * a reviewer opening it makes it In Review (once, POST .../open); Request Additional Information
+ * makes it Awaiting Information until the applicant responds, which brings it back to In Review.
+ * Approved and Declined are final. Nothing returns to Pending.
  */
-export const FirmApplicationReviewStatus = z.enum(['PENDING_REVIEW', 'APPROVED', 'DECLINED']);
+export const FirmApplicationReviewStatus = z.enum([
+  'PENDING_REVIEW',
+  'IN_REVIEW',
+  'INFO_REQUESTED',
+  'APPROVED',
+  'DECLINED',
+]);
 export type FirmApplicationReviewStatus = z.infer<typeof FirmApplicationReviewStatus>;
+
+/** The screens' words for each status. */
+export const FIRM_APPLICATION_STATUS_LABELS: Record<FirmApplicationReviewStatus, string> = {
+  PENDING_REVIEW: 'Pending',
+  IN_REVIEW: 'In Review',
+  INFO_REQUESTED: 'Awaiting Information',
+  APPROVED: 'Approved',
+  DECLINED: 'Declined',
+};
+
+/**
+ * SA-APP-F07: the application's latest event, for "Last activity" (list column and detail).
+ * DECIDED is an approval or a decline; OWNER_INVITED an owner invitation sent or sent again.
+ */
+export const FirmApplicationActivityEvent = z.enum([
+  'SUBMITTED',
+  'REVIEW_STARTED',
+  'INFO_REQUESTED',
+  'RESPONSE_RECEIVED',
+  'NOTE_SAVED',
+  'REVIEWER_ASSIGNED',
+  'DECIDED',
+  'OWNER_INVITED',
+]);
+export type FirmApplicationActivityEvent = z.infer<typeof FirmApplicationActivityEvent>;
+export const FIRM_APPLICATION_ACTIVITY_LABELS: Record<FirmApplicationActivityEvent, string> = {
+  SUBMITTED: 'Submitted',
+  REVIEW_STARTED: 'Review started',
+  INFO_REQUESTED: 'Information requested',
+  RESPONSE_RECEIVED: 'Response received',
+  NOTE_SAVED: 'Note added',
+  REVIEWER_ASSIGNED: 'Reviewer assigned',
+  DECIDED: 'Decision',
+  OWNER_INVITED: 'Invitation sent',
+};
+export const FirmApplicationActivity = z.object({
+  at: DateTime,
+  event: FirmApplicationActivityEvent,
+});
+export type FirmApplicationActivity = z.infer<typeof FirmApplicationActivity>;
+
+/**
+ * SA-APP-F08: the information request's state. NONE: never asked. WAITING: an open request (`at`:
+ * when it was asked). RESPONDED: the latest request was answered (`at`: when).
+ */
+export const FirmApplicationRequestState = z.object({
+  state: z.enum(['NONE', 'WAITING', 'RESPONDED']),
+  at: DateTime.nullable(),
+});
+export type FirmApplicationRequestState = z.infer<typeof FirmApplicationRequestState>;
 
 /** A Firmivra Super Admin shown next to a decision or a history entry. */
 export const AdminRef = z.object({ userId: z.uuid(), name: z.string() });
@@ -301,6 +359,14 @@ export const FirmApplicationListItem = z.object({
   submittedAt: DateTime,
   /** When it was approved or declined. */
   decidedAt: DateTime.nullable(),
+  /** SA-APP-F06: the reviewer it is assigned to, or null. */
+  assignedReviewer: AdminRef.nullable(),
+  /** SA-APP-F07. */
+  lastActivity: FirmApplicationActivity,
+  /** SA-APP-F08. */
+  requestState: FirmApplicationRequestState,
+  /** SA-APP-Y01: the firm account's status once approval created it ("Account" column). */
+  accountStatus: BusinessStatus.nullable(),
 });
 export type FirmApplicationListItem = z.infer<typeof FirmApplicationListItem>;
 
@@ -315,7 +381,8 @@ export const ListFirmApplicationsQuery = z
     search: SearchText.optional(),
     from: DateTime.optional(),
     to: DateTime.optional(),
-    order: z.enum(['newest', 'oldest']).optional().default('newest'),
+    /** `activity`: by last activity, most recent first (SA-APP-F07). */
+    order: z.enum(['newest', 'oldest', 'activity']).optional().default('newest'),
     page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
     pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
   })
@@ -342,8 +409,11 @@ export type ListFirmApplicationsResponse = z.infer<typeof ListFirmApplicationsRe
  * "This month" is the calendar month in US Eastern time.
  */
 export const FirmApplicationCounts = z.object({
+  /** The sum of the five statuses (SA-APP-Y04). */
   all: z.number().int().min(0),
   pendingReview: z.number().int().min(0),
+  inReview: z.number().int().min(0),
+  awaitingInformation: z.number().int().min(0),
   approved: z.number().int().min(0),
   declined: z.number().int().min(0),
   approvedThisMonth: z.number().int().min(0),
@@ -383,8 +453,16 @@ export type FirmApplicationCheck = z.infer<typeof FirmApplicationCheck>;
 export const FirmApplicationEvent = z.object({
   type: z.enum([
     'SUBMITTED',
+    /** A reviewer opened it: Pending to In Review. */
+    'REVIEW_STARTED',
     /** `message`: what was asked. */
     'INFO_REQUESTED',
+    /** The applicant answered a request. */
+    'RESPONSE_RECEIVED',
+    /** Internal notes saved (never their text). */
+    'NOTE_SAVED',
+    /** `message`: the reviewer's name, or "Unassigned". */
+    'REVIEWER_ASSIGNED',
     'APPROVED',
     /** `message`: the reason. */
     'DECLINED',
@@ -399,6 +477,37 @@ export const FirmApplicationEvent = z.object({
   message: z.string().nullable(),
 });
 export type FirmApplicationEvent = z.infer<typeof FirmApplicationEvent>;
+
+/** A file the applicant sent with a response; reviewers open it only once scanned clean. */
+export const FirmApplicationResponseFileView = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  contentType: z.string(),
+  sizeBytes: z.number().int(),
+  scanStatus: ScanStatus,
+});
+export type FirmApplicationResponseFileView = z.infer<typeof FirmApplicationResponseFileView>;
+
+/** One information request with the applicant's responses (SA-APP-F03, F04, F08). */
+export const FirmApplicationInfoRequestView = z.object({
+  id: z.uuid(),
+  reason: z.string(),
+  requestedBy: AdminRef.nullable(),
+  requestedAt: DateTime,
+  expiresAt: DateTime,
+  /** EXPIRED: still open in the database, but its link's time has passed. */
+  status: z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED', 'EXPIRED']),
+  closedAt: DateTime.nullable(),
+  responses: z.array(
+    z.object({
+      id: z.uuid(),
+      text: z.string().nullable(),
+      submittedAt: DateTime,
+      files: z.array(FirmApplicationResponseFileView),
+    }),
+  ),
+});
+export type FirmApplicationInfoRequestView = z.infer<typeof FirmApplicationInfoRequestView>;
 
 /**
  * GET /admin/firm-applications/{id}: the review page, every field the applicant sent.
@@ -496,8 +605,43 @@ export const FirmApplicationRecord = z.object({
     .object({ status: z.enum(['SENT', 'EXPIRED', 'ACCEPTED']), expiresAt: DateTime })
     .nullable(),
   history: z.array(FirmApplicationEvent),
+  /** SA-APP-F06. */
+  assignedReviewer: AdminRef.nullable(),
+  /** SA-APP-F07. */
+  lastActivity: FirmApplicationActivity,
+  /** SA-APP-F08. */
+  requestState: FirmApplicationRequestState,
+  /** SA-APP-F03, F04, F08: every request, newest first, each with its responses and files. */
+  requests: z.array(FirmApplicationInfoRequestView),
+  /**
+   * What the signed-in reviewer may do now (SA-APP-Y03): request (or request again), approve and
+   * decline while Pending, In Review or Awaiting Information; assign and resend the owner
+   * invitation are a Super Admin's.
+   */
+  can: z.object({
+    requestInfo: z.boolean(),
+    approve: z.boolean(),
+    decline: z.boolean(),
+    assign: z.boolean(),
+    resendOwnerInvite: z.boolean(),
+  }),
 });
 export type FirmApplicationRecord = z.infer<typeof FirmApplicationRecord>;
+
+/** GET /admin/firm-applications/reviewers: who an application can be assigned to. */
+export const FirmApplicationReviewers = z.object({ items: z.array(AdminRef) });
+export type FirmApplicationReviewers = z.infer<typeof FirmApplicationReviewers>;
+
+/** PUT /admin/firm-applications/{id}/reviewer: assign, reassign, or `null` to unassign. */
+export const AssignFirmReviewerRequest = z.strictObject({ userId: z.uuid().nullable() });
+export type AssignFirmReviewerRequest = z.input<typeof AssignFirmReviewerRequest>;
+
+/**
+ * GET /admin/firm-applications/{id}/files/{fileId}: a short-lived link to view or download a
+ * response file. Only a file whose scan came back clean (409 FILE_NOT_READY otherwise).
+ */
+export const FirmApplicationFileLink = z.object({ url: z.string(), fileName: z.string() });
+export type FirmApplicationFileLink = z.infer<typeof FirmApplicationFileLink>;
 
 /**
  * Portal addresses no firm may have: the site's own paths and names kept for Firmivra. The API and
@@ -543,9 +687,10 @@ export const ApproveFirmApplicationRequest = z.strictObject({ slug: NewFirmSlug.
 export type ApproveFirmApplicationRequest = z.input<typeof ApproveFirmApplicationRequest>;
 
 /**
- * POST /admin/firm-applications/{id}/request-info: emails `message` to the applicant, who replies
- * to Firmivra support. Stays PENDING_REVIEW. The same message as the last request changes nothing
- * and is not sent again. 409 APPLICATION_DECIDED.
+ * POST /admin/firm-applications/{id}/request-info (SA-APP-F03): emails the applicant `message` (what
+ * is needed) with a protected link to answer on this application. The status becomes Awaiting
+ * Information. "Request again" while a request is open closes the earlier one (its link stops
+ * working). A message the same as the last one is 400 VALIDATION_FAILED. 409 APPLICATION_DECIDED.
  */
 export const RequestFirmInfoRequest = z.strictObject({
   message: text(2000, 'many', 'Enter what you need from the applicant'),

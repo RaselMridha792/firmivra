@@ -106,6 +106,37 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** An open lead with one unfinished follow-up step, `leadStep` (L8, R55). */
+  leadStepLead: {
+    async create({ tx, businessId, own, set }) {
+      const due = new Date(Date.now() + 86_400_000);
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Steps',
+          email: `iso-steps-${randomUUID().slice(0, 8)}@iso.test`,
+          nextActionType: 'CALL',
+          nextActionAt: due,
+        },
+      });
+      const step = await tx.leadFollowUp.create({
+        data: { businessId, leadId: row.id, actionType: 'CALL', dueAt: due },
+      });
+      set('leadStep', step.id);
+      return row.id;
+    },
+  },
+  /** The step, made with its lead (above). */
+  leadStep: {
+    async create({ get }) {
+      await get('leadStepLead');
+      return get('leadStep');
+    },
+  },
   /** The lead's clean file, made with the lead (above). */
   leadUpload: {
     async create({ get }) {
@@ -171,6 +202,22 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/leads/:id/follow-up/complete': {
     params: { id: 'leadFollowUp' },
+    body: {},
+  },
+  // L8 (R55): a lead's follow-up steps.
+  'POST /api/v1/business/leads/:id/follow-ups': {
+    params: { id: 'leadStepLead' },
+    body: { type: 'EMAIL', dueAt: '2030-01-01T10:00:00Z' },
+  },
+  'PATCH /api/v1/business/leads/:id/follow-ups/:followUpId': {
+    params: { id: 'leadStepLead', followUpId: 'leadStep' },
+    body: { notes: 'Fake note' },
+  },
+  'DELETE /api/v1/business/leads/:id/follow-ups/:followUpId': {
+    params: { id: 'leadStepLead', followUpId: 'leadStep' },
+  },
+  'POST /api/v1/business/leads/:id/follow-ups/:followUpId/complete': {
+    params: { id: 'leadStepLead', followUpId: 'leadStep' },
     body: {},
   },
   'GET /api/v1/business/leads/:id/activity': { params: { id: 'lead' } },

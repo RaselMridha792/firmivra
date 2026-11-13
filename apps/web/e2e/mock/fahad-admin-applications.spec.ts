@@ -5,7 +5,7 @@ for (const width of [375, 1440, 1672]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto(`http://admin.localhost:${port}/applications`);
     await expect(page.getByTestId('page-title')).toHaveText('Firm Applications');
-    await expect(page.getByRole('tab', { name: 'All Applications (8)' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'All Applications (9)' })).toBeVisible();
     const filters = page.getByTestId('application-filters');
     const tabs = await page.getByRole('tablist').boundingBox();
     const box = await filters.boundingBox();
@@ -24,6 +24,8 @@ for (const width of [375, 1440, 1672]) {
         'Services',
         'Requested Plan',
         'Submitted',
+        'Last Activity',
+        'Reviewer',
         'Status',
         'Action',
       ]);
