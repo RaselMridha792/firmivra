@@ -39,7 +39,8 @@ import { useOriginNavigate } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
 import { describeConnection } from '../../../../../lib/connection-state';
-import { StopBillingDialog } from '../../../../../components/stop-billing-dialog';
+import { ServiceBillingDialog } from '../../../../../components/service-billing-dialog';
+import type { Scope } from '../../../../../lib/service-billing';
 import { CompleteReportDialog } from './report-actions';
 import { type Notice, useAct } from './use-act';
 
@@ -484,7 +485,8 @@ export function ClientMenu({
   const docs = useServiceDocuments();
   const act = useAct(onNotice);
   const [dialog, setDialog] = useState<DialogName>();
-  const [billing, setBilling] = useState(false);
+  // Review 2 (cross-service): the service and its billing pause in one place.
+  const [serviceBilling, setServiceBilling] = useState<Scope>();
   // SH1: a page outside the workspace gets Back to this exact place.
   const go = (href: string) => () =>
     href.startsWith('/payroll') || href.startsWith('/bookkeeping')
@@ -563,18 +565,16 @@ export function ClientMenu({
           icon: Plugs,
           onSelect: () => setDialog('connection'),
         },
-        row.paused
-          ? {
-              label: 'Resume Bookkeeping Service',
-              icon: Play,
-              onSelect: () => void act(() => api.bookkeeping.resume(row.id), 'Resumed.'),
-            }
-          : { label: 'Pause Bookkeeping Service', icon: Pause, onSelect: () => setDialog('pause') },
-        // SH10: its own control; pausing never stops billing.
         {
-          label: 'Stop Future Billing',
+          label: row.paused ? 'Resume Bookkeeping Service' : 'Pause Bookkeeping Service',
+          icon: row.paused ? Play : Pause,
+          onSelect: () => setServiceBilling('service'),
+        },
+        // SH10 and Review 2: billing pauses on its own, beside the service, in the same dialog.
+        {
+          label: 'Pause or Resume Billing',
           icon: CurrencyCircleDollar,
-          onSelect: () => setBilling(true),
+          onSelect: () => setServiceBilling('billing'),
         },
         {
           label: 'Archive Bookkeeping Client',
@@ -610,15 +610,19 @@ export function ClientMenu({
         />
       ) : null}
       {dialog === 'log' ? <LogDialog row={row} onClose={close} onNotice={onNotice} /> : null}
-      {billing ? (
-        <StopBillingDialog
-          engagementId={row.engagementId}
-          clientName={row.client.displayName}
+      {serviceBilling ? (
+        <ServiceBillingDialog
           service="Bookkeeping"
-          onClose={() => setBilling(false)}
-          onDone={(text) => {
-            setBilling(false);
-            onNotice(text, 'success');
+          clientName={row.client.displayName}
+          engagementId={row.engagementId}
+          servicePaused={row.paused}
+          initialScope={serviceBilling}
+          pauseService={(reason) => api.bookkeeping.pause(row.id, { reason })}
+          resumeService={() => api.bookkeeping.resume(row.id)}
+          onClose={() => setServiceBilling(undefined)}
+          onDone={(text, tone) => {
+            setServiceBilling(undefined);
+            onNotice(text, tone);
           }}
         />
       ) : null}

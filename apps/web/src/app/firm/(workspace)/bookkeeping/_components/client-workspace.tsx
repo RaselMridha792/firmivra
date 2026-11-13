@@ -253,11 +253,12 @@ export function ClientWorkspace({ id }: { id: string }) {
         <div
           role="tablist"
           aria-label="Client views"
-          className="relative flex overflow-x-auto border-b border-divider"
+          // Review 2 (desktop tabs): every tab shows, wrapping to a second row, with no sideways scroll.
+          className="relative flex flex-wrap border-b border-divider"
         >
           {TABS.map((t) => {
             const href = LINKS[t]?.(w);
-            const cls = `-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-4 text-sm whitespace-nowrap ${tab === t ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`;
+            const cls = `-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-3 text-sm whitespace-nowrap ${tab === t ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`;
             return href ? (
               <OriginLink key={t} href={href} role="tab" aria-selected={false} className={cls}>
                 {t}
