@@ -1,10 +1,10 @@
 'use client';
 
-import { ChevronDown, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronsLeft, ChevronsRight, LogOut } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from 'react';
 import { useMe } from '../signed-in';
 import firmivraLogoWhite from './firmivra-logo-white.png';
 import { initials, isActive, type NavSections } from './types';
@@ -28,6 +28,9 @@ const words = (text: string) =>
     .map((w) => w.trim())
     .filter(Boolean);
 
+/** A count badge's shape (its colour follows the menu). */
+const badgeLook = 'min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold';
+
 /** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
 export function Sidebar({
   subtitle,
@@ -35,6 +38,8 @@ export function Sidebar({
   roleLabel,
   brand,
   onNavigate,
+  collapsed = false,
+  onToggle,
 }: {
   /** The firm workspace: firm logo and motto, the blue pill for the open page, no user block. */
   brand?: FirmBrand;
@@ -43,7 +48,24 @@ export function Sidebar({
   roleLabel: string;
   /** Closes the mobile drawer after a click. */
   onNavigate?: () => void;
+  /** The firm menu as icons alone, each named on hover and focus (Overview guide 18). */
+  collapsed?: boolean;
+  /** Shows the collapse button on the sidebar's edge. */
+  onToggle?: () => void;
 }) {
+  const slim = Boolean(brand && collapsed);
+  // The name of the icon under the pointer or focus, beside the slim menu (outside its scroller).
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+  const showTip = (label: string, el: HTMLElement) => {
+    const box = el.getBoundingClientRect();
+    setTip({ label, top: box.top + box.height / 2 });
+  };
+  const tipOn = (label: string) => ({
+    onMouseEnter: (e: MouseEvent<HTMLElement>) => showTip(label, e.currentTarget),
+    onFocus: (e: FocusEvent<HTMLElement>) => showTip(label, e.currentTarget),
+    onMouseLeave: () => setTip(null),
+    onBlur: () => setTip(null),
+  });
   const pathname = usePathname();
   const { me, signOut } = useMe();
   // When one item's path holds another's (/sales and /sales/pipeline), only the longest match is
@@ -113,15 +135,43 @@ export function Sidebar({
   return (
     <nav
       aria-label="Main"
-      className={`flex h-full flex-col bg-navigation text-on-navigation ${brand ? 'w-61.5' : 'w-72'}`}
+      data-collapsed={slim ? 'true' : undefined}
+      className={`relative flex h-full flex-col bg-navigation text-on-navigation transition-[width] ${brand ? (slim ? 'w-18' : 'w-61.5') : 'w-72'}`}
     >
+      {onToggle && brand ? (
+        <button
+          type="button"
+          onClick={() => {
+            setTip(null);
+            onToggle();
+          }}
+          aria-label={slim ? 'Expand menu' : 'Collapse menu'}
+          aria-expanded={!slim}
+          aria-controls="main-menu"
+          data-testid="sidebar-toggle"
+          className="absolute -right-3 top-24 z-10 flex size-6 items-center justify-center rounded-full border border-divider bg-surface text-heading shadow-sm hover:bg-canvas"
+        >
+          {slim ? (
+            <ChevronsRight aria-hidden className="size-4" />
+          ) : (
+            <ChevronsLeft aria-hidden className="size-4" />
+          )}
+        </button>
+      ) : null}
       {brand ? (
-        <div className="shrink-0 px-5 pb-5 pt-4">
+        <div className={`shrink-0 ${slim ? 'px-2 pb-3 pt-4' : 'px-5 pb-5 pt-4'}`}>
           <span
             data-testid="firm-name"
-            className={brand.logoUrl ? 'sr-only' : 'block text-xl font-semibold'}
+            className={
+              brand.logoUrl
+                ? 'sr-only'
+                : slim
+                  ? 'block text-center text-lg font-semibold'
+                  : 'block text-xl font-semibold'
+            }
+            title={slim ? brand.name : undefined}
           >
-            {brand.name}
+            {slim && !brand.logoUrl ? initials(brand.name) : brand.name}
           </span>
           {brand.logoUrl ? (
             <Image
@@ -130,7 +180,7 @@ export function Sidebar({
               alt=""
               width={200}
               height={100}
-              className="block h-auto max-h-[100px] w-full object-contain object-left"
+              className={`block h-auto w-full object-contain ${slim ? 'max-h-12 object-center' : 'max-h-[100px] object-left'}`}
             />
           ) : null}
         </div>
@@ -153,7 +203,9 @@ export function Sidebar({
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={menuRef}
+          id="main-menu"
           data-testid="sidebar-menu"
+          onScroll={() => setTip(null)}
           className={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${brand ? 'py-1' : ''}`}
         >
           {sections.map((items, i) => (
@@ -163,6 +215,57 @@ export function Sidebar({
             >
               {items.map((item) => {
                 const Icon = item.icon;
+                if (slim) {
+                  // Icons alone: a group opens its first page; the name shows beside the icon.
+                  const href = item.href ?? item.children?.find((c) => c.href)?.href;
+                  const active =
+                    item.href === current || (item.children ?? []).some((c) => c.href === current);
+                  const icon = <Icon aria-hidden className="size-[20px] shrink-0" />;
+                  if (!href) {
+                    return (
+                      <li
+                        key={item.label}
+                        aria-disabled="true"
+                        {...tipOn(`${item.label} (soon)`)}
+                        className="mx-auto my-px flex size-10 items-center justify-center text-brand-100"
+                      >
+                        {icon}
+                        <span className="sr-only">{item.label}</span>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={item.label} className="relative my-px">
+                      <Link
+                        href={href}
+                        onClick={onNavigate}
+                        aria-current={active ? 'page' : undefined}
+                        {...tipOn(item.label)}
+                        className={`relative mx-auto flex size-10 items-center justify-center rounded-control ${active ? 'bg-nav-active' : 'hover:bg-navigation-hover'}`}
+                      >
+                        {icon}
+                        <span className="sr-only">{item.label}</span>
+                        {item.badge && !item.badgeHref ? (
+                          <span className="absolute -right-1 -top-1 min-w-5 rounded-pill bg-danger px-1 text-center text-xs leading-5 font-semibold">
+                            {item.badge}
+                          </span>
+                        ) : null}
+                      </Link>
+                      {item.badge && item.badgeHref ? (
+                        <Link
+                          href={item.badgeHref}
+                          onClick={onNavigate}
+                          aria-label={item.badgeLabel ?? String(item.badge)}
+                          data-testid="nav-badge-link"
+                          {...tipOn(item.badgeLabel ?? String(item.badge))}
+                          className="absolute right-2 -top-1 min-w-5 rounded-pill bg-danger px-1 text-center text-xs leading-5 font-semibold hover:underline"
+                        >
+                          {item.badge}
+                        </Link>
+                      ) : null}
+                    </li>
+                  );
+                }
                 const body = (
                   <>
                     <Icon
@@ -177,15 +280,26 @@ export function Sidebar({
                         Soon
                       </span>
                     ) : null}
-                    {item.badge ? (
-                      <span
-                        className={`min-w-8 shrink-0 rounded-pill px-2 py-0.5 text-center text-xs font-semibold ${brand ? 'bg-danger' : 'bg-brand-500'}`}
-                      >
+                    {item.badge && !item.badgeHref ? (
+                      <span className={`${badgeLook} ${brand ? 'bg-danger' : 'bg-brand-500'}`}>
                         {item.badge}
                       </span>
                     ) : null}
                   </>
                 );
+                // A badge with a page of its own sits over the row's right end, outside its link.
+                const badgeLink =
+                  item.badge && item.badgeHref ? (
+                    <Link
+                      href={item.badgeHref}
+                      onClick={onNavigate}
+                      aria-label={item.badgeLabel ?? String(item.badge)}
+                      data-testid="nav-badge-link"
+                      className={`${badgeLook} absolute top-1/2 -translate-y-1/2 hover:underline ${brand ? 'right-7 bg-danger' : 'right-9 bg-brand-500'}`}
+                    >
+                      {item.badge}
+                    </Link>
+                  ) : null;
                 // The firm menu as the firm-workspace designs draw it (dashboard, Integrations):
                 // 34 px rows of 14 px regular text, the open page semibold (R1, Oct 20).
                 const row = `flex items-start ${brand ? 'gap-3 px-3.5 py-1.5 text-sm leading-5 font-normal' : 'gap-2.5 px-6 py-2 text-base'}`;
@@ -250,13 +364,14 @@ export function Sidebar({
                 }
                 const active = item.href === current;
                 return (
-                  <li key={item.label} className={brand ? 'my-px' : undefined}>
+                  <li key={item.label} className={`relative ${brand ? 'my-px' : ''}`}>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
                       aria-current={active ? 'page' : undefined}
                       className={
                         row +
+                        (badgeLink ? ' pr-14' : '') +
                         (brand
                           ? ' ml-3 mr-3.5 rounded-control ' +
                             (active ? 'bg-nav-active font-semibold' : 'hover:bg-navigation-hover')
@@ -268,6 +383,7 @@ export function Sidebar({
                     >
                       {body}
                     </Link>
+                    {badgeLink}
                   </li>
                 );
               })}
@@ -283,8 +399,18 @@ export function Sidebar({
         ) : null}
       </div>
 
+      {slim && tip ? (
+        <span
+          aria-hidden
+          data-testid="nav-tip"
+          style={{ top: tip.top }}
+          className="pointer-events-none fixed left-20 z-50 -translate-y-1/2 whitespace-nowrap rounded-control bg-surface px-2.5 py-1 text-sm font-semibold text-heading shadow-lg"
+        >
+          {tip.label}
+        </span>
+      ) : null}
       {brand ? (
-        brand.slogan || brand.motto ? (
+        !slim && (brand.slogan || brand.motto) ? (
           <div className="mx-4 flex shrink-0 flex-col items-center gap-2 border-t border-on-navigation/40 pb-4 pt-3">
             {brand.slogan ? (
               <p

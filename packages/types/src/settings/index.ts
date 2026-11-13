@@ -1,6 +1,7 @@
 export * from './schemas.js';
 export * from './logo.js';
 export * from './overview.js';
+export * from './security-alerts.js';
 export * from './locations.js';
 export * from './branding.js';
 export * from './users.js';
@@ -17,4 +18,5 @@ export { createLocationsClient, type LocationsClient } from './locations-client.
 export * from './profile-changes.js';
 export * from './firm-billing.js';
 export * from './portal-tabs.js';
+export * from './portal-contact.js';
 export * from './support-messages.js';

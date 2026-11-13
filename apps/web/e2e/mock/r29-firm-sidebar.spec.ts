@@ -44,9 +44,10 @@ test('every item of the design is in the sidebar, in the design order', async ({
   await expect(nav(page).getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   const labels = await nav(page).getByRole('link').allTextContents();
   const extras = new Set(['Sign-ups', 'Workspaces', 'Firm Sign', 'Audit log']);
-  expect(labels.map((l) => l.replace(/\d+$/, '').trim()).filter((l) => !extras.has(l))).toEqual(
-    DESIGN_ITEMS,
-  );
+  // Settings' security badge is a link of its own (Overview guide 19): only a count, no label.
+  expect(
+    labels.map((l) => l.replace(/\d+$/, '').trim()).filter((l) => l && !extras.has(l)),
+  ).toEqual(DESIGN_ITEMS);
   for (const extra of extras) {
     await expect(nav(page).getByRole('link', { name: extra, exact: true })).toHaveCount(1);
   }

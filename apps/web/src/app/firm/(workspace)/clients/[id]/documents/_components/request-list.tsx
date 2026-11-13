@@ -1,7 +1,8 @@
 'use client';
 import { DOCUMENT_ERRORS, type FirmDocumentRequest } from '@firmivra/types';
-import { Badge, Button, Card, Table, type Column } from '@firmivra/ui';
-import { useState } from 'react';
+import { Badge, Button, Card, Modal, Table, type Column } from '@firmivra/ui';
+import { type ReactNode, useState } from 'react';
+import { OriginLink } from '../../../../../../../components/origin-link';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -48,13 +49,24 @@ export function RequestList({ clientId }: { clientId: string }) {
   );
   const [creating, setCreating] = useState(false);
   const [missing, setMissing] = useState<string>();
+  const [viewing, setViewing] = useState<FirmDocumentRequest>();
   const accept = useApiMutation((id: string) => api.documents.acceptRequest(id), {
     invalidate: ['document-requests', clientId],
   });
   const cancel = useApiMutation((id: string) => api.documents.cancelRequest(id), {
     invalidate: ['document-requests', clientId],
   });
-  const actions = (row: FirmDocumentRequest) =>
+  const details = (row: FirmDocumentRequest) => (
+    <Button
+      variant="ghost"
+      data-testid="request-details"
+      aria-label={`View request details for ${row.title}`}
+      onClick={() => setViewing(row)}
+    >
+      View Details
+    </Button>
+  );
+  const decide = (row: FirmDocumentRequest) =>
     row.status === 'SUBMITTED' ? (
       <div className="flex flex-wrap gap-2">
         <Button
@@ -87,6 +99,12 @@ export function RequestList({ clientId }: { clientId: string }) {
         Cancel
       </Button>
     ) : null;
+  const actions = (row: FirmDocumentRequest) => (
+    <div className="flex flex-wrap items-center gap-2">
+      {details(row)}
+      {decide(row)}
+    </div>
+  );
   const columns: Column<FirmDocumentRequest>[] = [
     {
       id: 'title',
@@ -164,6 +182,68 @@ export function RequestList({ clientId }: { clientId: string }) {
           onClose={() => setMissing(undefined)}
         />
       ) : null}
+      {viewing ? <RequestDetails row={viewing} onClose={() => setViewing(undefined)} /> : null}
     </section>
+  );
+}
+
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-1 py-2 sm:grid-cols-3 sm:gap-4">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="text-sm wrap-anywhere text-text sm:col-span-2">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Octavia's E8: View Request Details: what was asked, for which service, by whom and when, its
+ * status and reason, and the files the client sent for it, each opening in Documents.
+ */
+function RequestDetails({ row, onClose }: { row: FirmDocumentRequest; onClose: () => void }) {
+  return (
+    <Modal open title={row.title} subtitle="Document request" onClose={onClose}>
+      <div data-testid="request-details-dialog">
+        <dl className="divide-y divide-border">
+          <Detail label="Service">{row.service.title}</Detail>
+          <Detail label="Category">{row.category?.name ?? 'Uncategorized'}</Detail>
+          <Detail label="Status">
+            <RequestStatus row={row} />
+          </Detail>
+          <Detail label="Due date">{row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '—'}</Detail>
+          <Detail label="Instructions">
+            {row.instructions ? (
+              <span className="whitespace-pre-wrap">{row.instructions}</span>
+            ) : (
+              '—'
+            )}
+          </Detail>
+          <Detail label="Requested">
+            {dateText(row.createdAt)}
+            {row.requestedBy ? ` by ${row.requestedBy.name}` : ''}
+          </Detail>
+          {row.resolvedAt ? <Detail label="Resolved">{dateText(row.resolvedAt)}</Detail> : null}
+          <Detail label="Files received">
+            {row.documents.length ? (
+              <ul className="flex flex-col gap-1" aria-label="Files received">
+                {row.documents.map((d) => (
+                  <li key={d.id}>
+                    <OriginLink
+                      href={`/documents/${d.id}`}
+                      className="font-medium text-link hover:underline"
+                    >
+                      {d.fileName}
+                    </OriginLink>{' '}
+                    <span className="text-muted">· {dateText(d.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              'None yet'
+            )}
+          </Detail>
+        </dl>
+      </div>
+    </Modal>
   );
 }

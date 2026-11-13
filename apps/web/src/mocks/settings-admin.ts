@@ -10,6 +10,7 @@ import {
   type LocationsClient,
   parseInput,
   ResetBrandingRequest,
+  type SecurityAlerts,
   type SettingsOverview,
   type SettingsOverviewClient,
   UpdateBrandingRequest,
@@ -46,6 +47,24 @@ const COMPANY = 'LVP Accounting & Taxes';
 /** Settings > Overview in mock mode. Built on each call from the shared member rows. */
 export function createSettingsOverviewMock(options: Options = {}): SettingsOverviewClient {
   return {
+    /** The Overview's one alert: a client portal lockout an hour ago (none when empty). */
+    securityAlerts: async (): Promise<SecurityAlerts> => {
+      await allowed(options.role);
+      const hourAgo = Date.now() - 60 * 60_000;
+      const items: SecurityAlerts['items'] = options.empty
+        ? []
+        : [
+            {
+              id: '0199c0a2-0000-7000-8000-000000000001',
+              kind: 'LOCKOUT',
+              at: new Date(hourAgo).toISOString(),
+              pool: 'CLIENT',
+              attempts: null,
+              lockedUntil: new Date(hourAgo + 15 * 60_000).toISOString(),
+            },
+          ];
+      return { count: items.length, windowDays: 7, items };
+    },
     get: async (): Promise<SettingsOverview> => {
       await allowed(options.role);
       const counts = staffCounts({ role: options.role, empty: options.empty });
