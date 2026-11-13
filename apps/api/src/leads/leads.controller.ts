@@ -35,6 +35,7 @@ import {
 import { EmailImageTokens, LeadEmailService } from './lead-email.service.js';
 import { LeadMessagesService } from './lead-messages.service.js';
 import { LeadPipelineController } from './lead-pipeline.controller.js';
+import { LeadFollowUpsController, LeadFollowUpsService } from './lead-follow-ups.js';
 import { LeadPipelineTabsController } from './lead-pipeline-tabs.controller.js';
 import { LeadPipelineTabsService } from './lead-pipeline-tabs.service.js';
 import { LeadPipelineService } from './lead-pipeline.service.js';
@@ -131,6 +132,7 @@ export class LeadsController {
     PortalEmailImagesController,
     LeadPipelineController,
     LeadPipelineTabsController,
+    LeadFollowUpsController,
     LeadsController,
   ],
   providers: [
@@ -144,6 +146,7 @@ export class LeadsController {
     LeadConvertService,
     LeadPipelineService,
     LeadPipelineTabsService,
+    LeadFollowUpsService,
     LeadPipelineWriteService,
     LeadMessagesService,
     // R5's documents bucket, made the way storage/documents.controller.ts makes it.
@@ -157,6 +160,6 @@ export class LeadsController {
   ],
   // Automations' Schedule lead follow-up (R55, the lead's one-off exception): Leads' own
   // follow-up, with every Leads rule.
-  exports: [LeadPipelineTabsService],
+  exports: [LeadFollowUpsService],
 })
 export class LeadsModule {}

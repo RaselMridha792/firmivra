@@ -16,6 +16,7 @@ import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { TaxReturnsService } from './tax-returns.service.js';
 import { ReportsModule } from '../reports/reports.module.js';
+import { TaxReturnIssuesService } from './issues.service.js';
 import { TaxReturnReviewService } from './review.service.js';
 import { TaxReturnWorkspaceController } from './workspace.controller.js';
 import { TaxReturnWorkspaceService } from './workspace.service.js';
@@ -123,7 +124,12 @@ export class MyTaxReturnsController {
     TaxReturnsController,
     MyTaxReturnsController,
   ],
-  providers: [TaxReturnsService, TaxReturnWorkspaceService, TaxReturnReviewService],
+  providers: [
+    TaxReturnsService,
+    TaxReturnWorkspaceService,
+    TaxReturnReviewService,
+    TaxReturnIssuesService,
+  ],
   // Automations' Request approval (R55, the lead's one-off exception): a pending step through
   // Tax Returns' own add; deciding it stays Tax Returns' alone.
   exports: [TaxReturnReviewService],

@@ -94,7 +94,11 @@ export function DocumentsTable({ documents }: { documents: FirmApplicationRecord
 
 const EVENT_TITLES: Record<FirmApplicationEvent['type'], string> = {
   SUBMITTED: 'Application Submitted',
+  REVIEW_STARTED: 'Review Started',
   INFO_REQUESTED: 'Information Requested',
+  RESPONSE_RECEIVED: 'Response Received',
+  NOTE_SAVED: 'Note Added',
+  REVIEWER_ASSIGNED: 'Reviewer Assigned',
   APPROVED: 'Firm Approved',
   DECLINED: 'Application Declined',
   OWNER_INVITED: 'Owner Invited',
@@ -113,6 +117,10 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
     if (event.type === 'OWNER_INVITED')
       return `Activation link sent to ${application.contactEmail}.`;
     if (event.type === 'FIRM_ACTIVATED') return 'The owner finished setup; the firm is active.';
+    if (event.type === 'RESPONSE_RECEIVED')
+      return 'The applicant answered the request on this application.';
+    if (event.type === 'REVIEWER_ASSIGNED')
+      return `${event.message ?? 'Unassigned'}${event.by ? `, by ${event.by.name}` : ''}.`;
     return event.by ? `Recorded by ${event.by.name}.` : 'Recorded by a Firmivra administrator.';
   };
   return (

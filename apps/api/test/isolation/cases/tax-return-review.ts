@@ -90,6 +90,22 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** An open warning on the world's return, raised by the Owner (TX-F19). */
+  taxIssue: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.taxReturnValidationIssue.create({
+        data: {
+          businessId,
+          taxReturnId: await get('taxReturn'),
+          severity: 'MANUAL_WARNING',
+          note: 'Fake issue',
+          createdByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   /** The world's shared document, linked to the return as a draft (its id is the document's). */
   linkedTaxDocument: {
     clientPrivate: true,
@@ -153,9 +169,47 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { approvedDocumentId: 'document' },
     body: { approvedDocumentId: '00000000-0000-4000-8000-000000000000' },
   },
+  // TX-F19: returned with a new issue (its person, draft and line) and an open one.
   'POST /api/v1/business/tax-returns/:id/approvals/:approvalId/return': {
     params: { id: 'taxReturn', approvalId: 'taxApproval' },
-    body: { note: 'Fake note' },
+    bodyIds: {
+      issueIds: 'taxIssue',
+      'issue.responsibleUserId': 'adminUser',
+      'issue.draftDocumentId': 'linkedTaxDocument',
+      'issue.checklistItemId': 'taxChecklistItem',
+    },
+    body: {
+      note: 'Fake note',
+      issue: {
+        severity: 'INFO',
+        note: 'Fake issue',
+        responsibleUserId: '00000000-0000-4000-8000-000000000000',
+        draftDocumentId: '00000000-0000-4000-8000-000000000000',
+        checklistItemId: '00000000-0000-4000-8000-000000000000',
+      },
+      issueIds: ['00000000-0000-4000-8000-000000000000'],
+    },
+  },
+  'GET /api/v1/business/tax-returns/:id/issues': { params: ret },
+  'POST /api/v1/business/tax-returns/:id/issues': {
+    params: ret,
+    bodyIds: {
+      responsibleUserId: 'adminUser',
+      draftDocumentId: 'linkedTaxDocument',
+      checklistItemId: 'taxChecklistItem',
+    },
+    body: {
+      severity: 'ERROR',
+      note: 'Fake issue',
+      responsibleUserId: '00000000-0000-4000-8000-000000000000',
+      draftDocumentId: '00000000-0000-4000-8000-000000000000',
+      checklistItemId: '00000000-0000-4000-8000-000000000000',
+    },
+  },
+  'PATCH /api/v1/business/tax-returns/:id/issues/:issueId': {
+    params: { id: 'taxReturn', issueId: 'taxIssue' },
+    bodyIds: { responsibleUserId: 'adminUser' },
+    body: { resolved: true, responsibleUserId: '00000000-0000-4000-8000-000000000000' },
   },
   'GET /api/v1/business/tax-returns/:id/authorizations': { params: ret },
   'PUT /api/v1/business/tax-returns/:id/authorizations': {

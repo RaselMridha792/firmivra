@@ -468,6 +468,32 @@ Progress (TX-F07 and the TX-F06 decision; Nov 7):
   Appointment (`/calendar/new?clientId=`). Signature and E-File stay on the return's review page.
   Mock `r60-tax-returns-menu` 2 of 2.
 
+Progress (TX-F18, Rasel's go on the role check; Nov 10):
+- Branch `rasel/R60-tax-returns-authority`: a review step is its assignee's (no assignee: the
+  return's reviewer's); an Owner, or an Admin with APPROVE, decides it as the override, recorded as
+  `override: true`. Ready to File and Close: the reviewer or the same override. Each step carries
+  `canDecide` and the detail `canFinalize`; the screen shows the controls only to them. Tax e2e 37
+  of 37, mock 26 of 26.
+- Follow-up (the lead, Nov 10), branch `rasel/R60-tax-returns-reassign` on it: a task or
+  appointment of a live return's engagement is reassigned only by the return's preparer or
+  reviewer, or the Owner or Admin override (recorded: `override` on `task.updated`,
+  `appointment.reassigned_override`). One rule, `tax-returns/return-authority.ts`, used by the
+  task update, Reschedule and the calendar's Edit Details. API e2e 86 of 86.
+
+Progress (TX-F19, F20 on R1's `tax_return_validation_issues`; Nov 10):
+- Branch `rasel/R60-tax-returns-issues` (on TX-F18's): `GET`/`POST /business/tax-returns/{id}/issues`
+  and `PATCH .../issues/{issueId}` (resolve, reopen, reassign). Return to Preparer takes `issue`
+  (raised with the decision) and `issueIds` (the open ones named); both go on the decision's audit
+  entry. An unresolved ERROR blocks Ready to File, Transmitted and Accepted before a transmission,
+  Run Final Validation, a transmission, a paper filing and the client record's Filed (new blocker
+  `VALIDATION_ISSUES_OPEN`); MANUAL_WARNING and INFO never block. Resolving: who raised it or the
+  return's reviewer (a warning or info also its responsible person), else the Owner or Admin
+  override, recorded. The screen: Validation Issues beside Return Validation and on Frame 3, and
+  the Return to Preparer dialog. Tax e2e 40 of 40, mock 30 of 30, isolation clean for the routes.
+- Note for Review 2: a durable link from a returned step to its issues would need a column
+  (`approval_id`); today the link is the decision's audit entry. Ask only if Octavia wants the
+  returned step to list its issues.
+
 ## Handoff (Oct 23): start here
 
 R60's context was full; Rasel starts a fresh R60 from this section. Read `CLAUDE.md`,
@@ -1821,47 +1847,13 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
 - Oct 27 (eighth session, end): #1185, #1186, #1187, #1194 and #1195 merged. Merged `main` into
   TX-F26 and opened it as #1198 (API e2e 8 of 8, mock 3 of 3). Wrote this handoff and stopped
   before Messages.
-- Nov 10: Clients PR 1 of the Nov 10 queue, branch `rasel/R60-clients-activity`: E2 Last Activity
-  worked out when the list is read (Rasel's word of Oct 26: messages, documents uploaded or
-  requested, tasks completed, appointments held, invoices sent or paid, e-signs completed, notes,
-  and the e-sign column), for the column and the From/To filter; `r23-client-record` moved onto the
-  clients mock (5 of 5); `clients-work.e2e`'s `nyDay` counts calendar days. Clients e2e 32 of 32.
-- Nov 10: Clients E4, branch `rasel/R60-clients-tabs` (stacked on `rasel/R60-clients-activity`):
-  the profile's Services, Intake Forms, Tasks and Notes tabs, the service tabs by enrollment and
-  the member's grid (`GET /business/clients/{id}/services` opens each module's own record), More
-  past eleven tabs, and Active Services and Recent Activity on Overview. API e2e 3 of 3, mock 58 of
-  58 across the client specs.
-- Nov 10: Clients E5, branch `rasel/R60-clients-required` (stacked on `rasel/R60-clients-tabs`):
-  Add New Client and Edit Details share `clientFormIssues` (D1's required fields, plus a
-  Business's responsible party: full name, email, phone, on R1's three columns of #1181), the
-  profile shows it, and the API refuses clearing it on a Business. The calendar's quick add stays
-  looser, as D1. Clients e2e 48 of 48, types 37 of 37, mock `r60-clients-required` 3 of 3.
-- Nov 10: Clients E8 to E10, branch `rasel/R60-clients-e8-e10` (stacked on
-  `rasel/R60-clients-required`): the Documents tab's Upload Document (Documents' upload for the
-  client), View on each file and View Request Details; New Message and Reply show To, Where and the
-  notifier's real email notice; Overview's Portal Access is Business Advisory B3's card (send with
-  the recipient confirmed, resend, revoke). Mock 64 of 64 across the client and messages specs.
-- Nov 10: Clients additions, branch `rasel/R60-clients-filters` (stacked on
-  `rasel/R60-clients-e8-e10`): Added Last 30 Days and Archived tabs; More Filters (deadline, next
-  appointment, type, location, balance, missing documents, tag, source, priority) with Apply,
-  Clear and chips, kept in the address; the list API's new filters. Clients e2e 37 of 37, mock 45
-  of 47 (D1 needed the responsible party: fixed on the E5 branch; `r60-dashboard-lists`' appointment
-  menu test fails independently of these branches). Export, Bulk Actions and linked profiles next.
-- Nov 10: Clients Export, branch `rasel/R60-clients-export` (stacked on
-  `rasel/R60-clients-filters`): `POST /business/clients/export` (the list's filters, minimal
-  fields, at most 5,000 rows, a five-minute CSV link; the Owner, or the member's grid granting
-  Clients EXPORT, read in the controller since `@Access` lets the three base roles through);
-  Export's dialog previews the scope, count and columns. Clients e2e 38 of 38, mock 1 of 1.
-- Nov 10: Clients Bulk Actions, branch `rasel/R60-clients-bulk` (stacked on
-  `rasel/R60-clients-export`): Add Tag, Change Status, Mark Inactive and Export Selected (bulk
-  `TAG` and `STAGE`, export `clientIds`), each naming the clients first, audited per client.
-  Message, document or intake request and service wait for those flows to take several clients.
-  Clients e2e 41 of 41, client mock specs 24 of 24.
-- Nov 10: Client office on the profile (`rasel/R60-clients-office`, stacked on Clients bulk),
-  PRT-1 part 2: `GET /business/clients/{id}/office` (Clients VIEW, Staff their own clients; the
-  office with `active`, the sign-up choice, the active locations, `canChange`) and `PUT` (Owner
-  and Admin; an active location of the firm or null, else 400 OFFICE_NOT_AVAILABLE; audited as
-  `client.office_changed` {from, to}; the same office writes nothing). The client Overview gets
-  a Local Office card with Change Office. API e2e 4 of 4; isolation cases added (GET, and PUT with
-  `officeId` as `firmOffice`), green apart from the two other sessions' exports; mock 6 of 6 with
-  r23-client-record.
+- Nov 10: the tax return's Confirm (AU-F31 on the record page, #1264's endpoint), branch
+  `rasel/R60-tax-returns-confirm`: Confirm Accepted and Confirm Rejected under the E-File status
+  banner on a filed return, once for its tax year, while Manual Event Confirmation is on. R56's
+  `ConfirmEventButton` takes the two tax events (no second copy). Mock 2 of 2.
+- Nov 10: Settings > Locations (`rasel/R60-settings-locations`, on R1's Locations API from
+  #1021, which the web had not wired yet). The list with its KPI cards, filters, three-dot menu,
+  details tabs and Recent Location Activity; the Location Profile; Add and Edit Location (several
+  blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
+  after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
+  schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.

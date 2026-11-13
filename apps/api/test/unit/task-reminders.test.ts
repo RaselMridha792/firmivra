@@ -218,7 +218,7 @@ describe('inFiringOrder', () => {
 // Decision A.7: a task_reminders index refusing a save (only a backstop: the rules are checked
 // first) is the reminders' 400, never the 409 of an open name change.
 describe("a unique index's refusal on save", () => {
-  const service = new TaskWriteService({} as never, {} as never, {} as never);
+  const service = new TaskWriteService({} as never, {} as never, {} as never, {} as never);
   /** What mapErrors throws for `error`. */
   const mapped = (error: unknown) => {
     try {

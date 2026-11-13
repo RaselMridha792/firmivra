@@ -7,7 +7,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { AREA_LABEL, BA_KEY, BUSINESS_STAGES, GOAL_STATUS, today, errorText } from './ba-shared';
+import {
+  AREA_LABEL,
+  BA_KEY,
+  BUSINESS_STAGES,
+  GOAL_STATUS_OPTIONS,
+  today,
+  errorText,
+} from './ba-shared';
+import { GoalSuggestions } from './goal-templates';
 
 /** The firm's active members, for the advisor and owner pickers; empty when the role may not list them. */
 export function useMembers() {
@@ -305,6 +313,8 @@ export function AddGoalDialog({
           maxLength={300}
           onChange={(e) => setTitle(e.target.value)}
         />
+        {/* B24: the approved suggestions fill the name; nothing is created until Add. */}
+        <GoalSuggestions onPick={setTitle} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
             label="Area"
@@ -325,10 +335,7 @@ export function AddGoalDialog({
             label="Status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            options={['NOT_STARTED', 'PLANNING', 'IN_PROGRESS', 'ON_TRACK', 'AT_RISK'].map((s) => ({
-              value: s,
-              label: GOAL_STATUS[s]!,
-            }))}
+            options={GOAL_STATUS_OPTIONS}
           />
           {members.length ? (
             <Select
