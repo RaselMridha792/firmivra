@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Module,
+  Param,
+  Post,
+  Put,
+  Query,
+  Delete,
+} from '@nestjs/common';
 import { z } from 'zod';
 import {
   AddInvoiceHistoryRequest,
@@ -145,6 +156,40 @@ export class InvoicesController {
     @Body(new ZodValidationPipe(SendInvoiceRequest)) _body: z.output<typeof SendInvoiceRequest>,
   ): Promise<Invoice> {
     return this.invoices.resend(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** IP-F10: archived, never deleted (a draft, paid or canceled invoice). */
+  @Post(':id/archive')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  archive(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<Invoice> {
+    return this.invoices.archive(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** IP-F10: Delete on a draft never sent archives it. */
+  @Delete(':id')
+  @Roles(...FIRM_MANAGERS)
+  deleteDraft(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<Invoice> {
+    return this.invoices.deleteDraft(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Post(':id/restore')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  restore(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<Invoice> {
+    return this.invoices.restore(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   @Post(':id/cancel')

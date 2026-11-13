@@ -21,7 +21,7 @@ import {
   sentFields,
   toDay,
 } from '../workspaces/common.js';
-import { autoErrors } from './automations.common.js';
+import { assertManagesCategory, autoErrors } from './automations.common.js';
 import { type AutoCtx, AutomationsReadService, ruleInclude } from './automations-read.service.js';
 import type {
   ActivateBody,
@@ -249,6 +249,7 @@ export class RulesService {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.write) throw autoErrors.forbidden();
       if (body.activate && !ctx.perms.activate) throw autoErrors.forbidden();
+      assertManagesCategory(ctx.perms, body.category);
       const { tx } = ctx;
       this.structure(body.definition);
       await this.read.requireMembers(ctx, body.definition.settings.notifyOnFailureUserIds);
@@ -308,6 +309,7 @@ export class RulesService {
       SELECT 1 FROM automation_rules WHERE business_id = ${ctx.businessId}::uuid AND id = ${id}::uuid
       FOR UPDATE`;
     const rule = await this.read.load(ctx, id);
+    assertManagesCategory(ctx.perms, rule.category);
     if (rule.archivedAt) throw autoErrors.ruleArchived();
     if (etag !== undefined && etag !== rule.updatedAt.toISOString())
       throw autoErrors.saveConflict();
@@ -325,6 +327,7 @@ export class RulesService {
       if (!ctx.perms.write) throw autoErrors.forbidden();
       const { tx } = ctx;
       const rule = await this.editable(ctx, id, body.etag);
+      if (body.category !== undefined) assertManagesCategory(ctx.perms, body.category);
       if (body.name !== undefined) await this.nameFree(ctx, body.name, id);
       // AU-F28: only an Owner or Admin changes who owns a rule.
       if (
@@ -483,6 +486,7 @@ export class RulesService {
       if (!ctx.perms.write) throw autoErrors.forbidden();
       const { tx } = ctx;
       const src = await this.read.load(ctx, id);
+      assertManagesCategory(ctx.perms, src.category);
       if (!src.currentVersion) throw autoErrors.invalidStatus('The rule has no definition to copy');
       let name = `${src.name} (copy)`.slice(0, 120);
       for (
@@ -532,7 +536,7 @@ export class RulesService {
     const out = await this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.write) throw autoErrors.forbidden();
       const { tx } = ctx;
-      await this.read.load(ctx, id);
+      assertManagesCategory(ctx.perms, (await this.read.load(ctx, id)).category);
       await tx.$queryRaw`
         SELECT 1 FROM automation_rules WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
         FOR UPDATE`;
@@ -570,6 +574,7 @@ export class RulesService {
       if (!ctx.perms.write) throw autoErrors.forbidden();
       const { tx } = ctx;
       const { row, def } = await this.templates.usable(ctx, templateId);
+      assertManagesCategory(ctx.perms, row.category);
       let name = (body.name ?? row.name).slice(0, 120);
       if (body.name) await this.nameFree(ctx, name);
       else

@@ -18,6 +18,11 @@ export interface VerifiedToken {
    * session row keeps only a SHA-256 of it (src/auth/staff-sessions.ts).
    */
   session?: string;
+  /**
+   * When the person signed in (seconds since 1970), the same across refreshes (SEC-4: the 8-hour
+   * cap): Cognito's `auth_time`, locally the `at` claim.
+   */
+  authTime?: number;
 }
 
 /**
@@ -47,10 +52,12 @@ export class TokenService {
     });
     if (!payload.sub) throw new Error('token has no subject');
     const sid = payload['sid'];
+    const at = payload['at'];
     return {
       sub: payload.sub,
       pool: IdentityPool.parse(payload['pool']),
       ...(typeof sid === 'string' && sid ? { session: sid } : {}),
+      ...(typeof at === 'number' ? { authTime: at } : {}),
     };
   }
 
@@ -62,8 +69,13 @@ export class TokenService {
     sub: string,
     pool: IdentityPool,
     session?: string,
+    authTime?: number,
   ): Promise<{ token: string; expiresIn: number }> {
-    const token = await new SignJWT({ pool, ...(session ? { sid: session } : {}) })
+    const token = await new SignJWT({
+      pool,
+      ...(session ? { sid: session } : {}),
+      ...(authTime === undefined ? {} : { at: authTime }),
+    })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(sub)
       .setIssuer(LOCAL_ISSUER)
@@ -113,10 +125,12 @@ function createCognitoVerifier(env: Env) {
       // origin_jti: the same for every access token its refresh token gives (token revocation
       // is on for each app client, infra/src/stacks/auth-stack.ts).
       const origin = (payload as { origin_jti?: unknown }).origin_jti;
+      const authTime = (payload as { auth_time?: unknown }).auth_time;
       return {
         sub: payload.sub,
         pool: match.pool,
         ...(typeof origin === 'string' && origin ? { session: origin } : {}),
+        ...(typeof authTime === 'number' ? { authTime } : {}),
       };
     },
   };

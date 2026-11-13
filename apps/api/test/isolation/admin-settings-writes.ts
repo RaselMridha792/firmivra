@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { UploadPutTicket } from '@firmivra/types';
+import { LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { supportStorage, type SupportWrite, type WriteHelpers } from './admin-support-writes.js';
 
 type Fixtures = { users: { admin: { id: string; email: string } }; firmA: { id: string } };
@@ -113,6 +114,43 @@ const sectionVersion = (key: string) =>
     (tx: { platformSetting: { findUniqueOrThrow: (a: object) => Promise<{ version: number }> } }) =>
       tx.platformSetting.findUniqueOrThrow({ where: { key } }).then((r) => r.version),
   );
+/**
+ * A General save in the history that Restore can undo (SA-SYS-A2): its audit row flips one
+ * switch from the value it has now, so restoring it always changes something.
+ */
+async function restorableSave(adminId: string): Promise<{ eventId: string; version: number }> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  try {
+    return await runInScope(owner, { kind: 'platform' }, async (tx) => {
+      const row = await tx.platformSetting.findUniqueOrThrow({ where: { key: 'general' } });
+      const prefs = ((row.value as { preferences?: { betaFeatures?: unknown } } | null)
+        ?.preferences ?? {}) as { betaFeatures?: unknown };
+      const now = prefs.betaFeatures === true;
+      const event = await tx.auditLog.create({
+        data: {
+          businessId: null,
+          actorUserId: adminId,
+          action: 'system_settings.section_saved',
+          entityType: 'platform_setting',
+          entityId: 'general',
+          category: 'SYSTEM',
+          severity: 'LOW',
+          outcome: 'SUCCESS',
+          actorType: 'PLATFORM',
+          actorRole: 'SUPER_ADMIN',
+          metadata: {
+            fromVersion: row.version,
+            changes: { 'preferences.betaFeatures': { from: !now, to: now } },
+          },
+        },
+        select: { id: true },
+      });
+      return { eventId: event.id, version: row.version };
+    });
+  } finally {
+    await owner.$disconnect();
+  }
+}
 const defaultsVersion = (kind: 'FIRM' | 'USER') =>
   versionOf(
     (tx: {
@@ -227,6 +265,15 @@ export function settingsWrites(fx: Fixtures): Record<string, SettingsWrite> {
       body: async () => ({ version: await sectionVersion('email_notifications'), value: EMAIL }),
     },
     [`POST ${S}/email/test`]: { body: { to: fx.users.admin.email } },
+    [`POST ${S}/restore/preview`]: {
+      body: async () => ({ eventId: (await restorableSave(fx.users.admin.id)).eventId }),
+    },
+    [`POST ${S}/restore`]: {
+      body: async () => ({
+        ...(await restorableSave(fx.users.admin.id)),
+        password: LOCAL_PASSWORD,
+      }),
+    },
     [`POST ${S}/branding/assets/uploads`]: {
       body: {
         kind: 'FAVICON',

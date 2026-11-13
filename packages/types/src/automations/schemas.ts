@@ -436,6 +436,8 @@ export const AutomationOverview = z.object({
   recent: z.array(AutomationRunRow).max(10),
   canCreate: z.boolean(),
   canManage: z.boolean(),
+  /** Tasks A4: only the Owner and Admins create, change or turn task automations on and off. */
+  canManageTasks: z.boolean(),
 });
 export type AutomationOverview = z.infer<typeof AutomationOverview>;
 

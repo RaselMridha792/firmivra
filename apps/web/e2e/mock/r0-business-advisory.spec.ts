@@ -128,7 +128,9 @@ test('Business Plans: review, finalize, send, and the version history', async ({
   await list.getByRole('button', { name: `Actions for ${YEAR} Startup Launch Plan` }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('The plan is not ready yet.')).toBeVisible();
-  await expect(page.getByText(/Still needed: Add the strategy summary or an area/)).toBeVisible();
+  await expect(
+    page.getByText(/Still needed: .*Add the strategy summary \(stage 3\)/),
+  ).toBeVisible();
   // The plan in review finalizes, then goes to the client.
   await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
   await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
@@ -249,10 +251,20 @@ test('Plan wizard: a new plan starts from the client record and moves to step 2'
   await expect(page.getByLabel('Business Name')).toHaveValue('SL Beauty Studio');
   await expect(page.getByTestId('quick-tips')).toBeVisible();
   await expect(page.getByTestId('whats-next').getByRole('listitem')).toHaveCount(5);
-  // Next needs the plan name; a draft could save without the rest.
+  // Next needs the required fields (Advisory B13); a draft could save without the rest.
   await page.getByTestId('wizard-next').click();
-  await expect(page.getByText('Fill in the required fields to continue')).toBeVisible();
+  await expect(page.getByText(/Fill in the required fields to continue/)).toBeVisible();
   await page.getByLabel('Plan Name').fill('Salon Growth Plan');
+  await page.getByLabel('Plan Type').selectOption({ index: 1 });
+  await page.getByLabel('Street Address').fill('100 Sample Street');
+  await page.getByLabel('ZIP Code').fill('30030');
+  for (const [label, value] of [
+    ['Phone Number', '(404) 555-0100'],
+    ['Email Address', 'salon@example.test'],
+  ] as const) {
+    const field = page.getByLabel(label);
+    if (!(await field.inputValue())) await field.fill(value);
+  }
   await page.getByLabel('How did you hear about us?').selectOption('Existing Client');
   await page.getByLabel('Notes (optional)').fill('Wants online booking first.');
   await page.getByTestId('wizard-next').click();
@@ -265,7 +277,7 @@ test('Plan wizard: the review says what is still needed, then the plan finalizes
 }) => {
   await page.goto(`${startupPlan}/review`);
   await expect(page.getByTestId('still-needed')).toContainText(
-    'Add the strategy summary or an area (stage 3)',
+    'Add the strategy summary (stage 3)',
   );
   await expect(page.getByTestId('wizard-next')).toBeDisabled();
   // The Goals & Strategy summary's Edit link (profile, assessment, strategy, action plan).
@@ -273,6 +285,7 @@ test('Plan wizard: the review says what is still needed, then the plan finalizes
   await expect(page.getByTestId('step-areas')).toBeVisible({ timeout: 60_000 });
   await page.getByTestId('step-areas').getByRole('checkbox', { name: 'Marketing / Sales' }).click();
   await page.getByLabel('Marketing / Sales objective').fill('Book 40 appointments a week');
+  await page.getByLabel('Strategy summary').fill('Open with a steady weekly booking base.');
   await page.getByTestId('wizard-next').click();
   await expect(page.getByTestId('step-milestones')).toBeVisible({ timeout: 60_000 });
   await page.getByTestId('wizard-next').click();

@@ -458,6 +458,8 @@ export function StrategyStep({ plan }: { plan: Plan }) {
   const { save, saving, error, setError, reload } = useStepSave(plan);
   const start = () => ({
     summary: plan.strategy.summary ?? '',
+    /** B13: None / Not Applicable, chosen on purpose; never with an area. */
+    none: plan.strategy.noFocusArea === true,
     areas: Object.fromEntries(
       (plan.strategy.areas ?? []).map((x) => [
         x.area,
@@ -471,25 +473,40 @@ export function StrategyStep({ plan }: { plan: Plan }) {
   const [dialog, setDialog] = useState<
     { kind: 'goal' | 'rec' } | { kind: 'edit'; goalId: string }
   >();
+  // B13: an area and None / Not Applicable never stand together: choosing one clears the other.
   const toggle = (area: string, on: boolean) =>
     setForm((f) => {
       const areas = { ...f.areas };
       if (on) areas[area] = { objective: '', notes: '' };
       else delete areas[area];
-      return { ...f, areas };
+      return { ...f, areas, none: on ? false : f.none };
     });
+  const chooseNone = (on: boolean) =>
+    setForm((f) => ({ ...f, none: on, areas: on ? {} : f.areas }));
+  const summaryMissing = tried && !form.summary.trim();
+  const focusMissing = tried && !form.none && Object.keys(form.areas).length === 0;
   const setArea = (area: string, k: 'objective' | 'notes', v: string) =>
     setForm((f) => ({ ...f, areas: { ...f.areas, [area]: { ...f.areas[area]!, [k]: v } } }));
-  const persist = async (n: number) => {
+  /** Save the step; moving on (`next`) also needs the summary and a focus choice (B13). */
+  const persist = async (n: number, next = false) => {
     setTried(true);
     if (Object.values(form.areas).some((x) => !x.objective.trim())) {
       setError('Give each chosen area its objective.');
+      return false;
+    }
+    if (next && (!form.summary.trim() || (!form.none && !Object.keys(form.areas).length))) {
+      setError(
+        !form.summary.trim()
+          ? 'Write the strategy summary to continue, or save as a draft.'
+          : 'Choose at least one focus area, or None / Not Applicable, to continue.',
+      );
       return false;
     }
     return save({
       step: Math.max(plan.step, n),
       strategy: {
         summary: orNull(form.summary),
+        noFocusArea: form.none,
         areas: Object.entries(form.areas).map(([area, x]) => ({
           area: area as never,
           objective: x.objective.trim(),
@@ -507,7 +524,7 @@ export function StrategyStep({ plan }: { plan: Plan }) {
       error={error}
       onReload={reload}
       onSaveDraft={() => persist(3)}
-      onNext={() => void persist(4).then((ok) => ok && router.push(stepHref(plan.id, 4)))}
+      onNext={() => void persist(4, true).then((ok) => ok && router.push(stepHref(plan.id, 4)))}
     >
       <section className={card} aria-label="Strategy" data-testid="step-strategy">
         <SectionHead
@@ -516,9 +533,11 @@ export function StrategyStep({ plan }: { plan: Plan }) {
           subtitle="The desired outcomes, in a few sentences the client will read."
         />
         <Textarea
-          label="Strategy summary"
+          label="Strategy summary *"
+          required
           rows={4}
           maxLength={3000}
+          {...(summaryMissing ? { error: 'Write the strategy summary.' } : {})}
           value={form.summary}
           onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
         />
@@ -527,9 +546,30 @@ export function StrategyStep({ plan }: { plan: Plan }) {
         <SectionHead
           icon={Flag}
           title="Focus Areas"
-          subtitle="Choose the areas the plan works on, each with its objective."
+          subtitle="Choose the areas the plan works on, each with its objective, or None / Not Applicable. *"
         />
+        {focusMissing ? (
+          <p
+            role="alert"
+            className="mb-2 text-sm font-medium text-danger"
+            data-testid="focus-missing"
+          >
+            Choose at least one focus area, or None / Not Applicable.
+          </p>
+        ) : null}
         <ul className="grid items-start gap-3 md:grid-cols-2">
+          <li
+            className={`rounded-lg border p-3 ${form.none ? 'border-action bg-accent-soft' : 'border-divider'}`}
+          >
+            <Checkbox
+              label="None / Not Applicable"
+              checked={form.none}
+              onChange={(e) => chooseNone(e.target.checked)}
+            />
+            <p className="mt-1 text-xs text-muted">
+              The plan works on no focus area. Choosing an area clears this.
+            </p>
+          </li>
           {Object.entries(AREA_LABEL).map(([area, label]) => {
             const on = area in form.areas;
             return (
@@ -881,10 +921,22 @@ export function readiness(plan: Plan) {
       done: Boolean(plan.profile.businessName),
     },
     {
+      id: 'planType',
+      label: 'Plan type (stage 1)',
+      todo: 'Choose the plan type (stage 1)',
+      done: Boolean(plan.planType),
+    },
+    {
       id: 'strategy',
-      label: 'Strategy summary or a focus area (stage 3)',
-      todo: 'Add the strategy summary or an area (stage 3)',
-      done: Boolean(plan.strategy.summary) || Boolean(plan.strategy.areas?.length),
+      label: 'Strategy summary (stage 3)',
+      todo: 'Add the strategy summary (stage 3)',
+      done: Boolean(plan.strategy.summary),
+    },
+    {
+      id: 'focus',
+      label: 'A focus area, or None / Not Applicable (stage 3)',
+      todo: 'Choose a focus area, or None / Not Applicable (stage 3)',
+      done: Boolean(plan.strategy.areas?.length) || plan.strategy.noFocusArea === true,
     },
     {
       id: 'goal',

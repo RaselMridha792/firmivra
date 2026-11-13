@@ -4,10 +4,13 @@ import type { z } from 'zod';
 import {
   type AdminDashboard,
   ApproveFirmApplicationRequest,
+  AssignFirmReviewerRequest,
   DeclineFirmApplicationRequest,
   FirmApplicationId,
   type FirmApplicationCounts,
+  type FirmApplicationFileLink,
   type FirmApplicationRecord,
+  type FirmApplicationReviewers,
   type FirmCounts,
   FirmId,
   type FirmRecord,
@@ -28,6 +31,12 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE } from '../notify/notify.types.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
+import {
+  createS3Client,
+  DOCUMENT_STORAGE,
+  S3DocumentStorage,
+} from '../storage/document-storage.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
@@ -83,6 +92,13 @@ export class AdminFirmApplicationsController {
     return this.applications.counts();
   }
 
+  /** SA-APP-F06: who an application can be assigned to. Before ':id'. */
+  @Get('reviewers')
+  @Roles('SUPER_ADMIN')
+  reviewers(): Promise<FirmApplicationReviewers> {
+    return this.applications.reviewers();
+  }
+
   @Get(':id')
   @Roles('SUPER_ADMIN')
   get(
@@ -106,7 +122,44 @@ export class AdminFirmApplicationsController {
     return this.applications.approve(id, body.slug);
   }
 
-  /** Request Information: emails the applicant; stays pending. 409 APPLICATION_DECIDED. */
+  /**
+   * SA-APP-F02: the detail page was opened. Pending becomes In Review once; nothing else changes.
+   * A POST, so reading the application never writes.
+   */
+  @Post(':id/open')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  open(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.open(id);
+  }
+
+  /** SA-APP-F06: assign, reassign or unassign the reviewer. Super Admin only. */
+  @Put(':id/reviewer')
+  @Roles('SUPER_ADMIN')
+  assignReviewer(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Body(new ZodValidationPipe(AssignFirmReviewerRequest))
+    body: z.output<typeof AssignFirmReviewerRequest>,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.assignReviewer(id, body.userId);
+  }
+
+  /** A response file's short-lived link, once scanned clean. 409 FILE_NOT_READY. */
+  @Get(':id/files/:fileId')
+  @Roles('SUPER_ADMIN')
+  fileLink(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Param('fileId', new ZodValidationPipe(FirmApplicationId)) fileId: string,
+  ): Promise<FirmApplicationFileLink> {
+    return this.applications.fileLink(id, fileId);
+  }
+
+  /**
+   * SA-APP-F03 Request Additional Information: emails the applicant a link to answer; the status
+   * becomes Awaiting Information. 409 APPLICATION_DECIDED.
+   */
   @Post(':id/request-info')
   @HttpCode(200)
   @Roles('SUPER_ADMIN')
@@ -211,6 +264,14 @@ export class AdminDashboardController {
       provide: OWNER_INVITES,
       inject: [DATABASE, IDENTITY_PROVIDER, NOTIFY_SERVICE, AuditService, ENV],
       useFactory: createOwnerInvites,
+    },
+    // The documents bucket (the applicants' response files), as DocumentsModule builds it.
+    { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
+    {
+      provide: DOCUMENT_STORAGE,
+      inject: [DOCUMENTS_CONFIG],
+      useFactory: (config: DocumentsConfig) =>
+        new S3DocumentStorage(createS3Client(config), config.bucket),
     },
   ],
 })
