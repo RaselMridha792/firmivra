@@ -9,7 +9,10 @@ import {
   LockClientPortalRequest,
   parseInput,
   type PendingClientAction,
+  type ClientPortalVisibility,
+  PortalModule,
   RECENT_PORTAL_CLIENTS,
+  UpdateClientPortalVisibilityRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -26,6 +29,30 @@ const PORTAL = 'https://portal.localhost:3001/lvp';
 export function createClientPortalMock(): ClientPortalClient {
   const recent: { id: string; at: number }[] = [];
   const locks = new Map<string, ClientPortalLock>();
+  const hidden = new Map<string, Set<PortalModule>>();
+  const deactivated = new Set<string>();
+  const areas = (clientId: string): ClientPortalVisibility => {
+    const off = hidden.get(clientId) ?? new Set();
+    return {
+      areas: PortalModule.options.map((module) => ({
+        module,
+        firmOn: true,
+        clientOn: !off.has(module),
+        visible: !off.has(module),
+      })),
+      canChange: true,
+    };
+  };
+  const activeLogins = (clientId: string) => {
+    const { found } = record(clientId);
+    const n = deactivated.has(found.id)
+      ? 0
+      : found.portalLogins.filter((l) => l.status === 'ACTIVE').length;
+    if (n === 0) {
+      throw new ApiRequestError(409, 'NO_ACTIVE_LOGIN', 'This client has no active portal login.');
+    }
+    return n;
+  };
   let activity: Map<string, ClientPortalActivityItem[]> | null = null;
 
   const record = (clientId: string) => {
@@ -119,11 +146,13 @@ export function createClientPortalMock(): ClientPortalClient {
         portal: {
           status: lock.locked
             ? 'LOCKED'
-            : active
-              ? 'ACTIVE'
-              : pending
-                ? 'PENDING_APPROVAL'
-                : 'NOT_ACTIVATED',
+            : deactivated.has(found.id)
+              ? 'DEACTIVATED'
+              : active
+                ? 'ACTIVE'
+                : pending
+                  ? 'PENDING_APPROVAL'
+                  : 'NOT_ACTIVATED',
           lock,
           logins: found.portalLogins,
           portalSince: active ? '2024-01-12T15:00:00.000Z' : null,
@@ -254,6 +283,62 @@ export function createClientPortalMock(): ClientPortalClient {
       const { found } = record(clientId);
       locks.delete(found.id);
       return lockOf(found.id);
+    },
+    visibility: async (clientId) => {
+      await mockDelay();
+      return areas(record(clientId).found.id);
+    },
+    setVisibility: async (clientId, body) => {
+      await mockDelay();
+      const id = record(clientId).found.id;
+      const { areas: changes } = parseInput(UpdateClientPortalVisibilityRequest, body);
+      const off = hidden.get(id) ?? new Set<PortalModule>();
+      for (const [module, on] of Object.entries(changes) as [PortalModule, boolean][]) {
+        if (on) off.delete(module);
+        else off.add(module);
+      }
+      hidden.set(id, off);
+      return areas(id);
+    },
+    deactivate: async (clientId) => {
+      await mockDelay();
+      const changed = activeLogins(clientId);
+      deactivated.add(record(clientId).found.id);
+      return { changed };
+    },
+    reactivate: async (clientId) => {
+      await mockDelay();
+      const id = record(clientId).found.id;
+      if (!deactivated.delete(id)) {
+        throw new ApiRequestError(
+          409,
+          'NOT_DEACTIVATED',
+          'This client’s portal was not deactivated here.',
+        );
+      }
+      return { changed: 1 };
+    },
+    resetAccess: async (clientId) => {
+      await mockDelay();
+      return { changed: activeLogins(clientId) };
+    },
+    resetMfa: async (clientId) => {
+      await mockDelay();
+      return { changed: activeLogins(clientId) };
+    },
+    documentsSummary: async (clientId) => {
+      await mockDelay();
+      const has = record(clientId).found.portalLogins.length > 0;
+      return has
+        ? { total: 12, clientUploaded: 8, firmShared: 4, pendingReview: 2, requested: 3 }
+        : { total: 0, clientUploaded: 0, firmShared: 0, pendingReview: 0, requested: 0 };
+    },
+    formsSummary: async (clientId) => {
+      await mockDelay();
+      const has = record(clientId).found.portalLogins.length > 0;
+      return has
+        ? { total: 8, completed: 3, needsReview: 1, inProgress: 2, notStarted: 1, archived: 1 }
+        : { total: 0, completed: 0, needsReview: 0, inProgress: 0, notStarted: 0, archived: 0 };
     },
   };
 }

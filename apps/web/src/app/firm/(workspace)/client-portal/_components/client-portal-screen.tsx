@@ -102,7 +102,7 @@ export function ClientPortalScreen() {
 }
 
 /** Switch Client: the active client, and a search of the firm's clients to change it. */
-function ClientSwitcher({
+export function ClientSwitcher({
   activeId,
   onSelect,
 }: {
