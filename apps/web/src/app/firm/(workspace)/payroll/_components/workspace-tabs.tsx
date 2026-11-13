@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  FirmDocument,
   PayrollClientWorkspace,
   PayrollFiling,
   PayrollReport,
@@ -405,6 +406,17 @@ export function ReportsTab({ id }: { id: string }) {
     { id: 'ver', label: 'Version', cell: (r) => `v${r.version}` },
     { id: 'src', label: 'Source', cell: (r) => (r.source === 'provider' ? 'Provider' : 'Import') },
     { id: 'pulled', label: 'Pulled', cell: (r) => stamp(r.pulledAt) },
+    // Review 2 (B01): the attached file by name, with View and Download.
+    {
+      id: 'file',
+      label: 'File',
+      cell: (r) =>
+        r.documentId ? (
+          <FileActions id={r.documentId} name={r.fileName ?? 'Attached file'} />
+        ) : (
+          <span className="text-muted">No file</span>
+        ),
+    },
   ];
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="tab-reports">
@@ -579,12 +591,27 @@ function AddReportDialog({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 /** Documents: the client's payroll documents, from the shared Documents module. */
-export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
+export function DocumentsTab({
+  clientId,
+  engagementId,
+}: {
+  clientId: string | undefined;
+  /** The payroll service: the tab lists its documents and requests (Review 2, UX02). */
+  engagementId?: string | undefined;
+}) {
   // SH3: Request and Upload open here, for this client's payroll service.
   const { open } = useServiceDocuments();
-  const docs = useApiQuery([...PAYROLL_KEY, 'documents', clientId ?? ''], async () =>
-    clientId ? api.documents.list(clientId) : { items: [] },
+  const scope = engagementId ? { serviceId: engagementId } : {};
+  const docs = useApiQuery(
+    [...PAYROLL_KEY, 'documents', clientId ?? '', engagementId ?? ''],
+    async () => (clientId ? api.documents.list(clientId, scope) : { items: [] }),
   );
+  // Review 2 (F02): the request a file answered, by name, with a link to it.
+  const requests = useApiQuery(
+    [...PAYROLL_KEY, 'document-requests', clientId ?? '', engagementId ?? ''],
+    async () => (clientId ? api.documents.requests(clientId, scope) : []),
+  );
+  const titleOf = new Map((requests.data ?? []).map((r) => [r.id, r.title]));
   const rows = docs.data?.items ?? [];
   return (
     <section className={card} aria-label="Documents" data-testid="tab-documents">
@@ -615,17 +642,85 @@ export function DocumentsTab({ clientId }: { clientId: string | undefined }) {
           {rows.map((d) => (
             <li
               key={d.id}
-              className="flex items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
+              className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-2 text-sm first:border-t-0"
+              data-testid="payroll-document"
             >
-              <span className="min-w-0 truncate text-heading">{d.fileName}</span>
-              <span className="shrink-0 text-xs text-muted">
-                {dayText(d.createdAt.slice(0, 10))}
-              </span>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-heading">{d.fileName}</p>
+                <p className="text-xs text-muted">
+                  {d.service.title} · {sourceOf(d)} · {dayText(d.createdAt.slice(0, 10))}
+                </p>
+                {d.requestId ? (
+                  <p className="text-xs text-text">
+                    For request:{' '}
+                    <OriginLink
+                      href={`/documents/requests/${d.requestId}`}
+                      className="font-medium text-link hover:underline"
+                    >
+                      {titleOf.get(d.requestId) ?? 'Open the request'}
+                    </OriginLink>
+                  </p>
+                ) : null}
+              </div>
+              <FileActions id={d.id} name={d.fileName} scanned={d.scanStatus === 'CLEAN'} />
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+/** Where a document came from, in words (Review 2, UX02). */
+function sourceOf(d: FirmDocument): string {
+  if (d.uploadedBy?.byClient) return 'Uploaded by the client';
+  if (d.uploadedBy) return `Uploaded by ${d.uploadedBy.name}`;
+  return d.direction === 'CLIENT_TO_FIRM'
+    ? 'From the client'
+    : d.direction === 'FIRM_TO_CLIENT'
+      ? 'Shared with the client'
+      : 'Internal (staff only)';
+}
+
+/**
+ * View (the document's page) and Download (a short-lived link) for one file. Download waits for a
+ * clean scan, and says why while it does (Review 2, UX02 and B01).
+ */
+function FileActions({
+  id,
+  name,
+  scanned = true,
+}: {
+  id: string;
+  name: string;
+  scanned?: boolean;
+}) {
+  const download = useApiMutation(async () => {
+    const link = await api.documents.download(id);
+    window.location.assign(link.url);
+  });
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <span className="sr-only">{name}</span>
+      <OriginLink href={`/documents/${id}`} className={outlined} aria-label={`View ${name}`}>
+        View
+      </OriginLink>
+      <button
+        type="button"
+        className={outlined}
+        aria-label={`Download ${name}`}
+        disabled={!scanned || download.isPending}
+        title={scanned ? undefined : 'Available once the file has passed its virus scan.'}
+        onClick={() => download.mutate()}
+      >
+        Download
+      </button>
+      {download.isError ? (
+        <span role="alert" className="text-xs text-danger">
+          The file could not be downloaded. Try again in a moment.
+        </span>
+      ) : null}
+    </div>
   );
 }
 

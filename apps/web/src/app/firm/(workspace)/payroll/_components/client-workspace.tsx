@@ -327,7 +327,9 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
         {current === 'runs' ? <RunsTab id={id} /> : null}
         {current === 'filings' ? <FilingsTab id={id} /> : null}
         {current === 'reports' ? <ReportsTab id={id} /> : null}
-        {current === 'documents' ? <DocumentsTab clientId={w?.client.id} /> : null}
+        {current === 'documents' ? (
+          <DocumentsTab clientId={w?.client.id} engagementId={w?.engagementId} />
+        ) : null}
         {current === 'tasks' ? (
           <TasksTab clientId={w?.client.id} engagementId={w?.engagementId} />
         ) : null}

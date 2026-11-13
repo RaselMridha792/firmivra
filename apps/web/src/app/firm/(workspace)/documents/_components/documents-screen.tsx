@@ -32,8 +32,16 @@ function sortRows(rows: FirmDocument[], sort?: TableSort): FirmDocument[] {
  * own Documents tab already uses (clients/[id]/documents). Everything else is a quiet empty state
  * until its own module is built: the PR lists each one.
  */
-export function DocumentsScreen() {
-  const [clientId, setClientId] = useState('');
+export function DocumentsScreen({
+  initialClientId = '',
+  initialServiceId = '',
+}: {
+  initialClientId?: string;
+  /** One of the client's services (engagements): the list shows only its documents. */
+  initialServiceId?: string;
+}) {
+  const [clientId, setClientId] = useState(initialClientId);
+  const [serviceId, setServiceId] = useState(initialServiceId);
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState<'' | FirmDocument['scanStatus']>('');
   const [search, setSearch] = useState('');
@@ -46,9 +54,10 @@ export function DocumentsScreen() {
   const clients = useApiQuery(['documents', 'clients'], () => api.clients.list({ limit: 100 }));
   const categories = useApiQuery(['document-categories'], () => api.documents.categories());
   const documents = useApiQuery(
-    ['documents', 'list', clientId, categoryId, search, cursor, pageSize],
+    ['documents', 'list', clientId, serviceId, categoryId, search, cursor, pageSize],
     () =>
       api.documents.list(clientId, {
+        serviceId: serviceId || undefined,
         categoryId: categoryId || undefined,
         search: search || undefined,
         cursor,
@@ -87,6 +96,7 @@ export function DocumentsScreen() {
               clientId={clientId}
               onClientChange={(value) => {
                 setClientId(value);
+                setServiceId('');
                 setCategoryId('');
                 setStatus('');
                 setSelected(new Set());
@@ -106,6 +116,22 @@ export function DocumentsScreen() {
                 resetPaging();
               }}
             />
+            {clientId && serviceId ? (
+              <p className="text-sm text-text" data-testid="documents-scope">
+                Showing {client?.displayName ?? 'this client'}’s{' '}
+                {documents.data?.items[0]?.service.title ?? 'service'} documents.{' '}
+                <button
+                  type="button"
+                  className="font-medium text-link hover:underline"
+                  onClick={() => {
+                    setServiceId('');
+                    resetPaging();
+                  }}
+                >
+                  Show all of their documents
+                </button>
+              </p>
+            ) : null}
             {!clientId ? (
               <p className="py-10 text-center text-sm text-muted" data-testid="documents-no-client">
                 Select a client to view their documents.
