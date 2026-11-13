@@ -30,14 +30,16 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useId, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { PROPOSED_HELP } from './field-help';
 import {
   ACTION_STATUS,
+  AREA_LABEL,
   ASSIGNEE_KIND,
   ActionStatusPill,
   BASE,
@@ -663,6 +665,8 @@ export function AddRecommendationDialog({
   const [impactLabel, setImpactLabel] = useState('');
   const [impact, setImpact] = useState('');
   const [visible, setVisible] = useState(false);
+  const categoriesId = useId();
+  const portalHintId = useId();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const save = async () => {
@@ -714,43 +718,59 @@ export function AddRecommendationDialog({
         {fields}
         <Input
           label="Recommendation"
+          hint={PROPOSED_HELP.recommendation}
           required
           maxLength={300}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Input
-            label="Category"
-            maxLength={60}
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          />
-          <Input
-            label="Impact (text)"
-            maxLength={100}
-            value={impactLabel}
-            onChange={(e) => setImpactLabel(e.target.value)}
-          />
-          <Input
-            label="Impact ($)"
-            inputMode="decimal"
-            value={impact}
-            onChange={(e) => setImpact(e.target.value)}
-          />
-        </div>
+        {/* A focus area to choose, or any category typed in. */}
+        <Input
+          label="Category"
+          hint={PROPOSED_HELP.category}
+          maxLength={60}
+          list={categoriesId}
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        />
+        <datalist id={categoriesId}>
+          {Object.values(AREA_LABEL).map((a) => (
+            <option key={a} value={a} />
+          ))}
+        </datalist>
+        <Input
+          label="Impact Text"
+          hint={PROPOSED_HELP.impactText}
+          maxLength={100}
+          value={impactLabel}
+          onChange={(e) => setImpactLabel(e.target.value)}
+        />
+        <Input
+          label="Estimated Financial Impact ($)"
+          hint={PROPOSED_HELP.impactAmount}
+          inputMode="decimal"
+          value={impact}
+          onChange={(e) => setImpact(e.target.value)}
+        />
         <Textarea
           label="Rationale"
+          hint={PROPOSED_HELP.rationale}
           rows={3}
           maxLength={3000}
           value={rationale}
           onChange={(e) => setRationale(e.target.value)}
         />
-        <Checkbox
-          label="Show on the client portal"
-          checked={visible}
-          onChange={(e) => setVisible(e.target.checked)}
-        />
+        <div>
+          <Checkbox
+            label="Show on Client Portal"
+            checked={visible}
+            aria-describedby={portalHintId}
+            onChange={(e) => setVisible(e.target.checked)}
+          />
+          <p id={portalHintId} className="pl-8 text-sm text-muted">
+            {PROPOSED_HELP.showOnPortal}
+          </p>
+        </div>
       </div>
     </Modal>
   );

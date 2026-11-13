@@ -33,6 +33,9 @@ function headline(f: BookkeepingReportFigures): string {
       return `${t('receiptsMissing')} receipts (${money(t('amountWithoutReceiptCents'))}) · ${t('statementsMissing')} statements missing`;
     case 'BOOKKEEPING_STATUS':
       return `${t('closeStepsDone')} of ${t('closeStepsDone') + t('closeStepsOpen')} close steps done`;
+    case 'QUARTERLY_REVIEW':
+    case 'YEAR_TO_DATE_SUMMARY':
+      return `Net income ${money(t('netIncomeCents'))} · ${t('months')} months · ${t('uncategorized')} uncategorized`;
     default:
       return `${f.lineCount} lines · net ${money(t('netCents'))}`;
   }

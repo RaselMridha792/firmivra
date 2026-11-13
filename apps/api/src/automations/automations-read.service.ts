@@ -703,8 +703,15 @@ export class AutomationsReadService {
       },
       activationBlockers: blockers,
       createdAt: rule.createdAt.toISOString(),
-      canEdit: ctx.perms.write && rule.archivedAt === null,
-      canActivate: ctx.perms.activate && rule.archivedAt === null,
+      // Tasks A4: a task automation is the Owner's and Admins' to change.
+      canEdit:
+        ctx.perms.write &&
+        rule.archivedAt === null &&
+        (rule.category !== 'TASKS' || ctx.perms.admin),
+      canActivate:
+        ctx.perms.activate &&
+        rule.archivedAt === null &&
+        (rule.category !== 'TASKS' || ctx.perms.admin),
       etag: rule.updatedAt.toISOString(),
     };
   }

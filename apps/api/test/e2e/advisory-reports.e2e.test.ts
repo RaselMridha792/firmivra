@@ -238,7 +238,8 @@ beforeAll(async () => {
   ok(
     await call('patch', `/plans/${p1.id}`, ownerA, {
       etag: (await plan(p1.id)).etag,
-      strategy: { summary: 'Grow by referrals (fake)' },
+      planType: 'growth',
+      strategy: { summary: 'Grow by referrals (fake)', noFocusArea: true },
     }),
   );
   const goal = (body: object) => call('post', '/goals', ownerA, body);

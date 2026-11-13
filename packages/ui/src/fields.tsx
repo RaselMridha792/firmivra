@@ -2,12 +2,15 @@
 
 import { useId, type SelectHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { LabelText } from './label-text';
+import { describedBy, FieldHint } from './field-hint';
 
 /** `className` styles the <select> itself: set a width on a parent so the chevron follows it. */
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   /** Hides the label text; it stays as the accessible name (filter bars). */
   hideLabel?: boolean;
+  /** Persistent helper text between the label and the select; it also describes the select. */
+  hint?: string;
   error?: string;
   options: { value: string; label: string }[];
 }
@@ -15,6 +18,7 @@ export function Select({
   label,
   hideLabel,
   options,
+  hint,
   error,
   id,
   className = '',
@@ -30,11 +34,12 @@ export function Select({
       >
         <LabelText label={label} />
       </label>
+      <FieldHint id={fieldId} hint={hint} />
       <div className="relative">
         <select
           id={fieldId}
           aria-invalid={!!error}
-          aria-describedby={error ? `${fieldId}-error` : undefined}
+          aria-describedby={describedBy(fieldId, hint, error)}
           className={`min-w-0 w-full max-w-full appearance-none py-2 pl-3 pr-10 rounded-control border bg-surface text-base text-text shadow-sm transition-colors placeholder:text-muted focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-disabled disabled:text-muted ${error ? 'border-danger focus:border-danger focus:ring-danger/20' : 'border-border hover:border-control-border focus:border-action focus:ring-action/25'} ${className}`}
           {...props}
         >

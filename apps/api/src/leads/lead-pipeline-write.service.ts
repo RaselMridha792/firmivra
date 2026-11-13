@@ -27,21 +27,13 @@ import {
   visibleLead,
   requireFirmAdmin,
 } from './pipeline.shared.js';
+import { addSteps, syncNextAction } from './lead-follow-ups.js';
 
 type Create = z.output<typeof CreateLeadRequest>;
 type Update = z.output<typeof UpdateLeadRequest>;
 type Bulk = z.output<typeof LeadBulkRequest>;
 
 const NOT_QUALIFIED_REASON = 'Marked not qualified';
-const ACTION_LABEL = {
-  CALL: 'Call',
-  EMAIL: 'Email',
-  SMS: 'Text message',
-  APPOINTMENT: 'Appointment',
-  SEND_DOCUMENTS: 'Send documents',
-  FOLLOW_UP: 'Follow up',
-  CLOSE_LEAD: 'Close lead',
-} as const;
 
 /** A date of birth has no column on leads yet: say so instead of dropping it. */
 const unavailable = (what: string) => invalid(`${what} is not available yet`, 'FIELD_UNAVAILABLE');
@@ -71,7 +63,9 @@ export class LeadPipelineWriteService {
     const serviceIds = [...new Set(body.serviceIds)];
     // leads.service_id is required: a lead needs a first service until the column is optional.
     if (serviceIds.length === 0) throw invalid('Choose at least one service');
-    if (CLOSED_STATUSES.includes(body.stage) && body.nextAction) {
+    // L8: the next action and any more steps ("+ Add Follow-Up").
+    const steps = [...(body.nextAction ? [body.nextAction] : []), ...(body.followUps ?? [])];
+    if (CLOSED_STATUSES.includes(body.stage) && steps.length) {
       throw invalid('A closed lead has no follow-up');
     }
     const staff = legacyFirmRole(actor.role) === 'STAFF';
@@ -101,9 +95,6 @@ export class LeadPipelineWriteService {
           priority: body.priority,
           assignedUserId,
           preferredContactMethods: [...new Set(body.preferredContact.map((c) => CONTACT_TO_DB[c]))],
-          nextActionType: body.nextAction?.type ?? null,
-          nextActionAt: body.nextAction ? new Date(body.nextAction.dueAt) : null,
-          nextActionNote: body.nextAction?.notes ?? null,
           declineReason: body.stage === 'DECLINED' ? NOT_QUALIFIED_REASON : null,
           updatedByUserId: actor.userId,
         },
@@ -112,10 +103,19 @@ export class LeadPipelineWriteService {
       await tx.leadService.createMany({
         data: serviceIds.map((serviceId) => ({ businessId, leadId: lead.id, serviceId })),
       });
-      if (body.nextAction) await this.logFollowUp(tx, businessId, lead.id, actor, body.nextAction);
+      if (steps.length) {
+        await addSteps(tx, businessId, lead.id, actor.userId, steps);
+        await syncNextAction(tx, businessId, lead.id, actor.userId);
+      }
+      // R2 7: audited in the same transaction, so an error always means nothing was saved.
+      await this.audit.logIn(
+        tx,
+        'lead.created',
+        { type: 'lead', id: lead.id },
+        { source: body.source },
+      );
       return loadProfile(tx, businessId, actor, lead.id, { unrestricted: true });
     });
-    await this.audit.log('lead.created', { type: 'lead', id: profile.id }, { source: body.source });
     if (!body.campaignId) return profile;
     // Into the campaign's audience (checked above), then the profile as it is now.
     await this.addToCampaign(businessId, actor, tenant, [profile.id], body.campaignId);
@@ -192,13 +192,16 @@ export class LeadPipelineWriteService {
       if (body.serviceIds)
         await this.setServices(tx, businessId, id, lead.serviceId, [...new Set(body.serviceIds)]);
       if (body.tags) await this.setTags(tx, businessId, actor, [id], body.tags, true);
+      // R2 7: audited in the same transaction, so a save either succeeds whole or reports a real
+      // failure; a committed change never comes back as an error.
+      await this.audit.logIn(
+        tx,
+        'lead.updated',
+        { type: 'lead', id },
+        { fields: Object.keys(body).filter((k) => k !== 'version') },
+      );
       return loadProfile(tx, businessId, actor, id, { unrestricted: true });
     });
-    await this.audit.log(
-      'lead.updated',
-      { type: 'lead', id },
-      { fields: Object.keys(body).filter((k) => k !== 'version') },
-    );
     return profile;
   }
 
@@ -242,60 +245,66 @@ export class LeadPipelineWriteService {
         select: { id: true, status: true, assignedUserId: true },
       });
       const base = { updatedByUserId: actor.userId };
-      switch (body.action) {
-        case 'ASSIGN': {
-          if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
-          const todo = rows
-            .filter((r) => r.assignedUserId !== body.assignedUserId)
-            .map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, assignedUserId: body.assignedUserId },
-          });
-          return todo;
+      const todo = await (async (): Promise<string[]> => {
+        switch (body.action) {
+          case 'ASSIGN': {
+            if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
+            const todo = rows
+              .filter((r) => r.assignedUserId !== body.assignedUserId)
+              .map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, assignedUserId: body.assignedUserId },
+            });
+            return todo;
+          }
+          case 'STAGE': {
+            const todo = rows.filter((r) => r.status !== body.stage).map((r) => r.id);
+            const closed = CLOSED_STATUSES.includes(body.stage as LeadPipelineStatus);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: {
+                ...base,
+                status: body.stage,
+                ...(closed
+                  ? { nextActionType: null, nextActionAt: null, nextActionNote: null }
+                  : {}),
+                ...(body.stage === 'DECLINED' ? { declineReason: NOT_QUALIFIED_REASON } : {}),
+              },
+            });
+            return todo;
+          }
+          case 'TAGS': {
+            const todo = rows.map((r) => r.id);
+            await this.setTags(tx, businessId, actor, todo, body.add, false);
+            await tx.lead.updateMany({ where: { businessId, id: { in: todo } }, data: base });
+            return todo;
+          }
+          case 'ARCHIVE': {
+            const todo = rows.map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, archivedAt: new Date(), archivedByUserId: actor.userId },
+            });
+            return todo;
+          }
+          // Back with the status, details and history it had: only the archive mark goes.
+          case 'RESTORE': {
+            const todo = rows.map((r) => r.id);
+            await tx.lead.updateMany({
+              where: { businessId, id: { in: todo } },
+              data: { ...base, archivedAt: null, archivedByUserId: null },
+            });
+            return todo;
+          }
         }
-        case 'STAGE': {
-          const todo = rows.filter((r) => r.status !== body.stage).map((r) => r.id);
-          const closed = CLOSED_STATUSES.includes(body.stage as LeadPipelineStatus);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: {
-              ...base,
-              status: body.stage,
-              ...(closed ? { nextActionType: null, nextActionAt: null, nextActionNote: null } : {}),
-              ...(body.stage === 'DECLINED' ? { declineReason: NOT_QUALIFIED_REASON } : {}),
-            },
-          });
-          return todo;
-        }
-        case 'TAGS': {
-          const todo = rows.map((r) => r.id);
-          await this.setTags(tx, businessId, actor, todo, body.add, false);
-          await tx.lead.updateMany({ where: { businessId, id: { in: todo } }, data: base });
-          return todo;
-        }
-        case 'ARCHIVE': {
-          const todo = rows.map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, archivedAt: new Date(), archivedByUserId: actor.userId },
-          });
-          return todo;
-        }
-        // Back with the status, details and history it had: only the archive mark goes.
-        case 'RESTORE': {
-          const todo = rows.map((r) => r.id);
-          await tx.lead.updateMany({
-            where: { businessId, id: { in: todo } },
-            data: { ...base, archivedAt: null, archivedByUserId: null },
-          });
-          return todo;
-        }
+      })();
+      // In the same transaction (R2 7): the changes and their audit rows commit together.
+      for (const id of todo) {
+        await this.audit.logIn(tx, `lead.bulk_${body.action.toLowerCase()}`, { type: 'lead', id });
       }
+      return todo;
     });
-    for (const id of changed) {
-      await this.audit.log(`lead.bulk_${body.action.toLowerCase()}`, { type: 'lead', id });
-    }
     return { changed: changed.length, skipped: ids.length - changed.length };
   }
 
@@ -373,25 +382,6 @@ export class LeadPipelineWriteService {
         details: { leads, clients },
       });
     }
-  }
-
-  private async logFollowUp(
-    tx: TxClient,
-    businessId: string,
-    leadId: string,
-    actor: PipelineActor,
-    next: { type: keyof typeof ACTION_LABEL; dueAt: string },
-  ): Promise<void> {
-    await tx.leadActivity.create({
-      data: {
-        businessId,
-        leadId,
-        kind: 'FOLLOW_UP',
-        actorUserId: actor.userId,
-        summary: ACTION_LABEL[next.type],
-        metadata: { type: next.type, dueAt: next.dueAt },
-      },
-    });
   }
 
   /** The services shown for the lead: exactly these (the lead's own first service stays as it is). */

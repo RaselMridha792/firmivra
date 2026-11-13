@@ -123,7 +123,7 @@ function sectionsOf(row: Row | null): PaymentPreferences {
 }
 
 /** Every column the screen owns, written explicitly (never the table's defaults). */
-const columnsOf = (s: Sections) => {
+export const columnsOf = (s: Sections) => {
   const fees = s.taxesAndFees;
   // A late fee keeps only the value of its type, as the table's check requires.
   return {

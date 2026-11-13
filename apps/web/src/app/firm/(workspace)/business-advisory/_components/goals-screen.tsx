@@ -5,7 +5,6 @@ import {
   ActionMenu,
   Badge,
   Button,
-  Checkbox,
   Input,
   Modal,
   Select,
@@ -33,6 +32,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { AddGoalDialog, ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { FIELD_HELP } from './field-help';
 import {
   AREA_LABEL,
   BASE,
@@ -44,6 +44,8 @@ import {
   dayText,
   primary,
   errorText,
+  GOAL_STATUS_OPTIONS,
+  progressFor,
 } from './ba-shared';
 
 const SIZE = 10;
@@ -74,13 +76,19 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
   const [owner, setOwner] = useState('');
   const [clientId, setClientId] = useState(fixed ?? '');
   const [dueBefore, setDueBefore] = useState('');
-  const [archived, setArchived] = useState(false);
+  // B25 (Octavia, Oct 25): Active, Archived or All; '' is Active.
+  const [view, setView] = useState('');
+  // B25: Mark Completed, Archive and Restore ask first, naming the goal and what happens.
+  const [confirm, setConfirm] = useState<{
+    kind: 'complete' | 'archive' | 'restore';
+    goal: AdvisoryGoalRow;
+  }>();
   const [sort, setSort] = useState('targetDate');
   const [page, setPage] = useState(1);
   const [dialog, setDialog] = useState<{ kind: 'add' } | { kind: 'edit'; goalId: string }>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery(
-    [...BA_KEY, 'goals', term, status, area, owner, clientId, dueBefore, archived, sort, page],
+    [...BA_KEY, 'goals', term, status, area, owner, clientId, dueBefore, view, sort, page],
     () =>
       api.advisory.goals({
         ...(term ? { search: term } : {}),
@@ -89,7 +97,7 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
         ...(owner ? { ownerUserId: owner } : {}),
         ...(clientId ? { advisoryClientId: clientId } : {}),
         ...(dueBefore ? { dueBefore } : {}),
-        ...(archived ? { includeArchived: true } : {}),
+        ...(view ? { view: view as 'archived' | 'all' } : {}),
         sort: sort as never,
         direction: sort === 'progress' || sort === 'updated' ? 'desc' : 'asc',
         page,
@@ -234,13 +242,15 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
               { value: 'updated', label: 'Sort: Last Updated' },
             ]}
           />
-          <Checkbox
-            label="Show archived"
-            checked={archived}
-            onChange={(e) => {
-              setArchived(e.target.checked);
-              setPage(1);
-            }}
+          <FilterSelect
+            label="View"
+            all="Active goals"
+            value={view}
+            onChange={filter(setView)}
+            options={[
+              { value: 'archived', label: 'Archived goals' },
+              { value: 'all', label: 'All goals' },
+            ]}
           />
           <button
             type="button"
@@ -260,7 +270,13 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
           noun="goals"
           pageSize={SIZE}
           loading={q.isPending}
-          emptyTitle={q.isError ? 'Goals are not available' : 'No goals'}
+          emptyTitle={
+            q.isError
+              ? 'Goals are not available'
+              : view === 'archived'
+                ? 'No archived goals'
+                : 'No goals'
+          }
           emptyText={
             q.isError
               ? 'We could not load them. Try again in a moment.'
@@ -285,7 +301,7 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
                           {
                             label: 'Mark Completed',
                             icon: CheckCircle,
-                            onSelect: () => complete(r),
+                            onSelect: () => setConfirm({ kind: 'complete', goal: r }),
                           },
                         ]
                       : []),
@@ -307,15 +323,13 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
                       ? {
                           label: 'Restore',
                           icon: ArrowCounterClockwise,
-                          onSelect: () =>
-                            void act(() => api.advisory.restoreGoal(r.id), 'Goal restored.'),
+                          onSelect: () => setConfirm({ kind: 'restore', goal: r }),
                         }
                       : {
                           label: 'Archive',
                           icon: Archive,
                           danger: true,
-                          onSelect: () =>
-                            void act(() => api.advisory.archiveGoal(r.id), 'Goal archived.'),
+                          onSelect: () => setConfirm({ kind: 'archive', goal: r }),
                         },
                   ],
                 },
@@ -325,6 +339,51 @@ export function GoalsList({ advisoryClientId: fixed }: { advisoryClientId?: stri
           server={serverPaging(q.data, SIZE, page, setPage)}
         />
       </section>
+      {confirm ? (
+        <Modal
+          open
+          title={
+            confirm.kind === 'complete'
+              ? 'Mark this goal completed?'
+              : confirm.kind === 'archive'
+                ? 'Archive this goal?'
+                : 'Restore this goal?'
+          }
+          subtitle={`${confirm.goal.title} · ${confirm.goal.client.name}`}
+          onClose={() => setConfirm(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirm(undefined)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const { kind, goal } = confirm;
+                  setConfirm(undefined);
+                  if (kind === 'complete') complete(goal);
+                  else if (kind === 'archive')
+                    void act(() => api.advisory.archiveGoal(goal.id), 'Goal archived.');
+                  else void act(() => api.advisory.restoreGoal(goal.id), 'Goal restored.');
+                }}
+              >
+                {confirm.kind === 'complete'
+                  ? 'Mark Completed'
+                  : confirm.kind === 'archive'
+                    ? 'Archive Goal'
+                    : 'Restore Goal'}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text" data-testid="goal-confirm">
+            {confirm.kind === 'complete'
+              ? 'The goal is marked Completed with its progress at 100%. It can be reopened later by changing its status.'
+              : confirm.kind === 'archive'
+                ? 'The goal leaves the active list. Nothing is deleted: its milestones, history and plan link stay, and it can be restored from the Archived view.'
+                : 'The goal returns to the active list as it was, with its milestones, history and plan link.'}
+          </p>
+        </Modal>
+      ) : null}
       {dialog?.kind === 'add' ? (
         <AddGoalDialog
           {...(fixed ? { advisoryClientId: fixed } : {})}
@@ -453,10 +512,12 @@ function GoalForm({
         <Select
           label="Status"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          options={Object.entries(GOAL_STATUS)
-            .filter(([v]) => v !== 'OVERDUE')
-            .map(([value, label]) => ({ value, label }))}
+          onChange={(e) => {
+            const next = progressFor(e.target.value, status, progress);
+            setStatus(e.target.value);
+            setProgress(next.progress);
+          }}
+          options={GOAL_STATUS_OPTIONS}
         />
         <Input
           label="Progress (%)"
@@ -464,6 +525,12 @@ function GoalForm({
           min={0}
           max={100}
           value={progress}
+          readOnly={progressFor(status, status, progress).locked}
+          title={
+            progressFor(status, status, progress).locked
+              ? 'Set by the status: Completed is 100%, Not Started 0%'
+              : undefined
+          }
           onChange={(e) => setProgress(e.target.value)}
         />
         {members.length ? (
@@ -477,6 +544,7 @@ function GoalForm({
       </div>
       <Textarea
         label="Description"
+        hint={FIELD_HELP.goalDescription}
         rows={3}
         maxLength={2000}
         value={description}
@@ -495,7 +563,11 @@ function GoalForm({
   );
 }
 
-/** The goal's milestones: change a status, move one up or down, add one. Each change saves at once. */
+/**
+ * The goal's milestones (Octavia's B8: owner, status and progress, under their goal): change
+ * any of them, move one up or down, add one. Each change saves at once; progress follows the
+ * status as a goal's does (Completed 100%, Not Started 0%).
+ */
 function Milestones({
   goal,
   onError,
@@ -504,6 +576,7 @@ function Milestones({
   onError: (text: string) => void;
 }) {
   const qc = useQueryClient();
+  const members = useMembers();
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const run = async (work: () => Promise<unknown>) => {
@@ -523,7 +596,8 @@ function Milestones({
   const row = (m: AdvisoryMilestone, i: number) => (
     <li
       key={m.id}
-      className="grid grid-cols-[1fr_auto] items-center gap-2 py-2 sm:grid-cols-[1fr_10rem_auto]"
+      className="grid grid-cols-2 items-center gap-2 py-2 sm:grid-cols-[1fr_9rem_9rem_7rem_auto]"
+      data-testid="milestone-row"
     >
       <span className="flex flex-col text-sm">
         <span className="font-medium text-heading">{m.title}</span>
@@ -535,13 +609,48 @@ function Milestones({
       <Select
         label={`Status of ${m.title}`}
         hideLabel
-        value={m.status === 'OVERDUE' ? 'IN_PROGRESS' : m.status}
+        value={m.status}
+        onChange={(e) => {
+          const next = progressFor(e.target.value, m.status, String(m.progressPercent));
+          void run(() =>
+            api.advisory.updateMilestone(m.id, {
+              status: e.target.value as never,
+              ...(next.locked ? {} : { progressPercent: Number(next.progress) }),
+            }),
+          );
+        }}
+        options={GOAL_STATUS_OPTIONS}
+      />
+      <Select
+        label={`Owner of ${m.title}`}
+        hideLabel
+        value={m.owner?.userId ?? ''}
         onChange={(e) =>
-          void run(() => api.advisory.updateMilestone(m.id, { status: e.target.value as never }))
+          void run(() =>
+            api.advisory.updateMilestone(m.id, { ownerUserId: e.target.value || null }),
+          )
         }
-        options={Object.entries(GOAL_STATUS)
-          .filter(([v]) => v !== 'OVERDUE')
-          .map(([value, label]) => ({ value, label }))}
+        options={[
+          { value: '', label: 'No owner' },
+          ...members,
+          ...(m.owner && !members.some((x) => x.value === m.owner!.userId)
+            ? [{ value: m.owner.userId, label: m.owner.name }]
+            : []),
+        ]}
+      />
+      <Select
+        label={`Progress of ${m.title}`}
+        hideLabel
+        disabled={progressFor(m.status, m.status, String(m.progressPercent)).locked}
+        value={String(m.progressPercent)}
+        onChange={(e) =>
+          void run(() =>
+            api.advisory.updateMilestone(m.id, { progressPercent: Number(e.target.value) }),
+          )
+        }
+        options={[...new Set([...Array.from({ length: 11 }, (_, k) => k * 10), m.progressPercent])]
+          .sort((a, b) => a - b)
+          .map((v) => ({ value: String(v), label: `${v}%` }))}
       />
       <span className="col-span-2 flex justify-end gap-1 sm:col-span-1">
         <Button

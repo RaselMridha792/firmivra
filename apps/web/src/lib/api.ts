@@ -75,6 +75,8 @@ import {
   createSettingsOverviewClient,
   createLocationsClient,
   createStaffClient,
+  createMySecurityClient,
+  createMfaPolicyClient,
   createSupportAccessClient,
   createTasksClient,
   createBookkeepingClient,
@@ -165,6 +167,8 @@ import {
 } from '../mocks/settings-admin';
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
+import { createMySecurityMock } from '../mocks/my-security';
+import { createMfaPolicyMock } from '../mocks/mfa-policy';
 import { createTasksMock } from '../mocks/tasks';
 import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createAutomationsMock } from '../mocks/automations';
@@ -226,6 +230,11 @@ export const api = {
     dev && mocked('staff')
       ? createStaffMock({ role: MOCK_ROLE, empty: mockedEmpty('staff') })
       : createStaffClient(request, options.baseUrl),
+  /** My Profile's Security card (SM14 part B): my own sessions and password, any staff role. */
+  mySecurity:
+    dev && mocked('mySecurity') ? createMySecurityMock() : createMySecurityClient(request),
+  /** SM14 part C, SEC-6: the firm's two-factor requirement and its security administrators. */
+  mfaPolicy: dev && mocked('mfaPolicy') ? createMfaPolicyMock() : createMfaPolicyClient(request),
   /** Teams & Departments and the org chart (R42 contract). Mock shares api.staff's rows. */
   departments:
     dev && mocked('departments')

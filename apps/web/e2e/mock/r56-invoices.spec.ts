@@ -274,7 +274,8 @@ test('Row menu by status: Resend and Copy Payment Link while unpaid, Send Receip
   await menuOf('INV-2026-0081');
   await expect(page.getByRole('menuitem', { name: 'Resend Invoice' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Copy Payment Link' })).toHaveCount(0);
-  for (const name of ['Archive', 'Delete', 'Archive Invoice', 'Delete Invoice']) {
+  // IP-F10: a paid invoice is never deleted, and is archived once the database allows it.
+  for (const name of ['Archive Invoice', 'Delete', 'Delete Draft', 'Delete Invoice']) {
     await expect(page.getByRole('menuitem', { name, exact: true })).toHaveCount(0);
   }
   await page.getByRole('menuitem', { name: 'Issue Refund' }).click();
@@ -362,4 +363,48 @@ test('No sideways scroll at 375 px', async ({ page }) => {
       path,
     ).toBeTruthy();
   }
+});
+
+test('Archive, never delete: a draft is archived and restored; Delete archives a draft never sent (IP-F10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  const tabs = page.getByRole('tablist', { name: 'Invoice views' });
+  const rows = page.getByTestId('invoice-row');
+  await expect(tabs.getByRole('tab', { name: /^Archived/ })).toContainText('0');
+
+  const search = page.getByLabel('Search invoices');
+  // The overdue invoice is still owed: no Archive.
+  await search.fill('0098');
+  await page.getByRole('button', { name: 'Actions for INV-2026-0098' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Archive Invoice' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // The draft: archive it, asked first.
+  await search.fill('0107');
+  await page.getByRole('button', { name: 'Actions for INV-2026-0107' }).click();
+  await page.getByRole('menuitem', { name: 'Archive Invoice' }).click();
+  await expect(page.getByTestId('archive-dialog')).toContainText('kept under Archived');
+  await page.getByRole('dialog').getByRole('button', { name: 'Archive Invoice' }).click();
+  await expect(page.getByText('INV-2026-0107 archived.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Actions for INV-2026-0107' })).toHaveCount(0);
+  await tabs.getByRole('tab', { name: /^Archived/ }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('INV-2026-0107');
+  await page.screenshot({ path: test.info().outputPath('invoices-archived.png') });
+
+  // Restore, then Delete it: a draft never sent is archived, never deleted.
+  await page.getByRole('button', { name: 'Actions for INV-2026-0107' }).click();
+  await page.getByRole('menuitem', { name: 'Restore Invoice' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Restore Invoice' }).click();
+  await expect(page.getByText('INV-2026-0107 restored.')).toBeVisible();
+  await expect(rows).toHaveCount(0);
+  await tabs.getByRole('tab', { name: /^All Invoices/ }).click();
+  await page.getByRole('button', { name: 'Actions for INV-2026-0107' }).click();
+  await page.getByRole('menuitem', { name: 'Delete Draft' }).click();
+  await expect(page.getByTestId('archive-dialog')).toContainText('invoices are never deleted');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete Draft' }).click();
+  await expect(page.getByText('INV-2026-0107 deleted: it is kept under Archived.')).toBeVisible();
+  await expect(tabs.getByRole('tab', { name: /^Archived/ })).toContainText('1');
 });

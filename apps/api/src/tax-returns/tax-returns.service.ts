@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CreateTaxReturnRequest,
@@ -12,6 +12,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { ISSUES_BLOCK, openErrorIssues } from './issues.service.js';
 import {
   canDelete,
   canMoveTo,
@@ -192,6 +193,17 @@ export class TaxReturnsService {
       const changes = changesOf(was, body);
       const next = { ...was, ...changes };
       if (needsFiledOn(next.status) && !next.filedOn) throw filedOnMissing();
+      // TX-F20: Filed (and Accepted without being filed) files the return, which an unresolved
+      // Error validation issue blocks, as on the workspace.
+      const files =
+        changes.status === 'FILED' || (changes.status === 'ACCEPTED' && was.status !== 'FILED');
+      if (files && (await openErrorIssues(tx, businessId, id))) {
+        throw new ConflictException({
+          code: 'STATUS_BLOCKED',
+          message: ISSUES_BLOCK,
+          details: { blockers: ['VALIDATION_ISSUES_OPEN'] },
+        });
+      }
       if (changes.engagementId) {
         await this.checkEngagement(tx, businessId, current.clientId, changes.engagementId);
       }

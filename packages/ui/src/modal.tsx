@@ -21,10 +21,20 @@ export function Modal({ open, title, subtitle, footer, children, onClose }: Moda
   useEffect(() => {
     const element = dialogRef.current;
     if (!element) return;
+    // The control that opened it gets focus back when it closes, however it closes: the browser
+    // does this only for a dialog closed in place, and screens usually remove a closed dialog
+    // from the page (Leads R2 14: Escape left focus on the page).
+    const opener =
+      open &&
+      document.activeElement instanceof HTMLElement &&
+      !element.contains(document.activeElement)
+        ? document.activeElement
+        : null;
     if (open && !element.open) element.showModal();
     if (!open && element.open) element.close();
     return () => {
       if (element.open) element.close();
+      if (opener?.isConnected) opener.focus();
     };
   }, [open]);
   return (

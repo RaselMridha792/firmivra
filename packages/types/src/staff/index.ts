@@ -4,6 +4,8 @@ export * from './job-titles.js';
 export * from './work-schedules.js';
 export * from './roles.js';
 export * from './security-defaults.js';
+export * from './my-security.js';
+export * from './mfa-policy.js';
 export {
   createDepartmentsClient,
   createRolesClient,
