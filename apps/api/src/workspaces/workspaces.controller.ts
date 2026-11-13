@@ -21,6 +21,7 @@ import {
   UpdateReportBody,
   WorkspacesQuery,
 } from './input.js';
+import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 import { ReportsService } from './reports.service.js';
 import { WorkspacesService } from './workspaces.service.js';
 
@@ -130,6 +131,8 @@ export class ReportsController {
  */
 @Controller('portal/:firmSlug/me/services/:engagementId/reports')
 @Roles('CLIENT')
+// Hidden for a client in the Client Portal module's Portal Content: 403 MODULE_OFF.
+@PortalTabRoute('REPORTS')
 export class MyReportsController {
   constructor(private readonly reports: ReportsService) {}
 

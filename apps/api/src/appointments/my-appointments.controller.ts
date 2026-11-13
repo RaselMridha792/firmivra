@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
+import { PortalTabRoute } from '../client-portal/portal-tabs.js';
 import {
   AppointmentId,
   type BookableTypeList,
@@ -29,6 +30,8 @@ const idPipe = new ZodValidationPipe(idParam(AppointmentId));
  */
 @Controller('portal/:firmSlug/me/appointments')
 @Roles('CLIENT')
+// Hidden for a client in the Client Portal module's Portal Content: 403 MODULE_OFF.
+@PortalTabRoute('APPOINTMENTS')
 export class MyAppointmentsController {
   constructor(private readonly mine: MyAppointmentsService) {}
 
