@@ -133,8 +133,13 @@ export class TenantGuard implements CanActivate {
       };
     }
     if (auth.pool === 'CLIENT') {
+      // A locked client (Client Portal module) is no client of the firm until unlocked.
       const c = await firm.clientAccount.findFirst({
-        where: { userId: auth.userId, status: 'ACTIVE' },
+        where: {
+          userId: auth.userId,
+          status: 'ACTIVE',
+          OR: [{ clientId: null }, { client: { is: { portalLock: { is: null } } } }],
+        },
         select: { id: true },
       });
       return c

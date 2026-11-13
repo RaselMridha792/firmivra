@@ -46,11 +46,13 @@ export function LeadCreateDialog({
   options?: LeadOptions;
   onClose: () => void;
 }) {
-  const [followUp, setFollowUp] = useState(false);
-  const [followUpType, setFollowUpType] = useState<NextActionType>('CALL');
-  const [followUpDate, setFollowUpDate] = useState('');
-  const [followUpTime, setFollowUpTime] = useState('09:00');
-  const [followUpNotes, setFollowUpNotes] = useState('');
+  // L8: "+ Add Follow-Up" adds a step; each has its action, date and time, and notes.
+  const [steps, setSteps] = useState<
+    { key: number; type: NextActionType; date: string; time: string; notes: string }[]
+  >([]);
+  const [stepKey, setStepKey] = useState(0);
+  const setStep = (key: number, change: Partial<(typeof steps)[number]>) =>
+    setSteps((all) => all.map((s) => (s.key === key ? { ...s, ...change } : s)));
   const [duplicateFound, setDuplicateFound] = useState(false);
   const { register, handleSubmit, formState, setValue, control } = useForm<CreateLeadBody>({
     resolver: zodResolver(CreateLeadRequest),
@@ -82,13 +84,16 @@ export function LeadCreateDialog({
       ...rest,
       ...(campaignId ? { campaignId } : {}),
       ...(assignedUserId ? { assignedUserId } : {}),
-      ...(followUp && followUpDate
+      // L8: every step with a date.
+      ...(steps.some((st) => st.date)
         ? {
-            nextAction: {
-              type: followUpType,
-              dueAt: new Date(`${followUpDate}T${followUpTime || '09:00'}:00`).toISOString(),
-              notes: followUpNotes.trim() || null,
-            },
+            followUps: steps
+              .filter((st) => st.date)
+              .map((st) => ({
+                type: st.type,
+                dueAt: new Date(`${st.date}T${st.time || '09:00'}:00`).toISOString(),
+                notes: st.notes.trim() || null,
+              })),
           }
         : {}),
     };
@@ -256,42 +261,64 @@ export function LeadCreateDialog({
           <h3 id="lead-follow-up-section" className="font-semibold text-heading">
             Next Follow-Up
           </h3>
-          <Checkbox
-            label="Set a follow-up now"
-            checked={followUp}
-            onChange={(event) => setFollowUp(event.target.checked)}
-          />
-          {followUp ? (
-            <div className="grid gap-3 sm:grid-cols-2">
+          {steps.map((st, n) => (
+            <fieldset
+              key={st.key}
+              className="grid gap-3 rounded-control border border-divider p-3 sm:grid-cols-2"
+              aria-label={`Follow-up ${n + 1}`}
+            >
               <Select
                 label="Action type"
-                value={followUpType}
-                onChange={(event) => setFollowUpType(event.target.value as typeof followUpType)}
+                value={st.type}
+                onChange={(event) =>
+                  setStep(st.key, { type: event.target.value as NextActionType })
+                }
                 options={ACTIONS}
               />
-              <div className="grid gap-3 grid-cols-2">
+              <div className="grid grid-cols-2 gap-3">
                 <Input
                   label="Date"
                   type="date"
-                  value={followUpDate}
-                  onChange={(event) => setFollowUpDate(event.target.value)}
+                  value={st.date}
+                  onChange={(event) => setStep(st.key, { date: event.target.value })}
                 />
                 <Input
                   label="Time"
                   type="time"
-                  value={followUpTime}
-                  onChange={(event) => setFollowUpTime(event.target.value)}
+                  value={st.time}
+                  onChange={(event) => setStep(st.key, { time: event.target.value })}
                 />
               </div>
               <Textarea
                 label="Notes"
                 rows={2}
                 maxLength={500}
-                value={followUpNotes}
-                onChange={(event) => setFollowUpNotes(event.target.value)}
+                value={st.notes}
+                onChange={(event) => setStep(st.key, { notes: event.target.value })}
               />
-            </div>
-          ) : null}
+              <Button
+                variant="ghost"
+                className="self-end sm:justify-self-end"
+                onClick={() => setSteps((all) => all.filter((x) => x.key !== st.key))}
+              >
+                Remove<span className="sr-only"> follow-up {n + 1}</span>
+              </Button>
+            </fieldset>
+          ))}
+          <Button
+            variant="secondary"
+            className="w-fit"
+            disabled={steps.length >= 10}
+            onClick={() => {
+              setSteps((all) => [
+                ...all,
+                { key: stepKey, type: 'CALL', date: '', time: '09:00', notes: '' },
+              ]);
+              setStepKey((k) => k + 1);
+            }}
+          >
+            + Add Follow-Up
+          </Button>
         </section>
 
         {duplicateFound ? (

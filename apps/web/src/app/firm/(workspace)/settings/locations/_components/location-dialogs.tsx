@@ -282,6 +282,40 @@ export function SetPrimaryDialog({
 }
 
 /**
+ * Activate (Overview 24: Activate/Deactivate, as on Locations): an inactive location comes back
+ * and counts toward the plan; the API refuses past the plan's limit (LOCATION_LIMIT).
+ */
+export function ActivateLocationDialog({
+  location,
+  onClose,
+  onDone,
+}: {
+  location: Pick<LocationProfile, 'id' | 'name'>;
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const go = useApiMutation(() => api.locations.activate(location.id), invalidate);
+  return (
+    <Dialog
+      title="Activate Location"
+      confirm="Activate"
+      busy={go.isPending}
+      error={go.error}
+      onConfirm={() =>
+        go.mutate(undefined, { onSuccess: () => onDone(`${location.name} is active again.`) })
+      }
+      onClose={onClose}
+      testId="activate-location-dialog"
+    >
+      <p>
+        <span className="font-semibold">{location.name}</span> becomes active again and counts
+        toward your plan&apos;s locations. Its staff and manager stay as they are.
+      </p>
+    </Dialog>
+  );
+}
+
+/**
  * Reassign Manager (Edit Location 06): an active member, now or later; Create New Manager opens
  * Staff Management. Reassigning changes who runs the location; it never ends anyone's access.
  */

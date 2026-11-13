@@ -487,7 +487,7 @@ function PreferencesForm({
         <DepositAccounts />
       </Card>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div data-testid="billing-actions" className="flex flex-wrap items-center gap-3">
         <Button
           disabled={!dirty || problem !== null || save.isPending}
           onClick={() => save.mutate(form, { onSuccess: () => setDone('Changes saved.') })}

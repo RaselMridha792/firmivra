@@ -6,6 +6,9 @@ import {
   CreateEmailImageUploadRequest,
   BulkConvertLeadsRequest,
   ConvertLeadToClientRequest,
+  CompleteLeadFollowUpRequest,
+  AddLeadFollowUpRequest,
+  UpdateLeadFollowUpRequest,
   CreateLeadRequest,
   EMAIL_SIGNATURE_MAX,
   type LeadActivity,
@@ -276,6 +279,7 @@ function seed(empty: boolean): Store {
         phone: `(555) 030-${String(1000 + n)}`,
         avatarUrl: null,
         duplicates: { leads: [], clients: [] },
+        followUps: [],
         source,
         sourceDetail: detail,
         campaign: source.endsWith('_AD') ? { id: uuid('0c00', n % 3), name: detail } : null,
@@ -504,6 +508,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         phone: b.phone,
         avatarUrl: null,
         duplicates: { leads: [], clients: [] },
+        followUps: [],
         source: 'BEGIN_ONLINE',
         sourceDetail: 'Begin Online',
         campaign: null,
@@ -549,7 +554,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     return l;
   };
   const view = (l: Lead): LeadProfile => ({
-    ...copy(l.profile),
+    ...copy({ ...l.profile, followUps: steps(l) }),
     // As the API: other open leads with this email or phone (warned and linked, never merged).
     duplicates: {
       leads: s.leads
@@ -582,6 +587,50 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   };
   const bump = (l: Lead) => {
     l.profile.version = `v${Number(l.profile.version.slice(1)) + 1}`;
+  };
+  const CLOSED: string[] = ['CONVERTED', 'DECLINED', 'LOST'];
+  /** L8: the lead's steps; a seeded next action becomes its first step (as the API adopts it). */
+  const steps = (l: Lead) => {
+    const p = l.profile;
+    if (!p.followUps.some((f) => !f.doneAt) && p.nextAction && !CLOSED.includes(p.stage))
+      p.followUps.unshift({
+        id: uuid('0f0e', s.next++),
+        type: p.nextAction.type,
+        dueAt: p.nextAction.dueAt,
+        notes: p.nextAction.notes,
+        doneAt: null,
+        outcome: null,
+      });
+    return p.followUps;
+  };
+  /** As the API: the Next Action is the next unfinished step; a closed lead has none. */
+  const sync = (l: Lead) => {
+    const open = l.profile.followUps
+      .filter((f) => !f.doneAt)
+      .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+    const next = CLOSED.includes(l.profile.stage) ? undefined : open[0];
+    l.profile.nextAction = next
+      ? {
+          type: next.type,
+          dueAt: next.dueAt,
+          notes: next.notes,
+          overdue: next.type !== 'CLOSE_LEAD' && Date.parse(next.dueAt) < Date.now(),
+        }
+      : null;
+    l.profile.followUps = [
+      ...open,
+      ...l.profile.followUps
+        .filter((f) => f.doneAt)
+        .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? '')),
+    ];
+  };
+  const openStep = (l: Lead, followUpId: string) => {
+    if (CLOSED.includes(l.profile.stage))
+      throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
+    const step = steps(l).find((f) => f.id === followUpId);
+    if (!step) throw fail(404, 'NOT_FOUND', 'Not found');
+    if (step.doneAt) throw fail(409, 'FOLLOW_UP_DONE', 'This follow-up is already done');
+    return step;
   };
   const services_ = services();
   const recount = (from: number, to: number, pick: (l: Lead) => boolean) =>
@@ -701,6 +750,17 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           phone: input.phone ?? null,
           avatarUrl: null,
           duplicates: { leads: [], clients: [] },
+          followUps: [
+            ...(input.nextAction ? [input.nextAction] : []),
+            ...(input.followUps ?? []),
+          ].map((f, i) => ({
+            id: uuid('0f0f', s.next * 20 + i),
+            type: f.type,
+            dueAt: f.dueAt,
+            notes: f.notes ?? null,
+            doneAt: null,
+            outcome: null,
+          })),
           source: input.source,
           sourceDetail: input.sourceDetail ?? null,
           campaign: null,
@@ -737,6 +797,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         tasks: [],
         appointments: [],
       };
+      sync(l);
       log(l, 'CREATED', 'Lead created');
       s.leads.unshift(l);
       return view(l);
@@ -860,12 +921,21 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       await mockDelay();
       const input = parseInput(SetFollowUpRequest, body);
       const l = find(id);
-      l.profile.nextAction = {
-        type: input.type,
-        dueAt: input.dueAt,
-        notes: input.notes ?? null,
-        overdue: input.type !== 'CLOSE_LEAD' && Date.parse(input.dueAt) < Date.now(),
-      };
+      const next = steps(l)
+        .filter((f) => !f.doneAt)
+        .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0];
+      if (next)
+        Object.assign(next, { type: input.type, dueAt: input.dueAt, notes: input.notes ?? null });
+      else
+        l.profile.followUps.push({
+          id: uuid('0f0f', s.next++),
+          type: input.type,
+          dueAt: input.dueAt,
+          notes: input.notes ?? null,
+          doneAt: null,
+          outcome: null,
+        });
+      sync(l);
       log(l, 'FOLLOW_UP', 'Follow-up scheduled');
       bump(l);
       return view(l);
@@ -876,14 +946,73 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       const l = find(id);
       log(l, 'FOLLOW_UP', `Follow-up completed${input.outcome ? `: ${input.outcome}` : ''}`);
       l.profile.lastContact = { at: new Date().toISOString(), channel: 'OTHER' };
-      l.profile.nextAction = input.next
-        ? {
-            type: input.next.type,
-            dueAt: input.next.dueAt,
-            notes: input.next.notes ?? null,
-            overdue: false,
-          }
-        : null;
+      const next = steps(l)
+        .filter((f) => !f.doneAt)
+        .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0];
+      if (!next) throw fail(409, 'NO_FOLLOW_UP', 'This lead has no follow-up to complete');
+      Object.assign(next, { doneAt: new Date().toISOString(), outcome: input.outcome ?? null });
+      if (input.next)
+        l.profile.followUps.push({
+          id: uuid('0f0f', s.next++),
+          type: input.next.type,
+          dueAt: input.next.dueAt,
+          notes: input.next.notes ?? null,
+          doneAt: null,
+          outcome: null,
+        });
+      sync(l);
+      bump(l);
+      return view(l);
+    },
+    addFollowUp: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(AddLeadFollowUpRequest, body);
+      const l = find(id);
+      if (CLOSED.includes(l.profile.stage))
+        throw fail(409, 'LEAD_CLOSED', 'A closed lead has no follow-up');
+      steps(l).push({
+        id: uuid('0f0f', s.next++),
+        type: input.type,
+        dueAt: input.dueAt,
+        notes: input.notes ?? null,
+        doneAt: null,
+        outcome: null,
+      });
+      sync(l);
+      log(l, 'FOLLOW_UP', 'Follow-up scheduled');
+      bump(l);
+      return view(l);
+    },
+    updateFollowUp: async (id, followUpId, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateLeadFollowUpRequest, body);
+      const l = find(id);
+      const step = openStep(l, followUpId);
+      if (input.type !== undefined) step.type = input.type;
+      if (input.dueAt !== undefined) step.dueAt = input.dueAt;
+      if (input.notes !== undefined) step.notes = input.notes ?? null;
+      sync(l);
+      bump(l);
+      return view(l);
+    },
+    removeFollowUp: async (id, followUpId) => {
+      await mockDelay();
+      const l = find(id);
+      openStep(l, followUpId);
+      l.profile.followUps = l.profile.followUps.filter((f) => f.id !== followUpId);
+      sync(l);
+      bump(l);
+      return view(l);
+    },
+    completeFollowUpStep: async (id, followUpId, body = {}) => {
+      await mockDelay();
+      const input = parseInput(CompleteLeadFollowUpRequest, body);
+      const l = find(id);
+      const step = openStep(l, followUpId);
+      step.doneAt = new Date().toISOString();
+      step.outcome = input.outcome ?? null;
+      log(l, 'FOLLOW_UP', `Follow-up completed${input.outcome ? `: ${input.outcome}` : ''}`);
+      sync(l);
       bump(l);
       return view(l);
     },

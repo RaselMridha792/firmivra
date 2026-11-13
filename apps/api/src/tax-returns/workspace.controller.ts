@@ -24,11 +24,13 @@ import type {
   TaxReturnHistoryList,
   TaxReturnPage,
   TaxReturnSummary,
+  TaxValidationIssueList,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { TaxReturnIssuesService } from './issues.service.js';
 import { TaxReturnReviewService } from './review.service.js';
 import {
   ApprovalBody,
@@ -36,6 +38,8 @@ import {
   AttemptBody,
   ChecklistItemBody,
   EfileQ,
+  IssueBody,
+  UpdateIssueBody,
   LinkAuthorizationBody,
   LinkDocumentBody,
   PaperFiledBody,
@@ -72,6 +76,7 @@ export class TaxReturnWorkspaceController {
   constructor(
     private readonly returns: TaxReturnWorkspaceService,
     private readonly review: TaxReturnReviewService,
+    private readonly issues: TaxReturnIssuesService,
   ) {}
 
   @Get()
@@ -343,6 +348,40 @@ export class TaxReturnWorkspaceController {
     @Param('id', idPipe) id: string,
   ): Promise<TaxReturnDetail> {
     return this.review.finalValidation(tenant, auth.userId, id);
+  }
+
+  // TX-F19, F20: validation issues (an unresolved Error blocks Ready to File and filing).
+  @Get(':id/issues')
+  async issueList(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<TaxValidationIssueList> {
+    return { items: await this.issues.list(tenant, auth.userId, id) };
+  }
+
+  @Post(':id/issues')
+  @HttpCode(200)
+  @Access('TAX_RETURNS', 'EDIT')
+  async raiseIssue(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(IssueBody)) body: Out<typeof IssueBody>,
+  ): Promise<TaxValidationIssueList> {
+    return { items: await this.issues.raise(tenant, auth.userId, id, body) };
+  }
+
+  @Patch(':id/issues/:issueId')
+  @Access('TAX_RETURNS', 'EDIT')
+  async updateIssue(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('issueId', idPipe) issueId: string,
+    @Body(new ZodValidationPipe(UpdateIssueBody)) body: Out<typeof UpdateIssueBody>,
+  ): Promise<TaxValidationIssueList> {
+    return { items: await this.issues.update(tenant, auth.userId, id, issueId, body) };
   }
 
   @Get(':id/approvals')

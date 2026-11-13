@@ -1,39 +1,30 @@
 'use client';
 
-import type { AdminActivityTone, LocationRow, LocationsQuery } from '@firmivra/types';
-import { ActionMenu, Button, Input, Select, Skeleton, Toast } from '@firmivra/ui';
+import type { AdminActivityTone, LocationsQuery } from '@firmivra/types';
+import { Button, Input, Select, Skeleton, Toast } from '@firmivra/ui';
 import {
   ArrowRight,
   BuildingOffice,
-  CalendarCheck,
   ClockCounterClockwise,
-  DotsThree,
-  Eye,
   FileText,
   type Icon,
   Info,
   MapPin,
   PencilSimple,
   Plus,
-  Star,
   UserCircle,
   UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { initials } from '../../../../../../components/app-shell/types';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsHeader, SettingsKpi } from '../../_components/settings-parts';
-import {
-  DeactivateLocationDialog,
-  ManageStaffDialog,
-  ScheduleDialog,
-  SetPrimaryDialog,
-  zonedText,
-} from './location-dialogs';
+import { LocationOpened, type LocationOpen, LocationRowMenu } from './location-actions';
+import { zonedText } from './location-dialogs';
 import {
   LOCATIONS,
   PrimaryBadge,
@@ -49,13 +40,9 @@ import {
   phoneText,
   streetText,
 } from './location-parts';
-import { LocationPhoto, LocationProfileDialog, useLocation } from './location-profile';
+import { LocationPhoto, useLocation } from './location-profile';
 
 const PAGE = 8;
-type Open = {
-  kind: 'profile' | 'staff' | 'deactivate' | 'primary' | 'schedule';
-  id: string;
-} | null;
 
 const TONE: Record<AdminActivityTone, { icon: Icon; tile: string }> = {
   success: { icon: FileText, tile: 'bg-success-soft text-success' },
@@ -72,14 +59,13 @@ const TONE: Record<AdminActivityTone, { icon: Icon; tile: string }> = {
  * schedules are the Super Administrator's (`canManageSchedules`), and the API checks every call.
  */
 export function LocationsScreen() {
-  const router = useRouter();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'INACTIVE'>('');
   const [manager, setManager] = useState('');
   const [city, setCity] = useState('');
   const [page, setPage] = useState(1);
   const [chosen, setChosen] = useState<string>();
-  const [open, setOpen] = useState<Open>(null);
+  const [open, setOpen] = useState<LocationOpen>(null);
   // Add and Edit come back with what they did.
   const params = useSearchParams();
   const [notice, setNotice] = useState(() => (params.get('saved') ?? '').slice(0, 300));
@@ -113,62 +99,6 @@ export function LocationsScreen() {
     setOpen(null);
     setNotice(text);
   };
-
-  const menu = (r: LocationRow) => (
-    <ActionMenu
-      label={`More actions for ${r.name}`}
-      trigger={<DotsThree aria-hidden weight="bold" className="size-5" />}
-      sections={[
-        {
-          items: [
-            {
-              label: 'View Location Profile',
-              icon: Eye,
-              onSelect: () => setOpen({ kind: 'profile', id: r.id }),
-            },
-            {
-              label: 'Edit Location',
-              icon: PencilSimple,
-              onSelect: () => router.push(`/settings/locations/${r.id}/edit`),
-            },
-            {
-              label: 'Manage Staff',
-              icon: UsersThree,
-              onSelect: () => setOpen({ kind: 'staff', id: r.id }),
-            },
-            ...(!r.isMain && r.status === 'ACTIVE'
-              ? [
-                  {
-                    label: 'Set as Primary',
-                    icon: Star,
-                    onSelect: () => setOpen({ kind: 'primary', id: r.id }),
-                  },
-                ]
-              : []),
-            ...(r.pendingAction && superAdmin
-              ? [
-                  {
-                    label: 'Edit Schedule',
-                    icon: CalendarCheck,
-                    onSelect: () => setOpen({ kind: 'schedule', id: r.id }),
-                  },
-                ]
-              : []),
-            ...(r.status === 'ACTIVE' && !r.isMain && superAdmin
-              ? [
-                  {
-                    label: 'Deactivate',
-                    icon: WarningCircle,
-                    danger: true,
-                    onSelect: () => setOpen({ kind: 'deactivate', id: r.id }),
-                  },
-                ]
-              : []),
-          ],
-        },
-      ]}
-    />
-  );
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="locations-screen">
@@ -413,7 +343,7 @@ export function LocationsScreen() {
                         >
                           Edit
                         </Link>
-                        {menu(r)}
+                        <LocationRowMenu row={r} superAdmin={superAdmin} onOpen={setOpen} />
                       </span>
                     </td>
                   </tr>
@@ -504,57 +434,15 @@ export function LocationsScreen() {
       </div>
 
       {open ? (
-        <Opened open={open} superAdmin={superAdmin} onClose={() => setOpen(null)} onDone={done} />
+        <LocationOpened
+          open={open}
+          superAdmin={superAdmin}
+          onClose={() => setOpen(null)}
+          onDone={done}
+        />
       ) : null}
     </div>
   );
-}
-
-/** The dialog the row, the menu or the details card opened, on that location's profile. */
-function Opened({
-  open,
-  superAdmin,
-  onClose,
-  onDone,
-}: {
-  open: NonNullable<Open>;
-  superAdmin: boolean;
-  onClose: () => void;
-  onDone: (text: string) => void;
-}) {
-  const [kind, setKind] = useState(open.kind);
-  const q = useLocation(open.id);
-  const options = useApiQuery([...LOCATIONS, 'options'], () => api.locations.options());
-  const members = options.data?.members ?? [];
-  if (kind === 'profile') {
-    return (
-      <LocationProfileDialog
-        locationId={open.id}
-        onClose={onClose}
-        onManageStaff={() => setKind('staff')}
-      />
-    );
-  }
-  const l = q.data;
-  if (!l) return null;
-  if (kind === 'staff')
-    return <ManageStaffDialog location={l} members={members} onClose={onClose} onDone={onDone} />;
-  if (kind === 'primary')
-    return <SetPrimaryDialog location={l} onClose={onClose} onDone={onDone} />;
-  if (kind === 'deactivate' && superAdmin) {
-    return <DeactivateLocationDialog location={l} onClose={onClose} onDone={onDone} />;
-  }
-  if (kind === 'schedule' && l.pendingAction) {
-    return (
-      <ScheduleDialog
-        action={l.pendingAction}
-        zone={l.effectiveTimeZone}
-        onClose={onClose}
-        onDone={onDone}
-      />
-    );
-  }
-  return null;
 }
 
 const TABS = ['Overview', 'Staff', 'Contact Info', 'Hours', 'Services', 'Notes'] as const;

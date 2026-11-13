@@ -27,21 +27,13 @@ import {
   visibleLead,
   requireFirmAdmin,
 } from './pipeline.shared.js';
+import { addSteps, syncNextAction } from './lead-follow-ups.js';
 
 type Create = z.output<typeof CreateLeadRequest>;
 type Update = z.output<typeof UpdateLeadRequest>;
 type Bulk = z.output<typeof LeadBulkRequest>;
 
 const NOT_QUALIFIED_REASON = 'Marked not qualified';
-const ACTION_LABEL = {
-  CALL: 'Call',
-  EMAIL: 'Email',
-  SMS: 'Text message',
-  APPOINTMENT: 'Appointment',
-  SEND_DOCUMENTS: 'Send documents',
-  FOLLOW_UP: 'Follow up',
-  CLOSE_LEAD: 'Close lead',
-} as const;
 
 /** A date of birth has no column on leads yet: say so instead of dropping it. */
 const unavailable = (what: string) => invalid(`${what} is not available yet`, 'FIELD_UNAVAILABLE');
@@ -71,7 +63,9 @@ export class LeadPipelineWriteService {
     const serviceIds = [...new Set(body.serviceIds)];
     // leads.service_id is required: a lead needs a first service until the column is optional.
     if (serviceIds.length === 0) throw invalid('Choose at least one service');
-    if (CLOSED_STATUSES.includes(body.stage) && body.nextAction) {
+    // L8: the next action and any more steps ("+ Add Follow-Up").
+    const steps = [...(body.nextAction ? [body.nextAction] : []), ...(body.followUps ?? [])];
+    if (CLOSED_STATUSES.includes(body.stage) && steps.length) {
       throw invalid('A closed lead has no follow-up');
     }
     const staff = legacyFirmRole(actor.role) === 'STAFF';
@@ -101,9 +95,6 @@ export class LeadPipelineWriteService {
           priority: body.priority,
           assignedUserId,
           preferredContactMethods: [...new Set(body.preferredContact.map((c) => CONTACT_TO_DB[c]))],
-          nextActionType: body.nextAction?.type ?? null,
-          nextActionAt: body.nextAction ? new Date(body.nextAction.dueAt) : null,
-          nextActionNote: body.nextAction?.notes ?? null,
           declineReason: body.stage === 'DECLINED' ? NOT_QUALIFIED_REASON : null,
           updatedByUserId: actor.userId,
         },
@@ -112,7 +103,10 @@ export class LeadPipelineWriteService {
       await tx.leadService.createMany({
         data: serviceIds.map((serviceId) => ({ businessId, leadId: lead.id, serviceId })),
       });
-      if (body.nextAction) await this.logFollowUp(tx, businessId, lead.id, actor, body.nextAction);
+      if (steps.length) {
+        await addSteps(tx, businessId, lead.id, actor.userId, steps);
+        await syncNextAction(tx, businessId, lead.id, actor.userId);
+      }
       return loadProfile(tx, businessId, actor, lead.id, { unrestricted: true });
     });
     await this.audit.log('lead.created', { type: 'lead', id: profile.id }, { source: body.source });
@@ -373,25 +367,6 @@ export class LeadPipelineWriteService {
         details: { leads, clients },
       });
     }
-  }
-
-  private async logFollowUp(
-    tx: TxClient,
-    businessId: string,
-    leadId: string,
-    actor: PipelineActor,
-    next: { type: keyof typeof ACTION_LABEL; dueAt: string },
-  ): Promise<void> {
-    await tx.leadActivity.create({
-      data: {
-        businessId,
-        leadId,
-        kind: 'FOLLOW_UP',
-        actorUserId: actor.userId,
-        summary: ACTION_LABEL[next.type],
-        metadata: { type: next.type, dueAt: next.dueAt },
-      },
-    });
   }
 
   /** The services shown for the lead: exactly these (the lead's own first service stays as it is). */

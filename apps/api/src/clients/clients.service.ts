@@ -244,6 +244,8 @@ export class ClientsService {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
     const days = await this.dayBounds(businessId, q.lastActivityFrom, q.lastActivityTo);
+    // E2: the clients whose latest event falls in those days (inclusive, the firm's time zone).
+    const active = days ? [...(await this.activity(businessId, { between: days })).keys()] : null;
     const completed = await this.dayBounds(businessId, q.completedFrom, q.completedTo);
     const owing = q.owes ? await this.owing(businessId, q.owes) : null;
     const filters: Prisma.ClientWhereInput[] = [
@@ -286,7 +288,7 @@ export class ClientsService {
               ],
             }
           : {},
-      days ? { lastActivityAt: { gte: days.start, lt: days.end } } : {},
+      active ? { id: { in: active } } : {},
       owing ? { id: { in: owing } } : {},
       term
         ? {
@@ -317,7 +319,7 @@ export class ClientsService {
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         ...(q.page ? { skip: (q.page - 1) * q.limit, take: q.limit } : { take: q.limit + 1 }),
-        select: { ...listSelect, status: true, lastActivityAt: true },
+        select: { ...listSelect, status: true },
       }),
       db.client.count({ where: { AND: filters } }),
     ]);
@@ -327,12 +329,13 @@ export class ClientsService {
       businessId,
       page.map((r) => r.id),
     );
+    const latest = await this.activity(businessId, { ids: page.map((r) => r.id) });
     await this.audit.log('clients.listed', { type: 'client' }, { count: page.length });
     return {
       items: page.map((row): ClientListRow => ({
         ...toListItem(row),
         status: row.status,
-        lastActivityAt: iso(row.lastActivityAt),
+        lastActivityAt: iso(latest.get(row.id) ?? null),
         services: work.services.get(row.id) ?? [],
         missingDocuments: work.missing.get(row.id) ?? 0,
         balanceDueCents: work.balance.get(row.id) ?? 0,
@@ -362,6 +365,59 @@ export class ClientsService {
                 AND i.total_cents > app_invoice_paid_cents(i.id))`,
     );
     return rows.map((r) => r.id);
+  }
+
+  /**
+   * Octavia's E2 (Rasel's word, Oct 26): a client's Last Activity is the latest of its events,
+   * worked out when the list is read, so no other module has to write it: a message in the
+   * client's thread, a document uploaded or requested, a task completed, an appointment held
+   * (completed, or scheduled and begun), an invoice sent or paid, an e-sign completed, a note
+   * added, and `clients.last_activity_at` (set on e-sign completion). In the firm's scope. With
+   * `ids`, those clients only; with `between`, only the clients whose latest event is in it.
+   */
+  private async activity(
+    businessId: string,
+    opts: { ids?: string[]; between?: { start: Date | undefined; end: Date | undefined } },
+  ): Promise<Map<string, Date>> {
+    if (opts.ids && opts.ids.length === 0) return new Map();
+    const only = opts.ids ? Prisma.sql`WHERE e.client_id = ANY(${opts.ids}::uuid[])` : Prisma.empty;
+    const from = opts.between?.start ?? null;
+    const to = opts.between?.end ?? null;
+    const having = opts.between
+      ? Prisma.sql`HAVING (${from}::timestamptz IS NULL OR MAX(e.at) >= ${from}::timestamptz)
+          AND (${to}::timestamptz IS NULL OR MAX(e.at) < ${to}::timestamptz)`
+      : Prisma.empty;
+    const b = businessId;
+    const rows = await this.inFirm(
+      businessId,
+      (tx) => tx.$queryRaw<{ id: string; at: Date }[]>`
+        SELECT e.client_id::text AS id, MAX(e.at) AS at FROM (
+          SELECT t.client_id, m.created_at AS at FROM messages m
+            JOIN message_threads t ON t.business_id = m.business_id AND t.id = m.thread_id
+            WHERE m.business_id = ${b}::uuid AND t.client_id IS NOT NULL
+          UNION ALL SELECT client_id, created_at FROM documents WHERE business_id = ${b}::uuid
+          UNION ALL SELECT client_id, created_at FROM document_requests
+            WHERE business_id = ${b}::uuid
+          UNION ALL SELECT client_id, completed_at FROM tasks
+            WHERE business_id = ${b}::uuid AND client_id IS NOT NULL AND completed_at IS NOT NULL
+          UNION ALL SELECT client_id, starts_at FROM appointments
+            WHERE business_id = ${b}::uuid
+              AND (status = 'COMPLETED' OR (status = 'SCHEDULED' AND starts_at <= now()))
+          UNION ALL SELECT client_id, issued_at FROM invoices
+            WHERE business_id = ${b}::uuid AND issued_at IS NOT NULL
+          UNION ALL SELECT client_id, paid_at FROM invoices
+            WHERE business_id = ${b}::uuid AND paid_at IS NOT NULL
+          UNION ALL SELECT client_id, completed_at FROM esign_requests
+            WHERE business_id = ${b}::uuid AND client_id IS NOT NULL AND completed_at IS NOT NULL
+          UNION ALL SELECT client_id, created_at FROM notes WHERE business_id = ${b}::uuid
+          UNION ALL SELECT id, last_activity_at FROM clients
+            WHERE business_id = ${b}::uuid AND last_activity_at IS NOT NULL
+        ) e
+        ${only}
+        GROUP BY e.client_id
+        ${having}`,
+    );
+    return new Map(rows.map((r) => [r.id, r.at]));
   }
 
   private async dayBounds(
