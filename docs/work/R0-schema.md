@@ -168,6 +168,10 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - `firm_data_download_log` (insert-only, counts only).
   - `firm_exceptional_access_requests`: identity, authority, document, scope, READ_ONLY window; reviewed by the platform owner only; PENDING to APPROVED or DENIED, APPROVED to REVOKED.
   - `platform_admins.is_platform_owner`: at most one, set by the owner role only. Platform data; a firm sees none of it.
+- Nov 10 (Rasel's approval in R1's window, confirmed Nov 13; R1 adds this line): `r1_firm_application_response_codes` (R1, branch `rasel/R1-response-codes`).
+  - New table `firm_application_response_codes`: the applicant's one-time code for an information request. Columns: request, the code's HMAC only, attempts, `expires_at` (at most 10 minutes, by the database clock), `consumed_at` and `created_at`.
+  - Sent only for an OPEN request whose link has not expired. Only attempts (+1) and `consumed_at` (once) change. Only the newest code of a still-open request is used.
+  - Platform scope writes; admins read. Never deleted. No backfill.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.
