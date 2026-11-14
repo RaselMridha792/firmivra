@@ -576,6 +576,10 @@ export function BookkeepingScreen({
                 Manage Integrations
               </OriginLink>
             </div>
+            <p className="mb-2 text-xs text-muted" data-testid="provider-states">
+              Authorized means the provider allowed access; figures arrive only after the first
+              successful sync, shown on each client&apos;s workspace.
+            </p>
             {o && o.software.length > 0 ? (
               <ul className="flex flex-col gap-1.5">
                 {o.software.map((s) => (
@@ -589,21 +593,22 @@ export function BookkeepingScreen({
                         {s.label}
                       </span>
                       <span className="block text-xs text-muted">
-                        {s.clientCount} {s.clientCount === 1 ? 'Client' : 'Clients'}
-                        {s.key ? ' Connected' : ''}
+                        {/* Review 2 (I01): linked is not authorized, and authorized is not synced. */}
+                        {s.clientCount} {s.clientCount === 1 ? 'client' : 'clients'}
+                        {s.key ? ' linked' : ''}
                       </span>
                     </span>
                     <span
                       className={`rounded-pill px-2 py-1 text-xs font-medium ${s.connected ? 'bg-success-soft text-success' : 'bg-disabled text-muted'}`}
                     >
-                      {s.connected ? 'Connected' : 'Not Connected'}
+                      {s.key ? (s.connected ? 'Authorized' : 'Not authorized') : 'None chosen'}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className={quiet}>
-                {overview.isPending ? 'Loading…' : 'No accounting software connected yet.'}
+                {overview.isPending ? 'Loading…' : 'No accounting software linked yet.'}
               </p>
             )}
           </section>

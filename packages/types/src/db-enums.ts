@@ -2302,6 +2302,9 @@ export const ClientTimelineKind = z.enum([
 ]);
 export type ClientTimelineKind = z.infer<typeof ClientTimelineKind>;
 
+export const LeadContactKind = z.enum(['EMAIL', 'PHONE']);
+export type LeadContactKind = z.infer<typeof LeadContactKind>;
+
 export const FirmApplicationInfoRequestStatus = z.enum(['OPEN', 'RESPONDED', 'SUPERSEDED']);
 export type FirmApplicationInfoRequestStatus = z.infer<typeof FirmApplicationInfoRequestStatus>;
 

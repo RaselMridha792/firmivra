@@ -220,9 +220,59 @@ export function reportFigures(
 }
 
 /** A version's figures as CSV rows (section, label, debit, credit, amount, count), with totals. */
-export function figuresCsv(f: ReportFigures, cell: (v: string | number | null) => string): string {
+/** What a CSV is about (Review 2, RP03): its client, period, basis and the figures' source. */
+export interface CsvContext {
+  client: string;
+  period: string;
+  basis: string;
+  source: string;
+}
+
+const TOTAL_LABEL: Record<string, string> = {
+  incomeCents: 'Income',
+  expensesCents: 'Expenses',
+  netIncomeCents: 'Net income',
+  costOfGoodsCents: 'Cost of goods sold',
+};
+/** A total's key in words: incomeCents is "Income", anyOtherCents is "Any other". */
+export function totalLabel(key: string): string {
+  const known = TOTAL_LABEL[key];
+  if (known) return known;
+  const words = key
+    .replace(/Cents$/, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function figuresCsv(
+  f: ReportFigures,
+  cell: (v: string | number | null) => string,
+  context?: CsvContext,
+): string {
   const money = (c: number | undefined) => (c === undefined ? null : (c / 100).toFixed(2));
-  const lines = [['Section', 'Line', 'Debit', 'Credit', 'Amount', 'Count'].map(cell).join(',')];
+  // Review 2 (RP03): nothing recorded for the period is not a set of verified zero totals.
+  // (The status and missing-documents reports count clients and items, not ledger lines.)
+  const empty =
+    f.lineCount === 0 && f.type !== 'BOOKKEEPING_STATUS' && f.type !== 'MISSING_DOCUMENTS';
+  const lines: string[] = [];
+  if (context) {
+    for (const [k, v] of [
+      ['Client', context.client],
+      ['Period', context.period],
+      ['Basis', context.basis],
+      ['Source', context.source],
+      [
+        'Data',
+        empty
+          ? 'Nothing is recorded for this period, so there are no totals (not verified zeros).'
+          : `${f.lineCount} recorded lines`,
+      ],
+    ] as [string, string][])
+      lines.push([k, v].map(cell).join(','));
+    lines.push('');
+  }
+  lines.push(['Section', 'Line', 'Debit', 'Credit', 'Amount', 'Count'].map(cell).join(','));
   for (const s of f.sections) {
     for (const r of s.rows) {
       lines.push(
@@ -240,7 +290,9 @@ export function figuresCsv(f: ReportFigures, cell: (v: string | number | null) =
     }
   }
   for (const [k, v] of Object.entries(f.totals))
-    lines.push(['Total', k, null, null, money(v), null].map(cell).join(','));
+    lines.push(
+      ['Total', totalLabel(k), null, null, empty ? null : money(v), null].map(cell).join(','),
+    );
   if (f.basisNote) lines.push(['Note', f.basisNote, null, null, null, null].map(cell).join(','));
   for (const n of f.notes ?? [])
     lines.push(['Note', n, null, null, null, null].map(cell).join(','));
