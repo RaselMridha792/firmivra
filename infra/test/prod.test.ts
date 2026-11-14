@@ -35,6 +35,13 @@ const t = (stack: Stack | undefined) => {
   return Template.fromStack(stack);
 };
 
+describe('prod API environment', () => {
+  it('sends texts through SNS (only dev logs them)', () => {
+    const defs = JSON.stringify(t(stacks.app).findResources('AWS::ECS::TaskDefinition'));
+    expect(defs).toContain('{"Name":"SMS_MODE","Value":"sns"}');
+  });
+});
+
 describe('prod config', () => {
   it("uses firmivra.com's Route 53 zone (made and delegated on Oct 24)", () => {
     expect(config.customDomain).toBe(FIRMIVRA_COM);

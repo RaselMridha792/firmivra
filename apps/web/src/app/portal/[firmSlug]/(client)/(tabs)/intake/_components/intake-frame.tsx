@@ -5,7 +5,10 @@ import { Card, Stepper } from '@firmivra/ui';
 import { ArrowLeft, Info } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
+import { AssignedIntake } from './assigned-intake';
 import { FORMS } from './forms';
+
+const INTAKE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * One intake form's frame: its title and steps. The form itself (autosave, submit, "Signed by
@@ -14,6 +17,13 @@ import { FORMS } from './forms';
  */
 export function IntakeFrame() {
   const { firmSlug: slug, form } = useParams<{ firmSlug: string; form: string }>();
+  // An intake's own id (its email, its portal notice, the list): the form the firm sent.
+  if (INTAKE_ID.test(form)) return <AssignedIntake slug={slug} id={form} />;
+  return <ServiceFrame slug={slug} form={form} />;
+}
+
+/** A service's form card, before the firm has sent one (the mockup's per-service page). */
+function ServiceFrame({ slug, form }: { slug: string; form: string }) {
   const entry = FORMS.find((f) => f.path === form);
   if (!entry) notFound();
   const definition = INTAKE_FORMS[entry.key];
