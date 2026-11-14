@@ -353,7 +353,7 @@ function settlementReport(ctx: FigureContext) {
     .sort((a, b) => (a.payoutOn ?? '').localeCompare(b.payoutOn ?? ''))
     .map((s) => ({
       label: [
-        s.processor ? words(s.processor) : 'Payout',
+        s.processor ? words(s.processor.charAt(0).toUpperCase() + s.processor.slice(1)) : 'Payout',
         s.payoutOn ?? null,
         `(${words(s.status).toLowerCase()})`,
       ]
