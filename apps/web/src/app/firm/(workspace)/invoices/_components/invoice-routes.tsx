@@ -10,6 +10,7 @@ import { Badge, Button, Input, Select, Table, type Column } from '@firmivra/ui';
 import { type Icon, LinkSimple, ListBullets, Receipt, Scroll } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
+import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -85,19 +86,32 @@ const STATUS_TONE = { RECEIVED: 'success', REFUNDED: 'warning', VOIDED: 'neutral
 const STATUS_LABEL = { RECEIVED: 'Received', REFUNDED: 'Refunded', VOIDED: 'Voided' } as const;
 
 /** /invoices/payments: every payment of every invoice in the range, Stripe's and recorded ones. */
-export function AllPaymentsScreen() {
+/**
+ * View All Payments (IP-F17). Opened from the dashboard (Dashboard Review 2, C2 and C4): a
+ * revenue bar's days, or one service's payments (`'NONE'`: invoices of no engagement, its Other),
+ * with Back to Dashboard.
+ */
+export function AllPaymentsScreen({
+  initial = {},
+  fromDashboard = false,
+}: {
+  initial?: { from?: string; to?: string; serviceId?: string };
+  fromDashboard?: boolean;
+} = {}) {
   const year = localToday().slice(0, 4);
-  const [from, setFrom] = useState(`${year}-01-01`);
-  const [to, setTo] = useState(localToday());
+  const [from, setFrom] = useState(initial.from ?? `${year}-01-01`);
+  const [to, setTo] = useState(initial.to ?? localToday());
+  const [serviceId, setServiceId] = useState(initial.serviceId ?? '');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const bad = from && to && from > to;
-  const q = useApiQuery([...INV_KEY, 'payments', from, to, search, page], () =>
+  const q = useApiQuery([...INV_KEY, 'payments', from, to, serviceId, search, page], () =>
     bad
       ? Promise.resolve(null)
       : api.invoices.payments({
           ...(from ? { from } : {}),
           ...(to ? { to } : {}),
+          ...(serviceId ? { serviceId } : {}),
           ...(search.trim() ? { search: search.trim() } : {}),
           page,
           pageSize: 25,
@@ -136,6 +150,7 @@ export function AllPaymentsScreen() {
   ];
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="all-payments">
+      {fromDashboard ? <BackToDashboard /> : null}
       <SubHeader
         icon={ListBullets}
         title="All Payments"
@@ -146,6 +161,25 @@ export function AllPaymentsScreen() {
         </Link>
       </SubHeader>
       <section className={`${card} flex flex-col gap-3`} aria-label="Payments">
+        {serviceId ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="service-filter">
+            <span className="text-muted">
+              {serviceId === 'NONE'
+                ? 'Payments on invoices of no service, as Service Breakdown counts them as Other'
+                : "One service's payments, as the dashboard's Service Breakdown counts them"}
+            </span>
+            <Button
+              variant="ghost"
+              aria-label="Show every service's payments"
+              onClick={() => {
+                setServiceId('');
+                setPage(1);
+              }}
+            >
+              Show all
+            </Button>
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Input
             label="From"

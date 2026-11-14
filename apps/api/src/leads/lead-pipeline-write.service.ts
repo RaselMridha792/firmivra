@@ -10,6 +10,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { stopSequences } from './lead-sequence-stop.js';
 import { routeNewLead } from './lead-routing.service.js';
 import { CommunicationsService } from '../communications/communications.service.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
@@ -225,6 +226,13 @@ export class LeadPipelineWriteService {
         data.status = body.stage;
         if (CLOSED_STATUSES.includes(body.stage)) {
           Object.assign(data, { nextActionType: null, nextActionAt: null, nextActionNote: null });
+          // R2 19: a closed lead's sequences stop (their unfinished steps stay).
+          await stopSequences(
+            tx,
+            businessId,
+            [id],
+            body.stage === 'DECLINED' ? 'Not Qualified' : 'Lost',
+          );
         }
         if (body.stage === 'DECLINED')
           data.declineReason = lead.declineReason ?? NOT_QUALIFIED_REASON;
@@ -314,6 +322,14 @@ export class LeadPipelineWriteService {
                 ...(body.stage === 'DECLINED' ? { declineReason: NOT_QUALIFIED_REASON } : {}),
               },
             });
+            if (closed) {
+              await stopSequences(
+                tx,
+                businessId,
+                todo,
+                body.stage === 'DECLINED' ? 'Not Qualified' : 'Lost',
+              );
+            }
             return todo;
           }
           case 'TAGS': {
