@@ -20,6 +20,13 @@ import { useApiQuery } from '../../../../../lib/query';
 import { STAGES } from '../../clients/_components/list-parts';
 import { headerKey, RECENT_KEY } from './keys';
 import { PortalDocuments } from './documents-tab';
+import { PortalForms } from './forms-tab';
+import {
+  PortalAppointments,
+  PortalInvoices,
+  PortalMessages,
+  PortalTaxReturns,
+} from './record-tabs';
 import { PortalOverview } from './overview';
 
 /** Frame 1's tabs (developer instructions 4): views of the same active client. */
@@ -33,19 +40,6 @@ export const PORTAL_TABS = [
   { id: 'intake-forms', label: 'Intake Forms' },
 ] as const;
 export type PortalTabId = (typeof PORTAL_TABS)[number]['id'];
-
-/** Where each record tab's canonical module shows this client. */
-const MODULE_OF: Record<
-  Exclude<PortalTabId, 'overview'>,
-  { label: string; href: (id: string) => string }
-> = {
-  documents: { label: 'Documents', href: (id) => `/clients/${id}/documents` },
-  messages: { label: 'Messages', href: (id) => `/clients/${id}/messages` },
-  appointments: { label: 'Appointments', href: (id) => `/calendar?clientId=${id}` },
-  'tax-returns': { label: 'Tax Returns', href: (id) => `/tax-returns?clientId=${id}` },
-  invoices: { label: 'Invoices & Payments', href: (id) => `/clients/${id}/invoices` },
-  'intake-forms': { label: 'Intake Forms', href: (id) => `/clients/${id}/intake-forms` },
-};
 
 /** The active client's header, tabs and the open tab: everything for this one client only. */
 export function ClientPanel({
@@ -86,8 +80,16 @@ export function ClientPanel({
                     <PortalOverview clientId={clientId} onTab={onTab} />
                   ) : tab === 'documents' ? (
                     <PortalDocuments clientId={clientId} />
+                  ) : tab === 'messages' ? (
+                    <PortalMessages clientId={clientId} />
+                  ) : tab === 'appointments' ? (
+                    <PortalAppointments clientId={clientId} />
+                  ) : tab === 'tax-returns' ? (
+                    <PortalTaxReturns clientId={clientId} />
+                  ) : tab === 'invoices' ? (
+                    <PortalInvoices clientId={clientId} />
                   ) : (
-                    <ModuleTab clientId={clientId} tab={tab} name={h.client.name} />
+                    <PortalForms clientId={clientId} />
                   )}
                 </div>
               </Card>
@@ -104,7 +106,7 @@ export function ClientPanel({
 /** Name, status, type, client since and ID, with the header's actions (instructions 3). */
 export function ClientHeader({ header }: { header: ClientPortalHeader }) {
   const router = useRouter();
-  const { client, portal } = header;
+  const { client } = header;
   const stage = STAGES[client.status];
   const since = client.clientSince ? client.clientSince.slice(0, 4) : null;
   return (
@@ -127,7 +129,7 @@ export function ClientHeader({ header }: { header: ClientPortalHeader }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             data-testid="open-client-portal"
-            onClick={() => window.open(portal.link, '_blank', 'noopener,noreferrer')}
+            onClick={() => router.push(`/client-portal/${client.id}/preview`)}
           >
             <ArrowSquareOut aria-hidden className="size-4" /> Open Client Portal
           </Button>
@@ -169,30 +171,5 @@ export function ClientHeader({ header }: { header: ClientPortalHeader }) {
         </div>
       </div>
     </Card>
-  );
-}
-
-/** A record tab: this client's records in their own module (the canonical source). */
-function ModuleTab({
-  clientId,
-  tab,
-  name,
-}: {
-  clientId: string;
-  tab: Exclude<PortalTabId, 'overview' | 'documents'>;
-  name: string;
-}) {
-  const router = useRouter();
-  const target = MODULE_OF[tab];
-  return (
-    <div className="flex flex-col items-start gap-3 rounded-card border border-divider p-6">
-      <p className="text-text">
-        {name}&apos;s {target.label.toLowerCase()} live in {target.label}, the one record the portal
-        shows.
-      </p>
-      <Button variant="outline" onClick={() => router.push(target.href(clientId))}>
-        Open {target.label}
-      </Button>
-    </div>
   );
 }

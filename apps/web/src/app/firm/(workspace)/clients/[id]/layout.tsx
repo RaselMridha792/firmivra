@@ -124,11 +124,11 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
             </header>
             <nav
               aria-label="Client"
-              className="flex items-center gap-1 overflow-x-auto border-b border-border"
+              className="flex items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-border"
             >
               {tabs.slice(0, INLINE).map((t) => {
                 const active = path === t.href;
-                const className = `-mb-px whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${active ? 'border-brand-600 text-brand-600' : 'border-transparent text-muted hover:text-text'}`;
+                const className = `-mb-px whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium focus-visible:outline-offset-[-2px] ${active ? 'border-brand-600 text-brand-600' : 'border-transparent text-muted hover:text-text'}`;
                 return t.service ? (
                   <OriginLink
                     key={t.label}

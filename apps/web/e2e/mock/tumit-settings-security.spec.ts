@@ -72,12 +72,8 @@ test('states the password, lockout and session rules and what is not in force ye
     '5 failures on one account in 15 minutes lock it for 15 minutes',
   );
   await expect(password.locator('dl')).not.toContainText('12 characters');
-  const passwordToday = password.getByTestId('password-not-in-force');
-  await expect(passwordToday).toContainText('Not in force yet');
-  await expect(passwordToday).toContainText('New passwords still need at least 12 characters');
-  await expect(passwordToday).not.toContainText('space');
-  // The account lockout is in force (#1008), so the note no longer names it.
-  await expect(passwordToday).not.toContainText('lockout');
+  // SEC-2: the 15-character policy is in force, so the "not in force yet" note is gone.
+  await expect(password.getByTestId('password-not-in-force')).toHaveCount(0);
 
   const sessions = page.getByTestId('session-rules');
   await expect(fact(sessions, 'Longest sign-in')).toHaveText('8 hours, then sign in again');

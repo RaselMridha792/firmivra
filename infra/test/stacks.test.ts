@@ -31,6 +31,13 @@ const tpl = (stack: Stack | undefined) => {
 const t = (name: 'network' | 'data' | 'auth' | 'email' | 'app' | 'ci') => tpl(stacks[name]);
 /** The setup before the switch (and after switching back): customDomain unset. */
 const cloudFront = build({ customDomain: undefined }).stacks;
+/** Dev's Cognito email once SES has production access (kept on the default sender until then). */
+const DEV_COGNITO_EMAIL = {
+  from: 'no-reply@dev.firmivra.com',
+  sesVerifiedDomain: 'dev.firmivra.com',
+  configurationSet: 'firmivra-dev-email',
+};
+const withSes = build({ cognitoEmail: DEV_COGNITO_EMAIL }).stacks;
 
 describe('cdk-nag', () => {
   it('has no unacknowledged findings: on the custom domain and on CloudFront domains', () => {
@@ -693,8 +700,13 @@ describe('auth: reset codes through SES (R1 step 14)', () => {
 
   const setups = [
     {
-      setup: 'dev.firmivra.com: through the email stack SES identity',
+      setup: "dev.firmivra.com today: Cognito's default sender until SES production access",
       template: () => t('auth'),
+      sending: { EmailSendingAccount: 'COGNITO_DEFAULT' },
+    },
+    {
+      setup: 'dev.firmivra.com with SES: through the email stack SES identity',
+      template: () => tpl(withSes.auth),
       sending: {
         EmailSendingAccount: 'DEVELOPER',
         From: 'no-reply@dev.firmivra.com',
@@ -733,7 +745,10 @@ describe('auth: reset codes through SES (R1 step 14)', () => {
   it('names the email stack resources in config, without a cross-stack reference', () => {
     expect(JSON.stringify(t('auth').toJSON())).not.toMatch(/Fn::ImportValue|Fn::GetStackOutput/);
     expect(stacks.auth.dependencies).toContain(stacks.email);
-    const config = configFor('dev');
+    // Dev keeps Cognito's default sender until SES production access (Nov 14); the names it will
+    // use then are the email stack's own.
+    expect(configFor('dev').cognitoEmail).toBeUndefined();
+    const config = configFor('dev', { cognitoEmail: DEV_COGNITO_EMAIL });
     expect(config.cognitoEmail).toEqual({
       from: stacks.email?.fromAddress,
       sesVerifiedDomain: config.customDomain?.zoneName,

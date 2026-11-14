@@ -531,6 +531,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         )
         .filter((r) => !q.assignedUserId || r.assignedTo?.userId === q.assignedUserId)
         .filter((r) => !q.formId || r.form.id === q.formId)
+        .filter(
+          (r) => !q.clientId || (r.recipient.kind === 'CLIENT' && r.recipient.id === q.clientId),
+        )
         .filter((r) => !q.from || (r.sentAt ?? '').slice(0, 10) >= q.from)
         .filter((r) => !q.to || (r.sentAt ?? '').slice(0, 10) <= q.to)
         .sort((a, b) => Date.parse(b.sentAt ?? '') - Date.parse(a.sentAt ?? ''))

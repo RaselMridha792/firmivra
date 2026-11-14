@@ -15,7 +15,7 @@ import {
   UserCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -60,8 +60,12 @@ export function ClientShell({ clientId, children }: { clientId: string; children
   const pathname = usePathname();
   const base = `/client-portal/${clientId}`;
   const suffix = pathname.startsWith(base) ? pathname.slice(base.length) : '';
+  const previewing = suffix === '/preview';
   const current = MANAGE_TABS.find((t) => t.path === suffix) ?? MANAGE_TABS[0];
   const header = useClientHeader(clientId);
+  // TX-F04: opened from elsewhere (a tax return), the way back stays on every tab.
+  const from = useSearchParams().get('from');
+  const keep = (href: string) => (from ? `${href}?from=${encodeURIComponent(from)}` : href);
   return (
     <div className="flex flex-col gap-4" data-testid="client-portal-manage">
       <nav aria-label="Breadcrumb" className="text-sm text-muted">
@@ -88,7 +92,11 @@ export function ClientShell({ clientId, children }: { clientId: string; children
           </li>
           <CaretRight aria-hidden className="size-3" />
           <li aria-current="page" className="font-medium text-heading">
-            {current.path === '' ? 'Portal Management' : current.label}
+            {previewing
+              ? 'Portal Preview'
+              : current.path === ''
+                ? 'Portal Management'
+                : current.label}
           </li>
         </ol>
       </nav>
@@ -99,7 +107,9 @@ export function ClientShell({ clientId, children }: { clientId: string; children
         <div className="w-full max-w-sm">
           <ClientSwitcher
             activeId={clientId}
-            onSelect={(id) => router.push(`/client-portal/${id}${current.path}`)}
+            onSelect={(id) =>
+              router.push(keep(`/client-portal/${id}${previewing ? '/preview' : current.path}`))
+            }
           />
         </div>
       </div>
@@ -114,11 +124,11 @@ export function ClientShell({ clientId, children }: { clientId: string; children
       <nav aria-label="Client portal management" className="overflow-x-auto overflow-y-hidden">
         <ul className="flex min-w-max gap-1 rounded-card border border-divider bg-surface p-1">
           {MANAGE_TABS.map((t) => {
-            const on = t.path === current.path;
+            const on = !previewing && t.path === current.path;
             return (
               <li key={t.label}>
                 <Link
-                  href={`${base}${t.path}`}
+                  href={keep(`${base}${t.path}`)}
                   aria-current={on ? 'page' : undefined}
                   className={`block rounded-lg px-4 py-2 text-sm font-medium ${on ? 'bg-action text-on-action' : 'text-text hover:bg-canvas'}`}
                 >
@@ -159,7 +169,7 @@ function ManageHeader({ header }: { header: ClientPortalHeader }) {
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => window.open(portal.link, '_blank', 'noopener,noreferrer')}>
+        <Button onClick={() => router.push(`/client-portal/${client.id}/preview`)}>
           <ArrowSquareOut aria-hidden className="size-4" /> Open Client Portal
         </Button>
         <Button
