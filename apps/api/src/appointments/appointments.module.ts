@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -13,6 +14,7 @@ import { AvailabilityService } from './availability.service.js';
 import { MEETING_LINKS, PrismaMeetingLinks } from './meeting-links.js';
 import { MyAppointmentsController } from './my-appointments.controller.js';
 import { MyAppointmentsService } from './my-appointments.service.js';
+import { PublicBookingController } from './public-booking.controller.js';
 import { SchedulingActionsService } from './scheduling-actions.service.js';
 import { SchedulingAvailabilityService } from './scheduling-availability.service.js';
 import { SchedulingConfigService } from './scheduling-config.service.js';
@@ -25,7 +27,7 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
  * appointments.
  */
 @Module({
-  imports: [PortalTabsModule],
+  imports: [PortalTabsModule, PortalInfoModule],
   controllers: [
     AppointmentTypesController,
     AvailabilityController,
@@ -33,6 +35,7 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
     AppointmentsController,
     AppointmentDraftsController,
     MyAppointmentsController,
+    PublicBookingController,
   ],
   providers: [
     AppointmentDraftsService,

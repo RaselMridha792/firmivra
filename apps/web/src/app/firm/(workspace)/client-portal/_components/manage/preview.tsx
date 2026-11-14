@@ -24,7 +24,7 @@ export function PortalPreview({ clientId }: { clientId: string }) {
     api.clientPortal.pendingActions(clientId),
   );
   return (
-    <div className="flex flex-col gap-4" data-testid="portal-preview">
+    <div className="@container flex min-w-0 flex-col gap-4" data-testid="portal-preview">
       <p
         role="note"
         className="flex items-center gap-2 rounded-card border border-warning bg-warning-soft px-4 py-3 text-sm text-text"
@@ -42,7 +42,7 @@ export function PortalPreview({ clientId }: { clientId: string }) {
                 {p.portalHeader ?? 'Client Portal'}
               </h2>
             </header>
-            <div className="grid gap-6 p-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
+            <div className="grid gap-6 p-6 @3xl:grid-cols-[14rem_minmax(0,1fr)]">
               <nav aria-label="The client's portal menu" data-testid="preview-menu">
                 <p className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
                   Their menu

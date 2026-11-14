@@ -123,7 +123,7 @@ export function PortalForms({ clientId }: { clientId: string }) {
   const filtered = !!(term || from || to || tab !== 'all');
   return (
     <div
-      className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_20rem]"
+      className="grid items-start gap-6 @5xl:grid-cols-[minmax(0,1fr)_20rem]"
       data-testid="portal-forms"
     >
       <Card className="min-w-0">
@@ -179,7 +179,10 @@ export function PortalForms({ clientId }: { clientId: string }) {
             />
           </div>
         </div>
-        <div className="mb-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-6" data-testid="form-kpis">
+        <div
+          className="mb-4 grid grid-cols-2 gap-3 @lg:grid-cols-3 @5xl:grid-cols-6"
+          data-testid="form-kpis"
+        >
           <Kpi icon={FileText} tone="blue" value={s?.total} label="Total Forms" />
           <Kpi icon={CheckCircle} tone="green" value={s?.completed} label="Completed" />
           <Kpi
@@ -192,7 +195,7 @@ export function PortalForms({ clientId }: { clientId: string }) {
           <Kpi icon={WarningCircle} tone="red" value={s?.notStarted} label="Not Started" />
           <Kpi icon={Archive} tone="grey" value={s?.archived} label="Archived" />
         </div>
-        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))_auto] lg:items-end">
+        <div className="mb-4 grid gap-3 @4xl:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))_auto] @4xl:items-end">
           <SearchField
             label="Search forms"
             placeholder="Search forms by name or keyword..."
