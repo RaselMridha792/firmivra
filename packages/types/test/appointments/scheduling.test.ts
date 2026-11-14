@@ -119,15 +119,20 @@ describe('appointment type configuration: meeting methods (A1)', () => {
       i.path.join('.'),
     );
 
-  it('takes 1 to 3 methods in order and names each problem at methods.N', () => {
+  it('takes 1 to 4 methods in order and names each problem at methods.N', () => {
     expect(SetAppointmentTypeConfigRequest.parse({ methods: ['PHONE', 'VIDEO'] })).toEqual({
       methods: ['PHONE', 'VIDEO'],
     });
     expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON'] })).toEqual([]);
     expect(paths({ methods: [] })).toEqual(['methods']);
     expect(paths({ methods: ['VIDEO', 'VIDEO'] })).toEqual(['methods.1']);
-    // OTHER is a form choice no appointment type can keep yet.
-    expect(paths({ methods: ['PHONE', 'OTHER'] })).toEqual(['methods.1']);
-    expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'] })).toEqual(['methods.3']);
+    // Review 2 (P1 row 1): OTHER is an Other Video Meeting, the fourth method; a fifth is refused.
+    expect(paths({ methods: ['PHONE', 'OTHER'] })).toEqual([]);
+    expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'] })).toEqual([]);
+    expect(paths({ methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER', 'PHONE'] })).toEqual([
+      'methods.4',
+    ]);
+    expect(paths({ methods: ['PHONE'], maxWindowHours: 1 })).toEqual(['maxWindowHours']);
+    expect(paths({ otherVideoPlatform: 'x'.repeat(61) })).toEqual(['otherVideoPlatform']);
   });
 });

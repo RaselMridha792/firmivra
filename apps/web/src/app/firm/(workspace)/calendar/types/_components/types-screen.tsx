@@ -24,7 +24,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
-import { errorCode, errorMessage } from '../../../../../../lib/errors';
+import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
@@ -49,6 +49,7 @@ const LOCATIONS: Record<LocationKind, string> = {
 const SETTING_FIELDS = {
   description: 'Description',
   methods: 'Meeting methods',
+  otherVideoPlatform: 'Video platform',
   bufferBeforeMinutes: 'Buffer before',
   bufferAfterMinutes: 'Buffer after',
   minNoticeHours: 'Minimum notice',
@@ -57,10 +58,6 @@ const SETTING_FIELDS = {
   requiredIntakeFormId: 'Required intake form',
 } as const;
 type SettingField = keyof typeof SETTING_FIELDS;
-
-/** Until the API keeps several (`meeting_methods`), a type saves one of these three. */
-const ONE_METHOD =
-  'For now a type keeps one meeting method: In-Person, Phone or Zoom / Video. Keep one and save again.';
 
 const TYPE_ERRORS: Record<string, string> = {
   DUPLICATE_NAME: 'Another appointment type already has this name.',
@@ -72,12 +69,27 @@ const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
 
 /**
- * Octavia's A3: how far ahead clients can book, in days (the API keeps whole days, 1 to 730; 730
- * is no limit). Shorter windows in hours have no column yet.
+ * Octavia's A3 and Review 2 (P1 row 2): how far ahead clients can book: 2, 6 or 12 hours (kept in
+ * hours), then whole days (1 to 730; 730 is no limit). A choice is "h6" or "d3".
  */
+const WINDOW_HOURS = [2, 6, 12];
 const WINDOW_DAYS = [1, 3, 5, 7, 14, 30, 60, 90, 180, 365, 730];
 const windowLabel = (d: number) =>
   d === 730 ? 'No limit' : d === 1 ? '1 day ahead (24 hours)' : `${d} days ahead`;
+const windowChoices = (current: string) => {
+  const hours = WINDOW_HOURS.map((h) => ({ value: `h${h}`, label: `${h} hours ahead` }));
+  const days = WINDOW_DAYS.map((d) => ({ value: `d${d}`, label: windowLabel(d) }));
+  const all = [...hours, ...days];
+  // The saved value stays a choice when it is not one of the presets, so the select never lies.
+  if (!all.some((c) => c.value === current)) {
+    const n = Number(current.slice(1));
+    all.push({
+      value: current,
+      label: current.startsWith('h') ? `${n} hours ahead` : windowLabel(n),
+    });
+  }
+  return all;
+};
 /** The saved value stays a choice when it is not one of the presets, so the select never lies. */
 const withCurrent = (presets: number[], current: number) =>
   Number.isFinite(current) && !presets.includes(current)
@@ -406,10 +418,13 @@ function SettingsForm({
 }) {
   const [description, setDescription] = useState(c.description ?? '');
   const [methods, setMethods] = useState<MeetingMethod[]>(c.methods);
+  const [platform, setPlatform] = useState(c.otherVideoPlatform ?? '');
   const [before, setBefore] = useState(String(c.bufferBeforeMinutes));
   const [after, setAfter] = useState(String(c.bufferAfterMinutes));
   const [notice, setNotice] = useState(String(c.minNoticeHours));
-  const [windowDays, setWindowDays] = useState(String(c.maxWindowDays));
+  const [windowChoice, setWindowChoice] = useState(
+    c.maxWindowHours ? `h${c.maxWindowHours}` : `d${c.maxWindowDays}`,
+  );
   // Octavia's A7: every reminder the type has, each with its channels (no longer one checkbox
   // that replaced them all with "Email, 1 day before").
   const [reminders, setReminders] = useState<ReminderRow[]>(() =>
@@ -431,10 +446,14 @@ function SettingsForm({
       await api.scheduling.setTypeConfig(type.id, {
         description: description.trim() || null,
         methods,
+        otherVideoPlatform: methods.includes('OTHER') ? platform.trim() || null : null,
         bufferBeforeMinutes: Number(before),
         bufferAfterMinutes: Number(after),
         minNoticeHours: Number(notice),
-        maxWindowDays: Number(windowDays),
+        // Review 2 (P1 row 2): hours replace the days while set; a day choice clears them.
+        ...(windowChoice.startsWith('h')
+          ? { maxWindowHours: Number(windowChoice.slice(1)) }
+          : { maxWindowDays: Number(windowChoice.slice(1)), maxWindowHours: null }),
         defaultReminders: remindersFromRows(reminders),
         requiredIntakeFormId: intakeForm || null,
       });
@@ -453,6 +472,14 @@ function SettingsForm({
         e.preventDefault();
         if (!methods.length) return;
         const form = e.currentTarget;
+        // Review 2 (P1 row 1): an Other Video Meeting names its platform.
+        if (methods.includes('OTHER') && !platform.trim()) {
+          setFieldErrors({
+            otherVideoPlatform: 'Name the video platform of the Other Video Meeting.',
+          });
+          form.querySelector<HTMLElement>('[data-testid="other-video-platform"] input')?.focus();
+          return;
+        }
         const problem = reminderRowsProblem(reminders);
         if (problem) {
           setFieldErrors({ defaultReminders: problem });
@@ -468,13 +495,6 @@ function SettingsForm({
             for (const d of details) {
               const key = d.path.split('.')[0] as SettingField;
               if (key in SETTING_FIELDS) next[key] ??= d.message;
-            }
-            if (
-              !details.length &&
-              errorCode(error) === 'VALIDATION_FAILED' &&
-              (methods.length > 1 || methods.includes('OTHER'))
-            ) {
-              next.methods = ONE_METHOD;
             }
             setFieldErrors(next);
             requestAnimationFrame(() =>
@@ -519,6 +539,22 @@ function SettingsForm({
             className="min-h-8 text-sm"
           />
         ))}
+        {methods.includes('OTHER') ? (
+          <div className="mt-1 max-w-sm" data-testid="other-video-platform">
+            <Input
+              label="Video platform *"
+              maxLength={60}
+              placeholder="Teams, Google Meet…"
+              disabled={off}
+              value={platform}
+              error={fieldErrors.otherVideoPlatform}
+              onChange={(e) => {
+                setPlatform(e.target.value);
+                setFieldErrors(({ otherVideoPlatform: _, ...rest }) => rest);
+              }}
+            />
+          </div>
+        ) : null}
         {methods.length ? null : <p className="text-xs text-danger">Choose at least one method.</p>}
         {fieldErrors.methods ? (
           <p id={`methods-error-${type.id}`} className="text-sm font-medium text-danger">
@@ -554,12 +590,9 @@ function SettingsForm({
         <Select
           label="Booking window"
           disabled={off}
-          options={withCurrent(WINDOW_DAYS, Number(windowDays)).map((d) => ({
-            value: String(d),
-            label: windowLabel(d),
-          }))}
-          value={windowDays}
-          onChange={(e) => setWindowDays(e.target.value)}
+          options={windowChoices(windowChoice)}
+          value={windowChoice}
+          onChange={(e) => setWindowChoice(e.target.value)}
         />
       </div>
       <div data-testid="type-intake">
