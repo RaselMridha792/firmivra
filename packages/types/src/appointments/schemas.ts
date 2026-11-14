@@ -68,8 +68,13 @@ export const TimeOfDay = z
 export const LocationKind = z.enum(['IN_PERSON', 'PHONE', 'VIDEO']);
 export type LocationKind = z.infer<typeof LocationKind>;
 
-/** An appointment type offers at most this many meeting methods (A1). */
-export const MAX_MEETING_METHODS = 3;
+/** An appointment type offers at most this many meeting methods (A1; four with Other Video). */
+export const MAX_MEETING_METHODS = 4;
+/**
+ * Appointments Review 2 (P1 row 1): the meeting methods a type can offer. OTHER is an Other Video
+ * Meeting, on a platform the firm names (`otherVideoPlatform`).
+ */
+const TYPE_METHODS: readonly string[] = [...LocationKind.options, 'OTHER'];
 
 /** One thing wrong with a list of meeting methods, at its place in the list. */
 export interface MeetingMethodProblem {
@@ -79,18 +84,17 @@ export interface MeetingMethodProblem {
 
 /**
  * What is wrong with an appointment type's meeting methods (A1), each at its place in the list so
- * a form can mark that choice and keep the others: one past the third, a method an appointment
- * cannot have (only in person, phone and video), or one chosen twice. Empty when they are fine.
+ * a form can mark that choice and keep the others: one past the fourth, a method a type cannot
+ * offer, or one chosen twice. Empty when they are fine.
  */
 export function meetingMethodProblems(methods: readonly string[]): MeetingMethodProblem[] {
-  const kinds: readonly string[] = LocationKind.options;
   const problems: MeetingMethodProblem[] = [];
   methods.forEach((method, index) => {
     const message =
       index >= MAX_MEETING_METHODS
         ? `Choose at most ${MAX_MEETING_METHODS} meeting methods`
-        : !kinds.includes(method)
-          ? 'Choose in person, phone or video'
+        : !TYPE_METHODS.includes(method)
+          ? 'Choose in person, phone, Zoom / video or another video meeting'
           : methods.indexOf(method) < index
             ? 'This meeting method is already chosen'
             : null;

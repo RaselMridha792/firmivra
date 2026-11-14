@@ -243,18 +243,21 @@ describe('meeting methods of an appointment type (A1)', () => {
     (r.error?.issues ?? []).map((i) => i.path.join('.'));
   const type = { name: 'Consult', durationMinutes: 30 };
 
-  it('names each problem at its place: past the third, not a kind, or chosen twice', () => {
-    expect(MAX_MEETING_METHODS).toBe(3);
-    expect(meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON'])).toEqual([]);
+  it('names each problem at its place: past the fourth, not a method, or chosen twice', () => {
+    // Review 2 (P1 row 1): four, with the Other Video Meeting.
+    expect(MAX_MEETING_METHODS).toBe(4);
+    expect(meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'])).toEqual([]);
     expect(meetingMethodProblems(['VIDEO', 'VIDEO'])).toEqual([
       { index: 1, message: 'This meeting method is already chosen' },
     ]);
-    expect(meetingMethodProblems(['OTHER', 'PHONE'])).toEqual([
-      { index: 0, message: 'Choose in person, phone or video' },
+    expect(meetingMethodProblems(['ZOOM', 'PHONE'])).toEqual([
+      { index: 0, message: 'Choose in person, phone, Zoom / video or another video meeting' },
     ]);
-    expect(meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON', 'PHONE', 'VIDEO'])).toEqual([
-      { index: 3, message: 'Choose at most 3 meeting methods' },
-      { index: 4, message: 'Choose at most 3 meeting methods' },
+    expect(
+      meetingMethodProblems(['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER', 'VIDEO', 'PHONE']),
+    ).toEqual([
+      { index: 4, message: 'Choose at most 4 meeting methods' },
+      { index: 5, message: 'Choose at most 4 meeting methods' },
     ]);
   });
 
