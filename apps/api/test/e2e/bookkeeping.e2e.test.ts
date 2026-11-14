@@ -857,6 +857,41 @@ describe('the client workspace and its service actions', () => {
     expect(await auditActions(bk)).toContain('bookkeeping.client.status_changed');
   });
 
+  it('a note written on the Bookkeeping service shows in its Activity, never its text (Review 2, A01)', async () => {
+    const clientId = await asOwner(ids.firmA, (tx) =>
+      tx.client
+        .create({
+          data: {
+            businessId: ids.firmA,
+            displayName: `Fake A01 client ${run}`,
+            assignedUserId: people.staffA.id,
+          },
+        })
+        .then((c) => c.id),
+    );
+    const ws = await addClient(clientId);
+    const note = await request(app.getHttpServer())
+      .post(`/api/v1/business/clients/${clientId}/notes`)
+      .set('x-business-id', ids.firmA)
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(people.staffA.email)}`)
+      .send({
+        body: 'Fake: asked for the receipts',
+        engagementId: ws.engagementId,
+        noteType: 'CALL',
+      });
+    expect(note.status, JSON.stringify(note.body)).toBe(201);
+    const after = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${ws.id}`, people.staffA),
+    );
+    expect(after.recentActivity.map((a) => [a.kind, a.summary, a.actor?.userId])).toEqual([
+      ['NOTE', 'Call note added', people.staffA.id],
+      ['PLAN_CHANGE', 'Added to Bookkeeping', people.ownerA.id],
+    ]);
+    expect(JSON.stringify(after.recentActivity)).not.toContain('receipts');
+  });
+
   it('logs activity with a kind and a short summary, newest first', async () => {
     const a = exact(
       BookkeepingActivity,
