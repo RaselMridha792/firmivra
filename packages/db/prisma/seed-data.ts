@@ -184,6 +184,8 @@ export const SEED_INTAKE_IDS = {
   leadIntake: '00000000-0000-400f-8000-000000000012',
   leadSubmission: '00000000-0000-400f-8000-000000000013',
   leadUpload: '00000000-0000-400f-8000-000000000014',
+  /** R55 (Leads R2 9): the lead's other phone number. */
+  leadContactPoint: '00000000-0000-400f-8000-000000000015',
 } as const;
 
 /** Fixed ids of each firm's seeded intake agreement (v1, its PDF row) and the lead's signature. */
