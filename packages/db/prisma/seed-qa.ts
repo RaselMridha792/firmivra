@@ -1,12 +1,14 @@
 // QA seed (R1; Rasel's card "Approve seed", Oct 29): `pnpm db:seed:qa`. Synthetic fixtures for
 // Octavia's Oct 28 reviews in LVP and Test Firm B, rows only, nothing sendable (seed-qa-data.ts),
-// then part 2 for LVP and the Super Admin (seed-qa-extra.ts).
+// then part 2 for LVP and the Super Admin (seed-qa-extra.ts), part 3 (automation logs) and part 4
+// (Test Firm B's upcoming appointments, seed-qa-appointments.ts).
 // Safe to run again: a firm already seeded is skipped. On dev it runs once as a one-off task
 // (scripts/seed-qa-task.mjs), on Rasel's card.
 import { config } from 'dotenv';
 import { createPrismaClient } from '../src/client.js';
 import { seedQa } from './seed-qa-data.js';
 import { seedQaExtra } from './seed-qa-extra.js';
+import { seedQaAppointments } from './seed-qa-appointments.js';
 import { seedQaRuns } from './seed-qa-runs.js';
 
 config({ path: '../../.env', quiet: true });
@@ -24,6 +26,7 @@ async function main() {
   const extra = await seedQaExtra(prisma);
   console.warn(`QA part 2: LVP ${extra.lvp}, platform ${extra.platform}`);
   console.warn(`QA part 3 (automation logs): LVP ${await seedQaRuns(prisma)}`);
+  console.warn(`QA part 4 (appointments): Test Firm B ${await seedQaAppointments(prisma)}`);
   if (extra.documentKey)
     console.warn(`Upload qaFixturePdf() to the documents bucket at: ${extra.documentKey}`);
 }
