@@ -21,6 +21,7 @@ import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { checkAssignee, conflict, memberNames, notFound, toDay } from '../workspaces/common.js';
 import { renderIntakePdf } from './intake-pdf.js';
 import { endOfDay, IntakeSendService } from './intake-send.service.js';
+import { newLeadLink } from './lead-link.js';
 import { rowInclude, toRow } from './intake-workspace.service.js';
 import type { UpdateAssignedBody } from './workspace-input.js';
 import { day, iso, reachOf } from './workspace.common.js';
@@ -341,6 +342,8 @@ export class IntakeRecordService {
           throw invalid('The expiration date must be after today');
         }
         data.expiresAt = endOfDay(body.expiresOn);
+        // A lead's link follows the form's expiration (intakes_access_token: never past it).
+        if (row.accessTokenHash) data.accessTokenExpiresAt = data.expiresAt;
       } else if (body.expiresOn === null) {
         data.expiresAt = null;
       }
@@ -361,7 +364,11 @@ export class IntakeRecordService {
     return record;
   }
 
-  /** Resend (the same form, never a second one) or a reminder now. */
+  /**
+   * Resend (the same form, never a second one) or a reminder now. A lead's form gets a new secure
+   * link by email (only its hash is kept, so the older link can't be sent again): it replaces the
+   * older one.
+   */
   private async nudge(
     tenant: TenantContext,
     userId: string,
@@ -369,22 +376,20 @@ export class IntakeRecordService {
     action: 'intake.resent' | 'intake.reminded',
   ): Promise<AssignedFormRecord> {
     const businessId = tenant.businessId;
-    await this.inFirm(tenant, async (tx) => {
+    const token = await this.inFirm(tenant, async (tx) => {
       const row = await this.find(tx, tenant, userId, id, true);
       if (!FILLABLE.includes(row.status)) throw invalidStatus();
-      // Leads have no secure link page yet, so nothing can reach them.
-      if (!row.engagement) {
-        throw new HttpException(
-          {
-            code: 'LEAD_LINK_UNAVAILABLE',
-            message: 'Forms for leads need the secure link page, which is not available yet',
-          },
-          HttpStatus.SERVICE_UNAVAILABLE,
-        );
-      }
-      await tx.intake.update({ where: { id: row.id }, data: { lastActivityAt: new Date() } });
+      if (!row.engagement && !row.leadId) throw invalidStatus();
+      const link = row.engagement ? null : newLeadLink(row.expiresAt);
+      await tx.intake.update({
+        where: { id: row.id },
+        data: { lastActivityAt: new Date(), ...(link?.data ?? {}) },
+      });
+      return link?.token ?? null;
     });
-    const reached = await this.sender.deliver(businessId, id, userId, `${action}:${randomUUID()}`);
+    const reached = token
+      ? await this.sender.emailLink(businessId, id, token)
+      : await this.sender.deliver(businessId, id, userId, `${action}:${randomUUID()}`);
     await this.audit.log(action, { type: 'intake', id }, { delivered: reached });
     return this.load(tenant, userId, id);
   }

@@ -62,6 +62,19 @@ export interface NotifyTemplates {
    * preference applies to it.
    */
   'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
+  /**
+   * A form the firm sent a lead (Intake Forms Review Two, ACCESS-01): the secure link
+   * (`{PORTAL_BASE_URL}/{slug}/form#token=...`) and when it stops working. `subject` and `message`
+   * are what the member typed on Send Intake Form; they go out, and nowhere else. A lead has no
+   * account, so no preferences; the member chose to send it.
+   */
+  'intake.lead-link': IgnoredFirmName & {
+    formTitle: string;
+    link: string;
+    expiresAt: Date;
+    subject: string | null;
+    message: string | null;
+  };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** The firm invites an existing client to its portal: a sealed link that expires. */
@@ -248,6 +261,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.confirmation': 'email',
   'lead.received': 'email',
   'intake.submitted-notice': 'email',
+  'intake.lead-link': 'email',
   'client.portal-invite': 'email',
   'client.portal-invitation': 'email',
   'message.received': 'email',
@@ -296,6 +310,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
   'intake.submitted-notice': 'firm',
+  'intake.lead-link': 'firm',
   'client.portal-invite': 'firm',
   'client.portal-invitation': 'firm',
   'message.received': 'firm',
@@ -332,6 +347,7 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'client.portal-invite',
   'client.portal-invitation',
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
+  'intake.lead-link',
   'lead.message-email',
   'lead.message-sms',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
@@ -376,6 +392,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
   'intake.submitted-notice': 'INTAKE',
+  'intake.lead-link': 'ACCOUNT',
   'client.portal-invite': 'ACCOUNT',
   'client.portal-invitation': 'ACCOUNT',
   'message.received': 'MESSAGES',
