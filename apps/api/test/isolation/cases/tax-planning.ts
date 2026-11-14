@@ -214,6 +214,11 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'taxOpportunity' },
     body: { action: 'ADD_NOTE', note: 'Fake note' },
   },
+  // C10 (Review 2): editing an opportunity's reasoning.
+  [`PATCH ${BASE}/opportunities/:id`]: {
+    params: { id: 'taxOpportunity' },
+    body: { whyExplanation: 'Fake edited reasoning' },
+  },
   [`GET ${BASE}/opportunities/:id/events`]: { params: { id: 'taxOpportunity' } },
   [`POST ${BASE}/screening/run`]: {
     params: {},

@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { OpportunityFields, type OpportunityDraft, draftOf, fieldsOf } from './opportunity-fields';
 import { Disclaimer } from './tp-shell';
 import {
   CATEGORY_LABEL,
@@ -53,6 +54,7 @@ export function OpportunityDetail({ id }: { id: string }) {
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<Dialog>();
   const [planId, setPlanId] = useState('');
+  const [editing, setEditing] = useState(false);
   const o: TaxOpportunityDetail | undefined = q.data;
 
   if (q.isError)
@@ -138,6 +140,9 @@ export function OpportunityDetail({ id }: { id: string }) {
             sections={[
               {
                 items: [
+                  ...(open && o.canReview
+                    ? [{ label: 'Edit Details', onSelect: () => setEditing(true) }]
+                    : []),
                   { label: 'Add Note', onSelect: () => setDialog('note') },
                   { label: 'Mark Implemented', onSelect: () => setDialog('implemented') },
                   o.status === 'NEW'
@@ -211,9 +216,20 @@ export function OpportunityDetail({ id }: { id: string }) {
           </div>
         </section>
         <section className={card} aria-label="Why this opportunity">
-          <h2 className="mb-2 font-display text-lg font-bold text-heading">
-            Why This Opportunity?
-          </h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-bold text-heading">Why This Opportunity?</h2>
+            {/* C10 (Review 2): the reasoning is editable while the opportunity is open. */}
+            {open && o.canReview ? (
+              <button
+                type="button"
+                className="text-sm font-medium text-link"
+                data-testid="edit-why"
+                onClick={() => setEditing(true)}
+              >
+                Edit
+              </button>
+            ) : null}
+          </div>
           <p className="text-sm text-text">
             {o.whyExplanation ?? 'The screening gave no explanation.'}
           </p>
@@ -459,6 +475,18 @@ export function OpportunityDetail({ id }: { id: string }) {
         </button>
       </footer>
 
+      {editing ? (
+        <EditOpportunity
+          opportunity={o}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            await qc.invalidateQueries({ queryKey: [...TP_KEY] });
+            setEditing(false);
+            setMessage({ text: 'Details saved.', tone: 'success' });
+          }}
+          onError={(t) => setMessage({ text: t, tone: 'error' })}
+        />
+      ) : null}
       {dialog ? (
         <ActionDialog
           kind={dialog}
@@ -471,6 +499,63 @@ export function OpportunityDetail({ id }: { id: string }) {
         />
       ) : null}
     </div>
+  );
+}
+
+/** C10 (Review 2): Edit Details: the opportunity's reasoning, figures, actions and checks. */
+function EditOpportunity({
+  opportunity: o,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  opportunity: TaxOpportunityDetail;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  onError: (t: string) => void;
+}) {
+  const [name, setName] = useState(o.name);
+  const [draft, setDraft] = useState<OpportunityDraft>(() => draftOf(o));
+  const [busy, setBusy] = useState(false);
+  const showData = o.clientDataUsed !== null;
+  return (
+    <Modal
+      open
+      title="Edit Details"
+      subtitle={`${o.client.name} · ${o.taxYear}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.taxPlanning.updateOpportunity(o.id, {
+                  name: name.trim(),
+                  ...fieldsOf(draft, showData),
+                  etag: o.etag,
+                });
+                await onSaved();
+              } catch (e) {
+                onError(errorMessage(e, TP_ERRORS));
+              }
+              setBusy(false);
+            }}
+          >
+            Save Details
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="edit-opportunity">
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <OpportunityFields draft={draft} onChange={setDraft} showData={showData} />
+      </div>
+    </Modal>
   );
 }
 

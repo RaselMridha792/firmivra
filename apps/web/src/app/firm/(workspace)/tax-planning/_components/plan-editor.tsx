@@ -1157,6 +1157,7 @@ function StepStrategies({ plan, onNotice, onSaved, onNext, onBack }: StepProps) 
           </p>
         ))}
       </section>
+      <PlanScenarios plan={plan} onNotice={onNotice} onSaved={onSaved} />
       <footer className="flex flex-wrap justify-between gap-3">
         <span className="flex gap-2">
           <button type="button" className={outlined} onClick={onBack}>
@@ -1203,6 +1204,96 @@ function StepStrategies({ plan, onNotice, onSaved, onNext, onBack }: StepProps) 
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * C20 (Review 2): the client's Tax Savings Calculator scenarios, where the plan is worked on: each
+ * opens in the calculator, and one not yet in this plan is added to it as a snapshot that never
+ * changes (the kept inputs, worked out again now and saved with the plan).
+ */
+function PlanScenarios({
+  plan,
+  onNotice,
+  onSaved,
+}: {
+  plan: TaxPlanDetail;
+  onNotice: (t: string, tone: 'success' | 'error') => void;
+  onSaved: () => Promise<unknown>;
+}) {
+  const scenarios = useApiQuery([...TP_KEY, 'scenarios', 'client', plan.client.id], () =>
+    api.taxPlanning.scenarios({ clientId: plan.client.id, pageSize: 25 }),
+  );
+  if (plan.inputs === null) return null;
+  const rows = scenarios.data?.items ?? [];
+  return (
+    <section
+      className={`${card} flex flex-col gap-2`}
+      aria-label="Scenarios"
+      data-testid="plan-scenarios"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-display text-lg font-bold text-heading">Scenarios</h2>
+        <Link href="/tax-planning/calculator" className={linkBtn}>
+          New Scenario <ArrowRight aria-hidden weight="bold" className="size-3" />
+        </Link>
+      </div>
+      {scenarios.isError ? <p className={quiet}>The scenarios could not be loaded.</p> : null}
+      {scenarios.data && rows.length === 0 ? (
+        <p className={quiet}>No saved scenarios for {plan.client.name} yet.</p>
+      ) : null}
+      <ul>
+        {rows.map((sc) => (
+          <li
+            key={sc.id}
+            className="flex flex-wrap items-center justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
+          >
+            <Link
+              href={`/tax-planning/calculator?scenario=${sc.id}`}
+              className="font-medium text-link"
+              data-testid="scenario-link"
+            >
+              {sc.name ?? 'Scenario'} · {sc.taxYear}
+            </Link>
+            <span className="flex items-center gap-3 text-muted">
+              {sc.result.differenceCents === null
+                ? 'N/A'
+                : `${money(sc.result.differenceCents)} (est.)`}
+              {sc.plan?.id === plan.id ? (
+                <span className="text-success">In this plan</span>
+              ) : (
+                <button
+                  type="button"
+                  className="font-medium text-link"
+                  disabled={!plan.canEdit}
+                  onClick={async () => {
+                    try {
+                      await api.taxPlanning.saveScenario({
+                        ...(sc.name ? { name: sc.name } : {}),
+                        planId: plan.id,
+                        calculation: {
+                          clientId: plan.client.id,
+                          taxYear: sc.taxYear,
+                          ...(sc.filingStatus ? { filingStatus: sc.filingStatus } : {}),
+                          baseline: sc.baseline,
+                          strategy: sc.strategy,
+                        },
+                      });
+                      onNotice('Scenario added to the plan.', 'success');
+                      await onSaved();
+                    } catch (e) {
+                      onNotice(planError(e), 'error');
+                    }
+                  }}
+                >
+                  Add to this plan
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
