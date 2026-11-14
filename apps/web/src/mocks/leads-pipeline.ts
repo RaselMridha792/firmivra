@@ -40,6 +40,7 @@ import {
   UpdateLeadRequest,
   UpdateLeadTaskRequest,
   type LeadDocument,
+  type LeadSequenceRun,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { beginOnlineFixture } from './leads';
@@ -102,6 +103,10 @@ function services() {
     'Business Formation',
   ].map((name, i) => ({ id: uuid('0e00', i + 1), name }));
 }
+let sequenceRuns: Map<string, LeadSequenceRun[]> | undefined;
+/** R2 19: the sequences applied to each lead (mocks/lead-sequences.ts writes them). */
+export const mockLeadSequenceRuns = () => (sequenceRuns ??= new Map<string, LeadSequenceRun[]>());
+
 function team() {
   return [
     staff(1, 'Morgan Avery'),
@@ -582,6 +587,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   });
   const view = (l: Lead): LeadProfile => ({
     ...copy({ ...l.profile, followUps: steps(l) }),
+    sequences: copy(mockLeadSequenceRuns().get(l.profile.id) ?? []),
     // As the API: other open leads with this email or phone (warned and linked, never merged).
     duplicates: {
       leads: s.leads
