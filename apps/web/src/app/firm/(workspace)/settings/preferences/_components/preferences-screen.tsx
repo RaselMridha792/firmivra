@@ -3,6 +3,7 @@
 import type { BrandingSettings, FirmPreferences, FirmSettings } from '@firmivra/types';
 import { Button, Callout, Select, Skeleton } from '@firmivra/ui';
 import { Clock, GearSix, Globe, Info, NumberSquareOne } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -156,6 +157,7 @@ function PreferencesForm({
   onReload: () => void;
 }) {
   const noteId = useId();
+  const qc = useQueryClient();
   const [zone, setZone] = useState(firm.timezone);
   const [prefs, setPrefs] = useState<FirmPreferences>(branding.preferences);
   const save = useApiMutation(
@@ -163,6 +165,8 @@ function PreferencesForm({
       if (zone !== firm.timezone) {
         await api.settings.update({ timezone: zone });
         await onFirmSaved();
+        // Dashboard Review 2 (U2): the header clock and the dashboard follow the new zone at once.
+        await qc.invalidateQueries({ queryKey: ['availability'] });
       }
       const changed = (Object.keys(prefs) as (keyof FirmPreferences)[]).some(
         (k) => prefs[k] !== branding.preferences[k],
