@@ -2334,7 +2334,7 @@ describe('appointment audit and notices', () => {
     }
   });
 
-  it("tells the client's primary login about a booking and a new time; nothing for a cancel", async () => {
+  it("tells the client's primary login about a booking, a new time and a cancel (Review 2 P3)", async () => {
     outbox.length = 0;
     const a = await book({
       clientId: ids.c1,
@@ -2345,7 +2345,9 @@ describe('appointment audit and notices', () => {
     await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
       startsAt: at(18, '10:00'),
     });
-    await call('post', `/appointments/${a.id}/cancel`, people.ownerA, {});
+    await call('post', `/appointments/${a.id}/cancel`, people.ownerA, {
+      reason: 'The office is closed that day.',
+    });
     // c3 has no login and no email: nothing to send.
     await book({
       clientId: ids.c3,
@@ -2356,7 +2358,28 @@ describe('appointment audit and notices', () => {
     expect(outbox.map((m) => [m.template, m.to])).toEqual([
       ['appointment.booked', people.clientA.email],
       ['appointment.changed', people.clientA.email],
+      ['appointment.cancelled', people.clientA.email],
     ]);
+    // The cancellation: the reason staff gave, the time it was, and the client's portal.
+    expect(outbox[2]?.data).toMatchObject({
+      name: names.clientA,
+      title: review.name,
+      startsAt: new Date(at(18, '10:00')),
+      timeZone: TZ,
+      reason: 'The office is closed that day.',
+      link: expect.stringMatching(/\/r12a-firma-[0-9a-f]+\/appointments$/),
+    });
+    // And a bell item in the client's portal.
+    const bell = await asOwner(ids.firmA, (tx) =>
+      tx.notification.findMany({
+        where: {
+          recipientUserId: people.clientA.id,
+          entityId: a.id,
+          type: 'appointment.cancelled',
+        },
+      }),
+    );
+    expect(bell).toHaveLength(1);
     expect(outbox[1]).toMatchObject({
       businessId: ids.firmA,
       recipient: { clientAccountId: expect.any(String) },

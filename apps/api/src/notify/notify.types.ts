@@ -163,6 +163,10 @@ export interface NotifyTemplates {
   'appointment.booked': AppointmentData;
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
+  /** Appointments Review 2 (P3): the firm cancelled it; the reason staff gave, if any. */
+  'appointment.cancelled': Omit<AppointmentData, 'message' | 'instructions'> & {
+    reason: string | null;
+  };
 
   // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
   /** To a member: a project deadline (their own or shared with them) is coming up. */
@@ -281,6 +285,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'appointment.cancelled': 'email',
   'project-deadline.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
@@ -332,6 +337,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'appointment.cancelled': 'firm',
   'project-deadline.reminder': 'firm',
   'invoice.sent': 'firm',
   'payment.received': 'firm',
@@ -417,6 +423,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'appointment.cancelled': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',

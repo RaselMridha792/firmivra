@@ -110,6 +110,11 @@ export const NOTIFICATION_EVENTS = {
   'appointment.booked': { category: 'APPOINTMENTS', kind: 'appointment', to: 'both' },
   'appointment.changed': { category: 'APPOINTMENTS', kind: 'appointment', to: 'both' },
   'appointment.reminder': { category: 'APPOINTMENTS', kind: 'appointment', to: 'both' },
+  /**
+   * Appointments Review 2 (P3): the firm cancelled the client's appointment. A bell item and an
+   * email to the client's primary login, with the reason staff gave (never internal notes).
+   */
+  'appointment.cancelled': { category: 'APPOINTMENTS', kind: 'appointment', to: 'client' },
   // ----- Invoices (R7; never an amount) -----
   'invoice.sent': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },

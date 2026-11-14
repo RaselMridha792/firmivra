@@ -514,3 +514,21 @@ test("Review 2 (B10): a new appointment starts in the firm's time zone and keeps
   await expect(page.getByLabel('Time Zone')).toHaveValue('America/Chicago', { timeout: 60_000 });
   await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
 });
+
+test('Review 2 (P3): Cancel says the client is told, and that they see the reason', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The scheduling mock's Pending appointment (Bruno Sandoval).
+  await page.goto(app('/calendar/0199c0b0-0a10-7000-8000-000000000003'));
+  await expect(page.getByTestId('detail-summary')).toContainText('Bruno Sandoval', {
+    timeout: 60_000,
+  });
+  await page.getByRole('button', { name: 'Cancel Appointment' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Cancel Appointment' });
+  await expect(dialog).toContainText('They are told');
+  await expect(dialog).toContainText('The client sees this in the cancellation email.');
+  await expect(dialog.getByLabel('Reason (optional)')).toBeEditable();
+  // The notice itself (a bell item and an email with the reason) is the API's: e2e
+  // `appointments` "tells the client's primary login about a booking, a new time and a cancel".
+});
