@@ -1,13 +1,43 @@
 // Intake forms of a client's engagement: the portal side (contract B: read, fill in, upload,
 // submit) and the firm's send and review.
 import { createHash, randomUUID } from 'node:crypto';
+import { INTAKE_FORMS } from '@firmivra/types';
 import type { CaseModule } from '../world.js';
+
+const STAMP = new Date('2026-01-01T00:00:00.000Z');
 
 const ACKS = [
   { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
 ];
 
 export const records: CaseModule['records'] = {
+  /** INTAKE-ACCESS-02: a form of the world's service published in the client portal. */
+  portalTemplate: {
+    async create({ tx, businessId, owner, own }) {
+      const template = await tx.intakeTemplate.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          portalPublished: true,
+          createdByUserId: owner.id,
+        },
+      });
+      await tx.intakeForm.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          templateId: template.id,
+          version: 1,
+          title: 'Fake portal form',
+          definition: INTAKE_FORMS.ANNUAL_TAX as object,
+          status: 'PUBLISHED',
+          publishedAt: STAMP,
+          createdByUserId: owner.id,
+        },
+      });
+      return template.id;
+    },
+  },
   /**
    * Firm P's published firm-wide intake agreement (its current version's id). One per firm, so
    * every world shares the first one.
@@ -169,6 +199,10 @@ export const cases: CaseModule['cases'] = {
     expect: 409,
   },
   'GET /api/v1/portal/:firmSlug/me/intakes/:id': { params: { id: 'intake' } },
+  // ACCESS-02 part B: a client starts a form published in the portal; firm Q's id is 404.
+  'POST /api/v1/portal/:firmSlug/me/intake-forms/:templateId/start': {
+    params: { templateId: 'portalTemplate' },
+  },
   'PUT /api/v1/portal/:firmSlug/me/intakes/:id/steps/:stepKey': {
     params: { id: 'intake' },
     body: { answers: {} },
