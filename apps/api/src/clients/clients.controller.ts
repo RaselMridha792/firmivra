@@ -44,6 +44,7 @@ import { NotificationsModule } from '../notifications/notifications.controller.j
 import { ReportsModule } from '../reports/reports.module.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { ClientTimelineController, ClientTimelineService } from './client-timeline.controller.js';
+import { ClientOfficeController, ClientOfficeService } from './client-office.controller.js';
 import { ClientServicesController, ClientServicesService } from './client-services.controller.js';
 import { MyProfileService } from './my-profile.service.js';
 import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
@@ -209,6 +210,7 @@ export class ClientsController {
     MyProfileController,
     ClientTimelineController,
     ClientServicesController,
+    ClientOfficeController,
   ],
   providers: [
     ClientsService,
@@ -216,6 +218,7 @@ export class ClientsController {
     MyProfileService,
     ClientTimelineService,
     ClientServicesService,
+    ClientOfficeService,
   ],
 })
 export class ClientsModule {}

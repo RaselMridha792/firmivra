@@ -1352,6 +1352,20 @@ async function main() {
         taxYear: 2025,
       },
     });
+    // Leads R2 9: a lead's other phones and emails beside its own (r55_review_two).
+    await tx.leadContactPoint.upsert({
+      where: { id: SEED_INTAKE_IDS.leadContactPoint },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadContactPoint,
+        leadId: SEED_INTAKE_IDS.lead,
+        kind: 'PHONE',
+        value: '+15555550124',
+        label: 'Work',
+        position: 0,
+      },
+    });
     // Uploads are added while the lead is a draft; no file exists behind it in local S3.
     await tx.leadUpload.upsert({
       where: { id: SEED_INTAKE_IDS.leadUpload },

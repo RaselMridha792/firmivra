@@ -12,6 +12,7 @@ import { memberNames } from '../workspaces/common.js';
 import { type BookkeepingActor, reachEngagement } from './bookkeeping.mappers.js';
 import { csvCell, errors, inFirm, isoDay } from './bookkeeping.shared.js';
 import {
+  type CsvContext,
   FIGURE_REPORT_TYPES,
   type FigureLine,
   type FigureReportType,
@@ -53,6 +54,7 @@ export class BookkeepingReportVersionsService {
         basis: true,
         periodLabel: true,
         period: { select: { id: true, periodStart: true, periodEnd: true, status: true } },
+        engagement: { select: { client: { select: { displayName: true } } } },
       },
     });
     if (!r) throw errors.notFound();
@@ -324,8 +326,19 @@ export class BookkeepingReportVersionsService {
     id: string,
     version: number,
   ): Promise<string> {
+    let context: CsvContext | undefined;
     const v = await inFirm(this.database, businessId, async (tx) => {
       const r = await this.report(tx, businessId, actor, id);
+      // Review 2 (RP03): the file says whose figures they are, for when, on what basis, and where
+      // they come from.
+      context = {
+        client: r.engagement.client.displayName,
+        period: r.period
+          ? `${isoDay(r.period.periodStart)} to ${isoDay(r.period.periodEnd)}`
+          : (r.periodLabel ?? 'Not set'),
+        basis: 'Cash',
+        source: "This client's Firmivra ledger (synced or entered transactions)",
+      };
       const row = await tx.bookkeepingReportVersion.findFirst({
         where: { businessId, reportId: r.id, version },
         select: { summary: true },
@@ -338,6 +351,6 @@ export class BookkeepingReportVersionsService {
       { type: 'bookkeeping_report', id },
       { version },
     );
-    return figuresCsv(v.summary as unknown as BookkeepingReportFigures, (c) => csvCell(c));
+    return figuresCsv(v.summary as unknown as BookkeepingReportFigures, (c) => csvCell(c), context);
   }
 }
