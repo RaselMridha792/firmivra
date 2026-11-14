@@ -58,6 +58,16 @@ async function summary(
     .set('authorization', `Bearer ${token}`);
 }
 /** A list the dashboard opens, as the same member reads it: its total. */
+async function bodyOf<T>(who: Person, path: string): Promise<T> {
+  const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
+  const res = await request(app.getHttpServer())
+    .get(`/api/v1${path}`)
+    .set('x-business-id', firms.a.id)
+    .set('authorization', `Bearer ${token}`);
+  expect(res.status, `${path}: ${JSON.stringify(res.body)}`).toBe(200);
+  return res.body as T;
+}
+
 async function totalOf(who: Person, path: string): Promise<number> {
   const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
   const res = await request(app.getHttpServer())
@@ -471,6 +481,27 @@ describe('GET /business/dashboard/summary', () => {
             `/business/tax-returns?workflowStatus=ACCEPTED&acceptedFrom=${p.from}&acceptedTo=${p.to}`,
           ),
         ]).toEqual([query, p.leads, p.intake, p.inProgress, p.completed]);
+      }
+    }
+  });
+
+  // Dashboard Review 2 (C2, C4, V3): a bar and a service open the payments they add up.
+  it('opens each revenue bar and each service on the payments that make it up', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      const { revenue } = await read(who, 'a');
+      const received = (q: string) =>
+        bodyOf<{ receivedCents: number }>(who, `/business/invoices/payments?${q}`).then(
+          (b) => b.receivedCents,
+        );
+      for (const bar of revenue.buckets.filter((b) => b.cents !== 0)) {
+        expect([bar.from, await received(`from=${bar.from}&to=${bar.to}`)]).toEqual([
+          bar.from,
+          bar.cents,
+        ]);
+      }
+      for (const s of revenue.byService) {
+        const q = `from=${revenue.from}&to=${revenue.to}&serviceId=${s.serviceId ?? 'NONE'}`;
+        expect([s.name, await received(q)]).toEqual([s.name, s.cents]);
       }
     }
   });
