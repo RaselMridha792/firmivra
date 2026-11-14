@@ -3,6 +3,7 @@ import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type { DownloadLink, UploadTicket } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { addServiceEvent } from '../bookkeeping/bookkeeping-activity.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from './config.js';
@@ -286,6 +287,12 @@ export class UploadsService {
           },
           { businessId },
         );
+        await addServiceEvent(tx, businessId, claim.engagementId, {
+          kind: 'document',
+          documentId: doc.id,
+          fileName: claim.fileName,
+          actorUserId: claim.clientAccountId ? null : claim.userId,
+        });
         if (target.request) {
           // Answered: the client's own note or the firm's reason no longer applies.
           await tx.documentRequest.update({

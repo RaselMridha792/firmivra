@@ -540,6 +540,48 @@ describe('confirm after the ticket: the client, the service or storage changed',
       tx.client.update({ where: { businessId_id: { businessId: firms.a.id, id } }, data }),
     );
 
+  it("shows an upload to a Bookkeeping service in that client's Bookkeeping Activity, and nothing for another service (Review 2, A01)", async () => {
+    const businessId = firms.a.id;
+    // A Bookkeeping service of its own, so the other tests' lists stay as they are.
+    const books = await asOwner(businessId, async (tx) => {
+      const { serviceId } = await tx.engagement.findUniqueOrThrow({ where: { id: ids.e1b } });
+      const data = { businessId, clientId: ids.c1, serviceId, title: 'R56 books (fake)' };
+      const e = await tx.engagement.create({ data: { ...data, status: 'ACTIVE' } });
+      await tx.bookkeepingProfile.create({ data: { businessId, engagementId: e.id } });
+      return e.id;
+    });
+    const feed = () =>
+      asOwner(businessId, (tx) =>
+        tx.bookkeepingActivity.findMany({
+          where: { businessId },
+          select: {
+            engagementId: true,
+            kind: true,
+            summary: true,
+            actorUserId: true,
+            details: true,
+          },
+        }),
+      );
+    const before = (await feed()).length;
+    const doc = await firmDoc(people.ownerA, {
+      serviceId: books,
+      fileName: 'Fake bank statement.pdf',
+    });
+    const after = await feed();
+    expect(after).toHaveLength(before + 1);
+    expect(after).toContainEqual({
+      engagementId: books,
+      kind: 'OTHER',
+      summary: 'Document uploaded: Fake bank statement.pdf',
+      actorUserId: people.ownerA.id,
+      details: { documentId: doc.id },
+    });
+    // A tax service has no Bookkeeping Activity.
+    await firmDoc(people.ownerA, { serviceId: ids.e1, fileName: 'Fake W-2.pdf' });
+    expect(await feed()).toHaveLength(before + 1);
+  });
+
   it('deletes and audits the upload when the service closed before confirm', async () => {
     const businessId = firms.a.id;
     const closing = await asOwner(businessId, async (tx) => {
