@@ -372,6 +372,8 @@ export type AppointmentRecord = z.infer<typeof AppointmentRecord>;
 export const AppointmentDraft = z.object({
   id: z.uuid(),
   data: z.record(z.string(), z.unknown()),
+  /** The client the draft names, as the form shows it; null when it names none (or a contact). */
+  contact: AppointmentContact.nullable().default(null),
   createdBy: z.string().nullable(),
   updatedAt: DateTime,
 });

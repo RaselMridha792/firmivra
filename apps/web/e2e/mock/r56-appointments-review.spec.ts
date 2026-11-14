@@ -315,3 +315,41 @@ test('A9: a type names its intake form; the appointment sends it and shows it wa
   await expect(page.getByTestId('detail-related')).toContainText('(waiting)');
   await expect(page.getByTestId('send-intake')).toHaveCount(0);
 });
+
+test('Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved drafts, and goes with the booking', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page
+    .getByLabel('Internal Notes (not visible to client)')
+    .fill('Fake: confirm the time first');
+  await page.getByRole('button', { name: 'Save as Draft' }).click();
+  await expect(page.getByTestId('schedule-note')).toContainText('Draft saved');
+
+  // Listed under Your saved drafts; Continue opens it with every entry kept.
+  const drafts = page.getByTestId('my-drafts');
+  await drafts.getByRole('listitem').filter({ hasText: 'Follow-Up' }).getByRole('link').click();
+  await expect(page).toHaveURL(/\/calendar\/new\?draft=[0-9a-f-]{36}/);
+  await expect(page.getByLabel('Internal Notes (not visible to client)')).toHaveValue(
+    'Fake: confirm the time first',
+  );
+  await expect(page.getByLabel('Appointment Type *').locator('option:checked')).toHaveText(
+    'Follow-Up',
+  );
+
+  // It books like any form; the API deletes the draft with the booking (scheduling.e2e).
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('08:00');
+  await page.getByLabel('End Time *').selectOption('08:30');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+});

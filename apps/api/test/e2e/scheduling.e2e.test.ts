@@ -2070,6 +2070,8 @@ describe('drafts (Review 2, Save as Draft)', () => {
     expect(made.createdBy).not.toBeNull();
     const reopened = exact(AppointmentDraft, await call('get', one(made.id), people.staffA));
     expect(reopened.data).toEqual(made.data);
+    // Reopened, it brings its client as the form shows it.
+    expect(reopened.contact).toMatchObject({ kind: 'CLIENT', id: ids.c1 });
     const saved = exact(
       AppointmentDraft,
       await call('put', one(made.id), people.staffA, {

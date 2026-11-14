@@ -3,6 +3,7 @@
 import {
   type AppointmentContact,
   type AppointmentRecord,
+  type AppointmentDraft,
   type MeetingMethod,
   type ReminderChannel,
   type ReminderUnit,
@@ -92,6 +93,9 @@ const SCHEDULE_ERRORS: Record<string, string> = {
   VIDEO_LINK_MISSING:
     'The staff member has no meeting link yet, so Generate Zoom Link has nothing to add. Paste a link, or add theirs in Settings > Availability.',
   SMS_UNAVAILABLE: 'Text reminders are not available for this firm or this contact.',
+  // Review 2 (Save as Draft): a draft that was scheduled, deleted, or is another member's.
+  NOT_FOUND:
+    'This draft, or something it names, is no longer available. Check the form and try again.',
 };
 
 interface Reminder {
@@ -211,6 +215,54 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     reminders,
     repeat: (r.recurrence?.frequency === 'CUSTOM' ? 'WEEKLY' : r.recurrence?.frequency) ?? 'NONE',
     count: r.recurrence?.count ?? 4,
+  };
+}
+
+/**
+ * Review 2 (Save as Draft): the form a saved draft holds (what `fields()` sent), over `base`
+ * (the blank form, with the draft's client when it has one).
+ */
+function fromDraft(d: Record<string, unknown>, base: Form): Form {
+  const str = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : undefined);
+  const timezone = str('timezone') ?? base.timezone;
+  const startsAt = str('startsAt');
+  const endsAt = str('endsAt');
+  const start = startsAt ? localParts(startsAt, timezone) : null;
+  const end = endsAt ? localParts(endsAt, timezone) : null;
+  const reminders = { ...base.reminders };
+  if (Array.isArray(d['reminders'])) {
+    const saved = d['reminders'] as { channel: string; amount: number; unit: ReminderUnit }[];
+    for (const ch of ['EMAIL', 'SMS', 'PORTAL'] as const) {
+      const m = saved.find((x) => x.channel === ch);
+      reminders[ch] = m
+        ? { on: true, amount: m.amount, unit: m.unit }
+        : { ...reminders[ch], on: false };
+    }
+  }
+  return {
+    ...base,
+    typeId: str('typeId') ?? base.typeId,
+    serviceId: str('serviceId') ?? base.serviceId,
+    ...(start ? { date: start.date, start: start.time } : {}),
+    ...(end ? { end: end.time } : {}),
+    timezone,
+    method: (str('method') as MeetingMethod | undefined) ?? base.method,
+    officeId: str('officeId') ?? base.officeId,
+    roomId: str('roomId') ?? base.roomId,
+    details: str('details') ?? base.details,
+    otherVideoPlatform: str('otherVideoPlatform') ?? base.otherVideoPlatform,
+    videoUrl: str('videoUrl') ?? base.videoUrl,
+    staffUserIds: Array.isArray(d['staffUserIds'])
+      ? (d['staffUserIds'] as string[])
+      : base.staffUserIds,
+    status: d['status'] === 'PENDING' ? 'PENDING' : base.status,
+    color: str('color') ?? base.color,
+    allDay: typeof d['allDay'] === 'boolean' ? d['allDay'] : base.allDay,
+    internalNotes: str('internalNotes') ?? base.internalNotes,
+    clientInstructions: str('clientInstructions') ?? base.clientInstructions,
+    reminders,
+    sendConfirmation:
+      typeof d['sendConfirmation'] === 'boolean' ? d['sendConfirmation'] : base.sendConfirmation,
   };
 }
 
@@ -371,8 +423,11 @@ export function ScheduleForm({
   prefill,
   cancelHref,
   taxPlanId,
+  draftId,
 }: {
   record?: AppointmentRecord;
+  /** Review 2 (Save as Draft): one of the member's drafts to reopen (`?draft=`). */
+  draftId?: string;
   /** The date and hour picked on the calendar (`/calendar/new?date=&time=`). */
   at?: { date: string; time: string };
   /**
@@ -387,6 +442,9 @@ export function ScheduleForm({
   taxPlanId?: string;
 }) {
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
+  const draft = useApiQuery([...SCHEDULING, 'draft', draftId ?? ''], async () =>
+    draftId ? api.scheduling.draft(draftId) : null,
+  );
   const client = useApiQuery(
     [...SCHEDULING, 'prefill-client', prefill?.clientId ?? ''],
     async () => (prefill?.clientId ? api.clients.get(prefill.clientId) : null),
@@ -395,26 +453,35 @@ export function ScheduleForm({
     [...SCHEDULING, 'prefill-engagement', prefill?.engagementId ?? ''],
     async () => (prefill?.engagementId ? api.engagements.get(prefill.engagementId) : null),
   );
-  const header = <ScheduleHeader editing={Boolean(record)} />;
-  const waiting = client.isPending || engagement.isPending;
+  const header = (
+    <>
+      <ScheduleHeader editing={Boolean(record)} />
+      {!record && !draftId && options.data ? <MyDrafts types={options.data.types} /> : null}
+    </>
+  );
+  const waiting = draft.isPending || client.isPending || engagement.isPending;
   if (options.data && !waiting) {
     const c = client.data;
-    const start: Prefill | undefined = c
-      ? {
-          contact: {
-            kind: 'CLIENT',
-            id: c.id,
-            name: c.displayName,
-            businessName: c.accountType === 'BUSINESS' ? c.displayName : null,
-            email: c.email,
-            phone: c.phone,
-            clientType: c.accountType,
-          },
-          serviceId: engagement.data?.service.id ?? prefill?.serviceId,
-        }
-      : prefill?.serviceId
-        ? { contact: undefined, serviceId: prefill.serviceId }
-        : undefined;
+    // Review 2 (Save as Draft): a reopened draft brings its client as the form shows it.
+    const fromDraftContact = draft.data?.contact;
+    const start: Prefill | undefined = fromDraftContact
+      ? { contact: fromDraftContact, serviceId: undefined }
+      : c
+        ? {
+            contact: {
+              kind: 'CLIENT',
+              id: c.id,
+              name: c.displayName,
+              businessName: c.accountType === 'BUSINESS' ? c.displayName : null,
+              email: c.email,
+              phone: c.phone,
+              clientType: c.accountType,
+            },
+            serviceId: engagement.data?.service.id ?? prefill?.serviceId,
+          }
+        : prefill?.serviceId
+          ? { contact: undefined, serviceId: prefill.serviceId }
+          : undefined;
     return (
       <FormBody
         options={options.data}
@@ -424,7 +491,18 @@ export function ScheduleForm({
         cancelHref={cancelHref}
         taxPlanId={taxPlanId}
         header={header}
+        draft={draft.data ?? undefined}
       />
+    );
+  }
+  if (draft.isError) {
+    return (
+      <div className="flex flex-col gap-4">
+        {header}
+        <Callout icon={Info} tone="amber" surface="warning" size="compact">
+          This draft is no longer available: it was scheduled or deleted, or it is another member's.
+        </Callout>
+      </div>
     );
   }
   return (
@@ -449,6 +527,47 @@ export function ScheduleForm({
         )}
       </Section>
     </div>
+  );
+}
+
+/**
+ * Review 2 (Save as Draft): the member's saved drafts, each opened in the form again; scheduling
+ * one deletes it. Nothing shows when there are none.
+ */
+function MyDrafts({ types }: { types: SchedulingOptions['types'] }) {
+  const drafts = useApiQuery([...SCHEDULING, 'drafts'], () => api.scheduling.drafts());
+  const items = drafts.data ?? [];
+  if (!items.length) return null;
+  const typeName = (id: unknown) => types.find((t) => t.id === id)?.name ?? 'No type yet';
+  return (
+    <section
+      aria-label="Your saved drafts"
+      data-testid="my-drafts"
+      className="rounded-xl border border-divider bg-surface p-4"
+    >
+      <h2 className="mb-2 text-sm font-semibold text-heading">Your saved drafts</h2>
+      <ul className="flex flex-col gap-1 text-sm">
+        {items.map((d) => (
+          <li key={d.id} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-text">
+              {typeName(d.data['typeId'])} · saved{' '}
+              {new Date(d.updatedAt).toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </span>
+            <Link
+              href={`/calendar/new?draft=${d.id}`}
+              className="font-semibold text-link hover:underline"
+            >
+              Continue
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -539,8 +658,11 @@ function FormBody({
   cancelHref,
   taxPlanId,
   header,
+  draft: savedDraft,
 }: {
   options: SchedulingOptions;
+  /** Review 2 (Save as Draft): the draft reopened here. */
+  draft?: AppointmentDraft;
   record?: AppointmentRecord;
   at?: { date: string; time: string };
   prefill?: Prefill;
@@ -549,9 +671,11 @@ function FormBody({
   header: ReactNode;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<Form>(() =>
-    record ? fromRecord(record, o) : prefill ? prefilled(o, blank(o, at), prefill) : blank(o, at),
-  );
+  const [form, setForm] = useState<Form>(() => {
+    if (record) return fromRecord(record, o);
+    const base = prefill ? prefilled(o, blank(o, at), prefill) : blank(o, at);
+    return savedDraft ? fromDraft(savedDraft.data, base) : base;
+  });
   // SH1: the workspace's Back asks first once something was changed here.
   const [initial] = useState(() => JSON.stringify(form));
   useUnsavedChanges(JSON.stringify(form) !== initial);
@@ -633,7 +757,7 @@ function FormBody({
       chooseType(added, fresh.types);
     }
   };
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(savedDraft?.id ?? null);
   const [note, setNote] = useState('');
   const [override, setOverride] = useState('');
   const [panelStaff, setPanelStaff] = useState(form.staffUserIds[0] ?? o.staff[0]?.userId ?? '');
@@ -810,6 +934,8 @@ function FormBody({
           idempotencyKey: key,
           ...body,
           ...(taxPlanId ? { taxPlanId } : {}),
+          // Review 2 (Save as Draft): the draft goes with the booking.
+          ...(draftId ? { draftId } : {}),
           ...(conflict && override.trim()
             ? { overrideConflicts: { reason: override.trim() } }
             : {}),
@@ -825,7 +951,9 @@ function FormBody({
       {
         onSuccess: (d) => {
           setDraftId(d.id);
-          setNote('Draft saved. Nothing is booked or sent until you schedule it.');
+          setNote(
+            'Draft saved. Nothing is booked or sent until you schedule it. It is listed under Your saved drafts on Schedule Appointment.',
+          );
         },
       },
     );
