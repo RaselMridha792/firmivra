@@ -21,3 +21,13 @@ test('a form published in the portal starts from the list, then continues', asyn
     page.getByTestId('portal-form').getByRole('link', { name: 'Continue Quarterly Check-In' }),
   ).toBeVisible();
 });
+
+test('a signed-in client opens a shared form in their portal', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // A share token as the mock makes them (mocks/intake-forms.ts): 32 hex characters + 11.
+  await page.goto(portal('/lvp/start/0199c0d00f0070008000000000000002mockshare00'));
+  const banner = page.getByTestId('share-signed-in');
+  await expect(banner).toContainText('You are signed in to your portal');
+  await banner.getByRole('button', { name: 'Open in My Portal' }).click();
+  await expect(page).toHaveURL(/\/lvp\/intake\/[0-9a-f-]{36}$/);
+});
