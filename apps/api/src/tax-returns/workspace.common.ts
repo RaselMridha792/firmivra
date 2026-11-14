@@ -196,6 +196,15 @@ export function blockersOf(r: DetailSource): TaxReturnBlocker[] {
       out.push('FILINGS_NOT_ACCEPTED');
     }
   }
+  // Review 2 (TX-F20): from Ready to File on, a validation line back at Error blocks the next
+  // filing record (a transmission, a retransmission or a paper filing) until it reads otherwise.
+  if (
+    step >= 4 &&
+    r.checklist.some((c) => c.result === 'ERROR') &&
+    r.filings.some((f) => f.status !== 'ACCEPTED' && f.status !== 'PAPER_FILED')
+  ) {
+    out.push('VALIDATION_ERRORS');
+  }
   if (r.amends && !r.amends.firstFiledAt) out.push('ORIGINAL_NOT_FILED');
   // TX-F20: before it is filed, and after a rejection (a retransmission is a filing too).
   if (r.issues.length > 0 && (step < 5 || r.workflowStatus === 'REJECTED')) {

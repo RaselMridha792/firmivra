@@ -486,6 +486,34 @@ describe('TX-F20: severity', () => {
       }),
       TaxReturnFilingList,
     );
+
+    // Review 2: a validation line turned back to Error after Ready to File blocks the next
+    // filing record (here the paper filing) until it reads otherwise.
+    const line = ok(
+      await call('get', `/tax-returns/${id}/checklist`, adminA),
+      TaxChecklist,
+    ).items.find((i) => i.section === 'VALIDATION' && i.label === 'Schema check (fake)')!.id;
+    ok(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, { result: 'ERROR' }),
+      TaxChecklist,
+    );
+    const paper = await call('post', `/tax-returns/${id}/filings/${ca}/paper-filed`, staffA, {
+      paperFiledOn: '2026-03-01',
+      mailTrackingNumber: 'FAKE-TRACK-0003',
+    });
+    expectError(paper, 409, 'STATUS_BLOCKED');
+    expect(blockedBy(paper)).toContain('VALIDATION_ERRORS');
+    ok(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, { result: 'VALID' }),
+      TaxChecklist,
+    );
+    ok(
+      await call('post', `/tax-returns/${id}/filings/${ca}/paper-filed`, staffA, {
+        paperFiledOn: '2026-03-01',
+        mailTrackingNumber: 'FAKE-TRACK-0003',
+      }),
+      TaxReturnFilingList,
+    );
   });
 });
 

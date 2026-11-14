@@ -1,7 +1,9 @@
 import { TaxReturnWorkflowStatus } from '@firmivra/types';
 import type { Metadata } from 'next';
 import { openedFromDashboard } from '../../../../lib/from-dashboard';
+import { readListQuery } from '../../../../lib/list-query';
 import { ReturnsScreen } from './_components/returns-screen';
+import { RETURNS_VIEW } from './_components/returns-view';
 
 export const metadata: Metadata = { title: 'Tax Returns' };
 
@@ -20,6 +22,7 @@ export default async function TaxReturnsPage({
   searchParams,
 }: {
   searchParams: Promise<{
+    [key: string]: Param;
     status?: Param;
     acceptedFrom?: Param;
     acceptedTo?: Param;
@@ -42,6 +45,7 @@ export default async function TaxReturnsPage({
       serviceId={typeof q.serviceId === 'string' && UUID.test(q.serviceId) ? q.serviceId : ''}
       asOf={day(q.asOf)}
       fromDashboard={openedFromDashboard(q.back)}
+      view={readListQuery(q, RETURNS_VIEW)}
     />
   );
 }

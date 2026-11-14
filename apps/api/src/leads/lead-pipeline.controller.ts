@@ -16,12 +16,17 @@ import {
   type LeadPipelineSummary,
   type LeadProfile,
   UpdateLeadRequest,
+  type LeadReport,
+  type LeadReportLeads,
+  LeadReportLeadsQuery,
+  LeadReportQuery,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { LeadMergeService } from './lead-merge.service.js';
 import { LeadMessagesService } from './lead-messages.service.js';
+import { LeadReportsService } from './lead-reports.service.js';
 import { LeadPipelineWriteService } from './lead-pipeline-write.service.js';
 import { LeadPipelineService } from './lead-pipeline.service.js';
 import type { PipelineActor } from './pipeline.shared.js';
@@ -47,6 +52,7 @@ export class LeadPipelineController {
     private readonly writes: LeadPipelineWriteService,
     private readonly messages: LeadMessagesService,
     private readonly merges: LeadMergeService,
+    private readonly reports: LeadReportsService,
   ) {}
 
   @Get('pipeline')
@@ -64,6 +70,26 @@ export class LeadPipelineController {
     @CurrentTenant() tenant: TenantContext,
   ): Promise<LeadPipelineSummary> {
     return this.reads.summary(tenant.businessId, pipelineActor(auth, tenant));
+  }
+
+  /** Leads R2 18: the funnel and aging (Reports > Leads). */
+  @Get('reports/funnel')
+  funnel(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(LeadReportQuery)) q: z.output<typeof LeadReportQuery>,
+  ): Promise<LeadReport> {
+    return this.reports.report(tenant.businessId, pipelineActor(auth, tenant), q);
+  }
+
+  /** The leads behind one of the report's numbers. */
+  @Get('reports/funnel/leads')
+  funnelLeads(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(LeadReportLeadsQuery)) q: z.output<typeof LeadReportLeadsQuery>,
+  ): Promise<LeadReportLeads> {
+    return this.reports.leads(tenant.businessId, pipelineActor(auth, tenant), q);
   }
 
   @Get('options')
