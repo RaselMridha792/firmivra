@@ -475,6 +475,25 @@ export function createPortalAuthMock(
       firm();
       return copy(kind === 'terms' ? termsDocument : privacyDocument);
     },
+    /** Two synthetic locations for the sign-up form's office choice (PRT-1). */
+    offices: async () => {
+      await pause();
+      firm();
+      return {
+        offices: [
+          {
+            id: '0199d000-0000-7000-8000-000000000001',
+            name: 'Auburn Office',
+            addressLines: ['123 Main St', 'Auburn, GA 30011'],
+          },
+          {
+            id: '0199d000-0000-7000-8000-000000000002',
+            name: 'Lawrenceville Office',
+            addressLines: ['456 Pine Rd, Suite 200', 'Lawrenceville, GA 30046'],
+          },
+        ],
+      };
+    },
 
     signUp: async (body) => {
       await pause();

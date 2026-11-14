@@ -23,6 +23,7 @@ test('a sign-up verifies its email (and phone when required) and ends on Account
   await form.getByLabel('Phone Number *').fill('4045550123');
   await form.getByLabel('Create a Password *').fill('Sample-pass-2026');
   await form.getByLabel('Confirm Password *').fill('Sample-pass-2026');
+  await form.getByRole('radio', { name: /Auburn Office/ }).check();
   await form.getByRole('checkbox').check();
   await form.getByRole('button', { name: 'Create Account' }).click();
 
@@ -74,6 +75,7 @@ test('the email can be changed before it is verified', async ({ page }) => {
   await form.getByLabel('Phone Number *').fill('4045550123');
   await form.getByLabel('Create a Password *').fill('Sample-pass-2026');
   await form.getByLabel('Confirm Password *').fill('Sample-pass-2026');
+  await form.getByRole('radio', { name: /Auburn Office/ }).check();
   await form.getByRole('checkbox').check();
   await form.getByRole('button', { name: 'Create Account' }).click();
   await expect(page).toHaveURL(portal('/lvp/sign-up/verify-email'));

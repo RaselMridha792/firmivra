@@ -4,14 +4,15 @@ import { FIRM_ROLE_LABELS } from '@firmivra/types';
 import { Avatar, Card, PageHeader } from '@firmivra/ui';
 import { UserCircle } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { MyPhone } from './my-phone';
 import { useFirm } from '../../../../../components/firm-context';
 import { useMe } from '../../../../../components/signed-in';
 import { MySecurityCard } from '../../team/_components/my-security-card';
 
 /**
  * My Profile (Settings review, Overview items 9 and 20): the signed-in person's own details at this
- * firm, read-only from /me. Name, work email and role are managed by the firm's administrators;
- * self-edit of photo, phone and password waits for its API (R1). Never the company profile.
+ * firm, from /me. Name, work email and role are managed by the firm's administrators; the
+ * member changes their own mobile phone here (item 20). Never the company profile.
  */
 export function MyProfileScreen() {
   const { me } = useMe();
@@ -44,6 +45,7 @@ export function MyProfileScreen() {
             </div>
           ))}
         </dl>
+        <MyPhone />
         <p className="text-sm text-muted">
           Your name, work email and role are managed by your firm&apos;s administrators. Choose
           which notices reach you in{' '}

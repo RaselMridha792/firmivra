@@ -132,6 +132,12 @@ const todayOf = (now: Date) => isoDay(now);
  * same transaction. Figures come from what preparers entered or an import supplied; nothing is
  * estimated.
  */
+/** Review 2 (D01): the Active Bookkeeping Clients cohort: not paused, service active or pending. */
+const ACTIVE_COHORT: Prisma.BookkeepingProfileWhereInput = {
+  pausedAt: null,
+  engagement: { status: { in: ['ACTIVE', 'PENDING'] } },
+};
+
 @Injectable()
 export class BookkeepingClientsService {
   constructor(
@@ -386,6 +392,8 @@ export class BookkeepingClientsService {
           nextReportDueOn: { gte: today, lte: addDays(today, upcomingDays) },
           pausedAt: null,
         });
+      } else if (q.tab === 'ACTIVE') {
+        and.push(ACTIVE_COHORT);
       } else if (q.tab !== 'ALL') {
         and.push({ status: q.tab });
       }
@@ -459,7 +467,7 @@ export class BookkeepingClientsService {
     q: ClientsQuery,
   ): Promise<BookkeepingClientPage> {
     const now = new Date();
-    const { rows, total, names, settings, counts, upcoming } = await inFirm(
+    const { rows, total, names, settings, counts, upcoming, active, cohortCounts } = await inFirm(
       this.database,
       businessId,
       async (tx) => {
@@ -467,7 +475,14 @@ export class BookkeepingClientsService {
         const where = this.where(businessId, actor, q, now, settings.upcomingReportDays, true);
         const base = this.where(businessId, actor, q, now, settings.upcomingReportDays, false);
         const today = toDay(todayOf(now));
-        const [rows, total, counts, upcoming] = await Promise.all([
+        const upcomingWhere = {
+          nextReportDueOn: { gte: today, lte: addDays(today, settings.upcomingReportDays) },
+          pausedAt: null,
+        };
+        // Review 2 (D01, D02): the chart counts the selected cohort under the same filters.
+        const cohort: Prisma.BookkeepingProfileWhereInput =
+          q.tab === 'ACTIVE' ? ACTIVE_COHORT : q.tab === 'UPCOMING' ? upcomingWhere : {};
+        const [rows, total, counts, upcoming, active, cohortCounts] = await Promise.all([
           tx.bookkeepingProfile.findMany({
             where,
             select: listSelect,
@@ -478,14 +493,14 @@ export class BookkeepingClientsService {
           tx.bookkeepingProfile.groupBy({ by: ['status'], where: base, _count: { _all: true } }),
           tx.bookkeepingProfile.count({
             where: {
-              AND: [
-                base,
-                {
-                  nextReportDueOn: { gte: today, lte: addDays(today, settings.upcomingReportDays) },
-                  pausedAt: null,
-                },
-              ],
+              AND: [base, upcomingWhere],
             },
+          }),
+          tx.bookkeepingProfile.count({ where: { AND: [base, ACTIVE_COHORT] } }),
+          tx.bookkeepingProfile.groupBy({
+            by: ['status'],
+            where: { AND: [base, cohort] },
+            _count: { _all: true },
           }),
         ]);
         const names = await memberNames(
@@ -493,7 +508,7 @@ export class BookkeepingClientsService {
           businessId,
           rows.map((r) => r.engagement.assignedUserId),
         );
-        return { rows, total, names, settings, counts, upcoming };
+        return { rows, total, names, settings, counts, upcoming, active, cohortCounts };
       },
     );
     const byStatus = (s: string) => counts.find((c) => c.status === s)?._count._all ?? 0;
@@ -505,6 +520,7 @@ export class BookkeepingClientsService {
       OVERDUE: byStatus('OVERDUE'),
       NOT_STARTED: byStatus('NOT_STARTED'),
       UPCOMING: upcoming,
+      ACTIVE: active,
     };
     await this.audit.log(
       'bookkeeping.clients.listed',
@@ -517,6 +533,7 @@ export class BookkeepingClientsService {
       page: q.page,
       pageSize: q.pageSize,
       tabCounts,
+      cohortStatus: cohortCounts.map((c) => ({ status: c.status, count: c._count._all })),
     };
   }
 

@@ -638,6 +638,41 @@ describe('the list, the overview and the exports', () => {
     expect(await q('tab=OVERDUE&status=ON_TRACK')).toEqual([]);
   });
 
+  it('the Active cohort leaves a paused client out, and the chart counts the cohort shown (Review 2, D01, D02)', async () => {
+    const page = async (query: string) =>
+      exact(
+        BookkeepingClientPage,
+        await call('get', `/clients?pageSize=100&${query}`, people.ownerA),
+      );
+    const charted = (p: BookkeepingClientPage) =>
+      (p.cohortStatus ?? []).reduce((n, c) => n + c.count, 0);
+    exact(
+      BookkeepingClientWorkspace,
+      await call('post', `/clients/${bks.davis}/pause`, people.ownerA, {
+        reason: 'Fake: on leave',
+      }),
+    );
+    try {
+      const active = await page('tab=ACTIVE');
+      expect(active.items.map((i) => i.id)).not.toContain(bks.davis);
+      expect(active.items.every((i) => !i.paused)).toBe(true);
+      expect(active.tabCounts.ACTIVE).toBe(active.total);
+      expect(charted(active)).toBe(active.total);
+      // Every client, paused ones too, and the chart counts the same rows.
+      const all = await page('tab=ALL');
+      expect(all.items.map((i) => i.id)).toContain(bks.davis);
+      expect(all.tabCounts.ACTIVE).toBe(active.total);
+      expect(charted(all)).toBe(all.total);
+      const upcoming = await page('tab=UPCOMING');
+      expect(charted(upcoming)).toBe(upcoming.total);
+      // The other filters narrow the chart too.
+      const green = await page('tab=ACTIVE&search=Green Leaf');
+      expect(green.cohortStatus).toEqual([{ status: 'ON_TRACK', count: 1 }]);
+    } finally {
+      await call('post', `/clients/${bks.davis}/resume`, people.ownerA, {});
+    }
+  });
+
   it('Staff see only the clients assigned to them', async () => {
     const page = exact(
       BookkeepingClientPage,
@@ -2100,6 +2135,45 @@ describe('reconciliations', () => {
     );
   });
 
+  it('needs the statement attached before approval, apart from the zero difference (Review 2, R01c)', async () => {
+    const third = (await mkAccount(bk, { name: 'Fake statement account' })).id;
+    const { statementDocumentId: _none, ...noStatement } = body();
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', `/periods/${period}/reconciliations`, people.staffA, {
+        ...noStatement,
+        accountId: third,
+        clearedBalanceCents: 5_000_000,
+        exceptionsCount: 0,
+      }),
+      201,
+    );
+    expect(r).toMatchObject({ differenceCents: 0, statementDocumentId: null });
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'STATEMENTS_MISSING',
+    );
+    // Back to work, attach it, and the same zero difference approves.
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: attach the statement',
+    });
+    exact(
+      BookkeepingReconciliation,
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, {
+        statementDocumentId: statement,
+      }),
+    );
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      ).status,
+    ).toBe('APPROVED');
+  });
+
   it("zero tolerance: the firm's old tolerance setting lets no difference through", async () => {
     await call('put', '/settings', people.ownerA, { reconToleranceCents: 500 });
     const second = (await mkAccount(bk, { name: 'Fake tolerance account' })).id;
@@ -3012,7 +3086,7 @@ describe('report figures and versions (BK-RPT part 1)', () => {
     expect(file.status).toBe(200);
     expect(file.headers['content-type']).toMatch(/text\/csv/);
     expect(file.text).toContain(`Income,Fake Fees ${tag},,,1200.00,`);
-    expect(file.text).toContain('Total,netIncomeCents,,,900.00,');
+    expect(file.text).toContain('Total,Net income,,,900.00,');
     expectError(
       await call('get', `/reports/${r.id}/versions/9/csv`, people.ownerA),
       404,
@@ -3517,12 +3591,14 @@ describe('reconciliation from the ledger (BK-R01)', () => {
     const onCard = await line(card.id, 2, 700, 'DEBIT');
 
     const recons = `/periods/${p.id}/reconciliations`;
+    // Review 2 (R01c): approval needs the account's statement for the period.
     const start = {
       accountId: bank.id,
       statementStart: p.periodStart,
       statementEnd: p.periodEnd,
       beginningBalanceCents: 100_000,
       endingBalanceCents: 125_000,
+      statementDocumentId: await mkDocument(clients.ledger, ws.engagementId),
     };
     // Typed cleared figures are refused once the account has ledger lines.
     expectError(

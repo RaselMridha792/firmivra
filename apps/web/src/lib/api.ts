@@ -62,6 +62,7 @@ import {
   createStaffPhoneClient,
   createPaymentsSetupClient,
   createFirmBillingClient,
+  createPortalContactClient,
   createPortalTabsClient,
   createPaymentPreferencesClient,
   createProfileChangesClient,
@@ -76,6 +77,7 @@ import {
   createLocationsClient,
   createStaffClient,
   createMySecurityClient,
+  createMfaPolicyClient,
   createSupportAccessClient,
   createTasksClient,
   createBookkeepingClient,
@@ -96,6 +98,7 @@ import {
   createTeamClient,
   createPortalInvitationClient,
   createPortalInvitationsClient,
+  createClientPortalClient,
   createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
@@ -157,6 +160,7 @@ import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
 import { createProfileChangesMock } from '../mocks/profile-changes';
 import { createSupportMessagesMock } from '../mocks/support-messages';
 import { myAnnouncementsMock } from '../mocks/my-announcements';
+import { createPortalContactMock } from '../mocks/portal-contact';
 import { createPortalTabsMock } from '../mocks/portal-tabs';
 import { createSettingsMock } from '../mocks/settings';
 import {
@@ -167,6 +171,7 @@ import {
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createMySecurityMock } from '../mocks/my-security';
+import { createMfaPolicyMock } from '../mocks/mfa-policy';
 import { createTasksMock } from '../mocks/tasks';
 import { createBookkeepingMock } from '../mocks/bookkeeping';
 import { createAutomationsMock } from '../mocks/automations';
@@ -184,6 +189,7 @@ import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
+import { createClientPortalMock } from '../mocks/client-portal';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
@@ -231,6 +237,8 @@ export const api = {
   /** My Profile's Security card (SM14 part B): my own sessions and password, any staff role. */
   mySecurity:
     dev && mocked('mySecurity') ? createMySecurityMock() : createMySecurityClient(request),
+  /** SM14 part C, SEC-6: the firm's two-factor requirement and its security administrators. */
+  mfaPolicy: dev && mocked('mfaPolicy') ? createMfaPolicyMock() : createMfaPolicyClient(request),
   /** Teams & Departments and the org chart (R42 contract). Mock shares api.staff's rows. */
   departments:
     dev && mocked('departments')
@@ -272,6 +280,11 @@ export const api = {
     dev && mocked('portalTabs')
       ? createPortalTabsMock({ role: MOCK_ROLE })
       : createPortalTabsClient(request),
+  /** Client Portal > Contact Information (PRT-3), and the portal's contact card (`mine`). */
+  portalContact:
+    dev && mocked('portalContact')
+      ? createPortalContactMock({ role: MOCK_ROLE })
+      : createPortalContactClient(request),
   /** Company Profile's Request Change: legal name, EIN and licensing, changed only by Firmivra. */
   /** Help & Support's in-app message to the Firmivra team (D2): any member. */
   supportMessages:
@@ -308,6 +321,9 @@ export const api = {
     dev && mocked('portalInvitations')
       ? createPortalInvitationsMock()
       : createPortalInvitationsClient(request),
+  /** The firm workspace's Client Portal module: one client's portal, switched (R60). */
+  clientPortal:
+    dev && mocked('clientPortal') ? createClientPortalMock() : createClientPortalClient(request),
   /** The firm's one tag list for Leads and Clients (L5, L6). */
   tags: dev && mocked('tags') ? createTagsMock({ role: MOCK_ROLE }) : createTagsClient(request),
   engagements:

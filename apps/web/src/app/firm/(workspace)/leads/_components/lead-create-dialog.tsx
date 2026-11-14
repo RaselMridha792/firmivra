@@ -132,13 +132,13 @@ export function LeadCreateDialog({
           </h3>
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="First name"
+              label="First name *"
               required
               error={formState.errors.firstName?.message}
               {...register('firstName')}
             />
             <Input
-              label="Last name"
+              label="Last name *"
               required
               error={formState.errors.lastName?.message}
               {...register('lastName')}
@@ -151,7 +151,7 @@ export function LeadCreateDialog({
           />
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="Email"
+              label="Email *"
               type="email"
               required
               error={formState.errors.email?.message}

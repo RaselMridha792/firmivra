@@ -34,9 +34,13 @@ import {
   ChatCircleDots,
   EnvelopeSimple,
 } from '@phosphor-icons/react';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
+import { FROM_DASHBOARD } from '../../../../../lib/from-dashboard';
+import { LAST_LEADS_LIST, leadsPlaceFrom, leadsPlaceQuery } from '../../../../../lib/leads-place';
+import { useListReturn } from '../../../../../lib/list-return';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { LeadBulkConvertDialog } from './lead-bulk-convert-dialog';
@@ -199,6 +203,22 @@ function LeadsSummary({
   );
 }
 
+type Advanced = Pick<LeadFilters, 'priority' | 'campaignId' | 'tag' | 'overdue' | 'archived'>;
+const NO_ADVANCED: Advanced = {
+  priority: '',
+  campaignId: '',
+  tag: '',
+  overdue: false,
+  archived: false,
+};
+const advancedOf = (f: LeadFilters): Advanced => ({
+  priority: f.priority,
+  campaignId: f.campaignId,
+  tag: f.tag,
+  overdue: f.overdue,
+  archived: f.archived,
+});
+
 function LeadFilters({
   filters,
   options,
@@ -210,14 +230,19 @@ function LeadFilters({
   onFilter: (patch: Partial<LeadFilters>) => void;
   onReset: () => void;
 }) {
+  // R2 12: More Filters' choices are pending until Apply, all together; closing the panel without
+  // Apply drops them, and it reopens on what is in force.
+  const [draft, setDraft] = useState<Advanced>(() => advancedOf(filters));
+  const pick = (patch: Partial<Advanced>) => setDraft((was) => ({ ...was, ...patch }));
+  const inForce = Object.values(advancedOf(filters)).filter(Boolean).length;
   const more = (
     <>
       <FilterGroup title="Priority">
         <Select
           label="All Priorities"
           hideLabel
-          value={filters.priority}
-          onChange={(event) => onFilter({ priority: event.target.value as LeadPriority | '' })}
+          value={draft.priority}
+          onChange={(event) => pick({ priority: event.target.value as LeadPriority | '' })}
           options={[{ value: '', label: 'All Priorities' }, ...PRIORITIES]}
         />
       </FilterGroup>
@@ -225,8 +250,8 @@ function LeadFilters({
         <Select
           label="All Campaigns"
           hideLabel
-          value={filters.campaignId}
-          onChange={(event) => onFilter({ campaignId: event.target.value })}
+          value={draft.campaignId}
+          onChange={(event) => pick({ campaignId: event.target.value })}
           options={[
             { value: '', label: 'All Campaigns' },
             ...(options.campaigns?.map((campaign) => ({
@@ -240,8 +265,8 @@ function LeadFilters({
         <Select
           label="All Tags"
           hideLabel
-          value={filters.tag}
-          onChange={(event) => onFilter({ tag: event.target.value })}
+          value={draft.tag}
+          onChange={(event) => pick({ tag: event.target.value })}
           options={[
             { value: '', label: 'All Tags' },
             ...options.tags.map((tag) => ({ value: tag, label: tag })),
@@ -251,22 +276,29 @@ function LeadFilters({
       <FilterGroup title="Follow-Up">
         <Checkbox
           label="Overdue only"
-          checked={filters.overdue}
-          onChange={(event) => onFilter({ overdue: event.target.checked })}
+          checked={draft.overdue}
+          onChange={(event) => pick({ overdue: event.target.checked })}
         />
       </FilterGroup>
       <FilterGroup title="Archive">
         <Checkbox
           label="Archived leads"
-          checked={filters.archived}
-          onChange={(event) => onFilter({ archived: event.target.checked })}
+          checked={draft.archived}
+          onChange={(event) => pick({ archived: event.target.checked })}
         />
       </FilterGroup>
     </>
   );
 
   return (
-    <FilterBar more={more} onReset={onReset}>
+    <FilterBar
+      more={more}
+      onReset={onReset}
+      moreCount={inForce}
+      onOpenChange={(open) => open && setDraft(advancedOf(filters))}
+      onApply={() => onFilter(draft)}
+      onClear={() => setDraft(NO_ADVANCED)}
+    >
       <SearchField
         label="Search leads"
         placeholder="Search leads by name, email, phone, source..."
@@ -325,20 +357,73 @@ function LeadFilters({
   );
 }
 
+/**
+ * Leads R2 10: the More Filters in force, visible while the panel is closed, each with its own
+ * remove (the others stay). The Overdue Follow-Ups card's filter is one of them (item 2).
+ */
+function ActiveFilterChips({
+  filters,
+  campaigns,
+  onFilter,
+}: {
+  filters: LeadFilters;
+  campaigns: { id: string; name: string }[];
+  onFilter: (patch: Partial<LeadFilters>) => void;
+}) {
+  const chips = [
+    filters.priority && {
+      key: 'priority',
+      label: `Priority: ${PRIORITIES.find((p) => p.value === filters.priority)?.label ?? filters.priority}`,
+      clear: { priority: '' as const },
+    },
+    filters.campaignId && {
+      key: 'campaign',
+      label: `Campaign: ${campaigns.find((c) => c.id === filters.campaignId)?.name ?? 'Chosen campaign'}`,
+      clear: { campaignId: '' },
+    },
+    filters.tag && { key: 'tag', label: `Tag: ${filters.tag}`, clear: { tag: '' } },
+    filters.overdue && { key: 'overdue', label: 'Overdue Follow-Ups', clear: { overdue: false } },
+    filters.archived && { key: 'archived', label: 'Archived Leads', clear: { archived: false } },
+  ].filter(Boolean) as { key: string; label: string; clear: Partial<LeadFilters> }[];
+  if (!chips.length) return null;
+  return (
+    <div aria-label="Active filters" className="-mt-2 flex flex-wrap gap-2">
+      {chips.map((chip) => (
+        <FilterChip key={chip.key} label={chip.label} onRemove={() => onFilter(chip.clear)} />
+      ))}
+    </div>
+  );
+}
+
 export function LeadsScreen({
-  initial,
   fromDashboard = false,
   initialCreate = false,
 }: {
-  /** Filters from the address (a dashboard card's drill-down). */
-  initial?: Pick<LeadFilters, 'stage' | 'from' | 'to'>;
   fromDashboard?: boolean;
   /** Open Add New Lead at once (+ New > Lead). */
   initialCreate?: boolean;
 } = {}) {
-  const [filters, setFilters] = useState<LeadFilters>({ ...EMPTY_FILTERS, ...initial });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  // R2 1: the list's place is its address, read as it is now (on the browser's Back, Next shows
+  // the page as first drawn, so not from the first render's props). A dashboard card's
+  // drill-down (stage, from, to) is the same address.
+  const params = useSearchParams();
+  const [start] = useState(() => leadsPlaceFrom(Object.fromEntries(params)));
+  const [filters, setFilters] = useState<LeadFilters>(() => ({
+    search: start.search,
+    source: start.source as LeadFilters['source'],
+    serviceId: start.serviceId,
+    stage: start.stage as LeadFilters['stage'],
+    assignedUserId: start.assignedUserId,
+    from: start.from,
+    to: start.to,
+    priority: start.priority as LeadFilters['priority'],
+    campaignId: start.campaignId,
+    tag: start.tag,
+    overdue: start.overdue,
+    archived: start.archived,
+  }));
+  const [page, setPage] = useState(start.page);
+  const [pageSize, setPageSize] = useState(start.pageSize);
   const [selected, setSelected] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(initialCreate);
   // Create Campaign (L7): the Communications builder in a panel over this page.
@@ -354,6 +439,7 @@ export function LeadsScreen({
   /** The leads Convert to Client (bulk bar) is open for. */
   const [convertIds, setConvertIds] = useState<string[] | null>(null);
   const [editingLead, setEditingLead] = useState<LeadRow | null>(null);
+  const [saved, setSaved] = useState<string>();
   const [appointmentLead, setAppointmentLead] = useState<LeadRow | null>(null);
   const summary = useApiQuery([...LEAD_PIPELINE_KEY, 'summary'], () => api.leadPipeline.summary());
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
@@ -387,6 +473,13 @@ export function LeadsScreen({
   const leads = useApiQuery([...LEAD_PIPELINE_KEY, 'list', query], () =>
     api.leadPipeline.list(query),
   );
+  const placeQuery = [
+    leadsPlaceQuery({ ...filters, search, page, pageSize }),
+    fromDashboard ? FROM_DASHBOARD : '',
+  ]
+    .filter(Boolean)
+    .join('&');
+  useListReturn(LAST_LEADS_LIST, `/leads${placeQuery ? `?${placeQuery}` : ''}`, !!leads.data);
   // Each selected row as it was picked, so a selection kept across pages still knows each lead's
   // number and email for the composer.
   const [chosen, setChosen] = useState<Map<string, LeadRow>>(() => new Map());
@@ -617,6 +710,11 @@ export function LeadsScreen({
         </div>
       </header>
 
+      {saved ? (
+        <p role="status" data-testid="lead-saved" className="-mt-2 text-sm text-success">
+          {saved}
+        </p>
+      ) : null}
       {/* Every widget keeps its frame when its data cannot load (design rule 2). */}
       <LeadsSummary summary={summary.data} filters={filters} onFilter={changeFilters} />
       {summary.isError ? (
@@ -630,9 +728,13 @@ export function LeadsScreen({
         onFilter={changeFilters}
         onReset={resetFilters}
       />
+      <ActiveFilterChips
+        filters={filters}
+        campaigns={options.data?.campaigns ?? []}
+        onFilter={changeFilters}
+      />
       {filters.archived ? (
         <div aria-label="Archived filter" className="-mt-2 flex flex-wrap items-center gap-3">
-          <FilterChip label="Archived Leads" onRemove={() => changeFilters({ archived: false })} />
           {restore.data ? (
             <p role="status" className="text-sm text-success">
               {restore.data.changed === 1
@@ -645,16 +747,6 @@ export function LeadsScreen({
               {errorMessage(restore.error)}
             </p>
           ) : null}
-        </div>
-      ) : null}
-      {filters.overdue ? (
-        // The Overdue Follow-Ups card's filter, visible on the page (Octavia's review, item 2);
-        // it combines with any status, which it never changes.
-        <div aria-label="Active filters" className="-mt-2 flex flex-wrap gap-2">
-          <FilterChip
-            label="Overdue Follow-Ups"
-            onRemove={() => changeFilters({ overdue: false })}
-          />
         </div>
       ) : null}
 
@@ -696,7 +788,11 @@ export function LeadsScreen({
         />
       ) : null}
       {editingLead ? (
-        <LeadEditDialog lead={editingLead} onClose={() => setEditingLead(null)} />
+        <LeadEditDialog
+          lead={editingLead}
+          onClose={() => setEditingLead(null)}
+          onSaved={setSaved}
+        />
       ) : null}
       {appointmentLead ? (
         <LeadAppointmentDialog lead={appointmentLead} onClose={() => setAppointmentLead(null)} />

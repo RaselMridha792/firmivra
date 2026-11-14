@@ -244,6 +244,8 @@ describe('notification links', () => {
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');
     expect(notificationLink(target('client_note_reminder'), portal)).toBe('/lvp/messages');
     expect(notificationLink(target('user'), portal)).toBe('/lvp/profile');
+    // Intake Forms Review Two (ACCESS-01): the exact form sent, not the forms list.
+    expect(notificationLink(target('intake'), portal)).toBe(`/lvp/intake/${id}`);
   });
 
   it('gives no link where the site has no page, or the target is not one', () => {

@@ -42,7 +42,7 @@ export function DocumentsFiltersBar({
           comment says to size a parent instead, so each one sits in a flex-1 wrapper with a
           min-w floor: narrow at 1280px, growing to share the row's extra space at 1440px.
         */}
-        <div className="min-w-24 flex-1">
+        <div className="min-w-48 flex-1">
           <Select
             label="Client"
             hideLabel
@@ -55,7 +55,7 @@ export function DocumentsFiltersBar({
             ]}
           />
         </div>
-        <div className="min-w-28 flex-1">
+        <div className="min-w-52 flex-1">
           <Select
             label="Document type"
             hideLabel
@@ -68,7 +68,7 @@ export function DocumentsFiltersBar({
             ]}
           />
         </div>
-        <div className="min-w-20 flex-1">
+        <div className="min-w-40 flex-1">
           <Select
             label="Status"
             hideLabel
@@ -86,7 +86,7 @@ export function DocumentsFiltersBar({
           maxLength={100}
           value={search}
           data-testid="filter-search"
-          minWidth="3.5rem"
+          minWidth="14rem"
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </FilterBar>

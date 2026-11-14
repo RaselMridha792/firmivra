@@ -5,6 +5,8 @@
 //   LINK_FIRM_SLUG (default lvp), LINK_FIRM_NAME (only when the firm is created)
 // Client mode, instead of LINK_USERS (Rasel, Oct 18; the demo firm's seeded clients only):
 //   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "demo", accountEmail: "<seeded @demo.test address>" }
+// or (Rasel, Nov 14) Test Firm B's QA fixture client, whose portal account the link creates:
+//   LINK_CLIENT_ACCOUNT: JSON { sub, firmSlug: "test-firm-b", accountEmail: "qa-fixture-1@example.test" }
 //   COGNITO_CLIENTS_USER_POOL_ID: the clients pool, passed as an override (the task definition
 //   names only the staff and admins pools; the role may already ListUsers in all three)
 // Overrides are recorded in CloudTrail, so they hold no emails or names: the task reads them from
@@ -74,9 +76,16 @@ const url =
 const owner = createPrismaClient(url);
 try {
   if (clientEntry) {
-    // Only checks that the login exists in the clients pool: its email and name stay in Cognito.
-    await lookup('CLIENT', clientEntry.sub);
-    const result = await linkClientAccount(owner, clientEntry);
+    // The login must exist in the clients pool. Its email and name stay in Cognito, except for
+    // Test Firm B, where they make the new account (never written to the task log).
+    const login = await lookup('CLIENT', clientEntry.sub);
+    const result = await linkClientAccount(
+      owner,
+      clientEntry,
+      clientEntry.createForClient && login.email
+        ? { email: login.email, name: login.name ?? login.email }
+        : undefined,
+    );
     // Ids only: no emails or names in the task log.
     say(
       `${result.changed ? 'Linked' : 'Already linked:'} client account ${result.clientAccountId} ` +

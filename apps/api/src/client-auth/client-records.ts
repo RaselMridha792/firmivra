@@ -7,6 +7,8 @@ export interface SignUpDetails {
   email: string;
   phone: string | null;
   accountType: AccountType;
+  /** The office chosen at registration (client_accounts.selected_office_id). */
+  officeId?: string | null;
 }
 
 /**
@@ -29,6 +31,42 @@ export async function lockClientEmails(tx: TxClient, businessId: string): Promis
  * type, and an empty profile row, as R10's create makes. Client records belong to R10; this one
  * small insert is R3's until R10's service takes it over (docs/work/R3-client-auth.md).
  */
+/**
+ * The office if it is still an active, unarchived location of the firm, else null (the database
+ * refuses any other: client_accounts_office_rules, clients_office_rules). A choice made before a
+ * location closed is dropped, never an error.
+ */
+export async function assignableOffice(
+  tx: TxClient,
+  businessId: string,
+  officeId: string | null | undefined,
+): Promise<string | null> {
+  if (!officeId) return null;
+  const office = await tx.firmOffice.findFirst({
+    where: { businessId, id: officeId, status: 'ACTIVE', archivedAt: null },
+    select: { id: true },
+  });
+  return office?.id ?? null;
+}
+
+/**
+ * Approval links a login to an existing record: the office chosen at registration becomes the
+ * record's local office only when staff never assigned one (PRT-1).
+ */
+export async function takeChosenOffice(
+  tx: TxClient,
+  businessId: string,
+  clientId: string,
+  chosenOfficeId: string | null | undefined,
+): Promise<void> {
+  const officeId = await assignableOffice(tx, businessId, chosenOfficeId);
+  if (!officeId) return;
+  await tx.client.updateMany({
+    where: { businessId, id: clientId, officeId: null },
+    data: { officeId },
+  });
+}
+
 export async function createClientFromSignUp(
   tx: TxClient,
   businessId: string,
@@ -41,6 +79,8 @@ export async function createClientFromSignUp(
       email: signUp.email,
       phone: signUp.phone,
       accountType: signUp.accountType,
+      // The office chosen at registration becomes the local office (PRT-1).
+      officeId: await assignableOffice(tx, businessId, signUp.officeId),
     },
     select: { id: true },
   });

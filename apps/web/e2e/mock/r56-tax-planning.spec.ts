@@ -82,6 +82,7 @@ test('Opportunity: dismissing needs a reason', async ({ page }) => {
 });
 
 test('Plan: create it, enter figures, override an estimate, finalize it', async ({ page }) => {
+  const year = new Date().getFullYear();
   await page.goto(`${base}/plans/new`);
   await page
     .getByTestId('step-client')
@@ -89,14 +90,29 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
     .selectOption({ label: 'Marcus Johnson' });
   await expect(page.getByTestId('client-card')).toContainText('Marcus Johnson');
   await page.getByLabel('Plan Name').fill('2026 Plan - Marcus');
+  // C05 (Review 2): Next names the required fields still missing.
+  await page.getByRole('button', { name: 'Next', exact: true }).first().click();
+  await expect(page.getByText(/Complete the required fields/)).toBeVisible();
+  await page.getByRole('combobox', { name: 'Filing Status *' }).selectOption({ index: 1 });
+  await page.getByRole('combobox', { name: 'Entity Type *' }).selectOption('Individual');
+  await page.getByRole('combobox', { name: 'Assigned To *' }).selectOption({ index: 1 });
+  await page.getByLabel('Target Completion Date *').fill(`${year}-12-15`);
   await page.getByTestId('step-goals-box').getByLabel('Reduce taxable income').check();
   await page.getByTestId('step-strategies-box').getByRole('checkbox').first().check();
+  // C07: Cancel with unsaved work asks first.
+  await page.getByTestId('plan-cancel').click();
+  await expect(page.getByTestId('leave-prompt')).toBeVisible();
+  await page.getByRole('button', { name: 'Keep Editing' }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).first().click();
   await page.waitForURL(/\/edit\/financials$/);
   await expect(page.getByTestId('step-financial')).toBeVisible();
   // A new plan is for this year; the wizard asks for it and the year before.
-  const year = new Date().getFullYear();
   await page.getByLabel(`Wages & Salary ${year - 1}`).fill('90000');
+  // C06: each figure keeps its source and as-of date; Add takes an additional item.
+  await page.getByLabel('Wages & Salary source').selectOption('Tax return');
+  await page.getByLabel('Additional item').fill('Home office costs');
+  await page.getByRole('button', { name: 'Add Item' }).click();
+  await page.getByLabel(`Home office costs ${year}`).fill('1200');
   await page.getByLabel(`Wages & Salary ${year}`).fill('95000');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.waitForURL(/\/edit\/goals$/);
@@ -117,6 +133,10 @@ test('Plan: create it, enter figures, override an estimate, finalize it', async 
   await page.getByRole('button', { name: 'Finalize Plan' }).click();
   await expect(page.getByText('Plan finalized.')).toBeVisible();
   await expect(page.getByTestId('step-review')).toContainText('Version 2');
+  // C08 and C25: the readiness list, and a kept version opens read-only.
+  await expect(page.getByTestId('readiness')).toContainText('Ready to finalize?');
+  await page.getByTestId('view-version').first().click();
+  await expect(page.getByTestId('version-view')).toContainText('Home office costs');
 });
 
 test('Calculator: a scenario is calculated with its assumptions, then saved', async ({ page }) => {
@@ -129,6 +149,58 @@ test('Calculator: a scenario is calculated with its assumptions, then saved', as
   await page.getByRole('button', { name: 'Save Scenario' }).click();
   await expect(page.getByText('Scenario saved.')).toBeVisible();
   await expect(page.getByTestId('scenarios')).toContainText('Scenario');
+});
+
+test('Review 2 (C01, C02, C04, C16): KPIs open their lists, consultations open New Appointment, deadlines open their clients, the calendar switches view', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await expect(page.getByTestId('kpi-link')).toHaveCount(4);
+  await expect(page.getByTestId('schedule-consultation')).toHaveAttribute(
+    'href',
+    /^\/calendar\/new\?serviceId=[0-9a-f-]{36}&from=%2Ftax-planning$/,
+  );
+  await page.getByTestId('kpi-link').first().click();
+  await expect(page).toHaveURL(/\/tax-planning\/clients\?active=1$/);
+  await expect(page.getByTestId('kpi-filter')).toContainText('Active planning clients');
+  await page.getByRole('button', { name: 'Show all clients' }).click();
+  await expect(page.getByTestId('kpi-filter')).toHaveCount(0);
+
+  await page.goto(base);
+  await page.getByTestId('deadline-link').first().click();
+  await expect(page).toHaveURL(/\/tax-planning\/calendar\?item=tax-q4$/);
+  await expect(page.getByTestId('deadline-details')).toContainText('Affected clients');
+  await expect(page.getByTestId('affected-clients').getByRole('link').first()).toHaveAttribute(
+    'href',
+    /^\/compliance\/[0-9a-f-]{36}\?from=/,
+  );
+
+  await page.goto(`${base}/calendar`);
+  await page.getByTestId('view-calendar').click();
+  await expect(page).toHaveURL(/view=calendar/);
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await page.getByTestId('view-list').click();
+  await expect(page.getByTestId('month-grid')).toHaveCount(0);
+  await expect(page.getByTestId('tp-calendar')).toContainText('Q4 Estimated Tax Payment Due');
+});
+
+test('Review 2 (C03, C22): the Clients filters live in the address, and the menu reaches Schedule and Send Resource', async ({
+  page,
+}) => {
+  await page.goto(`${base}/clients`);
+  await page.getByRole('combobox', { name: 'Entity type' }).selectOption('Individual');
+  await expect(page).toHaveURL(/entity=Individual/);
+  await page.getByRole('combobox', { name: 'Planning year' }).selectOption({ index: 2 });
+  await expect(page).toHaveURL(/year=\d{4}/);
+  await page.goto(`${base}/clients`);
+  await page
+    .getByRole('button', { name: /^Actions for / })
+    .first()
+    .click();
+  await expect(page.getByRole('menuitem', { name: 'Schedule' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Send Resource' }).click();
+  await expect(page).toHaveURL(/\/tax-planning\/resources\?clientId=[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('resource-for')).toBeVisible();
 });
 
 test('No sideways scroll at 375 px', async ({ page }) => {

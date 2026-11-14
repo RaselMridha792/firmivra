@@ -195,12 +195,18 @@ export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
  */
 export const REMINDER_MINUTES: readonly number[] = INTAKE_REMINDER_MINUTES;
 /**
+ * The final reminder's choices: the same, then 45 and 60 days (the API's limit), so a first
+ * reminder at 30 days has a final one after it (Review Two, 10b: First 30 days was missing).
+ */
+export const FINAL_REMINDER_MINUTES: readonly number[] = [...INTAKE_REMINDER_MINUTES, 64800, 86400];
+/**
  * Minutes before expiry (Octavia's I9): 30 minutes; 1, 2, 3, 5, 6, 10, 12, 24, 42 and 72 hours (42
  * as she saw it, not 48). No alert is null.
  */
 export const ALERT_MINUTES: readonly number[] = INTAKE_ALERT_MINUTES;
 /** The first reminder time after `minutes`: the final reminder comes strictly after the first. */
-export const nextReminder = (minutes: number) => REMINDER_MINUTES.find((m) => m > minutes) ?? null;
+export const nextReminder = (minutes: number) =>
+  FINAL_REMINDER_MINUTES.find((m) => m > minutes) ?? null;
 /**
  * Max file size per file, in MB: INTAKE_FILE_SIZE_CHOICES (Octavia's I10), plus the firm's saved
  * size when it is not one of them (a 25 MB saved before), so the select shows it as it is and the

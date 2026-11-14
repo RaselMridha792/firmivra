@@ -133,10 +133,13 @@ function RequestRow({
         <p className="flex-1 font-semibold text-heading">{r.title}</p>
         <Badge tone={tone}>{label}</Badge>
       </div>
-      <p className="text-sm text-muted">
-        {r.service.title}
-        {r.dueOn ? `, due ${r.dueOn}` : ''}
-      </p>
+      <p className="text-sm text-muted">{r.service.title}</p>
+      {/* Review 2 (Payroll F02): the due date on its own line, as a date. */}
+      {r.dueOn ? (
+        <p className="text-sm font-medium text-heading" data-testid="request-due">
+          Due {dueText(r.dueOn)}
+        </p>
+      ) : null}
       {r.instructions ? <p className="text-sm text-text">{r.instructions}</p> : null}
       {r.statusNote ? <p className="text-sm text-text">Note: {r.statusNote}</p> : null}
       {open(r) && !answering ? (

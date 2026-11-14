@@ -611,6 +611,25 @@ describe('plans', () => {
     expect(adjusted.inputs?.find((i) => i.key === 'other_income')?.kind).toBe('ADJUSTMENT');
     expect(JSON.stringify(await auditRows(id))).not.toContain('bonus');
     expect(adjusted.staleData).toBe(false);
+    // C06 (Review 2): the firm's own additional item, labelled from its key, with its source and
+    // as-of date; any other unknown key is still refused.
+    const extra = TaxPlanDetail.parse(
+      ok(
+        await saveInputs(id, [
+          {
+            ...money('custom_home_office_costs', 120_000),
+            source: 'Client estimate',
+            asOf: new Date().toISOString(),
+          },
+        ]),
+      ),
+    );
+    expect(extra.inputs?.find((i) => i.key === 'custom_home_office_costs')).toMatchObject({
+      label: 'Home office costs',
+      source: 'Client estimate',
+      amountCents: 120_000,
+    });
+    expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });
 
@@ -984,11 +1003,13 @@ describe('documents, status, versions and delivery', () => {
     );
     expectError(notReady, 409, 'PLAN_NOT_READY');
     expect(JSON.stringify(notReady.body)).toMatch(/Select at least one strategy/);
-    expectError(
-      await call('post', `/plans/${fresh.id}/send`, ownerA, { channel: 'PORTAL_MESSAGE' }),
-      409,
-      'PLAN_NOT_READY',
-    );
+    // C08, C09 (Review 2): each blocker names where to fix it.
+    expect(JSON.stringify(notReady.body)).toMatch(/in Goals & Strategies/);
+    const unsent = await call('post', `/plans/${fresh.id}/send`, ownerA, {
+      channel: 'PORTAL_MESSAGE',
+    });
+    expectError(unsent, 409, 'PLAN_NOT_READY');
+    expect(JSON.stringify(unsent.body)).toMatch(/Finalize Plan in Review & Save/);
 
     // The main plan: finalize, change it, and find that it has to be finalized again before sending.
     const id = shared.planId;
@@ -1032,6 +1053,15 @@ describe('documents, status, versions and delivery', () => {
       ),
     );
     expect(sent.version).toBe(3);
+    // C09 (Review 2): a sent plan is Awaiting Client Review, in every view.
+    expect(sent.status).toBe('AWAITING_CLIENT');
+    expect((await plan(id)).status).toBe('AWAITING_CLIENT');
+    const sentAudit = (await auditRows(id)).filter((r) => r.action === 'tax_plan.sent');
+    expect(sentAudit.at(-1)?.metadata).toMatchObject({
+      from: 'IN_PROGRESS',
+      to: 'AWAITING_CLIENT',
+    });
+    ok(await setStatus(id, 'IN_PROGRESS'));
     const versions = PlanVersionList.parse(ok(await call('get', `/plans/${id}/versions`, ownerA)));
     expect(versions.items.map((v) => [v.version, v.event])).toEqual([
       [3, 'SENT'],
@@ -1808,6 +1838,81 @@ describe('the overview, Clients tab, calendar and resources', () => {
     expectError(await call('get', '/clients?status=NOPE', ownerA), 400, 'VALIDATION_FAILED');
   });
 
+  it("opens the overview's KPI lists, finds a plan by its name and names the planning service (Review 2 C01, C02, C22)", async () => {
+    const overview = TaxPlanningOverview.parse(ok(await call('get', '/overview', ownerA)));
+    // C01: each KPI's list counts the clients the KPI counts.
+    const active = PlanningClientPage.parse(
+      ok(await call('get', '/clients?active=true&pageSize=100', ownerA)),
+    );
+    expect(active.total).toBe(overview.activePlanningClients.value);
+    expect(active.items.every((r) => r.planId !== null)).toBe(true);
+    const working = PlanningClientPage.parse(
+      ok(await call('get', '/clients?strategyStatus=IN_PROGRESS&pageSize=100', ownerA)),
+    );
+    expect(working.total).toBeLessThanOrEqual(overview.strategiesInProgress.value);
+    expect(working.total > 0).toBe(overview.strategiesInProgress.value > 0);
+    const soon = PlanningClientPage.parse(
+      ok(await call('get', '/clients?upcomingAppointment=true&pageSize=100', ownerA)),
+    );
+    const until = Date.now() + 31 * 86_400_000;
+    expect(
+      soon.items.every((r) => r.nextAppointmentAt && Date.parse(r.nextAppointmentAt) <= until),
+    ).toBe(true);
+    // Staff see only their clients in these lists too, and firm B none of firm A's.
+    const staffActive = PlanningClientPage.parse(
+      ok(await call('get', '/clients?active=true', staffA)),
+    );
+    expect(staffActive.items.every((r) => r.client.id === clients.c1)).toBe(true);
+    const bActive = PlanningClientPage.parse(
+      ok(await call('get', '/clients?active=true', ownerB, undefined, 'b')),
+    );
+    expect(bActive.items.map((r) => r.client.id)).toEqual([clients.cB]);
+    expectError(
+      await call('get', '/clients?strategyStatus=NOPE', ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    // C22: the search finds a client by one of its plans' names.
+    const named = await createPlan({ clientId: clients.c3, name: mark('Findable Harbor') });
+    const found = PlanningClientPage.parse(
+      ok(await call('get', `/clients?search=${encodeURIComponent(named.name)}`, ownerA)),
+    );
+    expect(found.items.map((r) => r.client.id)).toEqual([clients.c3]);
+    expect(
+      PlanningClientPage.parse(
+        ok(
+          await call(
+            'get',
+            `/clients?search=${encodeURIComponent(named.name)}`,
+            ownerB,
+            undefined,
+            'b',
+          ),
+        ),
+      ).items,
+    ).toEqual([]);
+
+    // C02: the firm's oldest active Tax Planning service, for Schedule a Planning Consultation.
+    const service = await inFirm('a', (tx) =>
+      tx.service.create({
+        data: { businessId: firms.a, kind: 'TAX_PLANNING', name: mark('Planning service') },
+        select: { id: true },
+      }),
+    );
+    const expected = await inFirm('a', (tx) =>
+      tx.service.findFirst({
+        where: { businessId: firms.a, kind: 'TAX_PLANNING', status: 'ACTIVE', archivedAt: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      }),
+    );
+    const after = TaxPlanningOverview.parse(ok(await call('get', '/overview', ownerA)));
+    expect(after.planningServiceId).toBe(expected?.id ?? service.id);
+    const b = TaxPlanningOverview.parse(ok(await call('get', '/overview', ownerB, undefined, 'b')));
+    expect(b.planningServiceId).not.toBe(service.id);
+  });
+
   it('shows tax deadlines and planning milestones in a range', async () => {
     const name = `Form 1040 ${run}`;
     await inFirm('a', async (tx) => {
@@ -1841,11 +1946,25 @@ describe('the overview, Clients tab, calendar and resources', () => {
       date: day(20),
       scope: 'Business & Individual Clients (2)',
     });
+    // C04 (Review 2): the clients it affects, each with its own deadline, for the details.
+    expect(filing[0]?.clientCount).toBe(2);
+    expect(filing[0]?.clients.map((c) => c.client.id).sort()).toEqual(
+      [clients.c1, clients.c2].sort(),
+    );
+    expect(filing[0]?.clients.every((c) => c.deadlineId && c.planId === null)).toBe(true);
     expect(owner.some((d) => d.title.startsWith('Payroll'))).toBe(false);
     expect(owner.filter((d) => d.kind === 'PLANNING_MILESTONE').length).toBeGreaterThan(0);
+    const milestone = owner.find((d) => d.kind === 'PLANNING_MILESTONE');
+    expect(milestone?.clientCount).toBe(1);
+    expect(milestone?.clients[0]).toMatchObject({ deadlineId: null });
+    expect(milestone?.clients[0]?.planId).toBe(milestone?.id.split(':')[0]);
     expect(owner.map((d) => d.date)).toEqual([...owner.map((d) => d.date)].sort());
     const staff = PlanningCalendar.parse(ok(await call('get', `/calendar?${range}`, staffA))).items;
     expect(staff.find((d) => d.title === name)?.scope).toBe('Individual Clients (1)');
+    // Staff see only their own client among the affected ones.
+    expect(staff.find((d) => d.title === name)?.clients.map((c) => c.client.id)).toEqual([
+      clients.c1,
+    ]);
     const one = PlanningCalendar.parse(
       ok(await call('get', `/calendar?${range}&clientId=${clients.c1}`, ownerA)),
     ).items;

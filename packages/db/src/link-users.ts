@@ -213,6 +213,18 @@ export interface LinkClientEntry {
   sub: string;
   firmSlug: string;
   accountEmail: string;
+  /**
+   * Test Firm B (Rasel, Nov 14): its QA fixture clients have no portal account, so the link
+   * creates one for the client with `accountEmail`, for the Cognito login given to
+   * linkClientAccount. Set by parseLinkClient for test-firm-b only.
+   */
+  createForClient?: boolean;
+}
+
+/** The Cognito login's own email and name, for an account the link creates. */
+export interface LinkClientLogin {
+  email: string;
+  name: string;
 }
 
 export interface LinkClientResult {
@@ -223,10 +235,15 @@ export interface LinkClientResult {
 }
 
 const CLIENT_KEYS = ['sub', 'firmSlug', 'accountEmail'];
-/** The only firm whose seeded client accounts may get a real login. */
-const CLIENT_FIRM = 'demo';
-/** Seeded demo accounts use this synthetic domain; a real client's account never matches. */
-const SEEDED_DOMAIN = '@demo.test';
+/**
+ * The firms whose seeded clients may get a real login, and their synthetic email domain (a real
+ * client's account never matches): the demo firm's seeded accounts (Oct 18), and Test Firm B's QA
+ * fixture clients, whose account the link creates (Nov 14).
+ */
+const CLIENT_FIRMS: Record<string, { domain: string; create: boolean }> = {
+  demo: { domain: '@demo.test', create: false },
+  'test-firm-b': { domain: '@example.test', create: true },
+};
 
 export function parseLinkClient(json: string): LinkClientEntry {
   let data: unknown;
@@ -248,14 +265,17 @@ export function parseLinkClient(json: string): LinkClientEntry {
   if (typeof sub !== 'string' || !UUID.test(sub)) {
     throw new Error('LINK_CLIENT_ACCOUNT.sub must be a UUID');
   }
-  if (firmSlug !== CLIENT_FIRM) {
-    throw new Error(`LINK_CLIENT_ACCOUNT.firmSlug must be ${CLIENT_FIRM}`);
+  const rule = typeof firmSlug === 'string' ? CLIENT_FIRMS[firmSlug] : undefined;
+  if (typeof firmSlug !== 'string' || !rule) {
+    throw new Error(
+      `LINK_CLIENT_ACCOUNT.firmSlug must be one of ${Object.keys(CLIENT_FIRMS).join(', ')}`,
+    );
   }
   const email = typeof accountEmail === 'string' ? accountEmail.trim().toLowerCase() : '';
-  if (!EMAIL.test(email) || !email.endsWith(SEEDED_DOMAIN)) {
-    throw new Error(`LINK_CLIENT_ACCOUNT.accountEmail must be a seeded ${SEEDED_DOMAIN} address`);
+  if (!EMAIL.test(email) || !email.endsWith(rule.domain)) {
+    throw new Error(`LINK_CLIENT_ACCOUNT.accountEmail must be a seeded ${rule.domain} address`);
   }
-  return { sub, firmSlug, accountEmail: email };
+  return { sub, firmSlug, accountEmail: email, ...(rule.create ? { createForClient: true } : {}) };
 }
 
 /**
@@ -267,6 +287,7 @@ export function parseLinkClient(json: string): LinkClientEntry {
 export async function linkClientAccount(
   owner: PrismaClient,
   entry: LinkClientEntry,
+  login?: LinkClientLogin,
 ): Promise<LinkClientResult> {
   const business = await runInScope(owner, { kind: 'platform' }, (tx) =>
     tx.business.findUnique({ where: { slug: entry.firmSlug }, select: { id: true } }),
@@ -280,6 +301,9 @@ export async function linkClientAccount(
       select: { id: true, userId: true },
     }),
   );
+  if (accounts.length === 0 && entry.createForClient) {
+    return createClientLogin(owner, businessId, entry, login);
+  }
   if (accounts.length !== 1) {
     throw new Error(
       `Firm ${entry.firmSlug} has ${accounts.length} client accounts with that email; expected 1`,
@@ -309,4 +333,67 @@ export async function linkClientAccount(
   });
 
   return { businessId, clientAccountId: account.id, userId: account.userId, changed };
+}
+
+/**
+ * Test Firm B: a portal login for its one seeded client with this email, which has no account
+ * yet. The Cognito login's own email and name make the client-pool user and an ACTIVE, approved
+ * primary account on that client. Refuses when the client is missing or ambiguous, or when the sub
+ * is already linked. Run again, the account exists and the usual link (above) finds it.
+ */
+async function createClientLogin(
+  owner: PrismaClient,
+  businessId: string,
+  entry: LinkClientEntry,
+  login: LinkClientLogin | undefined,
+): Promise<LinkClientResult> {
+  if (!login) throw new Error("A new client account needs the Cognito login's email and name");
+  const clients = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
+    tx.client.findMany({
+      where: { businessId, email: entry.accountEmail, archivedAt: null },
+      select: { id: true, accountType: true },
+    }),
+  );
+  if (clients.length !== 1) {
+    throw new Error(
+      `Firm ${entry.firmSlug} has ${clients.length} clients with that email; expected 1`,
+    );
+  }
+  const client = clients[0]!;
+  const userId = await runInScope(owner, { kind: 'platform' }, async (tx) => {
+    const holder = await tx.user.findUnique({ where: { cognitoSub: entry.sub } });
+    if (holder) throw new Error(`Cognito user ${entry.sub} is already linked to user ${holder.id}`);
+    const user = await tx.user.create({
+      data: { cognitoSub: entry.sub, pool: 'CLIENT', email: login.email, name: login.name },
+      select: { id: true },
+    });
+    return user.id;
+  });
+  const now = new Date();
+  const account = await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
+    const created = await tx.clientAccount.create({
+      data: {
+        businessId,
+        userId,
+        clientId: client.id,
+        email: login.email,
+        accountType: client.accountType,
+        status: 'ACTIVE',
+        emailVerifiedAt: now,
+        approvedAt: now,
+      },
+      select: { id: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        businessId,
+        action: 'dev.client_login_created',
+        entityType: 'client_account',
+        entityId: created.id,
+        metadata: { userId, clientId: client.id },
+      },
+    });
+    return created;
+  });
+  return { businessId, clientAccountId: account.id, userId, changed: true };
 }

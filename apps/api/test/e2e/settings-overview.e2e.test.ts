@@ -11,7 +11,7 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { LocationProfile, SettingsOverview } from '@firmivra/types';
+import { LocationProfile, SecurityAlerts, SettingsOverview } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -285,6 +285,48 @@ describe('GET /business/settings/overview', () => {
     expect(b.locations).toEqual([]);
     expect(JSON.stringify(b)).not.toContain(firms.a);
     const res = await call('get', '/settings/overview', staffA);
+    expect([res.status, (res.body as { error?: { code: string } }).error?.code]).toEqual([
+      403,
+      'FORBIDDEN',
+    ]);
+  });
+});
+
+// Overview guide 6 and 19 (R60): View Alerts and the Settings badge read the alerts themselves.
+describe('GET /business/settings/security-alerts', () => {
+  const alerts = async (who: Person = ownerA, firm: 'a' | 'b' = 'a') =>
+    SecurityAlerts.parse(ok(await call('get', '/settings/security-alerts', who, undefined, firm)));
+
+  it('lists what the Overview counts, newest first, with no account named', async () => {
+    const a = await alerts();
+    expect(a.count).toBe((await overview()).securityAlerts);
+    expect(a.windowDays).toBe(7);
+    expect(a.items.map((i) => i.kind).sort()).toEqual(['FAILED_SIGN_INS', 'LOCKOUT', 'MFA_RESET']);
+    const lock = a.items.find((i) => i.kind === 'LOCKOUT');
+    expect(lock?.lockedUntil).not.toBeNull();
+    expect(lock?.attempts).toBeNull();
+    expect(a.items.find((i) => i.kind === 'FAILED_SIGN_INS')?.attempts).toBe(3);
+    const times = a.items.map((i) => Date.parse(i.at));
+    expect(times).toEqual([...times].sort((x, y) => y - x));
+    // The email keys stay in the audit log.
+    expect(JSON.stringify(a)).not.toMatch(/k-locked|k-burst|emailKey/);
+  });
+
+  it('is not audited per read (the badge reads it on every page)', async () => {
+    const count = () =>
+      inFirm('a', (tx) =>
+        tx.auditLog.count({ where: { businessId: firms.a, action: { contains: 'alert' } } }),
+      );
+    const before = await count();
+    await alerts();
+    expect(await count()).toBe(before);
+  });
+
+  it('is the firm’s own: firm B sees its one alert, and Staff is refused', async () => {
+    const b = await alerts(ownerB, 'b');
+    expect(b.count).toBe(1);
+    expect(b.items.map((i) => i.kind)).toEqual(['MFA_RESET']);
+    const res = await call('get', '/settings/security-alerts', staffA);
     expect([res.status, (res.body as { error?: { code: string } }).error?.code]).toEqual([
       403,
       'FORBIDDEN',

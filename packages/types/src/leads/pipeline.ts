@@ -183,6 +183,17 @@ export type LeadOptions = z.infer<typeof LeadOptions>;
 
 // ---------- Add / edit a lead ----------
 
+// Leads R2 11 (Octavia, Nov 8): the three required fields say what is missing, in her words.
+const FirstName = text(60, 'one', 'First name is required');
+const LastName = text(60, 'one', 'Last name is required');
+/** Lower-cased like every email; blank and malformed are told apart. */
+const LeadEmail = z
+  .string()
+  .trim()
+  .min(1, 'Email is required')
+  .toLowerCase()
+  .pipe(z.email('Enter a valid email address').max(254, 'Use at most 254 characters'));
+
 const NextActionInput = z.strictObject({
   type: NextActionType,
   /** Required with every type, as the database requires it (CLOSE_LEAD: now). */
@@ -192,10 +203,10 @@ const NextActionInput = z.strictObject({
 
 /** POST /business/leads: Add New Lead. 409 POSSIBLE_DUPLICATE (same email or phone) unless allowed. */
 export const CreateLeadRequest = z.strictObject({
-  firstName: text(60),
-  lastName: text(60),
+  firstName: FirstName,
+  lastName: LastName,
   businessName: clearable(text(160)),
-  email: Email,
+  email: LeadEmail,
   phone: clearable(text(40)),
   source: LeadSource,
   sourceDetail: clearable(text(120)),
@@ -216,10 +227,10 @@ export type CreateLeadRequest = z.input<typeof CreateLeadRequest>;
 /** PATCH /business/leads/{id}: Edit (Contact Information, Lead Details, tags, assignment). */
 export const UpdateLeadRequest = z
   .strictObject({
-    firstName: text(60),
-    lastName: text(60),
+    firstName: FirstName,
+    lastName: LastName,
     businessName: clearable(text(160)),
-    email: Email,
+    email: LeadEmail,
     phone: clearable(text(40)),
     address: clearable(text(300, 'many')),
     dateOfBirth: CalendarDate.nullable(),

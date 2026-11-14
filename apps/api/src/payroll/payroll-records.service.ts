@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma } from '@firmivra/db';
+import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
   PAYROLL_YEAR_END_STEPS,
   type AddPayrollReportRequest,
@@ -28,7 +28,11 @@ import { day, errors, inFirm, mapPayrollDbError, toDay } from './payroll.shared.
 
 type ReportRow = Prisma.PayrollReportGetPayload<object>;
 
-const toReport = (r: ReportRow, names: Map<string, string>): PayrollReport => ({
+const toReport = (
+  r: ReportRow,
+  names: Map<string, string>,
+  files: Map<string, string> = new Map(),
+): PayrollReport => ({
   id: r.id,
   kind: r.kind,
   runId: r.runId,
@@ -36,10 +40,22 @@ const toReport = (r: ReportRow, names: Map<string, string>): PayrollReport => ({
   periodEnd: day(r.periodEnd) as string,
   version: r.version,
   documentId: r.documentId,
+  fileName: r.documentId ? (files.get(r.documentId) ?? null) : null,
   source: r.source === 'provider' ? 'provider' : 'import',
   pulledAt: r.pulledAt.toISOString(),
   requestedBy: memberRefOf(names, r.requestedByUserId),
 });
+
+/** Review 2 (B01): the attached files' names (this firm's documents only), by document id. */
+async function fileNames(tx: TxClient, businessId: string, ids: (string | null)[]) {
+  const wanted = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!wanted.length) return new Map<string, string>();
+  const docs = await tx.document.findMany({
+    where: { businessId, id: { in: wanted } },
+    select: { id: true, fileName: true },
+  });
+  return new Map(docs.map((d) => [d.id, d.fileName]));
+}
 
 const STATES = new Set<PayrollYearEndStepState>(['NOT_STARTED', 'IN_PROGRESS', 'DONE']);
 
@@ -122,7 +138,7 @@ export class PayrollRecordsService {
     id: string,
     q: z.output<typeof PayrollReportsQuery>,
   ): Promise<PayrollReportList> {
-    const { rows, total, names } = await inFirm(this.database, businessId, async (tx) => {
+    const { rows, total, names, files } = await inFirm(this.database, businessId, async (tx) => {
       await findPayrollClient(tx, businessId, actor, id);
       const where: Prisma.PayrollReportWhereInput = {
         businessId,
@@ -146,6 +162,11 @@ export class PayrollRecordsService {
           businessId,
           rows.map((r) => r.requestedByUserId),
         ),
+        files: await fileNames(
+          tx,
+          businessId,
+          rows.map((r) => r.documentId),
+        ),
       };
     });
     await this.audit.log(
@@ -154,7 +175,7 @@ export class PayrollRecordsService {
       { count: rows.length },
     );
     return {
-      items: rows.map((r) => toReport(r, names)),
+      items: rows.map((r) => toReport(r, names, files)),
       total,
       page: q.page,
       pageSize: q.pageSize,
@@ -222,7 +243,11 @@ export class PayrollRecordsService {
           version: row.version,
         },
       );
-      return toReport(row, await memberNames(tx, businessId, [actor.userId]));
+      return toReport(
+        row,
+        await memberNames(tx, businessId, [actor.userId]),
+        await fileNames(tx, businessId, [row.documentId]),
+      );
     }).catch(mapPayrollDbError);
   }
 

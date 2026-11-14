@@ -326,8 +326,13 @@ export type BookkeepingOverview = z.infer<typeof BookkeepingOverview>;
 
 // ---------- Client list ----------
 
+/**
+ * The list's cohorts. ACTIVE is the Active Bookkeeping Clients card's cohort: not paused, with an
+ * active or pending service (Review 2, D01), the same clients the card counts.
+ */
 export const BookkeepingClientTab = z.enum([
   'ALL',
+  'ACTIVE',
   'ON_TRACK',
   'NEEDS_ATTENTION',
   'MISSING_DOCUMENTS',
@@ -385,6 +390,11 @@ export const BookkeepingClientPage = z.object({
   ...Page,
   /** Counts for the tabs, under the other filters. */
   tabCounts: z.record(BookkeepingClientTab, Int),
+  /**
+   * Review 2 (D01, D02): the statuses of the selected cohort (tab ALL, ACTIVE or UPCOMING) under the
+   * other filters, so the status chart counts the same clients the list shows.
+   */
+  cohortStatus: z.array(z.object({ status: BookkeepingStatus, count: Int })).optional(),
 });
 export type BookkeepingClientPage = z.infer<typeof BookkeepingClientPage>;
 

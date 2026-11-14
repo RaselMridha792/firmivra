@@ -73,12 +73,15 @@ describe('intake settings (I7, I8, I9, I12)', () => {
     });
   });
 
-  it('keeps the reminders in range and the final after the first', async () => {
+  it('keeps the reminders in range (the final counts back from the expiry: R55, 10c)', async () => {
     await save(A, f.firmA, { firstReminderMinutes: 5, finalReminderMinutes: 30 });
+    // The final no longer has to come after the first (r55_review_two, item m).
+    await save(A, f.firmA, { firstReminderMinutes: 60, finalReminderMinutes: 60 });
+    await save(A, f.firmA, { firstReminderMinutes: 4320, finalReminderMinutes: 5 });
     for (const data of [
       { firstReminderMinutes: 4, finalReminderMinutes: 30 },
       { firstReminderMinutes: 43201, finalReminderMinutes: 86400 },
-      { firstReminderMinutes: 60, finalReminderMinutes: 60 },
+      { firstReminderMinutes: 60, finalReminderMinutes: 4 },
       { firstReminderMinutes: 60, finalReminderMinutes: 86401 },
     ]) {
       expect(await failure(save(A, f.firmA, data))).toMatch(/intake_settings_ranges/);
