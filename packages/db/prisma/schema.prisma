@@ -845,6 +845,9 @@ enum LocationKind {
   IN_PERSON
   PHONE
   VIDEO
+  /// Appointments Review 2 (P1 row 1): a video meeting on another platform, named in
+  /// `otherVideoPlatform` (Teams, Google Meet...).
+  OTHER_VIDEO
 }
 
 enum MessageDirection {
@@ -4115,10 +4118,13 @@ model AppointmentType {
   durationMinutes Int            @map("duration_minutes")
   /// The first of `meetingMethods` (kept in step by the database).
   locationKind    LocationKind   @default(VIDEO) @map("location_kind")
-  /// R1 (Oct 21): the meeting methods clients may choose, 1 to 3, no repeats; the first is
+  /// R1 (Oct 21): the meeting methods clients may choose, 1 to 4, no repeats; the first is
   /// `locationKind`. Left empty on insert, the database fills it from `locationKind`; changing
   /// either one updates the other.
   meetingMethods  LocationKind[] @default([]) @map("meeting_methods")
+  /// Appointments Review 2 (P1 row 1): the platform of an Other Video Meeting, 1 to 60 characters;
+  /// set exactly when `meetingMethods` offers OTHER_VIDEO.
+  otherVideoPlatform String?     @map("other_video_platform")
   clientBookable  Boolean        @default(false) @map("client_bookable")
   sortOrder       Int            @default(0) @map("sort_order")
   archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
@@ -4147,6 +4153,9 @@ model AppointmentType {
   /// Clients book at least this long ahead (minutes, up to 30 days) and at most this far (days).
   minNoticeMinutes         Int             @default(0) @map("min_notice_minutes")
   maxAdvanceDays           Int?            @map("max_advance_days")
+  /// Appointments Review 2 (P1 row 2): the booking window in hours (2 to 17,520), for windows
+  /// shorter than a day (2, 6 or 12 hours). When set it takes precedence over `maxAdvanceDays`.
+  maxWindowHours           Int?            @map("max_window_hours")
   reminderDefaults         Json            @default("[]") @map("reminder_defaults")
   /// R55 (Rasel, Nov 14; Appointments B7): new appointments' confirmation message, up to 2,000.
   confirmationMessage      String?         @map("confirmation_message")
@@ -4216,6 +4225,9 @@ model Appointment {
   endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
   status          AppointmentStatus @default(SCHEDULED)
   locationKind    LocationKind      @map("location_kind")
+  /// Appointments Review 2 (P1 row 1): the platform of an Other Video Meeting, 1 to 60
+  /// characters; set exactly when `locationKind` is OTHER_VIDEO.
+  otherVideoPlatform String?        @map("other_video_platform")
   /// The address, phone number or video link.
   locationDetails String?           @map("location_details")
   bookedByUserId  String?           @map("booked_by_user_id") @db.Uuid

@@ -611,7 +611,7 @@ export type DeliveryStatus = z.infer<typeof DeliveryStatus>;
 export const AppointmentStatus = z.enum(['SCHEDULED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']);
 export type AppointmentStatus = z.infer<typeof AppointmentStatus>;
 
-export const LocationKind = z.enum(['IN_PERSON', 'PHONE', 'VIDEO']);
+export const LocationKind = z.enum(['IN_PERSON', 'PHONE', 'VIDEO', 'OTHER_VIDEO']);
 export type LocationKind = z.infer<typeof LocationKind>;
 
 export const MessageDirection = z.enum(['FIRM_TO_CLIENT', 'CLIENT_TO_FIRM']);
