@@ -5,6 +5,7 @@ import {
   type CreateLeadRequest as CreateLeadBody,
   type LeadOptions,
   type NextActionType,
+  previewSequence,
 } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,7 +13,9 @@ import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
-import { useApiMutation } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useMe } from '../../../../../components/signed-in';
+import { SEQUENCES_KEY } from '../../templates/lead-sequences/_components/lead-sequences-screen';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
 import { OtherContactsField } from './other-contacts-field';
 
@@ -47,6 +50,11 @@ export function LeadCreateDialog({
   options?: LeadOptions;
   onClose: () => void;
 }) {
+  // R2 19: a follow-up sequence applied once the lead exists (its steps from today).
+  const { me } = useMe();
+  const [sequenceId, setSequenceId] = useState('');
+  const [sequenceError, setSequenceError] = useState('');
+  const sequences = useApiQuery(SEQUENCES_KEY, () => api.leadSequences.list());
   // L8: "+ Add Follow-Up" adds a step; each has its action, date and time, and notes.
   const [steps, setSteps] = useState<
     { key: number; type: NextActionType; date: string; time: string; notes: string }[]
@@ -101,7 +109,29 @@ export function LeadCreateDialog({
         : {}),
     };
     create.mutate(payload, {
-      onSuccess: onClose,
+      onSuccess: async (lead) => {
+        const template = sequences.data?.find((t) => t.id === sequenceId);
+        if (template) {
+          const startOn = new Date().toLocaleDateString('en-CA');
+          try {
+            await api.leadSequences.apply(lead.id, {
+              templateId: template.id,
+              steps: previewSequence(template, {
+                startOn,
+                leadOwnerId: lead.assignedTo?.userId ?? null,
+                applierId: me.user.id,
+              }),
+            });
+          } catch (error) {
+            // The lead is saved; say the sequence wasn't, so it can be applied from the lead.
+            setSequenceError(
+              `The lead was added, but the sequence was not applied: ${errorMessage(error)} Apply it from the lead's Tasks tab.`,
+            );
+            return;
+          }
+        }
+        onClose();
+      },
       onError: (error) => setDuplicateFound(errorCode(error) === 'POSSIBLE_DUPLICATE'),
     });
   };
@@ -329,6 +359,21 @@ export function LeadCreateDialog({
           >
             + Add Follow-Up
           </Button>
+          {/* R2 19: a reusable sequence, applied once the lead is saved (its steps from today). */}
+          <Select
+            label="Follow-up sequence (optional)"
+            options={[
+              { value: '', label: 'None' },
+              ...(sequences.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+            ]}
+            value={sequenceId}
+            onChange={(event) => setSequenceId(event.target.value)}
+          />
+          {sequenceError ? (
+            <p role="alert" className="text-sm text-danger">
+              {sequenceError}
+            </p>
+          ) : null}
         </section>
 
         {duplicateFound ? (

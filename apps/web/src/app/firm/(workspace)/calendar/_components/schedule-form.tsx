@@ -33,6 +33,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, createElement, useEffect, useRef, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
+import { OriginLink } from '../../../../../components/origin-link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
@@ -104,6 +105,61 @@ interface Reminder {
   unit: ReminderUnit;
 }
 
+/** Review 2 (row 7): a reminder beyond a channel's own row (Email 2 hours before, too). */
+interface MoreReminder {
+  key: string;
+  channel: ReminderChannel;
+  amount: number;
+  unit: ReminderUnit;
+}
+/** Review 2 (B2): how long an unsaved Schedule Appointment form is kept to come back to. */
+const KEEP_MS = 2 * 60 * 60 * 1000;
+/** The kept form's key: this exact address (new, a workspace's prefill, a draft or an edit). */
+const keptKey = () => `fv-schedule-form:${window.location.pathname}${window.location.search}`;
+/** The form kept for this address, when there is one still fresh; null otherwise. */
+function readKept(): Form | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(keptKey());
+    if (!raw) return null;
+    const kept = JSON.parse(raw) as { at: number; form: Form };
+    if (Date.now() - kept.at > KEEP_MS) {
+      window.sessionStorage.removeItem(keptKey());
+      return null;
+    }
+    return kept.form;
+  } catch {
+    // Storage unavailable or unreadable: start from the form as it is.
+    return null;
+  }
+}
+
+/** An appointment keeps at most 10 reminders (the contract's limit). */
+const MAX_REMINDERS = 10;
+const reminderKey = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * A saved list of reminders as the card shows it: each channel's row takes its first reminder (the
+ * longest before), and the others are Additional reminders.
+ */
+function splitReminders(
+  saved: readonly { channel: string; amount: number; unit: ReminderUnit }[],
+  base: Record<ReminderChannel, Reminder>,
+): { reminders: Record<ReminderChannel, Reminder>; moreReminders: MoreReminder[] } {
+  const reminders = { ...base };
+  const moreReminders: MoreReminder[] = [];
+  for (const ch of ['EMAIL', 'SMS', 'PORTAL'] as const) {
+    const mine = saved.filter((x) => x.channel === ch);
+    const [first, ...rest] = mine;
+    reminders[ch] = first
+      ? { on: true, amount: first.amount, unit: first.unit }
+      : { ...reminders[ch], on: false };
+    for (const r of rest) moreReminders.push({ key: reminderKey(), channel: ch, ...pick(r) });
+  }
+  return { reminders, moreReminders };
+}
+const pick = (r: { amount: number; unit: ReminderUnit }) => ({ amount: r.amount, unit: r.unit });
+
 interface Form {
   contact: AppointmentContact | null;
   newContact: boolean;
@@ -133,6 +189,8 @@ interface Form {
   internalNotes: string;
   clientInstructions: string;
   reminders: Record<ReminderChannel, Reminder>;
+  /** Review 2 (row 7): reminders beyond each channel's row. */
+  moreReminders: MoreReminder[];
   sendConfirmation: boolean;
   repeat: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
   count: number;
@@ -174,6 +232,7 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
       SMS: { on: o.smsEnabled, amount: 1, unit: 'DAYS' },
       PORTAL: { on: o.portalEnabled, amount: 1, unit: 'DAYS' },
     },
+    moreReminders: [],
     sendConfirmation: false,
     repeat: 'NONE',
     count: 4,
@@ -184,13 +243,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
   const start = localParts(r.startsAt, r.timezone);
   const end = localParts(r.endsAt, r.timezone);
   const base = blank(o);
-  const reminders = { ...base.reminders };
-  for (const ch of ['EMAIL', 'SMS', 'PORTAL'] as const) {
-    const m = r.reminders.find((x) => x.channel === ch);
-    reminders[ch] = m
-      ? { on: true, amount: m.amount, unit: m.unit }
-      : { ...reminders[ch], on: false };
-  }
+  const { reminders, moreReminders } = splitReminders(r.reminders, base.reminders);
   return {
     ...base,
     contact: r.contact,
@@ -213,6 +266,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     internalNotes: r.internalNotes ?? '',
     clientInstructions: r.clientInstructions ?? '',
     reminders,
+    moreReminders,
     repeat: (r.recurrence?.frequency === 'CUSTOM' ? 'WEEKLY' : r.recurrence?.frequency) ?? 'NONE',
     count: r.recurrence?.count ?? 4,
   };
@@ -229,16 +283,12 @@ function fromDraft(d: Record<string, unknown>, base: Form): Form {
   const endsAt = str('endsAt');
   const start = startsAt ? localParts(startsAt, timezone) : null;
   const end = endsAt ? localParts(endsAt, timezone) : null;
-  const reminders = { ...base.reminders };
-  if (Array.isArray(d['reminders'])) {
-    const saved = d['reminders'] as { channel: string; amount: number; unit: ReminderUnit }[];
-    for (const ch of ['EMAIL', 'SMS', 'PORTAL'] as const) {
-      const m = saved.find((x) => x.channel === ch);
-      reminders[ch] = m
-        ? { on: true, amount: m.amount, unit: m.unit }
-        : { ...reminders[ch], on: false };
-    }
-  }
+  const { reminders, moreReminders } = Array.isArray(d['reminders'])
+    ? splitReminders(
+        d['reminders'] as { channel: string; amount: number; unit: ReminderUnit }[],
+        base.reminders,
+      )
+    : { reminders: base.reminders, moreReminders: base.moreReminders };
   return {
     ...base,
     typeId: str('typeId') ?? base.typeId,
@@ -261,6 +311,7 @@ function fromDraft(d: Record<string, unknown>, base: Form): Form {
     internalNotes: str('internalNotes') ?? base.internalNotes,
     clientInstructions: str('clientInstructions') ?? base.clientInstructions,
     reminders,
+    moreReminders,
     sendConfirmation:
       typeof d['sendConfirmation'] === 'boolean' ? d['sendConfirmation'] : base.sendConfirmation,
   };
@@ -384,11 +435,14 @@ function Segmented<T extends string>({
   options,
   value,
   onChange,
+  offered,
 }: {
   label: string;
   options: [T, string][];
   value: T;
   onChange: (v: T) => void;
+  /** Review 2 (B1): the choices the appointment type allows; the others are off. */
+  offered?: readonly T[];
 }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-col gap-1">
@@ -400,6 +454,10 @@ function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={value === v}
+            disabled={!!offered && !offered.includes(v)}
+            title={
+              offered && !offered.includes(v) ? 'Not offered by this appointment type' : undefined
+            }
             onClick={() => onChange(v)}
             className={`min-h-11 flex-1 border-r border-border px-2 text-sm whitespace-nowrap last:border-r-0 ${value === v ? 'bg-action font-semibold text-on-action' : 'bg-surface text-heading hover:bg-canvas'}`}
           >
@@ -671,14 +729,36 @@ function FormBody({
   header: ReactNode;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<Form>(() => {
+  const [start] = useState<Form>(() => {
     if (record) return fromRecord(record, o);
     const base = prefill ? prefilled(o, blank(o, at), prefill) : blank(o, at);
     return savedDraft ? fromDraft(savedDraft.data, base) : base;
   });
+  // Review 2 (B2): the unsaved form outlives leaving the page (Edit My Availability, Back): it is
+  // kept for this exact address and given back on return, until it is saved, cancelled or
+  // discarded. Browser storage only: nothing is sent, and a blocked storage keeps the old behaviour.
+  const [kept] = useState<Form | null>(readKept);
+  const [form, setForm] = useState<Form>(() => kept ?? start);
   // SH1: the workspace's Back asks first once something was changed here.
-  const [initial] = useState(() => JSON.stringify(form));
-  useUnsavedChanges(JSON.stringify(form) !== initial);
+  const [initial] = useState(() => JSON.stringify(start));
+  const dirty = JSON.stringify(form) !== initial;
+  useUnsavedChanges(dirty);
+  const [restored, setRestored] = useState(kept !== null);
+  useEffect(() => {
+    if (!dirty) return;
+    try {
+      window.sessionStorage.setItem(keptKey(), JSON.stringify({ at: Date.now(), form }));
+    } catch {
+      // Storage full or blocked: the form stays as it is on the page.
+    }
+  }, [form, dirty]);
+  const forgetKept = () => {
+    try {
+      window.sessionStorage.removeItem(keptKey());
+    } catch {
+      // Nothing kept.
+    }
+  };
   const [copied, setCopied] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Advisory B11 (Octavia, Oct 25): Generate Zoom Link needs Zoom connected (Integrations) and the
@@ -714,13 +794,19 @@ function FormBody({
           { EMAIL: true, SMS: o.smsEnabled, PORTAL: o.portalEnabled },
           f.reminders,
         );
-        setForm((now) => (now.typeId === typeId ? { ...now, reminders: rows } : now));
+        // Review 2 (row 7): every reminder of the type; beyond each channel's row, Additional.
+        const moreReminders = extra.slice(0, MAX_REMINDERS - 3).map((r) => ({
+          key: reminderKey(),
+          channel: r.channel,
+          amount: r.amount,
+          unit: r.unit,
+        }));
+        setForm((now) =>
+          now.typeId === typeId ? { ...now, reminders: rows, moreReminders } : now,
+        );
         setReminderNote(
           [
             `From ${typeName}'s default reminders.`,
-            extra.length
-              ? `${extra.length} more of its reminders ${extra.length === 1 ? 'is' : 'are'} not on this appointment: it keeps one per channel.`
-              : '',
             unavailable.length
               ? `${unavailable.map((c) => (c === 'SMS' ? 'Text' : 'Portal')).join(' and ')} reminders are off for this firm.`
               : '',
@@ -744,7 +830,12 @@ function FormBody({
             return `${String(Math.min(Math.floor(m / 60), 23)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
           })()
         : f.end;
-      return { ...f, typeId: id, end, serviceId: f.serviceId || t?.serviceId || '' };
+      // Review 2 (B1): the type's method applies when the current one is not among its methods.
+      const method =
+        t && t.methods.length && !t.methods.includes(f.method)
+          ? (t.methods[0] ?? f.method)
+          : f.method;
+      return { ...f, typeId: id, end, method, serviceId: f.serviceId || t?.serviceId || '' };
     });
     if (t) loadTypeReminders(t.id, t.name);
   };
@@ -814,6 +905,11 @@ function FormBody({
     setReminderNote('');
     set('reminders', next);
   };
+  const setMoreReminders = (next: MoreReminder[]) => {
+    remindersTouched.current = true;
+    setReminderNote('');
+    set('moreReminders', next);
+  };
   const contacts = useApiQuery([...SCHEDULING, 'contacts', search], () =>
     search.trim().length >= 2
       ? api.scheduling.contacts({ search: search.trim() })
@@ -862,13 +958,27 @@ function FormBody({
     color: form.color || null,
     internalNotes: form.internalNotes.trim() || null,
     clientInstructions: form.clientInstructions.trim() || null,
-    reminders: (['EMAIL', 'SMS', 'PORTAL'] as const)
-      .filter((ch) => form.reminders[ch].on)
-      .map((ch) => ({
-        channel: ch,
-        amount: form.reminders[ch].amount,
-        unit: form.reminders[ch].unit,
-      })),
+    reminders: [
+      ...(['EMAIL', 'SMS', 'PORTAL'] as const)
+        .filter((ch) => form.reminders[ch].on)
+        .map((ch) => ({
+          channel: ch,
+          amount: form.reminders[ch].amount,
+          unit: form.reminders[ch].unit,
+        })),
+      ...form.moreReminders
+        .filter((r) =>
+          r.channel === 'SMS' ? o.smsEnabled : r.channel === 'PORTAL' ? o.portalEnabled : true,
+        )
+        .map(({ channel, amount, unit }) => ({ channel, amount, unit })),
+    ]
+      .filter(
+        (r, i, all) =>
+          all.findIndex(
+            (x) => x.channel === r.channel && x.amount === r.amount && x.unit === r.unit,
+          ) === i,
+      )
+      .slice(0, MAX_REMINDERS),
     sendConfirmation: form.sendConfirmation,
     ...(form.repeat === 'NONE'
       ? {}
@@ -926,7 +1036,12 @@ function FormBody({
     if (record) {
       update.mutate(
         { version: record.version, ...body },
-        { onSuccess: (r) => router.push(`/calendar/${r.id}`) },
+        {
+          onSuccess: (r) => {
+            forgetKept();
+            router.push(`/calendar/${r.id}`);
+          },
+        },
       );
     } else {
       schedule.mutate(
@@ -940,7 +1055,12 @@ function FormBody({
             ? { overrideConflicts: { reason: override.trim() } }
             : {}),
         },
-        { onSuccess: (r) => router.push(`/calendar/${r.id}`) },
+        {
+          onSuccess: (r) => {
+            forgetKept();
+            router.push(`/calendar/${r.id}`);
+          },
+        },
       );
     }
   };
@@ -1003,13 +1123,15 @@ function FormBody({
       form.reminders[c].amount === firstReminder?.amount &&
       form.reminders[c].unit === firstReminder.unit,
   );
-  const remindersLabel = onReminders.length
-    ? `${onReminders.map((c) => (c === 'EMAIL' ? 'Email' : c === 'SMS' ? 'SMS' : 'Portal')).join(', ')}${
-        firstReminder && sameTiming
-          ? ` (${firstReminder.amount} ${(UNITS.find(([u]) => u === firstReminder.unit)?.[1] ?? '').replace(/s before$/, firstReminder.amount === 1 ? ' before' : 's before')})`
-          : ''
-      }`
-    : 'None';
+  const remindersLabel = form.moreReminders.length
+    ? `${onReminders.length + form.moreReminders.length} reminders`
+    : onReminders.length
+      ? `${onReminders.map((c) => (c === 'EMAIL' ? 'Email' : c === 'SMS' ? 'SMS' : 'Portal')).join(', ')}${
+          firstReminder && sameTiming
+            ? ` (${firstReminder.amount} ${(UNITS.find(([u]) => u === firstReminder.unit)?.[1] ?? '').replace(/s before$/, firstReminder.amount === 1 ? ' before' : 's before')})`
+            : ''
+        }`
+      : 'None';
   const grid = 'grid gap-4 md:grid-cols-2';
 
   return (
@@ -1305,8 +1427,14 @@ function FormBody({
               )}
               value={form.method}
               onChange={(v) => set('method', v)}
+              {...(type?.methods.length ? { offered: type.methods } : {})}
             />
           </div>
+          {type?.methods.length ? (
+            <p className="-mt-2 text-xs text-muted" data-testid="type-methods">
+              {type.name} offers {type.methods.map((m) => METHOD_LABELS[m]).join(', ')}.
+            </p>
+          ) : null}
           {/* Office / Branch and Room, used by In Person and greyed out for the others; then the
               Video Meeting Link on its own full-width row (Octavia's A6: the toggle aligned with
               its label, the link field full width with Copy). */}
@@ -1571,6 +1699,98 @@ function FormBody({
                 />
               </div>
             ))}
+            {form.moreReminders.length ? (
+              <ul
+                className="flex flex-col gap-1"
+                data-testid="more-reminders"
+                aria-label="Additional reminders"
+              >
+                {form.moreReminders.map((r, i) => (
+                  <li
+                    key={r.key}
+                    className="grid grid-cols-[1fr_3.25rem_7rem_auto] items-center gap-x-1.5"
+                  >
+                    <Select
+                      label={`Additional reminder ${i + 1} channel`}
+                      hideLabel
+                      className="py-1! pr-7! pl-2! text-sm!"
+                      options={[
+                        { value: 'EMAIL', label: 'Email' },
+                        ...(o.smsEnabled ? [{ value: 'SMS', label: 'SMS' }] : []),
+                        ...(o.portalEnabled ? [{ value: 'PORTAL', label: 'Portal' }] : []),
+                      ]}
+                      value={r.channel}
+                      onChange={(e) =>
+                        setMoreReminders(
+                          form.moreReminders.map((x) =>
+                            x.key === r.key
+                              ? { ...x, channel: e.target.value as ReminderChannel }
+                              : x,
+                          ),
+                        )
+                      }
+                    />
+                    <Select
+                      label={`Additional reminder ${i + 1} amount`}
+                      hideLabel
+                      className="py-1! pr-7! pl-2! text-sm!"
+                      options={[...new Set([1, 2, 3, 4, 6, 12, 24, 48, r.amount])]
+                        .sort((a, b) => a - b)
+                        .map((n) => ({ value: String(n), label: String(n) }))}
+                      value={String(r.amount)}
+                      onChange={(e) =>
+                        setMoreReminders(
+                          form.moreReminders.map((x) =>
+                            x.key === r.key ? { ...x, amount: Number(e.target.value) } : x,
+                          ),
+                        )
+                      }
+                    />
+                    <Select
+                      label={`Additional reminder ${i + 1} unit`}
+                      hideLabel
+                      className="py-1! pr-7! pl-2! text-sm!"
+                      options={(r.unit === 'MINUTES'
+                        ? [['MINUTES', 'minutes before'] as [ReminderUnit, string], ...UNITS]
+                        : UNITS
+                      ).map(([value, l]) => ({ value, label: l }))}
+                      value={r.unit}
+                      onChange={(e) =>
+                        setMoreReminders(
+                          form.moreReminders.map((x) =>
+                            x.key === r.key ? { ...x, unit: e.target.value as ReminderUnit } : x,
+                          ),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove additional reminder ${i + 1}`}
+                      className="min-h-8 px-1 text-xs font-semibold text-danger hover:underline"
+                      onClick={() =>
+                        setMoreReminders(form.moreReminders.filter((x) => x.key !== r.key))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {3 + form.moreReminders.length < MAX_REMINDERS ? (
+              <button
+                type="button"
+                className="w-fit text-xs font-semibold text-link hover:underline"
+                onClick={() =>
+                  setMoreReminders([
+                    ...form.moreReminders,
+                    { key: reminderKey(), channel: 'EMAIL', amount: 2, unit: 'HOURS' },
+                  ])
+                }
+              >
+                + Add Reminder
+              </button>
+            ) : null}
             {reminderNote ? (
               <p className="text-xs text-muted" data-testid="reminder-defaults-note">
                 {reminderNote}
@@ -1612,6 +1832,24 @@ function FormBody({
           </Section>
         </div>
 
+        {restored ? (
+          <div data-testid="form-restored" className="flex flex-wrap items-center gap-3">
+            <Callout icon={Info} tone="blue" surface="info" size="compact">
+              Your unsaved entries were kept while you were away.
+            </Callout>
+            <button
+              type="button"
+              className="text-sm font-semibold text-link hover:underline"
+              onClick={() => {
+                forgetKept();
+                setForm(start);
+                setRestored(false);
+              }}
+            >
+              Discard them
+            </button>
+          </div>
+        ) : null}
         {failure ? (
           <div role="alert" data-testid="schedule-error" className="flex flex-col gap-2">
             <Callout icon={Info} tone="amber" surface="warning" size="compact">
@@ -1647,12 +1885,12 @@ function FormBody({
             >
               Staff Availability
             </span>
-            <Link
+            <OriginLink
               href="/calendar/availability"
               className="flex-1 py-2 text-center text-sm font-semibold text-heading hover:text-action"
             >
               Edit My Availability
-            </Link>
+            </OriginLink>
           </nav>
           <StaffDayPanel
             staff={o.staff}
@@ -1765,6 +2003,7 @@ function FormBody({
 
       <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
         <Link
+          onClick={forgetKept}
           href={record ? `/calendar/${record.id}` : (cancelHref ?? '/calendar')}
           className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
         >

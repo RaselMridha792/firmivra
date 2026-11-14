@@ -354,6 +354,88 @@ test('Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved 
   await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });
 
+test('Review 2 (B1): choosing a type sets one of its methods, and the others are off', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  const where = page.getByRole('radiogroup', { name: 'Location Type *' });
+  await expect(where).toBeVisible({ timeout: 60_000 });
+  await where.getByRole('radio', { name: 'Phone' }).click();
+  await expect(where.getByRole('radio', { name: 'Phone' })).toHaveAttribute('aria-checked', 'true');
+  // The mock's types offer In-Person only.
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await expect(where.getByRole('radio', { name: 'In Person' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(where.getByRole('radio', { name: 'Phone' })).toBeDisabled();
+  await expect(page.getByTestId('type-methods')).toHaveText('Follow-Up offers In-Person.');
+});
+
+test('Review 2 (B2): the unsaved form is kept through Edit My Availability and Back', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Appointment Type *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  const notes = page.getByLabel('Internal Notes (not visible to client)');
+  await notes.fill('Unsaved QA navigation recovery probe.');
+  const end = await page.getByLabel('End Time *').inputValue();
+  await page
+    .getByRole('navigation', { name: 'Availability' })
+    .getByRole('link', { name: 'Edit My Availability' })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\/availability\?from=/);
+  await page.goBack();
+  await expect(page.getByTestId('form-restored')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByLabel('Appointment Type *').locator('option:checked')).toHaveText(
+    'Follow-Up',
+  );
+  await expect(notes).toHaveValue('Unsaved QA navigation recovery probe.');
+  await expect(page.getByLabel('End Time *')).toHaveValue(end);
+  // Discard gives the blank form back.
+  await page.getByRole('button', { name: 'Discard them' }).click();
+  await expect(notes).toHaveValue('');
+  await expect(page.getByTestId('form-restored')).toHaveCount(0);
+});
+
+test('Review 2 (row 7): an appointment keeps two reminders on one channel', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('08:00');
+  await page.getByLabel('End Time *').selectOption('08:30');
+  const card = page.getByTestId('client-reminders');
+  await card.getByLabel('Email Reminder', { exact: true }).check();
+  await card.getByRole('button', { name: '+ Add Reminder' }).click();
+  const more = card.getByTestId('more-reminders');
+  await more.getByLabel('Additional reminder 1 channel').selectOption('EMAIL');
+  await more.getByLabel('Additional reminder 1 amount').selectOption('2');
+  await more.getByLabel('Additional reminder 1 unit').selectOption('HOURS');
+  await expect(page.getByTestId('appointment-summary')).toContainText(/\d reminders/);
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  // Edit shows both Email reminders again.
+  await page.getByRole('link', { name: 'Edit', exact: true }).click();
+  await expect(page.getByTestId('more-reminders')).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByTestId('more-reminders').getByLabel('Additional reminder 1 unit'),
+  ).toHaveValue('HOURS');
+  await expect(
+    page.getByTestId('client-reminders').getByLabel('Email Reminder', { exact: true }),
+  ).toBeChecked();
+});
+
 test('Review 2 (B3): Back from an appointment returns to the same list filters and calendar view', async ({
   page,
 }) => {
