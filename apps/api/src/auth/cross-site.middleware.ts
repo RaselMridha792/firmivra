@@ -15,8 +15,13 @@ const SESSION_COOKIES = new Set<string>(
 const PORTAL_COOKIE = /^fv_portal_.+_(access|id|refresh|signup)$/;
 /** The Begin Online draft cookies: they carry an application in progress, so they count too. */
 const BEGIN_ONLINE_COOKIE = /^fv_bo_/;
+/** A lead's secure intake link cookie (intake-link-cookies.ts): a form in progress, the same. */
+const INTAKE_LINK_COOKIE = /^fv_il_/;
 const isSessionCookie = (name: string) =>
-  SESSION_COOKIES.has(name) || PORTAL_COOKIE.test(name) || BEGIN_ONLINE_COOKIE.test(name);
+  SESSION_COOKIES.has(name) ||
+  PORTAL_COOKIE.test(name) ||
+  BEGIN_ONLINE_COOKIE.test(name) ||
+  INTAKE_LINK_COOKIE.test(name);
 
 /**
  * The origins each site's pages run on, from config (ADMIN_BASE_URL, APP_BASE_URL,

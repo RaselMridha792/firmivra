@@ -91,7 +91,9 @@ export interface Calculation {
 
 const ASSUMPTIONS = [
   'Federal ordinary income tax only. Self-employment tax, the qualified business income deduction, the alternative minimum tax and state tax are not included.',
-  'Deductions and contributions are taken as entered; annual limits and phase-outs are not checked.',
+  // C21 (Review 2): what is checked and what is not, said plainly with every result.
+  "Contributions over the year's 401(k) or HSA (self-only) limit are flagged above; other limits and phase-outs are not checked.",
+  'Each strategy amount entered is deducted once; overlap between strategies is not checked.',
   'The larger of the standard deduction and the itemized deductions entered is used.',
   'Age and dependents do not change the figures.',
 ];
@@ -148,12 +150,32 @@ export function calculateSavings(req: CalculateSavingsRequest): Calculation {
     0,
     taxOn(table, group, modeledTaxable) - credits - (s.additionalCreditCents ?? 0),
   );
+  // C21 (Review 2): what the year's limits flag, before the assumptions. The amounts entered are
+  // still the ones modelled: a flag says to check them, never changes them.
+  const dollars = (c: number) => `$${Math.round(c / 100).toLocaleString('en-US')}`;
+  const flags: string[] = [];
+  const over = (cents: number | undefined, limit: number, what: string) => {
+    if ((cents ?? 0) > limit * 100)
+      flags.push(
+        `Check: the ${what} entered (${dollars(cents ?? 0)}) is over the ${req.taxYear} limit (${dollars(limit * 100)}). The result uses the amount entered.`,
+      );
+  };
+  over(s.retirementContributionCents, table.retirementLimit, '401(k) contribution');
+  over(s.hsaContributionCents, table.hsaLimit, 'HSA contribution');
+  if (
+    ((s.section179Cents ?? 0) > 0 || (s.homeOfficeCents ?? 0) > 0) &&
+    (b.businessIncomeCents ?? 0) <= 0 &&
+    (b.selfEmploymentIncomeCents ?? 0) <= 0
+  )
+    flags.push(
+      'Check: Section 179 and home office deductions need business or self-employment income, and none was entered.',
+    );
   return {
     baselineTaxCents: baseline,
     modeledTaxCents: modeled,
     differenceCents: baseline - modeled,
     unavailableReason: null,
-    assumptions,
+    assumptions: [...flags, ...assumptions],
   };
 }
 

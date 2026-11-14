@@ -20,7 +20,7 @@ test('send a form to a client by email and see the result', async ({ page }) => 
   for (const id of ['send-recipient', 'send-form', 'send-delivery', 'send-message', 'send-review'])
     await expect(page.getByTestId(id)).toBeVisible();
 
-  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Jamie Sample/ }).click();
   await page
     .getByRole('combobox', { name: /Form \/ Template/ })
@@ -68,7 +68,7 @@ test('the summary follows every choice', async ({ page }) => {
   const summary = page.getByTestId('send-summary');
   await expect(summary).toContainText('Not selected');
 
-  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Jamie Sample/ }).click();
   await expect(summaryRow(page, 'Recipient')).toContainText('Jamie Sample');
   await expect(summaryRow(page, 'Delivery Method')).toContainText('Email (');
@@ -92,8 +92,9 @@ test('the summary follows every choice', async ({ page }) => {
 });
 
 // Octavia's review of Oct 20 (I2): the routes follow what the API can deliver, and a dead end is
-// explained before Send, with where to fix it.
-test('a lead, or a client with no portal sign-in, gets no route and the reason', async ({
+// explained before Send, with where to fix it. A lead gets the form by email, through its secure
+// link (Intake Forms Review Two, ACCESS-01).
+test('a lead gets email only, and a client with no portal sign-in gets no route and the reason', async ({
   page,
 }) => {
   await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
@@ -105,13 +106,14 @@ test('a lead, or a client with no portal sign-in, gets no route and the reason',
   await page.getByRole('radio', { name: 'Lead', exact: true }).click();
   await page.getByRole('button', { name: /^Lead/ }).click();
   await page.getByRole('option', { name: /Avery Sample/ }).click();
-  for (const route of [/^Email/, /^SMS/, /^Client Portal/])
+  await expect(page.getByRole('radio', { name: /^Email/ })).toBeEnabled();
+  for (const route of [/^SMS/, /^Client Portal/])
     await expect(page.getByRole('radio', { name: route })).toBeDisabled();
-  await expect(delivery).toContainText('Not available for leads yet');
-  await expect(page.getByTestId('send-no-route')).toContainText('Forms can’t be sent to leads yet');
+  await expect(delivery).toContainText('avery@example.test');
+  await expect(page.getByTestId('send-no-route')).toHaveCount(0);
 
   await page.getByRole('radio', { name: 'Client', exact: true }).click();
-  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Riley Example/ }).click();
   await expect(page.getByRole('radio', { name: /^Email/ })).toBeDisabled();
   await expect(delivery).toContainText('Needs a portal sign-in first');
@@ -132,7 +134,7 @@ test('a refused send says why, with where to fix it; a failed delivery says why'
   page,
 }) => {
   await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
-  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Jamie Sample/ }).click();
   const subject = page.getByRole('textbox', { name: /^Subject/ });
   // The mock's stand-in for a client with no active service for the form.
@@ -168,7 +170,7 @@ test('Send Form without a recipient or form marks the fields', async ({ page }) 
 test('no sideways scroll at 375 px', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
-  await page.getByRole('button', { name: /^Client/ }).click();
+  await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Jamie Sample/ }).click();
   await expect(summaryRow(page, 'Recipient')).toContainText('Jamie Sample');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);

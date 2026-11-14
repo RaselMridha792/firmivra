@@ -43,6 +43,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
+import { CatalogPlanSelect } from '../../../../../components/catalog-plan-select';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -405,6 +406,7 @@ function Lines({
 type Draft = Pick<
   BookkeepingTerms,
   | 'packageName'
+  | 'catalogServiceId'
   | 'startDate'
   | 'endDate'
   | 'renewalType'
@@ -422,6 +424,7 @@ type Draft = Pick<
 >;
 const draftOf = (t: BookkeepingTerms): Draft => ({
   packageName: t.packageName,
+  catalogServiceId: t.catalogServiceId,
   startDate: t.startDate,
   endDate: t.endDate,
   renewalType: t.renewalType,
@@ -478,13 +481,24 @@ function TermsTabView({
         <div className="grid gap-4 lg:grid-cols-3">
           <Section title="Service Package" icon={Stack} testId="terms-package">
             <div className="flex flex-col gap-3">
-              <Input
-                label="Package"
-                value={f.packageName ?? ''}
-                disabled={!editable}
-                maxLength={120}
-                onChange={(e) => setF({ ...f, packageName: e.target.value || null })}
-              />
+              {/* Review 2 (E01b): the package is a Services & Pricing service, not free text. */}
+              {editable ? (
+                <CatalogPlanSelect
+                  kind="BOOKKEEPING"
+                  label="Package (from Services & Pricing)"
+                  value={f.catalogServiceId ?? ''}
+                  savedName={f.packageName}
+                  onChange={(id) =>
+                    setF({
+                      ...f,
+                      catalogServiceId: id || null,
+                      ...(id ? {} : { packageName: null }),
+                    })
+                  }
+                />
+              ) : (
+                <Input label="Package" value={f.packageName ?? ''} disabled readOnly />
+              )}
               {/* Two dates fit side by side only when the card is wide enough. */}
               <div className="@container">
                 <div className="grid gap-2 @[18rem]:grid-cols-2">

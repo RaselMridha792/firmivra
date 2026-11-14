@@ -440,6 +440,34 @@ export class AgreementsService {
     return { ...shown, legal: null };
   }
 
+  /**
+   * A lead's secure intake link (Intake Forms Review Two, ACCESS-01): the block of the intake's own
+   * service, with the firm's Terms and Privacy to accept (a lead has no portal sign-up). The link's
+   * service has already resolved the intake from its token and firm.
+   */
+  async linkIntakeBlock(businessId: string, intakeId: string): Promise<IntakeAgreementBlock> {
+    const [block, terms, privacy] = await Promise.all([
+      this.inFirm(businessId, async (tx) => {
+        const intake = await tx.intake.findFirst({
+          where: { id: intakeId, leadId: { not: null } },
+          select: { form: { select: { serviceId: true } } },
+        });
+        if (!intake) throw notFound();
+        return currentAgreements(tx, intake.form.serviceId);
+      }),
+      this.portal.currentVersion(businessId, 'TERMS'),
+      this.portal.currentVersion(businessId, 'PRIVACY'),
+    ]);
+    const { versionIds: _ids, ...shown } = block;
+    return {
+      ...shown,
+      legal:
+        terms && privacy
+          ? { terms: { version: terms.version }, privacy: { version: privacy.version } }
+          : null,
+    };
+  }
+
   /** The file a version links, checked: none (PDF_REQUIRED when on), not found, or not CLEAN. */
   private async cleanPdf(tx: TxClient, fileId: string | null) {
     if (!fileId) {
