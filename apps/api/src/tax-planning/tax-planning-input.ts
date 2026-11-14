@@ -9,6 +9,7 @@ import {
   OpportunityActionRequest,
   UpdateTaxOpportunityRequest,
   PlanReasonRequest,
+  UpdatePlanningResourceRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
   PlanningResourcesQuery,
@@ -92,6 +93,7 @@ export const CreateOpportunityBody = clean(CreateTaxOpportunityRequest);
 export const ActionBody = clean(OpportunityActionRequest);
 export const UpdateOpportunityBody = clean(UpdateTaxOpportunityRequest);
 export const PlanReasonBody = clean(PlanReasonRequest);
+export const UpdateResourceBody = clean(UpdatePlanningResourceRequest);
 export const ScreeningBody = clean(RunScreeningRequest);
 
 export const CalculateBody = clean(CalculateSavingsRequest);

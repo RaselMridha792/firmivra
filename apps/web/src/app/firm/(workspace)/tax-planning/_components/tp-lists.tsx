@@ -1452,6 +1452,7 @@ export function PlanningResources() {
   const [search, setSearch] = useState('');
   const [sending, setSending] = useState<string>();
   const [viewing, setViewing] = useState<string>();
+  const [editing, setEditing] = useState<string>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery([...TP_KEY, 'resources', term], () =>
     api.taxPlanning.resources({ ...(term ? { search: term } : {}) }),
@@ -1534,6 +1535,21 @@ export function PlanningResources() {
             setSending(viewing);
             setViewing(undefined);
           }}
+          onEdit={() => {
+            setEditing(viewing);
+            setViewing(undefined);
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <ResourceEdit
+          resource={q.data?.find((r) => r.key === editing)}
+          onClose={() => setEditing(undefined)}
+          onSaved={(t) => {
+            setEditing(undefined);
+            setMsg({ text: t, tone: 'success' });
+          }}
+          onError={(t) => setMsg({ text: t, tone: 'error' })}
         />
       ) : null}
       {sending ? (
@@ -1612,10 +1628,12 @@ function ResourceView({
   resource: r,
   onClose,
   onSend,
+  onEdit,
 }: {
   resource: PlanningResource | undefined;
   onClose: () => void;
   onSend: () => void;
+  onEdit: () => void;
 }) {
   return (
     <Modal
@@ -1628,6 +1646,11 @@ function ResourceView({
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
+          {r ? (
+            <Button variant="secondary" onClick={onEdit}>
+              Edit
+            </Button>
+          ) : null}
           {r?.clientFacing ? <Button onClick={onSend}>Send to Client</Button> : null}
         </>
       }
@@ -1640,6 +1663,9 @@ function ResourceView({
             {r.clientFacing ? 'Client-facing' : 'Staff only: never sent to a client'}
           </span>
           <p className="text-text">{r.summary ?? 'No summary.'}</p>
+          {r.edited ? (
+            <p className="text-xs text-muted">Edited by your firm; the built-in version is kept.</p>
+          ) : null}
           {r.url ? (
             <a href={r.url} className="w-fit font-medium text-link">
               Open the full resource
@@ -1649,6 +1675,105 @@ function ResourceView({
       ) : (
         <p className={quiet}>This resource is no longer listed.</p>
       )}
+    </Modal>
+  );
+}
+
+/**
+ * C17 (Review 2): Edit a resource in the firm's own words: its title, category, kind, what a
+ * client is sent with it, and whether it may go to a client at all (Manage Strategies; the API
+ * refuses anyone else). The built-in resource is kept.
+ */
+function ResourceEdit({
+  resource: r,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  resource: PlanningResource | undefined;
+  onClose: () => void;
+  onSaved: (t: string) => void;
+  onError: (t: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState(r?.title ?? '');
+  const [category, setCategory] = useState(r?.category ?? '');
+  const [kind, setKind] = useState<PlanningResource['kind']>(r?.kind ?? 'GUIDE');
+  const [summary, setSummary] = useState(r?.summary ?? '');
+  const [clientFacing, setClientFacing] = useState(r?.clientFacing ?? false);
+  const [busy, setBusy] = useState(false);
+  if (!r) return null;
+  return (
+    <Modal
+      open
+      title="Edit Resource"
+      subtitle={r.title}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !title.trim() || !category.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.taxPlanning.updateResource(r.key, {
+                  title: title.trim(),
+                  category: category.trim(),
+                  kind,
+                  summary: summary.trim() || null,
+                  clientFacing,
+                });
+                await qc.invalidateQueries({ queryKey: [...TP_KEY] });
+                onSaved('Resource saved.');
+              } catch (e) {
+                onError(errorMessage(e, TP_ERRORS));
+              }
+              setBusy(false);
+            }}
+          >
+            Save Resource
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="resource-edit">
+        <Input
+          label="Title *"
+          value={title}
+          maxLength={200}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Input
+          label="Category *"
+          value={category}
+          maxLength={100}
+          onChange={(e) => setCategory(e.target.value)}
+        />
+        <Select
+          label="Kind"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as PlanningResource['kind'])}
+          options={['GUIDE', 'CHECKLIST', 'PDF', 'VIDEO', 'ARTICLE'].map((v) => ({
+            value: v,
+            label: v.charAt(0) + v.slice(1).toLowerCase(),
+          }))}
+        />
+        <Textarea
+          label="Summary (sent to the client with it)"
+          rows={4}
+          maxLength={1000}
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+        />
+        <Checkbox
+          label="Client-facing: may be sent to a client"
+          checked={clientFacing}
+          onChange={(e) => setClientFacing(e.target.checked)}
+        />
+      </div>
     </Modal>
   );
 }

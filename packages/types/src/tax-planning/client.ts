@@ -42,6 +42,8 @@ import {
   TaxOpportunityPage,
   TaxPlanDetail,
   TaxPlanEventList,
+  UpdatePlanningResourceRequest,
+  PlanningResource,
   UpdateTaxOpportunityRequest,
   TaxPlanId,
   PlanReasonRequest,
@@ -275,6 +277,15 @@ export function createTaxPlanningClient(request: ApiRequest) {
           `${BASE}/calendar${toQuery(parseInput(PlanningCalendarQuery, query))}`,
         )
       ).items,
+    /** C17 (Review 2): the firm's own words for a built-in resource (Manage Strategies). */
+    updateResource: async (
+      key: string,
+      body: UpdatePlanningResourceRequest,
+    ): Promise<PlanningResource> =>
+      request(PlanningResource, `${BASE}/resources/${parseInput(PlanningResourceKey, key)}`, {
+        method: 'PUT',
+        body: parseInput(UpdatePlanningResourceRequest, body),
+      }),
     resources: async (query: PlanningResourcesQuery = {}): Promise<PlanningResourceList['items']> =>
       (
         await request(

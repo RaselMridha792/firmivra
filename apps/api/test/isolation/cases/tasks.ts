@@ -228,7 +228,8 @@ const draftChange = {
 export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/tasks`]: {
     params: {},
-    bodyIds: NEW_TASK_IDS,
+    // C15 (Tax Planning Review 2): a task of the client's plan.
+    bodyIds: { ...NEW_TASK_IDS, taxPlanId: 'taxPlan' },
     body: {
       title: 'Fake task',
       checklist: [{ label: 'Fake step', assignedUserId: PLACEHOLDER }],

@@ -161,8 +161,24 @@ export const PlanningResource = z.object({
   url: z.string().nullable(),
   /** C17 (Review 2): what it says, as View shows it and as it is sent to a client. */
   summary: z.string().optional(),
+  /** C17: the firm edited this built-in resource (its own words show instead of the built-in's). */
+  edited: z.boolean().optional(),
 });
 export type PlanningResource = z.infer<typeof PlanningResource>;
+
+/**
+ * C17 (Review 2): PUT .../resources/{key}: the firm's own words for a built-in resource (Manage
+ * Strategies). Its title, category, kind, summary (what a client is sent) and whether it may go
+ * to a client. Saved again, it replaces the firm's copy; the built-in one never changes.
+ */
+export const UpdatePlanningResourceRequest = z.strictObject({
+  title: text(200),
+  category: text(100),
+  kind: z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'VIDEO', 'ARTICLE']),
+  summary: clearable(text(1_000, 'many')),
+  clientFacing: z.boolean(),
+});
+export type UpdatePlanningResourceRequest = z.input<typeof UpdatePlanningResourceRequest>;
 
 /** GET /business/tax-planning/overview: Frame 1. Counts open the matching filtered lists. */
 export const TaxPlanningOverview = z.object({

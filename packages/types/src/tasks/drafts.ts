@@ -135,13 +135,20 @@ const clientFirstError = {
  * while it is still a draft: once it is published, or for any other use of the key, 409
  * IDEMPOTENCY_KEY_REUSED.
  */
-export const SaveTaskDraftRequest = CreateTaskDetailRequest.extend({
-  clientId: z.uuid().optional(),
-}).refine(clientFirst, clientFirstError);
+// A draft never carries a plan link (C15): only a real task is a plan's implementation task.
+export const SaveTaskDraftRequest = CreateTaskDetailRequest.omit({ taxPlanId: true })
+  .extend({
+    clientId: z.uuid().optional(),
+  })
+  .refine(clientFirst, clientFirstError);
 export type SaveTaskDraftRequest = z.input<typeof SaveTaskDraftRequest>;
 
 /** A draft's changes; never a key (an edit or a publish changes the same row). */
-const draftChanges = CreateTaskDetailRequest.omit({ templateId: true, idempotencyKey: true })
+const draftChanges = CreateTaskDetailRequest.omit({
+  templateId: true,
+  idempotencyKey: true,
+  taxPlanId: true,
+})
   .partial()
   .extend({
     /** Setting, changing or clearing the client also clears the engagement and attachments
