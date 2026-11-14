@@ -86,30 +86,40 @@ export function MyPhone() {
             <MobileNumber state={state} />
           ) : (
             <p className="text-sm text-text">
-              No mobile number yet. Add one to get your notices by text once it is verified.
+              {state.canChange
+                ? 'No mobile number yet. Add one to get your notices by text once it is verified.'
+                : "No mobile number yet. Your firm's Owner adds it in Staff Management."}
             </p>
           )}
-          <div className="flex flex-wrap gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                save.reset();
-                setValue(state.phone ? formatPhone(state.phone) : '');
-                setEditing(true);
-              }}
-            >
-              {state.phone ? 'Change Number' : 'Add Number'}
-            </Button>
-            {state.phone ? (
+          {/* Dashboard Review 2 (R2 NEW2): an employee's number is the Owner's to change. */}
+          {state.canChange ? null : (
+            <p className="text-sm text-muted" data-testid="phone-owner-note">
+              Your firm&apos;s Owner can change this.
+            </p>
+          )}
+          {state.canChange ? (
+            <div className="flex flex-wrap gap-3">
               <Button
                 variant="secondary"
-                disabled={save.isPending}
-                onClick={() => save.mutate(null, { onSuccess: done })}
+                onClick={() => {
+                  save.reset();
+                  setValue(state.phone ? formatPhone(state.phone) : '');
+                  setEditing(true);
+                }}
               >
-                Remove Number
+                {state.phone ? 'Change Number' : 'Add Number'}
               </Button>
-            ) : null}
-          </div>
+              {state.phone ? (
+                <Button
+                  variant="secondary"
+                  disabled={save.isPending}
+                  onClick={() => save.mutate(null, { onSuccess: done })}
+                >
+                  Remove Number
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
       {save.error ? (

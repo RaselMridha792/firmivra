@@ -79,6 +79,7 @@ import {
   createSettingsOverviewClient,
   createLocationsClient,
   createStaffClient,
+  createStaffMyProfileClient,
   createMySecurityClient,
   createMfaPolicyClient,
   createSupportAccessClient,
@@ -160,6 +161,7 @@ import {
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createStaffPhoneMock } from '../mocks/staff-phone';
+import { createStaffProfileMock } from '../mocks/staff-profile';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
@@ -600,7 +602,17 @@ export const api = {
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
   /** The signed-in member's mobile number and its verification by text (R60). */
   staffPhone:
-    dev && mocked('staffPhone') ? createStaffPhoneMock() : createStaffPhoneClient(request),
+    dev && mocked('staffPhone')
+      ? createStaffPhoneMock({ role: MOCK_ROLE })
+      : createStaffPhoneClient(request),
+  /**
+   * My Profile's own details (Dashboard Review 2, R2 NEW2): the Owner edits their name and job
+   * title. Mock: NEXT_PUBLIC_API_MOCK=staffProfile (mocks/staff-profile.ts).
+   */
+  staffProfile:
+    dev && mocked('staffProfile')
+      ? createStaffProfileMock({ role: MOCK_ROLE })
+      : createStaffMyProfileClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
   /** Announcements published to the signed-in client from Communications (portal). */
   myAnnouncements: (firmSlug: string) =>

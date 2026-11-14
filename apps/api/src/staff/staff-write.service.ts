@@ -21,6 +21,7 @@ import {
   assertMayGive,
   assertRoleChange,
   customRoleFor,
+  forbidden,
   invalid,
   lockTarget,
   mapStaffDbError,
@@ -76,6 +77,9 @@ function profileData(
   return data;
 }
 
+/** R2 NEW2 (Dashboard Review 2): only the firm's Owner sets or changes a member's phone. */
+const phoneOwnerOnly = () => forbidden("Only the firm's Owner changes a member's phone.");
+
 /** The names of the keys sent, for the audit row (never a value). */
 const keysOf = (group: string, value: object | undefined) =>
   value
@@ -121,6 +125,8 @@ export class StaffWriteService {
           if (first) return first;
           const by = await requireManager(tx, actor);
           assertMayGive(actor, a.role);
+          // R2 NEW2: a member's number is the firm's Owner's to set.
+          if (a.phone && actor.role !== 'OWNER') throw phoneOwnerOnly();
           const custom = a.customRoleId
             ? await customRoleFor(tx, businessId, a.customRoleId, a.role)
             : null;
@@ -166,7 +172,11 @@ export class StaffWriteService {
 
           await tx.membership.updateMany({
             where: { businessId, id },
-            data: { jobTitle: a.jobTitle, ...(custom ? { customRoleId: custom.id } : {}) },
+            data: {
+              jobTitle: a.jobTitle,
+              ...(a.phone ? { phone: a.phone } : {}),
+              ...(custom ? { customRoleId: custom.id } : {}),
+            },
           });
           await tx.memberDepartment.createMany({
             data: a.departmentIds.map((departmentId) => ({
@@ -482,6 +492,20 @@ export class StaffWriteService {
         }
         const memberData: Prisma.MembershipUncheckedUpdateManyInput = { updatedAt: new Date() };
         if (a?.jobTitle !== undefined) memberData.jobTitle = a.jobTitle;
+        if (a?.phone !== undefined) {
+          // R2 NEW2: the firm's own number for the member (memberships.phone), never the person's
+          // login (users.phone, theirs across every firm). Edit Staff shows the firm's number, else
+          // theirs, so sending back what it showed changes nothing.
+          const [mine, login] = await Promise.all([
+            tx.membership.findFirst({ where: { businessId, id }, select: { phone: true } }),
+            tx.user.findFirst({ where: { id: target.userId }, select: { phone: true } }),
+          ]);
+          const shown = mine?.phone ?? login?.phone ?? null;
+          if ((a.phone ?? null) !== shown) {
+            if (actor.role !== 'OWNER') throw phoneOwnerOnly();
+            memberData.phone = a.phone ?? null;
+          }
+        }
         const role = custom?.basedOn ?? a?.role ?? target.role;
         const customRoleId =
           a?.customRoleId !== undefined
