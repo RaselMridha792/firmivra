@@ -41,10 +41,8 @@ test('Bookkeeping: the cohort cards and the status chart filter the list', async
   await legend.getByRole('button', { name: /Overdue/ }).click();
   await expect(page.getByRole('tab', { name: 'Overdue' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('cohort-chosen')).toContainText('The list shows Overdue.');
+  // Review 2 (D01): the Active card lists the active cohort, on its own tab.
   await page.getByRole('button', { name: /^Active Bookkeeping Clients/ }).click();
-  await expect(page.getByRole('tab', { name: 'All Clients' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(page.getByRole('tab', { name: /^Active/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('cohort-chosen')).toHaveCount(0);
 });
