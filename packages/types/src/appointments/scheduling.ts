@@ -296,6 +296,11 @@ export const ScheduleAppointmentRequest = z
      * plans that is not closed or archived (404 otherwise). The plan lists it.
      */
     taxPlanId: z.uuid().optional(),
+    /**
+     * Review 2 (Save as Draft): the member's draft this books; it is deleted with the booking
+     * (404 when it is not the member's own).
+     */
+    draftId: z.uuid().optional(),
     allDay: scheduleFields.allDay.default(false),
     generateVideoLink: scheduleFields.generateVideoLink.default(false),
     status: scheduleFields.status.default('CONFIRMED'),
@@ -360,10 +365,15 @@ export const AppointmentRecord = AgendaItem.extend({
 });
 export type AppointmentRecord = z.infer<typeof AppointmentRecord>;
 
-/** A saved draft (Save as Draft): the form so far. */
+/**
+ * A saved draft (Save as Draft; Review 2): the form so far, the member's own. `createdBy` is
+ * their name.
+ */
 export const AppointmentDraft = z.object({
   id: z.uuid(),
   data: z.record(z.string(), z.unknown()),
+  /** The client the draft names, as the form shows it; null when it names none (or a contact). */
+  contact: AppointmentContact.nullable().default(null),
   createdBy: z.string().nullable(),
   updatedAt: DateTime,
 });

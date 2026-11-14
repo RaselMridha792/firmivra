@@ -112,6 +112,8 @@ export function createSchedulingClient(request: ApiRequest) {
 
     drafts: async (): Promise<AppointmentDraft[]> =>
       (await request(AppointmentDraftList, DRAFTS)).items,
+    /** One of the member's own drafts, to reopen in the form (404 for anyone else's). */
+    draft: async (id: string): Promise<AppointmentDraft> => request(AppointmentDraft, draft(id)),
     createDraft: async (body: SaveAppointmentDraftRequest): Promise<AppointmentDraft> =>
       request(AppointmentDraft, DRAFTS, post(parseInput(SaveAppointmentDraftRequest, body))),
     saveDraft: async (id: string, body: SaveAppointmentDraftRequest): Promise<AppointmentDraft> =>
