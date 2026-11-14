@@ -137,6 +137,15 @@ export const records: CaseModule['records'] = {
       return get('leadStep');
     },
   },
+  /** Leads R2 17: an assignment rule of the firm, its owner the assignee. */
+  leadRule: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.leadAssignmentRule.create({
+        data: { businessId, name: 'Fake rule', position: 0, assigneeUserId: owner.id },
+      });
+      return row.id;
+    },
+  },
   /** Leads R2 19: a follow-up sequence with one step, and another the control archives. */
   ...Object.fromEntries(
     ['leadSequence', 'leadSequenceArchive'].map((key) => [
@@ -421,6 +430,21 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/leads/:id/sequences/:runId/stop': {
     params: { id: 'leadRunLead', runId: 'leadRun' },
+  },
+  // Leads R2 17: Settings > Lead assignment names members, services and rules.
+  'PUT /api/v1/business/lead-routing': {
+    params: {},
+    body: {
+      enabled: false,
+      fallbackUserId: null,
+      rules: [{ id: null, name: 'Fake rule', serviceIds: [], assigneeUserId: null }],
+    },
+    bodyIds: {
+      fallbackUserId: 'staffUser',
+      'rules.id': 'leadRule',
+      'rules.serviceIds': 'leadService',
+      'rules.assigneeUserId': 'staffUser',
+    },
   },
   // Leads R2 15: "Not a duplicate" names two leads; a merge names the lead merged in.
   'POST /api/v1/business/leads/duplicates/dismiss': {

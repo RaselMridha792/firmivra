@@ -1146,7 +1146,9 @@ model Membership {
   documentLinksCreated    DocumentLink[]         @relation("DocumentLinkCreatedBy")
   documentLinksReceived   DocumentLink[]         @relation("DocumentLinkRecipient")
   assignedClients         Client[]
-  assignedEngagements     Engagement[]
+  assignedEngagements     Engagement[]                @relation("EngagementAssignee")
+  pausedEngagements       Engagement[]                @relation("EngagementPausedBy")
+  clientLinksCreated      ClientLink[]                @relation("ClientLinkCreatedBy")
   assignedTasks           Task[]
   workingHours            WorkingHours[]
   blockedTimes            BlockedTime[]
@@ -1303,6 +1305,7 @@ model Membership {
   leadSequencesCreated       LeadSequenceTemplate[]
   leadSequenceRunsApplied    LeadSequenceRun[]
   bookkeepingOpeningBalances BookkeepingOpeningBalance[]
+  appointmentDrafts          AppointmentDraft[]
   staffDraftAttachments      StaffDraftAttachment[]
   leadUploads                LeadUpload[]
   mfaExceptionsApproved      StaffSecurityDefaults[]     @relation("StaffSecurityMfaExceptionApprovedBy")
@@ -3118,6 +3121,9 @@ model Client {
   advisoryRecords       AdvisoryClient[]
   updatedBy             Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
   tags                  ClientTag[]
+  /// Clients Review 2 (G9): the profiles linked to this one, from either side.
+  linksFrom             ClientLink[]          @relation("ClientLinkFrom")
+  linksTo               ClientLink[]          @relation("ClientLinkTo")
   statusHistory         ClientStatusHistory[]
   /// R0 stage C2: compliance facts and sales tax registrations.
   complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
@@ -3367,6 +3373,12 @@ model Engagement {
   /// stop date defaults to nextBillingOn in the API; set exactly when the flag is on (SQL only).
   stopFutureBilling   Boolean          @default(false) @map("stop_future_billing")
   billingStopsOn      DateTime?        @map("billing_stops_on") @db.Date
+  /// Clients Review 2 (G8, R60, Nov 14): the service is paused (on hold) for any service, with the
+  /// firm's reason (at most 200 characters) and who paused it. All three are set together or none
+  /// (SQL). Separate from Stop Future Billing and from the status.
+  pausedAt            DateTime?        @map("paused_at") @db.Timestamptz(3)
+  pausedReason        String?          @map("paused_reason")
+  pausedByUserId      String?          @map("paused_by_user_id") @db.Uuid
   updatedByUserId     String?          @map("updated_by_user_id") @db.Uuid
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -3374,7 +3386,8 @@ model Engagement {
   client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   service                Service                   @relation("EngagementService", fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   catalogService         Service?                  @relation("EngagementCatalogService", fields: [businessId, catalogServiceId], references: [businessId, id], onDelete: SetNull)
-  assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedMember         Membership?               @relation("EngagementAssignee", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  pausedBy               Membership?               @relation("EngagementPausedBy", fields: [businessId, pausedByUserId], references: [businessId, userId], onDelete: Restrict)
   statusHistory          EngagementStatusHistory[]
   tasks                  Task[]
   notes                  Note[]
@@ -4141,24 +4154,24 @@ model NotificationPreference {
 /// A kind of appointment the firm offers ("Tax consultation", 30 minutes, video). Clients can
 /// book only types marked clientBookable. Archived, not deleted, once used.
 model AppointmentType {
-  id              String         @id @default(uuid(7)) @db.Uuid
-  businessId      String         @map("business_id") @db.Uuid
-  name            String
-  durationMinutes Int            @map("duration_minutes")
+  id                 String         @id @default(uuid(7)) @db.Uuid
+  businessId         String         @map("business_id") @db.Uuid
+  name               String
+  durationMinutes    Int            @map("duration_minutes")
   /// The first of `meetingMethods` (kept in step by the database).
-  locationKind    LocationKind   @default(VIDEO) @map("location_kind")
+  locationKind       LocationKind   @default(VIDEO) @map("location_kind")
   /// R1 (Oct 21): the meeting methods clients may choose, 1 to 4, no repeats; the first is
   /// `locationKind`. Left empty on insert, the database fills it from `locationKind`; changing
   /// either one updates the other.
-  meetingMethods  LocationKind[] @default([]) @map("meeting_methods")
+  meetingMethods     LocationKind[] @default([]) @map("meeting_methods")
   /// Appointments Review 2 (P1 row 1): the platform of an Other Video Meeting, 1 to 60 characters;
   /// set exactly when `meetingMethods` offers OTHER_VIDEO.
-  otherVideoPlatform String?     @map("other_video_platform")
-  clientBookable  Boolean        @default(false) @map("client_bookable")
-  sortOrder       Int            @default(0) @map("sort_order")
-  archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  otherVideoPlatform String?        @map("other_video_platform")
+  clientBookable     Boolean        @default(false) @map("client_bookable")
+  sortOrder          Int            @default(0) @map("sort_order")
+  archivedAt         DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// Clients reschedule or cancel until this many hours before the start (0 to 720; 0 = until
   /// the start).
@@ -4196,6 +4209,25 @@ model AppointmentType {
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@map("appointment_types")
+}
+
+/// Appointments Review 2 (Save as Draft; Rasel's approval through the lead, Nov 14): the
+/// Schedule Appointment form saved before it is booked. Each member keeps their own (the API
+/// answers 404 for anyone else's); scheduling one deletes it in the same transaction.
+model AppointmentDraft {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  /// The form so far (the schedule request's fields): a JSON object of at most 64 KB.
+  data            Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Membership @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Cascade)
+
+  @@unique([businessId, id])
+  @@index([businessId, createdByUserId, updatedAt])
+  @@map("appointment_drafts")
 }
 
 /// A staff member's regular working hours: one row per range, several a day allowed (a lunch
@@ -4243,35 +4275,35 @@ model BlockedTime {
 /// same staff member, or for the same client) and overlap with blocked time. A reschedule
 /// updates the times in place; the database counts it. Cancelled is final; never deleted.
 model Appointment {
-  id              String            @id @default(uuid(7)) @db.Uuid
-  businessId      String            @map("business_id") @db.Uuid
-  clientId        String            @map("client_id") @db.Uuid
-  engagementId    String?           @map("engagement_id") @db.Uuid
-  taxPlanId       String?           @map("tax_plan_id") @db.Uuid
-  staffUserId     String            @map("staff_user_id") @db.Uuid
-  typeId          String?           @map("type_id") @db.Uuid
-  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
-  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
-  status          AppointmentStatus @default(SCHEDULED)
-  locationKind    LocationKind      @map("location_kind")
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  businessId         String            @map("business_id") @db.Uuid
+  clientId           String            @map("client_id") @db.Uuid
+  engagementId       String?           @map("engagement_id") @db.Uuid
+  taxPlanId          String?           @map("tax_plan_id") @db.Uuid
+  staffUserId        String            @map("staff_user_id") @db.Uuid
+  typeId             String?           @map("type_id") @db.Uuid
+  startsAt           DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt             DateTime          @map("ends_at") @db.Timestamptz(3)
+  status             AppointmentStatus @default(SCHEDULED)
+  locationKind       LocationKind      @map("location_kind")
   /// Appointments Review 2 (P1 row 1): the platform of an Other Video Meeting, 1 to 60
   /// characters; set exactly when `locationKind` is OTHER_VIDEO.
-  otherVideoPlatform String?        @map("other_video_platform")
+  otherVideoPlatform String?           @map("other_video_platform")
   /// The address, phone number or video link.
-  locationDetails String?           @map("location_details")
-  bookedByUserId  String?           @map("booked_by_user_id") @db.Uuid
+  locationDetails    String?           @map("location_details")
+  bookedByUserId     String?           @map("booked_by_user_id") @db.Uuid
   /// True when the client booked it in the portal.
-  bookedByClient  Boolean           @default(false) @map("booked_by_client")
+  bookedByClient     Boolean           @default(false) @map("booked_by_client")
   /// Set by the database when the times change.
-  rescheduledAt   DateTime?         @map("rescheduled_at") @db.Timestamptz(3)
-  rescheduleCount Int               @default(0) @map("reschedule_count")
+  rescheduledAt      DateTime?         @map("rescheduled_at") @db.Timestamptz(3)
+  rescheduleCount    Int               @default(0) @map("reschedule_count")
   /// Set when the reminder went out; the database clears it on a reschedule, so the new time
   /// gets its own reminder.
-  reminderSentAt  DateTime?         @map("reminder_sent_at") @db.Timestamptz(3)
-  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
-  cancelReason    String?           @map("cancel_reason")
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reminderSentAt     DateTime?         @map("reminder_sent_at") @db.Timestamptz(3)
+  cancelledAt        DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason       String?           @map("cancel_reason")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // R37 (Appointments module): the related service, notes, colour, confirmation and booking key.
   // Internal meetings and leads' appointments (client optional) wait for the API: see the PR.
@@ -12125,6 +12157,43 @@ model Tag {
 }
 
 /// A tag on a client. Removing a tag deletes its row (the audit log keeps who and when).
+/// Clients Review 2 (G9): what the linked profile is to the client (the other side shows the
+/// inverse, e.g. Owner of / Owned by).
+enum ClientLinkRole {
+  OWNER
+  RESPONSIBLE_PARTY
+  SPOUSE
+  FAMILY
+  PARTNER
+  RELATED_BUSINESS
+  OTHER
+}
+
+/// Clients Review 2 (G9, R60, Nov 14; the lead's approval under Rasel's delegation): two client
+/// profiles of one firm linked, e.g. a Business and the Personal profile of its owner or
+/// responsible party. One row per pair, whichever side added it (SQL: a unique index on the
+/// ordered pair, and never a client linked to itself). `role` is what linked_client is to
+/// client. Both profiles list it; taking a link off deletes its row (audited by the API).
+model ClientLink {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  clientId        String         @map("client_id") @db.Uuid
+  linkedClientId  String         @map("linked_client_id") @db.Uuid
+  role            ClientLinkRole
+  /// At most 200 characters (SQL).
+  note            String?
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client       Client      @relation("ClientLinkFrom", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  linkedClient Client      @relation("ClientLinkTo", fields: [businessId, linkedClientId], references: [businessId, id], onDelete: Restrict)
+  createdBy    Membership? @relation("ClientLinkCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@index([businessId, linkedClientId])
+  @@map("client_links")
+}
+
 model ClientTag {
   businessId    String   @map("business_id") @db.Uuid
   clientId      String   @map("client_id") @db.Uuid

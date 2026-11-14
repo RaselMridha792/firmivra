@@ -81,6 +81,7 @@ import { ScanRouterModule } from './storage/scan-queue/scan-router.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
 import { IntakeLinkModule } from './intake-link/intake-link.controller.js';
 import { LeadSequencesModule } from './leads/lead-sequences.service.js';
+import { LeadRoutingModule } from './leads/lead-routing.service.js';
 import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
@@ -202,6 +203,7 @@ export class AppModule {
         BeginOnlineModule,
         IntakeLinkModule,
         LeadSequencesModule,
+        LeadRoutingModule,
         AutomationsModule,
         ComplianceModule,
         TemplatesModule,

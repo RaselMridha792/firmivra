@@ -7,6 +7,24 @@ const later = (days: number) => new Date(Date.now() + days * 86_400_000);
 const at3pm = (days: number) => new Date(later(days).setUTCHours(15, 0, 0, 0)).toISOString();
 
 export const records: CaseModule['records'] = {
+  /** Review 2 (Save as Draft): firm P's Owner's draft of the Schedule Appointment form. */
+  appointmentDraft: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.appointmentDraft.create({
+        data: { businessId, createdByUserId: owner.id, data: { method: 'VIDEO' } },
+      });
+      return row.id;
+    },
+  },
+  /** Another of the Owner's drafts, which the schedule case books (and so deletes). */
+  appointmentDraftToBook: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.appointmentDraft.create({
+        data: { businessId, createdByUserId: owner.id, data: { method: 'IN_PERSON' } },
+      });
+      return row.id;
+    },
+  },
   appointmentType: {
     async create({ tx, businessId }) {
       const row = await tx.appointmentType.create({
@@ -134,7 +152,7 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointments/schedule': {
     params: {},
     // C12 (Tax Planning Review 2): a discussion of the client's plan.
-    bodyIds: { ...scheduleIds, taxPlanId: 'taxPlan' },
+    bodyIds: { ...scheduleIds, taxPlanId: 'taxPlan', draftId: 'appointmentDraftToBook' },
     body: () => ({
       idempotencyKey: randomUUID(),
       contact: { kind: 'CLIENT', id: '' },
@@ -144,6 +162,19 @@ export const cases: CaseModule['cases'] = {
       overrideConflicts: { reason: 'Fake override' },
     }),
   },
+  // Review 2 (Save as Draft): the member's own drafts; every record a draft names is checked.
+  'POST /api/v1/business/appointment-drafts': {
+    params: {},
+    bodyIds: scheduleIds,
+    body: { contact: { kind: 'CLIENT', id: '' }, method: 'IN_PERSON' },
+  },
+  'GET /api/v1/business/appointment-drafts/:id': { params: { id: 'appointmentDraft' } },
+  'PUT /api/v1/business/appointment-drafts/:id': {
+    params: { id: 'appointmentDraft' },
+    bodyIds: scheduleIds,
+    body: { contact: { kind: 'CLIENT', id: '' }, method: 'IN_PERSON' },
+  },
+  'DELETE /api/v1/business/appointment-drafts/:id': { params: { id: 'appointmentDraft' } },
   'GET /api/v1/business/appointments/:id': { params: { id: 'appointment' } },
   'PATCH /api/v1/business/appointments/:id': {
     params: { id: 'appointment' },
@@ -205,11 +236,4 @@ export const cases: CaseModule['cases'] = {
   },
 };
 
-export const moduleOff: CaseModule['moduleOff'] = {
-  'POST /api/v1/business/appointment-drafts':
-    'drafts need a table the schema does not have yet (R58); saving answers 403 MODULE_OFF',
-  'PUT /api/v1/business/appointment-drafts/:id':
-    'drafts need a table the schema does not have yet (R58); saving answers 403 MODULE_OFF',
-  'DELETE /api/v1/business/appointment-drafts/:id':
-    'drafts need a table the schema does not have yet (R58); deleting answers 403 MODULE_OFF',
-};
+export const moduleOff: CaseModule['moduleOff'] = {};

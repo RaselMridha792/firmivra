@@ -305,6 +305,15 @@ export class ClientsService {
     // E2: the clients whose latest event falls in those days (inclusive, the firm's time zone).
     const active = days ? [...(await this.activity(businessId, { between: days })).keys()] : null;
     const completed = await this.dayBounds(businessId, q.completedFrom, q.completedTo);
+    // K1 and V1 (Dashboard Review 2): a past period's card, as the books stood at its end.
+    const engagementThen = !!(q.asOf && q.serviceId && q.engagementStatus && !completed);
+    const then = q.asOf
+      ? await this.onBooksAt(
+          businessId,
+          q.asOf,
+          engagementThen ? { serviceId: q.serviceId!, status: q.engagementStatus! } : null,
+        )
+      : null;
     const owing = q.owes ? await this.owing(businessId, q.owes) : null;
     // More Filters (Octavia's E2 additions): each narrows the list on the firm's days.
     const added = q.addedFrom ? await this.dayBounds(businessId, q.addedFrom, undefined) : null;
@@ -315,43 +324,51 @@ export class ClientsService {
     const filters: Prisma.ClientWhereInput[] = [
       { businessId },
       this.reach(actor),
-      q.status === 'active' ? { archivedAt: null } : {},
-      q.status === 'archived' ? { archivedAt: { not: null } } : {},
+      q.status === 'active' && !then ? { archivedAt: null } : {},
+      q.status === 'archived' && !then ? { archivedAt: { not: null } } : {},
+      then ? { id: { in: then } } : {},
       q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
       q.clientStatus ? { status: q.clientStatus } : {},
       // D4: a dashboard service card's list, exactly what it counts.
-      q.serviceId && (q.engagementStatus || completed)
-        ? {
-            engagements: {
-              some: {
-                serviceId: q.serviceId,
-                ...(q.engagementStatus ? { status: q.engagementStatus } : {}),
-                ...(completed ? { completedAt: { gte: completed.start, lt: completed.end } } : {}),
-              },
-            },
-          }
-        : q.serviceId
+      engagementThen
+        ? {}
+        : q.serviceId && (q.engagementStatus || completed)
           ? {
-              OR: [
-                {
-                  engagements: {
-                    some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-                  },
+              engagements: {
+                some: {
+                  serviceId: q.serviceId,
+                  ...(q.engagementStatus ? { status: q.engagementStatus } : {}),
+                  ...(completed
+                    ? { completedAt: { gte: completed.start, lt: completed.end } }
+                    : {}),
                 },
-                // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
-                {
-                  advisoryRecords: {
-                    some: {
-                      archivedAt: null,
-                      workstreams: {
-                        some: { serviceId: q.serviceId, status: { in: [...ENROLLED_WORKSTREAMS] } },
+              },
+            }
+          : q.serviceId
+            ? {
+                OR: [
+                  {
+                    engagements: {
+                      some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
+                    },
+                  },
+                  // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
+                  {
+                    advisoryRecords: {
+                      some: {
+                        archivedAt: null,
+                        workstreams: {
+                          some: {
+                            serviceId: q.serviceId,
+                            status: { in: [...ENROLLED_WORKSTREAMS] },
+                          },
+                        },
                       },
                     },
                   },
-                },
-              ],
-            }
-          : {},
+                ],
+              }
+            : {},
       active ? { id: { in: active } } : {},
       owing ? { id: { in: owing } } : {},
       onlyIds ? { id: { in: onlyIds } } : {},
@@ -628,6 +645,37 @@ export class ClientsService {
         ${having}`,
     );
     return new Map(rows.map((r) => [r.id, r.at]));
+  }
+
+  /**
+   * The clients on the firm's books at the end of `day` (added by then, not archived then), the
+   * way a past period's dashboard card counts them; with `engagement`, only those with an
+   * engagement of that service in that status then (dashboard-cards.service countOf).
+   */
+  private async onBooksAt(
+    businessId: string,
+    day: string,
+    engagement: { serviceId: string; status: string } | null,
+  ): Promise<string[]> {
+    const rows = await this.inFirm(
+      businessId,
+      (tx) => tx.$queryRaw<{ id: string }[]>`
+        WITH s AS (${zone(businessId)}),
+        p AS (SELECT ((${day}::date + 1)::timestamp AT TIME ZONE s.tz) AS k_end FROM s)
+        SELECT c.id FROM clients c, p
+        WHERE c.business_id = ${businessId}::uuid AND c.created_at < p.k_end
+          AND (c.archived_at IS NULL OR c.archived_at >= p.k_end)
+          AND (${engagement?.serviceId ?? null}::uuid IS NULL OR EXISTS (
+            SELECT 1 FROM engagements e
+            WHERE e.business_id = c.business_id AND e.client_id = c.id
+              AND e.service_id = ${engagement?.serviceId ?? null}::uuid AND e.created_at < p.k_end
+              AND COALESCE(
+                (SELECT h.status FROM engagement_status_history h
+                  WHERE h.business_id = e.business_id AND h.engagement_id = e.id
+                    AND h.changed_at < p.k_end ORDER BY h.changed_at DESC LIMIT 1),
+                e.status)::text = ${engagement?.status ?? null}))`,
+    );
+    return rows.map((r) => r.id);
   }
 
   private async dayBounds(

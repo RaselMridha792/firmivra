@@ -26,6 +26,7 @@ const menu: [label: string, href: string][] = [
   ['Data & backups', '/settings/data'],
   ['Preferences', '/settings/preferences'],
   ['Dashboard cards', '/settings/dashboard-cards'],
+  ['Lead assignment', '/settings/lead-routing'],
   ['Tax statuses', '/settings/tax-statuses'],
 ];
 

@@ -570,6 +570,8 @@ export const LeadProfile = LeadRow.extend({
    * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
    */
   duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
+  /** R2 17: the assignment rule that gave the lead its owner (cleared by a manual assignment). */
+  assignedByRule: NamedRef.nullable().optional(),
   /** R2 15: the leads merged into this one (each kept, archived, opened from here). */
   mergedFrom: z.array(LeadRef).optional(),
   /** R2 15: on a merged lead (read only), the lead it was merged into. */

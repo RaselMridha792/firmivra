@@ -364,6 +364,15 @@ export function OverviewTab() {
                     >
                       Change
                     </button>
+                    {/* R2 17: why it was assigned (a manual change clears it). */}
+                    {lead?.assignedByRule ? (
+                      <span
+                        className="w-full text-xs text-muted"
+                        data-testid="lead-assigned-by-rule"
+                      >
+                        By the rule &quot;{lead.assignedByRule.name}&quot;
+                      </span>
+                    ) : null}
                   </span>
                 </Line>
                 <Line icon={CalendarBlank} label="Date Added">

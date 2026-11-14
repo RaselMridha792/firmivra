@@ -107,7 +107,7 @@ let sequenceRuns: Map<string, LeadSequenceRun[]> | undefined;
 /** R2 19: the sequences applied to each lead (mocks/lead-sequences.ts writes them). */
 export const mockLeadSequenceRuns = () => (sequenceRuns ??= new Map<string, LeadSequenceRun[]>());
 
-function team() {
+export function team() {
   return [
     staff(1, 'Morgan Avery'),
     staff(3, 'Daniel Okafor'),

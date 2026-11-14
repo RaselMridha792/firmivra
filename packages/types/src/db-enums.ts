@@ -1824,6 +1824,18 @@ export type ClientStatus = z.infer<typeof ClientStatus>;
 export const ClientPriority = z.enum(['HIGH', 'MEDIUM', 'LOW']);
 export type ClientPriority = z.infer<typeof ClientPriority>;
 
+/** A tag on a client. Removing a tag deletes its row (the audit log keeps who and when). Clients Review 2 (G9): what the linked profile is to the client (the other side shows the inverse, e.g. Owner of / Owned by). */
+export const ClientLinkRole = z.enum([
+  'OWNER',
+  'RESPONSIBLE_PARTY',
+  'SPOUSE',
+  'FAMILY',
+  'PARTNER',
+  'RELATED_BUSINESS',
+  'OTHER',
+]);
+export type ClientLinkRole = z.infer<typeof ClientLinkRole>;
+
 /** Where a lead came from (the list's source filter). Begin Online leads are BEGIN_ONLINE. */
 export const LeadSource = z.enum([
   'BEGIN_ONLINE',

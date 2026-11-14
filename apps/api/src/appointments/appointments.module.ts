@@ -3,6 +3,7 @@ import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { AppointmentDraftsController } from './appointment-drafts.controller.js';
+import { AppointmentDraftsService } from './appointment-drafts.service.js';
 import { AppointmentTypesController } from './appointment-types.controller.js';
 import { AppointmentTypesService } from './appointment-types.service.js';
 import { AppointmentsController } from './appointments.controller.js';
@@ -34,6 +35,7 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
     MyAppointmentsController,
   ],
   providers: [
+    AppointmentDraftsService,
     AppointmentTypesService,
     AvailabilityService,
     AppointmentsService,

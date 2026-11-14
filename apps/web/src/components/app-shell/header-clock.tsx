@@ -3,8 +3,9 @@
 import { useSyncExternalStore } from 'react';
 
 // Octavia's SM10 (Staff Management review of Oct 23): the current date and time at the top right
-// of every page, updating, with its time zone named. The signed-in person's own time zone (the
-// browser's): the firm's setting is not readable by every member.
+// of every page, updating, with its time zone named. Dashboard Review 2 (U2): in the firm
+// workspace, the firm's time zone (Settings > Preferences), the one its dates and "today" follow;
+// on the Super Admin console, which belongs to no firm, the person's own (the browser's).
 
 const MINUTE = 60_000;
 const subscribe = (tick: () => void) => {
@@ -16,18 +17,20 @@ const minuteNow = () => Math.floor(Date.now() / MINUTE);
 /** The server draws no time (no hydration mismatch); the browser fills it in at once. */
 const noMinute = () => 0;
 
-export function HeaderClock() {
+export function HeaderClock({ timeZone }: { timeZone?: string } = {}) {
   const minute = useSyncExternalStore(subscribe, minuteNow, noMinute);
   if (!minute) return null;
   const now = new Date(minute * MINUTE);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const date = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   }).format(now);
   const time = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',

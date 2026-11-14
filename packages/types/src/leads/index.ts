@@ -4,3 +4,4 @@ export * from './pipeline.js';
 export * from './email.js';
 export { createLeadPipelineClient, type LeadPipelineClient } from './pipeline-client.js';
 export * from './sequences.js';
+export * from './routing.js';

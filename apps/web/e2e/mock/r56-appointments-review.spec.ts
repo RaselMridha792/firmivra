@@ -55,7 +55,7 @@ test('A2: a wrong range is marked on its field and focused, and nothing is sent'
   await expect(page.getByTestId('rules-saved')).toHaveText('Availability saved.');
 });
 
-test('A1: a meeting-method choice the API refuses is named on the field, entries kept', async ({
+test('A1 and Review 2 (P1 row 1): several methods save together; Other Video Meeting names its platform', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
@@ -65,20 +65,31 @@ test('A1: a meeting-method choice the API refuses is named on the field, entries
   await expect(methods).toBeVisible({ timeout: 60_000 });
   await page.getByLabel('Description').fill('Internal note for staff.');
   await methods.getByLabel('Phone').check();
+  await methods.getByLabel('Other Video Meeting').check();
+  // Without its platform: named on that field, the other entries kept, no one-method rule.
   await page.getByRole('button', { name: 'Save Settings' }).click();
-
-  await expect(methods).toContainText('For now a type keeps one meeting method');
-  await expect(page.getByTestId('type-settings-error')).toContainText('Fix Meeting methods');
+  const platform = page.getByTestId('other-video-platform');
+  await expect(platform).toContainText('Name the video platform of the Other Video Meeting.');
+  await expect(methods).not.toContainText('keeps one meeting method');
   await expect(page.getByLabel('Description')).toHaveValue('Internal note for staff.');
   await expect(methods.getByLabel('Phone')).toBeChecked();
 
-  await methods.getByLabel('In-Person').uncheck();
-  await expect(methods).not.toContainText('For now a type keeps one meeting method');
+  await platform.getByLabel('Video platform *').fill('Google Meet');
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+
+  // Another type and back: read again, every method and the platform kept.
+  const types = page.locator('button[aria-pressed]');
+  await types.nth(1).click();
+  await expect(types.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await types.nth(0).click();
+  await expect(types.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  for (const label of ['In-Person', 'Phone', 'Other Video Meeting'])
+    await expect(methods.getByLabel(label)).toBeChecked();
+  await expect(platform.getByLabel('Video platform *')).toHaveValue('Google Meet');
 });
 
-test('A3 and A10: the window in days, notice in hours, both kept; the description is staff only', async ({
+test('A3, A10 and Review 2 (P1 row 2): the window in hours or days, notice in hours, all kept; the description is staff only', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
@@ -87,8 +98,11 @@ test('A3 and A10: the window in days, notice in hours, both kept; the descriptio
   const notice = page.getByLabel('Minimum notice');
   await expect(windowDays).toBeVisible({ timeout: 60_000 });
 
-  // Her 1, 3, 5 and 7 days and No limit stay in days; her 2, 6 and 12 hours are Minimum notice.
+  // Review 2: 2, 6 and 12 hours, then her 1, 3, 5 and 7 days and No limit.
   expect(await windowDays.locator('option').allTextContents()).toEqual([
+    '2 hours ahead',
+    '6 hours ahead',
+    '12 hours ahead',
     '1 day ahead (24 hours)',
     '3 days ahead',
     '5 days ahead',
@@ -115,8 +129,8 @@ test('A3 and A10: the window in days, notice in hours, both kept; the descriptio
     'For your team only: clients never see it, in the portal, booking or emails.',
   );
 
-  await windowDays.selectOption('3');
-  await notice.selectOption('6');
+  await windowDays.selectOption('h6');
+  await notice.selectOption('2');
   await page.getByRole('button', { name: 'Save Settings' }).click();
   await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
 
@@ -126,8 +140,15 @@ test('A3 and A10: the window in days, notice in hours, both kept; the descriptio
   await expect(types.nth(1)).toHaveAttribute('aria-pressed', 'true');
   await types.nth(0).click();
   await expect(types.nth(0)).toHaveAttribute('aria-pressed', 'true');
-  await expect(windowDays).toHaveValue('3');
-  await expect(notice).toHaveValue('6');
+  await expect(windowDays).toHaveValue('h6');
+  await expect(notice).toHaveValue('2');
+  // A day choice replaces the hours, and stays.
+  await windowDays.selectOption('d3');
+  await page.getByRole('button', { name: 'Save Settings' }).click();
+  await expect(page.getByTestId('type-settings-saved')).toHaveText('Settings saved.');
+  await types.nth(1).click();
+  await types.nth(0).click();
+  await expect(windowDays).toHaveValue('d3');
 });
 
 test('A6: the video link has its own full-width row, the toggle on its label line, and Copy', async ({
@@ -293,4 +314,42 @@ test('A9: a type names its intake form; the appointment sends it and shows it wa
   await expect(page.getByTestId('detail-result')).toContainText('Intake form sent');
   await expect(page.getByTestId('detail-related')).toContainText('(waiting)');
   await expect(page.getByTestId('send-intake')).toHaveCount(0);
+});
+
+test('Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved drafts, and goes with the booking', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page
+    .getByLabel('Internal Notes (not visible to client)')
+    .fill('Fake: confirm the time first');
+  await page.getByRole('button', { name: 'Save as Draft' }).click();
+  await expect(page.getByTestId('schedule-note')).toContainText('Draft saved');
+
+  // Listed under Your saved drafts; Continue opens it with every entry kept.
+  const drafts = page.getByTestId('my-drafts');
+  await drafts.getByRole('listitem').filter({ hasText: 'Follow-Up' }).getByRole('link').click();
+  await expect(page).toHaveURL(/\/calendar\/new\?draft=[0-9a-f-]{36}/);
+  await expect(page.getByLabel('Internal Notes (not visible to client)')).toHaveValue(
+    'Fake: confirm the time first',
+  );
+  await expect(page.getByLabel('Appointment Type *').locator('option:checked')).toHaveText(
+    'Follow-Up',
+  );
+
+  // It books like any form; the API deletes the draft with the booking (scheduling.e2e).
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('08:00');
+  await page.getByLabel('End Time *').selectOption('08:30');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });

@@ -4,6 +4,7 @@ import {
   AppointmentsSummaryQuery,
   ConflictCheckRequest,
   ContactSearchQuery,
+  SaveAppointmentDraftRequest,
   ScheduleAppointmentRequest,
   SendReminderRequest,
   SendRemindersRequest,
@@ -68,6 +69,12 @@ export const ContactsQuery = ContactSearchQuery;
 export const ScheduleBody = ScheduleAppointmentRequest.superRefine(
   timesInCalendar(['startsAt', 'endsAt']),
 ).transform(lowerDeep);
+/** POST and PUT /business/appointment-drafts: Save as Draft (Review 2), the form so far. */
+export const DraftBody = SaveAppointmentDraftRequest.superRefine(
+  timesInCalendar(['startsAt', 'endsAt']),
+).transform(lowerDeep);
+/** A draft's id in the path. */
+export const DraftId = z.uuid().transform((v) => v.toLowerCase());
 /** PATCH /business/appointments/{id}/details */
 export const DetailsBody = UpdateAppointmentDetailsRequest.superRefine(
   timesInCalendar(['startsAt', 'endsAt']),

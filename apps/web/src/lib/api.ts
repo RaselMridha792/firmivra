@@ -48,6 +48,7 @@ import {
   createMyDocumentsClient,
   createMyIntakesClient,
   createIntakeLinkClient,
+  createLeadRoutingClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -141,6 +142,7 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
 import { createLeadSequencesMock } from '../mocks/lead-sequences';
+import { leadRoutingMock } from '../mocks/lead-routing';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
@@ -680,6 +682,8 @@ export const api = {
   /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
   myIntakes: (firmSlug: string) =>
     dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
+  /** Settings > Lead assignment (R55, Leads R2 17): rules that give a new lead its owner. */
+  leadRouting: dev && mocked('leadRouting') ? leadRoutingMock() : createLeadRoutingClient(request),
   /** A lead's secure intake link (R55): the form a firm emailed a lead, at /{slug}/form (public). */
   intakeLink: (firmSlug: string) =>
     dev && mocked('intakeLink')

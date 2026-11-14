@@ -46,11 +46,16 @@ export const METHOD_LABELS: Record<MeetingMethod, string> = {
   IN_PERSON: 'In-Person',
   PHONE: 'Phone',
   VIDEO: 'Zoom / Video',
-  OTHER: 'Other',
+  // Review 2 (P1 row 1): a video meeting on another platform, named with it.
+  OTHER: 'Other Video Meeting',
 };
 
 /** Where it happens: Zoom, Phone, or In-Person with the office. */
-export function placeOf(item: Pick<AgendaItem, 'method' | 'place'>): string {
+export function placeOf(
+  item: Pick<AgendaItem, 'method' | 'place'> & { otherVideoPlatform?: string | null },
+): string {
+  if (item.method === 'OTHER' && item.otherVideoPlatform)
+    return `${METHOD_LABELS.OTHER} (${item.otherVideoPlatform})`;
   if (item.method !== 'IN_PERSON') return METHOD_LABELS[item.method];
   return item.place.office ? `In-Person, ${item.place.office.name}` : 'In-Person';
 }
