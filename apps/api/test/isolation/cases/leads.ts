@@ -144,6 +144,77 @@ export const records: CaseModule['records'] = {
       return get('leadUpload');
     },
   },
+  /** An open lead with one open task of its own, `leadTask` (Leads R2 2, tasks.lead_id). */
+  leadTaskLead: {
+    async create({ tx, businessId, own, owner, set }) {
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'CONTACTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Tasks',
+          email: `iso-tasks-${randomUUID().slice(0, 8)}@iso.test`,
+        },
+      });
+      const task = await tx.task.create({
+        data: {
+          businessId,
+          leadId: row.id,
+          title: 'Fake lead task',
+          dueOn: new Date('2030-01-01T00:00:00Z'),
+          createdByUserId: owner.id,
+        },
+      });
+      set('leadTask', task.id);
+      return row.id;
+    },
+  },
+  leadTask: {
+    async create({ get }) {
+      await get('leadTaskLead');
+      return get('leadTask');
+    },
+  },
+  /** An open lead with a file the firm added, `leadStaffFile` (Leads R2 4, the 'staff' slot). */
+  leadFileLead: {
+    async create({ tx, businessId, own, owner, set }) {
+      const tag = randomUUID();
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'CONTACTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Files',
+          email: `iso-files-${tag.slice(0, 8)}@iso.test`,
+        },
+      });
+      const file = await tx.leadUpload.create({
+        data: {
+          businessId,
+          leadId: row.id,
+          slot: 'staff',
+          uploadedByUserId: owner.id,
+          fileName: 'fake-staff.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: createHash('sha256').update(tag).digest('hex'),
+          s3Key: `tenant/${businessId}/leads/${row.id}/${tag}`,
+        },
+      });
+      set('leadStaffFile', file.id);
+      return row.id;
+    },
+  },
+  leadStaffFile: {
+    async create({ get }) {
+      await get('leadFileLead');
+      return get('leadStaffFile');
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -228,6 +299,34 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/notes': { params: { id: 'lead' } },
   'POST /api/v1/business/leads/:id/notes': { params: { id: 'lead' }, body: { text: 'Fake note' } },
   'GET /api/v1/business/leads/:id/tasks': { params: { id: 'lead' } },
+  // Leads R2 2: a lead's own tasks; the assignee is a member of the lead's firm.
+  'POST /api/v1/business/leads/:id/tasks': {
+    params: { id: 'leadTaskLead' },
+    body: { title: 'Fake task', dueOn: '2030-01-02' },
+    bodyIds: { assignedUserId: 'staffUser' },
+  },
+  'PATCH /api/v1/business/leads/:id/tasks/:taskId': {
+    params: { id: 'leadTaskLead', taskId: 'leadTask' },
+    body: { done: true },
+  },
+  // Leads R2 4: files the firm adds to a lead. Confirm's own token is made-up: 410 at home.
+  'POST /api/v1/business/leads/:id/files': {
+    params: { id: 'leadFileLead' },
+    body: {
+      fileName: 'fake.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    },
+  },
+  'POST /api/v1/business/leads/:id/files/confirm': {
+    params: { id: 'leadFileLead' },
+    body: { uploadToken: 'made-up-token' },
+    expect: 410,
+  },
+  'DELETE /api/v1/business/leads/:id/files/:fileId': {
+    params: { id: 'leadFileLead', fileId: 'leadStaffFile' },
+  },
   'GET /api/v1/business/leads/:id/appointments': { params: { id: 'lead' } },
   'GET /api/v1/business/leads/:id/documents-and-forms': { params: { id: 'lead' } },
   // The lead's first service is `leadService`, named in the body; the client and staff too.

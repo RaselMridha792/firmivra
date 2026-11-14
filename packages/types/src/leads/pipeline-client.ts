@@ -8,6 +8,7 @@ import {
   ConvertLeadToClientRequest,
   ConvertLeadToClientResult,
   CreateLeadRequest,
+  CreateLeadFileRequest,
   CreateLeadTaskRequest,
   LeadActivity,
   LeadActivityPage,
@@ -15,6 +16,7 @@ import {
   LeadAppointment,
   LeadBulkRequest,
   LeadBulkResult,
+  LeadDocument,
   LeadDocumentsAndForms,
   LeadMessageRequest,
   LeadNote,
@@ -41,7 +43,8 @@ import {
   MessageSignature,
   SaveMessageSignatureRequest,
 } from './email.js';
-import { UploadPutTicket } from '../documents/schemas.js';
+import { ConfirmUploadRequest, UploadPutTicket, UploadTicket } from '../documents/schemas.js';
+import { OkResponse } from '../schemas.js';
 
 const LEADS = '/business/leads';
 const one = (id: string) => `${LEADS}/${parseInput(LeadRecordId, id)}`;
@@ -176,6 +179,18 @@ export function createLeadPipelineClient(request: ApiRequest) {
       (await request(LeadAppointmentList, `${one(id)}/appointments`)).items,
     documentsAndForms: async (id: string): Promise<LeadDocumentsAndForms> =>
       request(LeadDocumentsAndForms, `${one(id)}/documents-and-forms`),
+    /** R2 4: step 1 of adding a file to the lead (then the browser's PUT, then `confirmFile`). */
+    createFile: async (id: string, body: CreateLeadFileRequest): Promise<UploadTicket> =>
+      request(UploadTicket, `${one(id)}/files`, post(parseInput(CreateLeadFileRequest, body))),
+    confirmFile: async (id: string, body: ConfirmUploadRequest): Promise<LeadDocument> =>
+      request(
+        LeadDocument,
+        `${one(id)}/files/confirm`,
+        post(parseInput(ConfirmUploadRequest, body)),
+      ),
+    /** A file staff added, until the lead is converted. */
+    removeFile: async (id: string, fileId: string): Promise<OkResponse> =>
+      request(OkResponse, `${one(id)}/files/${parseInput(z.uuid(), fileId)}`, { method: 'DELETE' }),
 
     /** Convert Lead to Client (Review & Confirm). 409 DUPLICATE_EMAIL, ALREADY_CONVERTED. */
     convertToClient: async (

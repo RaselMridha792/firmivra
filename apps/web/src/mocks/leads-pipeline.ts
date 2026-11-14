@@ -10,6 +10,9 @@ import {
   AddLeadFollowUpRequest,
   UpdateLeadFollowUpRequest,
   CreateLeadRequest,
+  ConfirmUploadRequest,
+  CreateLeadFileRequest,
+  CreateLeadTaskRequest,
   EMAIL_SIGNATURE_MAX,
   type LeadActivity,
   LeadActivityQuery,
@@ -32,10 +35,13 @@ import {
   SaveMessageSignatureRequest,
   SetFollowUpRequest,
   UpdateLeadRequest,
+  UpdateLeadTaskRequest,
+  type LeadDocument,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { beginOnlineFixture } from './leads';
 import { mockFirmTags, mockResolveTags } from './tags';
+import { mockUploadTicket } from './upload-ticket';
 
 /**
  * Mock data for `api.leadPipeline` (R43 contract, the Leads page and Lead Profile). Synthetic
@@ -68,6 +74,8 @@ const staff = (n: number, name: string): MemberRef => ({
 
 interface Lead {
   profile: LeadProfile;
+  /** R2 4: files the firm added to the lead. */
+  files?: LeadDocument[];
   notes: LeadNote[];
   activity: LeadActivity[];
   tasks: LeadTask[];
@@ -1060,13 +1068,86 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       await mockDelay();
       return copy(find(id).tasks);
     },
+    // R2 2: the lead's own tasks, as the API (open first by due date; Staff assign themselves).
+    createTask: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(CreateLeadTaskRequest, body);
+      const l = find(id);
+      const assignee =
+        input.assignedUserId === undefined
+          ? me
+          : (team().find((m) => m.userId === input.assignedUserId) ?? null);
+      const task = {
+        id: uuid('0e0e', s.next++),
+        title: input.title,
+        dueOn: input.dueOn,
+        priority: input.priority,
+        done: false,
+        assignedTo: assignee,
+      };
+      l.tasks.push(task);
+      l.tasks.sort(
+        (a, b) => Number(a.done) - Number(b.done) || (a.dueOn ?? '').localeCompare(b.dueOn ?? ''),
+      );
+      return copy(task);
+    },
+    updateTask: async (id, taskId, body) => {
+      await mockDelay();
+      const { done } = parseInput(UpdateLeadTaskRequest, body);
+      const task = find(id).tasks.find((t) => t.id === taskId);
+      if (!task) throw fail(404, 'NOT_FOUND', 'Not found');
+      task.done = done;
+      return copy(task);
+    },
     appointments: async (id) => {
       await mockDelay();
       return copy(find(id).appointments);
     },
+    // R2 4: a file staff add to an open lead (the mock sends nothing; confirm adds it CLEAN).
+    createFile: async (id, body) => {
+      await mockDelay();
+      const facts = parseInput(CreateLeadFileRequest, body);
+      const l = find(id);
+      if (l.profile.stage === 'CONVERTED')
+        throw fail(409, 'LEAD_CLOSED', 'Files can be added to an open lead only');
+      const token = `mock-lead-file:${id}:${s.next++}:${facts.fileName}`;
+      return mockUploadTicket({
+        uploadToken: token,
+        url: `mock:lead-file/${s.next}`,
+        sizeBytes: facts.sizeBytes,
+        headers: { 'Content-Type': facts.contentType },
+        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      });
+    },
+    confirmFile: async (id, body) => {
+      await mockDelay();
+      const { uploadToken } = parseInput(ConfirmUploadRequest, body);
+      const l = find(id);
+      const [, lead, , fileName] = uploadToken.split(':');
+      if (lead !== id || !fileName) throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired');
+      const file: LeadDocument = {
+        id: uuid('0b40', s.next++),
+        fileName,
+        uploadedAt: new Date().toISOString(),
+        scanStatus: 'CLEAN',
+        addedBy: me,
+      };
+      (l.files ??= []).push(file);
+      log(l, 'NOTE', `Document added: ${fileName}`);
+      return copy(file);
+    },
+    removeFile: async (id, fileId) => {
+      await mockDelay();
+      const l = find(id);
+      const before = l.files?.length ?? 0;
+      l.files = (l.files ?? []).filter((f) => f.id !== fileId);
+      if (l.files.length === before) throw fail(404, 'NOT_FOUND', 'Not found');
+      return { ok: true as const };
+    },
     documentsAndForms: async (id) => {
       await mockDelay();
       const l = find(id);
+      const added = copy(l.files ?? []);
       return l.profile.beginOnline
         ? {
             documents: [
@@ -1075,7 +1156,9 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
                 fileName: 'W-2_2025.pdf',
                 uploadedAt: l.profile.createdAt,
                 scanStatus: 'CLEAN',
+                addedBy: null,
               },
+              ...added,
             ],
             forms: [
               {
@@ -1086,7 +1169,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
               },
             ],
           }
-        : { documents: [], forms: [] };
+        : { documents: added, forms: [] };
     },
 
     convertToClient: async (id, body) => {

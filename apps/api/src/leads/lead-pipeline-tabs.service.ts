@@ -36,6 +36,7 @@ import {
   visibleLead,
 } from './pipeline.shared.js';
 import { addSteps, adoptLegacy, syncNextAction } from './lead-follow-ups.js';
+import { toLeadDocument } from './lead-files.service.js';
 
 type FollowUp = z.output<typeof SetFollowUpRequest>;
 type Complete = z.output<typeof CompleteFollowUpRequest>;
@@ -421,7 +422,13 @@ export class LeadPipelineTabsService {
         tx.leadUpload.findMany({
           where: { businessId, leadId: id },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: { id: true, fileName: true, createdAt: true, scanStatus: true },
+          select: {
+            id: true,
+            fileName: true,
+            createdAt: true,
+            scanStatus: true,
+            uploadedBy: { select: { userId: true, user: { select: { name: true } } } },
+          },
         }),
         tx.intake.findMany({
           where: { businessId, leadId: id },
@@ -430,12 +437,7 @@ export class LeadPipelineTabsService {
         }),
       ]);
       return {
-        documents: uploads.map((u) => ({
-          id: u.id,
-          fileName: u.fileName,
-          uploadedAt: u.createdAt.toISOString(),
-          scanStatus: u.scanStatus,
-        })),
+        documents: uploads.map(toLeadDocument),
         forms: intakes.map((i) => ({
           id: i.id,
           name: i.form.title,

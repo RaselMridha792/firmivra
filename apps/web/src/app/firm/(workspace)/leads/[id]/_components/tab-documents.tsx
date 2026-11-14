@@ -1,10 +1,11 @@
 'use client';
 
-import { Badge } from '@firmivra/ui';
+import { Badge, Button } from '@firmivra/ui';
 import { FileText, FolderOpen } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { api } from '../../../../../../lib/api';
-import { useApiQuery } from '../../../../../../lib/query';
+import { errorMessage } from '../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { CardFrame, EmptyPanel, outlineButton } from './profile-cards';
 import { useProfile } from './profile-frame';
 import { dayText, wsKey } from './profile-shared';
@@ -18,10 +19,21 @@ const scanTone = (status: string) =>
       ? 'danger'
       : 'warning';
 
-/** Documents & Forms tab: what the lead uploaded in Begin Online, and the forms sent to them. */
+/**
+ * Documents & Forms tab: the lead's files (its own from Begin Online, and those the firm added,
+ * Leads R2 4) and the forms sent to them. Upload Document opens on this lead.
+ */
 export function DocumentsTab() {
-  const { id } = useProfile();
+  const { id, profile } = useProfile();
   const query = useApiQuery(wsKey(id, 'documents'), () => api.leadPipeline.documentsAndForms(id));
+  const download = useApiMutation(async (fileId: string) => {
+    const link = await api.leads.downloadUpload(id, fileId);
+    window.open(link.url, '_blank', 'noopener');
+  });
+  const remove = useApiMutation((fileId: string) => api.leadPipeline.removeFile(id, fileId), {
+    invalidate: wsKey(id, 'documents'),
+  });
+  const converted = profile?.stage === 'CONVERTED';
   const documents = query.data?.documents ?? [];
   const forms = query.data?.forms ?? [];
   const state = query.isPending
@@ -36,9 +48,14 @@ export function DocumentsTab() {
         title="Documents"
         testId="card-documents"
         action={
-          <Link href="/documents/upload" className="text-sm font-medium text-link underline">
-            Upload Document
-          </Link>
+          converted ? null : (
+            <Link
+              href={`/documents/upload?leadId=${id}`}
+              className="text-sm font-medium text-link underline"
+            >
+              Upload Document
+            </Link>
+          )
         }
       >
         {documents.length === 0 ? (
@@ -57,14 +74,44 @@ export function DocumentsTab() {
                     <span className="truncate text-sm font-semibold text-heading">
                       {d.fileName}
                     </span>
-                    <span className="text-xs text-muted">Uploaded {dayText(d.uploadedAt)}</span>
+                    <span className="text-xs text-muted">
+                      {d.addedBy ? `Added by ${d.addedBy.name}` : 'From the lead'},{' '}
+                      {dayText(d.uploadedAt)}
+                    </span>
                   </span>
                 </span>
-                <Badge tone={scanTone(d.scanStatus)}>{words(d.scanStatus)}</Badge>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Badge tone={scanTone(d.scanStatus)}>{words(d.scanStatus)}</Badge>
+                  {d.scanStatus === 'CLEAN' ? (
+                    <Button
+                      variant="ghost"
+                      aria-label={`Download ${d.fileName}`}
+                      disabled={download.isPending}
+                      onClick={() => download.mutate(d.id)}
+                    >
+                      Download
+                    </Button>
+                  ) : null}
+                  {d.addedBy && !converted ? (
+                    <Button
+                      variant="ghost"
+                      aria-label={`Remove ${d.fileName}`}
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate(d.id)}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ul>
         )}
+        {download.isError || remove.isError ? (
+          <p role="alert" className="mt-2 text-sm text-danger">
+            {errorMessage(download.error ?? remove.error)}
+          </p>
+        ) : null}
       </CardFrame>
       <CardFrame
         icon={FileText}
