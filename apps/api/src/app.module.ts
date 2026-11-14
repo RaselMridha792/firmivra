@@ -79,6 +79,7 @@ import { DocumentsModule } from './storage/documents.controller.js';
 import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
 import { ScanRouterModule } from './storage/scan-queue/scan-router.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
+import { IntakeLinkModule } from './intake-link/intake-link.controller.js';
 import { DashboardModule } from './dashboard/dashboard.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
@@ -198,6 +199,7 @@ export class AppModule {
         ClientSignUpsModule,
         BusinessModule,
         BeginOnlineModule,
+        IntakeLinkModule,
         AutomationsModule,
         ComplianceModule,
         TemplatesModule,
