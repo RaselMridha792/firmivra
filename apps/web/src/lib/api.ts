@@ -98,6 +98,7 @@ import {
   createTeamClient,
   createPortalInvitationClient,
   createPortalInvitationsClient,
+  createClientPortalClient,
   createUsersClient,
   createWorkspacesClient,
 } from '@firmivra/types';
@@ -188,6 +189,7 @@ import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
+import { createClientPortalMock } from '../mocks/client-portal';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
@@ -319,6 +321,9 @@ export const api = {
     dev && mocked('portalInvitations')
       ? createPortalInvitationsMock()
       : createPortalInvitationsClient(request),
+  /** The firm workspace's Client Portal module: one client's portal, switched (R60). */
+  clientPortal:
+    dev && mocked('clientPortal') ? createClientPortalMock() : createClientPortalClient(request),
   /** The firm's one tag list for Leads and Clients (L5, L6). */
   tags: dev && mocked('tags') ? createTagsMock({ role: MOCK_ROLE }) : createTagsClient(request),
   engagements:
