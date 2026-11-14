@@ -7,6 +7,7 @@ import {
   LeadActionType,
   LeadActivityKind,
   LeadContactKind,
+  LeadStepMode,
   LeadPriority,
   LeadSource,
   LeadStatus,
@@ -526,7 +527,22 @@ export const LeadFollowUp = z.object({
   notes: z.string().nullable(),
   doneAt: DateTime.nullable(),
   outcome: z.string().nullable(),
+  /** R2 19: a step a sequence made: its sequence, owner and REMINDER or OUTREACH (never sent). */
+  sequence: z.string().nullable().optional(),
+  assignedTo: MemberRef.nullable().optional(),
+  mode: LeadStepMode.nullable().optional(),
 });
+
+/** R2 19: a sequence applied to a lead (the profile's `sequences`). */
+export const LeadSequenceRun = z.object({
+  id: z.uuid(),
+  templateId: z.uuid(),
+  name: z.string(),
+  appliedAt: DateTime,
+  stoppedAt: DateTime.nullable(),
+  stopReason: z.string().nullable(),
+});
+export type LeadSequenceRun = z.infer<typeof LeadSequenceRun>;
 export type LeadFollowUp = z.infer<typeof LeadFollowUp>;
 
 /** GET /business/leads/{id}/profile: the Lead Profile header and Overview tab in one call. */
@@ -560,6 +576,8 @@ export const LeadProfile = LeadRow.extend({
   mergedInto: LeadRef.nullable().optional(),
   /** L8: every follow-up step, unfinished first by date, then the finished ones, newest first. */
   followUps: z.array(LeadFollowUp),
+  /** R2 19: the sequences applied to the lead, newest first. */
+  sequences: z.array(LeadSequenceRun).optional(),
   archivedAt: DateTime.nullable(),
   version: z.string(),
 });

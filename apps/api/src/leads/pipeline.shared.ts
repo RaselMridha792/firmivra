@@ -286,6 +286,10 @@ export async function followUpsOf(
       note: true,
       doneAt: true,
       outcome: true,
+      // R2 19: a step a sequence made.
+      mode: true,
+      assignee: { select: { userId: true, user: { select: { name: true } } } },
+      sequenceRun: { select: { template: { select: { name: true } } } },
     },
   });
   const view = (r: (typeof rows)[number]): LeadFollowUp => ({
@@ -295,6 +299,9 @@ export async function followUpsOf(
     notes: r.note,
     doneAt: r.doneAt?.toISOString() ?? null,
     outcome: r.outcome,
+    sequence: r.sequenceRun?.template.name ?? null,
+    assignedTo: r.assignee ? { userId: r.assignee.userId, name: r.assignee.user.name } : null,
+    mode: r.mode,
   });
   const open = rows.filter((r) => !r.doneAt).map(view);
   const done = rows
@@ -418,6 +425,29 @@ export async function loadProfile(
     },
     // L8: the steps; a next action set before steps existed shows as the first one.
     followUps: await followUpsOrLegacy(tx, businessId, id, r),
+    // R2 19: the sequences applied, newest first.
+    sequences: (
+      await tx.leadSequenceRun.findMany({
+        where: { businessId, leadId: id },
+        orderBy: [{ appliedAt: 'desc' }, { id: 'desc' }],
+        take: 20,
+        select: {
+          id: true,
+          templateId: true,
+          appliedAt: true,
+          stoppedAt: true,
+          stopReason: true,
+          template: { select: { name: true } },
+        },
+      })
+    ).map((run) => ({
+      id: run.id,
+      templateId: run.templateId,
+      name: run.template.name,
+      appliedAt: run.appliedAt.toISOString(),
+      stoppedAt: run.stoppedAt?.toISOString() ?? null,
+      stopReason: run.stopReason,
+    })),
     archivedAt: r.archivedAt?.toISOString() ?? null,
     version: r.updatedAt.toISOString(),
   };
