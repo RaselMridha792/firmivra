@@ -9,7 +9,7 @@ import { api } from '../../../../../../lib/api';
 import { formatPhone } from '../../../clients/_components/client-parts';
 
 /** The typed text once it has been still for a moment (one request per pause). */
-function useSettled(text: string, ms = 250) {
+export function useSettled(text: string, ms = 250) {
   const [settled, setSettled] = useState(text);
   useEffect(() => {
     const timer = setTimeout(() => setSettled(text), ms);

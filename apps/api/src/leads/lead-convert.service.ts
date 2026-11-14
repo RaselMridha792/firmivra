@@ -28,7 +28,7 @@ import { NotifyDeliveryError } from '../notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { storageUnavailable } from '../storage/document-records.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
-import { conflict, handled, LeadsService, notFound, OPEN, REVIEWED } from './leads.service.js';
+import { conflict, handled, LeadsService, notFound, OPEN } from './leads.service.js';
 import { legacyFirmRole } from '../common/request-context.js';
 import {
   invalid,
@@ -371,13 +371,21 @@ export class LeadConvertService {
       }
       const carried = {
         notes: 0,
-        // Appointments, tasks and a client-side communications history have nowhere to go yet.
+        // Appointments and a client-side communications history have nowhere to go yet.
         communications: 0,
         appointments: 0,
         tasks: 0,
         documents: 0,
         intakeForms: 0,
       };
+      if (carry.tasks) {
+        // Leads R2 2: the lead's tasks become the client's (a task is a client's or a lead's).
+        const moved = await tx.task.updateMany({
+          where: { businessId, leadId: id, status: { in: ['OPEN', 'DONE'] } },
+          data: { clientId, leadId: null },
+        });
+        carried.tasks = moved.count;
+      }
       if (carry.notes) {
         const notes = await tx.leadActivity.findMany({
           where: { businessId, leadId: id, kind: 'NOTE' },
@@ -530,7 +538,8 @@ export class LeadConvertService {
   /** A 5-minute link to one CLEAN upload of a lead the firm sees. */
   async downloadUpload(businessId: string, id: string, uploadId: string): Promise<DownloadLink> {
     const file = await this.database.forBusiness(businessId).leadUpload.findFirst({
-      where: { businessId, id: uploadId, lead: { id, status: { in: REVIEWED } } },
+      // Any lead the firm sees (Leads R2 4: files on a Contacted or Qualified lead too), never a draft.
+      where: { businessId, id: uploadId, lead: { id, status: { notIn: ['DRAFT', 'EXPIRED'] } } },
       select: {
         id: true,
         s3Key: true,
@@ -641,7 +650,11 @@ export class LeadConvertService {
     return client.id;
   }
 
-  /** Each upload becomes a document of the new engagement with the same S3 key and scan result. */
+  /**
+   * Each upload becomes a document of the new engagement with the same S3 key and scan result: the
+   * lead's own (Begin Online) file as the client's (CLIENT_TO_FIRM, in its intake slot), a file
+   * staff added (Leads R2 4) firm-only (INTERNAL), to be shared on purpose (documents_rules).
+   */
   private async carryUploads(
     tx: TxClient,
     businessId: string,
@@ -660,18 +673,20 @@ export class LeadConvertService {
         s3Key: true,
         scanStatus: true,
         scannedAt: true,
+        uploadedByUserId: true,
       },
     });
     for (const u of uploads) {
+      const staff = u.uploadedByUserId !== null;
       await tx.document.create({
         data: {
           businessId,
           clientId: to.clientId,
           engagementId: to.engagementId,
           leadUploadId: u.id,
-          intakeId: to.intakeId,
-          intakeSlot: to.intakeId ? u.slot : null,
-          direction: 'CLIENT_TO_FIRM',
+          intakeId: staff ? null : to.intakeId,
+          intakeSlot: !staff && to.intakeId ? u.slot : null,
+          direction: staff ? 'INTERNAL' : 'CLIENT_TO_FIRM',
           fileName: u.fileName,
           contentType: u.contentType,
           sizeBytes: u.sizeBytes,

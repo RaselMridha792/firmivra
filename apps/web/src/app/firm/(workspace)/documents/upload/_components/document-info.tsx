@@ -10,7 +10,7 @@ import type { SharedInfo, UploadFor } from './upload-state';
 
 const DESTINATIONS: { id: UploadFor; title: string; hint: string; available: boolean }[] = [
   { id: 'CLIENT', title: 'Client', hint: 'Assign to a client record', available: true },
-  { id: 'LEAD', title: 'Lead', hint: 'Assign to a lead record', available: false },
+  { id: 'LEAD', title: 'Lead', hint: 'Assign to a lead record', available: true },
   { id: 'FIRM', title: 'Firm', hint: 'Internal use only', available: false },
 ];
 const MAX_TAGS = 20;
@@ -41,9 +41,58 @@ function InfoTip({ text }: { text: string }) {
 }
 
 /**
+ * Frame 1's "Upload For": a client (this form) or a lead (Leads R2 4: lead-upload.tsx). Firm has
+ * no upload route yet, so it shows but cannot be chosen.
+ */
+export function UploadForPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: UploadFor;
+  onChange: (next: UploadFor) => void;
+  disabled: boolean;
+}) {
+  const id = useId();
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-2 text-sm font-semibold text-heading">
+        Upload For<span className="text-danger"> *</span>
+      </legend>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {DESTINATIONS.map((option) => {
+          const chosen = value === option.id;
+          return (
+            <label
+              key={option.id}
+              title={option.available ? undefined : 'Not available for uploads yet'}
+              className={`flex items-start gap-3 rounded-lg border p-3 ${chosen ? 'border-action bg-info-soft' : 'border-border bg-surface'} ${option.available && !disabled ? 'cursor-pointer hover:border-control-border' : 'cursor-not-allowed opacity-60'}`}
+            >
+              <input
+                type="radio"
+                name={`${id}-for`}
+                value={option.id}
+                checked={chosen}
+                disabled={!option.available || disabled}
+                onChange={() => onChange(option.id)}
+                className="mt-1 size-5 shrink-0"
+              />
+              <span>
+                <span className="block font-semibold text-heading">{option.title}</span>
+                <span className="block text-sm text-text">{option.hint}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+/**
  * Frame 1's Document Information: who the files are for, their type, folder, name, description,
- * portal visibility, the client notice and tags. Only a client destination has an upload route
- * today, so Lead and Firm show but cannot be chosen (R56 Needs).
+ * portal visibility, the client notice and tags. Choosing Lead switches the page to the lead's
+ * upload (lead-upload.tsx).
  */
 export function DocumentInfo({
   info,
@@ -80,38 +129,11 @@ export function DocumentInfo({
         Document Information
       </h2>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-2 text-sm font-semibold text-heading">
-          Upload For<span className="text-danger"> *</span>
-        </legend>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {DESTINATIONS.map((option) => {
-            const chosen = info.uploadFor === option.id;
-            return (
-              <label
-                key={option.id}
-                title={option.available ? undefined : 'Not available for uploads yet'}
-                className={`flex items-start gap-3 rounded-lg border p-3 ${chosen ? 'border-action bg-info-soft' : 'border-border bg-surface'} ${option.available && !disabled ? 'cursor-pointer hover:border-control-border' : 'cursor-not-allowed opacity-60'}`}
-              >
-                <input
-                  type="radio"
-                  name={`${id}-for`}
-                  value={option.id}
-                  checked={chosen}
-                  disabled={!option.available || disabled}
-                  onChange={() => onChange({ uploadFor: option.id })}
-                  className="mt-1 size-5 shrink-0"
-                />
-                <span>
-                  <span className="block font-semibold text-heading">{option.title}</span>
-                  <span className="block text-sm text-text">{option.hint}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-        <p className="text-xs text-muted">Uploads go to a client record for now.</p>
-      </fieldset>
+      <UploadForPicker
+        value={info.uploadFor}
+        onChange={(uploadFor) => onChange({ uploadFor })}
+        disabled={disabled}
+      />
 
       <ClientPicker
         value={info.client}

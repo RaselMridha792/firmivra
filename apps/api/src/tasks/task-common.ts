@@ -36,11 +36,13 @@ import { minutesOf, timeOfDayFromDb, timeOfDayToDb } from '../appointments/calen
 // ---------- Live tasks and drafts ----------
 
 /**
- * Every task but a draft (Save as Draft, R1 Oct 24). A draft is not live yet: only the Drafts
- * routes (task-drafts.service.ts) read it, so every other read of tasks merges this in, unless
- * its filter already pins a status that is not DRAFT.
+ * Every task but a draft (Save as Draft, R1 Oct 24) and a lead's task. A draft is not live yet:
+ * only the Drafts routes (task-drafts.service.ts) read it, so every other read of tasks merges
+ * this in, unless its filter already pins a status that is not DRAFT (and then adds `leadId:
+ * null`). A lead's task (Leads R2 2, tasks.lead_id) has no client: it shows on its lead only
+ * (leads/pipeline.shared.ts leadTasksOf), never in these lists.
  */
-export const LIVE_TASK: Prisma.TaskWhereInput = { status: { not: 'DRAFT' } };
+export const LIVE_TASK: Prisma.TaskWhereInput = { status: { not: 'DRAFT' }, leadId: null };
 
 /** A live task's status as the contract has it: never DRAFT (see LIVE_TASK). */
 export function liveStatus(status: StoredTaskStatus): TaskStatus {
@@ -49,8 +51,8 @@ export function liveStatus(status: StoredTaskStatus): TaskStatus {
 }
 
 /**
- * A live task's client, or its id: only a draft may have none (tasks_client_unless_draft), and
- * every read but the Drafts routes' leaves drafts out (LIVE_TASK).
+ * A live task's client, or its id: only a draft or a lead's task may have none
+ * (tasks_client_unless_draft), and every read but the Drafts routes' leaves both out (LIVE_TASK).
  */
 export function liveClient<T>(client: T | null): T {
   if (client === null) throw new Error('A live task has a client');
