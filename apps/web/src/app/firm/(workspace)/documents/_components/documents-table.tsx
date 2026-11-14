@@ -90,6 +90,7 @@ export function DocumentsTable({
               href={`/documents/${row.id}`}
               className="block truncate font-semibold text-heading hover:text-action hover:underline"
               data-testid="document-name"
+              title={row.fileName}
             >
               {row.fileName}
             </Link>
@@ -203,6 +204,7 @@ export function DocumentsTable({
                 <Link
                   href={`/documents/${row.id}`}
                   className="block truncate font-semibold text-heading hover:underline"
+                  title={row.fileName}
                 >
                   {row.fileName}
                 </Link>

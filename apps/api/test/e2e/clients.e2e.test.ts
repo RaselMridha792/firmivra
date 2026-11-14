@@ -498,10 +498,16 @@ describe("E5: a Business's responsible party", () => {
       { responsibleParty: { ...party, email: 'not-an-email' } },
       { responsibleParty: { ...party, phone: '12' } },
       { responsibleParty: { ...party, name: '' } },
+      // Clients Review 2: a US address's ZIP is 5 digits or ZIP+4, on the API too.
+      { address: { postalCode: 'abc' } },
+      { address: { postalCode: '3030' } },
     ]) {
       const bad = await put(c.id, body);
       expect([bad.status, codeOf(bad)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
     }
+    // ZIP+4 and a leading zero are kept as typed.
+    const zip = await put(c.id, { address: { postalCode: '02134-0001' } });
+    expect(Profile.parse(zip.body).address.postalCode).toBe('02134-0001');
     // Other profile changes leave it as it is.
     const other = await put(c.id, { entityType: 'LLC' });
     expect(Profile.parse(other.body).responsibleParty).toEqual(party);

@@ -159,11 +159,14 @@ const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length :
 export function ComposeScreen({
   initialId,
   initialClientId,
+  initialClientIds,
   initialSubject,
   initialRelated,
 }: {
   initialId?: string;
   initialClientId?: string;
+  /** Clients Review 2 (G7): the Clients list's selected clients. */
+  initialClientIds?: string[];
   initialSubject?: string;
   /** MSG-F21: `type:id`, one of the preset client's records (an appointment's Send Message). */
   initialRelated?: string;
@@ -183,9 +186,13 @@ export function ComposeScreen({
   const opened = useApiQuery([...KEY, 'open', initialId], async () =>
     initialId ? api.messages.outbound.get(initialId) : null,
   );
-  const preset = useApiQuery([...KEY, 'preset', initialClientId], async () =>
-    initialClientId && !initialId ? api.clients.get(initialClientId) : null,
-  );
+  const presetIds = initialClientIds ?? (initialClientId ? [initialClientId] : []);
+  const preset = useApiQuery([...KEY, 'preset', ...presetIds], async () => {
+    if (!presetIds.length || initialId) return null;
+    // A client that can't be opened (archived since, or not this member's) is left out.
+    const found = await Promise.allSettled(presetIds.map((id) => api.clients.get(id)));
+    return found.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+  });
   const [seeded, setSeeded] = useState(false);
   if (!seeded && opened.data && options.data) {
     setSeeded(true);
@@ -196,8 +203,8 @@ export function ComposeScreen({
     setSeeded(true);
     setForm((f) => ({
       ...f,
-      clients: new Map([[preset.data!.id, preset.data!.displayName]]),
-      related: initialRelated ?? f.related,
+      clients: new Map(preset.data!.map((c) => [c.id, c.displayName])),
+      related: presetIds.length === 1 ? (initialRelated ?? f.related) : f.related,
     }));
   }
   useEffect(() => {
@@ -206,6 +213,7 @@ export function ComposeScreen({
       const params = new URLSearchParams(window.location.search);
       params.set('id', saved!.id);
       params.delete('clientId');
+      params.delete('clientIds');
       params.delete('subject');
       params.delete('related');
       window.history.replaceState(null, '', `/messages/new?${params.toString()}`);
