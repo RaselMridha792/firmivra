@@ -244,6 +244,10 @@ function appointment(
         ],
       },
       ...(instructions ? [text(`Instructions: ${instructions}`)] : []),
+      // Review 2 (row 8): asked until the client confirms it.
+      ...(field(data, 'confirmAsk') === true
+        ? [text('Please confirm this appointment in your client portal.')]
+        : []),
       button('View appointment', link(data, 'link', o)),
     ],
   };

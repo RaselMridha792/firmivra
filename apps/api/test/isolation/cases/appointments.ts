@@ -230,6 +230,8 @@ export const cases: CaseModule['cases'] = {
     expect: 409,
   },
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/cancel': { params: { id: 'appointment' } },
+  // Review 2 (row 8): the client confirms an appointment the firm booked.
+  'POST /api/v1/portal/:firmSlug/me/appointments/:id/confirm': { params: { id: 'appointment' } },
   // Found, but the staff member has no working hours, so no slot is free.
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/reschedule': {
     params: { id: 'appointment' },
