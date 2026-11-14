@@ -1,6 +1,10 @@
 'use client';
 
-import type { IntakeFormKey } from '@firmivra/types';
+import {
+  INTAKE_EDITABLE_STATUSES,
+  INTAKE_STATUS_LABELS,
+  type IntakeFormKey,
+} from '@firmivra/types';
 import { Card, IconCircle, type PortalTint } from '@firmivra/ui';
 import {
   ArrowRight,
@@ -21,6 +25,8 @@ import {
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ButtonLink } from '../../../../(public)/_components/button-link';
+import { api } from '../../../../../../../lib/api';
+import { useApiQuery } from '../../../../../../../lib/query';
 import { FORMS } from './forms';
 
 /** Each card's icon and circle colour, measured from Intake form tab.png (R61). */
@@ -61,6 +67,7 @@ export function IntakeCards() {
   const { firmSlug: slug } = useParams<{ firmSlug: string }>();
   return (
     <div className="grid min-w-0 gap-4">
+      <SentForms slug={slug} />
       <Card className="grid min-w-0 gap-4 bg-folder-surface!">
         <header className="flex flex-col gap-4 md:flex-row md:items-start">
           <IconCircle icon={FileText} tint="blue" size="lg" />
@@ -102,6 +109,51 @@ export function IntakeCards() {
       </Card>
       <IntakeOverview slug={slug} />
     </div>
+  );
+}
+
+const dueDay = (iso: string) =>
+  new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+/**
+ * The forms the firm sent this client (Intake Forms Review Two, ACCESS-01), each opening that
+ * exact form: open ones first, then the sent ones. Nothing shows until the firm sends one.
+ */
+function SentForms({ slug }: { slug: string }) {
+  const list = useApiQuery(['portal', slug, 'intakes', 'list'], () => api.myIntakes(slug).list());
+  const items = list.data ?? [];
+  if (!items.length) return null;
+  return (
+    <Card className="grid min-w-0 gap-3" data-testid="sent-intakes">
+      <h2 className="font-display text-2xl font-bold text-heading">Forms from your firm</h2>
+      <ul className="grid gap-2">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="flex flex-wrap items-center gap-3 rounded-card border border-folder-border bg-surface p-3"
+          >
+            <FileText aria-hidden className="size-5 shrink-0 text-firm-text" />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold text-heading">{item.title}</span>
+              <span className="block text-sm text-muted">
+                {item.service.title} · {INTAKE_STATUS_LABELS[item.status]}
+                {item.dueOn ? ` · Due ${dueDay(item.dueOn)}` : ''}
+              </span>
+            </span>
+            <ButtonLink href={`/${slug}/intake/${item.id}`} className={primaryButton}>
+              {(INTAKE_EDITABLE_STATUSES as readonly string[]).includes(item.status)
+                ? 'Open form'
+                : 'View'}
+              <ArrowRight aria-hidden className="size-4" />
+            </ButtonLink>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
