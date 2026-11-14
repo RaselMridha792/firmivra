@@ -1466,6 +1466,92 @@ async function main() {
       data: { status: 'SUBMITTED', submittedAt: signedAt },
     });
 
+    // Leads R2 15, 17, 19 (r55_leads_additions): a second lead the firm marked "not a duplicate"
+    // of Lena, a routing rule (routing off), and a follow-up sequence applied to Lena.
+    await tx.lead.upsert({
+      where: { id: SEED_INTAKE_IDS.leadTwin },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadTwin,
+        serviceId: service('Bookkeeping'),
+        status: 'CONTACTED',
+        submittedAt: new Date('2026-10-20T15:00:00Z'),
+        source: 'REFERRAL',
+        firstName: 'Lena',
+        lastName: 'Lead Twin (fake)',
+        email: 'lena.twin@begin.test',
+        phone: '+15555550123',
+      },
+    });
+    await tx.leadDuplicateDismissal.upsert({
+      where: { id: SEED_INTAKE_IDS.leadDismissal },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadDismissal,
+        leadId: SEED_INTAKE_IDS.lead,
+        otherLeadId: SEED_INTAKE_IDS.leadTwin,
+        dismissedByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    await tx.leadAssignmentRule.upsert({
+      where: { id: SEED_INTAKE_IDS.leadRule },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadRule,
+        name: 'Referrals to Sam',
+        position: 0,
+        sources: ['REFERRAL'],
+        assigneeUserId: SEED_USERS.lvpStaff.id,
+        createdByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    await tx.leadRoutingSettings.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: { ...lvp, enabled: false, updatedByUserId: SEED_USERS.lvpOwner.id },
+    });
+    await tx.leadSequenceTemplate.upsert({
+      where: { id: SEED_INTAKE_IDS.leadSequence },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadSequence,
+        name: 'New lead welcome',
+        description: 'Call the same day, then a welcome email two days later.',
+        createdByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    for (const step of [
+      { id: SEED_INTAKE_IDS.leadSequenceCall, position: 0, offsetDays: 0, actionType: 'CALL' },
+      {
+        id: SEED_INTAKE_IDS.leadSequenceEmail,
+        position: 1,
+        offsetDays: 2,
+        actionType: 'EMAIL',
+        mode: 'OUTREACH',
+      },
+    ] as const) {
+      await tx.leadSequenceStep.upsert({
+        where: { id: step.id },
+        update: {},
+        create: { ...lvp, templateId: SEED_INTAKE_IDS.leadSequence, ...step },
+      });
+    }
+    await tx.leadSequenceRun.upsert({
+      where: { id: SEED_INTAKE_IDS.leadSequenceRun },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadSequenceRun,
+        leadId: SEED_INTAKE_IDS.lead,
+        templateId: SEED_INTAKE_IDS.leadSequence,
+        appliedByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+
     // Notifications: the client is asked for a W-2 (email sent, SMS skipped); staff hear about
     // the Begin Online lead (email queued). Payloads hold only safe values.
     const notify = async (
