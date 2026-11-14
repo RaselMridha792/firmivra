@@ -98,6 +98,7 @@ export const detailSelect = {
   importedAt: true,
   filedOn: true,
   firstFiledAt: true,
+  filedTaxYear: true,
   createdAt: true,
   // A business return's own copy of the business (#1176); the sealed EIN is never read here.
   businessName: true,
@@ -235,6 +236,7 @@ export function toDetail(
     importedAt: r.importedAt?.toISOString() ?? null,
     filedOn: day(r.filedOn),
     firstFiledAt: r.firstFiledAt?.toISOString() ?? null,
+    filedTaxYear: r.filedTaxYear,
     document: r.document,
     canMoveTo: canMoveTo(r.workflowStatus),
     blockers: blockersOf(r),

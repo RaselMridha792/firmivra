@@ -18,6 +18,7 @@ test('Change Status to Rejected records the rejection of the waiting transmissio
     .selectOption('TRANSMITTED');
   const first = page.getByRole('row').nth(1);
   await expect(first).toContainText('Transmitted');
+  const href = await first.getByTestId('return-link').getAttribute('href');
   await first.getByRole('button', { name: /^Actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Change Status' }).click();
   await page.getByTestId('status-dialog').getByLabel('New status').selectOption('REJECTED');
@@ -38,6 +39,19 @@ test('Change Status to Rejected records the rejection of the waiting transmissio
   await record.click();
   await expect(page.getByText('Rejection recorded. Moved to Rejected.')).toBeVisible();
   await expect(dialog).toHaveCount(0);
+
+  // Review 2 (TX-F24): the rejection made its corrective task, shown on the E-File tab (opened
+  // in the app: the mock keeps it until a full reload).
+  await page
+    .getByTestId('tr-filters')
+    .getByLabel('Status', { exact: true })
+    .selectOption('REJECTED');
+  await page.locator(`a[href="${href}"]`).first().click();
+  await page.getByRole('tab', { name: 'E-File' }).click({ timeout: 60_000 });
+  await expect(page.getByTestId('corrective-task').first()).toContainText(
+    'Correct the IRS rejection IND-031-04',
+    { timeout: 60_000 },
+  );
 });
 
 test('a return with no transmission cannot be moved to Rejected', async ({ page }) => {
@@ -62,4 +76,22 @@ test('a return with no transmission cannot be moved to Rejected', async ({ page 
   await expect(
     page.getByRole('dialog').getByRole('button', { name: 'Move to Rejected' }),
   ).toBeDisabled();
+});
+
+test('Review 2 (TX-F16): Correct Tax Year needs a reason and never lands on another return', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-returns'));
+  const first = page.getByRole('row').nth(1);
+  await first.getByRole('button', { name: /^Actions for/ }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Correct Tax Year' }).click();
+  const dialog = page.getByTestId('correct-year-dialog');
+  const modal = page.getByRole('dialog');
+  const confirm = modal.getByRole('button', { name: 'Correct Year' });
+  await dialog.getByLabel('Correct tax year *').fill('2012');
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel('Reason *').fill('Entered under the wrong year (fake).');
+  await confirm.click();
+  await expect(page.getByText('Tax year corrected to 2012.')).toBeVisible();
+  await expect(page.getByRole('row').nth(1)).toContainText('2012');
 });

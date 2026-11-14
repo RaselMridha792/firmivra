@@ -244,6 +244,11 @@ export const TaxReturnDetail = TaxReturnRow.extend({
   importedAt: DateTime.nullable(),
   filedOn: CalendarDate.nullable(),
   firstFiledAt: DateTime.nullable(),
+  /**
+   * Review 2 (TX-F16): the tax year it was first filed under (the database stamps it at the first
+   * filing and never changes it); differs from `taxYear` after a Correct Tax Year.
+   */
+  filedTaxYear: z.number().int().nullable(),
   /** The filed return's PDF (R10). */
   document: DocumentRef.nullable(),
   /** The workflow statuses it can move to now (the stepper's buttons). */
@@ -424,9 +429,30 @@ export const TaxFilingAttempt = z.object({
   rejectingAgency: z.string().nullable(),
   correctiveAction: z.string().nullable(),
   recordedBy: MemberRef.nullable(),
+  /** Review 2 (TX-F24): the corrective task made when the rejection was recorded, and its owner. */
+  correctiveTask: z
+    .object({
+      id: z.uuid(),
+      title: z.string(),
+      status: z.string(),
+      owner: MemberRef.nullable(),
+    })
+    .nullable(),
   createdAt: DateTime,
 });
 export type TaxFilingAttempt = z.infer<typeof TaxFilingAttempt>;
+
+/**
+ * POST /business/tax-returns/{id}/tax-year (Review 2, TX-F16): Correct Tax Year, with the reason.
+ * 409 DUPLICATE_RETURN when the client has this return for that year (named, never overwritten);
+ * 400 for the same year. A filed return: only its reviewer, or an Owner or Admin with APPROVE
+ * (403 otherwise); its filed records keep `filedTaxYear`.
+ */
+export const CorrectTaxYearRequest = z.strictObject({
+  taxYear: TaxYear,
+  reason: text(500, 'many', 'Say why the year is corrected'),
+});
+export type CorrectTaxYearRequest = z.input<typeof CorrectTaxYearRequest>;
 
 /** One jurisdiction's filing (federal "US" or a state), with its transmissions, newest first. */
 export const TaxReturnFiling = z.object({

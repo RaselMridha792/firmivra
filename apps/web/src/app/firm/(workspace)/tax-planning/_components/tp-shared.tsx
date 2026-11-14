@@ -9,10 +9,14 @@ export const PLAN_STATUS: Record<string, string> = {
   DRAFT: 'Draft',
   SCHEDULED: 'Scheduled',
   IN_PROGRESS: 'In Progress',
+  // Review 2 workflow: internal review by a chosen reviewer.
+  UNDER_REVIEW: 'Under Review',
   // C09 (Review 2): a plan sent for the client's review.
   AWAITING_CLIENT: 'Awaiting Client Review',
   READY_FOR_REVIEW: 'Needs Review',
   FINALIZED: 'Finalized',
+  // Review 2 workflow: the client's approval of an exact version, recorded.
+  CLIENT_APPROVED: 'Client Approved',
   IMPLEMENTED: 'Implemented',
   CLOSED: 'Closed',
 };
@@ -20,9 +24,11 @@ const PLAN_TONE: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'neu
   DRAFT: 'neutral',
   SCHEDULED: 'info',
   IN_PROGRESS: 'success',
+  UNDER_REVIEW: 'info',
   AWAITING_CLIENT: 'warning',
   READY_FOR_REVIEW: 'warning',
   FINALIZED: 'info',
+  CLIENT_APPROVED: 'success',
   IMPLEMENTED: 'success',
   CLOSED: 'neutral',
 };

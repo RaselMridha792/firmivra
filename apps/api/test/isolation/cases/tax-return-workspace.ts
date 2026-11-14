@@ -64,6 +64,11 @@ export const cases: CaseModule['cases'] = {
     },
     body: { preparerUserId: PLACEHOLDER, reviewerUserId: PLACEHOLDER, engagementId: PLACEHOLDER },
   },
+  // Review 2 (TX-F16): Correct Tax Year (the fixture's year is free to move to 2010).
+  'POST /api/v1/business/tax-returns/:id/tax-year': {
+    params: ret,
+    body: { taxYear: 2010, reason: 'Fake: corrected' },
+  },
   'POST /api/v1/business/tax-returns/:id/status': {
     params: ret,
     body: { workflowStatus: 'WAITING_ON_CLIENT' },
