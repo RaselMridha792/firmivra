@@ -21,6 +21,7 @@ import {
   TaxReturnExportLink,
   TaxAmountHistory,
   TaxReturnFilingList,
+  TaxReturnHistoryList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -981,6 +982,16 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
       TaxReturnDetail,
     );
     expect(review.workflowStatus).toBe('READY_FOR_REVIEW');
+    // Review 2 audit note: a move without a reason never repeats the one before it.
+    expect(review.statusReason).toBeNull();
+    const history = ok(
+      await call('get', `/tax-returns/${id}/history`, staffA),
+      TaxReturnHistoryList,
+    );
+    expect(history.items.slice(0, 2).map((h) => [h.workflowStatus, h.reason])).toEqual([
+      ['READY_FOR_REVIEW', null],
+      ['IN_CORRECTION', 'Fake: the prior-year AGI'],
+    ]);
   });
 
   it('records an extension (the event only) after the due date, never on a filed return', async () => {
