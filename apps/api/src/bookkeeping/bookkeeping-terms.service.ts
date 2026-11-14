@@ -26,6 +26,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import {
+  addActivity,
   type BookkeepingActor,
   findProfile,
   isManager,
@@ -134,6 +135,24 @@ function decode(cursor?: string): { at: Date; id: string } | undefined {
  * are no longer a draft and supersedes the version before on activation; the API adds one open
  * draft per client and the History events. Audit rows hold ids, field names and statuses only.
  */
+/** Review 2 (A01): a Terms event in the Activity feed's words. */
+const TERMS_EVENT_TEXT: Record<BookkeepingTermsEventKind, string> = {
+  CREATED: 'created as a draft',
+  SENT: 'sent to the client',
+  SIGNED: 'signed',
+  ACTIVATED: 'activated',
+  SUPERSEDED: 'replaced by a newer version',
+  PACKAGE_CHANGED: 'package changed',
+  PRICING_CHANGED: 'pricing changed',
+  SCOPE_CHANGED: 'scope changed',
+  RENEWAL_CHANGED: 'renewal changed',
+  PRICE_CHANGE_NOTICE: 'price change notice recorded',
+  TERMINATION_NOTICE: 'termination notice recorded',
+  TERMINATED: 'terminated',
+  RENEWED: 'renewed',
+  NOTE: 'note added',
+};
+
 @Injectable()
 export class BookkeepingTermsService {
   constructor(
@@ -278,7 +297,7 @@ export class BookkeepingTermsService {
     );
   }
 
-  private event(
+  private async event(
     tx: TxClient,
     businessId: string,
     actor: BookkeepingActor,
@@ -291,6 +310,22 @@ export class BookkeepingTermsService {
       details?: Record<string, unknown>;
     } = {},
   ) {
+    // Review 2 (E01a, A01): a Terms change shows in the client's bookkeeping Activity too.
+    const terms = await tx.bookkeepingTerms.findFirst({
+      where: { businessId, id: termsId },
+      select: { engagementId: true, version: true },
+    });
+    if (terms) {
+      await addActivity(
+        tx,
+        businessId,
+        terms.engagementId,
+        actor.userId,
+        'OTHER',
+        `Terms version ${terms.version}: ${TERMS_EVENT_TEXT[kind]}`,
+        { termsId },
+      );
+    }
     return tx.bookkeepingTermsEvent.create({
       data: {
         businessId,

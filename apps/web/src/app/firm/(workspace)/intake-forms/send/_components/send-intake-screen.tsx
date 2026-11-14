@@ -20,7 +20,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { DeliveryPanel } from './delivery-panel';
 import { FormPanel } from './form-panel';
 import { MessagePanel } from './message-panel';
-import { RecipientPanel } from './recipient-panel';
+import { fromClient, RecipientPanel } from './recipient-panel';
 import { ReviewPanel } from './review-panel';
 import { ScheduleModal } from './schedule-modal';
 import {
@@ -124,10 +124,13 @@ const start = (formId: string): State => ({
 export function SendIntakeScreen({
   initialFormId,
   initialLeadId = '',
+  initialClientId = '',
 }: {
   initialFormId: string;
   /** Leads R2 3: opened from this lead's profile; it is the recipient, and Back returns to it. */
   initialLeadId?: string;
+  /** The Client Portal module's Request Form: this client is the recipient. */
+  initialClientId?: string;
 }) {
   const { me } = useMe();
   const { firm } = useFirm();
@@ -163,6 +166,16 @@ export function SendIntakeScreen({
       portal: false,
     };
     setState((s) => ({ ...s, recipient: lead, channel: usableChannel(lead, s.channel) }));
+  }
+  const fromClientRecord = useQuery({
+    queryKey: ['intake-forms', 'send', 'from-client', initialClientId],
+    queryFn: () => api.clients.get(initialClientId),
+    enabled: !!initialClientId && !initialLeadId,
+  });
+  if (!preset && fromClientRecord.data && !state.recipient) {
+    setPreset(true);
+    const client = fromClient(fromClientRecord.data);
+    setState((s) => ({ ...s, recipient: client, channel: usableChannel(client, s.channel) }));
   }
   const leadName = fromLead.data
     ? `${fromLead.data.firstName} ${fromLead.data.lastName}`.trim()

@@ -38,20 +38,33 @@ export const BookkeepingTransactionRow = z.object({
 export type BookkeepingTransactionRow = z.infer<typeof BookkeepingTransactionRow>;
 
 /** GET /business/bookkeeping/clients/{id}/transactions: newest first. */
-export const ListBookkeepingTransactionsQuery = z.strictObject({
-  /** Description or payee. */
-  search: SearchText.optional(),
-  status: BookkeepingTxnStatus.optional(),
-  kind: BookkeepingTxnKind.optional(),
-  direction: BookkeepingTxnDirection.optional(),
-  accountId: z.uuid().optional(),
-  categoryId: z.uuid().optional(),
-  /** Both ends included. */
-  from: CalendarDate.optional(),
-  to: CalendarDate.optional(),
-  page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
-});
+export const ListBookkeepingTransactionsQuery = z
+  .strictObject({
+    /** Description or payee. */
+    search: SearchText.optional(),
+    status: BookkeepingTxnStatus.optional(),
+    kind: BookkeepingTxnKind.optional(),
+    direction: BookkeepingTxnDirection.optional(),
+    accountId: z.uuid().optional(),
+    categoryId: z.uuid().optional(),
+    /** Both ends included. */
+    from: CalendarDate.optional(),
+    to: CalendarDate.optional(),
+    /** Review 2 (T01a): where a line came from: a sync, an import or entered by hand. */
+    source: z.enum(['SYNC', 'IMPORT', 'MANUAL']).optional(),
+    /** Review 2 (T01a): the amount, in cents, both ends included (the amount is never negative). */
+    amountMin: z.coerce.number().int().min(0).max(1_000_000_000_00).optional(),
+    amountMax: z.coerce.number().int().min(0).max(1_000_000_000_00).optional(),
+    page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+  })
+  .refine(
+    (q) => q.amountMin === undefined || q.amountMax === undefined || q.amountMin <= q.amountMax,
+    {
+      message: 'The smallest amount is more than the largest',
+      path: ['amountMax'],
+    },
+  );
 export type ListBookkeepingTransactionsQuery = z.input<typeof ListBookkeepingTransactionsQuery>;
 
 export const BookkeepingTransactionPage = z.object({

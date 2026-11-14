@@ -126,6 +126,20 @@ enum SignupOperationStatus {
 }
 
 /// R56's B15 (Oct 25): a business client's EIN status.
+/// Review 2 (N04): who may see a client note. CLIENT waits for Octavia's C02 decision.
+enum NoteVisibility {
+  INTERNAL
+  CLIENT
+}
+
+/// Review 2 (RP03): where a client's P&L comes from, chosen by staff; the two are never blended.
+enum BookkeepingPnlSource {
+  /// The connected accounting software (QuickBooks...).
+  ACCOUNTING_SOFTWARE
+  /// Made in Firmivra from what the client provides.
+  MANUAL
+}
+
 enum EinStatus {
   HAS_EIN
   NOT_APPLICABLE
@@ -521,6 +535,9 @@ enum BookkeepingReportType {
   MISSING_DOCUMENTS
   /// A report the firm names itself (customName).
   CUSTOM
+  /// Review 2 (RP01, R1's handoff Nov 14): the period's refunds, and its settlements and payouts.
+  REFUND
+  SETTLEMENT
 }
 
 /// The work and review of one report: not started, being prepared, in review, approved, delivered
@@ -551,8 +568,30 @@ enum TaxPlanStatus {
   IN_PROGRESS
   AWAITING_CLIENT
   READY_FOR_REVIEW
+  /// R1 (Nov 14, Review 2 C27): finalized, shown as such in every view.
+  FINALIZED
   IMPLEMENTED
   CLOSED
+}
+
+/// R1 (Nov 14, Review 2 C27, S1): what a tax_plan_events row records.
+enum TaxPlanEventKind {
+  STATUS
+  REOPEN
+  REVISE
+  FINALIZE
+  SEND
+  ARCHIVE
+  RESTORE
+}
+
+/// R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds).
+enum PlanningResourceKind {
+  PDF
+  CHECKLIST
+  GUIDE
+  VIDEO
+  ARTICLE
 }
 
 enum PlanningGoal {
@@ -1248,11 +1287,12 @@ model Membership {
   dashboardCardsCreated     DashboardCardTemplate[]      @relation("DashboardCardCreatedBy")
   dashboardCardsUpdated     DashboardCardTemplate[]      @relation("DashboardCardUpdatedBy")
 
-  clientTimelineEntries ClientTimelineEntry[]
-  leadFollowUps         LeadFollowUp[]
-  staffDraftAttachments StaffDraftAttachment[]
-  leadUploads           LeadUpload[]
-  mfaExceptionsApproved StaffSecurityDefaults[] @relation("StaffSecurityMfaExceptionApprovedBy")
+  clientTimelineEntries      ClientTimelineEntry[]
+  leadFollowUps              LeadFollowUp[]
+  bookkeepingOpeningBalances BookkeepingOpeningBalance[]
+  staffDraftAttachments      StaffDraftAttachment[]
+  leadUploads                LeadUpload[]
+  mfaExceptionsApproved      StaffSecurityDefaults[]     @relation("StaffSecurityMfaExceptionApprovedBy")
 
   dataDownloadGrants FirmDataDownloadGrant[]
 
@@ -3078,6 +3118,8 @@ model Client {
 
   timelineEntries ClientTimelineEntry[]
 
+  bookkeepingOpeningBalances BookkeepingOpeningBalance[]
+
   @@unique([businessId, id])
   @@unique([businessId, email])
   @@unique([businessId, clientNumber])
@@ -3268,6 +3310,8 @@ model Service {
   // R55's D4 (Oct 25): Dashboard cards that count this service.
   dashboardCards DashboardCardTemplate[]
 
+  bookkeepingTerms BookkeepingTerms[] @relation("BookkeepingTermsCatalogService")
+
   @@unique([businessId, name])
   @@unique([businessId, id])
   @@index([businessId, status])
@@ -3390,6 +3434,7 @@ model Task {
   /// R55 (Rasel, Nov 14; Leads R2 2): a lead's task. A task has a client or a lead, never both.
   leadId          String?    @map("lead_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
+  taxPlanId       String?    @map("tax_plan_id") @db.Uuid
   title           String
   details         String?
   kind            TaskKind   @default(GENERAL)
@@ -3435,6 +3480,8 @@ model Task {
 
   client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  /// R1 (Nov 14, Review 2 C15, S4): the planning plan this implementation task is for (the same client's).
+  taxPlan            TaxPlan?            @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
   assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
   service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
@@ -3454,6 +3501,7 @@ model Task {
   @@index([businessId, clientId])
   @@index([businessId, leadId])
   @@index([businessId, engagementId])
+  @@index([businessId, taxPlanId])
   @@index([businessId, assignedUserId, status])
   @@index([businessId, status, dueOn])
   @@index([businessId, dependsOnTaskId])
@@ -3464,14 +3512,22 @@ model Task {
 /// Internal note about a client, optionally within one of that client's engagements (client
 /// record Internal notes tab, service workspaces). Never shown to the client.
 model Note {
-  id           String   @id @default(uuid(7)) @db.Uuid
-  businessId   String   @map("business_id") @db.Uuid
-  clientId     String   @map("client_id") @db.Uuid
-  engagementId String?  @map("engagement_id") @db.Uuid
+  id           String         @id @default(uuid(7)) @db.Uuid
+  businessId   String         @map("business_id") @db.Uuid
+  clientId     String         @map("client_id") @db.Uuid
+  engagementId String?        @map("engagement_id") @db.Uuid
   body         String
-  authorUserId String   @map("author_user_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Review 2 (N04): General, Call, Meeting, Follow-up, Document or Billing (the API's list).
+  noteType     String?        @map("note_type")
+  /// Review 2 (N04): the record it is about (task, document, request, reconciliation, report,
+  /// period or appointment), both or neither.
+  relatedKind  String?        @map("related_kind")
+  relatedId    String?        @map("related_id") @db.Uuid
+  /// Review 2 (N04): internal by default; CLIENT is not offered until Octavia's C02 decision.
+  visibility   NoteVisibility @default(INTERNAL)
+  authorUserId String         @map("author_user_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -4149,6 +4205,7 @@ model Appointment {
   businessId      String            @map("business_id") @db.Uuid
   clientId        String            @map("client_id") @db.Uuid
   engagementId    String?           @map("engagement_id") @db.Uuid
+  taxPlanId       String?           @map("tax_plan_id") @db.Uuid
   staffUserId     String            @map("staff_user_id") @db.Uuid
   typeId          String?           @map("type_id") @db.Uuid
   startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
@@ -4208,6 +4265,8 @@ model Appointment {
 
   client     Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  /// R1 (Nov 14, Review 2 C12, S3): the planning plan this discussion is for (the same client's).
+  taxPlan    TaxPlan?              @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
   staff      Membership            @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
   service    Service?              @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   office     FirmOffice?           @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
@@ -4221,6 +4280,7 @@ model Appointment {
   @@unique([businessId, idempotencyKey])
   // Target of the reminders' same-firm foreign key.
   @@unique([businessId, id])
+  @@index([businessId, taxPlanId])
   @@index([businessId, seriesId])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
@@ -10260,34 +10320,36 @@ model BookkeepingSettings {
 /// and the client's own settings. Never deleted. Figures from an accounting system are not here:
 /// there is no ledger sync yet.
 model BookkeepingProfile {
-  id                  String            @id @default(uuid(7)) @db.Uuid
-  businessId          String            @map("business_id") @db.Uuid
-  engagementId        String            @map("engagement_id") @db.Uuid
-  cadence             ReportCadence     @default(MONTHLY)
+  id                  String                @id @default(uuid(7)) @db.Uuid
+  businessId          String                @map("business_id") @db.Uuid
+  engagementId        String                @map("engagement_id") @db.Uuid
+  cadence             ReportCadence         @default(MONTHLY)
   /// Months between reports for CUSTOM.
-  cadenceMonths       Int?              @map("cadence_months")
-  closeTargetDay      Int?              @map("close_target_day")
+  cadenceMonths       Int?                  @map("cadence_months")
+  closeTargetDay      Int?                  @map("close_target_day")
   /// The next report's due date, kept current by the API from the cadence and the last period.
-  nextReportDueOn     DateTime?         @map("next_report_due_on") @db.Date
-  status              BookkeepingStatus @default(NOT_STARTED)
-  statusSource        StatusSource      @default(AUTOMATIC) @map("status_source")
+  nextReportDueOn     DateTime?             @map("next_report_due_on") @db.Date
+  status              BookkeepingStatus     @default(NOT_STARTED)
+  statusSource        StatusSource          @default(AUTOMATIC) @map("status_source")
   /// Why: "3 documents outstanding", "Sync failed Oct 12".
-  statusReason        String?           @map("status_reason")
-  statusChangedAt     DateTime          @default(now()) @map("status_changed_at") @db.Timestamptz(3)
-  reviewerUserId      String?           @map("reviewer_user_id") @db.Uuid
-  pausedAt            DateTime?         @map("paused_at") @db.Timestamptz(3)
-  pauseReason         String?           @map("pause_reason")
-  archivedAt          DateTime?         @map("archived_at") @db.Timestamptz(3)
+  statusReason        String?               @map("status_reason")
+  statusChangedAt     DateTime              @default(now()) @map("status_changed_at") @db.Timestamptz(3)
+  reviewerUserId      String?               @map("reviewer_user_id") @db.Uuid
+  pausedAt            DateTime?             @map("paused_at") @db.Timestamptz(3)
+  pauseReason         String?               @map("pause_reason")
+  /// Review 2 (RP03): the P&L's source for this client; null until staff choose.
+  pnlSource           BookkeepingPnlSource? @map("pnl_source")
+  archivedAt          DateTime?             @map("archived_at") @db.Timestamptz(3)
   /// What the client portal shows by default: {reports, tasks, documents, notes} booleans.
-  portalDefaults      Json              @default("{}") @map("portal_defaults")
+  portalDefaults      Json                  @default("{}") @map("portal_defaults")
   /// Client overrides of the firm's settings; null uses the firm's.
-  reportSchedule      Json?             @map("report_schedule")
-  documentChecklist   Json?             @map("document_checklist")
-  categorizationRules Json              @default("[]") @map("categorization_rules")
+  reportSchedule      Json?                 @map("report_schedule")
+  documentChecklist   Json?                 @map("document_checklist")
+  categorizationRules Json                  @default("[]") @map("categorization_rules")
   /// Alerts on or off: {missingDocuments, staleSync, overdueClose, failedIntegration}.
-  alerts              Json              @default("{}")
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  alerts              Json                  @default("{}")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   engagement Engagement  @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   reviewer   Membership? @relation(fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
@@ -10412,6 +10474,8 @@ model BookkeepingAccount {
   /// R0 stage C1
   transactions               BookkeepingTransaction[]
 
+  openingBalances BookkeepingOpeningBalance[]
+
   @@unique([businessId, engagementId, id])
   @@unique([businessId, id])
   @@unique([businessId, engagementId, connectionId, sourceAccountId])
@@ -10497,6 +10561,28 @@ model BookkeepingCloseItem {
 /// tolerance, Oct 26; tolerance_cents no longer decides); a reopen needs a reason. Saving progress is just updating the row. The statement is
 /// a document of the same client, kept as a record: it cannot be deleted while a reconciliation
 /// uses it. Locked while the period is CLOSED.
+/// R1's handoff (Nov 14, Rasel's shape): an account's opening balance on a date, for reports and
+/// reconciliation before the first synced period. One per account and date; the account belongs
+/// to the client (checked in the migration).
+model BookkeepingOpeningBalance {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  accountId       String   @map("account_id") @db.Uuid
+  asOf            DateTime @map("as_of") @db.Date
+  amountCents     BigInt   @map("amount_cents")
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client    Client             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  account   BookkeepingAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership?        @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, accountId, asOf])
+  @@index([businessId, clientId])
+  @@map("bookkeeping_opening_balances")
+}
+
 model BookkeepingReconciliation {
   id                    String               @id @default(uuid(7)) @db.Uuid
   businessId            String               @map("business_id") @db.Uuid
@@ -10521,6 +10607,11 @@ model BookkeepingReconciliation {
   reopenedAt            DateTime?            @map("reopened_at") @db.Timestamptz(3)
   reopenedBy            String?              @map("reopened_by") @db.Uuid
   reopenReason          String?              @map("reopen_reason")
+  /// Review 2 (R01, Octavia): a note on the difference for this account and period, shown to the
+  /// reviewer; who wrote it and when. It never waives the zero difference or the statement.
+  discrepancyNote       String?              @map("discrepancy_note")
+  discrepancyNoteBy     String?              @map("discrepancy_note_by") @db.Uuid
+  discrepancyNoteAt     DateTime?            @map("discrepancy_note_at") @db.Timestamptz(3)
   createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -10653,8 +10744,13 @@ model TaxPlan {
   taxPlanDocuments    TaxPlanDocument[]
   taxSavingsScenarios TaxSavingsScenario[]
   taxOpportunities    TaxOpportunity[]
+  events              TaxPlanEvent[]
+  appointments        Appointment[]
+  tasks               Task[]
 
   @@unique([businessId, id])
+  /// Target of an appointment's or task's same-client plan link (S3, S4).
+  @@unique([businessId, clientId, id])
   @@index([businessId, status])
   @@index([businessId, clientId, planYear])
   @@index([businessId, assignedUserId, status])
@@ -10750,6 +10846,58 @@ model TaxPlanVersion {
 
   @@unique([businessId, planId, version])
   @@map("tax_plan_versions")
+}
+
+/// R1 (Nov 14, Review 2 C27, S1): a plan's history: each status change, reopen and revise (with
+/// its reason), finalize, send, archive and restore, with the version it concerns and who did it.
+/// Insert-only.
+model TaxPlanEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  planId      String           @map("plan_id") @db.Uuid
+  kind        TaxPlanEventKind
+  fromStatus  TaxPlanStatus?   @map("from_status")
+  toStatus    TaxPlanStatus?   @map("to_status")
+  /// The tax_plan_versions version it concerns.
+  version     Int?
+  /// 1 to 1000 characters; required for REOPEN and REVISE.
+  reason      String?
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, planId, createdAt])
+  @@map("tax_plan_events")
+}
+
+/// R1 (Nov 14, Review 2 C17, S6): the firm's own planning resources: its edited copy of a
+/// built-in one (catalog_key, at most one per firm and key) or its own. Archived, never deleted.
+model TaxPlanningResource {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  /// The built-in resource this edits (catalog.ts key); null for the firm's own.
+  catalogKey      String?              @map("catalog_key")
+  /// 1 to 200 characters.
+  title           String
+  /// 1 to 100 characters.
+  category        String
+  kind            PlanningResourceKind
+  /// Up to 1000 characters: what is sent with it.
+  summary         String?
+  /// Up to 20000 characters.
+  body            String?
+  clientFacing    Boolean              @default(false) @map("client_facing")
+  archivedAt      DateTime?            @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?              @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?              @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@unique([businessId, catalogKey])
+  @@index([businessId, archivedAt])
+  @@map("tax_planning_resources")
 }
 
 /// A document attached to a plan (the upload box), with its type and, optionally, the plan
@@ -14027,6 +14175,9 @@ model BookkeepingTerms {
   status                    BookkeepingTermsStatus      @default(DRAFT)
   /// The package name from Services & Pricing at the time (a snapshot).
   packageName               String?                     @map("package_name")
+  /// Review 2 (E01b): the package itself, the firm's own catalog service. Deleting the service
+  /// clears this column only (see the migration); packageName keeps the name.
+  catalogServiceId          String?                     @map("catalog_service_id") @db.Uuid
   startDate                 DateTime                    @map("start_date") @db.Date
   endDate                   DateTime?                   @map("end_date") @db.Date
   renewalType               BookkeepingRenewalType      @default(AUTO) @map("renewal_type")
@@ -14074,10 +14225,13 @@ model BookkeepingTerms {
   esignRequest    EsignRequest?           @relation("BookkeepingTermsEsign", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
   events          BookkeepingTermsEvent[]
 
+  catalogService Service? @relation("BookkeepingTermsCatalogService", fields: [businessId, catalogServiceId], references: [businessId, id], onDelete: SetNull)
+
   @@unique([businessId, id])
   @@unique([businessId, engagementId, version])
   @@index([businessId, engagementId, status])
   @@index([businessId, renewalDate])
+  @@index([businessId, catalogServiceId])
   @@map("bookkeeping_terms")
 }
 

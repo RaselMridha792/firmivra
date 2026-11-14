@@ -80,6 +80,8 @@ const NEXT_STATUS: Record<TaxPlanStatus, TaxPlanStatus[]> = {
   ],
   AWAITING_CLIENT: ['IN_PROGRESS', 'READY_FOR_REVIEW', 'CLOSED'],
   READY_FOR_REVIEW: ['IN_PROGRESS', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLOSED'],
+  // S2 (Review 2 C27): a finalized plan is sent, put into action, closed, or revised back to work.
+  FINALIZED: ['IN_PROGRESS', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLOSED'],
   IMPLEMENTED: ['IN_PROGRESS', 'CLOSED'],
   CLOSED: [],
 };
