@@ -20,7 +20,7 @@ export const PASSWORD_BENEFITS: Benefit[] = [
   [
     KeyRound,
     'Choose a new password',
-    'At least 12 characters, with upper and lower case and a number.',
+    'At least 15 characters. Spaces and symbols are welcome; no mix of character types is needed.',
   ],
   [ShieldCheck, 'Your information is safe', 'We never ask for your password by phone or email.'],
 ];
