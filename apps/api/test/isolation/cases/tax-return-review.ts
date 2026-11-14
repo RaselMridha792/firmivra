@@ -127,6 +127,10 @@ export const cases: CaseModule['cases'] = {
     params: ret,
     body: { filings: [{ jurisdiction: 'US' }] },
   },
+  // Review 2: a jurisdiction's amount, version by version.
+  'GET /api/v1/business/tax-returns/:id/filings/:filingId/amount-history': {
+    params: { id: 'taxReturn', filingId: 'taxFiling' },
+  },
   'PATCH /api/v1/business/tax-returns/:id/filings/:filingId': {
     params: { id: 'taxReturn', filingId: 'taxFiling' },
     body: { required: false },

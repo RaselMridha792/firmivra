@@ -19,6 +19,7 @@ import type {
   TaxChecklist,
   TaxReturnDocumentList,
   TaxReturnExportLink,
+  TaxAmountHistory,
   TaxReturnFilingList,
   TaxReturnActivityList,
   TaxReturnDetail,
@@ -282,6 +283,17 @@ export class TaxReturnWorkspaceController {
     @Body(new ZodValidationPipe(UpdateFilingBody)) body: Out<typeof UpdateFilingBody>,
   ): Promise<TaxReturnFilingList> {
     return { items: await this.review.updateFiling(tenant, auth.userId, id, filingId, body) };
+  }
+
+  /** Review 2: a jurisdiction's amount, version by version. */
+  @Get(':id/filings/:filingId/amount-history')
+  async amountHistory(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('filingId', idPipe) filingId: string,
+  ): Promise<TaxAmountHistory> {
+    return { items: await this.review.amountHistory(tenant, auth.userId, id, filingId) };
   }
 
   @Post(':id/filings/:filingId/attempts')

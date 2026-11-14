@@ -22,6 +22,8 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   user: null,
   // By its own id (below): the run in Automations > Logs.
   automation_run: null,
+  // Below: Tax Planning > Project Deadlines.
+  project_deadline: null,
 };
 
 /** Portal pages, by kind, after `/{firmSlug}`. */
@@ -40,6 +42,8 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   client_account: null,
   membership: null,
   automation_run: null,
+  // A member's own deadline is the firm's business.
+  project_deadline: null,
 };
 
 /**
@@ -66,6 +70,9 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   // An automation's run opens in its log; the page loads it through the firm's own API (404 for
   // a run of another firm, or of a client a Staff member isn't assigned to).
   if (kind === 'automation_run') return `/automations/logs?run=${id}`;
+  // A project deadline opens Tax Planning > Project Deadlines, which shows the member's own and
+  // the ones shared with them (Tax Planning Review 2).
+  if (kind === 'project_deadline') return '/tax-planning/deadlines';
   const page = FIRM[kind];
   if (typeof page !== 'function') return page;
   return clientId ? page(clientId) : null;

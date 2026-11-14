@@ -164,6 +164,19 @@ export interface NotifyTemplates {
   'appointment.changed': AppointmentData;
   'appointment.reminder': AppointmentData;
 
+  // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
+  /** To a member: a project deadline (their own or shared with them) is coming up. */
+  'project-deadline.reminder': IgnoredFirmName & {
+    name: string;
+    /** The deadline's name: the firm's own words. */
+    title: string;
+    dueAt: Date;
+    /** The firm's time zone (IANA). */
+    timeZone: string;
+    /** Tax Planning > Project Deadlines on the firm's app site. */
+    link: string;
+  };
+
   // ----- Invoices (R7; no amounts in messages) -----
   'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
@@ -268,6 +281,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.booked': 'email',
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
+  'project-deadline.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
   'esign.request': 'email',
@@ -318,6 +332,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.booked': 'firm',
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
+  'project-deadline.reminder': 'firm',
   'invoice.sent': 'firm',
   'payment.received': 'firm',
   'esign.request': 'firm',
@@ -402,6 +417,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.booked': 'APPOINTMENTS',
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
+  'project-deadline.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',
   // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.

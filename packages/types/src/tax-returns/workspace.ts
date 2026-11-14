@@ -409,6 +409,28 @@ export const AmendTaxReturnRequest = z.strictObject({ reason: text(2000, 'many')
 export type AmendTaxReturnRequest = z.input<typeof AmendTaxReturnRequest>;
 
 /**
+ * GET /business/tax-returns/{id}/filings/{filingId}/amount-history (Review 2, amount history):
+ * each saved version of a jurisdiction's amount, newest first, from the audit (what was saved,
+ * where it came from, who and when). Read only.
+ */
+export const TaxAmountHistory = z.object({
+  items: z
+    .array(
+      z.object({
+        version: z.number().int().nullable(),
+        refundCents: z.number().int().nullable(),
+        amountDueCents: z.number().int().nullable(),
+        amountStatus: TaxAmountStatus.nullable(),
+        amountSource: TaxAmountSource.nullable(),
+        by: MemberRef.nullable(),
+        at: DateTime,
+      }),
+    )
+    .max(200),
+});
+export type TaxAmountHistory = z.infer<typeof TaxAmountHistory>;
+
+/**
  * POST /business/tax-returns/{id}/carry-forward: next year's return for the same client and
  * form, with its people, states, approval steps and checklist labels; never amounts or answers.
  */
