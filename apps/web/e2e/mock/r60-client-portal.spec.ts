@@ -29,7 +29,7 @@ test('a client chosen in the list shows their portal summary, and switching keep
   // A summary card opens its tab for the same client.
   await summary.getByTestId('summary-documents').click();
   await expect(page).toHaveURL(/tab=documents/);
-  await expect(page.getByRole('tab', { name: 'Documents' })).toHaveAttribute(
+  await expect(page.getByRole('tab', { name: 'Documents', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
