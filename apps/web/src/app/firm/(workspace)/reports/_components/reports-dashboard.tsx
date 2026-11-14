@@ -254,6 +254,16 @@ export function ReportsDashboard() {
                       View Report <ArrowRight aria-hidden weight="bold" className="size-4" />
                     </Link>
                   ) : null}
+                  {/* Leads R2 18: the funnel and aging report (Reports > Leads). */}
+                  {c.category === 'LEADS' ? (
+                    <Link
+                      href="/reports/leads"
+                      data-testid="leads-funnel-link"
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-border px-4 text-sm font-medium text-action hover:bg-canvas"
+                    >
+                      Funnel &amp; Aging <ArrowRight aria-hidden weight="bold" className="size-4" />
+                    </Link>
+                  ) : null}
                 </section>
               </li>
             ))}
