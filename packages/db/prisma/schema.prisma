@@ -1153,9 +1153,9 @@ model Membership {
   documentLinksCreated    DocumentLink[]         @relation("DocumentLinkCreatedBy")
   documentLinksReceived   DocumentLink[]         @relation("DocumentLinkRecipient")
   assignedClients         Client[]
-  assignedEngagements     Engagement[]                @relation("EngagementAssignee")
-  pausedEngagements       Engagement[]                @relation("EngagementPausedBy")
-  clientLinksCreated      ClientLink[]                @relation("ClientLinkCreatedBy")
+  assignedEngagements     Engagement[]           @relation("EngagementAssignee")
+  pausedEngagements       Engagement[]           @relation("EngagementPausedBy")
+  clientLinksCreated      ClientLink[]           @relation("ClientLinkCreatedBy")
   assignedTasks           Task[]
   workingHours            WorkingHours[]
   blockedTimes            BlockedTime[]
@@ -3129,8 +3129,8 @@ model Client {
   updatedBy             Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
   tags                  ClientTag[]
   /// Clients Review 2 (G9): the profiles linked to this one, from either side.
-  linksFrom             ClientLink[]          @relation("ClientLinkFrom")
-  linksTo               ClientLink[]          @relation("ClientLinkTo")
+  linksFrom             ClientLink[]                 @relation("ClientLinkFrom")
+  linksTo               ClientLink[]                 @relation("ClientLinkTo")
   statusHistory         ClientStatusHistory[]
   /// R0 stage C2: compliance facts and sales tax registrations.
   complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
@@ -3887,6 +3887,8 @@ model Intake {
   signatures     IntakeSignature[]
   submissions    IntakeSubmission[]
   documents      Document[]
+  /// R55 (item n): the lead's own files through this intake's secure link.
+  leadUploads    LeadUpload[]
 
   /// R1 (Nov 7, A9): the appointment this intake was requested for; its completion is the
   /// intake's own status.
@@ -4074,15 +4076,21 @@ model LeadUpload {
   /// R55 (Rasel, Nov 14; Leads R2 4): the staff member who added it (slot 'staff') to an open
   /// lead; null for the lead's own Begin Online file. Carried over as INTERNAL at conversion.
   uploadedByUserId String?    @map("uploaded_by_user_id") @db.Uuid
+  /// R55 (item n, approved by the lead under Rasel's delegation, Nov 14): the lead's sent intake
+  /// whose secure link this, the lead's own file, answers (one of the form's upload fields). Set
+  /// only while that intake is open and its link live; null for a Begin Online or a staff file.
+  intakeId         String?    @map("intake_id") @db.Uuid
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   lead       Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   document   Document?
   uploadedBy Membership? @relation(fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
+  intake     Intake?     @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, id])
   @@index([businessId, leadId])
+  @@index([businessId, intakeId])
   @@map("lead_uploads")
 }
 
