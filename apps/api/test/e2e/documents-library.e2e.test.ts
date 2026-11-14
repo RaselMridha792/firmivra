@@ -751,8 +751,8 @@ describe('a firm file shown to its client later (C2-052)', () => {
       tx.document.create({
         data: {
           businessId: firms.a,
-          clientId: ids.c1,
-          engagementId: ids.e1,
+          clientId: ids.c1!,
+          engagementId: ids.e1!,
           direction: 'CLIENT_TO_FIRM',
           fileName: 'from-client.pdf',
           contentType: 'application/pdf',
