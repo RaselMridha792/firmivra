@@ -106,3 +106,50 @@ test("Tax Returns shows a past period's statuses as they stood then (K4)", async
   await expect(asOf).toHaveCount(0);
   await expect(page.getByTestId('back-to-dashboard')).toBeVisible();
 });
+
+test.describe('a browser in Central time', () => {
+  test.use({ timezoneId: 'America/Chicago' });
+  test("the header clock shows the firm's time zone, not the browser's (U2)", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(app('/'));
+    // The mock firm keeps America/New_York (Settings > Preferences).
+    const clock = page.getByTestId('header-clock');
+    await expect(clock).toHaveAttribute('title', 'Time zone: America/New_York', {
+      timeout: 60_000,
+    });
+    await expect(clock).toContainText(/ (EST|EDT) /);
+  });
+});
+
+test('the profile menu closes on a click outside and on Escape after focus left it (R2 NEW1)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/'));
+  const trigger = page
+    .getByRole('button', { name: /Mock/ })
+    .filter({ has: page.getByText('Owner') });
+  const menu = page.getByRole('menu').filter({ has: page.getByTestId('me-email') });
+  await trigger.click({ timeout: 60_000 });
+  await expect(menu).toBeVisible();
+  await page.getByTestId('page-title').click();
+  await expect(menu).toHaveCount(0);
+  await expect(page).toHaveURL(app('/'));
+
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  // Focus leaves the menu for the page; Escape still closes it.
+  await page.getByRole('region', { name: 'Key numbers' }).getByRole('combobox').focus();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+
+  // The button still toggles it, and Escape from inside returns focus to the button.
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await menu.getByRole('menuitem').first().focus();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
