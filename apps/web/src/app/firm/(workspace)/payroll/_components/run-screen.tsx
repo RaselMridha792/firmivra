@@ -162,7 +162,7 @@ export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) 
           separate steps.
           <span className="mt-1 block" data-testid="demo-sample">
             The three employees are samples (their names end in &quot;(sample)&quot;) with round
-            amounts, not a calculation.
+            amounts. {DEMO_SAMPLE_RATES}
           </span>
         </p>
       ) : null}
@@ -261,7 +261,7 @@ export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) 
             </div>
           </div>
           <aside className="flex min-w-0 flex-col gap-4" aria-label="Summary">
-            <Summary run={run} onTaxes={() => setDialog('taxes')} />
+            <Summary run={run} demo={demo} onTaxes={() => setDialog('taxes')} />
             <Exceptions
               run={run}
               onCheck={() =>
@@ -410,6 +410,7 @@ export function RunScreen({ id, demo = false }: { id: string; demo?: boolean }) 
       {run && dialog === 'taxes' ? (
         <TaxesDialog
           run={run}
+          demo={demo}
           onClose={() => setDialog(undefined)}
           onDone={() => {
             setDialog(undefined);
@@ -857,7 +858,19 @@ function SumRow({
   );
 }
 
-function Summary({ run, onTaxes }: { run: PayrollRun; onTaxes: () => void }) {
+/** Review 2 (PY N01): the demo's sample rates, named as what they are. */
+const DEMO_SAMPLE_RATES =
+  'In this demo, until amounts are entered, taxes and benefits are illustrated at fixed sample rates of gross pay (employee taxes 12%, employer taxes 7.65%, benefits 3.8%), so they change with earnings. That is an illustration, not a tax calculation: on a real run these are the amounts the provider reports.';
+
+function Summary({
+  run,
+  demo = false,
+  onTaxes,
+}: {
+  run: PayrollRun;
+  demo?: boolean;
+  onTaxes: () => void;
+}) {
   const f = run.figures;
   return (
     <section className={card} aria-label="Payroll Summary" data-testid="run-summary">
@@ -890,7 +903,9 @@ function Summary({ run, onTaxes }: { run: PayrollRun; onTaxes: () => void }) {
       <p className="mt-2 text-xs text-muted">
         {f.confirmed
           ? 'Confirmed by the provider.'
-          : 'A preview from the lines above. Taxes are as entered or the provider’s, not calculated by Firmivra.'}
+          : demo
+            ? DEMO_SAMPLE_RATES
+            : 'A preview from the lines above. Taxes are as entered or the provider’s, not calculated by Firmivra.'}
       </p>
     </section>
   );
@@ -898,10 +913,12 @@ function Summary({ run, onTaxes }: { run: PayrollRun; onTaxes: () => void }) {
 
 function TaxesDialog({
   run,
+  demo = false,
   onClose,
   onDone,
 }: {
   run: PayrollRun;
+  demo?: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -926,7 +943,11 @@ function TaxesDialog({
     <Modal
       open
       title="Taxes & Employer Costs"
-      subtitle="Enter the amounts the provider reports. Firmivra does not calculate payroll taxes."
+      subtitle={
+        demo
+          ? 'Demo: enter sample amounts to replace the illustrated sample rates. Firmivra does not calculate payroll taxes.'
+          : 'Enter the amounts the provider reports. Firmivra does not calculate payroll taxes.'
+      }
       onClose={onClose}
       footer={
         <>

@@ -9,7 +9,14 @@ import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { textareaClass, when } from './parts';
 
 /** The firm's internal notes on this client, newest first. Never shown in the client portal. */
-export function NotesCard({ clientId }: { clientId: string }) {
+export function NotesCard({
+  clientId,
+  title = 'Internal notes',
+}: {
+  clientId: string;
+  /** The Client Portal module calls them Client Notes (Internal Only). */
+  title?: string;
+}) {
   const key = ['client-notes', clientId];
   const notes = useApiQuery(key, () => api.clientNotes.list(clientId));
   const add = useApiMutation((body: string) => api.clientNotes.create(clientId, { body }), {
@@ -18,7 +25,7 @@ export function NotesCard({ clientId }: { clientId: string }) {
   const [body, setBody] = useState('');
 
   return (
-    <Card title="Internal notes" className="flex flex-col gap-4 self-start">
+    <Card title={title} className="flex flex-col gap-4 self-start">
       <p className="text-sm text-muted">Only your firm sees these notes. The client never does.</p>
       <PageState query={notes} empty="No notes yet.">
         {(items) => (
