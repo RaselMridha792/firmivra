@@ -544,7 +544,15 @@ export function createClientsMock(
         })
         .filter(() => !q.deadlineFrom && !q.deadlineTo && !q.priority && !q.source)
         .filter((r) => !q.tagId || (tags.get(r.id) ?? []).length > 0)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+        // G12: the API's orders; newest first by default.
+        .sort((a, b) => {
+          const newest = b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+          if (q.sort === 'OLDEST') return -newest;
+          const byName = a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id);
+          if (q.sort === 'NAME_ASC') return byName;
+          if (q.sort === 'NAME_DESC') return -byName;
+          return newest;
+        });
       const start = q.page ? (q.page - 1) * q.limit : q.cursor ? Number(q.cursor) : 0;
       const page = matches.slice(start, start + q.limit);
       const next = !q.page && start + q.limit < matches.length ? String(start + q.limit) : null;

@@ -2,11 +2,12 @@
 
 import {
   type ClientListRow,
+  type ClientSort,
   type ListClientsQuery,
   roleCan,
   type TeamMember,
 } from '@firmivra/types';
-import { ActionMenu, Button, EmptyState, Tabs, Toast, type TabItem } from '@firmivra/ui';
+import { ActionMenu, Button, EmptyState, Select, Tabs, Toast, type TabItem } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
   Archive,
@@ -95,6 +96,13 @@ function span<K extends 'deadline' | 'appointment'>(key: K, from: string, to: st
   } as Partial<Record<`${K}From` | `${K}To`, string>>;
 }
 
+const SORTS: { value: ClientSort; label: string }[] = [
+  { value: 'NEWEST', label: 'Newest first' },
+  { value: 'OLDEST', label: 'Oldest first' },
+  { value: 'NAME_ASC', label: 'Name A to Z' },
+  { value: 'NAME_DESC', label: 'Name Z to A' },
+];
+
 type Pending = {
   kind: BulkKind;
   clients: { id: string; displayName: string }[];
@@ -158,9 +166,16 @@ export function ClientsScreen({
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
+  // Clients Review 2 (G12): the order, for the table and the cards alike.
+  const [sort, setSort] = useState<ClientSort>('NEWEST');
   const query = useMemo<ListClientsQuery>(
-    () => ({ ...listQuery(filters, search, manager), page, limit }),
-    [filters, search, manager, page, limit],
+    () => ({
+      ...listQuery(filters, search, manager),
+      page,
+      limit,
+      ...(sort === 'NEWEST' ? {} : { sort }),
+    }),
+    [filters, search, manager, page, limit, sort],
   );
   const summary = useApiQuery(CLIENTS_SUMMARY, () => api.clients.summary());
   const list = useApiQuery(clientsListKey(query), () => api.clients.list(query));
@@ -294,6 +309,20 @@ export function ClientsScreen({
                   : ''}
               </p>
             ) : null}
+            <div className="w-44">
+              <Select
+                label="Sort by"
+                hideLabel
+                data-testid="clients-sort"
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.target.value as ClientSort);
+                  setPage(1);
+                  setSelected([]);
+                }}
+                options={SORTS}
+              />
+            </div>
             {mayExport ? (
               <Button
                 variant="secondary"
