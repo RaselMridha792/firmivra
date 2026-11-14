@@ -99,6 +99,9 @@ const NEXT_STATUS: Record<TaxPlanStatus, TaxPlanStatus[]> = {
   FINALIZED: ['IN_PROGRESS', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLOSED'],
   IMPLEMENTED: ['IN_PROGRESS', 'CLOSED'],
   CLOSED: [],
+  // r1_tax_plan_workflow (Review 2 workflow): the moves its own actions make come with the API.
+  UNDER_REVIEW: ['IN_PROGRESS', 'CLOSED'],
+  CLIENT_APPROVED: ['IN_PROGRESS', 'IMPLEMENTED', 'CLOSED'],
 };
 
 const money = (cents: number) =>
