@@ -54,14 +54,28 @@ const TIME_ZONES: [string, string][] = [
 ];
 
 /** Every half hour from 6 AM to 9 PM. */
-const TIMES = Array.from({ length: 31 }, (_, i) => {
-  const minutes = 6 * 60 + i * 30;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-  const label = `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-  return { value, label };
+const REPEAT_LABEL = { DAILY: 'Every day', WEEKLY: 'Every week', MONTHLY: 'Every month' } as const;
+
+/** `HH:MM` as the form shows it: 2:45 PM. */
+const clockLabel = (value: string) => {
+  const h = Number(value.slice(0, 2));
+  const m = value.slice(3, 5);
+  return `${((h + 11) % 12) + 1}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+};
+// Review 2 (Appointments B5): quarter hours, so a start plus a 15- or 45-minute type is a choice
+// (an end at 2:45 PM no longer falls back to the list's first time).
+const TIMES = Array.from({ length: 61 }, (_, i) => {
+  const minutes = 6 * 60 + i * 15;
+  const value = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  return { value, label: clockLabel(value) };
 });
+/** The times, with `current` added in order when it is not one of them (a saved 9:50 PM end). */
+const timesWith = (current: string) =>
+  !current || TIMES.some((t) => t.value === current)
+    ? TIMES
+    : [...TIMES, { value: current, label: clockLabel(current) }].sort((a, b) =>
+        a.value.localeCompare(b.value),
+      );
 
 const UNITS: [ReminderUnit, string][] = [
   ['HOURS', 'hours before'],
@@ -814,7 +828,7 @@ function FormBody({
     day: 'numeric',
     year: 'numeric',
   });
-  const timeLabel = (t: string) => TIMES.find((x) => x.value === t)?.label ?? t;
+  const timeLabel = (t: string) => (t ? clockLabel(t) : t);
   // Advisory B20 (Octavia, Oct 25): the Color comes from the appointment type, read-only; an
   // appointment saved earlier with its own colour keeps showing it.
   const toneName = (value: string) => TONE_NAMES[colourTone(value) ?? 'grey'];
@@ -1107,14 +1121,14 @@ function FormBody({
             <Select
               label="Start Time *"
               disabled={form.allDay}
-              options={TIMES}
+              options={timesWith(form.start)}
               value={form.start}
               onChange={(e) => set('start', e.target.value)}
             />
             <Select
               label="End Time *"
               disabled={form.allDay}
-              options={TIMES}
+              options={timesWith(form.end)}
               value={form.end}
               error={errors.end}
               onChange={(e) => set('end', e.target.value)}
@@ -1488,6 +1502,7 @@ function FormBody({
             startsAt={form.allDay ? undefined : startsAt}
             endsAt={form.allDay ? undefined : endsAt}
             excludeAppointmentId={record?.id}
+            {...(form.typeId ? { typeId: form.typeId } : {})}
             onStaff={setPanelStaff}
             onDate={(d) => set('date', d)}
           />
@@ -1526,6 +1541,13 @@ function FormBody({
                   </span>,
                 ],
                 ['Duration', duration],
+                // Review 2 (Appointments B4): the repeat and how many, before saving.
+                [
+                  'Repeats',
+                  form.repeat === 'NONE'
+                    ? 'Does not repeat'
+                    : `${REPEAT_LABEL[form.repeat]}, ${form.count} times`,
+                ],
                 [
                   'Location',
                   form.method === 'IN_PERSON' ? (

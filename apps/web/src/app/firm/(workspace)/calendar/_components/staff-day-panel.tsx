@@ -82,6 +82,7 @@ export function StaffDayPanel({
   startsAt,
   endsAt,
   excludeAppointmentId,
+  typeId,
   onStaff,
   onDate,
 }: {
@@ -92,6 +93,8 @@ export function StaffDayPanel({
   startsAt?: string;
   endsAt?: string;
   excludeAppointmentId?: string;
+  /** Review 2 (B11): the type being booked, so its buffers count before saving too. */
+  typeId?: string;
   onStaff: (userId: string) => void;
   onDate: (date: string) => void;
 }) {
@@ -100,6 +103,7 @@ export function StaffDayPanel({
     date,
     ...(startsAt && endsAt ? { startsAt, endsAt } : {}),
     ...(excludeAppointmentId ? { excludeAppointmentId } : {}),
+    ...(typeId ? { typeId } : {}),
   };
   const day = useApiQuery([...SCHEDULING, 'staff-day', query], () =>
     staffUserId && date ? api.scheduling.staffDay(query) : Promise.resolve(null),

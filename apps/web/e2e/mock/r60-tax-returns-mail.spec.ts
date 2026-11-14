@@ -24,6 +24,9 @@ test('Record Paper Filing waits for the Mail Tracking Number and shows it', asyn
   const record = page.getByRole('dialog').getByRole('button', { name: 'Record' });
   await expect(record).toBeDisabled();
   await page.getByTestId('paper-dialog').getByLabel('Mail Tracking Number').fill('FAKE 9400 0001');
+  // TX-F26: no date by default; staff enter the day it was actually mailed.
+  await expect(record).toBeDisabled();
+  await page.getByTestId('paper-dialog').getByLabel('Date mailed *').fill('2026-11-02');
   await record.click();
   await expect(page.getByText('Paper filing recorded.')).toBeVisible();
   await expect(federal).toContainText('Mail Tracking Number');

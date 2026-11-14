@@ -118,6 +118,13 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     formTitle: 'Personal Tax Intake Form',
     link: 'https://app.example.test/intake-forms',
   },
+  'intake.lead-link': {
+    formTitle: 'Personal Tax Intake Form',
+    link: 'https://portal.example.test/sample/form#token=synthetic-token',
+    expiresAt: new Date('2026-11-30T23:59:59Z'),
+    subject: 'Your intake form',
+    message: 'Please fill this in.',
+  },
   'client.portal-invite': {
     name: 'Robin Example',
     signUpLink: 'https://portal.example.test/sample/sign-up',

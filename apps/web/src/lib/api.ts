@@ -46,6 +46,7 @@ import {
   createMyContentClient,
   createMyDocumentsClient,
   createMyIntakesClient,
+  createIntakeLinkClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -137,6 +138,7 @@ import {
 } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
+import { intakeLinkMock } from '../mocks/intake-link';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
@@ -669,6 +671,11 @@ export const api = {
   /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
   myIntakes: (firmSlug: string) =>
     dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
+  /** A lead's secure intake link (R55): the form a firm emailed a lead, at /{slug}/form (public). */
+  intakeLink: (firmSlug: string) =>
+    dev && mocked('intakeLink')
+      ? intakeLinkMock(firmSlug)
+      : createIntakeLinkClient(request, firmSlug),
   /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
   signing: (firmSlug: string) =>
     dev && mocked('signing')
