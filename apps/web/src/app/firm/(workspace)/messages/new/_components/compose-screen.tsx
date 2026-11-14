@@ -34,10 +34,12 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { fileSize } from '../../../../../../components/message-files';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin } from '../../../../../../lib/origin';
 import { useApiQuery } from '../../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../../lib/upload';
@@ -172,6 +174,9 @@ export function ComposeScreen({
   initialRelated?: string;
 }) {
   const qc = useQueryClient();
+  // Review 2 (TX-F03): Cancel goes back where New Message was opened from (a tax return's row,
+  // a client), else to Messages.
+  const cancelHref = safeOrigin(useSearchParams().get(ORIGIN_PARAM)) ?? '/messages';
   const [saved, setSaved] = useState<OutboundMessage>();
   const [form, setForm] = useState<Form>(() => emptyForm(initialSubject));
   const [dirty, setDirty] = useState(false);
@@ -555,7 +560,8 @@ export function ComposeScreen({
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Link
-                  href="/messages"
+                  href={cancelHref}
+                  data-testid="compose-cancel"
                   className="inline-flex min-h-11 items-center rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-accent-soft"
                 >
                   Cancel
