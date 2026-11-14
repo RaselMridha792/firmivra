@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaxReturnWorkflowStatus } from '../db-enums.js';
 
 // Firm tax statuses (Settings > Tax statuses): the statuses a firm shows on each client's tax year.
 // Staff read them; Owner and Admin add, rename, reorder and archive. Archived, never deleted.
@@ -22,10 +23,18 @@ export const TaxStatus = z.object({
   /** 0, 1, 2 ... in display order; archived statuses keep their last position. */
   sortOrder: z.number().int().min(0),
   archivedAt: z.iso.datetime({ offset: true }).nullable(),
+  /**
+   * Tax Returns Review 2 (TX-F36): the fixed workflow status this label stands for ("Maps to"),
+   * or null for a label of the firm's own with no workflow meaning. Missing reads as null.
+   */
+  workflowStatus: TaxReturnWorkflowStatus.nullable().default(null),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),
 });
 export type TaxStatus = z.infer<typeof TaxStatus>;
+
+/** "Maps to": a workflow status, or null for none. */
+export const TaxStatusMapping = TaxReturnWorkflowStatus.nullable();
 
 /** GET query: archived statuses are left out unless includeArchived=true. */
 export const ListTaxStatusesQuery = z.strictObject({
@@ -45,12 +54,23 @@ export const ListTaxStatusesResponse = z.object({
 });
 export type ListTaxStatusesResponse = z.infer<typeof ListTaxStatusesResponse>;
 
-/** POST: the new status goes last. Unknown fields such as businessId are refused. */
-export const CreateTaxStatusRequest = z.strictObject({ name: TaxStatusName });
+/**
+ * POST: the new status goes last, mapped to `workflowStatus` when one is given. Unknown fields
+ * such as businessId are refused.
+ */
+export const CreateTaxStatusRequest = z.strictObject({
+  name: TaxStatusName,
+  workflowStatus: TaxStatusMapping.optional(),
+});
 export type CreateTaxStatusRequest = z.input<typeof CreateTaxStatusRequest>;
 
-/** PATCH /{id}. */
-export const RenameTaxStatusRequest = z.strictObject({ name: TaxStatusName });
+/** PATCH /{id}: a new name, a new "Maps to" (null for none), or both. */
+export const RenameTaxStatusRequest = z
+  .strictObject({
+    name: TaxStatusName.optional(),
+    workflowStatus: TaxStatusMapping.optional(),
+  })
+  .refine((b) => b.name !== undefined || b.workflowStatus !== undefined, 'Change something first');
 export type RenameTaxStatusRequest = z.input<typeof RenameTaxStatusRequest>;
 
 /** PUT /order: every active status's id exactly once, in the new order. */

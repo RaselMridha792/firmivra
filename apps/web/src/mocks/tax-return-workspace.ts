@@ -2,6 +2,7 @@ import {
   AmendTaxReturnRequest,
   ApiRequestError,
   CorrectTaxYearRequest,
+  RecordTaxExtensionRequest,
   ApproveTaxApprovalRequest,
   CarryForwardTaxReturnRequest,
   ChangeTaxReturnStatusRequest,
@@ -167,6 +168,9 @@ interface Stored {
   serviceSetUp?: boolean;
   /** TX-F16: the year it was first filed under (as the database stamps it). */
   filedTaxYear?: number | null;
+  /** Review 2 (File Extension): recorded together. */
+  extensionFiledOn?: string | null;
+  extendedDueOn?: string | null;
   filedOn: string | null;
   createdAt: string;
   updatedAt: string;
@@ -188,6 +192,7 @@ const issuesBlock = () => fail(409, 'STATUS_BLOCKED', 'Resolve the validation er
 
 const STEP: Partial<Record<TaxReturnWorkflowStatus, number>> = {
   IN_PREPARATION: 1,
+  IN_CORRECTION: 1,
   READY_FOR_REVIEW: 2,
   READY_FOR_SIGNATURE: 3,
   READY_TO_FILE: 4,
@@ -205,8 +210,10 @@ const ALL: TaxReturnWorkflowStatus[] = [
   'TRANSMITTED',
   'ACCEPTED',
   'REJECTED',
+  'IN_CORRECTION',
   'CLOSED',
 ];
+// As the API (Review 2): In Correction only after Rejected, and never Rejected → Ready for Review.
 const canMoveTo = (from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatus[] =>
   from === 'TRANSMITTED'
     ? ['ACCEPTED', 'REJECTED', 'CLOSED']
@@ -214,7 +221,9 @@ const canMoveTo = (from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatus[] =>
       ? ['CLOSED']
       : from === 'CLOSED'
         ? []
-        : ALL.filter((s) => s !== from);
+        : from === 'REJECTED'
+          ? ALL.filter((s) => s !== from && s !== 'READY_FOR_REVIEW')
+          : ALL.filter((s) => s !== from && s !== 'IN_CORRECTION');
 const isBackward = (from: TaxReturnWorkflowStatus, to: TaxReturnWorkflowStatus) =>
   STEP[from] !== undefined && STEP[to] !== undefined && STEP[to]! < STEP[from]!;
 const coarse = (w: TaxReturnWorkflowStatus): TaxReturnRow['status'] =>
@@ -732,6 +741,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       filedOn: r.filedOn,
       firstFiledAt: r.firstFiledAt,
       filedTaxYear: r.filedTaxYear ?? (r.firstFiledAt ? r.taxYear : null),
+      extensionFiledOn: r.extensionFiledOn ?? null,
+      extendedDueOn: r.extendedDueOn ?? null,
       document: null,
       canMoveTo: canMoveTo(r.workflowStatus),
       // TX-F18: the reviewer, or an Owner or Admin as the override.
@@ -1152,6 +1163,29 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (r.firstFiledAt && r.filedTaxYear == null) r.filedTaxYear = r.taxYear;
       r.taxYear = b.taxYear;
       touch(r, 'UPDATED', `Tax year corrected: ${b.reason}`);
+      return toDetail(r);
+    },
+    recordExtension: async (id, body) => {
+      await mockDelay();
+      const b = parseInput(RecordTaxExtensionRequest, body);
+      const r = find(id);
+      if (r.archivedAt) throw fail(409, 'RETURN_LOCKED', 'Restore the return first');
+      if (r.firstFiledAt) {
+        throw fail(
+          409,
+          'RETURN_FILED',
+          'The return is filed; an extension is for one not filed yet',
+        );
+      }
+      if (b.extensionFiledOn > day(0)) {
+        throw fail(400, 'VALIDATION_FAILED', 'The extension was filed on or before today');
+      }
+      if ((r.dueOn && b.extendedDueOn <= r.dueOn) || b.extendedDueOn <= b.extensionFiledOn) {
+        throw fail(400, 'VALIDATION_FAILED', 'The extended deadline must be after the due date');
+      }
+      r.extensionFiledOn = b.extensionFiledOn;
+      r.extendedDueOn = b.extendedDueOn;
+      touch(r, 'UPDATED', `Extension recorded: due ${b.extendedDueOn}`);
       return toDetail(r);
     },
     updateDetails: async (id, body) => {

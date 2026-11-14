@@ -47,6 +47,7 @@ import {
   UpdateTaxReturnDetailsRequest,
   CorrectTaxReturnBusinessIdentityRequest,
   CorrectTaxYearRequest,
+  RecordTaxExtensionRequest,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
 } from './workspace.js';
@@ -104,6 +105,16 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CorrectTaxYearRequest, body),
       }),
+    /** Review 2: Record Extension (the event only; see RecordTaxExtensionRequest). */
+    recordExtension: async (
+      id: string,
+      body: RecordTaxExtensionRequest,
+    ): Promise<TaxReturnDetail> =>
+      request(
+        TaxReturnDetail,
+        `${ret(id)}/extension`,
+        post(parseInput(RecordTaxExtensionRequest, body)),
+      ),
     /** A business return's own identity, until its first filing. 409 RETURN_LOCKED after. */
     correctBusinessIdentity: async (
       id: string,

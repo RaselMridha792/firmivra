@@ -1,19 +1,19 @@
 'use client';
 
 import { CreateTaxStatusRequest } from '@firmivra/types';
-import { Button, Input } from '@firmivra/ui';
+import { Button, Input, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { errorMessage } from '../../../../../../lib/errors';
 import { api } from '../../../../../../lib/api';
 import { useApiMutation } from '../../../../../../lib/query';
-import { STATUS_ERRORS, TAX_STATUSES } from './shared';
+import { MAPS_TO_OPTIONS, STATUS_ERRORS, TAX_STATUSES } from './shared';
 
 /** Add a status. The form checks the same schema the API uses (from @firmivra/types). */
 export function AddStatusForm() {
   const form = useForm<CreateTaxStatusRequest>({
     resolver: zodResolver(CreateTaxStatusRequest),
-    defaultValues: { name: '' },
+    defaultValues: { name: '', workflowStatus: null },
   });
   // 3. Change data from the browser only, then refetch the list.
   const create = useApiMutation((body: CreateTaxStatusRequest) => api.taxStatuses.create(body), {
@@ -31,6 +31,14 @@ export function AddStatusForm() {
           data-testid="new-status-name"
           error={form.formState.errors.name?.message}
           {...form.register('name')}
+        />
+      </div>
+      <div className="sm:w-56">
+        <Select
+          label="Maps to"
+          data-testid="new-status-maps-to"
+          options={MAPS_TO_OPTIONS}
+          {...form.register('workflowStatus', { setValueAs: (v: string | null) => v || null })}
         />
       </div>
       <Button type="submit" disabled={create.isPending}>

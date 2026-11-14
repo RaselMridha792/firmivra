@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type { TaxStatus } from '@firmivra/types';
+import type { TaxReturnWorkflowStatus, TaxStatus } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -12,12 +12,14 @@ const select = {
   name: true,
   sortOrder: true,
   archivedAt: true,
+  workflowStatus: true,
   createdAt: true,
   updatedAt: true,
 } as const;
 const displayOrder = [{ sortOrder: 'asc' }, { id: 'asc' }] as const;
 
 type Row = { id: string; name: string; sortOrder: number; archivedAt: Date | null } & {
+  workflowStatus: TaxReturnWorkflowStatus | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -27,6 +29,7 @@ const toTaxStatus = (row: Row): TaxStatus => ({
   name: row.name,
   sortOrder: row.sortOrder,
   archivedAt: row.archivedAt?.toISOString() ?? null,
+  workflowStatus: row.workflowStatus,
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
 });
@@ -80,7 +83,11 @@ export class TaxStatusesService {
     return rows.map(toTaxStatus);
   }
 
-  async create(businessId: string, name: string): Promise<TaxStatus> {
+  async create(
+    businessId: string,
+    name: string,
+    workflowStatus: TaxReturnWorkflowStatus | null = null,
+  ): Promise<TaxStatus> {
     const row = await this.change(businessId, async (tx) => {
       await this.unique(tx, businessId, name);
       if ((await tx.taxStatus.count({ where: { businessId } })) >= MAX_TAX_STATUSES) {
@@ -94,25 +101,51 @@ export class TaxStatusesService {
         _max: { sortOrder: true },
       });
       return tx.taxStatus.create({
-        data: { businessId, name, sortOrder: (last._max.sortOrder ?? -1) + 1 },
+        data: { businessId, name, workflowStatus, sortOrder: (last._max.sortOrder ?? -1) + 1 },
         select,
       });
     });
-    await this.audit.log('tax_status.created', { type: 'tax_status', id: row.id });
+    await this.audit.log(
+      'tax_status.created',
+      { type: 'tax_status', id: row.id },
+      workflowStatus ? { workflowStatus } : undefined,
+    );
     return toTaxStatus(row);
   }
 
-  async rename(businessId: string, id: string, name: string): Promise<TaxStatus> {
-    const row = await this.change(businessId, async (tx) => {
-      await this.find(tx, businessId, id);
-      await this.unique(tx, businessId, name, id);
-      return tx.taxStatus.update({
+  /**
+   * A new name, a new "Maps to" (Review 2, TX-F36; null for none), or both. Each is audited on its
+   * own: renamed, and mapped with the status before and after.
+   */
+  async rename(
+    businessId: string,
+    id: string,
+    change: { name?: string; workflowStatus?: TaxReturnWorkflowStatus | null },
+  ): Promise<TaxStatus> {
+    const { name, workflowStatus } = change;
+    const { row, before } = await this.change(businessId, async (tx) => {
+      const found = await this.find(tx, businessId, id);
+      if (name !== undefined) await this.unique(tx, businessId, name, id);
+      const row = await tx.taxStatus.update({
         where: { businessId_id: { businessId, id } },
-        data: { name },
+        data: {
+          ...(name !== undefined ? { name } : {}),
+          ...(workflowStatus !== undefined ? { workflowStatus } : {}),
+        },
         select,
       });
+      return { row, before: found };
     });
-    await this.audit.log('tax_status.renamed', { type: 'tax_status', id });
+    if (name !== undefined && name !== before.name) {
+      await this.audit.log('tax_status.renamed', { type: 'tax_status', id });
+    }
+    if (workflowStatus !== undefined && workflowStatus !== before.workflowStatus) {
+      await this.audit.log(
+        'tax_status.mapped',
+        { type: 'tax_status', id },
+        { from: before.workflowStatus, to: workflowStatus },
+      );
+    }
     return toTaxStatus(row);
   }
 
