@@ -22,6 +22,8 @@ import {
   type MemberRef,
   parseInput,
   publicEmbedCode,
+  type IntakeShare,
+  SaveIntakeShareRequest,
   RequestIntakeCorrectionRequest,
   ResetIntakeSettingsRequest,
   SaveIntakeFormRequest,
@@ -423,6 +425,52 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     const f = s.forms.find((x) => x.id === id);
     if (!f) throw fail(404, 'NOT_FOUND', 'Not found');
     return f;
+  };
+  /** INTAKE-ACCESS-02: each form's switches (a published form shares by link until turned off). */
+  const shares = new Map<string, { sharing: boolean; portalPublished: boolean }>();
+  const mainLinkOf = (f: IntakeFormDetail) => {
+    const kind = KIND_OF_CATEGORY[f.category];
+    const open = (x: IntakeFormDetail) => x.isTemplate && x.status !== 'RETIRED';
+    const main = s.forms.find((x) => open(x) && x.service && x.service.id === f.service?.id);
+    if (!kind || main !== f) return null;
+    const url = beginOnlinePageUrl(PORTAL, 'lvp', kind);
+    return {
+      kind: 'INTAKE_FORM' as const,
+      itemId: f.id,
+      url,
+      embedCode: publicEmbedCode(url, f.name),
+      state: !s.live.has(f.id)
+        ? ('DRAFT' as const)
+        : kind === MOCK_NOT_ON_BEGIN_ONLINE
+          ? ('HIDDEN' as const)
+          : ('LIVE' as const),
+    };
+  };
+  const shareOf = (id: string): IntakeShare => {
+    const f = findForm(id);
+    const shareable = s.live.has(f.id) && f.status !== 'RETIRED';
+    const main = mainLinkOf(f);
+    const set = shares.get(id) ?? { sharing: shareable && !main, portalPublished: false };
+    // The share link's token: 43 base64url characters, as the API's.
+    const url = `${PORTAL}/lvp/start/${f.id.replace(/-/g, '')}mockshare00`;
+    return {
+      templateId: f.id,
+      main: main !== null,
+      shareable,
+      sharing: !main && set.sharing,
+      portalPublished: set.portalPublished,
+      link:
+        main ??
+        (set.sharing
+          ? {
+              kind: 'INTAKE_FORM',
+              itemId: f.id,
+              url,
+              embedCode: publicEmbedCode(url, f.name),
+              state: 'LIVE',
+            }
+          : null),
+    };
   };
   const managers = () => {
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
@@ -960,19 +1008,27 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     },
     publicLink: async (id) => {
       await mockDelay();
-      const f = findForm(id);
-      const kind = KIND_OF_CATEGORY[f.category];
-      const open = (x: IntakeFormDetail) => x.isTemplate && x.status !== 'RETIRED';
-      const main = s.forms.find((x) => open(x) && x.service && x.service.id === f.service?.id);
-      if (!kind || main !== f) throw fail(404, 'NOT_FOUND', 'Not found');
-      const url = beginOnlinePageUrl(PORTAL, 'lvp', kind);
-      return {
-        kind: 'INTAKE_FORM',
-        itemId: f.id,
-        url,
-        embedCode: publicEmbedCode(url, f.name),
-        state: !s.live.has(f.id) ? 'DRAFT' : kind === MOCK_NOT_ON_BEGIN_ONLINE ? 'HIDDEN' : 'LIVE',
-      };
+      const link = mainLinkOf(findForm(id));
+      if (!link) throw fail(404, 'NOT_FOUND', 'Not found');
+      return link;
+    },
+    share: async (id) => {
+      await mockDelay();
+      return shareOf(id);
+    },
+    saveShare: async (id, body) => {
+      await mockDelay();
+      managers();
+      const input = parseInput(SaveIntakeShareRequest, body);
+      const before = shareOf(id);
+      if ((input.sharing || input.portalPublished) && !before.shareable) {
+        throw fail(409, 'NOT_SHAREABLE', 'Publish the form before you share it');
+      }
+      shares.set(id, {
+        sharing: input.sharing && !before.main,
+        portalPublished: input.portalPublished,
+      });
+      return shareOf(id);
     },
 
     settings: async () => {

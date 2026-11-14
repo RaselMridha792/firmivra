@@ -394,11 +394,24 @@ export class AgreementsService {
    * such service: 404. `legal` only when both Terms and Privacy are published.
    */
   async intakeBlock(firmSlug: string, form: IntakeFormKey): Promise<IntakeAgreementBlock> {
+    return this.publicBlock(firmSlug, async (tx) => (await beginOnlineService(tx, form)).id);
+  }
+
+  /**
+   * A Begin Online draft's block (INTAKE-ACCESS-02): the agreements of the draft's own service,
+   * which its submit signs (a shared form's service may not be the kind's Begin Online one).
+   */
+  async serviceBlock(firmSlug: string, serviceId: string): Promise<IntakeAgreementBlock> {
+    return this.publicBlock(firmSlug, () => Promise.resolve(serviceId));
+  }
+
+  private async publicBlock(
+    firmSlug: string,
+    serviceOf: (tx: TxClient) => Promise<string>,
+  ): Promise<IntakeAgreementBlock> {
     const firm = await this.portal.activeFirm(firmSlug);
     const [block, terms, privacy] = await Promise.all([
-      this.inFirm(firm.id, async (tx) =>
-        currentAgreements(tx, (await beginOnlineService(tx, form)).id),
-      ),
+      this.inFirm(firm.id, async (tx) => currentAgreements(tx, await serviceOf(tx))),
       this.portal.currentVersion(firm.id, 'TERMS'),
       this.portal.currentVersion(firm.id, 'PRIVACY'),
     ]);

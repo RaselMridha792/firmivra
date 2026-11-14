@@ -9,10 +9,13 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { TenantContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { conflict, notFound } from '../workspaces/common.js';
 import { publishable, toDefinition } from './form-builder.js';
 import { IntakeLibraryService } from './intake-library.service.js';
+import { intakeShareHash } from './intake-share.js';
 import type { SaveExistingFormBody, SaveFormBody } from './workspace-input.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -51,6 +54,7 @@ const versionSelect = {
 export class IntakeBuilderService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
+    @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
     private readonly library: IntakeLibraryService,
   ) {}
@@ -253,6 +257,18 @@ export class IntakeBuilderService {
       const newest = t.forms[0];
       if (newest?.status === 'PUBLISHED') return null;
       if (newest?.status !== 'DRAFT') throw invalidStatus('This form has no draft to publish');
+      // INTAKE-ACCESS-02: a form's first publish turns its share link on (a main form is reached
+      // through its Begin Online page instead); the firm can turn it off.
+      const first =
+        (await tx.intakeForm.count({
+          where: { businessId, templateId: t.id, status: { in: ['PUBLISHED', 'RETIRED'] } },
+        })) === 0;
+      if (first && !t.serviceDefault) {
+        await tx.intakeTemplate.update({
+          where: { id: t.id },
+          data: { shareTokenHash: intakeShareHash(this.env, t.id) },
+        });
+      }
       const definition = publishable(newest.definition, {
         key: IntakeFormKey.parse(t.service.kind),
         version: newest.version,
@@ -340,7 +356,13 @@ export class IntakeBuilderService {
       });
       await tx.intakeTemplate.update({
         where: { id: t.id },
-        data: { archivedAt: new Date(), serviceDefault: false },
+        // An archived form has no live link (the database insists) and leaves the portal.
+        data: {
+          archivedAt: new Date(),
+          serviceDefault: false,
+          shareTokenHash: null,
+          portalPublished: false,
+        },
       });
       return true;
     });

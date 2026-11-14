@@ -1,9 +1,10 @@
 import { expect, type Page, test } from '@playwright/test';
 
-// Octavia's I3 (review of Oct 20; Rasel, Oct 22): a service's main form has a public link, its
-// Begin Online page, and an embed code of it, each with Copy. Mock mode (playwright.mock.config.ts)
-// as an Owner: each service's first template is its main form, and Business Development is off
-// Begin Online (a HIDDEN link).
+// Octavia's I3 (review of Oct 20; Rasel, Oct 22) and INTAKE-ACCESS-02: a service's main form's link
+// is its Begin Online page; any other published form has its own share link. Each comes with a
+// website button that opens it, each with Copy (Share & Publish). Mock mode
+// (playwright.mock.config.ts) as an Owner: each service's first template is its main form, and
+// Business Development is off Begin Online (a HIDDEN link).
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 const PERSONAL_TAX = '0199c0d0-0f00-7000-8000-000000000001';
@@ -13,7 +14,7 @@ const cardMenu = async (page: Page, name: string) => {
   return page.getByRole('menu');
 };
 
-test('Publish on a main form shows its Form Link: the Begin Online page and its embed code', async ({
+test('Publish on a main form shows Share & Publish: the Begin Online page and its button', async ({
   page,
   context,
 }) => {
@@ -32,8 +33,12 @@ test('Publish on a main form shows its Form Link: the Begin Online page and its 
   const link = dialog.getByLabel('Link', { exact: true });
   await expect(link).toHaveValue(/\/lvp\/begin\/annual-tax$/);
   const url = await link.inputValue();
-  await expect(dialog.getByLabel('Embed code', { exact: true })).toHaveValue(
-    `<iframe src="${url}?embed=1" title="Personal Tax Intake Form" width="100%" height="760" style="border:0;max-width:100%" loading="lazy"></iframe>`,
+  // A website button that opens the link (an inline embed needs framing enabled for the site).
+  const button = dialog.getByLabel('Embed code', { exact: true });
+  await expect(button).toHaveValue(new RegExp(`^<a href="${url}" target="_blank" rel="noopener"`));
+  await expect(button).toHaveValue(/>Personal Tax Intake Form<\/a>$/);
+  await expect(dialog).toContainText(
+    'An inline embed will be available once enabled for your site.',
   );
   await expect(dialog.getByTestId('public-link-notice')).toHaveCount(0);
 
@@ -45,26 +50,23 @@ test('Publish on a main form shows its Form Link: the Begin Online page and its 
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'More save options' }).click();
-  await page.getByRole('menuitem', { name: 'Form Link' }).click();
+  await page.getByRole('menuitem', { name: 'Share & Publish' }).click();
   await expect(dialog.getByLabel('Link', { exact: true })).toHaveValue(url);
 });
 
-test("the card menu has Form Link for a service's main form, with the link's state", async ({
-  page,
-}) => {
+test("the card menu has Share & Publish for each form, with the link's state", async ({ page }) => {
   await page.goto(app('/intake-forms/templates'));
 
-  // A form with no service (Client Onboarding) has no Form Link.
+  // Every form has it, a form with no service (Client Onboarding) too.
   const onboarding = await cardMenu(page, 'New Client Intake Form');
-  await expect(onboarding.getByRole('menuitem', { name: 'Preview' })).toBeVisible();
-  await expect(onboarding.getByRole('menuitem', { name: 'Form Link' })).toHaveCount(0);
+  await expect(onboarding.getByRole('menuitem', { name: 'Share & Publish' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   // Business Development is not on Begin Online: the link is shown with why it takes nothing.
   await (
     await cardMenu(page, 'Custom Advisory Intake Form')
   )
-    .getByRole('menuitem', { name: 'Form Link' })
+    .getByRole('menuitem', { name: 'Share & Publish' })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Custom Advisory Intake Form' });
   await expect(dialog.getByLabel('Link', { exact: true })).toHaveValue(
@@ -75,17 +77,15 @@ test("the card menu has Form Link for a service's main form, with the link's sta
   );
   await dialog.getByRole('button', { name: 'Done' }).click();
 
-  // A second template of a service: only the main form has the service's page.
+  // A second template of a service: its own share link, not the service's page.
   await (
     await cardMenu(page, 'Audit Support Intake Form')
   )
-    .getByRole('menuitem', { name: 'Form Link' })
+    .getByRole('menuitem', { name: 'Share & Publish' })
     .click();
-  await expect(
-    page
-      .getByRole('dialog', { name: 'Audit Support Intake Form' })
-      .getByTestId('public-link-empty'),
-  ).toHaveText(
-    "Only each service's main form has a public link: its Begin Online page. Send this form to a client instead.",
+  const second = page.getByRole('dialog', { name: 'Audit Support Intake Form' });
+  await expect(second.getByLabel('Link', { exact: true })).toHaveValue(
+    /\/lvp\/start\/[A-Za-z0-9_-]{43}$/,
   );
+  await expect(second.getByRole('switch', { name: 'Share by link' })).toBeChecked();
 });

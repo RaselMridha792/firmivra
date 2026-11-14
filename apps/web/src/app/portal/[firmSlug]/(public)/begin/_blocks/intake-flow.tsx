@@ -234,6 +234,98 @@ export function IntakePage({
   );
 }
 
+/**
+ * A shared form (INTAKE-ACCESS-02, /{firm}/start/{token}): the firm's link to one published form,
+ * for anyone. Its start card (with a honeypot) starts a Begin Online draft of exactly that form,
+ * which then goes on as any draft of its kind (steps, files, the review and its agreements, the
+ * submit). A draft of the same form already in this browser opens again; any other draft of the
+ * kind is replaced only when this one starts. A link turned off, a draft or archived form says
+ * so, the same way for each.
+ */
+export function SharedIntakePage({
+  firmSlug,
+  token,
+  className = '',
+}: {
+  firmSlug: string;
+  token: string;
+  className?: string;
+}) {
+  const client = api.beginOnline(firmSlug);
+  const shared = useApiQuery(['begin-online', firmSlug, 'share', token], () =>
+    client.shareForm(token),
+  );
+  const gone =
+    shared.error instanceof ApiRequestError &&
+    (shared.error.code === 'LINK_INVALID' || shared.error.status === 400);
+  return (
+    <div
+      data-theme="begin-online"
+      data-testid="intake-page"
+      className={`bg-surface py-4 text-sm text-firm-primary ${className}`}
+    >
+      <PageContainer>
+        {gone ? (
+          <p
+            role="alert"
+            data-testid="share-invalid"
+            className="mx-auto max-w-2xl rounded-control border border-folder-border bg-folder-surface p-4 text-sm text-heading"
+          >
+            This form link is not available any more. Ask the firm for a new one.
+          </p>
+        ) : (
+          <PageState query={shared} isEmpty={() => false}>
+            {(found) => <SharedForm firmSlug={firmSlug} token={token} found={found} />}
+          </PageState>
+        )}
+      </PageContainer>
+    </div>
+  );
+}
+
+function SharedForm({
+  firmSlug,
+  token,
+  found,
+}: {
+  firmSlug: string;
+  token: string;
+  found: BeginOnlineForm;
+}) {
+  const client = api.beginOnline(firmSlug);
+  const queryClient = useQueryClient();
+  const draft = useApiQuery(draftKey(firmSlug, found.form), async (): Promise<DraftState> => {
+    try {
+      return await client.get(found.form);
+    } catch (e) {
+      if (e instanceof ApiRequestError && e.status === 404) return null;
+      if (e instanceof ApiRequestError && ['DRAFT_SUBMITTED', 'DRAFT_EXPIRED'].includes(e.code))
+        return null;
+      throw e;
+    }
+  });
+  return (
+    <PageState query={draft} isEmpty={() => false}>
+      {(d) =>
+        d && typeof d === 'object' && d.version === found.version && d.title === found.title ? (
+          <IntakeFlow key={d.form} firmSlug={firmSlug} draft={d} />
+        ) : (
+          <StartForm
+            notice={null}
+            unavailable={false}
+            found={found}
+            honeypot
+            onStart={async (body) => {
+              const started = await client.startShare(token, body);
+              queryClient.setQueryData(draftKey(firmSlug, found.form), started);
+            }}
+          />
+        )
+      }
+    </PageState>
+  );
+}
+
 /** Each form's buttons, as its mockups word them. */
 const WORDING: Record<
   IntakeFormKey,
@@ -371,14 +463,18 @@ function StartForm({
   notice,
   unavailable,
   onStart,
+  honeypot = false,
 }: {
   found: BeginOnlineForm;
   notice: ReactNode;
   unavailable: boolean;
-  onStart: (body: StartBeginDraftRequest) => Promise<void>;
+  onStart: (body: StartBeginDraftRequest & { website?: string }) => Promise<void>;
+  /** A field people never see (a shared form's public link): a value in it is refused. */
+  honeypot?: boolean;
 }) {
   const fill = useFill(found.taxYear);
   const [values, setValues] = useState({ firstName: '', lastName: '', email: '', phone: '' });
+  const [website, setWebsite] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const start = useApiMutation(onStart);
   const steps = found.definition.steps.map((s, i) => ({ id: i + 1, label: fill(s.title) }));
@@ -395,7 +491,7 @@ function StartForm({
       return;
     }
     setErrors({});
-    start.mutate(parsed.data);
+    start.mutate(honeypot && website ? { ...parsed.data, website } : parsed.data);
   }
   const set = (key: keyof typeof values) => (event: { target: { value: string } }) =>
     setValues({ ...values, [key]: event.target.value });
@@ -457,6 +553,20 @@ function StartForm({
               error={errors['phone']}
             />
           </div>
+          {honeypot ? (
+            <div aria-hidden="true" className="sr-only">
+              <label>
+                Website
+                <input
+                  name="website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={website}
+                  onChange={(event) => setWebsite(event.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
           {start.error && (
             <p role="alert" className="mt-2 text-sm text-danger">
               {errorMessage(start.error, BEGIN_ONLINE_ERRORS)}
@@ -543,8 +653,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     const s = definition.steps.find((x) => x.key === key)!;
     return client.saveStep(form, key, { answers: stepAnswers(s, values, shown.fields) });
   });
-  // The firm's current agreements for this form (R14), signed on the review step.
-  const agreements = useAgreements(firmSlug, form);
+  // The agreements this draft signs on the review step: its own service's (R14; a shared form's
+  // service may not be the kind's Begin Online one, INTAKE-ACCESS-02).
+  const agreements = useApiQuery(['begin-online', firmSlug, form, 'draft-agreements'], () =>
+    client.agreements(form),
+  );
   const submit = useApiMutation((signature: IntakeSignatureInput) =>
     client.submit(form, { answers: stepAnswers(step, values, shown.fields), signature }),
   );

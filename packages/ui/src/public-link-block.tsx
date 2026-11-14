@@ -7,7 +7,7 @@ import { Button } from './button';
 export interface PublicLinkBlockProps {
   /** The stable public link; null while it loads or when the item has none yet. */
   url: string | null;
-  /** The iframe code for the firm's own website; shown with `url`. */
+  /** The button code for the firm's own website (opens the link); shown with `url`. */
   embedCode: string | null;
   /** The heading: "Booking Link", "Form Link", "Package Link". */
   title?: string;
@@ -29,7 +29,7 @@ const field =
 
 /**
  * The shared "Copy link / Copy embed code" block (Octavia's review of Oct 20): a public item's
- * stable link and its embed code, each with a Copy button, for the firm's website. Used by
+ * stable link and a website button that opens it, each with a Copy button. Used by
  * intake forms, appointment types and service packages, each with its own labels. When copying
  * is refused, the text is selected so it can be copied by hand.
  */
@@ -141,7 +141,8 @@ export function PublicLinkBlock({
                 {button('embed', copyEmbedLabel)}
               </div>
               <p className="text-xs text-muted">
-                Paste it into a page of your website where it should appear.
+                Paste it into a page of your website where the button should appear. An inline embed
+                will be available once enabled for your site.
               </p>
             </div>
           ) : null}
