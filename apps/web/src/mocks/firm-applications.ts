@@ -874,7 +874,10 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     dashboard: async () => {
       await mockDelay();
       return {
-        pendingApplications: rows.filter((r) => r.status === 'PENDING_REVIEW').length,
+        // As the API counts it (SA-APP-Y04): Pending and In Review; Awaiting Information waits on
+        // the applicant.
+        pendingApplications: rows.filter((r) => ['PENDING_REVIEW', 'IN_REVIEW'].includes(r.status))
+          .length,
         activeFirms: firms.filter((f) => f.firm.status === 'ACTIVE').length,
         // Null like the API's until R0's platform count exists.
         totalUsers: null,

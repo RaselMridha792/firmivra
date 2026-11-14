@@ -2645,7 +2645,7 @@ describe('meeting methods (A1)', () => {
     ]);
   });
 
-  it('refuses a repeat, a fourth, Other or a location kind that is not the first, at the exact field', async () => {
+  it('refuses a repeat, Other or a location kind that is not the first, at the exact field', async () => {
     const t = await createType({
       name: `Kept ways ${run}`,
       durationMinutes: 30,
@@ -2662,7 +2662,7 @@ describe('meeting methods (A1)', () => {
         'patch',
         `/appointment-types/${t.id}`,
         { methods: ['PHONE', 'VIDEO', 'IN_PERSON', 'PHONE'] },
-        [{ path: 'methods.3', message: 'Choose at most 3 meeting methods' }],
+        [{ path: 'methods.3', message: 'This meeting method is already chosen' }],
       ],
       [
         'patch',

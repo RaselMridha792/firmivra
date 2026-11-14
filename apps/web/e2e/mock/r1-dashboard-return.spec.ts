@@ -80,3 +80,29 @@ test('the Intake stage opens Not Finished as the selected filter', async ({ page
   );
   await expect(page.getByTestId('back-to-dashboard')).toBeVisible();
 });
+
+test("a past period's Total Clients opens the books at its end; Show today clears it (K1)", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await dashboardOn(page, 'Last Month');
+  const card = page.getByTestId('kpi-card').filter({ hasText: 'Total Clients' });
+  await expect(card).toHaveAttribute('href', /^\/clients\?asOf=\d{4}-\d{2}-\d{2}&back=dashboard$/);
+  await card.click();
+  const asOf = page.getByTestId('as-of-filter');
+  await expect(asOf).toContainText('On the books at the end of', { timeout: 60_000 });
+  await expect(page).toHaveURL(/[?&]asOf=\d{4}-\d{2}-\d{2}/);
+  await asOf.getByRole('button', { name: 'Show the clients on the books today' }).click();
+  await expect(asOf).toHaveCount(0);
+});
+
+test("Tax Returns shows a past period's statuses as they stood then (K4)", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/tax-returns?status=IN_PROGRESS&asOf=2026-10-31&back=dashboard'));
+  const asOf = page.getByTestId('as-of-filter');
+  await expect(asOf).toContainText('Status as it stood at the end of', { timeout: 60_000 });
+  await asOf.getByRole('button', { name: "Show each return's status today" }).click();
+  await expect(asOf).toHaveCount(0);
+  await expect(page.getByTestId('back-to-dashboard')).toBeVisible();
+});

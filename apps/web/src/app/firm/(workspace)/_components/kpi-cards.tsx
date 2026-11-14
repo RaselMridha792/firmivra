@@ -100,8 +100,11 @@ export function Trend({
   );
 }
 
-/** The global period's days (C1): the span the periodic cards count and their lists filter by. */
-type Span = { from: string; to: string } | null;
+/**
+ * The global period's days (C1): the span the periodic cards count and their lists filter by;
+ * `past` when it ended before today (its cards count the books as they stood then, K1).
+ */
+type Span = { from: string; to: string; past: boolean } | null;
 
 type FixedKey = 'totalClients' | 'newLeads' | 'outstandingInvoicesCents' | 'appointmentsToday';
 
@@ -127,7 +130,8 @@ const CARDS: {
     label: 'Total Clients',
     icon: UsersThree,
     tone: 'blue',
-    href: () => `/clients?${FROM_DASHBOARD}`,
+    // A period that ended before today: the clients on the books at its end (Review 2, K1).
+    href: (s) => `/clients?${s?.past ? `asOf=${s.to}&` : ''}${FROM_DASHBOARD}`,
     favour: 'up',
     periodic: true,
   },
@@ -180,11 +184,14 @@ export function serviceCardHref(card: DashboardServiceCard): string {
     set('acceptedFrom', q['acceptedFrom']);
     set('acceptedTo', q['acceptedTo']);
     set('serviceId', q['serviceId']);
+    // A past period's status card: the returns as they stood at its end (Review 2, K4).
+    set('asOf', q['asOf']);
   } else {
     set('service', q['serviceId']);
     set('engagement', q['engagementStatus']);
     set('completedFrom', q['completedFrom']);
     set('completedTo', q['completedTo']);
+    set('asOf', q['asOf']);
   }
   return `/${card.link.list}?${params.toString()}&${FROM_DASHBOARD}`;
 }
@@ -237,7 +244,10 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
       ));
   const fixed = CARDS.map(({ key, label, icon, tone, href: to, favour, periodic }) => {
     const kpi = summary.data?.kpis[key];
-    const href = to(range ? { from: range.from, to: range.to } : null);
+    const today = summary.data?.today;
+    const href = to(
+      range ? { from: range.from, to: range.to, past: !!today && range.to < today } : null,
+    );
     const value = kpi
       ? key === 'outstandingInvoicesCents'
         ? money(kpi.value)
