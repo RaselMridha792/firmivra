@@ -6,7 +6,7 @@ import {
   type PermissionModule,
   roleCan,
 } from '@firmivra/types';
-import { Skeleton } from '@firmivra/ui';
+import { Badge, Skeleton } from '@firmivra/ui';
 import {
   CalendarDots,
   ChatCircleDots,
@@ -171,7 +171,14 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
               <span className="flex size-12 items-center justify-center rounded-control border-2 border-heading text-heading">
                 <CalendarDots aria-hidden weight="fill" className="size-7" />
               </span>
-              <p className="text-lg font-medium text-heading">{dateText}</p>
+              <div>
+                <p className="text-lg font-medium text-heading">{dateText}</p>
+                <SeasonLine
+                  season={summary.data?.taxSeason}
+                  loaded={summary.isSuccess}
+                  manager={role === 'OWNER' || role === 'ADMIN'}
+                />
+              </div>
             </div>
           ) : null}
         </div>
@@ -288,5 +295,45 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
         </section>
       </div>
     </DashboardAddressContext>
+  );
+}
+
+const seasonDay = (d: string, year: boolean) =>
+  new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    ...(year ? { year: 'numeric' } : {}),
+  });
+
+/**
+ * Dashboard Review 2, "Tax season context": Tax Season or Off-Season beside the firm's date, from
+ * the firm's settings (System Preferences), never hard-coded. With none set, an Owner or Admin
+ * gets the way to set it; Staff see nothing.
+ */
+function SeasonLine({
+  season,
+  loaded,
+  manager,
+}: {
+  season: { start: string; end: string; inSeason: boolean } | null | undefined;
+  loaded: boolean;
+  manager: boolean;
+}) {
+  if (!loaded) return null;
+  if (!season)
+    return manager ? (
+      <DashboardLink href="/settings/preferences" className="text-sm font-medium text-link">
+        Set your tax season in Settings
+      </DashboardLink>
+    ) : null;
+  const dates = `${seasonDay(season.start, season.start.slice(0, 4) !== season.end.slice(0, 4))} – ${seasonDay(season.end, true)}`;
+  return (
+    <p data-testid="tax-season" className="flex flex-wrap items-center gap-2 text-sm text-muted">
+      <Badge tone={season.inSeason ? 'success' : 'neutral'}>
+        {season.inSeason ? 'Tax Season' : 'Off-Season'}
+      </Badge>
+      {season.inSeason ? dates : `Next tax season: ${dates}`}
+    </p>
   );
 }

@@ -73,6 +73,8 @@ export function settingsFixture(): FirmSettings {
     teamSize: 4,
     services: ['TAX_PREPARATION', 'BOOKKEEPING'],
     description: null,
+    taxSeasonStart: null,
+    taxSeasonEnd: null,
     updatedAt: at,
   });
   return settingsCache;
