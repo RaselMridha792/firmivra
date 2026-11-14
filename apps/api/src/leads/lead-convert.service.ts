@@ -679,18 +679,33 @@ export class LeadConvertService {
         scanStatus: true,
         scannedAt: true,
         uploadedByUserId: true,
+        intakeId: true,
       },
     });
+    // Item n: a file the lead added through a sent intake's link stays with that intake when the
+    // intake came across (it now has an engagement); otherwise it is the client's file only.
+    const linkIntakes = [...new Set(uploads.flatMap((u) => (u.intakeId ? [u.intakeId] : [])))];
+    const engagementOf = new Map(
+      (
+        await tx.intake.findMany({
+          where: { businessId, id: { in: linkIntakes } },
+          select: { id: true, engagementId: true },
+        })
+      ).map((i) => [i.id, i.engagementId]),
+    );
     for (const u of uploads) {
       const staff = u.uploadedByUserId !== null;
+      const linkEngagement = u.intakeId ? (engagementOf.get(u.intakeId) ?? null) : null;
+      const ownIntake = linkEngagement ? u.intakeId : null;
+      const intakeId = staff ? null : u.intakeId ? ownIntake : to.intakeId;
       await tx.document.create({
         data: {
           businessId,
           clientId: to.clientId,
-          engagementId: to.engagementId,
+          engagementId: linkEngagement ?? to.engagementId,
           leadUploadId: u.id,
-          intakeId: staff ? null : to.intakeId,
-          intakeSlot: !staff && to.intakeId ? u.slot : null,
+          intakeId,
+          intakeSlot: intakeId ? u.slot : null,
           direction: staff ? 'INTERNAL' : 'CLIENT_TO_FIRM',
           fileName: u.fileName,
           contentType: u.contentType,
