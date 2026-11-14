@@ -5,7 +5,7 @@ import {
   INTAKE_STATUS_LABELS,
   type IntakeFormKey,
 } from '@firmivra/types';
-import { Card, IconCircle, type PortalTint } from '@firmivra/ui';
+import { Button, Card, IconCircle, type PortalTint } from '@firmivra/ui';
 import {
   ArrowRight,
   BriefcaseBusiness,
@@ -23,10 +23,11 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { ButtonLink } from '../../../../(public)/_components/button-link';
 import { api } from '../../../../../../../lib/api';
-import { useApiQuery } from '../../../../../../../lib/query';
+import { errorMessage } from '../../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { FORMS } from './forms';
 
 /** Each card's icon and circle colour, measured from Intake form tab.png (R61). */
@@ -106,6 +107,7 @@ export function IntakeCards() {
             </span>
           </li>
         </ul>
+        <PublishedForms slug={slug} />
       </Card>
       <IntakeOverview slug={slug} />
     </div>
@@ -154,6 +156,73 @@ function SentForms({ slug }: { slug: string }) {
         ))}
       </ul>
     </Card>
+  );
+}
+
+/**
+ * INTAKE-ACCESS-02 part B: the forms the firm published in the client portal, beside the standard
+ * ones, for every client whatever their services. Start makes the client's own form of it (a
+ * service request the firm reviews) and opens it; Continue opens the one already started. Only the
+ * primary login starts one (the API answers 403 otherwise, said here).
+ */
+function PublishedForms({ slug }: { slug: string }) {
+  const router = useRouter();
+  const forms = useApiQuery(['portal', slug, 'intake-forms'], () => api.myIntakes(slug).forms());
+  const start = useApiMutation((templateId: string) => api.myIntakes(slug).startForm(templateId), {
+    invalidate: ['portal', slug],
+  });
+  const items = forms.data ?? [];
+  if (!items.length) return null;
+  return (
+    <ul
+      aria-label="More forms from your firm"
+      className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:w-3/4 xl:grid-cols-3"
+    >
+      {items.map((f) => {
+        const { icon, tint } = CARD_ICONS[f.form];
+        return (
+          <li
+            key={f.templateId}
+            data-testid="portal-form"
+            className="col-span-full flex min-w-0 flex-col items-center gap-2 rounded-card border border-folder-border bg-surface p-3 text-center shadow-card sm:col-span-1"
+          >
+            <IconCircle icon={icon} tint={tint} />
+            <h2 className="flex-1 font-display text-base font-bold leading-tight text-heading">
+              {f.title}
+            </h2>
+            {f.intakeId ? (
+              <ButtonLink
+                href={`/${slug}/intake/${f.intakeId}`}
+                aria-label={`Continue ${f.title}`}
+                className={primaryButton}
+              >
+                Continue Form
+              </ButtonLink>
+            ) : (
+              <Button
+                aria-label={`Start ${f.title}`}
+                disabled={start.isPending}
+                className={`w-full ${primaryButton}`}
+                onClick={() =>
+                  start.mutate(f.templateId, {
+                    onSuccess: (intake) => router.push(`/${slug}/intake/${intake.id}`),
+                  })
+                }
+              >
+                Start Form <ArrowRight aria-hidden className="size-4" />
+              </Button>
+            )}
+            {start.isError && start.variables === f.templateId ? (
+              <p role="alert" className="text-xs text-danger">
+                {errorMessage(start.error, {
+                  FORBIDDEN: 'Only the main account holder can start a form.',
+                })}
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

@@ -24,6 +24,8 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { portalAuth } from '../../../../../../lib/auth';
+import { refreshSession } from '../../../../../../lib/session';
 import { uploadFile } from '../../../../../../lib/upload';
 import { usePortal } from '../../../layout';
 import { IntakeStepper, SectionPanel } from './form-blocks';
@@ -274,11 +276,65 @@ export function SharedIntakePage({
             This form link is not available any more. Ask the firm for a new one.
           </p>
         ) : (
-          <PageState query={shared} isEmpty={() => false}>
-            {(found) => <SharedForm firmSlug={firmSlug} token={token} found={found} />}
-          </PageState>
+          <>
+            <SignedInStart firmSlug={firmSlug} token={token} />
+            <PageState query={shared} isEmpty={() => false}>
+              {(found) => <SharedForm firmSlug={firmSlug} token={token} found={found} />}
+            </PageState>
+          </>
         )}
       </PageContainer>
+    </div>
+  );
+}
+
+/** This browser's client session at the firm, refreshed once as the portal's pages do. */
+async function clientSession(slug: string) {
+  const auth = portalAuth(slug);
+  try {
+    return await auth.me();
+  } catch (e) {
+    const unauthorized = e instanceof ApiRequestError && e.status === 401;
+    if (!unauthorized || !(await refreshSession(() => auth.refresh()))) throw e;
+    return auth.me();
+  }
+}
+
+/**
+ * INTAKE-ACCESS-02 decision 3: a client of the firm signed in on this browser can fill the shared
+ * form in their portal instead (their own form, on a service the firm reviews). Nothing shows for
+ * anyone else, and nothing here sends a visitor to sign in.
+ */
+function SignedInStart({ firmSlug, token }: { firmSlug: string; token: string }) {
+  const router = useRouter();
+  const me = useApiQuery(['portal-me', firmSlug, 'share'], () => clientSession(firmSlug));
+  const start = useApiMutation(() => api.myIntakes(firmSlug).startShared(token));
+  if (me.data?.clientAccounts[0]?.status !== 'ACTIVE') return null;
+  return (
+    <div
+      data-testid="share-signed-in"
+      className="mx-auto mb-3 flex max-w-2xl flex-wrap items-center gap-3 rounded-control border border-folder-border bg-folder-surface p-3 text-sm text-heading"
+    >
+      <p className="min-w-0 flex-1">
+        You are signed in to your portal. Fill this form there, with your account.
+      </p>
+      <Button
+        disabled={start.isPending}
+        onClick={() =>
+          start.mutate(undefined, {
+            onSuccess: (intake) => router.push(`/${firmSlug}/intake/${intake.id}`),
+          })
+        }
+      >
+        Open in My Portal
+      </Button>
+      {start.isError ? (
+        <p role="alert" className="w-full text-sm text-danger">
+          {errorMessage(start.error, {
+            FORBIDDEN: 'Only the main account holder can start a form.',
+          })}
+        </p>
+      ) : null}
     </div>
   );
 }

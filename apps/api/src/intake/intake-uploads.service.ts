@@ -217,7 +217,11 @@ export class IntakeUploadsService {
   ): Promise<{ engagementId: string; taxYear: number | null }> {
     const intake = await this.lockIntake(tx, who, intakeId);
     const engagement = intake.engagement!;
-    if (engagement.status !== 'ACTIVE') throw refusal('NO_OPEN_SERVICE');
+    // A PENDING service (a client's own start of a form, INTAKE-ACCESS-02) takes files into its
+    // open intake only; the database checks the same.
+    if (engagement.status !== 'ACTIVE' && engagement.status !== 'PENDING') {
+      throw refusal('NO_OPEN_SERVICE');
+    }
     const definition = readDefinition(intake.form, engagement.service.kind);
     const field = intakeFields(definition).find((f) => f.key === slot);
     if (field?.type !== 'upload') {

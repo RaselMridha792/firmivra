@@ -76,6 +76,7 @@ import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './in
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService, type PortalClient } from './intakes.service.js';
 import { PortalTabRoute, PortalTabsModule } from '../client-portal/portal-tabs.js';
+import { IntakeSelfService, MyIntakeFormsController } from './intake-self-service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
 const clientIdPipe = new ZodValidationPipe(ClientId);
@@ -442,8 +443,13 @@ export class IntakesController {
     IntakeWorkspaceModule,
     PortalTabsModule,
   ],
-  controllers: [MyIntakesController, ClientIntakesController, IntakesController],
-  providers: [IntakesService, IntakeUploadsService, INTAKE_SIGNING_PROVIDER],
+  controllers: [
+    MyIntakesController,
+    MyIntakeFormsController,
+    ClientIntakesController,
+    IntakesController,
+  ],
+  providers: [IntakesService, IntakeUploadsService, IntakeSelfService, INTAKE_SIGNING_PROVIDER],
   exports: [IntakesService, INTAKE_SIGNING],
 })
 export class IntakesModule {}
