@@ -151,6 +151,14 @@ describe('documents CORS', () => {
   });
 });
 
+describe('API environment', () => {
+  it('logs texts on dev instead of sending them, until the toll-free number is registered', () => {
+    const defs = JSON.stringify(t('app').findResources('AWS::ECS::TaskDefinition'));
+    expect(defs).toContain('{"Name":"SMS_MODE","Value":"log"}');
+    expect(defs).not.toContain('{"Name":"SMS_MODE","Value":"sns"}');
+  });
+});
+
 describe('auth (docs/AUTH-DESIGN.md)', () => {
   const pool = (name: string) =>
     Object.values(
