@@ -1677,7 +1677,9 @@ export function NextSteps({ detail }: { detail: TaxReturnDetail }) {
       b === 'ORIGINAL_NOT_FILED' ||
       b === 'NO_FILING_TRANSMITTED' ||
       b === 'FILINGS_NOT_ACCEPTED' ||
-      b === 'VALIDATION_ISSUES_OPEN',
+      b === 'VALIDATION_ISSUES_OPEN' ||
+      // Review 2 (TX-F20): an Error line blocks every filing record, also after Ready to File.
+      b === 'VALIDATION_ERRORS',
   );
   return (
     <Panel title="Next Steps" testId="next-steps">

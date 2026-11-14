@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type {
+  TaxReturnBlocker,
   EfileReport,
   MailingReport,
   TaxApprovalList,
@@ -144,7 +145,14 @@ export class TaxReturnReviewService {
     });
     if (issues === 0 && lines === 0) return;
     const r = await tx.taxReturn.findUniqueOrThrow({ where: { id }, select: detailSelect });
-    throw conflict('STATUS_BLOCKED', ISSUES_BLOCK, { blockers: blockersOf(r) });
+    // The return's own blockers, and always the reasons this gate found (whatever its status).
+    const found: TaxReturnBlocker[] = [
+      ...(issues ? (['VALIDATION_ISSUES_OPEN'] as const) : []),
+      ...(lines ? (['VALIDATION_ERRORS'] as const) : []),
+    ];
+    throw conflict('STATUS_BLOCKED', ISSUES_BLOCK, {
+      blockers: [...new Set([...blockersOf(r), ...found])],
+    });
   }
 
   // ---------- Filings and transmissions ----------
