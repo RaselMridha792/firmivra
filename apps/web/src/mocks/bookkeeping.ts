@@ -2281,6 +2281,9 @@ export function createBookkeepingMock({
         if (r.status === 'APPROVED' || r.status === 'READY_FOR_REVIEW')
           throw fail(409, 'RECON_STATE', 'Reopen this reconciliation to change it.');
         if (input.statementStart) r.statementStart = input.statementStart;
+        // Review 2 (R01c): the attached statement, as the API keeps it.
+        if (input.statementDocumentId !== undefined)
+          r.statementDocumentId = input.statementDocumentId;
         if (input.statementEnd) r.statementEnd = input.statementEnd;
         if (input.beginningBalanceCents !== undefined)
           r.beginningBalanceCents = input.beginningBalanceCents;
@@ -2329,6 +2332,12 @@ export function createBookkeepingMock({
           throw fail(409, 'RECON_STATE', 'Only a reconciliation in review can be approved.');
         const { p } = reconAt(rid);
         applyFigures(p, r);
+        if (!r.statementDocumentId)
+          throw fail(
+            409,
+            'STATEMENTS_MISSING',
+            'Attach the bank or credit card statement for this account and period, then approve.',
+          );
         if (!r.withinTolerance) throw fail(409, 'RECON_DIFFERENCE', 'The difference must be zero.');
         if (r.exceptionsCount > 0)
           throw fail(409, 'RECON_STATE', 'Resolve the open exceptions first.');
