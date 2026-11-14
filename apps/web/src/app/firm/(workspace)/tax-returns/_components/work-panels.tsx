@@ -47,6 +47,8 @@ const FRAME2: Record<TaxReturnWorkflowStatus, number> = {
   READY_TO_FILE: 4,
   TRANSMITTED: 4,
   REJECTED: 4,
+  // Review 2: correcting a rejected return is preparation again.
+  IN_CORRECTION: 1,
   ACCEPTED: 5,
   CLOSED: 6,
 };
@@ -59,6 +61,8 @@ const FRAME3: Record<TaxReturnWorkflowStatus, number> = {
   READY_TO_FILE: 3,
   TRANSMITTED: 4,
   REJECTED: 4,
+  // Review 2: correcting a rejected return is preparation again.
+  IN_CORRECTION: 1,
   ACCEPTED: 5,
   CLOSED: 6,
 };
