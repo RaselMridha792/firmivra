@@ -22,6 +22,25 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** G8: client X's engagement on hold (what Resume takes). */
+  pausedEngagement: {
+    clientPrivate: true,
+    async create({ tx, businessId, own, get, owner }) {
+      const row = await tx.engagement.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          serviceId: own.service,
+          title: 'Fake paused return',
+          taxYear: 2025,
+          pausedAt: new Date(),
+          pausedReason: 'Fake: client travelling',
+          pausedByUserId: owner.id,
+        },
+      });
+      return row.id;
+    },
+  },
   /** Client X's bookkeeping engagement: recurring, with a workspace and reports. */
   workspace: {
     clientPrivate: true,
@@ -54,7 +73,7 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'engagement' },
     body: { reason: 'Fake: client travelling' },
   },
-  'POST /api/v1/business/engagements/:id/resume': { params: { id: 'engagement' } },
+  'POST /api/v1/business/engagements/:id/resume': { params: { id: 'pausedEngagement' } },
   'PATCH /api/v1/business/engagements/:id': {
     params: { id: 'engagement' },
     bodyIds: { assignedUserId: 'staffUser' },
