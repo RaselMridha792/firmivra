@@ -7,6 +7,7 @@ import {
   CreateAppointmentTypeRequest,
   type LocationKind,
   type MeetingMethod,
+  publicItemUrl,
 } from '@firmivra/types';
 import {
   Badge,
@@ -23,8 +24,10 @@ import { ArrowLeft, GearSix, ListChecks, Plus } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
+import { PublicLinkSection } from '../../../../../../components/public-link';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
+import { publicLinkText } from '../../../../../../lib/public-link';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { BackToWorkflow } from '../../../settings/workflow/_components/back-to-workflow';
 import { RowMenu } from '../../../team/_components/row-menu';
@@ -68,6 +71,17 @@ const TYPE_ERRORS: Record<string, string> = {
 const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
 
+type Tone = 'success' | 'warning' | 'error';
+const TONE: Record<Tone, string> = {
+  success: 'text-success',
+  warning: 'text-warning',
+  error: 'text-danger',
+};
+
+/** Review 2 (row 3): whether a type's booking link takes bookings, as the API says it. */
+const linkState = (t: AppointmentType) =>
+  t.archivedAt ? 'ARCHIVED' : t.clientBookable ? 'LIVE' : 'HIDDEN';
+
 /**
  * Octavia's A3 and Review 2 (P1 row 2): how far ahead clients can book: 2, 6 or 12 hours (kept in
  * hours), then whole days (1 to 730; 730 is no limit). A choice is "h6" or "d3".
@@ -103,16 +117,25 @@ const withCurrent = (presets: number[], current: number) =>
  * (`api.scheduling.typeConfig`: description, methods, buffers, notice, booking window, default
  * reminder). Owner and Admin change them; everyone else reads. Opened from Settings > Workflow &
  * Automations (`fromWorkflow`), Back to Workflow & Automations sits beside Back to Appointments.
+ * Review 2 (row 3): every type's menu has Copy Booking Link (`portalBase`, the portal's address
+ * from config) and Copy Embed Code, for everyone at the firm, and its settings show both.
  */
-export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }) {
-  const { role } = useFirm();
+export function TypesScreen({
+  fromWorkflow = false,
+  portalBase = '',
+}: {
+  fromWorkflow?: boolean;
+  portalBase?: string;
+}) {
+  const { role, firm } = useFirm();
   const manages = role === 'OWNER' || role === 'ADMIN';
   const types = useApiQuery([...TYPES_KEY, 'all'], () =>
     api.appointmentTypes.list({ status: 'all' }),
   );
   const [editing, setEditing] = useState<AppointmentType | 'new' | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<{ text: string; tone: Tone } | null>(null);
+  const [embedding, setEmbedding] = useState<AppointmentType | null>(null);
   const toggle = useApiMutation(
     (t: AppointmentType) =>
       t.archivedAt ? api.appointmentTypes.restore(t.id) : api.appointmentTypes.archive(t.id),
@@ -120,6 +143,39 @@ export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
   );
   const list = types.data ?? [];
   const selected = list.find((t) => t.id === picked) ?? list.find((t) => !t.archivedAt);
+
+  // Review 2 (row 3): the type's own link, on the portal host from config. A link that takes no
+  // bookings is still copied (it stays the same), with what the client will see.
+  const copyBookingLink = (t: AppointmentType) => {
+    toggle.reset();
+    const url = portalBase ? publicItemUrl(portalBase, firm.slug, 'APPOINTMENT_TYPE', t.id) : '';
+    // Without the address here, the dialog reads the link from the API.
+    if (!url) {
+      setEmbedding(t);
+      return;
+    }
+    const notice = publicLinkText('APPOINTMENT_TYPE', linkState(t)).notice;
+    void Promise.resolve()
+      .then(() => navigator.clipboard.writeText(url))
+      .then(
+        () =>
+          setMessage(
+            notice
+              ? { text: `Booking link for ${t.name} copied. ${notice}`, tone: 'warning' }
+              : {
+                  text: `Booking link for ${t.name} copied. It opens booking for this type in your client portal.`,
+                  tone: 'success',
+                },
+          ),
+        () => {
+          setMessage({
+            text: 'The link could not be copied. Copy it from the box.',
+            tone: 'error',
+          });
+          setEmbedding(t);
+        },
+      );
+  };
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -157,11 +213,11 @@ export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
 
       {message || toggle.error ? (
         <p
-          role={toggle.error ? 'alert' : 'status'}
+          role={toggle.error || message?.tone === 'error' ? 'alert' : 'status'}
           data-testid="types-result"
-          className={`text-sm ${toggle.error ? 'text-danger' : 'text-success'}`}
+          className={`text-sm ${toggle.error ? 'text-danger' : TONE[message?.tone ?? 'success']}`}
         >
-          {toggle.error ? errorMessage(toggle.error, TYPE_ERRORS) : message}
+          {toggle.error ? errorMessage(toggle.error, TYPE_ERRORS) : message?.text}
         </p>
       ) : null}
 
@@ -214,30 +270,36 @@ export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
                   ),
               },
             ]}
-            rowActions={(t) =>
-              manages ? (
-                <RowMenu
-                  label={`Actions for ${t.name}`}
-                  items={[
-                    { label: 'Edit', onSelect: () => setEditing(t) },
-                    { label: 'Settings', onSelect: () => setPicked(t.id) },
-                    {
-                      label: t.archivedAt ? 'Restore' : 'Archive',
-                      danger: !t.archivedAt,
-                      onSelect: () =>
-                        toggle.mutate(t, {
-                          onSuccess: () =>
-                            setMessage(
-                              t.archivedAt
-                                ? `${t.name} is active again.`
-                                : `${t.name} is archived; past appointments keep it.`,
-                            ),
-                        }),
-                    },
-                  ]}
-                />
-              ) : null
-            }
+            rowActions={(t) => (
+              <RowMenu
+                label={`Actions for ${t.name}`}
+                items={[
+                  ...(manages ? [{ label: 'Edit', onSelect: () => setEditing(t) }] : []),
+                  { label: 'Settings', onSelect: () => setPicked(t.id) },
+                  // Review 2 (row 3): every type, for everyone at the firm.
+                  { label: 'Copy Booking Link', onSelect: () => copyBookingLink(t) },
+                  { label: 'Copy Embed Code', onSelect: () => setEmbedding(t) },
+                  ...(manages
+                    ? [
+                        {
+                          label: t.archivedAt ? 'Restore' : 'Archive',
+                          danger: !t.archivedAt,
+                          onSelect: () =>
+                            toggle.mutate(t, {
+                              onSuccess: () =>
+                                setMessage({
+                                  text: t.archivedAt
+                                    ? `${t.name} is active again.`
+                                    : `${t.name} is archived; past appointments keep it.`,
+                                  tone: 'success',
+                                }),
+                            }),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            )}
             emptyTitle={types.isError ? 'Types are not available' : 'No appointment types yet'}
             emptyText={
               types.isError ? NOT_LOADED : 'Add the first kind of appointment your firm offers.'
@@ -251,7 +313,12 @@ export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
             {selected ? `${selected.name} Settings` : 'Type Settings'}
           </h2>
           {selected ? (
-            <TypeSettings key={selected.id} type={selected} manages={manages} />
+            <>
+              <TypeSettings key={selected.id} type={selected} manages={manages} />
+              <div data-testid="type-booking-link" className="border-t border-divider pt-3">
+                <BookingLinkBlock key={selected.id} type={selected} />
+              </div>
+            </>
           ) : types.isPending ? (
             <Skeleton className="h-64" />
           ) : (
@@ -268,11 +335,62 @@ export function TypesScreen({ fromWorkflow = false }: { fromWorkflow?: boolean }
           onClose={() => setEditing(null)}
           onDone={(text) => {
             setEditing(null);
-            setMessage(text);
+            setMessage({ text, tone: 'success' });
           }}
         />
       ) : null}
+      {embedding ? <EmbedDialog type={embedding} onClose={() => setEmbedding(null)} /> : null}
     </div>
+  );
+}
+
+/**
+ * Review 2 (row 3): the type's booking link and its website button, from the API
+ * (`api.appointmentTypes.publicLink`), in the shared Copy link / embed block. The block says
+ * when the link takes no bookings (archived, or clients can't book the type online).
+ */
+function BookingLinkBlock({ type }: { type: AppointmentType }) {
+  const link = useApiQuery([...TYPES_KEY, 'public-link', type.id], () =>
+    api.appointmentTypes.publicLink(type.id),
+  );
+  return (
+    <PublicLinkSection
+      kind="APPOINTMENT_TYPE"
+      link={link.data}
+      emptyText={
+        link.isError
+          ? 'The booking link is not available right now. Try again in a moment.'
+          : link.isPending
+            ? 'Loading the booking link…'
+            : undefined
+      }
+    />
+  );
+}
+
+/**
+ * Copy Embed Code: the code is a button that opens the type's booking page, and the dialog says
+ * why it is not an embedded page.
+ */
+function EmbedDialog({ type, onClose }: { type: AppointmentType; onClose: () => void }) {
+  return (
+    <Modal open title={`Embed Code for ${type.name}`} onClose={onClose}>
+      <div data-testid="type-embed-dialog" className="flex flex-col gap-4">
+        <p className="text-sm text-text">
+          Put a Book button on your website: paste the embed code where the button should show. It
+          opens booking for {type.name} in your client portal, in a new tab.
+        </p>
+        <p data-testid="embed-why-button" className="rounded-lg bg-subtle p-3 text-sm text-text">
+          <span className="font-semibold text-heading">
+            Why a button and not an embedded page:{' '}
+          </span>
+          booking needs your client to sign in to your portal, and browsers don&apos;t let the
+          portal&apos;s secure sign-in work inside another website&apos;s frame. The button opens
+          the booking page itself instead.
+        </p>
+        <BookingLinkBlock type={type} />
+      </div>
+    </Modal>
   );
 }
 
