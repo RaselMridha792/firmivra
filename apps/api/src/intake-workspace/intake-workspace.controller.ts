@@ -137,7 +137,7 @@ export class IntakeFormsController {
     @Param('id', formIdPipe) id: string,
     @Body(new ZodValidationPipe(DuplicateFormBody)) body: Out<typeof DuplicateFormBody>,
   ): Promise<IntakeFormDetail> {
-    return this.builder.duplicate(tenant, auth.userId, id, body.asTemplate);
+    return this.builder.duplicate(tenant, auth.userId, id, body.asTemplate, body.formId);
   }
 
   @Post(':id/archive')

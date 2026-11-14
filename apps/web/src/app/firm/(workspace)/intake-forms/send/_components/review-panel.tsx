@@ -1,5 +1,7 @@
 'use client';
 
+import { type Expiry, expiryText, useFirmTimeZone } from '../../_components/expiry';
+import { toInstant } from '../../../calendar/_components/time';
 import {
   ChatText,
   CheckCircle,
@@ -171,6 +173,7 @@ export function ReviewPanel({
   onAnother: () => void;
 }) {
   const summaryId = useId();
+  const timeZone = useFirmTimeZone();
   const c = choices;
   const ready = missing.length === 0;
   return (
@@ -190,7 +193,7 @@ export function ReviewPanel({
           <Row label="Recipient">{c.recipient?.name ?? 'Not selected'}</Row>
           <Row label="Delivery Method">{deliverySummary(c.recipient, c.channel)}</Row>
           <Row label="Due Date">{c.dueOn ? formatDay(c.dueOn) : 'Not set'}</Row>
-          <Row label="Expiration Date">{c.expiresOn ? formatDay(c.expiresOn) : 'Not set'}</Row>
+          <Row label="Expiration">{expirySummary(c.expiry, timeZone)}</Row>
           <Row label="Assigned To">{c.assignee?.name ?? 'Not assigned'}</Row>
           <Row label="Reminders">
             {c.reminders ? (
@@ -274,4 +277,12 @@ export function ReviewPanel({
       )}
     </Panel>
   );
+}
+
+/** EXPIRY-01: the summary's Expiration, with its exact time and zone when one is chosen. */
+function expirySummary(e: Expiry, timeZone: string | undefined): string {
+  if (e.mode === 'DEFAULT') return 'The form’s default';
+  if (e.mode === 'NONE') return 'Never expires';
+  if (!e.date || !timeZone) return 'Not set';
+  return expiryText(toInstant(e.date, e.time || '23:59', timeZone), timeZone);
 }

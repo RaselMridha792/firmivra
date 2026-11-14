@@ -20,6 +20,8 @@ import {
   SendDraft,
   SendIntakeFormResult,
   AppointmentRecord,
+  addDays,
+  zonedInstant,
   AppointmentTypeConfig,
 } from '@firmivra/types';
 import { z } from 'zod';
@@ -122,6 +124,13 @@ const { ownerA, adminA, staffA, otherStaffA, ownerB, portalClient } = people;
 const ids = {} as Record<string, string>;
 const future = (days: number) =>
   new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+/** EXPIRY-01: a day's end (11:59:59.999 PM) in the firm's time zone (the default, New York). */
+const NY = 'America/New_York';
+const nyEnd = (day: string) =>
+  new Date(zonedInstant(day, '23:59', NY).getTime() + 59_999).toISOString();
+const nyDay = (days: number) =>
+  addDays(new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(new Date()), days);
+const LATER = 'Choose an expiration date and time later than now.';
 const auditCount = (action: string, entityId: string) =>
   inFirm('a', (tx) =>
     tx.auditLog.count({ where: { businessId: firms.a, action, entityType: 'intake', entityId } }),
@@ -400,7 +409,8 @@ describe('send a form', () => {
       assignedTo: { userId: staffA.id },
       dueOn: future(5),
     });
-    expect(res.form.expiresOn).toBe(future(14));
+    // EXPIRY-01: the default (14 days) ends at 11:59 PM in the firm's time zone.
+    expect(res.form.expiresAt).toBe(nyEnd(nyDay(14)));
     ids.sent = res.form.id;
     const again = SendIntakeFormResult.parse(ok(await call('post', '/intakes/send', staffA, body)));
     expect(again.form.id).toBe(ids.sent);
@@ -762,7 +772,8 @@ describe('one form', () => {
       ),
     );
     expect(r.assignedTo?.userId).toBe(adminA.id);
-    expect(r.expiresOn).toBe(future(30));
+    // A whole day ends at 11:59 PM in the firm's time zone (EXPIRY-01).
+    expect(r.expiresAt).toBe(nyEnd(future(30)));
     expect(r.history.map((e) => e.kind)).toEqual(['SENT', 'ASSIGNED', 'EXTENDED']);
     expectError(
       await call('patch', `/intakes/${ids.sent}`, ownerA, { dueOn: future(40) }),
@@ -779,6 +790,65 @@ describe('one form', () => {
       ok(await call('patch', `/intakes/${ids.expired}`, ownerA, { expiresOn: future(7) })),
     );
     expect(reopened.status).toBe('SENT');
+  });
+
+  it('EXPIRY-01: an exact expiration later than now, refused on its own field otherwise; null never expires', async () => {
+    const soon = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    const r = AssignedFormRecord.parse(
+      ok(await call('patch', `/intakes/${ids.sent}`, ownerA, { dueOn: null, expiresAt: soon })),
+    );
+    expect(r.expiresAt).toBe(soon);
+    for (const expiresAt of [
+      new Date(Date.now() - 60_000).toISOString(),
+      new Date().toISOString(),
+    ]) {
+      const late = await call('patch', `/intakes/${ids.sent}`, ownerA, { expiresAt });
+      expectError(late, 400, 'VALIDATION_FAILED');
+      expect((late.body as { error: { details?: unknown } }).error.details).toEqual([
+        { path: 'expiresAt', message: LATER },
+      ]);
+    }
+    expectError(
+      await call('patch', `/intakes/${ids.sent}`, ownerA, {
+        expiresAt: soon,
+        expiresOn: future(3),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const never = AssignedFormRecord.parse(
+      ok(await call('patch', `/intakes/${ids.sent}`, ownerA, { expiresAt: null })),
+    );
+    expect(never.expiresAt).toBeNull();
+    // A send refuses a time that has passed on the same field, and sends nothing.
+    const eve = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Eve Expiry (fake)',
+          email: `eve-${run}@client.test`,
+        },
+        select: { id: true },
+      });
+      await tx.engagement.create({
+        data: { businessId: firms.a, clientId: c.id, serviceId: ids.service!, title: 'Eve tax' },
+      });
+      return c.id;
+    });
+    const refused = await call(
+      'post',
+      '/intakes/send',
+      ownerA,
+      sendBody({
+        recipient: { kind: 'CLIENT', id: eve },
+        channel: 'EMAIL',
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    );
+    expectError(refused, 400, 'VALIDATION_FAILED');
+    expect((refused.body as { error: { details?: unknown } }).error.details).toEqual([
+      { path: 'expiresAt', message: LATER },
+    ]);
   });
 
   it('resends and reminds an open form only', async () => {
@@ -968,6 +1038,19 @@ describe('the form builder', () => {
     expect(from.sections.map((s) => s.key)).toEqual(original.sections.map((s) => s.key));
     const copy = IntakeFormDetail.parse(
       ok(await call('post', `/intake-forms/${ids.built}/duplicate`, adminA, {}), 201),
+    );
+    // USABILITY-03: an assigned form's own version, copied exactly; never another template's.
+    const fromVersion = IntakeFormDetail.parse(
+      ok(
+        await call('post', `/intake-forms/${ids.template}/duplicate`, ownerA, { formId: ids.form }),
+        201,
+      ),
+    );
+    expect(fromVersion).toMatchObject({ status: 'DRAFT', name: 'Copy of Annual Tax Intake' });
+    expectError(
+      await call('post', `/intake-forms/${ids.built}/duplicate`, ownerA, { formId: ids.form }),
+      404,
+      'NOT_FOUND',
     );
     expect(copy.id).not.toBe(ids.built);
     expect(copy).toMatchObject({
