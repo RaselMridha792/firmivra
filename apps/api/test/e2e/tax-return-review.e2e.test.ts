@@ -417,6 +417,22 @@ describe('filings', () => {
       status: 'REJECTED',
       attempts: [{ ackStatus: 'REJECTED', rejectingAgency: 'IRS', rejectCode: 'IND-031' }],
     });
+    // Review 2 (TX-F24): the rejection made its corrective task, linked to the attempt (no
+    // preparer on this return, so it waits unassigned), on the return's client.
+    const corrective = rejected.items[0]!.attempts[0]!.correctiveTask!;
+    expect(corrective).toMatchObject({
+      title: 'Correct the IRS rejection IND-031',
+      status: 'OPEN',
+      owner: null,
+    });
+    const taskRow = await inFirm('a', (tx) =>
+      tx.task.findUniqueOrThrow({
+        where: { id: corrective.id },
+        select: { clientId: true, priority: true, details: true },
+      }),
+    );
+    expect(taskRow).toMatchObject({ clientId: ids.c1, priority: 'HIGH' });
+    expect(taskRow.details).toContain('Corrective action: Fix the prior-year AGI');
     const moved = ok(
       await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'REJECTED' }),
       TaxReturnDetail,
@@ -809,6 +825,96 @@ describe('review', () => {
         TaxReturnDocumentList,
       ).items.map((d) => d.kind),
     ).toEqual(['FILED_RETURN']);
+  });
+});
+
+describe('TX-F16: Correct Tax Year (Review 2)', () => {
+  it('needs a reason, never lands on another return, and on a filed return needs the reviewer', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2023,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    expectError(
+      await call('post', `/tax-returns/${fresh.id}/tax-year`, ownerA, { taxYear: 2022 }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/tax-returns/${fresh.id}/tax-year`, ownerA, {
+        taxYear: 2023,
+        reason: 'Fake: same year',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // The client's 2025 Form 1040 already exists: named, never overwritten.
+    const clash = await call('post', `/tax-returns/${fresh.id}/tax-year`, ownerA, {
+      taxYear: 2025,
+      reason: 'Fake: entered as 2023 by mistake',
+    });
+    expectError(clash, 409, 'DUPLICATE_RETURN');
+    expect((clash.body as { error: { details: { taxReturnId: string } } }).error.details).toEqual({
+      taxReturnId: ids.r,
+    });
+    const corrected = ok(
+      await call('post', `/tax-returns/${fresh.id}/tax-year`, staffA, {
+        taxYear: 2022,
+        reason: 'Fake: entered as 2023 by mistake',
+      }),
+      TaxReturnDetail,
+    );
+    expect([corrected.taxYear, corrected.filedTaxYear]).toEqual([2022, null]);
+    const [row] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'tax_return.tax_year_corrected', entityId: fresh.id },
+        select: { metadata: true, actorUserId: true },
+      }),
+    );
+    expect(row).toMatchObject({
+      actorUserId: staffA.id,
+      metadata: { from: 2023, to: 2022, reason: 'Fake: entered as 2023 by mistake', filed: false },
+    });
+
+    // A filed return (R10's way, status FILED with its date; the database stamps the year it
+    // was filed under): Staff may not correct it; its reviewer may, and the filed year stays.
+    const filedId = (
+      await inFirm('a', (tx) =>
+        tx.taxReturn.create({
+          data: {
+            businessId: firms.a,
+            clientId: ids.c1!,
+            taxYear: 2021,
+            filingType: 'INDIVIDUAL',
+            formType: '1040',
+            status: 'FILED',
+            filedOn: new Date('2022-04-10T00:00:00Z'),
+            reviewerUserId: adminA.id,
+          },
+        }),
+      )
+    ).id;
+    expectError(
+      await call('post', `/tax-returns/${filedId}/tax-year`, staffA, {
+        taxYear: 2020,
+        reason: 'Fake: the wrong year',
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    const filed = ok(
+      await call('post', `/tax-returns/${filedId}/tax-year`, adminA, {
+        taxYear: 2020,
+        reason: 'Fake: the wrong year',
+      }),
+      TaxReturnDetail,
+    );
+    expect([filed.taxYear, filed.filedTaxYear]).toEqual([2020, 2021]);
   });
 });
 

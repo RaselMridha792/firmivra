@@ -149,7 +149,21 @@ export class TaxReturnReviewService {
     const rows = await tx.taxReturnFiling.findMany({
       where: { businessId, taxReturnId: id },
       orderBy: [{ createdAt: 'asc' }, { jurisdiction: 'asc' }],
-      include: { attempts: { orderBy: [{ transmittedAt: 'desc' }, { createdAt: 'desc' }] } },
+      include: {
+        attempts: {
+          orderBy: [{ transmittedAt: 'desc' }, { createdAt: 'desc' }],
+          include: {
+            correctiveTask: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                assignedMember: { select: { userId: true, user: { select: { name: true } } } },
+              },
+            },
+          },
+        },
+      },
     });
     const names = await memberNames(
       tx,
@@ -182,6 +196,19 @@ export class TaxReturnReviewService {
         rejectingAgency: a.rejectingAgency,
         correctiveAction: a.correctiveAction,
         recordedBy: memberRef(names, a.recordedByUserId),
+        correctiveTask: a.correctiveTask
+          ? {
+              id: a.correctiveTask.id,
+              title: a.correctiveTask.title,
+              status: a.correctiveTask.status,
+              owner: a.correctiveTask.assignedMember
+                ? {
+                    userId: a.correctiveTask.assignedMember.userId,
+                    name: a.correctiveTask.assignedMember.user.name,
+                  }
+                : null,
+            }
+          : null,
         createdAt: a.createdAt.toISOString(),
       })),
     }));
@@ -374,7 +401,12 @@ export class TaxReturnReviewService {
       await this.reach(tx, tenant, userId, id, true);
       const a = await tx.taxReturnFilingAttempt.findFirst({
         where: { businessId, id: attemptId, filing: { taxReturnId: id } },
-        select: { id: true, ackStatus: true, transmittedAt: true },
+        select: {
+          id: true,
+          ackStatus: true,
+          transmittedAt: true,
+          filing: { select: { jurisdiction: true } },
+        },
       });
       if (!a) throw notFound();
       if (body.ackStatus === 'NOTE') {
@@ -406,6 +438,52 @@ export class TaxReturnReviewService {
               : {}),
           },
         });
+        // Review 2 (TX-F24): a rejection makes the corrective task, for the return's preparer
+        // (unassigned when there is none or they left), linked to the attempt.
+        if (body.ackStatus === 'REJECTED') {
+          const r = await tx.taxReturn.findUniqueOrThrow({
+            where: { id },
+            select: {
+              clientId: true,
+              engagementId: true,
+              preparerUserId: true,
+              taxYear: true,
+              formType: true,
+            },
+          });
+          const preparer = r.preparerUserId
+            ? await tx.membership.findFirst({
+                where: { businessId, userId: r.preparerUserId, status: 'ACTIVE' },
+                select: { userId: true },
+              })
+            : null;
+          const code = body.rejectCode ? ` ${body.rejectCode}` : '';
+          const task = await tx.task.create({
+            data: {
+              businessId,
+              clientId: r.clientId,
+              engagementId: r.engagementId,
+              kind: 'GENERAL',
+              title: `Correct the ${body.rejectingAgency} rejection${code}`.slice(0, 200),
+              details: [
+                `Tax return: ${r.formType ?? 'Return'} ${r.taxYear}, ${a.filing.jurisdiction}`,
+                body.rejectDescription ? `Rejected: ${body.rejectDescription}` : null,
+                `Corrective action: ${body.correctiveAction}`,
+              ]
+                .filter(Boolean)
+                .join('\n')
+                .slice(0, 5000),
+              priority: 'HIGH',
+              assignedUserId: preparer?.userId ?? null,
+              createdByUserId: userId,
+            },
+            select: { id: true },
+          });
+          await tx.taxReturnFilingAttempt.update({
+            where: { id: attemptId },
+            data: { correctiveTaskId: task.id },
+          });
+        }
       }
       await this.log(tx, tenant, id, 'transmission', { attemptId, action: body.ackStatus });
       return this.filingList(tx, businessId, id);

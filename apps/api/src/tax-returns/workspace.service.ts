@@ -28,6 +28,7 @@ import type {
   ReturnsQ,
   StatusBody,
   SummaryQ,
+  CorrectTaxYearBody,
   UpdateDetailsBody,
 } from './workspace.input.js';
 import {
@@ -714,6 +715,62 @@ export class TaxReturnWorkspaceService {
         'tax_return.updated',
         { type: 'tax_return', id },
         { fields: fields.sort() },
+        { businessId },
+      );
+    });
+    return this.get(tenant, userId, id, false);
+  }
+
+  /**
+   * Review 2 (TX-F16): Correct Tax Year, with the reason. Never over another return: a matching
+   * client, form, quarter and year is a 409 naming it. A filed return: only its reviewer, or an
+   * Owner or Admin with APPROVE, whose act is the approval; its filed records keep the year it
+   * was filed under (filed_tax_year, set by the database). Audited with both years and the reason.
+   */
+  async correctTaxYear(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof CorrectTaxYearBody>,
+  ): Promise<TaxReturnDetail> {
+    const businessId = tenant.businessId;
+    await this.write(tenant, async (tx) => {
+      const r = await this.find(tx, tenant, userId, id, true);
+      if (r.archivedAt) throw conflict('RETURN_LOCKED', 'Restore the return first');
+      if (body.taxYear === r.taxYear) throw invalid('Choose a different year', 'taxYear');
+      if (r.firstFiledAt && r.reviewerUserId !== userId) {
+        const role = tenant.kind === 'staff' ? legacyFirmRole(tenant.role) : null;
+        if (
+          (role !== 'OWNER' && role !== 'ADMIN') ||
+          !(await this.grants.canTenant(tenant, 'TAX_RETURNS', 'APPROVE'))
+        ) {
+          throw new ForbiddenException({
+            code: 'FORBIDDEN',
+            message:
+              "A filed return's year is corrected by its reviewer, or an Owner or Admin who approves",
+          });
+        }
+      }
+      await this.duplicate(tx, businessId, {
+        clientId: r.client.id,
+        taxYear: body.taxYear,
+        formType: r.formType,
+        quarter: r.quarter,
+      });
+      await tx.taxReturn.update({
+        where: { id },
+        data: { taxYear: body.taxYear, updatedByUserId: userId },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_return.tax_year_corrected',
+        { type: 'tax_return', id },
+        {
+          from: r.taxYear,
+          to: body.taxYear,
+          reason: body.reason,
+          filed: r.firstFiledAt !== null,
+        },
         { businessId },
       );
     });
