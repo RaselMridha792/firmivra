@@ -66,6 +66,13 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,
+  'project-deadline.reminder': {
+    name: 'Sam Staff',
+    title: 'Finish the 2027 planning projections',
+    dueAt: new Date('2026-12-01T22:00:00Z'),
+    timeZone: 'America/Chicago',
+    link: 'https://app.example.test/tax-planning/deadlines',
+  },
   'invoice.sent': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'payment.received': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'esign.request': {

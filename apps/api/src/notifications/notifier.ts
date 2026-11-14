@@ -91,6 +91,16 @@ export const DIRECTIONAL_EVENTS: ReadonlySet<NotificationEvent> = new Set<Notifi
 /** Events whose caller may name the members to reach (`toUserIds`): a rule's Notify staff. */
 export const CHOSEN_RECIPIENT_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
   'automation.notice',
+  // Tax Planning Review 2: a project deadline's owner and the coworkers it is shared with.
+  'project-deadline.reminder',
+]);
+
+/**
+ * Staff events with an email copy through the outbox (a member's own address, as NotifyService
+ * finds it): the deadline reminder only. Every other email copy is the client's.
+ */
+export const STAFF_EMAIL_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
+  'project-deadline.reminder',
 ]);
 
 /** A programming error in the call (unknown event, bad id, a side the event never reaches). */
@@ -246,6 +256,25 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
     });
     return r && { clientId: r.clientId, values: { title: short(r.rule.name) } };
   },
+  // Tax Planning Review 2: a project deadline still to do (not completed, not archived). Its
+  // client is not the record's: who it reaches is the caller's choice (the owner and its
+  // coworkers), and the text never names the client.
+  project_deadline: async (tx, businessId, id) => {
+    const d = await tx.projectDeadline.findFirst({
+      where: { businessId, id, completedAt: null, archivedAt: null },
+      select: { name: true, dueAt: true },
+    });
+    return (
+      d && {
+        clientId: null,
+        values: {
+          title: short(d.name),
+          dueAt: d.dueAt.toISOString(),
+          timeZone: await firmTimeZone(tx, businessId),
+        },
+      }
+    );
+  },
   // The person's own account: reaches only them, and only if they have a place in this firm.
   user: (_tx, _businessId, id) =>
     Promise.resolve({ clientId: null, values: {}, personUserId: id.toLowerCase() }),
@@ -259,17 +288,25 @@ interface Recipient {
   email?: string;
 }
 
-/** Events whose email copy is the NotifyService template of the same name (client side only). */
+/**
+ * Events whose email copy is the NotifyService template of the same name: the client's, and the
+ * member's for STAFF_EMAIL_EVENTS.
+ */
 const EMAIL_EVENTS = new Set<NotificationEvent>([
   'document.requested',
   'appointment.booked',
   'appointment.changed',
   'appointment.reminder',
+  'project-deadline.reminder',
   'invoice.sent',
   'payment.received',
   // Intake Forms Review Two 19b: a form sent by Email (the sender passes `email: false` otherwise).
   'intake.sent',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
+
+/** Whether a recipient gets the event's email copy: a client, or a member for a staff email event. */
+const emailable = (event: NotificationEvent, r: Recipient) =>
+  !!r.email && (r.side === 'client' || STAFF_EMAIL_EVENTS.has(event));
 
 /** Events with a text copy, and its NotifyService template (client side only, on request). */
 const SMS_EVENTS: Partial<Record<NotificationEvent, NotifyTemplate>> = {
@@ -305,6 +342,19 @@ async function stillLive(
   if (event === 'invoice.sent' || event === 'payment.received') {
     const i = await db.invoice.findFirst({ where: { businessId, id }, select: { status: true } });
     return !!i && (event === 'payment.received' || i.status !== 'CANCELED');
+  }
+  // A project deadline still to do, still due when the copy says, and not past by more than an
+  // hour (reminder-jobs' PROJECT_DEADLINE_LATE_MS: a reminder at the due time retries too).
+  if (event === 'project-deadline.reminder') {
+    const d = await db.projectDeadline.findFirst({
+      where: { businessId, id, completedAt: null, archivedAt: null },
+      select: { dueAt: true },
+    });
+    return (
+      !!d &&
+      d.dueAt.getTime() > Date.now() - 60 * 60_000 &&
+      (typeof payload.dueAt !== 'string' || d.dueAt.toISOString() === payload.dueAt)
+    );
   }
   if (event === 'intake.sent') {
     // Not once the form is submitted, completed, expired or archived: nothing left to fill in.
@@ -343,7 +393,7 @@ async function intakeWords(tx: TxClient, businessId: string, id: string) {
 }
 
 const accountSelect = { userId: true, email: true, user: { select: { name: true } } } as const;
-const memberSelect = { userId: true, user: { select: { name: true } } } as const;
+const memberSelect = { userId: true, user: { select: { name: true, email: true } } } as const;
 
 /**
  * Who gets an event, in beta (R6 Decisions, Oct 8; the lead's binding rule from #106 and q27):
@@ -360,13 +410,20 @@ async function recipientsOf(
   sides: Side[],
   record: RecordInfo,
   chosen?: readonly string[],
+  /** A STAFF_EMAIL_EVENTS event: each member's address comes along for the email copy. */
+  staffEmail = false,
 ): Promise<{ recipients: Recipient[]; clientName: string | null }> {
   const out: Recipient[] = [];
   let clientName: string | null = null;
   const asClient = (a: { userId: string; email: string; user: { name: string } }) =>
     out.push({ userId: a.userId, side: 'client', name: a.user.name, email: a.email });
-  const asStaff = (m: { userId: string; user: { name: string } }) =>
-    out.push({ userId: m.userId, side: 'staff', name: m.user.name });
+  const asStaff = (m: { userId: string; user: { name: string; email: string } }) =>
+    out.push({
+      userId: m.userId,
+      side: 'staff',
+      name: m.user.name,
+      ...(staffEmail ? { email: m.user.email } : {}),
+    });
 
   if (sides.includes('client')) {
     // q27 (5): only the PRIMARY login gets portal bell items, also for a personal event (a
@@ -523,6 +580,7 @@ export class Notifier {
           sides,
           record,
           chosen?.map((id) => id.toLowerCase()),
+          STAFF_EMAIL_EVENTS.has(event),
         );
         const actorId = input.actorUserId?.toLowerCase();
         // The client who acted gets no bell item but keeps the email copy (a confirmation), once:
@@ -574,9 +632,7 @@ export class Notifier {
         }));
         // The outbox: one EMAIL delivery per email copy, committed with its bell item, so a copy
         // that fails (or a task that stops before sending) is retried by the job.
-        const mailed = mail
-          ? items.filter((i) => i.recipient.side === 'client' && i.recipient.email)
-          : [];
+        const mailed = mail ? items.filter((i) => emailable(event, i.recipient)) : [];
         if (mailed.length > 0) {
           const deliveries = await tx.notificationDelivery.createManyAndReturn({
             data: mailed.map((i) => ({ businessId, notificationId: i.id!, channel: 'EMAIL' })),
@@ -616,7 +672,7 @@ export class Notifier {
       }
       // No bell item, so no outbox row: one attempt each, as the actor's confirmation.
       for (const item of reached.direct) {
-        if (item.recipient.side !== 'client' || !item.recipient.email) continue;
+        if (!emailable(event, item.recipient)) continue;
         await this.sendCopy(event as NotifyTemplate, businessId, null, item.recipient, {
           ...target,
           values: item.values,
@@ -682,6 +738,16 @@ export class Notifier {
   }
 
   /** The record's page on the firm's portal, from config (never from the caller). */
+  /** The firm app's page for a staff email copy (APP_BASE_URL, from config). */
+  private appLink(target: { kind: NotificationTargetKind; id: string }): string {
+    const page = notificationLink(
+      { kind: target.kind, id: target.id, clientId: null },
+      { site: 'firm' },
+    );
+    if (!page) throw new Error('NoFirmPage');
+    return `${this.env.APP_BASE_URL.replace(/\/+$/, '')}${page}`;
+  }
+
   private async portalLink(
     businessId: string,
     target: { kind: NotificationTargetKind; id: string },
@@ -725,6 +791,30 @@ export class Notifier {
       if (!n || !event || !EMAIL_EVENTS.has(event)) return 'skip';
       if (!(await stillLive(db, businessId, event, n.entityId, (n.payload ?? {}) as Payload))) {
         return 'skip';
+      }
+      const target = {
+        kind: NOTIFICATION_EVENTS[event].kind,
+        id: n.entityId,
+        values: (n.payload ?? {}) as Payload,
+      };
+      if (STAFF_EMAIL_EVENTS.has(event)) {
+        const member = await db.membership.findFirst({
+          where: { businessId, userId: n.recipientUserId, status: 'ACTIVE' },
+          select: memberSelect,
+        });
+        if (!member) return 'skip';
+        return this.sendCopy(
+          event as NotifyTemplate,
+          businessId,
+          n.id,
+          {
+            userId: member.userId,
+            side: 'staff',
+            name: member.user.name,
+            email: member.user.email,
+          },
+          target,
+        );
       }
       // Only the PRIMARY login gets client copies (q27), as when the copy was first written.
       const login = await db.clientAccount.findFirst({
@@ -816,33 +906,44 @@ export class Notifier {
     target: { kind: NotificationTargetKind; id: string; values: Payload },
   ): Promise<string | null> {
     try {
-      const link = await this.portalLink(businessId, target);
+      const link =
+        recipient.side === 'staff'
+          ? this.appLink(target)
+          : await this.portalLink(businessId, target);
       const v = target.values;
       const str = (key: string) => (typeof v[key] === 'string' ? v[key] : '');
       const data =
-        template === 'document.requested'
-          ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-          : template === 'intake.sent'
-            ? {
-                name: recipient.name,
-                link,
-                ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                  intakeWords(tx, businessId, target.id),
-                )),
-              }
-            : template === 'invoice.sent' || template === 'payment.received'
-              ? { name: recipient.name, invoiceNumber: str('number'), link }
-              : {
+        template === 'project-deadline.reminder'
+          ? {
+              name: recipient.name,
+              title: str('title'),
+              dueAt: new Date(str('dueAt')),
+              timeZone: str('timeZone'),
+              link,
+            }
+          : template === 'document.requested'
+            ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
+            : template === 'intake.sent'
+              ? {
                   name: recipient.name,
-                  title: str('title'),
-                  startsAt: new Date(str('startsAt')),
-                  timeZone: str('timeZone'),
                   link,
-                  // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
                   ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                    noticeWords(tx, businessId, target.id, template),
+                    intakeWords(tx, businessId, target.id),
                   )),
-                };
+                }
+              : template === 'invoice.sent' || template === 'payment.received'
+                ? { name: recipient.name, invoiceNumber: str('number'), link }
+                : {
+                    name: recipient.name,
+                    title: str('title'),
+                    startsAt: new Date(str('startsAt')),
+                    timeZone: str('timeZone'),
+                    link,
+                    // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                    ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                      noticeWords(tx, businessId, target.id, template),
+                    )),
+                  };
       await this.sender.send({
         template,
         to: recipient.email!,

@@ -19,6 +19,7 @@ export const JOB_LOCK_KEYS = {
   'appointment-reminders': 0x5236_0001,
   'note-reminders': 0x5236_0002,
   'email-retries': 0x5236_0003,
+  'project-deadline-reminders': 0x5236_0004,
 } as const;
 export type ReminderJob = keyof typeof JOB_LOCK_KEYS;
 
@@ -32,6 +33,13 @@ export const APPOINTMENT_REMINDER_QUIET_MS = 2 * 60 * 60_000;
 export const EMAIL_MAX_ATTEMPTS = 5;
 /** A failed copy waits this long before its next try; a QUEUED one this long before it is taken. */
 export const EMAIL_RETRY_AFTER_MS = 5 * 60_000;
+/**
+ * Tax Planning Review 2 (Project Deadlines): a reminder still goes out this long after its
+ * deadline passed (a reminder at the due time, or one held up by a stopped task); later, never.
+ */
+export const PROJECT_DEADLINE_LATE_MS = 60 * 60_000;
+/** The Notifier reaches at most this many chosen members per call. */
+const CHOSEN_PER_CALL = 20;
 /** A reminder whose notify() failed is left out of the runs this long. */
 export const REMINDER_BACKOFF_MS = 5 * 60_000;
 /** Per firm and run; the rest waits for the next run. */
@@ -126,7 +134,9 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
               ? await this.appointmentReminders(options)
               : job === 'note-reminders'
                 ? await this.noteReminders(options)
-                : await this.emailRetries(options);
+                : job === 'project-deadline-reminders'
+                  ? await this.projectDeadlineReminders(options)
+                  : await this.emailRetries(options);
           if (sent > 0) this.logger.log(`${job}: ${sent} sent`);
           return { skipped: false, sent } as const;
         },
@@ -242,6 +252,93 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
         const { count } = await db.clientNoteReminder.updateMany({
           where: { businessId, id: r.id, remindAt: r.remindAt, remindedAt: null },
           data: { remindedAt: now },
+        });
+        sent += count;
+      }
+    }
+    return sent;
+  }
+
+  /**
+   * Tax Planning Review 2 (Project Deadlines): each reminder whose time has come (the due time
+   * less its minutes), once per due time, for a deadline neither completed nor archived and not
+   * past by more than PROJECT_DEADLINE_LATE_MS. It reaches the owner and, when it is SHARED, the
+   * coworkers it names, ACTIVE members only (the Notifier's rule for chosen members): a bell item
+   * and an email copy through the outbox, as the reminder says. An edit replaces the reminders,
+   * and a reminder already sent stays sent unless the due time moved (the API's rule), so a new
+   * due time gets its own. `sent_at` is set once the Notifier has the reminder.
+   */
+  private async projectDeadlineReminders(options: JobRunOptions): Promise<number> {
+    const now = options.now ?? new Date();
+    const stop = Date.now() + BUDGET_MS;
+    const backingOff = new Set(this.backingOff('project-deadline-reminders', now));
+    const late = new Date(now.getTime() - PROJECT_DEADLINE_LATE_MS);
+    let sent = 0;
+    for (const businessId of await this.firms(options)) {
+      if (Date.now() > stop) break;
+      // The time each reminder is due is computed in SQL; the firm's scope keeps RLS on.
+      const due = await this.database.withScope(
+        { kind: 'business', businessId },
+        (tx) =>
+          tx.$queryRaw<{ id: string }[]>`
+          SELECT r.id::text AS id
+          FROM project_deadline_reminders r
+          JOIN project_deadlines d ON d.business_id = r.business_id AND d.id = r.deadline_id
+          WHERE r.business_id = ${businessId}::uuid
+            AND r.sent_at IS NULL
+            AND d.completed_at IS NULL
+            AND d.archived_at IS NULL
+            AND d.due_at > ${late}
+            AND d.due_at - make_interval(mins => r.minutes_before) <= ${now}
+          ORDER BY d.due_at - make_interval(mins => r.minutes_before), r.id
+          LIMIT ${BATCH + backingOff.size}`,
+      );
+      const db = this.database.forBusiness(businessId);
+      for (const { id } of due.filter((r) => !backingOff.has(r.id)).slice(0, BATCH)) {
+        if (Date.now() > stop) break;
+        const r = await db.projectDeadlineReminder.findFirst({
+          where: { businessId, id, sentAt: null },
+          select: {
+            inApp: true,
+            channels: true,
+            deadline: {
+              select: {
+                id: true,
+                dueAt: true,
+                ownerUserId: true,
+                visibility: true,
+                shares: { select: { userId: true } },
+              },
+            },
+          },
+        });
+        if (!r) continue;
+        const d = r.deadline;
+        const to = [
+          ...new Set([
+            d.ownerUserId,
+            ...(d.visibility === 'SHARED' ? d.shares.map((x) => x.userId) : []),
+          ]),
+        ];
+        let failed = false;
+        for (let i = 0; i < to.length; i += CHOSEN_PER_CALL) {
+          const result = await this.notifier.notify({
+            businessId,
+            event: 'project-deadline.reminder',
+            recordId: d.id,
+            toUserIds: to.slice(i, i + CHOSEN_PER_CALL),
+            eventKey: `project-deadline.reminder:${id}:${d.dueAt.toISOString()}`,
+            channels: { inApp: r.inApp, email: r.channels.includes('EMAIL'), sms: false },
+          });
+          failed ||= result.failed === true;
+        }
+        if (failed) {
+          this.failedAt.set(`project-deadline-reminders:${id}`, now.getTime());
+          continue;
+        }
+        const { count } = await db.projectDeadlineReminder.updateMany({
+          where: { businessId, id, sentAt: null },
+          data: { sentAt: now },
         });
         sent += count;
       }

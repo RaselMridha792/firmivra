@@ -1,4 +1,5 @@
-// End-to-end: R6 step 7, the reminder jobs (appointment.reminder, client-note.reminder) under
+// End-to-end: R6 step 7, the reminder jobs (appointment.reminder, client-note.reminder, and Tax
+// Planning Review 2's project-deadline.reminder) under
 // their advisory lock (q30), against the database. The jobs are off in tests (NOTIFY_JOBS); each
 // test runs them by hand for its own firm (one run covers both firms, for isolation).
 import { randomUUID } from 'node:crypto';
@@ -685,5 +686,222 @@ describe('reminder jobs', () => {
       attempts: 3,
       sentAt: null,
     });
+  });
+});
+
+// Tax Planning Review 2 (Project Deadlines): each due reminder once per due time, to the owner and
+// the coworkers it is shared with (ACTIVE members only), in-app and by email as it says.
+describe('project deadline reminders', () => {
+  const gone = person('gone', 'STAFF');
+  const pd = { service: '', shared: '', done: '', past: '', priv: '' };
+  const r = { shared: '', soonLater: '', done: '', past: '', priv: '' };
+
+  const deadline = (businessId: string, data: Record<string, unknown>) =>
+    inFirm(businessId, (tx) =>
+      tx.projectDeadline.create({
+        data: {
+          businessId,
+          name: `Fake deadline ${randomUUID().slice(0, 6)}`,
+          serviceId: pd.service,
+          ownerUserId: people.owner.id,
+          ...data,
+        } as never,
+        select: { id: true },
+      }),
+    ).then((d) => d.id);
+  const reminder = (
+    businessId: string,
+    deadlineId: string,
+    minutesBefore: number,
+    email: boolean,
+  ) =>
+    inFirm(businessId, (tx) =>
+      tx.projectDeadlineReminder.create({
+        data: {
+          businessId,
+          deadlineId,
+          minutesBefore,
+          unit: 'MINUTES',
+          channels: email ? ['EMAIL'] : [],
+        },
+        select: { id: true },
+      }),
+    ).then((x) => x.id);
+  const sentAt = (id: string, businessId = ids.firm) =>
+    inFirm(businessId, (tx) =>
+      tx.projectDeadlineReminder.findUnique({ where: { id }, select: { sentAt: true } }),
+    ).then((x) => x?.sentAt ?? null);
+
+  beforeAll(async () => {
+    const now = Date.now();
+    const db = owner();
+    try {
+      await runInScope(db, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: gone.id,
+            cognitoSub: gone.id,
+            pool: 'STAFF',
+            email: gone.email,
+            name: gone.name,
+          },
+        }),
+      );
+    } finally {
+      await db.$disconnect();
+    }
+    await inFirm(ids.firm, (tx) =>
+      tx.membership.create({
+        data: { businessId: ids.firm, userId: gone.id, role: 'STAFF', status: 'DEACTIVATED' },
+      }),
+    );
+    pd.service = await inFirm(ids.firm, (tx) =>
+      tx.service.create({
+        data: { businessId: ids.firm, kind: 'TAX_PLANNING', name: `Planning ${run}` },
+        select: { id: true },
+      }),
+    ).then((s) => s.id);
+    const inTwoHours = new Date(now + 2 * HOUR);
+    // Shared with Staff (assigned to the client), Other (not assigned) and Gone (deactivated).
+    pd.shared = await deadline(ids.firm, {
+      dueAt: inTwoHours,
+      clientId: ids.client,
+      visibility: 'SHARED',
+    });
+    await inFirm(ids.firm, (tx) =>
+      tx.projectDeadlineShare.createMany({
+        data: [people.staff, people.other, gone].map((m) => ({
+          businessId: ids.firm,
+          deadlineId: pd.shared,
+          userId: m.id,
+        })),
+      }),
+    );
+    r.shared = await reminder(ids.firm, pd.shared, 180, true);
+    r.soonLater = await reminder(ids.firm, pd.shared, 60, true);
+    pd.done = await deadline(ids.firm, {
+      dueAt: inTwoHours,
+      completedAt: new Date(),
+      completedByUserId: people.owner.id,
+    });
+    r.done = await reminder(ids.firm, pd.done, 180, true);
+    pd.past = await deadline(ids.firm, { dueAt: new Date(now - 2 * HOUR) });
+    r.past = await reminder(ids.firm, pd.past, 180, true);
+    // The Staff member's own private deadline: a bell item only.
+    pd.priv = await deadline(ids.firm, { dueAt: inTwoHours, ownerUserId: people.staff.id });
+    r.priv = await reminder(ids.firm, pd.priv, 180, false);
+  });
+
+  it('a due reminder goes once to the owner and the coworkers, never to a deactivated member', async () => {
+    outbox.length = 0;
+    expect(await jobs.run('project-deadline-reminders', only)).toEqual({
+      skipped: false,
+      sent: 2,
+    });
+    for (const who of [people.owner, people.staff, people.other]) {
+      const items = await bell(who, pd.shared);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        type: 'project_deadline.reminder',
+        entityType: 'project_deadline',
+        category: 'SERVICES',
+      });
+      // The client is never named, whoever it reaches.
+      expect(JSON.stringify(items[0]?.payload)).not.toContain('Jamie');
+    }
+    expect(await bell(gone, pd.shared)).toEqual([]);
+    expect(await bell(people.primary, pd.shared)).toEqual([]);
+    // The email copies: the three members, to their own addresses, linking to the firm app.
+    const mails = outbox.filter((m) => m.template === 'project-deadline.reminder');
+    expect(mails.map((m) => m.to).sort()).toEqual(
+      [people.owner.email, people.staff.email, people.other.email].sort(),
+    );
+    const data = mails[0]?.data as { link: string };
+    expect(data.link).toMatch(/\/tax-planning\/deadlines$/);
+    // The private one: its owner's bell only, no email.
+    expect(await bell(people.staff, pd.priv)).toHaveLength(1);
+    expect(await bell(people.owner, pd.priv)).toEqual([]);
+    expect(outbox.filter((m) => m.to === people.staff.email)).toHaveLength(1);
+
+    expect(await sentAt(r.shared)).not.toBeNull();
+    expect(await sentAt(r.priv)).not.toBeNull();
+    // Not yet due, completed, or past by more than an hour: nothing sent, nothing marked.
+    for (const id of [r.soonLater, r.done, r.past]) expect(await sentAt(id)).toBeNull();
+    expect(await bell(people.owner, pd.done)).toEqual([]);
+    expect(await bell(people.owner, pd.past)).toEqual([]);
+
+    // Once: a second run sends nothing more.
+    expect(await jobs.run('project-deadline-reminders', only)).toEqual({ skipped: false, sent: 0 });
+    expect(await bell(people.owner, pd.shared)).toHaveLength(1);
+  });
+
+  it('the later reminder goes at its own time; a new due time gets its reminders again', async () => {
+    outbox.length = 0;
+    const later = new Date(Date.now() + HOUR + 60_000);
+    expect(await jobs.run('project-deadline-reminders', { ...only, now: later })).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    expect(await bell(people.owner, pd.shared)).toHaveLength(2);
+    // The due time moves (the API clears sent_at then): the first reminder goes again.
+    const moved = new Date(Date.now() + 3 * HOUR);
+    await inFirm(ids.firm, async (tx) => {
+      await tx.projectDeadline.update({ where: { id: pd.shared }, data: { dueAt: moved } });
+      await tx.projectDeadlineReminder.updateMany({
+        where: { deadlineId: pd.shared },
+        data: { sentAt: null },
+      });
+    });
+    expect(await jobs.run('project-deadline-reminders', only)).toEqual({ skipped: false, sent: 1 });
+    expect(await bell(people.owner, pd.shared)).toHaveLength(3);
+    expect(await sentAt(r.soonLater)).toBeNull();
+  });
+
+  it('a member’s email copy that fails is retried from the outbox to their own address', async () => {
+    outbox.length = 0;
+    const d = await deadline(ids.firm, { dueAt: new Date(Date.now() + 2 * HOUR) });
+    await reminder(ids.firm, d, 180, true);
+    delivery.failing = true;
+    try {
+      expect(await jobs.run('project-deadline-reminders', only)).toEqual({
+        skipped: false,
+        sent: 1,
+      });
+    } finally {
+      delivery.failing = false;
+    }
+    const failed = await inFirm(ids.firm, (tx) =>
+      tx.notificationDelivery.findMany({ where: { notification: { entityId: d } } }),
+    );
+    expect(failed.map((x) => x.status)).toEqual(['FAILED']);
+    expect(await notifier.retryDelivery(ids.firm, failed[0]!.id, failed[0]!.attempts)).toBe('sent');
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([
+      ['project-deadline.reminder', people.owner.email],
+    ]);
+  });
+
+  it("firm A's run never touches firm B's reminders", async () => {
+    const serviceB = await inFirm(ids.firmB, (tx) =>
+      tx.service.create({
+        data: { businessId: ids.firmB, kind: 'TAX_PLANNING', name: `Planning B ${run}` },
+        select: { id: true },
+      }),
+    ).then((s) => s.id);
+    const b = await inFirm(ids.firmB, (tx) =>
+      tx.projectDeadline.create({
+        data: {
+          businessId: ids.firmB,
+          name: 'Fake B deadline',
+          dueAt: new Date(Date.now() + 2 * HOUR),
+          serviceId: serviceB,
+          ownerUserId: people.ownerB.id,
+        },
+        select: { id: true },
+      }),
+    ).then((x) => x.id);
+    const rb = await reminder(ids.firmB, b, 180, true);
+    await jobs.run('project-deadline-reminders', only);
+    expect(await sentAt(rb, ids.firmB)).toBeNull();
+    expect(await bell(people.ownerB, b, ids.firmB)).toEqual([]);
   });
 });
