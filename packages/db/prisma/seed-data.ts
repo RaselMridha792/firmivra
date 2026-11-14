@@ -186,6 +186,15 @@ export const SEED_INTAKE_IDS = {
   leadUpload: '00000000-0000-400f-8000-000000000014',
   /** R55 (Leads R2 9): the lead's other phone number. */
   leadContactPoint: '00000000-0000-400f-8000-000000000015',
+  /** R55 (Leads R2 15, 17, 19): a second lead, the pair marked not a duplicate, a routing rule, a
+   * follow-up sequence with two steps and its run on the lead. */
+  leadTwin: '00000000-0000-400f-8000-000000000016',
+  leadDismissal: '00000000-0000-400f-8000-000000000017',
+  leadRule: '00000000-0000-400f-8000-000000000018',
+  leadSequence: '00000000-0000-400f-8000-000000000019',
+  leadSequenceCall: '00000000-0000-400f-8000-00000000001a',
+  leadSequenceEmail: '00000000-0000-400f-8000-00000000001b',
+  leadSequenceRun: '00000000-0000-400f-8000-00000000001c',
 } as const;
 
 /** Fixed ids of each firm's seeded intake agreement (v1, its PDF row) and the lead's signature. */

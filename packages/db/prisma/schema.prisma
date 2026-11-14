@@ -1288,7 +1288,17 @@ model Membership {
   dashboardCardsUpdated     DashboardCardTemplate[]      @relation("DashboardCardUpdatedBy")
 
   clientTimelineEntries      ClientTimelineEntry[]
-  leadFollowUps              LeadFollowUp[]
+  leadFollowUps              LeadFollowUp[]              @relation("LeadFollowUpCreatedBy")
+  // R55 (Leads R2 15, 17, 19).
+  leadFollowUpsAssigned      LeadFollowUp[]              @relation("LeadFollowUpAssignee")
+  leadsMerged                Lead[]                      @relation("LeadMergedBy")
+  leadDuplicateDismissals    LeadDuplicateDismissal[]
+  leadRulesAssigned          LeadAssignmentRule[]        @relation("LeadRuleAssignee")
+  leadRulesCreated           LeadAssignmentRule[]        @relation("LeadRuleCreatedBy")
+  leadRoutingFallbacks       LeadRoutingSettings[]       @relation("LeadRoutingFallback")
+  leadRoutingUpdated         LeadRoutingSettings[]       @relation("LeadRoutingUpdatedBy")
+  leadSequencesCreated       LeadSequenceTemplate[]
+  leadSequenceRunsApplied    LeadSequenceRun[]
   bookkeepingOpeningBalances BookkeepingOpeningBalance[]
   staffDraftAttachments      StaffDraftAttachment[]
   leadUploads                LeadUpload[]
@@ -3959,6 +3969,15 @@ model Lead {
   archivedByUserId        String?         @map("archived_by_user_id") @db.Uuid
   /// Who made the last change; the activity row's author.
   updatedByUserId         String?         @map("updated_by_user_id") @db.Uuid
+  /// R55 (Leads R2 15): merged into this lead, which kept the reviewer's values; set once with
+  /// merged_at and merged_by_user_id, never cleared. A merged lead is archived, so nothing is
+  /// moved or lost: its notes, activity, tasks, files and forms show on the kept lead through it.
+  mergedIntoLeadId        String?         @map("merged_into_lead_id") @db.Uuid
+  mergedAt                DateTime?       @map("merged_at") @db.Timestamptz(3)
+  mergedByUserId          String?         @map("merged_by_user_id") @db.Uuid
+  /// R55 (Leads R2 17): the assignment rule that gave the lead its owner ("why it was assigned");
+  /// a manual assignment clears it.
+  assignedByRuleId        String?         @map("assigned_by_rule_id") @db.Uuid
   createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt               DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -3988,6 +4007,15 @@ model Lead {
   contactPoints LeadContactPoint[]
   tasks         Task[]
 
+  // R55 (Leads R2 15, 17, 19).
+  mergedInto               Lead?                    @relation("LeadMerge", fields: [businessId, mergedIntoLeadId], references: [businessId, id], onDelete: Restrict)
+  mergedFrom               Lead[]                   @relation("LeadMerge")
+  mergedBy                 Membership?              @relation("LeadMergedBy", fields: [businessId, mergedByUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedByRule           LeadAssignmentRule?      @relation(fields: [businessId, assignedByRuleId], references: [businessId, id], onDelete: Restrict)
+  duplicateDismissals      LeadDuplicateDismissal[] @relation("DismissalLead")
+  duplicateDismissalsOther LeadDuplicateDismissal[] @relation("DismissalOther")
+  sequenceRuns             LeadSequenceRun[]
+
   @@unique([businessId, id])
   @@unique([businessId, number])
   @@index([businessId, status, createdAt])
@@ -3996,6 +4024,7 @@ model Lead {
   @@index([businessId, source])
   @@index([businessId, nextActionAt])
   @@index([businessId, createdAt])
+  @@index([businessId, mergedIntoLeadId])
   @@map("leads")
 }
 
@@ -14959,7 +14988,15 @@ model LeadFollowUp {
   updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   lead      Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
-  createdBy Membership? @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy Membership? @relation("LeadFollowUpCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  /// R55 (Leads R2 19): a step a sequence made (the run of this lead), its owner and whether it is
+  /// an internal reminder or outreach the owner sends (nothing is sent automatically).
+  sequenceRunId  String?          @map("sequence_run_id") @db.Uuid
+  assignedUserId String?          @map("assigned_user_id") @db.Uuid
+  mode           LeadStepMode?
+  sequenceRun    LeadSequenceRun? @relation(fields: [businessId, leadId, sequenceRunId], references: [businessId, leadId, id], onDelete: Restrict)
+  assignee       Membership?      @relation("LeadFollowUpAssignee", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@index([businessId, leadId, doneAt, dueAt])
   @@map("lead_follow_ups")
@@ -15230,4 +15267,143 @@ enum ExceptionalAccessStatus {
   APPROVED
   DENIED
   REVOKED
+}
+
+// ---------- R55 (Rasel's delegation to the lead, Nov 14): Leads Review Two additions ----------
+
+/// Leads R2 15: "Not a duplicate". The pair leaves the duplicate review; each pair once, in either
+/// order (SQL: lead_duplicate_dismissals_pair).
+model LeadDuplicateDismissal {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @map("business_id") @db.Uuid
+  leadId            String   @map("lead_id") @db.Uuid
+  otherLeadId       String   @map("other_lead_id") @db.Uuid
+  dismissedByUserId String   @map("dismissed_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead        Lead       @relation("DismissalLead", fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  otherLead   Lead       @relation("DismissalOther", fields: [businessId, otherLeadId], references: [businessId, id], onDelete: Restrict)
+  dismissedBy Membership @relation(fields: [businessId, dismissedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, leadId])
+  @@index([businessId, otherLeadId])
+  @@map("lead_duplicate_dismissals")
+}
+
+/// Leads R2 17: Settings > Leads assignment rules, tried in `position` order on a new lead with no
+/// owner. An empty list matches any value. Archived, never deleted (a lead names its rule).
+model LeadAssignmentRule {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  name            String
+  position        Int
+  enabled         Boolean        @default(true)
+  sources         LeadSource[]   @default([])
+  serviceIds      String[]       @default([]) @map("service_ids") @db.Uuid
+  priorities      LeadPriority[] @default([])
+  assigneeUserId  String         @map("assignee_user_id") @db.Uuid
+  archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  assignee  Membership  @relation("LeadRuleAssignee", fields: [businessId, assigneeUserId], references: [businessId, userId], onDelete: Restrict)
+  createdBy Membership? @relation("LeadRuleCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  leads     Lead[]
+
+  @@unique([businessId, id])
+  @@index([businessId, position])
+  @@map("lead_assignment_rules")
+}
+
+/// Leads R2 17: whether the rules run at the firm, and who gets a new lead no rule matched.
+model LeadRoutingSettings {
+  businessId      String   @id @map("business_id") @db.Uuid
+  enabled         Boolean  @default(false)
+  fallbackUserId  String?  @map("fallback_user_id") @db.Uuid
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  fallback  Membership? @relation("LeadRoutingFallback", fields: [businessId, fallbackUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy Membership? @relation("LeadRoutingUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@map("lead_routing_settings")
+}
+
+/// Leads R2 19: a reusable follow-up sequence (Templates); its steps become a lead's follow-ups
+/// when applied. Archived, never deleted (a run names its template).
+model LeadSequenceTemplate {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  name            String
+  description     String?
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy Membership?        @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  steps     LeadSequenceStep[]
+  runs      LeadSequenceRun[]
+
+  @@unique([businessId, id])
+  @@index([businessId, archivedAt])
+  @@map("lead_sequence_templates")
+}
+
+/// Leads R2 19: an internal reminder, or outreach the step's owner sends (never automatically).
+enum LeadStepMode {
+  REMINDER
+  OUTREACH
+}
+
+/// Leads R2 19: who owns a step once applied: the lead's owner, or the member who applied it.
+enum LeadStepOwner {
+  LEAD_OWNER
+  APPLIER
+}
+
+/// Leads R2 19: one step of a sequence: so many days after it is applied, at a time or not.
+model LeadSequenceStep {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  businessId String         @map("business_id") @db.Uuid
+  templateId String         @map("template_id") @db.Uuid
+  position   Int
+  offsetDays Int            @map("offset_days")
+  atTime     DateTime?      @map("at_time") @db.Time(0)
+  actionType LeadActionType @map("action_type")
+  mode       LeadStepMode   @default(REMINDER)
+  owner      LeadStepOwner  @default(LEAD_OWNER)
+  note       String?
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  template LeadSequenceTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([templateId, position])
+  @@index([businessId, templateId])
+  @@map("lead_sequence_steps")
+}
+
+/// Leads R2 19: a sequence applied to a lead; one open run per lead and template (SQL). Stopped by
+/// conversion, Not Qualified or Lost, or by hand; its unfinished steps stay visible.
+model LeadSequenceRun {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  leadId          String    @map("lead_id") @db.Uuid
+  templateId      String    @map("template_id") @db.Uuid
+  appliedByUserId String?   @map("applied_by_user_id") @db.Uuid
+  appliedAt       DateTime  @default(now()) @map("applied_at") @db.Timestamptz(3)
+  stoppedAt       DateTime? @map("stopped_at") @db.Timestamptz(3)
+  stopReason      String?   @map("stop_reason")
+
+  lead      Lead                 @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  template  LeadSequenceTemplate @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  appliedBy Membership?          @relation(fields: [businessId, appliedByUserId], references: [businessId, userId], onDelete: Restrict)
+  followUps LeadFollowUp[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, leadId, id])
+  @@index([businessId, leadId])
+  @@index([businessId, templateId])
+  @@map("lead_sequence_runs")
 }
