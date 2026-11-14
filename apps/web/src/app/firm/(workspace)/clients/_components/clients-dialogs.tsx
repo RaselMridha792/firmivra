@@ -20,6 +20,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS, clientKey } from './client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from './duplicate-phone';
+import { zipStateWarning } from './zip-state';
 import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
 
 type Field =
@@ -84,6 +85,8 @@ export function AddClientDialog({
     invalidate: CLIENTS,
   });
   const business = values.accountType === 'BUSINESS';
+  // Clients Review 2 (G10): a ZIP that doesn't match the state warns, never blocks.
+  const zipWarning = zipStateWarning(values.postalCode, values.state);
   const field = (name: Field) => ({
     value: values[name],
     error: errors[name],
@@ -207,6 +210,15 @@ export function AddClientDialog({
             required
             {...field('postalCode')}
           />
+          {zipWarning ? (
+            <p
+              role="status"
+              data-testid="zip-warning"
+              className="text-sm text-warning sm:col-span-2"
+            >
+              {zipWarning}
+            </p>
+          ) : null}
         </fieldset>
         {business ? (
           <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party">

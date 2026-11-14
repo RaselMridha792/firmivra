@@ -2333,3 +2333,11 @@ export type FirmDownloadEvent = z.infer<typeof FirmDownloadEvent>;
 
 export const ExceptionalAccessStatus = z.enum(['PENDING', 'APPROVED', 'DENIED', 'REVOKED']);
 export type ExceptionalAccessStatus = z.infer<typeof ExceptionalAccessStatus>;
+
+/** Leads R2 19: an internal reminder, or outreach the step's owner sends (never automatically). */
+export const LeadStepMode = z.enum(['REMINDER', 'OUTREACH']);
+export type LeadStepMode = z.infer<typeof LeadStepMode>;
+
+/** Leads R2 19: who owns a step once applied: the lead's owner, or the member who applied it. */
+export const LeadStepOwner = z.enum(['LEAD_OWNER', 'APPLIER']);
+export type LeadStepOwner = z.infer<typeof LeadStepOwner>;
