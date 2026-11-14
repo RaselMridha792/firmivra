@@ -46,6 +46,9 @@ export interface FigureSettlement {
   netPayoutCents: number;
   status: string;
 }
+/** A settlement's amounts (in cents), the parts a report adds up. */
+type SettlementCents = Exclude<keyof FigureSettlement, 'status' | 'processor' | 'payoutOn'>;
+
 /** What the statement, status and missing-documents reports read besides the lines. */
 export interface FigureContext {
   /** The client's accounts that are not archived. */
@@ -271,8 +274,7 @@ function reconciliation(ctx: FigureContext, notes: string[]) {
   const refunds = new Map<string, FigureRow>();
   for (const f of ctx.refunds)
     bump(refunds, `${words(f.kind)} (${words(f.status).toLowerCase()})`, f.amountCents);
-  const sum = (k: Exclude<keyof FigureSettlement, 'status'>) =>
-    ctx.settlements.reduce((n, s) => n + s[k], 0);
+  const sum = (k: SettlementCents) => ctx.settlements.reduce((n, s) => n + s[k], 0);
   const settlements: FigureRow[] = ctx.settlements.length
     ? [
         { label: 'Gross', amountCents: sum('grossCents'), count: ctx.settlements.length },
@@ -346,8 +348,7 @@ function refundReport(ctx: FigureContext) {
  * with adjustments), then the period's totals and how many are not matched to a bank deposit.
  */
 function settlementReport(ctx: FigureContext) {
-  const sum = (k: Exclude<keyof FigureSettlement, 'status' | 'processor' | 'payoutOn'>) =>
-    ctx.settlements.reduce((n, s) => n + s[k], 0);
+  const sum = (k: SettlementCents) => ctx.settlements.reduce((n, s) => n + s[k], 0);
   const payouts = [...ctx.settlements]
     .sort((a, b) => (a.payoutOn ?? '').localeCompare(b.payoutOn ?? ''))
     .map((s) => ({
@@ -395,7 +396,7 @@ function settlementReport(ctx: FigureContext) {
  */
 export function moreFigures(
   type: MoreReportType,
-  base: Omit<ReportFigures, 'sections' | 'totals' | 'type' | 'notes' | 'lineCount'>,
+  base: Omit<ReportFigures, 'sections' | 'totals' | 'type' | 'notes' | 'lineCount' | 'source'>,
   counted: readonly FigureLine[],
   all: readonly FigureLine[],
   ctx: FigureContext,
@@ -406,6 +407,7 @@ export function moreFigures(
   ): ReportFigures => ({
     ...base,
     type,
+    source: 'LEDGER',
     notes,
     lineCount: f.lineCount ?? counted.length,
     sections: f.sections,

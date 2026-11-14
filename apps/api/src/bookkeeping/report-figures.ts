@@ -75,7 +75,7 @@ export interface ReportFigures {
    * entered transactions); MANUAL, a P&L made from the income and expenses entered for a period.
    * Never both. Absent on versions made before Review 2 (they are the ledger's).
    */
-  source?: 'LEDGER' | 'MANUAL';
+  source: 'LEDGER' | 'MANUAL';
 }
 
 /** A period's income and expenses as entered in Firmivra (Review 2, RP03: a MANUAL P&L). */

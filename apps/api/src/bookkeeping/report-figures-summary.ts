@@ -112,7 +112,7 @@ export function summaryFigures(
     basisNote: profitAndLoss.basisNote,
     // The days are the period the preview and each version carry, so no note repeats them.
     notes: profitAndLoss.notes,
-    source: profitAndLoss.source ?? 'LEDGER',
+    source: profitAndLoss.source,
     lineCount: profitAndLoss.lineCount,
     sections: [
       {

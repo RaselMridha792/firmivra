@@ -101,6 +101,9 @@ export const BookkeepingErrorCode = z.enum([
   // BK-RPT part 2.
   'STATEMENTS_MISSING',
   'RECON_OPEN',
+  // Review 2 (RP03): a P&L waits for its source, and a MANUAL one for the period's figures.
+  'PNL_SOURCE_NOT_SET',
+  'PNL_FIGURES_MISSING',
 ]);
 export type BookkeepingErrorCode = z.infer<typeof BookkeepingErrorCode>;
 

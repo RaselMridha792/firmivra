@@ -37,8 +37,8 @@ test('Transactions: the grid, views with counts, search and filters', async ({ p
   await tab.getByRole('button', { name: 'Clear All' }).click();
   await expect(tab.getByRole('row')).toHaveCount(17);
 
-  await tab.getByLabel('From').fill('2026-12-10');
-  await tab.getByLabel('To').fill('2026-12-01');
+  await tab.getByLabel('From', { exact: true }).fill('2026-12-10');
+  await tab.getByLabel('To', { exact: true }).fill('2026-12-01');
   await expect(tab.getByRole('alert')).toHaveText('The start date is after the end date.');
 });
 

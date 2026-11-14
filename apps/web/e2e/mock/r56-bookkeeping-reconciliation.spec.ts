@@ -34,7 +34,7 @@ test('a reconciliation clears its lines and is approved only at a zero differenc
   await expect(page.getByText('Ready for review.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve' })).toBeDisabled();
   await expect(page.getByTestId('recon-blocked')).toHaveText(
-    'The difference must be zero to approve.',
+    'Attach the bank or credit card statement for this account and period first.',
   );
   await expect(items.getByRole('checkbox').first()).toBeDisabled();
   await page.getByRole('button', { name: 'Reopen' }).click();
@@ -54,6 +54,18 @@ test('a reconciliation clears its lines and is approved only at a zero differenc
   await page.getByRole('button', { name: 'Save Progress' }).click();
   await expect(page.getByText('Progress saved.')).toBeVisible();
   await expect(difference).toContainText('$0.00');
+  // The statement is attached (it is kept with the client's documents).
+  await page.getByRole('button', { name: 'Attach Statement' }).click();
+  await page
+    .getByRole('dialog', { name: 'Attach Statement' })
+    .getByLabel('Statement')
+    .setInputFiles({
+      name: 'Synthetic statement.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 synthetic'),
+    });
+  await page.getByRole('dialog').getByRole('button', { name: 'Attach' }).click();
+  await expect(page.getByText('Statement attached.')).toBeVisible();
 
   // One line unticked brings a difference back; ticked again, it is zero.
   await boxes.first().uncheck();
