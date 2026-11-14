@@ -918,6 +918,30 @@ describe('confirm after the ticket: the client, the service or storage changed',
 });
 
 describe('firm lists, views and downloads', () => {
+  it("keeps a period's uploads: the days from and to, both included (Review 2, Bookkeeping N02)", async () => {
+    const doc = await firmDoc(people.ownerA, { serviceId: ids.e1, fileName: 'Fake_period.pdf' });
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const list = async (q: string) =>
+      exact(FirmDocumentList, await call('get', `/clients/${ids.c1}/documents?${q}`, people.ownerA))
+        .items;
+    const within = await list(`uploadedFrom=${today}&uploadedTo=${today}&limit=100`);
+    expect(within.map((d) => d.id)).toContain(doc.id);
+    expect(within.every((d) => d.createdAt.slice(0, 10) === today)).toBe(true);
+    const before = await list(`uploadedTo=${yesterday}&limit=100`);
+    expect(before.map((d) => d.id)).not.toContain(doc.id);
+    expect((await list(`uploadedFrom=${today}&limit=100`)).map((d) => d.id)).toContain(doc.id);
+    expectError(
+      await call(
+        'get',
+        `/clients/${ids.c1}/documents?uploadedFrom=${today}&uploadedTo=${yesterday}`,
+        people.ownerA,
+      ),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
   it('lists with the filters and pages, views, links a download and audits ids only', async () => {
     const doc = await firmDoc(people.ownerA, {
       serviceId: ids.e1b,
