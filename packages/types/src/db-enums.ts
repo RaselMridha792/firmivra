@@ -1698,6 +1698,14 @@ export type TaxPlanRequestKind = z.infer<typeof TaxPlanRequestKind>;
 export const TaxPlanRequestStatus = z.enum(['OPEN', 'ANSWERED', 'CLOSED']);
 export type TaxPlanRequestStatus = z.infer<typeof TaxPlanRequestStatus>;
 
+/** Tax Planning Review 2 (approved addition, Project Deadlines): where a project deadline is used. Only Tax Planning for now; other products are a later check (an ADD VALUE then). */
+export const ProjectDeadlineArea = z.enum(['TAX_PLANNING']);
+export type ProjectDeadlineArea = z.infer<typeof ProjectDeadlineArea>;
+
+/** PRIVATE: its owner only (Owner and Admin included). SHARED: the owner and the coworkers in project_deadline_shares. */
+export const ProjectDeadlineVisibility = z.enum(['PRIVATE', 'SHARED']);
+export type ProjectDeadlineVisibility = z.infer<typeof ProjectDeadlineVisibility>;
+
 /** How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK). */
 export const IntakeDelivery = z.enum(['EMAIL', 'SMS', 'PORTAL']);
 export type IntakeDelivery = z.infer<typeof IntakeDelivery>;

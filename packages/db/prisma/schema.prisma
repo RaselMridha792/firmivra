@@ -1228,11 +1228,14 @@ model Membership {
   automationRules              AutomationRule[]
   automationEventConfirmations AutomationEventConfirmation[]
   bookkeepingProfiles          BookkeepingProfile[]
-  taxPlans                     TaxPlan[]                    @relation("TaxPlanAssignee")
-  taxPlansReviewing            TaxPlan[]                    @relation("TaxPlanReviewer")
-  taxPlanApprovalsRecorded     TaxPlanApproval[]            @relation("TaxPlanApprovalRecordedBy")
-  taxPlanRequestsMade          TaxPlanRequest[]             @relation("TaxPlanRequestRequestedBy")
+  taxPlans                     TaxPlan[]                     @relation("TaxPlanAssignee")
+  taxPlansReviewing            TaxPlan[]                     @relation("TaxPlanReviewer")
+  taxPlanApprovalsRecorded     TaxPlanApproval[]             @relation("TaxPlanApprovalRecordedBy")
+  taxPlanRequestsMade          TaxPlanRequest[]              @relation("TaxPlanRequestRequestedBy")
   taxOpportunities             TaxOpportunity[]
+  projectDeadlinesOwned        ProjectDeadline[]             @relation("ProjectDeadlineOwner")
+  projectDeadlinesCompleted    ProjectDeadline[]             @relation("ProjectDeadlineCompletedBy")
+  projectDeadlineShares        ProjectDeadlineShare[]
 
   // Staff management (R35).
   departmentsHeaded Department[]       @relation("DepartmentHead")
@@ -3140,6 +3143,7 @@ model Client {
   taxPlans                       TaxPlan[]
   taxSavingsScenarios            TaxSavingsScenario[]
   taxOpportunities               TaxOpportunity[]
+  projectDeadlines               ProjectDeadline[]
 
   // R39
   segmentMembers        CommunicationSegmentMember[]
@@ -3352,6 +3356,7 @@ model Service {
   intakeTemplates  IntakeTemplate[]
   appointments     Appointment[]
   appointmentTypes AppointmentType[]
+  projectDeadlines ProjectDeadline[]
 
   // R1 (Oct 21): the locations offering this service.
   firmOffices    FirmOfficeService[]
@@ -3537,23 +3542,23 @@ model Task {
   /// Create Task, 'deadline:<deadline id>'.
   idempotencyScope  String?      @map("idempotency_scope")
 
-  client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  client             Client?                  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement         Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   /// R1 (Nov 14, Review 2 C15, S4): the planning plan this implementation task is for (the same client's).
-  taxPlan            TaxPlan?            @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
-  service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  dependsOn          Task?               @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
-  dependents         Task[]              @relation("TaskDependency")
+  taxPlan            TaxPlan?                 @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember     Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type               TaskType?                @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service            Service?                 @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  dependsOn          Task?                    @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
+  dependents         Task[]                   @relation("TaskDependency")
   assignees          TaskAssignee[]
   taskChecklistItems TaskChecklistItem[]
   taskReminders      TaskReminder[]
   taskAttachments    TaskAttachment[]
   taskOccurrence     TaskOccurrence?
-  deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
-  template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
-  lead               Lead?               @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  deadline           ComplianceDeadline?      @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  template           TaskTemplate?            @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  lead               Lead?                    @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   /// TX-F24: the rejected e-file attempts this task corrects.
   correctsAttempts   TaxReturnFilingAttempt[] @relation("TaxAttemptCorrectiveTask")
 
@@ -11260,6 +11265,90 @@ model TaxOpportunityEvent {
 
   @@index([businessId, opportunityId, createdAt])
   @@map("tax_opportunity_events")
+}
+
+/// Tax Planning Review 2 (approved addition, Project Deadlines): where a project deadline is used.
+/// Only Tax Planning for now; other products are a later check (an ADD VALUE then).
+enum ProjectDeadlineArea {
+  TAX_PLANNING
+}
+
+/// PRIVATE: its owner only (Owner and Admin included). SHARED: the owner and the coworkers in
+/// project_deadline_shares.
+enum ProjectDeadlineVisibility {
+  PRIVATE
+  SHARED
+}
+
+/// Tax Planning Review 2 (approved addition): a staff member's own project deadline, separate
+/// from the Tax Calendar (compliance_deadlines) and the Super Admin's mandatory deadlines. Only
+/// its owner edits, shares or deletes it; coworkers it is shared with read it and may mark it
+/// complete (API rules). A deactivated owner's PRIVATE deadlines simply stop showing.
+model ProjectDeadline {
+  id                String                    @id @default(uuid(7)) @db.Uuid
+  businessId        String                    @map("business_id") @db.Uuid
+  area              ProjectDeadlineArea       @default(TAX_PLANNING)
+  name              String
+  /// The date and time it is due (an instant, shown in the firm's time zone).
+  dueAt             DateTime                  @map("due_at") @db.Timestamptz(3)
+  description       String?
+  serviceId         String                    @map("service_id") @db.Uuid
+  clientId          String?                   @map("client_id") @db.Uuid
+  ownerUserId       String                    @map("owner_user_id") @db.Uuid
+  visibility        ProjectDeadlineVisibility @default(PRIVATE)
+  completedAt       DateTime?                 @map("completed_at") @db.Timestamptz(3)
+  completedByUserId String?                   @map("completed_by_user_id") @db.Uuid
+  archivedAt        DateTime?                 @map("archived_at") @db.Timestamptz(3)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service     Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  client      Client?                   @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  owner       Membership                @relation("ProjectDeadlineOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  completedBy Membership?               @relation("ProjectDeadlineCompletedBy", fields: [businessId, completedByUserId], references: [businessId, userId], onDelete: Restrict)
+  shares      ProjectDeadlineShare[]
+  reminders   ProjectDeadlineReminder[]
+
+  @@unique([businessId, id])
+  @@index([businessId, area, dueAt])
+  @@index([businessId, ownerUserId, dueAt])
+  @@map("project_deadlines")
+}
+
+/// A coworker a SHARED project deadline is shared with (never its owner: API rule).
+model ProjectDeadlineShare {
+  businessId String   @map("business_id") @db.Uuid
+  deadlineId String   @map("deadline_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ProjectDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+  member   Membership      @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Cascade)
+
+  @@id([businessId, deadlineId, userId])
+  @@index([businessId, userId])
+  @@map("project_deadline_shares")
+}
+
+/// A reminder of a project deadline: minutesBefore its due time (0 = at the due time), in-app
+/// and by email, to the owner and every coworker it is shared with. sentAt: when it went; the
+/// API clears it when the due time changes, so it fires once per due time.
+model ProjectDeadlineReminder {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  businessId    String            @map("business_id") @db.Uuid
+  deadlineId    String            @map("deadline_id") @db.Uuid
+  minutesBefore Int               @map("minutes_before")
+  /// The unit it was typed in, to show it back.
+  unit          TaskReminderUnit
+  inApp         Boolean           @default(true) @map("in_app")
+  channels      DeliveryChannel[] @default([])
+  sentAt        DateTime?         @map("sent_at") @db.Timestamptz(3)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deadline ProjectDeadline @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, deadlineId, minutesBefore])
+  @@map("project_deadline_reminders")
 }
 
 // =====================================================================================

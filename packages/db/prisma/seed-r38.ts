@@ -87,6 +87,12 @@ export const SEED_R38_IDS = {
   planApproval: id(215),
   planRequestFirm: id(216),
   planRequestClient: id(217),
+  // R56 (Nov 15, Tax Planning Review 2 Project Deadlines): one private, one shared with Staff.
+  projectDeadline1: id(218),
+  projectDeadline2: id(219),
+  projectDeadlineReminder1: id(220),
+  projectDeadlineReminder2: id(221),
+  projectDeadlineReminder3: id(222),
 } as const;
 
 /** Stage C1: LVP's September ledger, a refund, a Stripe payout, a report version and the terms. */
@@ -463,6 +469,7 @@ export async function seedWorkModules(tx: TxClient, c: WorkSeedContext): Promise
   await seedTaxPlanning(tx, c);
   await seedTaxPlanDetails(tx, c);
   await seedOpportunities(tx, c);
+  await seedProjectDeadlines(tx, c);
 }
 
 /** The IRS 2027 calendar, published: an entry with a date, and one that needs checking. */
@@ -1504,4 +1511,72 @@ async function seedOpportunities(tx: TxClient, c: WorkSeedContext) {
       actorUserId: c.ownerId,
     },
   });
+}
+
+/**
+ * Tax Planning Review 2 (Project Deadlines): the Owner's private deadline with two reminders, and
+ * one for the client shared with Staff, with a reminder by email.
+ */
+async function seedProjectDeadlines(tx: TxClient, c: WorkSeedContext) {
+  const { businessId } = c;
+  await tx.projectDeadline.upsert({
+    where: { id: SEED_R38_IDS.projectDeadline1 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.projectDeadline1,
+      businessId,
+      name: 'Finish the 2027 planning projections',
+      dueAt: new Date('2026-12-01T22:00:00Z'),
+      description: 'Run the scenarios before the client meeting.',
+      serviceId: c.taxServiceId,
+      ownerUserId: c.ownerId,
+    },
+  });
+  await tx.projectDeadline.upsert({
+    where: { id: SEED_R38_IDS.projectDeadline2 },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.projectDeadline2,
+      businessId,
+      name: 'Send the plan for internal review',
+      dueAt: new Date('2026-12-08T17:00:00Z'),
+      serviceId: c.taxServiceId,
+      clientId: c.clientId,
+      ownerUserId: c.ownerId,
+      visibility: 'SHARED',
+    },
+  });
+  await tx.projectDeadlineShare.upsert({
+    where: {
+      businessId_deadlineId_userId: {
+        businessId,
+        deadlineId: SEED_R38_IDS.projectDeadline2,
+        userId: c.staffId,
+      },
+    },
+    update: {},
+    create: { businessId, deadlineId: SEED_R38_IDS.projectDeadline2, userId: c.staffId },
+  });
+  const reminder = (
+    n: 'projectDeadlineReminder1' | 'projectDeadlineReminder2' | 'projectDeadlineReminder3',
+    deadlineId: string,
+    minutesBefore: number,
+    unit: 'MINUTES' | 'HOURS' | 'DAYS',
+    email: boolean,
+  ) =>
+    tx.projectDeadlineReminder.upsert({
+      where: { id: SEED_R38_IDS[n] },
+      update: {},
+      create: {
+        id: SEED_R38_IDS[n],
+        businessId,
+        deadlineId,
+        minutesBefore,
+        unit,
+        channels: email ? ['EMAIL'] : [],
+      },
+    });
+  await reminder('projectDeadlineReminder1', SEED_R38_IDS.projectDeadline1, 1440, 'DAYS', true);
+  await reminder('projectDeadlineReminder2', SEED_R38_IDS.projectDeadline1, 120, 'HOURS', false);
+  await reminder('projectDeadlineReminder3', SEED_R38_IDS.projectDeadline2, 2880, 'DAYS', true);
 }
