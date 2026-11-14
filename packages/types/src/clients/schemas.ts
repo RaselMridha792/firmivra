@@ -125,6 +125,10 @@ export type ClientListRow = z.infer<typeof ClientListRow>;
  * their own clients; `assignedUserId` is for Owner and Admin (403 for Staff). Paging: `cursor`
  * (from nextCursor), or `page` for numbered pages (not both); `total` counts every match.
  */
+/** Clients Review 2 (G12): the list's orders (table and cards alike). */
+export const ClientSort = z.enum(['NEWEST', 'OLDEST', 'NAME_ASC', 'NAME_DESC']);
+export type ClientSort = z.infer<typeof ClientSort>;
+
 export const ListClientsQuery = z
   .strictObject({
     search: SearchText.optional(),
@@ -183,6 +187,11 @@ export const ListClientsQuery = z
     /** Where the client came from (the lead sources). */
     source: LeadSource.optional(),
     priority: ClientPriority.optional(),
+    /**
+     * Clients Review 2 (G12): the order, newest first by default. Another order goes with
+     * numbered pages only (the cursor follows newest first).
+     */
+    sort: ClientSort.optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */
@@ -190,6 +199,10 @@ export const ListClientsQuery = z
     limit: z.coerce.number().int().min(1).max(100).optional().default(25),
   })
   .refine((q) => !(q.cursor && q.page), { message: 'Use cursor or page, not both', path: ['page'] })
+  .refine((q) => !q.sort || q.sort === 'NEWEST' || q.page, {
+    message: 'This order works with numbered pages',
+    path: ['sort'],
+  })
   .refine(
     (q) => !q.lastActivityFrom || !q.lastActivityTo || q.lastActivityFrom <= q.lastActivityTo,
     { message: 'The start is after the end', path: ['lastActivityTo'] },
