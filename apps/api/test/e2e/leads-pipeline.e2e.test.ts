@@ -452,9 +452,10 @@ describe('profile and Edit (GET :id/profile, PATCH :id)', () => {
     expect(codeOf(await call('patch', `/${id}`, people.ownerA, { campaignId: randomUUID() }))).toBe(
       'NOT_FOUND',
     );
+    // Leads R2 8: a date of birth is kept now (leads-review-two.e2e has its rules); a future one is not.
     expect(
-      codeOf(await call('patch', `/${id}`, people.ownerA, { dateOfBirth: '1990-01-01' })),
-    ).toBe('FIELD_UNAVAILABLE');
+      codeOf(await call('patch', `/${id}`, people.ownerA, { dateOfBirth: '2999-01-01' })),
+    ).toBe('VALIDATION_FAILED');
     expect(codeOf(await call('patch', `/${id}`, people.ownerA, { serviceIds: [] }))).toBe(
       'VALIDATION_FAILED',
     );
