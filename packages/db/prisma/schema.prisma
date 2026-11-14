@@ -1146,7 +1146,9 @@ model Membership {
   documentLinksCreated    DocumentLink[]         @relation("DocumentLinkCreatedBy")
   documentLinksReceived   DocumentLink[]         @relation("DocumentLinkRecipient")
   assignedClients         Client[]
-  assignedEngagements     Engagement[]
+  assignedEngagements     Engagement[]                @relation("EngagementAssignee")
+  pausedEngagements       Engagement[]                @relation("EngagementPausedBy")
+  clientLinksCreated      ClientLink[]                @relation("ClientLinkCreatedBy")
   assignedTasks           Task[]
   workingHours            WorkingHours[]
   blockedTimes            BlockedTime[]
@@ -3118,6 +3120,9 @@ model Client {
   advisoryRecords       AdvisoryClient[]
   updatedBy             Membership?                  @relation("ClientUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
   tags                  ClientTag[]
+  /// Clients Review 2 (G9): the profiles linked to this one, from either side.
+  linksFrom             ClientLink[]          @relation("ClientLinkFrom")
+  linksTo               ClientLink[]          @relation("ClientLinkTo")
   statusHistory         ClientStatusHistory[]
   /// R0 stage C2: compliance facts and sales tax registrations.
   complianceFacts       ClientComplianceFacts?       @relation("ClientComplianceFacts")
@@ -3367,6 +3372,12 @@ model Engagement {
   /// stop date defaults to nextBillingOn in the API; set exactly when the flag is on (SQL only).
   stopFutureBilling   Boolean          @default(false) @map("stop_future_billing")
   billingStopsOn      DateTime?        @map("billing_stops_on") @db.Date
+  /// Clients Review 2 (G8, R60, Nov 14): the service is paused (on hold) for any service, with the
+  /// firm's reason (at most 200 characters) and who paused it. All three are set together or none
+  /// (SQL). Separate from Stop Future Billing and from the status.
+  pausedAt            DateTime?        @map("paused_at") @db.Timestamptz(3)
+  pausedReason        String?          @map("paused_reason")
+  pausedByUserId      String?          @map("paused_by_user_id") @db.Uuid
   updatedByUserId     String?          @map("updated_by_user_id") @db.Uuid
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -3374,7 +3385,8 @@ model Engagement {
   client                 Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   service                Service                   @relation("EngagementService", fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   catalogService         Service?                  @relation("EngagementCatalogService", fields: [businessId, catalogServiceId], references: [businessId, id], onDelete: SetNull)
-  assignedMember         Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedMember         Membership?               @relation("EngagementAssignee", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  pausedBy               Membership?               @relation("EngagementPausedBy", fields: [businessId, pausedByUserId], references: [businessId, userId], onDelete: Restrict)
   statusHistory          EngagementStatusHistory[]
   tasks                  Task[]
   notes                  Note[]
@@ -12125,6 +12137,43 @@ model Tag {
 }
 
 /// A tag on a client. Removing a tag deletes its row (the audit log keeps who and when).
+/// Clients Review 2 (G9): what the linked profile is to the client (the other side shows the
+/// inverse, e.g. Owner of / Owned by).
+enum ClientLinkRole {
+  OWNER
+  RESPONSIBLE_PARTY
+  SPOUSE
+  FAMILY
+  PARTNER
+  RELATED_BUSINESS
+  OTHER
+}
+
+/// Clients Review 2 (G9, R60, Nov 14; the lead's approval under Rasel's delegation): two client
+/// profiles of one firm linked, e.g. a Business and the Personal profile of its owner or
+/// responsible party. One row per pair, whichever side added it (SQL: a unique index on the
+/// ordered pair, and never a client linked to itself). `role` is what linked_client is to
+/// client. Both profiles list it; taking a link off deletes its row (audited by the API).
+model ClientLink {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  clientId        String         @map("client_id") @db.Uuid
+  linkedClientId  String         @map("linked_client_id") @db.Uuid
+  role            ClientLinkRole
+  /// At most 200 characters (SQL).
+  note            String?
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  client       Client      @relation("ClientLinkFrom", fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  linkedClient Client      @relation("ClientLinkTo", fields: [businessId, linkedClientId], references: [businessId, id], onDelete: Restrict)
+  createdBy    Membership? @relation("ClientLinkCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@index([businessId, linkedClientId])
+  @@map("client_links")
+}
+
 model ClientTag {
   businessId    String   @map("business_id") @db.Uuid
   clientId      String   @map("client_id") @db.Uuid
