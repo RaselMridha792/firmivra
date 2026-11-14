@@ -1742,6 +1742,14 @@ describe('send reminder', () => {
     );
     expect(audit).toHaveLength(1);
     expect(JSON.stringify(audit)).not.toContain('Jamie');
+    // Review 2 (B8): the appointment's notice history shows it, after a fresh read too.
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${r.id}/record`, people.staffA),
+    );
+    expect(record.notices).toHaveLength(1);
+    expect(record.notices[0]).toMatchObject({ kind: 'REMINDER', channel: 'EMAIL', status: 'SENT' });
+    expect(record.notices[0]!.recipient).not.toContain('Jamie');
   });
 
   it("carries the firm's own words and the instructions the appointment shows in email (Review 2, B7, B9)", async () => {
@@ -1805,6 +1813,13 @@ describe('send reminder', () => {
       }),
     );
     expect(portal).toEqual({ sent: 0, skipped: 1 });
+    // Review 2 (B8): a reminder that could not go out is in the history as FAILED.
+    expect(
+      exact(AppointmentRecord, await call('get', `/appointments/${r.id}/record`, people.ownerA))
+        .notices,
+    ).toMatchObject([
+      { kind: 'REMINDER', channel: 'PORTAL', status: 'FAILED', recipient: 'Client portal' },
+    ]);
     await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
     expect(
       exact(

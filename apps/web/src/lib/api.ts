@@ -49,6 +49,7 @@ import {
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
+  createLeadTransferClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -79,6 +80,7 @@ import {
   createSettingsOverviewClient,
   createLocationsClient,
   createStaffClient,
+  createStaffMyProfileClient,
   createMySecurityClient,
   createMfaPolicyClient,
   createSupportAccessClient,
@@ -143,6 +145,7 @@ import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
 import { createLeadSequencesMock } from '../mocks/lead-sequences';
 import { leadRoutingMock } from '../mocks/lead-routing';
+import { createLeadTransferMock } from '../mocks/lead-transfer';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
@@ -160,6 +163,7 @@ import {
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createStaffPhoneMock } from '../mocks/staff-phone';
+import { createStaffProfileMock } from '../mocks/staff-profile';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
@@ -360,6 +364,11 @@ export const api = {
     dev && mocked('leadSequences') && leadPipelineMock
       ? createLeadSequencesMock(leadPipelineMock, MOCK_ROLE)
       : createLeadSequencesClient(request),
+  /** Leads R2 16 (R55): bulk import (mapped, checked, then created) and export (scoped CSV). */
+  leadTransfer:
+    dev && mocked('leadTransfer') && leadPipelineMock
+      ? createLeadTransferMock(leadPipelineMock, MOCK_ROLE)
+      : createLeadTransferClient(request),
   /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
   intakeForms:
     dev && mocked('intakeForms')
@@ -600,7 +609,17 @@ export const api = {
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
   /** The signed-in member's mobile number and its verification by text (R60). */
   staffPhone:
-    dev && mocked('staffPhone') ? createStaffPhoneMock() : createStaffPhoneClient(request),
+    dev && mocked('staffPhone')
+      ? createStaffPhoneMock({ role: MOCK_ROLE })
+      : createStaffPhoneClient(request),
+  /**
+   * My Profile's own details (Dashboard Review 2, R2 NEW2): the Owner edits their name and job
+   * title. Mock: NEXT_PUBLIC_API_MOCK=staffProfile (mocks/staff-profile.ts).
+   */
+  staffProfile:
+    dev && mocked('staffProfile')
+      ? createStaffProfileMock({ role: MOCK_ROLE })
+      : createStaffMyProfileClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
   /** Announcements published to the signed-in client from Communications (portal). */
   myAnnouncements: (firmSlug: string) =>

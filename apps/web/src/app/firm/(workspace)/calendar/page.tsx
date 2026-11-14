@@ -7,8 +7,13 @@ export const metadata: Metadata = { title: 'Calendar' };
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string | string[] }>;
+  searchParams: Promise<{ date?: string | string[]; view?: string | string[] }>;
 }) {
-  const { date } = await searchParams;
-  return <CalendarScreen date={typeof date === 'string' ? date : undefined} />;
+  const { date, view } = await searchParams;
+  return (
+    <CalendarScreen
+      date={typeof date === 'string' ? date : undefined}
+      view={typeof view === 'string' ? view : undefined}
+    />
+  );
 }

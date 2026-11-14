@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { CalendarDate } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
+import { Phone as E164Phone } from '../client-auth/schemas.js';
 import {
   MembershipRole,
   PermissionCapability,
@@ -250,7 +251,11 @@ export type StaffDetail = z.infer<typeof StaffDetail>;
 // ---------- Create / Edit Staff: the four steps ----------
 
 const Name = text(60);
-const Phone = text(40);
+/**
+ * A member's mobile number, stored as E.164 on the firm's membership (Dashboard Review 2, R2
+ * NEW2): only the firm's Owner sets it.
+ */
+const Phone = E164Phone;
 const Ids = z.array(z.uuid()).max(20);
 
 /** Step 1, Account Information (with the role part of step 2). */

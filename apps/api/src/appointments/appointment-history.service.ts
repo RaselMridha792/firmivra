@@ -3,6 +3,7 @@ import type { TxClient } from '@firmivra/db';
 import type { AppointmentAction, AppointmentEvent } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { type AppointmentRow, memberNames } from './calendar-data.js';
+import type { SentNotice } from './scheduling-data.js';
 import {
   AUDIT_ACTIONS,
   HISTORY_AUDIT_ACTIONS,
@@ -50,6 +51,40 @@ export class AppointmentHistory {
       { type: 'appointment', id: appointment.id },
       metadata,
     );
+  }
+
+  /**
+   * Review 2 (B8): the reminders sent by hand (Send Reminder), one notice per channel asked for:
+   * SENT when it went out, FAILED when it could not (no sender, a closed or past appointment).
+   */
+  async sentNotices(
+    tx: TxClient,
+    businessId: string,
+    appointment: { id: string; createdAt: Date },
+  ): Promise<SentNotice[]> {
+    const rows = await tx.auditLog.findMany({
+      where: {
+        businessId,
+        createdAt: { gte: new Date(appointment.createdAt.getTime() - HISTORY_CLOCK_SLACK_MS) },
+        entityType: 'appointment',
+        entityId: appointment.id,
+        action: 'appointment.reminder_sent',
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { createdAt: true, metadata: true },
+    });
+    return rows.flatMap((r) => {
+      const m = (r.metadata ?? {}) as { channels?: unknown; delivered?: unknown };
+      const channels = Array.isArray(m.channels) ? m.channels : ['EMAIL'];
+      return channels
+        .filter((c): c is SentNotice['channel'] => c === 'EMAIL' || c === 'SMS' || c === 'PORTAL')
+        .map((channel) => ({
+          at: r.createdAt.toISOString(),
+          kind: 'REMINDER' as const,
+          channel,
+          status: m.delivered === true ? ('SENT' as const) : ('FAILED' as const),
+        }));
+    });
   }
 
   /** The appointment's changes, oldest first, with the names of who acted and of staff. */

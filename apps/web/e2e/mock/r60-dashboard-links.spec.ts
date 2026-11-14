@@ -24,6 +24,12 @@ for (const [name, open, path] of [
       page.getByRole('region', { name: 'Tasks Due' }).getByRole('link', { name: 'View All' }),
     '/tasks?view=all&due=set&from=%2F',
   ],
+  [
+    'Recent Messages, View All',
+    (page) =>
+      page.getByRole('region', { name: 'Recent Messages' }).getByRole('link', { name: 'View All' }),
+    '/messages?from=%2F',
+  ],
 ] as const satisfies readonly [
   string,
   (page: import('@playwright/test').Page) => import('@playwright/test').Locator,

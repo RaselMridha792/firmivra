@@ -62,7 +62,9 @@ export const schedulingSelect = {
   office: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
   reminders: {
-    select: { channel: true, offsetMinutes: true, note: true },
+    // Review 2 (B8): sentAt, when the automatic reminder went out (its notice history); (B7)
+    // each reminder's own note.
+    select: { channel: true, offsetMinutes: true, sentAt: true, note: true },
     orderBy: [{ offsetMinutes: 'desc' }, { channel: 'asc' }],
   },
   series: {
@@ -149,17 +151,51 @@ export function toBusyItem(row: SchedulingRow): BusyAgendaItem {
 export const toEntry = (actor: FirmActor, row: SchedulingRow): AgendaItem | BusyAgendaItem =>
   seesInFull(actor, row) ? toAgendaItem(row) : toBusyItem(row);
 
+/** A sent notice before its recipient is known (Review 2, B8). */
+export type SentNotice = Omit<AppointmentRecord['notices'][number], 'recipient'>;
+
+/** Who a notice on this channel went to, masked: "j•••@example.com", "(•••) •••-0187", the portal. */
+function recipientFor(
+  channel: AppointmentRecord['notices'][number]['channel'],
+  contact: { email: string | null; phone: string | null },
+): string {
+  if (channel === 'PORTAL') return 'Client portal';
+  if (channel === 'SMS') {
+    const digits = (contact.phone ?? '').replace(/\D/g, '');
+    return digits.length >= 4 ? `(•••) •••-${digits.slice(-4)}` : "Client's phone";
+  }
+  const email = contact.email ?? '';
+  const at = email.lastIndexOf('@');
+  return at > 0 ? `${email[0]}•••${email.slice(at)}` : "Client's email";
+}
+
 /**
  * The detail record. What the database does not keep yet is empty, not invented: related items
- * (no link columns), delivery history (no notices table) and a recurrence that cannot be read
- * back from a series with a rule the screens do not know.
+ * (no link columns) and a recurrence that cannot be read back from a series with a rule the
+ * screens do not know. Review 2 (B8): the notices are the automatic reminders that went out and
+ * the reminders sent by hand (`sent`), newest first.
  */
 export function toRecord(
   row: SchedulingRow,
   timezone: string,
   history: AppointmentRecord['history'],
+  sent: readonly SentNotice[] = [],
 ): AppointmentRecord {
   const series = row.series;
+  const item = toAgendaItem(row);
+  const notices = [
+    ...row.reminders
+      .filter((r) => r.sentAt)
+      .map((r): SentNotice => ({
+        at: r.sentAt!.toISOString(),
+        kind: 'REMINDER',
+        channel: r.channel,
+        status: 'SENT',
+      })),
+    ...sent,
+  ]
+    .map((n) => ({ ...n, recipient: recipientFor(n.channel, item.contact) }))
+    .sort((a, b) => b.at.localeCompare(a.at));
   return {
     ...toAgendaItem(row),
     timezone: row.timeZone ?? timezone,
@@ -200,7 +236,7 @@ export function toRecord(
       : null,
     seriesId: row.seriesId,
     history,
-    notices: [],
+    notices,
     createdAt: row.createdAt.toISOString(),
     version: versionOf(row.updatedAt),
   };

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { memberNumber } from '../staff-phone/staff-phone.service.js';
 import type { Database, TxClient } from '@firmivra/db';
 import {
   type DeliveryChannel,
@@ -303,11 +304,9 @@ export class NotificationsService {
   private async texts(me: Me): Promise<{ offered: boolean; stopped: boolean }> {
     const scope = this.database.forBusiness(me.businessId);
     if (me.side === 'staff') {
-      const login = await this.database.forUser(me.userId).user.findFirst({
-        where: { id: me.userId },
-        select: { phone: true, phoneVerifiedAt: true },
-      });
-      return { offered: Boolean(login?.phone && login.phoneVerifiedAt), stopped: false };
+      // R2 NEW2: this firm's number for the member when the Owner set one, else their own.
+      const number = await memberNumber(this.database, me.businessId, me.userId);
+      return { offered: Boolean(number.phone && number.verifiedAt), stopped: false };
     }
     const [user, account] = await Promise.all([
       scope.user.findFirst({ where: { id: me.userId }, select: { phone: true } }),

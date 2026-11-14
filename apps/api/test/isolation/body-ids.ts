@@ -154,6 +154,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/leads\/bulk$/,
     why: "the bulk bar's case is the ASSIGN variant of a strict union; the CAMPAIGN variant's campaign (a Communications campaign, L7) is checked by lead-campaigns.e2e.test.ts: another firm's is 404 and changes nothing (R55)",
   },
+  ...['filters.serviceId', 'filters.assignedUserId', 'filters.campaignId'].map((field) => ({
+    field,
+    routes: /^POST \/api\/v1\/business\/leads\/export$/,
+    why: "the Leads list's filter (Leads R2 16, export the list as filtered): another firm's service, member or campaign matches no lead of this firm, so nothing of theirs is read (R55)",
+  })),
   {
     field: 'ids',
     routes: /^POST \/api\/v1\/business\/leads\/(bulk|messages|bulk-convert)$/,

@@ -153,3 +153,21 @@ test('the profile menu closes on a click outside and on Escape after focus left 
   await expect(menu).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
+
+test('Create Bulk Email opens the composer; its first save makes the draft and keeps Back (Q3)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/'));
+  await page.getByRole('link', { name: 'Create Bulk Email' }).click();
+  await expect(page.getByTestId('composer-form')).toBeVisible({ timeout: 60_000 });
+  await expect(page).toHaveURL(/\/communications\/new\?channel=EMAIL&from=%2F$/);
+  await expect(page.getByTestId('save-state')).toHaveText('Not saved yet');
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Dashboard');
+  await page.getByLabel('Campaign Name').fill('Fake spring update');
+  await page.getByRole('button', { name: 'Save Draft' }).first().click();
+  await expect(page.getByText('Draft saved.')).toBeVisible();
+  await expect(page).toHaveURL(/\/communications\/[0-9a-f-]{36}\/edit\?from=%2F$/);
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Dashboard');
+});
