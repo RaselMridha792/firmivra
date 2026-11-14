@@ -222,7 +222,13 @@ export const cases: CaseModule['cases'] = {
   },
   [`POST ${BASE}/plans/:id/approvals`]: {
     params: { id: 'taxPlan' },
-    body: { etag: ETAG, approvedOn: '2026-01-02', note: 'Fake approval note' },
+    bodyIds: { documentId: 'document' },
+    body: {
+      etag: ETAG,
+      approvedOn: '2026-01-02',
+      note: 'Fake approval note',
+      documentId: PLACEHOLDER,
+    },
     // Not sent for the client's review: reached, then refused for its status.
     expect: 409,
   },
@@ -232,7 +238,9 @@ export const cases: CaseModule['cases'] = {
   },
   [`PATCH ${BASE}/plans/:id/requests/:requestId`]: {
     params: { id: 'taxPlan', requestId: 'taxPlanRequest' },
-    body: { status: 'CLOSED' },
+    bodyIds: { documentId: 'document' },
+    // Answered, not closed, so the case can run again on the same request.
+    body: { status: 'ANSWERED', response: 'Fake answer', documentId: PLACEHOLDER },
   },
   [`POST ${BASE}/plans/:id/duplicate`]: { params: { id: 'taxPlan' }, body: {} },
   [`GET ${BASE}/plans/:id/events`]: { params: { id: 'taxPlan' } },

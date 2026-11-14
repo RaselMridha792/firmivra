@@ -1249,6 +1249,16 @@ export class TaxPlansService {
     return plan;
   }
 
+  /** A document named in a workflow step: the plan's client's own, or 404 like an unknown one. */
+  private async clientDocument(ctx: TaxCtx, plan: PlanShape, documentId?: string | null) {
+    if (!documentId) return;
+    const doc = await ctx.tx.document.findFirst({
+      where: { businessId: ctx.businessId, id: documentId, clientId: plan.clientId },
+      select: { id: true },
+    });
+    if (!doc) throw notFound();
+  }
+
   /** A status a workflow step moves to, with the plan's history and the audit. */
   private async moveTo(
     ctx: TaxCtx,
@@ -1276,12 +1286,13 @@ export class TaxPlansService {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const plan = await this.lockedPlan(ctx, id, body.etag);
+      // An active member of the firm, whatever their role; checked first, so a reviewer of another
+      // firm is refused like an unknown one, whatever the plan's status.
+      await checkMember(ctx.tx, businessId, body.reviewerUserId);
       if (!REVIEWABLE.includes(plan.status))
         throw tpErrors.invalidStatus(
           'Send for Internal Review is for a plan in progress, finalized or being revised',
         );
-      // An active member of the firm, whatever their role.
-      await checkMember(ctx.tx, businessId, body.reviewerUserId);
       await this.moveTo(ctx, plan, 'UNDER_REVIEW', 'REVIEW_REQUESTED', {
         reviewerUserId: body.reviewerUserId,
         reviewRequestedAt: new Date(),
@@ -1311,6 +1322,9 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.lockedPlan(ctx, id, body.etag);
+      // The proof is a document of the plan's client; checked first, so another firm's document
+      // is refused like an unknown one, whatever the plan's status.
+      await this.clientDocument(ctx, plan, body.documentId);
       if (plan.status !== 'AWAITING_CLIENT' && plan.status !== 'READY_FOR_REVIEW')
         throw tpErrors.invalidStatus(
           "Record the client's approval of a plan sent for their review (Awaiting Client Review)",
@@ -1327,13 +1341,6 @@ export class TaxPlansService {
       });
       if (!sent)
         throw tpErrors.invalid('version', "Choose a version that was sent for the client's review");
-      if (body.documentId) {
-        const doc = await tx.document.findFirst({
-          where: { businessId, id: body.documentId, clientId: plan.clientId },
-          select: { id: true },
-        });
-        if (!doc) throw notFound();
-      }
       if (body.approvedOn > todayIn(ctx.timezone))
         throw tpErrors.invalid('approvedOn', 'The approval date cannot be after today');
       const already = await tx.taxPlanApproval.findFirst({
@@ -1447,14 +1454,8 @@ export class TaxPlansService {
         select: { id: true, status: true, answeredAt: true },
       });
       if (!row) throw notFound();
+      await this.clientDocument(ctx, plan, body.documentId);
       if (row.status === 'CLOSED') throw tpErrors.invalidStatus('This request is closed');
-      if (body.documentId) {
-        const doc = await tx.document.findFirst({
-          where: { businessId, id: body.documentId, clientId: plan.clientId },
-          select: { id: true },
-        });
-        if (!doc) throw notFound();
-      }
       const now = new Date();
       await tx.taxPlanRequest.update({
         where: { businessId_id: { businessId, id: requestId } },
