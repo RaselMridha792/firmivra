@@ -562,8 +562,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       const rc = input.recipient;
       if (rc.kind === 'LEAD' && input.channel === 'PORTAL')
         throw fail(409, 'PORTAL_UNAVAILABLE', 'A lead has no portal access: choose Email');
-      if (rc.kind !== 'CLIENT')
-        throw fail(503, 'LEAD_LINK_UNAVAILABLE', 'Leads need the secure link page');
+      if (rc.kind === 'NEW_CONTACT')
+        throw fail(503, 'LEAD_LINK_UNAVAILABLE', 'Forms for new contacts are not available yet');
       const form = findForm(input.formId);
       if (form.status !== 'PUBLISHED')
         throw fail(409, 'FORM_NOT_PUBLISHED', 'Publish this form before sending it');
@@ -587,11 +587,11 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         );
       const n = s.next++;
       const at = new Date().toISOString();
-      // Only a client gets this far (as with the API).
+      // A client or a lead gets this far (as with the API).
       const r: AssignedFormRecord = {
         id: uuid('0a00', n),
         recipient: {
-          kind: 'CLIENT',
+          kind: rc.kind,
           id: rc.id,
           name: 'Selected recipient',
           email: null,
