@@ -84,11 +84,13 @@ describe('daily MRR rollup', () => {
     expect(await asAdmin((tx) => tx.platformMrrDaily.count({ where: { day } }))).toBe(1);
     expect(await asFirm((tx) => tx.platformMrrDaily.count({ where: { day } }))).toBe(0);
     const other = new Date(day.getTime() + 86_400_000);
+    // Each write starts only when the test awaits it: started together, the second one's refusal
+    // arrived before anything awaited it and failed the run as an unhandled rejection.
     for (const write of [
-      asAdmin((tx) => tx.platformMrrDaily.create({ data: { day: other, mrrCents: 1 } })),
-      asFirm((tx) => tx.platformMrrDaily.create({ data: { day: other, mrrCents: 1 } })),
+      () => asAdmin((tx) => tx.platformMrrDaily.create({ data: { day: other, mrrCents: 1 } })),
+      () => asFirm((tx) => tx.platformMrrDaily.create({ data: { day: other, mrrCents: 1 } })),
     ]) {
-      expect(await outcome(write)).toMatch(/row-level security/);
+      expect(await outcome(write())).toMatch(/row-level security/);
     }
     expect(
       (
