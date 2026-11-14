@@ -83,6 +83,10 @@ export const SEED_R38_IDS = {
   opportunity2: id(57),
   opportunityEvent1: id(58),
   opportunityEvent2: id(59),
+  // R1 (Nov 14, Tax Planning Review 2 workflow): an approval of version 1 and a request each way.
+  planApproval: id(215),
+  planRequestFirm: id(216),
+  planRequestClient: id(217),
 } as const;
 
 /** Stage C1: LVP's September ledger, a refund, a Stripe payout, a report version and the terms. */
@@ -1340,6 +1344,53 @@ async function seedTaxPlanDetails(tx: TxClient, c: WorkSeedContext) {
       planStrategyId: SEED_R38_IDS.planStrategy1,
       category: 'Income',
       addedByUserId: c.staffId,
+    },
+  });
+  // Tax Planning Review 2 workflow: the client's documented approval of version 1, and a request
+  // each way (the firm's still open, the client's answered).
+  await tx.taxPlanApproval.upsert({
+    where: { id: SEED_R38_IDS.planApproval },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.planApproval,
+      businessId,
+      clientId: c.clientId,
+      planId: SEED_R38_IDS.plan,
+      version: 1,
+      method: 'MANUAL',
+      approvedOn: new Date('2026-10-20'),
+      note: 'Approved by phone; the call notes are in the client file (sample).',
+      recordedByUserId: c.ownerId,
+    },
+  });
+  await tx.taxPlanRequest.upsert({
+    where: { id: SEED_R38_IDS.planRequestFirm },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.planRequestFirm,
+      businessId,
+      clientId: c.clientId,
+      planId: SEED_R38_IDS.plan,
+      direction: 'FIRM_TO_CLIENT',
+      kind: 'DOCUMENT',
+      body: 'Please upload your most recent pay stub (sample).',
+      requestedByUserId: c.staffId,
+    },
+  });
+  await tx.taxPlanRequest.upsert({
+    where: { id: SEED_R38_IDS.planRequestClient },
+    update: {},
+    create: {
+      id: SEED_R38_IDS.planRequestClient,
+      businessId,
+      clientId: c.clientId,
+      planId: SEED_R38_IDS.plan,
+      direction: 'CLIENT_TO_FIRM',
+      kind: 'QUESTION',
+      body: 'Does the HSA contribution count for this year? (sample)',
+      status: 'ANSWERED',
+      response: 'Yes, contributions until the filing deadline count (sample).',
+      answeredAt: new Date('2026-10-22T15:00:00Z'),
     },
   });
   await tx.taxSavingsScenario.upsert({

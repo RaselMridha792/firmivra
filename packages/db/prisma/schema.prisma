@@ -572,6 +572,11 @@ enum TaxPlanStatus {
   FINALIZED
   IMPLEMENTED
   CLOSED
+  /// R1 (Nov 14, Review 2 approved workflow): in internal review by the chosen reviewer.
+  UNDER_REVIEW
+  /// R1 (Nov 14, Review 2 approved workflow): the client approved an exact version
+  /// (tax_plan_approvals); implementation may start.
+  CLIENT_APPROVED
 }
 
 /// R1 (Nov 14, Review 2 C27, S1): what a tax_plan_events row records.
@@ -583,6 +588,13 @@ enum TaxPlanEventKind {
   SEND
   ARCHIVE
   RESTORE
+  /// R1 (Nov 14, Review 2 approved workflow): sent for internal review, approved by the client,
+  /// delivered, and the requests either way.
+  REVIEW_REQUESTED
+  INFO_REQUESTED
+  CLIENT_REQUEST
+  APPROVED
+  DELIVERED
 }
 
 /// R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds).
@@ -648,6 +660,8 @@ enum PlanVersionEvent {
   FINALIZED
   GENERATED
   SENT
+  /// R1 (Nov 14, Review 2 approved workflow): the version delivered to the client.
+  DELIVERED
 }
 
 /// An opportunity's review state. NEW is identified and not reviewed; ADDED_TO_PLAN, IMPLEMENTED
@@ -1214,7 +1228,10 @@ model Membership {
   automationRules              AutomationRule[]
   automationEventConfirmations AutomationEventConfirmation[]
   bookkeepingProfiles          BookkeepingProfile[]
-  taxPlans                     TaxPlan[]
+  taxPlans                     TaxPlan[]                    @relation("TaxPlanAssignee")
+  taxPlansReviewing            TaxPlan[]                    @relation("TaxPlanReviewer")
+  taxPlanApprovalsRecorded     TaxPlanApproval[]            @relation("TaxPlanApprovalRecordedBy")
+  taxPlanRequestsMade          TaxPlanRequest[]             @relation("TaxPlanRequestRequestedBy")
   taxOpportunities             TaxOpportunity[]
 
   // Staff management (R35).
@@ -3734,6 +3751,10 @@ model Document {
 
   // R1 (Oct 21): secure share links to this document.
   links DocumentLink[]
+
+  // R1 (Nov 14, Tax Planning Review 2 workflow): proof of a manual approval, and a request's answer.
+  taxPlanApprovals TaxPlanApproval[] @relation("TaxPlanApprovalDocument")
+  taxPlanRequests  TaxPlanRequest[]  @relation("TaxPlanRequestDocument")
 
   @@unique([businessId, id])
   // One document per carried-over lead upload.
@@ -10814,6 +10835,14 @@ model TaxPlan {
   assignedUserId     String?          @map("assigned_user_id") @db.Uuid
   targetCompletionOn DateTime?        @map("target_completion_on") @db.Date
   nextDiscussionOn   DateTime?        @map("next_discussion_on") @db.Date
+  /// R1 (Nov 14, Review 2 approved workflow): Send for Internal Review's chosen reviewer, a member
+  /// of the same firm, and when it was sent.
+  reviewerUserId     String?          @map("reviewer_user_id") @db.Uuid
+  reviewRequestedAt  DateTime?        @map("review_requested_at") @db.Timestamptz(3)
+  /// R1 (Nov 14): Deliver to Client, a fact apart from the status (Implemented never implies it,
+  /// nor it Implemented): when, and the exact version (tax_plan_versions) delivered. Both or neither.
+  deliveredAt        DateTime?        @map("delivered_at") @db.Timestamptz(3)
+  deliveredVersion   Int?             @map("delivered_version")
   createdByUserId    String?          @map("created_by_user_id") @db.Uuid
   archivedAt         DateTime?        @map("archived_at") @db.Timestamptz(3)
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -10821,7 +10850,10 @@ model TaxPlan {
 
   client              Client               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement          Engagement?          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember      Membership?          @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  assignedMember      Membership?          @relation("TaxPlanAssignee", fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewerMember      Membership?          @relation("TaxPlanReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  approvals           TaxPlanApproval[]
+  requests            TaxPlanRequest[]
   strategies          TaxPlanStrategy[]
   taxPlanInputs       TaxPlanInput[]
   taxPlanVersions     TaxPlanVersion[]
@@ -10926,7 +10958,8 @@ model TaxPlanVersion {
   createdByUserId String?          @map("created_by_user_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  plan      TaxPlan           @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+  approvals TaxPlanApproval[]
 
   @@unique([businessId, planId, version])
   @@map("tax_plan_versions")
@@ -10953,6 +10986,91 @@ model TaxPlanEvent {
 
   @@index([businessId, planId, createdAt])
   @@map("tax_plan_events")
+}
+
+/// R1 (Nov 14, Tax Planning Review 2 approved workflow): how the client's approval came.
+/// PORTAL is kept for the portal's own approval (not built yet); MANUAL is documented by staff.
+enum TaxPlanApprovalMethod {
+  PORTAL
+  MANUAL
+}
+
+/// R1 (Nov 14, Tax Planning Review 2 approved workflow): the client's approval of one exact plan
+/// version (tax_plan_versions), with its date. One per version, append-only (no update or delete).
+/// MANUAL needs the staff member who recorded it and a note on how it was documented, with an
+/// optional proof document; approved_on is never after today (database rules).
+model TaxPlanApproval {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  businessId       String                @map("business_id") @db.Uuid
+  clientId         String                @map("client_id") @db.Uuid
+  planId           String                @map("plan_id") @db.Uuid
+  version          Int
+  method           TaxPlanApprovalMethod
+  approvedOn       DateTime              @map("approved_on") @db.Date
+  note             String?
+  documentId       String?               @map("document_id") @db.Uuid
+  recordedByUserId String?               @map("recorded_by_user_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan        TaxPlan        @relation(fields: [businessId, clientId, planId], references: [businessId, clientId, id], onDelete: Restrict)
+  planVersion TaxPlanVersion @relation(fields: [businessId, planId, version], references: [businessId, planId, version], onDelete: Restrict)
+  document    Document?      @relation("TaxPlanApprovalDocument", fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  recordedBy  Membership?    @relation("TaxPlanApprovalRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, planId, version])
+  @@map("tax_plan_approvals")
+}
+
+/// R1 (Nov 14, Tax Planning Review 2 approved workflow): who asks.
+enum TaxPlanRequestDirection {
+  FIRM_TO_CLIENT
+  CLIENT_TO_FIRM
+}
+
+/// The firm asks for INFORMATION (a written response) or a DOCUMENT (an upload); the client
+/// sends a QUESTION, INFORMATION, a REVISION request or a MEETING request (database CHECK).
+enum TaxPlanRequestKind {
+  INFORMATION
+  DOCUMENT
+  QUESTION
+  REVISION
+  MEETING
+}
+
+enum TaxPlanRequestStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+/// R1 (Nov 14, Tax Planning Review 2 approved workflow): a request on a plan, either way. The
+/// firm's carry who asked; a client's request is what moves a plan to Needs Review. Never deleted.
+model TaxPlanRequest {
+  id                String                  @id @default(uuid(7)) @db.Uuid
+  businessId        String                  @map("business_id") @db.Uuid
+  clientId          String                  @map("client_id") @db.Uuid
+  planId            String                  @map("plan_id") @db.Uuid
+  direction         TaxPlanRequestDirection
+  kind              TaxPlanRequestKind
+  /// The question or request, 1 to 4,000 characters.
+  body              String
+  status            TaxPlanRequestStatus    @default(OPEN)
+  /// The answer, up to 4,000 characters.
+  response          String?
+  documentId        String?                 @map("document_id") @db.Uuid
+  requestedByUserId String?                 @map("requested_by_user_id") @db.Uuid
+  answeredAt        DateTime?               @map("answered_at") @db.Timestamptz(3)
+  closedAt          DateTime?               @map("closed_at") @db.Timestamptz(3)
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plan        TaxPlan     @relation(fields: [businessId, clientId, planId], references: [businessId, clientId, id], onDelete: Restrict)
+  document    Document?   @relation("TaxPlanRequestDocument", fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+  requestedBy Membership? @relation("TaxPlanRequestRequestedBy", fields: [businessId, requestedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@index([businessId, planId, status])
+  @@map("tax_plan_requests")
 }
 
 /// R1 (Nov 14, Review 2 C17, S6): the firm's own planning resources: its edited copy of a

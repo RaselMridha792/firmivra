@@ -411,6 +411,8 @@ export const TaxPlanStatus = z.enum([
   'FINALIZED',
   'IMPLEMENTED',
   'CLOSED',
+  'UNDER_REVIEW',
+  'CLIENT_APPROVED',
 ]);
 export type TaxPlanStatus = z.infer<typeof TaxPlanStatus>;
 
@@ -423,6 +425,11 @@ export const TaxPlanEventKind = z.enum([
   'SEND',
   'ARCHIVE',
   'RESTORE',
+  'REVIEW_REQUESTED',
+  'INFO_REQUESTED',
+  'CLIENT_REQUEST',
+  'APPROVED',
+  'DELIVERED',
 ]);
 export type TaxPlanEventKind = z.infer<typeof TaxPlanEventKind>;
 
@@ -480,7 +487,7 @@ export const PlanInputKind = z.enum(['HISTORICAL', 'PROJECTED', 'ADJUSTMENT']);
 export type PlanInputKind = z.infer<typeof PlanInputKind>;
 
 /** Why a plan snapshot was kept: when it was finalized, generated as a document or sent. */
-export const PlanVersionEvent = z.enum(['FINALIZED', 'GENERATED', 'SENT']);
+export const PlanVersionEvent = z.enum(['FINALIZED', 'GENERATED', 'SENT', 'DELIVERED']);
 export type PlanVersionEvent = z.infer<typeof PlanVersionEvent>;
 
 /** An opportunity's review state. NEW is identified and not reviewed; ADDED_TO_PLAN, IMPLEMENTED and CLOSED need a review; NOT_APPLICABLE and DISMISSED need a reason and can be reopened. */
@@ -1669,6 +1676,27 @@ export const PermissionCapability = z.enum([
   'EXPORT',
 ]);
 export type PermissionCapability = z.infer<typeof PermissionCapability>;
+
+/** R1 (Nov 14, Tax Planning Review 2 approved workflow): how the client's approval came. PORTAL is kept for the portal's own approval (not built yet); MANUAL is documented by staff. */
+export const TaxPlanApprovalMethod = z.enum(['PORTAL', 'MANUAL']);
+export type TaxPlanApprovalMethod = z.infer<typeof TaxPlanApprovalMethod>;
+
+/** R1 (Nov 14, Tax Planning Review 2 approved workflow): who asks. */
+export const TaxPlanRequestDirection = z.enum(['FIRM_TO_CLIENT', 'CLIENT_TO_FIRM']);
+export type TaxPlanRequestDirection = z.infer<typeof TaxPlanRequestDirection>;
+
+/** The firm asks for INFORMATION (a written response) or a DOCUMENT (an upload); the client sends a QUESTION, INFORMATION, a REVISION request or a MEETING request (database CHECK). */
+export const TaxPlanRequestKind = z.enum([
+  'INFORMATION',
+  'DOCUMENT',
+  'QUESTION',
+  'REVISION',
+  'MEETING',
+]);
+export type TaxPlanRequestKind = z.infer<typeof TaxPlanRequestKind>;
+
+export const TaxPlanRequestStatus = z.enum(['OPEN', 'ANSWERED', 'CLOSED']);
+export type TaxPlanRequestStatus = z.infer<typeof TaxPlanRequestStatus>;
 
 /** How an intake is delivered to its recipient. PORTAL only for a client's intake (CHECK). */
 export const IntakeDelivery = z.enum(['EMAIL', 'SMS', 'PORTAL']);
