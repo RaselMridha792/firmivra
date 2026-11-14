@@ -3532,6 +3532,8 @@ model Task {
   deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
   template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
   lead               Lead?               @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  /// TX-F24: the rejected e-file attempts this task corrects.
+  correctsAttempts   TaxReturnFilingAttempt[] @relation("TaxAttemptCorrectiveTask")
 
   @@unique([businessId, id])
   @@unique([businessId, idempotencyKey])
@@ -4946,6 +4948,10 @@ model TaxReturn {
   /// Set by the database the first time the return leaves IN_PROGRESS; never changes. A return
   /// with it set is never deleted.
   firstFiledAt DateTime?       @map("first_filed_at") @db.Timestamptz(3)
+  /// Tax Returns Review 2 (TX-F16): the tax year the return was first filed under, stamped by the
+  /// database with first_filed_at and never changed, so filed evidence keeps its year after a
+  /// Correct Tax Year (SQL only: tax_returns_filed_year).
+  filedTaxYear Int?            @map("filed_tax_year")
   createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -11671,10 +11677,15 @@ model TaxReturnFilingAttempt {
   /// rejection, and kept once recorded.
   rejectingAgency   String?      @map("rejecting_agency")
   recordedByUserId  String       @map("recorded_by_user_id") @db.Uuid
+  /// Tax Returns Review 2 (TX-F24, the lead's approval of Nov 14): the corrective task made when
+  /// the rejection was recorded (the return's preparer works it). Tasks are archived, never
+  /// deleted: RESTRICT (SET NULL would also null business_id in this composite key).
+  correctiveTaskId  String?      @map("corrective_task_id") @db.Uuid
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  filing     TaxReturnFiling @relation(fields: [businessId, filingId], references: [businessId, id], onDelete: Cascade)
-  recordedBy Membership      @relation("TaxAttemptRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+  filing         TaxReturnFiling @relation(fields: [businessId, filingId], references: [businessId, id], onDelete: Cascade)
+  recordedBy     Membership      @relation("TaxAttemptRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+  correctiveTask Task?           @relation("TaxAttemptCorrectiveTask", fields: [businessId, correctiveTaskId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, filingId, submissionId])
   @@index([businessId, filingId, transmittedAt])
