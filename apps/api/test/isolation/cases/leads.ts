@@ -341,9 +341,9 @@ export const cases: CaseModule['cases'] = {
     },
     bodyIds: {
       fallbackUserId: 'staffUser',
-      id: 'leadRule',
-      serviceIds: 'leadService',
-      assigneeUserId: 'staffUser',
+      'rules.id': 'leadRule',
+      'rules.serviceIds': 'leadService',
+      'rules.assigneeUserId': 'staffUser',
     },
   },
   // Leads R2 15: "Not a duplicate" names two leads; a merge names the lead merged in.
