@@ -42,7 +42,9 @@ test('a business shows the EIN masked', async ({ page }) => {
   const overview = page.getByTestId('client-overview');
   await expect(overview).toContainText('••-•••0002');
   await expect(overview).toContainText('No portal login yet');
-  await expect(overview).not.toContainText('0001');
+  // No other client's masked SSN or EIN (client 1's ends 0001); Linked Profiles shows client
+  // 1's Client ID, CL-10001, which is not a secret.
+  await expect(overview).not.toContainText(/•[•-]*0001/);
 });
 
 test('the owner archives and restores a client', async ({ page }) => {

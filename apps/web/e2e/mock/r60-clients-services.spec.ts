@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // R60, Clients Review 2 (G8): Clients > Services manages the client's services. Enroll in Service
 // creates an engagement; a row's actions edit its details (the package and staff links open Edit),
-// open Service & Billing (billing only for a service without a pause of its own), end it with a
+// pause and resume it in Service & Billing (any service, with a reason), end it with a
 // date and a reason, reactivate it, and show its history. Mock mode as the Owner; client 1 is
 // Jamie Sample, whose Personal Tax row is the engagements mock's first engagement. Synthetic data
 // only.
@@ -52,12 +52,22 @@ test('Enroll, edit, Service & Billing, end, reactivate and history on Clients > 
   await expect(edit).toBeHidden();
   await expect(page.getByText('Personal Tax: the details are saved.')).toBeVisible();
 
-  // Service & Billing: a service with no pause of its own changes billing only.
+  // Service & Billing: any service goes on hold with a reason, then resumes.
   await act(page, 'Personal Tax', 'Service & Billing');
-  const billing = page.getByRole('dialog', { name: 'Service & Billing' });
-  await expect(billing.getByTestId('service-billing-billing-only')).toBeVisible();
-  await expect(billing.getByRole('radio', { name: 'Service only' })).toHaveCount(0);
-  await billing.getByRole('button', { name: 'Cancel' }).click();
+  let billing = page.getByRole('dialog', { name: 'Service & Billing' });
+  await expect(billing.getByRole('radio', { name: 'Service only' })).toBeChecked();
+  await billing.getByLabel('Reason for pausing the service *').fill('Client travelling (fake).');
+  await billing.getByLabel('I confirm these changes.').check();
+  await billing.getByRole('button', { name: 'Apply' }).click();
+  await expect(billing).toBeHidden();
+  await expect(row(page, 'Personal Tax').getByText('Paused', { exact: true })).toBeVisible();
+  await act(page, 'Personal Tax', 'Service & Billing');
+  billing = page.getByRole('dialog', { name: 'Service & Billing' });
+  await expect(billing.getByTestId('service-billing-state')).toContainText('On hold');
+  await billing.getByLabel('I confirm these changes.').check();
+  await billing.getByRole('button', { name: 'Apply' }).click();
+  await expect(billing).toBeHidden();
+  await expect(row(page, 'Personal Tax').getByText('Paused', { exact: true })).toHaveCount(0);
 
   // End Service asks for a reason, then ends it; Reactivate brings it back.
   await act(page, 'Personal Tax', 'End Service');
@@ -76,6 +86,8 @@ test('Enroll, edit, Service & Billing, end, reactivate and history on Clients > 
   await expect(history).toContainText('Why it ended: Client moved away (fake).');
   await expect(history).toContainText('Ended');
   await expect(history).toContainText('Details changed: package');
+  await expect(history).toContainText('Paused');
+  await expect(history).toContainText('Resumed');
   await expect(history).toContainText('Enrolled');
   await page.mouse.move(5, 5);
   await page.screenshot({ path: `${shots}/history.png` });
