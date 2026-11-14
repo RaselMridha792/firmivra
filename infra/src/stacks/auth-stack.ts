@@ -107,11 +107,14 @@ export class AuthStack extends Stack {
       },
       mfa,
       mfaSecondFactor: { otp: true, sms: false },
+      // SEC-2 (Settings > Security, Octavia's Oct 20 guide): 15 characters at least, spaces and
+      // symbols allowed, no forced mix of character types; Cognito takes up to 256 characters.
+      // Cognito's own compromised-credentials check (threat protection, below) stays on.
       passwordPolicy: {
-        minLength: 12,
-        requireLowercase: true,
-        requireUppercase: true,
-        requireDigits: true,
+        minLength: 15,
+        requireLowercase: false,
+        requireUppercase: false,
+        requireDigits: false,
         requireSymbols: false,
         tempPasswordValidity: Duration.days(7),
       },

@@ -233,7 +233,7 @@ describe('opportunities', () => {
     ).toMatch(/one of the plan's/);
   });
 
-  it('are implemented with their date, then only closed; closed is final', async () => {
+  it('are implemented with their date, then only closed; a closed one reopens only to Under Review', async () => {
     const o = await opportunity({ reviewedAt: now(), reviewedByUserId: f.memberA });
     expect(await failure(set(o.id, { status: 'IMPLEMENTED' }))).toMatch(/check constraint/i);
     await set(o.id, { status: 'IMPLEMENTED', implementedOn: new Date('2026-12-01') });
@@ -241,7 +241,9 @@ describe('opportunities', () => {
       /can only be closed/,
     );
     await set(o.id, { status: 'CLOSED' });
-    expect(await failure(set(o.id, { status: 'NEW' }))).toMatch(/cannot be reopened/);
+    // S5 (Review 2 C11): Reopen goes back to Under Review, never straight to another status.
+    expect(await failure(set(o.id, { status: 'NEW' }))).toMatch(/reopens only to Under Review/);
+    await expect(set(o.id, { status: 'UNDER_REVIEW', implementedOn: null })).resolves.toBeDefined();
   });
 });
 
