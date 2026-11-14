@@ -11,7 +11,10 @@ import {
   ArrowCounterClockwise,
   Archive,
   CaretDown,
+  ChatText,
+  ClipboardText,
   DownloadSimple,
+  FileArrowUp,
   Flag,
   Pause,
   Plus,
@@ -19,7 +22,7 @@ import {
   Tag,
   Users,
 } from '@phosphor-icons/react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { clientsPlaceFrom } from '../../../../../lib/clients-place';
@@ -27,6 +30,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { TEAM } from '../../../setup/_components/shared';
+import { BulkRequestDocumentDialog, BulkSendIntakeDialog, bulkMessageHref } from './bulk-outreach';
 import { AddClientDialog, BulkDialog, type BulkKind, ExportDialog } from './clients-dialogs';
 import { ClientsFilterRow } from './clients-filters';
 import { ClientsKpis } from './clients-kpis';
@@ -151,10 +155,19 @@ export function ClientsScreen({
   const [selected, setSelected] = useState<string[]>([]);
   const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
+  // Clients Review 2 (G7): a document request or an intake form for the selected clients.
+  const [outreach, setOutreach] = useState<{
+    kind: 'REQUEST' | 'INTAKE';
+    clients: { id: string; displayName: string }[];
+  } | null>(null);
+  const router = useRouter();
   const [notice, setNotice] = useState('');
   const [exporting, setExporting] = useState<false | 'list' | 'selected'>(false);
   // Export (E2 additions): the Owner, and roles whose grid grants it; the API checks the member.
   const mayExport = !!role && roleCan(role, 'CLIENTS', 'EXPORT');
+  // G7: each outreach action shows where the member may use that module; its API checks again.
+  const may = (module: 'MESSAGES' | 'DOCUMENTS' | 'INTAKE_FORMS') =>
+    !!role && roleCan(role, module, 'VIEW');
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
@@ -352,6 +365,40 @@ export function ClientsScreen({
                       ],
                     },
                     {
+                      title: 'Communication',
+                      items: [
+                        ...(may('MESSAGES')
+                          ? [
+                              {
+                                label: 'Send Message',
+                                icon: ChatText,
+                                onSelect: () => router.push(bulkMessageHref(chosen(selected))),
+                              },
+                            ]
+                          : []),
+                        ...(may('DOCUMENTS')
+                          ? [
+                              {
+                                label: 'Request Document',
+                                icon: FileArrowUp,
+                                onSelect: () =>
+                                  setOutreach({ kind: 'REQUEST', clients: chosen(selected) }),
+                              },
+                            ]
+                          : []),
+                        ...(may('INTAKE_FORMS')
+                          ? [
+                              {
+                                label: 'Send Intake Form',
+                                icon: ClipboardText,
+                                onSelect: () =>
+                                  setOutreach({ kind: 'INTAKE', clients: chosen(selected) }),
+                              },
+                            ]
+                          : []),
+                      ],
+                    },
+                    {
                       title: 'Data & Records (Restricted)',
                       items: [
                         {
@@ -478,6 +525,23 @@ export function ClientsScreen({
           }}
         />
       ) : null}
+      {outreach
+        ? (() => {
+            const Dialog =
+              outreach.kind === 'REQUEST' ? BulkRequestDocumentDialog : BulkSendIntakeDialog;
+            return (
+              <Dialog
+                clients={outreach.clients}
+                onClose={() => setOutreach(null)}
+                onDone={(message) => {
+                  setOutreach(null);
+                  setSelected([]);
+                  setNotice(message);
+                }}
+              />
+            );
+          })()
+        : null}
       {pending ? (
         <BulkDialog
           kind={pending.kind}
