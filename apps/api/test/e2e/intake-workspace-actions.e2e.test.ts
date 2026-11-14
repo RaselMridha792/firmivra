@@ -27,6 +27,7 @@ import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 class MemoryFiles implements ReportFiles {
   readonly objects = new Map<string, Buffer>();
@@ -43,6 +44,9 @@ class MemoryFiles implements ReportFiles {
   }
 }
 const files = new MemoryFiles();
+/** 19b: every email NotifyService was asked to send; `failMail` makes the mail service refuse. */
+const mail: NotifyMessage[] = [];
+let failMail = false;
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -54,6 +58,7 @@ const people = {
   otherStaffA: person('other-staff-a'),
   ownerB: person('owner-b'),
   portalClient: person('portal-client'),
+  mailClient: person('mail-client'),
 };
 type Who = (typeof people)[keyof typeof people];
 const firms = {} as Record<'a' | 'b', string>;
@@ -129,7 +134,7 @@ beforeAll(async () => {
         data: {
           id: p.id,
           cognitoSub: p.id,
-          pool: key === 'portalClient' ? 'CLIENT' : 'STAFF',
+          pool: key === 'portalClient' || key === 'mailClient' ? 'CLIENT' : 'STAFF',
           email: p.email,
           name: `Fake R55s ${key}`,
         },
@@ -206,12 +211,23 @@ beforeAll(async () => {
     await client('fresh', 'Fred Fresh (fake)');
     await client('loose', 'Lou Loose (fake)');
     await client('bare', 'Bea Bare (fake)', undefined, false);
+    await client('mail', 'Mae Mail (fake)');
     await tx.clientAccount.create({
       data: {
         businessId,
         userId: portalClient.id,
         clientId: ids.mineClient!,
         email: portalClient.email,
+        portalRole: 'PRIMARY',
+        status: 'ACTIVE',
+      },
+    });
+    await tx.clientAccount.create({
+      data: {
+        businessId,
+        userId: people.mailClient.id,
+        clientId: ids.mailClient!,
+        email: people.mailClient.email,
         portalRole: 'PRIMARY',
         status: 'ACTIVE',
       },
@@ -251,6 +267,14 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(REPORT_FILES)
     .useValue(files)
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        if (failMail) return Promise.reject(new Error('Throttling'));
+        mail.push(message);
+        return Promise.resolve();
+      },
+    })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -360,7 +384,15 @@ describe('send a form', () => {
   it('sends to a client in the portal, once per key, and refuses a second open copy', async () => {
     const body = sendBody({ dueOn: future(5), assignedUserId: staffA.id });
     const res = SendIntakeFormResult.parse(ok(await call('post', '/intakes/send', staffA, body)));
-    expect(res.delivery).toEqual({ channel: 'PORTAL', status: 'SENT', to: 'Client portal' });
+    expect(res.delivery).toEqual({
+      channel: 'PORTAL',
+      status: 'SENT',
+      to: 'Client portal',
+      portalNotice: true,
+      reason: null,
+    });
+    // A form sent in the portal sends no email of its own.
+    expect(mail.filter((m) => m.template === 'intake.sent')).toEqual([]);
     expect(res.form).toMatchObject({
       status: 'SENT',
       recipient: { kind: 'CLIENT', id: ids.mineClient },
@@ -400,8 +432,79 @@ describe('send a form', () => {
       channel: 'EMAIL',
       status: 'FAILED',
       to: `e***@client.test`,
+      portalNotice: false,
+      reason: expect.stringContaining('no client portal login') as string,
     });
     ids.emailed = res.form.id;
+  });
+
+  it('19b: by email to a client with a portal login, the email opens the exact form, and the result says the mail service accepted it', async () => {
+    const before = mail.length;
+    const res = SendIntakeFormResult.parse(
+      ok(
+        await call(
+          'post',
+          '/intakes/send',
+          ownerA,
+          sendBody({
+            recipient: { kind: 'CLIENT', id: ids.mailClient },
+            channel: 'EMAIL',
+            subject: 'Please fill this in',
+            message: 'Thank you (fake).',
+            dueOn: future(5),
+          }),
+        ),
+      ),
+    );
+    expect(res.delivery).toEqual({
+      channel: 'EMAIL',
+      status: 'SENT',
+      to: 'm***@client.test',
+      portalNotice: true,
+      reason: null,
+    });
+    const sentMail = mail.slice(before).filter((m) => m.template === 'intake.sent');
+    expect(sentMail).toHaveLength(1);
+    expect(sentMail[0]).toMatchObject({
+      to: people.mailClient.email,
+      businessId: firms.a,
+      data: {
+        formTitle: 'Annual Tax Intake',
+        subject: 'Please fill this in',
+        message: 'Thank you (fake).',
+        dueOn: future(5),
+      },
+    });
+    const data = sentMail[0]!.data as { link: string; expiresAt: Date | null };
+    expect(data.link.endsWith(`/${slugs.a}/intake/${res.form.id}`)).toBe(true);
+    expect(data.expiresAt).toBeInstanceOf(Date);
+    // The outbox row says the same: SENT, once.
+    const rows = await inFirm('a', (tx) =>
+      tx.notificationDelivery.findMany({
+        where: { businessId: firms.a, channel: 'EMAIL', notification: { entityId: res.form.id } },
+        select: { status: true, attempts: true },
+      }),
+    );
+    expect(rows).toEqual([{ status: 'SENT', attempts: 1 }]);
+
+    // The mail service refuses a reminder: its row is FAILED with the reason, for the retry job.
+    failMail = true;
+    try {
+      ok(await call('post', `/intakes/${res.form.id}/remind`, ownerA), 200);
+    } finally {
+      failMail = false;
+    }
+    const after = await inFirm('a', (tx) =>
+      tx.notificationDelivery.findMany({
+        where: {
+          businessId: firms.a,
+          channel: 'EMAIL',
+          notification: { entityId: res.form.id, eventKey: { startsWith: 'intake.reminded:' } },
+        },
+        select: { status: true, lastError: true },
+      }),
+    );
+    expect(after).toEqual([{ status: 'FAILED', lastError: 'Error' }]);
   });
 
   it('A9: a type asks for its service form; a form sent for an appointment shows on it until completed; another client or a cancelled appointment is refused', async () => {

@@ -404,10 +404,20 @@ export const SendIntakeFormResult = z.object({
   form: AssignedFormRow,
   delivery: z.object({
     channel: FormDeliveryChannel,
-    /** FAILED keeps the assigned form; offer Resend. */
-    status: z.enum(['SENT', 'FAILED']),
+    /**
+     * Intake Forms Review Two 19b: what really happened, never a bell item counted as an email.
+     * By Email: SENT when the mail service accepted the email (not proof it reached the inbox),
+     * RETRYING when the first attempt failed and the outbox tries again for about 25 minutes,
+     * FAILED when no email could be sent (`reason` says why). In the portal: SENT when the portal
+     * notice was written. FAILED keeps the assigned form; offer Resend.
+     */
+    status: z.enum(['SENT', 'RETRYING', 'FAILED']),
     /** Masked address: "d***@example.test". */
     to: z.string(),
+    /** The client's portal notice (the bell item) was written. */
+    portalNotice: z.boolean().default(false),
+    /** Why the email was not sent (yet), in words for the member; null when it was. */
+    reason: z.string().nullable().default(null),
   }),
 });
 export type SendIntakeFormResult = z.infer<typeof SendIntakeFormResult>;

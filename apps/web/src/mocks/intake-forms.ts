@@ -603,7 +603,13 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         const r = find(again);
         return {
           form: toRow(r),
-          delivery: { channel: input.channel, status: 'SENT', to: 'c***@example.test' },
+          delivery: {
+            channel: input.channel,
+            status: 'SENT',
+            to: 'c***@example.test',
+            portalNotice: true,
+            reason: null,
+          },
         };
       }
       // The API's refusals, in its order (intake-send.service.ts). The mock knows no services, so
@@ -695,6 +701,11 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           channel: input.channel,
           status: undelivered ? 'FAILED' : 'SENT',
           to: input.channel === 'PORTAL' ? 'Client portal' : 'c***@example.test',
+          // 19b: the portal notice and, when nothing went out, why (as the API says it).
+          portalNotice: !undelivered,
+          reason: undelivered
+            ? 'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.'
+            : null,
         },
       };
     },
