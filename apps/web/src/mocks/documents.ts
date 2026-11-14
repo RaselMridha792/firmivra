@@ -478,6 +478,8 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
         .filter((d) => !q.taxYear || d.taxYear === q.taxYear)
         .filter((d) => !q.direction || d.direction === q.direction)
         .filter((d) => !q.search || d.fileName.toLowerCase().includes(q.search.toLowerCase()))
+        .filter((d) => !q.uploadedFrom || d.createdAt.slice(0, 10) >= q.uploadedFrom)
+        .filter((d) => !q.uploadedTo || d.createdAt.slice(0, 10) <= q.uploadedTo)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map(s.view);
       return { ...page(found, q), years: yearsOf(docs) };
