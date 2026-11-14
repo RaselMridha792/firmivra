@@ -123,10 +123,10 @@ export const FirmSettings = z.object({
   /**
    * Dashboard Review 2: the firm's tax season, `MM-DD` to `MM-DD` every year in its time zone (it
    * may run across Jan 1); both null when it has none. The dashboard shows Tax Season or
-   * Off-Season from these.
+   * Off-Season from these. Missing (an answer from before these existed) reads as not set.
    */
-  taxSeasonStart: z.string().nullable(),
-  taxSeasonEnd: z.string().nullable(),
+  taxSeasonStart: z.string().nullable().default(null),
+  taxSeasonEnd: z.string().nullable().default(null),
   /** The latest change to any of these settings. */
   updatedAt: z.iso.datetime({ offset: true }),
 });
