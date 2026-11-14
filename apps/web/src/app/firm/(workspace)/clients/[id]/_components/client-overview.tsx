@@ -11,6 +11,7 @@ import { PortalAccessCard } from '../../../business-advisory/_components/portal-
 import { clientKey, dateText, formatPhone } from '../../_components/client-parts';
 import { RecentActivityCard } from '../activity/_components/client-activity-screen';
 import { BillingCard } from './client-billing';
+import { LinkedProfilesCard } from './client-links';
 import { LocalOfficeCard } from './client-office';
 import { ActiveServicesCard } from './client-services';
 import { ClientTagsCard } from './client-tags';
@@ -203,6 +204,7 @@ export function ClientOverview() {
           <FirmDetails client={client} />
           <ClientTagsCard client={client} />
           <BillingCard clientId={client.id} />
+          <LinkedProfilesCard client={client} />
           <div className="lg:col-span-2">
             <RecentActivityCard clientId={client.id} />
           </div>

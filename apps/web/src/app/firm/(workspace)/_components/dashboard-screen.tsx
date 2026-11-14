@@ -192,6 +192,7 @@ export function DashboardScreen({ initial }: { initial: DashboardPlace }) {
               labels={PERIOD_LABELS}
               today={firmToday}
               onChange={setPeriod}
+              align="end"
             />
           </div>
           <KpiCards summary={summary} />

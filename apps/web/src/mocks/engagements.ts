@@ -7,6 +7,7 @@ import {
   StopFutureBillingRequest,
   Engagement,
   type EngagementActivity,
+  PauseEngagementRequest,
   EngagementId,
   type EngagementsClient,
   type EngagementStatus,
@@ -76,6 +77,9 @@ const fixture = (n: number, data: Partial<Engagement> & { title: string }): Enga
     nextBillingOn: null,
     stopFutureBilling: false,
     billingStopsOn: null,
+    pausedAt: null,
+    pausedReason: null,
+    pausedBy: null,
     assignedTo: mockStaff,
     completedAt: null,
     cancelRequestedAt: null,
@@ -126,6 +130,7 @@ export function engagementFixtures(): readonly Engagement[] {
 }
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
+const UNPAUSED = { pausedAt: null, pausedReason: null, pausedBy: null } as const;
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
@@ -302,7 +307,13 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         throw fail(409, 'INVALID_STATUS', 'Only a pending or active engagement can be completed');
       }
       log(row.id, 'COMPLETED');
-      return save({ ...row, status: 'COMPLETED', completedAt: now(), updatedAt: now() });
+      return save({
+        ...row,
+        ...UNPAUSED,
+        status: 'COMPLETED',
+        completedAt: now(),
+        updatedAt: now(),
+      });
     },
     cancel: async (id, body) => {
       await pause();
@@ -313,11 +324,41 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       log(eid, 'CANCELLED');
       return save({
         ...row,
+        ...UNPAUSED,
         status: 'CANCELLED',
         cancelledAt: now(),
         cancellationReason: reason,
         updatedAt: now(),
       });
+    },
+    // G8: any service on hold with the firm's reason, and back (as the API).
+    pause: async (id, body) => {
+      await pause();
+      const eid = parseInput(EngagementId, id);
+      const { reason } = parseInput(PauseEngagementRequest, body);
+      const row = find(eid);
+      assertNotArchived(row.clientId);
+      if (row.status !== 'ACTIVE' && row.status !== 'PENDING') {
+        throw fail(409, 'INVALID_STATUS', 'Only a pending or active service can be paused');
+      }
+      if (row.pausedAt) throw fail(409, 'ALREADY_PAUSED', 'Already paused');
+      log(eid, 'PAUSED');
+      return save({
+        ...row,
+        pausedAt: now(),
+        pausedReason: reason,
+        pausedBy: { userId: mockStaff.userId, name: 'Olivia Owner' },
+        updatedAt: now(),
+      });
+    },
+    resume: async (id) => {
+      await pause();
+      const eid = parseInput(EngagementId, id);
+      const row = find(eid);
+      assertNotArchived(row.clientId);
+      if (!row.pausedAt) throw fail(409, 'NOT_PAUSED', 'The service is not paused');
+      log(eid, 'RESUMED');
+      return save({ ...row, ...UNPAUSED, updatedAt: now() });
     },
     // SH10: Owner and Admin record Stop Future Billing; nothing is invoiced or refunded.
     stopBilling: async (id, body) => {
