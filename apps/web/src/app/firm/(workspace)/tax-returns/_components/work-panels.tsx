@@ -21,7 +21,9 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { errorMessage } from '../../../../../lib/errors';
 import { OriginLink } from '../../../../../components/origin-link';
 import { useServiceDocuments } from '../../../../../components/service-documents';
 import { newTaskHref } from '../../tasks/_components/new-task-href';
@@ -551,12 +553,29 @@ export function UpcomingTasks({ detail }: { detail: TaxReturnDetail; onNotice: N
  */
 function DocumentButtons({ detail }: { detail: TaxReturnDetail }) {
   const docs = useServiceDocuments();
+  const [settingUp, setSettingUp] = useState(false);
+  // Review 2 (TX-F08, F10): a return without its service set gets it here, so Upload and Request
+  // stay on this return (with its year) instead of the client's Documents.
   if (!detail.engagement)
     return (
-      <div className="flex flex-wrap gap-2">
-        <OriginLink href={`/clients/${detail.client.id}/documents`} className={smallButton}>
-          Upload or Request in the client's Documents
-        </OriginLink>
+      <div className="flex flex-col gap-2">
+        <p className={quiet}>
+          Uploads and requests belong to this return&apos;s service. Set it up once, then they stay
+          here with the {detail.taxYear} return.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={smallButton}
+            data-testid="set-up-return-service"
+            onClick={() => setSettingUp(true)}
+          >
+            Set Up Service
+          </button>
+        </div>
+        {settingUp ? (
+          <ReturnServiceDialog detail={detail} onClose={() => setSettingUp(false)} />
+        ) : null}
       </div>
     );
   return (
@@ -568,6 +587,122 @@ function DocumentButtons({ detail }: { detail: TaxReturnDetail }) {
         Request Documents
       </button>
     </div>
+  );
+}
+
+/**
+ * Review 2 (TX-F08, F10): the return's service, chosen in place: one of the client's open
+ * engagements, or a new one of the firm's tax service for this return and year. Saved as the
+ * return's engagement (Edit Return Details' own field), so its requests and uploads carry the
+ * client, the return and the year.
+ */
+function ReturnServiceDialog({
+  detail,
+  onClose,
+}: {
+  detail: TaxReturnDetail;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const engagements = useApiQuery(['engagements', detail.client.id, 'for-return'], () =>
+    api.engagements.listForClient(detail.client.id),
+  );
+  const catalog = useApiQuery(['catalog', 'services', 'for-return'], () =>
+    api.servicesPricing.services({ status: 'active', pageSize: 100 }),
+  );
+  const open = (engagements.data ?? []).filter(
+    (e) => e.status === 'ACTIVE' || e.status === 'PENDING',
+  );
+  const kind = detail.quarter ? 'QUARTERLY_TAX' : 'ANNUAL_TAX';
+  const taxServices = (catalog.data?.items ?? []).filter((c) => c.kind === kind);
+  const [mode, setMode] = useState<'existing' | 'new'>('new');
+  const [engagementId, setEngagementId] = useState('');
+  const [serviceId, setServiceId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const service = serviceId || taxServices[0]?.id || '';
+  const title = `${detail.taxYear}${detail.quarter ? ` Q${detail.quarter}` : ''} ${detail.formType ?? 'Tax'} Return`;
+  const ready = mode === 'existing' ? !!engagementId : !!service;
+  const save = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      let id = engagementId;
+      if (mode === 'new') {
+        id = (
+          await api.engagements.create(detail.client.id, {
+            serviceId: service,
+            title,
+            taxYear: detail.taxYear,
+          })
+        ).id;
+      } else {
+        // The year the requests and the portal show: the return's, when the service has none.
+        const picked = open.find((e) => e.id === engagementId);
+        if (picked && picked.taxYear === null) {
+          await api.engagements.update(engagementId, { taxYear: detail.taxYear });
+        }
+      }
+      await api.taxReturnWorkspace.updateDetails(detail.id, { engagementId: id });
+      await qc.invalidateQueries({ queryKey: [...TR_KEY] });
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      title="Set Up Service"
+      subtitle={`${detail.client.name} · ${title}`}
+      confirm="Save"
+      busy={busy}
+      disabled={!ready}
+      onConfirm={() => void save()}
+      onClose={onClose}
+      testId="return-service-dialog"
+    >
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      <Select
+        label="This return's service"
+        value={mode}
+        onChange={(e) => setMode(e.target.value as 'existing' | 'new')}
+        options={[
+          { value: 'new', label: `A new engagement: ${title}` },
+          ...(open.length ? [{ value: 'existing', label: "One of the client's engagements" }] : []),
+        ]}
+      />
+      {mode === 'new' ? (
+        <Select
+          label="Service"
+          value={service}
+          onChange={(e) => setServiceId(e.target.value)}
+          options={
+            taxServices.length
+              ? taxServices.map((c) => ({ value: c.id, label: c.name }))
+              : [{ value: '', label: 'No active tax service in Services & Pricing' }]
+          }
+        />
+      ) : (
+        <Select
+          label="Engagement"
+          value={engagementId}
+          onChange={(e) => setEngagementId(e.target.value)}
+          options={[
+            { value: '', label: 'Choose' },
+            ...open.map((e) => ({
+              value: e.id,
+              label: `${e.title} (${e.service.name}${e.taxYear ? `, ${e.taxYear}` : ''})`,
+            })),
+          ]}
+        />
+      )}
+    </Dialog>
   );
 }
 

@@ -1,6 +1,10 @@
 'use client';
 
-import type { TaxReturnDetail, TaxReturnWorkflowStatus } from '@firmivra/types';
+import type {
+  TaxReturnDetail,
+  TaxReturnDocumentKind,
+  TaxReturnWorkflowStatus,
+} from '@firmivra/types';
 import { ActionMenu, Avatar, Badge, Tabs, Toast } from '@firmivra/ui';
 import {
   Archive,
@@ -63,12 +67,16 @@ import { NewThreadDialog } from '../../../clients/[id]/messages/_components/thre
 import {
   ActivityPanel,
   ChecklistPanel,
+  DOC_KIND,
   DocumentChecklist,
   NotesPanel,
   ReturnDocumentsPanel,
   UpcomingTasks,
   WorkflowStepper,
 } from '../../_components/work-panels';
+
+/** TX-F08: what an upload from the return can be, as Link Document names them. */
+const RETURN_ROLES = Object.entries(DOC_KIND).map(([value, k]) => ({ value, label: k.label }));
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -135,6 +143,16 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
         service: 'Tax Returns',
         period: `Tax year ${r.taxYear}`,
         taxYear: r.taxYear,
+        // Review 2 (TX-F08): the file can be one of this return's own documents.
+        linkTo: {
+          label: `Link to the ${r.taxYear} return as`,
+          roles: RETURN_ROLES,
+          link: (documentId: string, kind: string) =>
+            api.taxReturnWorkspace.linkDocument(r.id, {
+              documentId,
+              kind: kind as TaxReturnDocumentKind,
+            }),
+        },
       }
     : undefined;
   return (
