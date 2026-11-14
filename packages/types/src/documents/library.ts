@@ -196,6 +196,16 @@ export type UpdateLibraryDocumentRequest = z.input<typeof UpdateLibraryDocumentR
  * POST /business/documents/{id}/review: Start Review, Mark Verified, Request Replacement (with a
  * reason, sent to the client when the document answers a request item), Complete.
  */
+/**
+ * POST /business/documents/{id}/visibility (Clients Review 2, C2-052): a firm file shared with its
+ * client later, or hidden again. Off by default; an explicit opt-in by the client's assigned staff,
+ * an Owner or an Admin; audited. A client's own upload is always theirs (409 CLIENT_UPLOAD); a file
+ * in a firm folder stays internal (409 FOLDER_SCOPE); hiding one the client holds a live share of
+ * needs that share revoked first (409 SHARE_ACTIVE).
+ */
+export const SetDocumentVisibilityRequest = z.strictObject({ clientVisible: z.boolean() });
+export type SetDocumentVisibilityRequest = z.input<typeof SetDocumentVisibilityRequest>;
+
 export const ReviewDocumentRequest = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('START') }),
   z.strictObject({ action: z.literal('VERIFY') }),

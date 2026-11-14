@@ -18,6 +18,7 @@ import {
   Skeleton,
   Textarea,
   Toast,
+  Toggle,
 } from '@firmivra/ui';
 import {
   Archive,
@@ -103,6 +104,68 @@ function RailCard({
 }
 
 const linkButton = 'text-sm font-medium text-action underline';
+
+const VISIBILITY_ERRORS: Record<string, string> = {
+  FOLDER_SCOPE: 'Move it out of the firm folder before sharing it with the client.',
+  SHARE_ACTIVE: "Revoke the client's share (Share Access) before hiding the file.",
+  CLIENT_UPLOAD: 'The client uploaded this file, so they always see it.',
+};
+
+/**
+ * C2-052: show a firm file to its client later, or hide it again. Off by default; the client's
+ * assigned staff, an Owner or an Admin turn it on (the API checks and audits it). A client's own
+ * upload is always theirs, so it has no switch.
+ */
+function ClientVisibility({
+  doc,
+  onChanged,
+}: {
+  doc: LibraryDocument;
+  onChanged: (next: LibraryDocument) => void;
+}) {
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const fromClient = doc.direction === 'CLIENT_TO_FIRM';
+  const visible = doc.direction === 'FIRM_TO_CLIENT';
+  const change = async (next: boolean) => {
+    setSaving(true);
+    setError('');
+    try {
+      onChanged(await api.documentLibrary.setVisibility(doc.id, { clientVisible: next }));
+    } catch (e) {
+      const code = e instanceof ApiRequestError ? e.code : '';
+      setError(VISIBILITY_ERRORS[code] ?? 'The visibility could not be changed. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <RailCard title="Client Visibility" testId="document-visibility">
+      {fromClient ? (
+        <p className="text-sm text-muted">The client uploaded this file, so they always see it.</p>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-text">
+            {visible
+              ? 'Visible to the client in their portal'
+              : 'Internal: the client does not see it'}
+          </span>
+          <Toggle
+            label="Visible to the client"
+            checked={visible}
+            disabled={saving || Boolean(doc.trashedAt)}
+            onChange={(next) => void change(next)}
+          />
+        </div>
+      )}
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </RailCard>
+  );
+}
 
 /**
  * Document Details (Documents design, Frame 2): the file's preview, its information, versions and
@@ -523,6 +586,8 @@ export function DocumentDetailsScreen({ id }: { id: string }) {
               </InfoRow>
             </dl>
           </RailCard>
+
+          <ClientVisibility doc={d} onChanged={(next) => queryClient.setQueryData(key, next)} />
 
           <RailCard
             title="Version History"
