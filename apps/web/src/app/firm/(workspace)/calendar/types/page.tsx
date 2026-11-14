@@ -9,5 +9,11 @@ type Props = { searchParams: Promise<{ from?: string | string[] }> };
 /** `?from=workflow`: opened from Settings > Workflow & Automations, which it offers a way back to. */
 export default async function CalendarTypesPage({ searchParams }: Props) {
   const { from } = await searchParams;
-  return <TypesScreen fromWorkflow={openedFromWorkflow(from)} />;
+  // The portal's address comes from config (PORTAL_BASE_URL), read on the server.
+  return (
+    <TypesScreen
+      fromWorkflow={openedFromWorkflow(from)}
+      portalBase={process.env['PORTAL_BASE_URL'] ?? ''}
+    />
+  );
 }

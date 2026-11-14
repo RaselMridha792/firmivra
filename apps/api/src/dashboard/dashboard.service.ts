@@ -5,6 +5,7 @@ import {
   type DashboardSummaryQuery,
   TAX_RETURN_IN_PROGRESS_STATUSES,
   type TaskPriority,
+  seasonOf,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -103,12 +104,17 @@ export class DashboardService {
         WHERE h.business_id = t.business_id AND h.tax_return_id = t.id
           AND h.workflow_status = 'ACCEPTED' AND h.changed_at >= ${Prisma.raw(start)}
           AND h.changed_at < ${Prisma.raw(end)})`;
-    const { today, range, pipeline, revenueRange, counts, revenue, previousCents } =
+    const { today, range, pipeline, revenueRange, counts, revenue, previousCents, season } =
       await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const [day] = await tx.$queryRaw<{ today: string }[]>`
           WITH s AS (${zone(businessId)}) SELECT (now() AT TIME ZONE tz)::date::text AS today FROM s`;
         if (!day) throw new Error('dashboard today returned no row');
         const today = day.today;
+        // Dashboard Review 2: the firm's tax season, from its settings.
+        const season = await tx.businessSettings.findUnique({
+          where: { businessId },
+          select: { taxSeasonStart: true, taxSeasonEnd: true },
+        });
         // A Custom period ends today at the latest; a revenue year is never in the future.
         for (const [path, to] of [
           ['to', q.to],
@@ -237,6 +243,7 @@ export class DashboardService {
           counts,
           revenue,
           previousCents: before?.cents ?? null,
+          season,
         };
       });
     // D4: the firm's service cards for the same period (the defaults while it has none).
@@ -282,8 +289,8 @@ export class DashboardService {
         previousCents,
       ),
       tasksDue: dueTasks(open.items, priorities),
-      // The firm's settings hold no tax season yet (R0 adds the columns); then it is filled here.
-      taxSeason: null,
+      // The season today is in, or the next one; null while the firm's settings hold none.
+      taxSeason: seasonOf(season?.taxSeasonStart, season?.taxSeasonEnd, today),
     };
   }
 }

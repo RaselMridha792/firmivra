@@ -30,7 +30,7 @@ test('Share & Publish: the link and website button, Publish in client portal, sh
   await expect(share.getByLabel('Link', { exact: true })).toHaveValue(
     /\/lvp\/start\/[A-Za-z0-9_-]{43}$/,
   );
-  await expect(share.getByLabel('Website button', { exact: true })).toHaveValue(/^<a href=/);
+  await expect(share.getByLabel('Embed code', { exact: true })).toHaveValue(/^<a href=/);
   await expect(share).toContainText(
     'An inline embed will be available once enabled for your site.',
   );

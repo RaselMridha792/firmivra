@@ -29,9 +29,11 @@ export const PublicLink = z.object({
   /** `{PORTAL_BASE_URL}/{firmSlug}/{segment}/{itemId}` (`publicItemUrl`). */
   url: z.url(),
   /**
-   * A button for the firm's website that opens the link (`publicEmbedCode`). An inline iframe
-   * can't be shown on another site until framing is allowed for it (CloudFront's security headers
-   * send X-Frame-Options SAMEORIGIN), so no code that can't work is offered.
+   * The code for the firm's website: a styled button that opens the link in a new tab
+   * (`publicButtonCode`; `publicEmbedCode` is the same with the default colour). No iframe is
+   * offered: CloudFront's security headers send X-Frame-Options SAMEORIGIN, so another site
+   * can't show the portal in a frame (an inline embed comes back once framing is enabled), and
+   * browsers keep the portal's sign-in cookies out of another site's frame anyway.
    */
   embedCode: z.string(),
   state: PublicLinkState,
@@ -60,16 +62,47 @@ export function publicItemUrl(
 const attribute = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** The embed button's colour when the firm sets none: the portal's default navy. */
+export const PUBLIC_BUTTON_COLOR = '#1F3A6B';
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Relative luminance (WCAG 2) of a `#RRGGBB` colour. */
+function luminance(hex: string): number {
+  const channel = (i: number) => {
+    const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
 /**
- * The website code for a public page: a self-contained button (a link styled inline, so it needs
- * nothing from the firm's site) that opens `url` in a new tab, labelled with the item's name. It
- * works on any site builder that takes HTML (WordPress, Wix, GoDaddy, Shopify, plain HTML). An
- * inline iframe comes back once framing is enabled for the firm's site (an infra change).
+ * Review 2 (Appointments row 3): the embed code of a page that needs the portal's sign-in (an
+ * appointment type's booking page). A styled link button, not an iframe: browsers keep the
+ * portal's sign-in cookies out of another site's frame, so the button opens the page in a new
+ * tab. `color` is the firm's button colour (`#RRGGBB`); the label is white, or near-black on a
+ * light colour, whichever reads better.
+ */
+export function publicButtonCode(url: string, label: string, color?: string | null): string {
+  const background = color && HEX.test(color) ? color.toUpperCase() : PUBLIC_BUTTON_COLOR;
+  // White text needs a contrast of 4.5:1 (WCAG AA); below that, near-black reads better.
+  const text = 1.05 / (luminance(background) + 0.05) >= 4.5 ? '#FFFFFF' : '#111111';
+  const style = [
+    'display:inline-block',
+    'padding:12px 24px',
+    'border-radius:8px',
+    `background:${background}`,
+    `color:${text}`,
+    "font:600 16px/1.25 system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif",
+    'text-decoration:none',
+  ].join(';');
+  return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${attribute(style)}">${attribute(label)}</a>`;
+}
+
+/**
+ * The website code of a public page that a frame can't show (every public page today: see
+ * `PublicLink.embedCode`): `publicButtonCode` in the portal's default colour, labelled with the
+ * item's name. INTAKE-ACCESS-02 replaced its iframe; the iframe returns with framing enabled.
  */
 export function publicEmbedCode(url: string, title: string): string {
-  const style =
-    'display:inline-block;padding:12px 20px;border-radius:8px;background:#1f3a5f;color:#ffffff;' +
-    'font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:600;line-height:1.2;' +
-    'text-decoration:none';
-  return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${style}">${attribute(title)}</a>`;
+  return publicButtonCode(url, title);
 }

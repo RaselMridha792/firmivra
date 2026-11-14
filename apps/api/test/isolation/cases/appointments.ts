@@ -130,6 +130,8 @@ export const cases: CaseModule['cases'] = {
     body: { dateOverrides: [] },
   },
   'GET /api/v1/business/appointment-types/:id/config': { params: { id: 'appointmentType' } },
+  // Review 2 (row 3): the type's public booking link and button code.
+  'GET /api/v1/business/appointment-types/:id/public-link': { params: { id: 'appointmentType' } },
   'PUT /api/v1/business/appointment-types/:id/config': {
     params: { id: 'appointmentType' },
     bodyIds: { serviceId: 'service' },
@@ -237,3 +239,9 @@ export const cases: CaseModule['cases'] = {
 };
 
 export const moduleOff: CaseModule['moduleOff'] = {};
+
+export const excluded: CaseModule['excluded'] = {
+  // Review 2 (row 3). Firm Q's slug never reaches firm P's type: test/e2e/booking-link.e2e.test.ts.
+  'GET /api/v1/portal/:firmSlug/booking-types/:id':
+    "Public: what a visitor may see of one of the slug's firm's appointment types (name, length, methods, whether it takes bookings); another firm's type is 404",
+};

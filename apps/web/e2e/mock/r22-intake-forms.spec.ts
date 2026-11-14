@@ -171,10 +171,10 @@ test('the success pages: tax preparation and every other service', async ({ page
   await page.goto(`${origin}/lvp/begin/done?form=annual-tax`);
   await expect(page.getByRole('heading', { name: 'Success!' })).toBeVisible();
   await expect(page.getByText('A free initial tax consultation')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Schedule an Appointment' })).toHaveAttribute(
-    'href',
-    '/lvp/appointments',
-  );
+  // The success card's own link (the LVP header has a Schedule an Appointment link too).
+  await expect(
+    page.getByTestId('begin-done').getByRole('link', { name: 'Schedule an Appointment' }),
+  ).toHaveAttribute('href', '/lvp/appointments');
   await page.goto(`${origin}/lvp/begin/done?form=payroll`);
   await expect(page.getByText('Your Assigned Specialist Will Reach Out')).toBeVisible();
   await page.setViewportSize({ width: 375, height: 800 });

@@ -2,9 +2,10 @@
 
 import { Button, Modal } from '@firmivra/ui';
 import { Plus } from 'lucide-react';
-import { useParams } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
+import { clearBooking, typeIdOf } from '../../../../../../lib/booking-intent';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
 import { PortalPageHeader } from '../../_components/portal-page-header';
@@ -27,8 +28,11 @@ import {
  * appointments, and Quick Actions. Booking happens in the "Schedule an Appointment" modal;
  * each upcoming row's menu reschedules or cancels it until the cutoff.
  */
-export function AppointmentsScreen() {
+export function AppointmentsScreen({ book }: { book?: string }) {
   const { firmSlug: slug } = useParams<{ firmSlug: string }>();
+  const router = useRouter();
+  // A booking link's type (Review 2, row 3): booking opens on it once.
+  const linked = typeIdOf(book);
   const { business } = usePortal();
   const upcoming = useApiQuery([...myAppointmentsKey(slug), 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
@@ -36,12 +40,22 @@ export function AppointmentsScreen() {
   const past = useApiQuery([...myAppointmentsKey(slug), 'past'], () =>
     api.myAppointments(slug).list({ when: 'past' }),
   );
-  const [schedule, setSchedule] = useState<{ date?: string } | null>(null);
+  const [schedule, setSchedule] = useState<{ date?: string; typeId?: string } | null>(() =>
+    linked ? { typeId: linked } : null,
+  );
   const [history, setHistory] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [request, setRequest] = useState<ActionRequest | null>(null);
   // Counts every Quick Actions ask, so a repeat ask on the same row opens it again.
   const asksRef = useRef(0);
+
+  // Opened from the link: the kept type is used, and the address drops ?book= so a reload or Back
+  // does not open booking again.
+  useEffect(() => {
+    if (!book) return;
+    clearBooking(slug);
+    router.replace(`/${slug}/appointments`, { scroll: false });
+  }, [book, slug, router]);
 
   const ask = (kind: ActionRequest['kind']) => {
     // Pin the row once, by id: after a cancel the list changes, and nothing else may open.
@@ -109,6 +123,7 @@ export function AppointmentsScreen() {
         slug={slug}
         open={schedule !== null}
         date={schedule?.date}
+        typeId={schedule?.typeId}
         onClose={() => setSchedule(null)}
         onBooked={(text) => {
           setSchedule(null);

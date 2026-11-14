@@ -28,7 +28,7 @@ const field =
   'min-w-0 flex-1 rounded-control border border-border bg-subtle px-3 py-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-action/25';
 
 /**
- * The shared "Copy link / Copy button code" block (Octavia's review of Oct 20): a public item's
+ * The shared "Copy link / Copy embed code" block (Octavia's review of Oct 20): a public item's
  * stable link and a website button that opens it, each with a Copy button. Used by
  * intake forms, appointment types and service packages, each with its own labels. When copying
  * is refused, the text is selected so it can be copied by hand.
@@ -38,7 +38,7 @@ export function PublicLinkBlock({
   embedCode,
   title = 'Public Link',
   copyLinkLabel = 'Copy Link',
-  copyEmbedLabel = 'Copy Button Code',
+  copyEmbedLabel = 'Copy Embed Code',
   notice,
   emptyText = 'The link appears here once it is available.',
   copy = (text) => navigator.clipboard.writeText(text),
@@ -126,7 +126,7 @@ export function PublicLinkBlock({
           {embedCode ? (
             <div className="flex min-w-0 flex-col gap-1.5">
               <label htmlFor={`${id}-embed`} className="text-sm font-semibold text-heading">
-                Website button
+                Embed code
               </label>
               <div className="flex min-w-0 gap-2 max-sm:flex-col sm:items-start">
                 <textarea

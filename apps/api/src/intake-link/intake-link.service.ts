@@ -9,6 +9,7 @@ import {
 import type { Request, Response } from 'express';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
+  COUNTED_UPLOAD_STATUSES,
   INTAKE_LINK_ERRORS,
   type IntakeAgreementBlock,
   type IntakeAnswersInput,
@@ -25,20 +26,23 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { intakeUpload, LEAD_FILE_FIELDS } from '../begin-online/begin-online.service.js';
 import { hashToken } from '../begin-online/drafts.js';
+import { ticketKeys } from '../begin-online/upload-tickets.js';
+import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { requireFirmWideAgreement } from '../intake/intake-agreement.js';
 import { intakeFileSizeMb } from '../intake/intake-file-size.js';
 import { readDefinition } from '../intake/intake-forms.js';
 import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import type { IntakeSigner } from '../intake/intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from '../intake/intake-step.js';
-import { lockVersion, prepareSubmit } from '../intake/intake-submit.js';
+import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-submit.js';
 import { sendSubmittedNotice } from '../intake-workspace/submitted-notice.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { IntakeLinkCookies, type LinkClaim } from './intake-link-cookies.js';
 
-const linkInvalid = () =>
+export const linkInvalid = () =>
   new GoneException({ code: 'LINK_INVALID', message: INTAKE_LINK_ERRORS.LINK_INVALID });
 const CHANGED = 'INTAKE_CHANGED';
 const changed = () =>
@@ -59,6 +63,7 @@ const linkSelect = {
   correctionNote: true,
   correctionRequestedAt: true,
   accessTokenExpiresAt: true,
+  sentAt: true,
   form: {
     select: {
       version: true,
@@ -83,8 +88,17 @@ const linkSelect = {
     },
   },
 } satisfies Prisma.IntakeSelect;
-type LinkRow = Prisma.IntakeGetPayload<{ select: typeof linkSelect }>;
-type Firm = { id: string; slug: string };
+export type LinkRow = Prisma.IntakeGetPayload<{ select: typeof linkSelect }>;
+export type LinkFirm = { id: string; slug: string };
+type Firm = LinkFirm;
+
+/** The lead's files through this intake's link (item n), oldest first. */
+export const linkFiles = (tx: TxClient, businessId: string, intakeId: string) =>
+  tx.leadUpload.findMany({
+    where: { businessId, intakeId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: LEAD_FILE_FIELDS,
+  });
 
 /**
  * A lead's secure intake link (Intake Forms Review Two, INTAKE-ACCESS-01; contract:
@@ -94,7 +108,8 @@ type Firm = { id: string; slug: string };
  * intake and token hash), and every other route reads the intake from that cookie, checked again
  * against the intake each time: a link that is unknown, replaced (a resend or a reminder), past its
  * expiry, or on a form that was archived or expired answers 410 LINK_INVALID, the same answer for
- * each. The lead fills, saves and signs the one form; files come with the lead-upload change.
+ * each. The lead fills, saves and signs the one form, and adds files to its upload fields
+ * (LinkUploadsService, Leads item n: lead_uploads rows naming this intake).
  * Audit rows hold ids and step keys only: never answers, names, emails or tokens.
  */
 @Injectable()
@@ -106,6 +121,7 @@ export class IntakeLinkService {
     @Inject(DATABASE) private readonly database: Database,
     @Inject(ENV) private readonly env: Env,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
     private readonly portal: PortalInfoService,
     private readonly fe: FieldEncryption,
     private readonly audit: AuditService,
@@ -142,8 +158,13 @@ export class IntakeLinkService {
     return row;
   }
 
+  /** The live intake behind this browser's cookie, read in the caller's transaction. */
+  rowIn(tx: TxClient, firm: Firm, claim: LinkClaim): Promise<LinkRow> {
+    return this.find(tx, firm.id, { tokenHash: claim.tokenHash, intakeId: claim.intakeId });
+  }
+
   /** This browser's link at the firm, from its cookie; 410 LINK_INVALID without a live one. */
-  private async claim(slug: string, req: Request): Promise<{ firm: Firm; claim: LinkClaim }> {
+  async claim(slug: string, req: Request): Promise<{ firm: Firm; claim: LinkClaim }> {
     const firm = await this.portal.activeFirm(slug);
     const claim = await this.cookies.read(req, firm);
     if (!claim) throw linkInvalid();
@@ -178,7 +199,7 @@ export class IntakeLinkService {
       definition,
       taxYear: row.lead!.taxYear ?? new Date().getUTCFullYear(),
       answers: await maskStoredNumbers(definition, answersOf(current?.answers)),
-      uploads: [],
+      uploads: (await linkFiles(tx, businessId, row.id)).map(intakeUpload),
       maxFileSizeMb: await intakeFileSizeMb(tx, businessId),
       savedSteps: definition.steps.map((s) => s.key).filter((k) => saved.has(k)),
       signature:
@@ -325,21 +346,51 @@ export class IntakeLinkService {
     if (!draft || draft.submittedAt) throw intakeLocked();
     const id = before.id;
     const definition = readDefinition(before.form, before.form.service.kind);
-    const { answers } = await prepareSubmit(
+    const filesBefore = await this.inFirm(businessId, (tx) => slotFiles(tx, businessId, id));
+    const { answers, hidden } = await prepareSubmit(
       this.fe,
       { businessId, intakeId: id },
       definition,
       answersOf(draft.answers),
-      [],
+      filesBefore,
     );
-    const intake = await this.inFirm(businessId, async (tx) => {
+    const done = await this.inFirm(businessId, async (tx) => {
+      // First, before counting files or signing: an upload confirm or a removal (same row lock)
+      // waits for this submit and then finds the intake locked.
       await tx.$queryRaw`SELECT 1 FROM intakes WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
       const row = await this.find(tx, businessId, { tokenHash: claim.tokenHash, intakeId: id });
       requireOpen(row.status);
       const current = row.submissions[0];
       if (current?.id !== draft.id || current.submittedAt) throw intakeLocked();
       if (JSON.stringify(current.answers) !== JSON.stringify(draft.answers)) throw changed();
+      if (sameFiles(await slotFiles(tx, businessId, id)) !== sameFiles(filesBefore)) {
+        throw changed();
+      }
       await requireFirmWideAgreement(tx, businessId);
+      // Files in slots the answers hide leave the form (a link file never moves): deleted while
+      // the intake is still open, their objects after commit.
+      const hiddenIds = hidden.map((f) => f.id);
+      const dropped = hiddenIds.length
+        ? await tx.leadUpload.findMany({
+            where: { businessId, id: { in: hiddenIds } },
+            select: { s3Key: true },
+          })
+        : [];
+      if (hiddenIds.length) {
+        await tx.leadUpload.deleteMany({ where: { businessId, id: { in: hiddenIds } } });
+      }
+      // Tickets the lead took and never confirmed: their objects go too.
+      const kept = new Set(
+        (
+          await tx.leadUpload.findMany({
+            where: { businessId, intakeId: id },
+            select: { s3Key: true },
+          })
+        ).map((f) => f.s3Key),
+      );
+      const since = row.sentAt ?? new Date(0);
+      const tickets = await ticketKeys(tx, businessId, row.leadId!, since, { intakeId: id });
+      const unconfirmed = tickets.filter((k) => !kept.has(k));
       const ids = { businessId, intakeId: id, submissionId: draft.id };
       await lockVersion(tx, ids, answers, null, () =>
         signer.sign(tx, {
@@ -354,15 +405,22 @@ export class IntakeLinkService {
         tx,
         'intake.submitted',
         { type: 'intake', id },
-        { version: draft.version, via: 'link' },
+        { version: draft.version, via: 'link', detached: hiddenIds.length },
         { businessId },
       );
-      return this.view(
+      const view = await this.view(
         tx,
         businessId,
         await this.find(tx, businessId, { tokenHash: claim.tokenHash, intakeId: id }),
       );
+      return { view, objects: [...dropped.map((f) => f.s3Key), ...unconfirmed] };
     });
+    for (const key of done.objects) {
+      await this.storage.remove(key).catch((error: unknown) => {
+        this.logger.warn(`Could not delete a link file of intake ${id} (${errorName(error)})`);
+      });
+    }
+    const intake = done.view;
     try {
       await this.notifier.notify({ businessId, event: 'intake.submitted', recordId: id });
     } catch (error) {
@@ -376,3 +434,16 @@ export class IntakeLinkService {
     return intake;
   }
 }
+
+/** The intake's link files as submit counts them (lead_uploads naming the intake). */
+async function slotFiles(tx: TxClient, businessId: string, intakeId: string): Promise<SlotFile[]> {
+  return (await linkFiles(tx, businessId, intakeId)).map((f) => ({
+    id: f.id,
+    slot: f.slot,
+    status: f.scanStatus,
+  }));
+}
+
+/** Counted or not, as the check used them: a scan going PENDING to CLEAN changes nothing. */
+const sameFiles = (files: SlotFile[]) =>
+  JSON.stringify(files.map((f) => [f.id, f.slot, COUNTED_UPLOAD_STATUSES.includes(f.status)]));

@@ -226,8 +226,8 @@ function build(query: DashboardSummaryQuery = {}): DashboardSummary {
         client: client(5, 'Casey Fixture'),
       },
     ],
-    // The real API sends null until the firm's settings hold a season (R0's columns); the mock
-    // shows one so the date card can be built.
+    // The real API sends the season from the firm's settings (System Preferences), or null; the
+    // mock shows the next one, Off-Season, so the date line can be built.
     taxSeason: { start: `${thisYear + 1}-01-15`, end: `${thisYear + 1}-05-15`, inSeason: false },
   };
 }

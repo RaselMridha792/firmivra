@@ -44,7 +44,12 @@ let fixtures: readonly TaxReturn[] | undefined;
 /** The first portal client's returns. Built on first use: importing this file runs nothing. */
 export function taxReturnFixtures(): readonly TaxReturn[] {
   fixtures ??= [
-    fixture(1, { taxYear: 2025, status: 'IN_PROGRESS' }),
+    // In the engagements mock's 2025 Personal Tax (an appointment can link it: TX-F06).
+    fixture(1, {
+      taxYear: 2025,
+      status: 'IN_PROGRESS',
+      engagementId: '0199b6a2-0000-7000-8000-000000000001',
+    }),
     fixture(2, {
       taxYear: 2025,
       quarter: 3,

@@ -6,7 +6,7 @@ describe('publicLinkText (R56)', () => {
     expect(publicLinkText('APPOINTMENT_TYPE', 'LIVE')).toMatchObject({
       title: 'Booking Link',
       copyLinkLabel: 'Copy Booking Link',
-      copyEmbedLabel: 'Copy Button Code',
+      copyEmbedLabel: 'Copy Embed Code',
       notice: undefined,
     });
     expect(publicLinkText('INTAKE_FORM', 'LIVE').copyLinkLabel).toBe('Copy Form Link');

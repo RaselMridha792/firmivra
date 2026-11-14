@@ -34,7 +34,7 @@ test('Publish on a main form shows Share & Publish: the Begin Online page and it
   await expect(link).toHaveValue(/\/lvp\/begin\/annual-tax$/);
   const url = await link.inputValue();
   // A website button that opens the link (an inline embed needs framing enabled for the site).
-  const button = dialog.getByLabel('Website button', { exact: true });
+  const button = dialog.getByLabel('Embed code', { exact: true });
   await expect(button).toHaveValue(new RegExp(`^<a href="${url}" target="_blank" rel="noopener"`));
   await expect(button).toHaveValue(/>Personal Tax Intake Form<\/a>$/);
   await expect(dialog).toContainText(

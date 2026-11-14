@@ -5,10 +5,12 @@ export {
   createAppointmentTypesClient,
   createAvailabilityClient,
   createMyAppointmentsClient,
+  createPublicBookingClient,
   type AppointmentsClient,
   type AppointmentTypesClient,
   type AvailabilityClient,
   type MyAppointmentsClient,
+  type PublicBookingClient,
 } from './client.js';
 export * from './scheduling.js';
 export { createSchedulingClient, type SchedulingClient } from './scheduling-client.js';

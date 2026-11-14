@@ -1,11 +1,6 @@
 'use client';
 
-import {
-  ApiRequestError,
-  INTAKE_LINK_ERRORS,
-  type LinkIntake,
-  resumeTokenFromHash,
-} from '@firmivra/types';
+import { INTAKE_LINK_ERRORS, type LinkIntake, resumeTokenFromHash } from '@firmivra/types';
 import { Card, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, LockKeyhole } from 'lucide-react';
@@ -21,12 +16,6 @@ import { usePortal } from '../../../layout';
 
 const linkKey = (slug: string) => ['portal', slug, 'intake-link'] as const;
 
-/** Files come through the link with the lead-upload change; until then the slot says so. */
-const notYet = () =>
-  Promise.reject(
-    new ApiRequestError(501, 'NOT_IMPLEMENTED', "Files can't be added through this link yet"),
-  );
-
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
@@ -35,8 +24,8 @@ const day = (iso: string) =>
  * form the firm emailed, without a portal account. The token is read from the fragment (never
  * sent in a URL), posted once for this browser's cookie, and the fragment cleared; a reload reads
  * the form from the cookie. The lead fills it step by step with the portal's own form (each step
- * saves as it is left), signs and submits; once sent it reads back without editing. An unknown,
- * replaced or expired link says to ask the firm for a new one.
+ * saves as it is left), adds files to its upload fields, signs and submits; once sent it reads
+ * back without editing. An unknown, replaced or expired link says to ask the firm for a new one.
  */
 export function IntakeLinkScreen({ firmSlug }: { firmSlug: string }) {
   const client = useMemo(() => api.intakeLink(firmSlug), [firmSlug]);
@@ -120,9 +109,10 @@ function LinkForm({ firmSlug }: { firmSlug: string }) {
       submit: (body) => client.submit(body),
       agreementsKey: [...linkKey(firmSlug), 'agreements'],
       agreements: () => client.agreements(),
-      createUpload: notYet,
-      confirmUpload: notYet,
-      removeUpload: notYet,
+      // Leads item n: files in the form's upload fields, through this link's cookie.
+      createUpload: (body) => client.createUpload(body),
+      confirmUpload: (body) => client.confirmUpload(body),
+      removeUpload: (uploadId) => client.removeUpload(uploadId),
       laterNotice: expiresAt
         ? `Your answers are saved. Open the link in your email again before ${day(expiresAt)} to finish and submit.`
         : 'Your answers are saved. Open the link in your email again to finish and submit.',

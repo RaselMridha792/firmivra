@@ -39,6 +39,9 @@ import {
   UpdateAppointmentRequest,
   UpdateAppointmentTypeRequest,
   type WorkingHoursRange,
+  type PublicBookingClient,
+  publicButtonCode,
+  publicItemUrl,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
@@ -469,6 +472,46 @@ export function createAppointmentTypesMock(
       const t = find(typeId);
       t.archivedAt = null;
       return copy(t);
+    },
+    // Review 2 (row 3): everyone reads a type's booking link and button code, as the API.
+    publicLink: async (typeId) => {
+      await mockDelay();
+      const t = find(typeId);
+      const url = publicItemUrl(MOCK_PORTAL, 'lvp', 'APPOINTMENT_TYPE', t.id);
+      return {
+        kind: 'APPOINTMENT_TYPE',
+        itemId: t.id,
+        url,
+        embedCode: publicButtonCode(url, `Book ${t.name}`),
+        state: publicState(t),
+      };
+    },
+  };
+}
+
+/** The portal's address in mock mode (as the other mocks' public links). */
+const MOCK_PORTAL = process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? 'http://portal.localhost:3000';
+/** Whether a type's booking link takes bookings, as the API decides it. */
+const publicState = (t: AppointmentType) =>
+  t.archivedAt ? 'ARCHIVED' : t.clientBookable ? 'LIVE' : 'HIDDEN';
+
+/**
+ * `api.publicBooking(slug)` in mock mode: the types of the mock firm (every slug reads the same
+ * calendar, as `myAppointmentsMock`), and 404 for an id that is none of them.
+ */
+export function publicBookingMock(_firmSlug: string): PublicBookingClient {
+  return {
+    type: async (typeId) => {
+      await mockDelay();
+      const t = db().types.find((x) => x.id === typeId);
+      if (!t) throw errors.notFound();
+      return {
+        id: t.id,
+        name: t.name,
+        durationMinutes: t.durationMinutes,
+        methods: t.methods,
+        state: publicState(t),
+      };
     },
   };
 }

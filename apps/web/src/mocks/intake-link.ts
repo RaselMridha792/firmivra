@@ -33,7 +33,8 @@ export function intakeLinkMock(firmSlug: string): IntakeLinkClient {
 /**
  * An in-memory `api.intakeLink(slug)`: a lead's secure link to the SENT Quarterly Taxes fixture,
  * opened with MOCK_INTAKE_LINK_TOKEN. As the API, any other token (or a read before `open`, which
- * stands for the cookie) is 410 LINK_INVALID, and the form's rules are the portal mock's.
+ * stands for the cookie) is 410 LINK_INVALID, and the form's rules (and its files) are the
+ * portal mock's.
  */
 export function createIntakeLinkMock(firmSlug: string = mockBusiness.slug): IntakeLinkClient {
   const portal = createMyIntakesMock({}, firmSlug);
@@ -89,6 +90,19 @@ export function createIntakeLinkMock(firmSlug: string = mockBusiness.slug): Inta
     agreements: async () => {
       live();
       return myIntakeAgreementsMock(firmSlug).block(id);
+    },
+    // Leads item n: the form's upload fields, with the portal mock's steps and rules.
+    createUpload: async (body) => {
+      live();
+      return portal.createUpload(id, body);
+    },
+    confirmUpload: async (body) => {
+      live();
+      return portal.confirmUpload(id, body);
+    },
+    removeUpload: async (uploadId) => {
+      live();
+      return portal.removeUpload(id, uploadId);
     },
   };
 }
