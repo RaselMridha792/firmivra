@@ -49,6 +49,7 @@ import {
   CorrectTaxYearRequest,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
+  TaxAmountHistory,
 } from './workspace.js';
 
 const BASE = '/business/tax-returns';
@@ -170,6 +171,14 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
           method: 'PATCH',
           body: parseInput(UpdateTaxReturnFilingRequest, body),
         })
+      ).items,
+    /** Review 2: a jurisdiction's amount, version by version (newest first). */
+    amountHistory: async (id: string, filingId: string): Promise<TaxAmountHistory['items']> =>
+      (
+        await request(
+          TaxAmountHistory,
+          `${sub(id, 'filings', filingId, TaxFilingId)}/amount-history`,
+        )
       ).items,
     recordAttempt: async (
       id: string,
