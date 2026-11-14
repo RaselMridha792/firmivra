@@ -1154,39 +1154,40 @@ model Membership {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business                Business               @relation(fields: [businessId], references: [id])
-  user                    User                   @relation(fields: [userId], references: [id])
-  customRole              CustomRole?            @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
-  invites                 Invite[]
+  business                  Business               @relation(fields: [businessId], references: [id])
+  user                      User                   @relation(fields: [userId], references: [id])
+  customRole                CustomRole?            @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
+  invites                   Invite[]
   // R1 (Oct 21): Locations and secure links.
-  officesManaged          FirmOffice[]           @relation("FirmOfficeManager")
-  officeActionsAbout      FirmOfficeAction[]     @relation("FirmOfficeActionManager")
-  officeActionsNewManager FirmOfficeAction[]     @relation("FirmOfficeActionNewManager")
-  officeActionsCreated    FirmOfficeAction[]     @relation("FirmOfficeActionCreatedBy")
-  officeActionsUpdated    FirmOfficeAction[]     @relation("FirmOfficeActionUpdatedBy")
-  documentLinksCreated    DocumentLink[]         @relation("DocumentLinkCreatedBy")
-  documentLinksReceived   DocumentLink[]         @relation("DocumentLinkRecipient")
-  assignedClients         Client[]
-  assignedEngagements     Engagement[]           @relation("EngagementAssignee")
-  pausedEngagements       Engagement[]           @relation("EngagementPausedBy")
-  clientLinksCreated      ClientLink[]           @relation("ClientLinkCreatedBy")
-  assignedTasks           Task[]
-  workingHours            WorkingHours[]
-  blockedTimes            BlockedTime[]
-  appointments            Appointment[]
-  invoicesCreated         Invoice[]
-  invoicesAssigned        Invoice[]              @relation("InvoiceAssignedTo")
-  paymentSettingsChanged  PaymentSettings[]
-  invoiceEvents           InvoiceEvent[]
-  invoicesArchived        InvoiceTracking[]
-  contentCreated          ContentItem[]
-  agreementsCreated       FirmAgreement[]
-  agreementFiles          FirmAgreementFile[]
-  agreementVersions       FirmAgreementVersion[]
-  taskCollaborations      TaskAssignee[]
-  checklistAssigned       TaskChecklistItem[]
-  taskTemplates           TaskTemplate[]
-  taskSeries              TaskSeries[]
+  officesManaged            FirmOffice[]           @relation("FirmOfficeManager")
+  officeActionsAbout        FirmOfficeAction[]     @relation("FirmOfficeActionManager")
+  officeActionsNewManager   FirmOfficeAction[]     @relation("FirmOfficeActionNewManager")
+  officeActionsCreated      FirmOfficeAction[]     @relation("FirmOfficeActionCreatedBy")
+  officeActionsUpdated      FirmOfficeAction[]     @relation("FirmOfficeActionUpdatedBy")
+  documentLinksCreated      DocumentLink[]         @relation("DocumentLinkCreatedBy")
+  documentLinksReceived     DocumentLink[]         @relation("DocumentLinkRecipient")
+  assignedClients           Client[]
+  assignedEngagements       Engagement[]           @relation("EngagementAssignee")
+  pausedEngagements         Engagement[]           @relation("EngagementPausedBy")
+  clientLinksCreated        ClientLink[]           @relation("ClientLinkCreatedBy")
+  assignedTasks             Task[]
+  workingHours              WorkingHours[]
+  blockedTimes              BlockedTime[]
+  appointments              Appointment[]
+  appointmentAttendeesAdded AppointmentAttendee[]
+  invoicesCreated           Invoice[]
+  invoicesAssigned          Invoice[]              @relation("InvoiceAssignedTo")
+  paymentSettingsChanged    PaymentSettings[]
+  invoiceEvents             InvoiceEvent[]
+  invoicesArchived          InvoiceTracking[]
+  contentCreated            ContentItem[]
+  agreementsCreated         FirmAgreement[]
+  agreementFiles            FirmAgreementFile[]
+  agreementVersions         FirmAgreementVersion[]
+  taskCollaborations        TaskAssignee[]
+  checklistAssigned         TaskChecklistItem[]
+  taskTemplates             TaskTemplate[]
+  taskSeries                TaskSeries[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -2963,33 +2964,33 @@ model BusinessSettings {
   // R36 (Settings, r36_money_portal_rest): the Company Profile and Branding screens' fields. The primary
   // and accent colours, the logos, the slogan and motto, the portal text and the time zone are above.
   /// S3 keys under the firm's prefix (`tenant/<business_id>/`, CHECK).
-  faviconKey                        String?          @map("favicon_key")
-  loginBackgroundKey                String?          @map("login_background_key")
+  faviconKey                        String?           @map("favicon_key")
+  loginBackgroundKey                String?           @map("login_background_key")
   /// `#rrggbb` (CHECK); contrast is the API's rule.
-  secondaryColor                    String?          @map("secondary_color")
-  backgroundColor                   String?          @map("background_color")
-  theme                             BrandTheme       @default(LIGHT)
-  sidebarStyle                      SidebarStyle     @default(SOLID) @map("sidebar_style")
-  sidebarPosition                   SidebarPosition  @default(LEFT) @map("sidebar_position")
-  showLogoText                      Boolean          @default(true) @map("show_logo_text")
-  roundedCorners                    Boolean          @default(true) @map("rounded_corners")
+  secondaryColor                    String?           @map("secondary_color")
+  backgroundColor                   String?           @map("background_color")
+  theme                             BrandTheme        @default(LIGHT)
+  sidebarStyle                      SidebarStyle      @default(SOLID) @map("sidebar_style")
+  sidebarPosition                   SidebarPosition   @default(LEFT) @map("sidebar_position")
+  showLogoText                      Boolean           @default(true) @map("show_logo_text")
+  roundedCorners                    Boolean           @default(true) @map("rounded_corners")
   /// Plain text, up to 200 characters; never styled like a password or MFA prompt.
-  loginMessage                      String?          @map("login_message")
-  supportEmail                      String?          @map("support_email")
+  loginMessage                      String?           @map("login_message")
+  supportEmail                      String?           @map("support_email")
   /// What the firm does ("Accounting & Tax Services"), up to 80 characters.
   industry                          String?
-  locale                            String           @default("en-US")
-  currency                          String           @default("usd")
-  dateFormat                        DateFormat       @default(MDY) @map("date_format")
+  locale                            String            @default("en-US")
+  currency                          String            @default("usd")
+  dateFormat                        DateFormat        @default(MDY) @map("date_format")
   /// Counts up on every publish, so two admins never overwrite each other silently.
-  brandingVersion                   Int              @default(1) @map("branding_version")
-  brandingPublishedAt               DateTime?        @map("branding_published_at") @db.Timestamptz(3)
+  brandingVersion                   Int               @default(1) @map("branding_version")
+  brandingPublishedAt               DateTime?         @map("branding_published_at") @db.Timestamptz(3)
   /// R55's Client Sign-ups (Oct 25): the approval mode, versioned (raised by each change; a PATCH
   /// sends the version it read).
-  clientSignupMode                  ClientSignupMode @default(MANUAL) @map("client_signup_mode")
-  clientSignupPolicyVersion         Int              @default(1) @map("client_signup_policy_version")
-  clientSignupPolicyChangedAt       DateTime?        @map("client_signup_policy_changed_at") @db.Timestamptz(3)
-  clientSignupPolicyChangedByUserId String?          @map("client_signup_policy_changed_by_user_id") @db.Uuid
+  clientSignupMode                  ClientSignupMode  @default(MANUAL) @map("client_signup_mode")
+  clientSignupPolicyVersion         Int               @default(1) @map("client_signup_policy_version")
+  clientSignupPolicyChangedAt       DateTime?         @map("client_signup_policy_changed_at") @db.Timestamptz(3)
+  clientSignupPolicyChangedByUserId String?           @map("client_signup_policy_changed_by_user_id") @db.Uuid
   /// Tax Returns Review 2 (R60, Nov 15; the lead's design): how a return's amounts are kept.
   /// EXACT keeps the cents entered; ROUND_TO_DOLLAR stores them rounded half-up to whole dollars
   /// (the audit keeps the figure as entered). Owner and Admin change it.
@@ -3026,16 +3027,16 @@ model FirmLegalDocument {
 
 /// A firm-defined tax status ("Documents received", "Filed"). Archived, not deleted, once used.
 model TaxStatus {
-  id         String    @id @default(uuid(7)) @db.Uuid
-  businessId String    @map("business_id") @db.Uuid
-  name       String
-  sortOrder  Int       @default(0) @map("sort_order")
+  id             String                   @id @default(uuid(7)) @db.Uuid
+  businessId     String                   @map("business_id") @db.Uuid
+  name           String
+  sortOrder      Int                      @default(0) @map("sort_order")
   /// Tax Returns Review 2 (TX-F36, R60, Nov 15; the lead's approval): the fixed return workflow
   /// status this label stands for ("Maps to"); null for a client-level label only.
   workflowStatus TaxReturnWorkflowStatus? @map("workflow_status")
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt     DateTime?                @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business          Business                 @relation(fields: [businessId], references: [id])
   clientTaxStatuses ClientTaxStatus[]
@@ -3129,6 +3130,8 @@ model Client {
   tasks                          Task[]
   notes                          Note[]
   appointments                   Appointment[]
+  /// R55 (Appointments A1): the group appointments this client attends (not as the primary).
+  appointmentAttendances         AppointmentAttendee[]
   messageThreads                 MessageThread[]
   invoices                       Invoice[]
   taxReturns                     TaxReturn[]
@@ -4420,7 +4423,9 @@ model Appointment {
   series     AppointmentSeries?    @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
   type       AppointmentType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
 
-  intakes Intake[]
+  intakes   Intake[]
+  /// R55 (Appointments A1): the other clients in this appointment.
+  attendees AppointmentAttendee[]
 
   @@unique([businessId, idempotencyKey])
   // Target of the reminders' same-firm foreign key.
@@ -4431,6 +4436,28 @@ model Appointment {
   @@index([businessId, clientId, startsAt])
   @@index([businessId, startsAt])
   @@map("appointments")
+}
+
+/// R55 (Appointments A1, approved by the lead under Rasel's delegation, Nov 15): another client in a
+/// group appointment; the appointment's own client stays its primary attendee. At most 20 per
+/// appointment, never the appointment's own client, added or removed only while it is SCHEDULED
+/// (an ended appointment keeps its attendees). Staff see them all; an attendee sees the
+/// appointment in their portal, never the other attendees.
+model AppointmentAttendee {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  appointmentId String   @map("appointment_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Cascade)
+  client      Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  addedBy     Membership? @relation(fields: [businessId, addedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([appointmentId, clientId])
+  @@index([businessId, clientId])
+  @@map("appointment_attendees")
 }
 
 /// A subject thread between the firm and one client or one lead (exactly one, fixed), optionally
@@ -4989,34 +5016,34 @@ enum TaxReturnStatus {
 /// Older years can exist without an engagement. The return PDF is one of the client's own
 /// documents, never an INTERNAL one. Only a return that was never filed can be deleted.
 model TaxReturn {
-  id           String          @id @default(uuid(7)) @db.Uuid
-  businessId   String          @map("business_id") @db.Uuid
-  clientId     String          @map("client_id") @db.Uuid
+  id               String          @id @default(uuid(7)) @db.Uuid
+  businessId       String          @map("business_id") @db.Uuid
+  clientId         String          @map("client_id") @db.Uuid
   /// The engagement it was prepared in, if any (one of this client's).
-  engagementId String?         @map("engagement_id") @db.Uuid
-  taxYear      Int             @map("tax_year")
-  filingType   TaxFilingType   @map("filing_type")
+  engagementId     String?         @map("engagement_id") @db.Uuid
+  taxYear          Int             @map("tax_year")
+  filingType       TaxFilingType   @map("filing_type")
   /// 1 to 4 for a quarterly estimate; empty for the annual return.
-  quarter      Int?
+  quarter          Int?
   /// The form, e.g. "1040" or "1120-S".
-  formType     String?         @map("form_type")
-  status       TaxReturnStatus @default(IN_PROGRESS)
-  filedOn      DateTime?       @map("filed_on") @db.Date
+  formType         String?         @map("form_type")
+  status           TaxReturnStatus @default(IN_PROGRESS)
+  filedOn          DateTime?       @map("filed_on") @db.Date
   /// Tax Returns Review 2 (R60, Nov 15): an extension filed outside Firmivra (recorded, never
   /// submitted here): the day it was filed and the new deadline, set together (SQL).
-  extensionFiledOn DateTime?   @map("extension_filed_on") @db.Date
-  extendedDueOn    DateTime?   @map("extended_due_on") @db.Date
+  extensionFiledOn DateTime?       @map("extension_filed_on") @db.Date
+  extendedDueOn    DateTime?       @map("extended_due_on") @db.Date
   /// The return PDF the client can view and download.
-  documentId   String?         @map("document_id") @db.Uuid
+  documentId       String?         @map("document_id") @db.Uuid
   /// Set by the database the first time the return leaves IN_PROGRESS; never changes. A return
   /// with it set is never deleted.
-  firstFiledAt DateTime?       @map("first_filed_at") @db.Timestamptz(3)
+  firstFiledAt     DateTime?       @map("first_filed_at") @db.Timestamptz(3)
   /// Tax Returns Review 2 (TX-F16): the tax year the return was first filed under, stamped by the
   /// database with first_filed_at and never changed, so filed evidence keeps its year after a
   /// Correct Tax Year (SQL only: tax_returns_filed_year).
-  filedTaxYear Int?            @map("filed_tax_year")
-  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  filedTaxYear     Int?            @map("filed_tax_year")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   // R37 (Tax Returns module): the firm's workflow, people, dates and amendments. `status` stays
   // what the client sees and follows workflowStatus (the database keeps the two together).
