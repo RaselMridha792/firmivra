@@ -40,6 +40,7 @@ const FILTERS = [
   'engagementId',
   'assignedUserId',
   'overdue',
+  'dueSet',
   'dueFrom',
   'dueTo',
   'search',
@@ -179,6 +180,7 @@ export class TaskReadService {
       if (q.engagementId) and.push({ engagementId: q.engagementId });
       if (q.assignedUserId) and.push(mineOf(q.assignedUserId));
       if (q.overdue === true) and.push({ status: 'OPEN' }, this.overdueWhere(clock));
+      if (q.dueSet === true) and.push({ dueOn: { not: null } });
       if (q.dueFrom) and.push({ dueOn: { gte: toDay(q.dueFrom) } });
       if (q.dueTo) and.push({ dueOn: { lte: toDay(q.dueTo) } });
       if (q.search) {

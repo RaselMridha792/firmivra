@@ -3,7 +3,7 @@
 import { Button, Skeleton } from '@firmivra/ui';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { DashboardLink as Link } from './dashboard-link';
 import type { ReactNode } from 'react';
 import { errorMessage } from '../../../../lib/errors';
 

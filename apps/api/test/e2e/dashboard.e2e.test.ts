@@ -10,7 +10,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { DashboardSummary } from '@firmivra/types';
+import { DashboardSummary, INTAKE_FORMS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -179,7 +179,11 @@ beforeAll(async () => {
       });
     const sent = { submittedAt: new Date() };
     await lead('new', { status: 'SUBMITTED', ...sent });
-    await lead('review', { status: 'IN_REVIEW', ...sent });
+    const review = await lead('review', {
+      status: 'IN_REVIEW',
+      ...sent,
+      assignedUserId: people.staffA.id,
+    });
     await lead('archived', {
       status: 'SUBMITTED',
       ...sent,
@@ -189,6 +193,29 @@ beforeAll(async () => {
     const engagement = await tx.engagement.create({
       data: { businessId, clientId: c2, serviceId: service.id, title: 'Bookkeeping (fake)' },
     });
+    // Intake (C5, Review 2): forms not finished, a client's and a lead's; a finished one is not.
+    const form = await tx.intakeForm.create({
+      data: {
+        businessId,
+        serviceId: service.id,
+        version: 1,
+        title: 'Dash intake (fake)',
+        definition: (INTAKE_FORMS.BOOKKEEPING ?? {}) as object,
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+        createdByUserId: people.ownerA.id,
+      },
+    });
+    const intake = (data: object) =>
+      tx.intake.create({ data: { businessId, formId: form.id, sentAt: new Date(), ...data } });
+    await intake({ engagementId: engagement.id, status: 'SENT' });
+    await intake({
+      engagementId: engagement.id,
+      status: 'IN_PROGRESS',
+      assignedUserId: people.staffA.id,
+    });
+    await intake({ leadId: review.id, status: 'SENT' });
+    await intake({ engagementId: engagement.id, status: 'COMPLETED' });
     await tx.appointment.create({
       data: {
         businessId,
@@ -265,7 +292,8 @@ describe('GET /business/dashboard/summary', () => {
       // C5: the New Lead that came this month, as Leads lists them (In Review and archived not).
       leads: 1,
       consultation: null,
-      intake: 0,
+      // C5 (Review 2): a client's two open forms and a lead's, as Not Finished lists them.
+      intake: 3,
       inProgress: 2,
       completed: 1,
       period: 'THIS_MONTH',

@@ -918,6 +918,8 @@ describe('overview, summary and calendar', () => {
     expect(await titles(`assignedUserId=${people.staffA.id}`)).toEqual(['undated']);
     expect(await titles('dueFrom=2090-01-01')).toEqual(['soon']);
     expect(await titles('dueTo=2020-12-31')).toEqual(['late', 'finished']);
+    // The dashboard's Tasks Due View All (Octavia's T2): open, with a due date, soonest first.
+    expect(await titles('status=OPEN&dueSet=true')).toEqual(['late', 'soon']);
     expect(await titles('sort=priority&direction=asc&status=OPEN')).toEqual([
       'late',
       'undated',
