@@ -3,6 +3,7 @@ import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   PlanInput,
   PlanStrategy,
+  PlanWorkflow,
   StrategyCategory,
   TaxPlanDetail,
   TaxPlanRow,
@@ -26,6 +27,7 @@ import {
   planTotals,
 } from './tax-planning.common.js';
 import { estimateStrategy } from './tax-tables.js';
+import { workflowOf } from './workflow.js';
 
 /** What a caller is, for every Tax Planning request. */
 export interface TaxCtx {
@@ -42,6 +44,8 @@ export interface TaxCtx {
 export const planInclude = {
   client: { select: clientRefSelect },
   assignedMember: { select: { userId: true, user: { select: { name: true } } } },
+  // Review 2 workflow: Send for Internal Review's reviewer.
+  reviewerMember: { select: { userId: true, user: { select: { name: true } } } },
   strategies: {
     include: { strategy: { select: { category: true, requiredInputs: true } } },
     orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
@@ -52,6 +56,26 @@ export type PlanShape = Prisma.TaxPlanGetPayload<{ include: typeof planInclude }
 
 export const categoryOf = (s: PlanShape['strategies'][number]): StrategyCategory =>
   s.strategy?.category ?? s.customCategory ?? 'ESTATE_OTHER';
+
+/**
+ * C08 (Review 2): what keeps a plan from being finalized, each named with where to fix it (also
+ * the readiness checklist's strategy and figures lines).
+ */
+export function finalBlockersOf(
+  plan: Pick<PlanShape, 'strategies'>,
+  inputs: { label: string; taxYear: number; asOf: Date | null }[],
+): string[] {
+  const missing: string[] = [];
+  if (!plan.strategies.some((s) => s.selected && s.status !== 'DECLINED'))
+    missing.push(
+      'Select at least one strategy that is not declined: add or select one in Goals & Strategies.',
+    );
+  for (const i of inputs.filter((x) => isStale(x.asOf)))
+    missing.push(
+      `${i.label} (${i.taxYear}) is more than a year old: update it in Financial Overview.`,
+    );
+  return missing;
+}
 
 /** Reads the plans: the same shapes for the lists, the detail and the answers of every change. */
 @Injectable()
@@ -248,10 +272,119 @@ export class TaxPlanReadService {
         dueOn: day(t.dueOn),
         assignedTo: assignee(t.assignedMember),
       })),
+      workflow: await this.workflow(ctx, plan, rows, discussions.length, names),
       canOverride: ctx.perms.override,
       canSend: ctx.perms.send,
       createdAt: plan.createdAt.toISOString(),
       etag: plan.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Tax Planning Review 2's approved workflow for the detail: the next action and its owner, the
+   * actions that fit, the readiness checklist, the reviewer, the versions sent and approved, the
+   * approvals, the delivery and the requests.
+   */
+  private async workflow(
+    ctx: TaxCtx,
+    plan: PlanShape,
+    inputs: { key: string; taxYear: number; asOf: Date | null }[],
+    discussions: number,
+    names: Map<string, string>,
+  ): Promise<PlanWorkflow> {
+    const { tx, businessId } = ctx;
+    const [finalized, sent, approvals, requests] = await Promise.all([
+      tx.taxPlanVersion.findFirst({
+        where: { businessId, planId: plan.id, event: 'FINALIZED' },
+        orderBy: { version: 'desc' },
+        select: { createdAt: true },
+      }),
+      tx.taxPlanVersion.findFirst({
+        where: { businessId, planId: plan.id, event: 'SENT' },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      }),
+      tx.taxPlanApproval.findMany({
+        where: { businessId, planId: plan.id },
+        orderBy: { version: 'desc' },
+      }),
+      tx.taxPlanRequest.findMany({
+        where: { businessId, planId: plan.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 100,
+      }),
+    ]);
+    const people = await memberNames(tx, businessId, [
+      ...approvals.map((a) => a.recordedByUserId),
+      ...requests.map((r) => r.requestedByUserId),
+    ]);
+    for (const [k, v] of names) people.set(k, v);
+    const blockers = finalBlockersOf(
+      plan,
+      inputs.map((r) => ({
+        label: inputDef(r.key)?.label ?? r.key,
+        taxYear: r.taxYear,
+        asOf: r.asOf,
+      })),
+    );
+    const view = workflowOf({
+      status: plan.status,
+      canEdit: ctx.perms.edit,
+      canSend: ctx.perms.send,
+      assigned: plan.assignedUserId !== null,
+      targetSet: plan.targetCompletionOn !== null,
+      discussions,
+      finalBlockers: blockers,
+      finalizedCurrent: finalized !== null && plan.updatedAt <= finalized.createdAt,
+      sentVersion: sent?.version ?? null,
+      approvedVersion: approvals[0]?.version ?? null,
+      delivered: plan.deliveredAt !== null,
+      openClientRequests: requests.filter(
+        (r) => r.direction === 'CLIENT_TO_FIRM' && r.status === 'OPEN',
+      ).length,
+    });
+    return {
+      nextAction: view.nextAction,
+      owner:
+        view.ownerIs === 'REVIEWER'
+          ? assignee(plan.reviewerMember)
+          : view.ownerIs === 'ASSIGNEE'
+            ? assignee(plan.assignedMember)
+            : null,
+      waitingOnClient: view.waitingOnClient,
+      actions: view.actions,
+      readiness: view.readiness,
+      reviewer: assignee(plan.reviewerMember),
+      reviewRequestedAt: iso(plan.reviewRequestedAt),
+      sentVersion: sent?.version ?? null,
+      approvedVersion: approvals[0]?.version ?? null,
+      approvals: approvals.map((a) => ({
+        id: a.id,
+        version: a.version,
+        method: a.method,
+        approvedOn: day(a.approvedOn)!,
+        note: a.note,
+        documentId: a.documentId,
+        recordedBy: memberRef(people, a.recordedByUserId),
+        createdAt: a.createdAt.toISOString(),
+      })),
+      delivered:
+        plan.deliveredAt && plan.deliveredVersion
+          ? { at: plan.deliveredAt.toISOString(), version: plan.deliveredVersion }
+          : null,
+      requests: requests.map((r) => ({
+        id: r.id,
+        direction: r.direction,
+        kind: r.kind,
+        body: r.body,
+        status: r.status,
+        response: r.response,
+        documentId: r.documentId,
+        requestedBy: memberRef(people, r.requestedByUserId),
+        answeredAt: iso(r.answeredAt),
+        closedAt: iso(r.closedAt),
+        createdAt: r.createdAt.toISOString(),
+      })),
     };
   }
 

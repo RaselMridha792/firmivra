@@ -230,6 +230,13 @@ export function PlanningClients() {
     { id: 'by', label: 'Assigned To', cell: (r) => r.assignedTo?.name ?? '—' },
   ];
   const open = (r: PlanningClientRow) => !!r.planId && r.status !== 'CLOSED';
+  const duplicate = async (r: PlanningClientRow) => {
+    const copy = await act(
+      () => api.taxPlanning.duplicatePlan(r.planId as string, {}),
+      'Plan duplicated: the copy is a Draft you can edit.',
+    );
+    if (copy) router.push(`/tax-planning/plans/${copy.id}/edit`);
+  };
   return (
     <TpShell>
       {msg ? (
@@ -372,6 +379,10 @@ export function PlanningClients() {
                               onSelect: () => router.push(`/tax-planning/plans/${r.planId}/edit`),
                             },
                           ]
+                        : []),
+                      // Review 2 approved addition: an editable copy (a Draft), the original kept.
+                      ...(r.planId
+                        ? [{ label: 'Duplicate Plan', onSelect: () => void duplicate(r) }]
                         : []),
                       {
                         label: 'Create Plan',

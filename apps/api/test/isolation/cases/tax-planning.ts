@@ -62,6 +62,22 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  // Review 2 workflow: a client's question on the plan.
+  taxPlanRequest: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.taxPlanRequest.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          planId: await get('taxPlan'),
+          direction: 'CLIENT_TO_FIRM',
+          kind: 'QUESTION',
+          body: `Fake question ${tag()}`,
+        },
+      });
+      return row.id;
+    },
+  },
   planStrategy: {
     async create({ tx, businessId, get }) {
       const row = await tx.taxPlanStrategy.create({
@@ -196,6 +212,29 @@ export const cases: CaseModule['cases'] = {
     // The record plan is neither closed nor finalized: reached, then refused for its status.
     expect: 409,
   },
+  // Review 2 workflow: internal review, the client's approval, requests, Duplicate Plan.
+  [`POST ${BASE}/plans/:id/review`]: {
+    params: { id: 'taxPlan' },
+    bodyIds: { reviewerUserId: 'adminUser' },
+    body: { etag: ETAG, reviewerUserId: PLACEHOLDER },
+    // The record plan is a Draft: reached, then refused for its status.
+    expect: 409,
+  },
+  [`POST ${BASE}/plans/:id/approvals`]: {
+    params: { id: 'taxPlan' },
+    body: { etag: ETAG, approvedOn: '2026-01-02', note: 'Fake approval note' },
+    // Not sent for the client's review: reached, then refused for its status.
+    expect: 409,
+  },
+  [`POST ${BASE}/plans/:id/requests`]: {
+    params: { id: 'taxPlan' },
+    body: { direction: 'CLIENT_TO_FIRM', kind: 'QUESTION', body: 'Fake question' },
+  },
+  [`PATCH ${BASE}/plans/:id/requests/:requestId`]: {
+    params: { id: 'taxPlan', requestId: 'taxPlanRequest' },
+    body: { status: 'CLOSED' },
+  },
+  [`POST ${BASE}/plans/:id/duplicate`]: { params: { id: 'taxPlan' }, body: {} },
   [`GET ${BASE}/plans/:id/events`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/archive`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/restore`]: { params: { id: 'taxPlan' } },

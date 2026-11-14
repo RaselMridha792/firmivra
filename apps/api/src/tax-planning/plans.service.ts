@@ -17,6 +17,7 @@ import { DATABASE } from '../database/database.module.js';
 import { MessagesService } from '../messages/messages.service.js';
 import {
   checkAssignee,
+  checkMember,
   conflict,
   isUniqueViolation,
   lockClient,
@@ -32,14 +33,20 @@ import {
   type TaxCtx,
   TaxPlanReadService,
   categoryOf,
+  finalBlockersOf,
   planInclude,
 } from './plan-read.service.js';
 import type {
   AddStrategyBody,
   AttachDocumentBody,
   CreatePlanBody,
+  CreatePlanRequestBody,
+  DuplicatePlanBody,
   FinalizeBody,
   PlanReasonBody,
+  PlanReviewBody,
+  RecordApprovalBody,
+  UpdatePlanRequestBody,
   ReorderBody,
   SaveInputsBody,
   SendBody,
@@ -52,7 +59,6 @@ import {
   DISCLAIMER,
   estimateView,
   figuresOf,
-  isStale,
   planTotals,
   todayIn,
   tpErrors,
@@ -61,47 +67,58 @@ import { estimateStrategy } from './tax-tables.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 
-/** C09 (Review 2): the statuses a successful send moves to Awaiting Client Review. */
+/** C09 (Review 2): the statuses a send for the client's review moves to Awaiting Client Review. */
 const SENT_MOVES_TO_AWAITING: readonly string[] = [
   'DRAFT',
   'SCHEDULED',
   'IN_PROGRESS',
   'READY_FOR_REVIEW',
   'FINALIZED',
+  'UNDER_REVIEW',
 ];
+
+/** Review 2 workflow: what Send for Internal Review takes to Under Review. */
+const REVIEWABLE: readonly string[] = ['IN_PROGRESS', 'FINALIZED', 'READY_FOR_REVIEW'];
+
+/** Review 2 workflow: a client's request moves a plan waiting on them to Needs Review. */
+const CLIENT_REQUEST_MOVES: readonly string[] = ['AWAITING_CLIENT', 'CLIENT_APPROVED'];
 
 /** C08, C27 (Review 2): the statuses finalizing moves to Finalized (not one already sent on). */
 const FINALIZE_MOVES: readonly string[] = [
   'DRAFT',
   'SCHEDULED',
   'IN_PROGRESS',
+  'UNDER_REVIEW',
   'READY_FOR_REVIEW',
   'FINALIZED',
 ];
 
 /** C27 (Review 2): what Revise takes back to In Progress, to be finalized again. */
-const REVISABLE: readonly string[] = ['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'];
+const REVISABLE: readonly string[] = [
+  'FINALIZED',
+  'AWAITING_CLIENT',
+  'IMPLEMENTED',
+  'CLIENT_APPROVED',
+];
 
+/**
+ * The moves the status route makes (Review 2's approved workflow). The workflow's own steps have
+ * their routes: Send for Internal Review (Under Review), Send to Client (Awaiting Client Review),
+ * a client's request (Needs Review), Record Client Approval (Client Approved). Implemented only
+ * after the client's approval of the version sent (Client Approved).
+ */
 const NEXT_STATUS: Record<TaxPlanStatus, TaxPlanStatus[]> = {
   DRAFT: ['SCHEDULED', 'IN_PROGRESS', 'CLOSED'],
-  SCHEDULED: ['DRAFT', 'IN_PROGRESS', 'AWAITING_CLIENT', 'CLOSED'],
-  IN_PROGRESS: [
-    'DRAFT',
-    'SCHEDULED',
-    'AWAITING_CLIENT',
-    'READY_FOR_REVIEW',
-    'IMPLEMENTED',
-    'CLOSED',
-  ],
+  SCHEDULED: ['DRAFT', 'IN_PROGRESS', 'CLOSED'],
+  IN_PROGRESS: ['DRAFT', 'SCHEDULED', 'CLOSED'],
+  UNDER_REVIEW: ['IN_PROGRESS', 'CLOSED'],
   AWAITING_CLIENT: ['IN_PROGRESS', 'READY_FOR_REVIEW', 'CLOSED'],
-  READY_FOR_REVIEW: ['IN_PROGRESS', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLOSED'],
-  // S2 (Review 2 C27): a finalized plan is sent, put into action, closed, or revised back to work.
-  FINALIZED: ['IN_PROGRESS', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLOSED'],
+  READY_FOR_REVIEW: ['IN_PROGRESS', 'CLOSED'],
+  // S2 (Review 2 C27): a finalized plan is sent, closed, or revised back to work.
+  FINALIZED: ['IN_PROGRESS', 'CLOSED'],
+  CLIENT_APPROVED: ['IN_PROGRESS', 'IMPLEMENTED', 'CLOSED'],
   IMPLEMENTED: ['IN_PROGRESS', 'CLOSED'],
   CLOSED: [],
-  // r1_tax_plan_workflow (Review 2 workflow): the moves its own actions make come with the API.
-  UNDER_REVIEW: ['IN_PROGRESS', 'CLOSED'],
-  CLIENT_APPROVED: ['IN_PROGRESS', 'IMPLEMENTED', 'CLOSED'],
 };
 
 const money = (cents: number) =>
@@ -142,7 +159,19 @@ export class TaxPlansService {
   private planEvent(
     ctx: TaxCtx,
     planId: string,
-    kind: 'STATUS' | 'REOPEN' | 'REVISE' | 'FINALIZE' | 'SEND' | 'ARCHIVE' | 'RESTORE',
+    kind:
+      | 'STATUS'
+      | 'REOPEN'
+      | 'REVISE'
+      | 'FINALIZE'
+      | 'SEND'
+      | 'ARCHIVE'
+      | 'RESTORE'
+      | 'REVIEW_REQUESTED'
+      | 'INFO_REQUESTED'
+      | 'CLIENT_REQUEST'
+      | 'APPROVED'
+      | 'DELIVERED',
     data: {
       fromStatus?: TaxPlanStatus | null;
       toStatus?: TaxPlanStatus | null;
@@ -177,12 +206,23 @@ export class TaxPlansService {
     return plan;
   }
 
-  private touch(ctx: TaxCtx, id: string) {
-    return ctx.tx.taxPlan.update({
+  /**
+   * A change of the plan's content. Review 2 workflow: work begins by itself, so a Draft or
+   * Scheduled plan is In Progress from its first change (in its history too).
+   */
+  private async touch(ctx: TaxCtx, id: string) {
+    const now = await ctx.tx.taxPlan.findFirst({
+      where: { businessId: ctx.businessId, id },
+      select: { status: true },
+    });
+    const begins = now?.status === 'DRAFT' || now?.status === 'SCHEDULED';
+    await ctx.tx.taxPlan.update({
       where: { businessId_id: { businessId: ctx.businessId, id } },
-      data: { updatedAt: new Date() },
+      data: { updatedAt: new Date(), ...(begins ? { status: 'IN_PROGRESS' as const } : {}) },
       select: { id: true },
     });
+    if (begins)
+      await this.planEvent(ctx, id, 'STATUS', { fromStatus: now.status, toStatus: 'IN_PROGRESS' });
   }
 
   // ---------- Lists and reads ----------
@@ -810,6 +850,12 @@ export class TaxPlansService {
       if (body.etag !== plan.updatedAt.toISOString()) throw tpErrors.saveConflict();
       if (plan.status === 'CLOSED')
         throw tpErrors.invalidStatus('A closed plan changes only by Reopen, with its reason');
+      if (body.status === plan.status) return this.read.detail(ctx, plan);
+      // Review 2 workflow: implementation only after the client's recorded approval.
+      if (body.status === 'IMPLEMENTED' && plan.status !== 'CLIENT_APPROVED')
+        throw tpErrors.invalidStatus(
+          "A plan is implemented only after the client's approval: use Record Client Approval first",
+        );
       if (!NEXT_STATUS[plan.status].includes(body.status))
         throw tpErrors.invalidStatus(`A plan cannot go from ${plan.status} to ${body.status}`);
       if (body.status === 'DRAFT' && plan.taxPlanVersions.length > 0)
@@ -923,7 +969,7 @@ export class TaxPlansService {
   private async keepVersion(
     ctx: TaxCtx,
     plan: PlanShape,
-    event: 'FINALIZED' | 'SENT',
+    event: 'FINALIZED' | 'SENT' | 'DELIVERED',
     kept: { snapshot: Snapshot; asOf: Date | null },
   ) {
     const last = await ctx.tx.taxPlanVersion.findFirst({
@@ -953,16 +999,10 @@ export class TaxPlansService {
     plan: PlanShape,
     inputs: { label: string; taxYear: number; asOf: string | null }[],
   ): string[] {
-    const missing: string[] = [];
-    if (!plan.strategies.some((s) => s.selected && s.status !== 'DECLINED'))
-      missing.push(
-        'Select at least one strategy that is not declined: add or select one in Goals & Strategies.',
-      );
-    for (const i of inputs.filter((x) => isStale(x.asOf ? new Date(x.asOf) : null)))
-      missing.push(
-        `${i.label} (${i.taxYear}) is more than a year old: update it in Financial Overview.`,
-      );
-    return missing;
+    return finalBlockersOf(
+      plan,
+      inputs.map((i) => ({ ...i, asOf: i.asOf ? new Date(i.asOf) : null })),
+    );
   }
 
   finalize(
@@ -1014,41 +1054,85 @@ export class TaxPlansService {
       const plan = await this.read.load(ctx, id);
       if (plan.archivedAt) throw tpErrors.planArchived();
       if (plan.status === 'CLOSED') throw tpErrors.invalidStatus('A closed plan cannot be sent');
-      const finalized = await ctx.tx.taxPlanVersion.findFirst({
-        where: { businessId, planId: id, event: 'FINALIZED' },
-        orderBy: { version: 'desc' },
-        select: { createdAt: true },
-      });
-      // C09 (Review 2): each blocker says what to do.
-      const missing: string[] = [];
-      if (!finalized)
-        missing.push('The plan is not finalized: use Finalize Plan in Review & Save first.');
-      else if (plan.updatedAt > finalized.createdAt)
-        missing.push(
-          'The plan changed after it was finalized: use Finalize Plan in Review & Save again.',
+      // Review 2 workflow: Deliver to Client is for the plan the client approved.
+      if (
+        body.purpose === 'DELIVERY' &&
+        plan.status !== 'CLIENT_APPROVED' &&
+        plan.status !== 'IMPLEMENTED'
+      )
+        throw tpErrors.invalidStatus(
+          "Deliver to Client comes after the client's approval: use Record Client Approval first",
         );
-      if (missing.length > 0) throw tpErrors.planNotReady(missing);
-      const kept = await this.snapshotOf(ctx, plan);
+      let kept: { snapshot: Snapshot; asOf: Date | null };
+      if (body.purpose === 'DELIVERY') {
+        // The exact version the client approved, as it was kept: implementation work since then
+        // never changes what is delivered.
+        const approval = await ctx.tx.taxPlanApproval.findFirst({
+          where: { businessId, planId: id },
+          orderBy: { version: 'desc' },
+          select: { version: true },
+        });
+        const approvedVersion = approval
+          ? await ctx.tx.taxPlanVersion.findFirst({
+              where: { businessId, planId: id, version: approval.version },
+              select: { snapshot: true, sourceDataAsOf: true },
+            })
+          : null;
+        if (!approvedVersion)
+          throw tpErrors.invalidStatus(
+            "Deliver to Client comes after the client's approval: use Record Client Approval first",
+          );
+        kept = {
+          snapshot: approvedVersion.snapshot as unknown as Snapshot,
+          asOf: approvedVersion.sourceDataAsOf,
+        };
+      } else {
+        const finalized = await ctx.tx.taxPlanVersion.findFirst({
+          where: { businessId, planId: id, event: 'FINALIZED' },
+          orderBy: { version: 'desc' },
+          select: { createdAt: true },
+        });
+        // C09 (Review 2): each blocker says what to do.
+        const missing: string[] = [];
+        if (!finalized)
+          missing.push('The plan is not finalized: use Finalize Plan in Review & Save first.');
+        else if (plan.updatedAt > finalized.createdAt)
+          missing.push(
+            'The plan changed after it was finalized: use Finalize Plan in Review & Save again.',
+          );
+        if (missing.length > 0) throw tpErrors.planNotReady(missing);
+        kept = await this.snapshotOf(ctx, plan);
+      }
       const lines = kept.snapshot.strategies.map((s) => {
         const c = s.estimate.cents;
         return `- ${s.name}: ${c === null ? 'estimate not available' : `about ${money(c)} estimated savings`}`;
       });
       const total = kept.snapshot.projectedSavingsCents;
+      const delivery = body.purpose === 'DELIVERY';
       const message = [
-        `Your ${plan.planYear} tax plan, ${plan.name}, is ready.`,
+        delivery
+          ? `Here is your approved ${plan.planYear} tax plan, ${plan.name}.`
+          : `Your ${plan.planYear} tax plan, ${plan.name}, is ready for your review.`,
         ...(plan.clientNotes ? ['', plan.clientNotes] : []),
         '',
         'Strategies:',
         ...lines,
         ...(total !== null ? ['', `Total estimated savings: about ${money(total)}.`] : []),
         ...(body.message ? ['', body.message] : []),
+        ...(delivery
+          ? []
+          : ['', 'Please reply to approve it, or with any question or change you would like.']),
         '',
         DISCLAIMER,
       ].join('\n');
       return { plan, kept, message, actor: ctx.actor };
     });
     await this.messages.create(businessId, prepared.actor, prepared.plan.clientId, {
-      subject: `Your ${prepared.plan.planYear} tax plan`.slice(0, 200),
+      subject:
+        `Your ${body.purpose === 'DELIVERY' ? 'approved ' : ''}${prepared.plan.planYear} tax plan`.slice(
+          0,
+          200,
+        ),
       body: prepared.message,
       repliesEnabled: true,
     });
@@ -1058,6 +1142,22 @@ export class TaxPlansService {
         SELECT 1 FROM tax_plans WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
         FOR UPDATE`;
       const plan = await this.read.load(ctx, id);
+      if (body.purpose === 'DELIVERY') {
+        // Deliver to Client: the delivered version is kept; the status stays (Delivered and
+        // Implemented never imply each other).
+        const d = await this.keepVersion(ctx, plan, 'DELIVERED', prepared.kept);
+        await ctx.tx.$executeRaw`
+          UPDATE tax_plans SET delivered_at = now(), delivered_version = ${d.version}
+          WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid`;
+        await this.planEvent(ctx, id, 'DELIVERED', { version: d.version });
+        await this.audit.logIn(
+          ctx.tx,
+          'tax_plan.delivered',
+          { type: 'tax_plan', id },
+          { clientId: plan.clientId, version: d.version, channel: body.channel },
+        );
+        return this.read.detailById(ctx, id);
+      }
       const v = await this.keepVersion(ctx, plan, 'SENT', prepared.kept);
       // C09 (Review 2): a plan sent for the client's review is Awaiting Client Review, in every
       // view. Its updated_at stays, so the finalized version still matches and it can be resent.
@@ -1132,6 +1232,317 @@ export class TaxPlansService {
         { clientId: plan.clientId, from: plan.status, to: 'IN_PROGRESS' },
       );
       return this.read.detailById(ctx, id);
+    });
+  }
+
+  // ---------- Review 2's approved workflow ----------
+
+  /** The plan locked for a workflow step: the caller's own, not archived; the etag when sent. */
+  private async lockedPlan(ctx: TaxCtx, id: string, etag?: string): Promise<PlanShape> {
+    await this.read.load(ctx, id);
+    await ctx.tx.$queryRaw`
+      SELECT 1 FROM tax_plans WHERE business_id = ${ctx.businessId}::uuid AND id = ${id}::uuid
+      FOR UPDATE`;
+    const plan = await this.read.load(ctx, id);
+    if (plan.archivedAt) throw tpErrors.planArchived();
+    if (etag !== undefined && etag !== plan.updatedAt.toISOString()) throw tpErrors.saveConflict();
+    return plan;
+  }
+
+  /** A status a workflow step moves to, with the plan's history and the audit. */
+  private async moveTo(
+    ctx: TaxCtx,
+    plan: PlanShape,
+    to: TaxPlanStatus,
+    kind: 'REVIEW_REQUESTED' | 'CLIENT_REQUEST' | 'APPROVED',
+    data: Prisma.TaxPlanUncheckedUpdateInput = {},
+    version: number | null = null,
+  ) {
+    await ctx.tx.taxPlan.update({
+      where: { businessId_id: { businessId: ctx.businessId, id: plan.id } },
+      data: { ...data, status: to },
+    });
+    await this.planEvent(ctx, plan.id, kind, { fromStatus: plan.status, toStatus: to, version });
+  }
+
+  /** Send for Internal Review: a chosen reviewer (an active member of the firm), Under Review. */
+  review(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof PlanReviewBody>,
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const plan = await this.lockedPlan(ctx, id, body.etag);
+      if (!REVIEWABLE.includes(plan.status))
+        throw tpErrors.invalidStatus(
+          'Send for Internal Review is for a plan in progress, finalized or being revised',
+        );
+      // An active member of the firm, whatever their role.
+      await checkMember(ctx.tx, businessId, body.reviewerUserId);
+      await this.moveTo(ctx, plan, 'UNDER_REVIEW', 'REVIEW_REQUESTED', {
+        reviewerUserId: body.reviewerUserId,
+        reviewRequestedAt: new Date(),
+      });
+      await this.audit.logIn(
+        ctx.tx,
+        'tax_plan.review_requested',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, from: plan.status, reviewerUserId: body.reviewerUserId },
+      );
+      return this.read.detailById(ctx, id);
+    });
+  }
+
+  /**
+   * Record Client Approval: the client's documented approval of an exact version sent for review
+   * (the newest by default), with its date: Client Approved. Implementation may start.
+   */
+  recordApproval(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof RecordApprovalBody>,
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const { tx } = ctx;
+      const plan = await this.lockedPlan(ctx, id, body.etag);
+      if (plan.status !== 'AWAITING_CLIENT' && plan.status !== 'READY_FOR_REVIEW')
+        throw tpErrors.invalidStatus(
+          "Record the client's approval of a plan sent for their review (Awaiting Client Review)",
+        );
+      const sent = await tx.taxPlanVersion.findFirst({
+        where: {
+          businessId,
+          planId: id,
+          event: 'SENT',
+          ...(body.version ? { version: body.version } : {}),
+        },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      if (!sent)
+        throw tpErrors.invalid('version', "Choose a version that was sent for the client's review");
+      if (body.documentId) {
+        const doc = await tx.document.findFirst({
+          where: { businessId, id: body.documentId, clientId: plan.clientId },
+          select: { id: true },
+        });
+        if (!doc) throw notFound();
+      }
+      if (body.approvedOn > todayIn(ctx.timezone))
+        throw tpErrors.invalid('approvedOn', 'The approval date cannot be after today');
+      const already = await tx.taxPlanApproval.findFirst({
+        where: { businessId, planId: id, version: sent.version },
+        select: { id: true },
+      });
+      if (already)
+        throw tpErrors.invalidStatus(`Version ${sent.version} is already recorded as approved`);
+      await tx.taxPlanApproval.create({
+        data: {
+          businessId,
+          clientId: plan.clientId,
+          planId: id,
+          version: sent.version,
+          method: 'MANUAL',
+          approvedOn: toDay(body.approvedOn),
+          note: body.note,
+          documentId: body.documentId ?? null,
+          recordedByUserId: ctx.actor.userId,
+        },
+      });
+      await this.moveTo(ctx, plan, 'CLIENT_APPROVED', 'APPROVED', {}, sent.version);
+      await this.audit.logIn(
+        tx,
+        'tax_plan.approval_recorded',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, version: sent.version, method: 'MANUAL' },
+      );
+      return this.read.detailById(ctx, id);
+    });
+  }
+
+  /**
+   * A request on the plan. The firm asks the client for information or a document (a portal
+   * message tells them); or staff record what the client asked, which moves a plan waiting on the
+   * client to Needs Review.
+   */
+  async createRequest(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof CreatePlanRequestBody>,
+  ): Promise<TaxPlanDetail> {
+    const made = await this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const { tx } = ctx;
+      const plan = await this.lockedPlan(ctx, id);
+      if (plan.status === 'CLOSED')
+        throw tpErrors.invalidStatus('A closed plan changes only by Reopen, with its reason');
+      const firm = body.direction === 'FIRM_TO_CLIENT';
+      const row = await tx.taxPlanRequest.create({
+        data: {
+          businessId,
+          clientId: plan.clientId,
+          planId: id,
+          direction: body.direction,
+          kind: body.kind,
+          body: body.body,
+          requestedByUserId: firm ? ctx.actor.userId : null,
+        },
+        select: { id: true },
+      });
+      if (firm) {
+        await this.planEvent(ctx, id, 'INFO_REQUESTED');
+      } else if (CLIENT_REQUEST_MOVES.includes(plan.status)) {
+        await this.moveTo(ctx, plan, 'READY_FOR_REVIEW', 'CLIENT_REQUEST');
+      } else {
+        await this.planEvent(ctx, id, 'CLIENT_REQUEST');
+      }
+      await this.audit.logIn(
+        tx,
+        firm ? 'tax_plan.information_requested' : 'tax_plan.client_request_recorded',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, requestId: row.id, kind: body.kind },
+      );
+      return { plan, firm, actor: ctx.actor };
+    });
+    if (made.firm) {
+      // The client hears of it in the portal, in the firm's words; they answer there or upload.
+      await this.messages.create(businessId, made.actor, made.plan.clientId, {
+        subject: `A question about your ${made.plan.planYear} tax plan`.slice(0, 200),
+        body: [
+          body.body,
+          '',
+          body.kind === 'DOCUMENT'
+            ? 'Please upload the document in your portal, or reply with it attached.'
+            : 'Please reply with the information.',
+        ].join('\n'),
+        repliesEnabled: true,
+      });
+    }
+    return this.run(businessId, tenant, userId, (ctx) => this.read.detailById(ctx, id));
+  }
+
+  /** Answer or close a request (the answer, or a document of the client's). */
+  updateRequest(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    requestId: string,
+    body: Out<typeof UpdatePlanRequestBody>,
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const { tx } = ctx;
+      const plan = await this.lockedPlan(ctx, id);
+      const row = await tx.taxPlanRequest.findFirst({
+        where: { businessId, planId: id, id: requestId },
+        select: { id: true, status: true, answeredAt: true },
+      });
+      if (!row) throw notFound();
+      if (row.status === 'CLOSED') throw tpErrors.invalidStatus('This request is closed');
+      if (body.documentId) {
+        const doc = await tx.document.findFirst({
+          where: { businessId, id: body.documentId, clientId: plan.clientId },
+          select: { id: true },
+        });
+        if (!doc) throw notFound();
+      }
+      const now = new Date();
+      await tx.taxPlanRequest.update({
+        where: { businessId_id: { businessId, id: requestId } },
+        data: {
+          status: body.status,
+          ...(body.response !== undefined ? { response: body.response } : {}),
+          ...(body.documentId !== undefined ? { documentId: body.documentId } : {}),
+          ...(body.status === 'ANSWERED' || !row.answeredAt
+            ? { answeredAt: row.answeredAt ?? now }
+            : {}),
+          ...(body.status === 'CLOSED' ? { closedAt: now } : {}),
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_plan.request_updated',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, requestId, status: body.status },
+      );
+      return this.read.detailById(ctx, id);
+    });
+  }
+
+  /**
+   * Duplicate Plan (Review 2 approved addition): an editable copy, a new Draft of the same client,
+   * with the plan's setup, figures and strategies; the original is unchanged. Documents, tasks,
+   * discussions, versions, approvals, requests and history stay with the original.
+   */
+  duplicate(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof DuplicatePlanBody>,
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const { tx } = ctx;
+      const plan = await this.read.load(ctx, id);
+      const name = (body.name ?? `${plan.name} (copy)`).slice(0, 200);
+      const copy = await tx.taxPlan.create({
+        data: {
+          businessId,
+          clientId: plan.clientId,
+          engagementId: plan.engagementId,
+          name,
+          planYear: plan.planYear,
+          filingStatus: plan.filingStatus,
+          entityType: plan.entityType,
+          planType: plan.planType,
+          status: 'DRAFT',
+          goals: plan.goals,
+          otherGoal: plan.otherGoal,
+          notes: plan.notes,
+          clientNotes: plan.clientNotes,
+          assignedUserId: plan.assignedUserId,
+          targetCompletionOn: plan.targetCompletionOn,
+          createdByUserId: ctx.actor.userId,
+        },
+        select: { id: true },
+      });
+      const inputs = await this.read.inputRows(ctx, id);
+      if (inputs.length > 0)
+        await tx.taxPlanInput.createMany({
+          data: inputs.map((i) => {
+            const { id: _id, planId: _planId, createdAt: _c, updatedAt: _u, ...rest } = i;
+            return { ...rest, planId: copy.id };
+          }),
+        });
+      for (const s of plan.strategies) {
+        const { id: _id, planId: _planId, createdAt: _c, updatedAt: _u, strategy: _s, ...rest } = s;
+        await tx.taxPlanStrategy.create({
+          data: {
+            ...rest,
+            planId: copy.id,
+            // A copy is planned again: nothing of it is in progress or done yet.
+            status: s.status === 'DECLINED' ? 'DECLINED' : 'PROPOSED',
+            implementedOn: null,
+          } as Prisma.TaxPlanStrategyUncheckedCreateInput,
+        });
+      }
+      await this.audit.logIn(
+        tx,
+        'tax_plan.duplicated',
+        { type: 'tax_plan', id: copy.id },
+        { clientId: plan.clientId, fromPlanId: id },
+      );
+      return this.read.detailById(ctx, copy.id);
     });
   }
 

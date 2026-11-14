@@ -61,6 +61,11 @@ import {
   CreateOpportunityBody,
   UpdateOpportunityBody,
   PlanReasonBody,
+  PlanReviewBody,
+  RecordApprovalBody,
+  CreatePlanRequestBody,
+  UpdatePlanRequestBody,
+  DuplicatePlanBody,
   UpdateResourceBody,
   CreateStrategyBody,
   FinalizeBody,
@@ -323,6 +328,70 @@ export class TaxPlanningController {
   ): Promise<TaxPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.reopen(w.businessId, w.tenant, w.userId, id, body, 'REVISE');
+  }
+
+  /** Review 2 workflow: Send for Internal Review to a chosen reviewer (Under Review). */
+  @Post('plans/:id/review')
+  @HttpCode(200)
+  reviewPlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(PlanReviewBody)) body: Out<typeof PlanReviewBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.review(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** Review 2 workflow: Record Client Approval of an exact version (Client Approved). */
+  @Post('plans/:id/approvals')
+  @HttpCode(200)
+  recordApproval(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(RecordApprovalBody)) body: Out<typeof RecordApprovalBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.recordApproval(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** Review 2 workflow: a request on the plan, the firm's to the client or the client's. */
+  @Post('plans/:id/requests')
+  @HttpCode(200)
+  createPlanRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(CreatePlanRequestBody)) body: Out<typeof CreatePlanRequestBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.createRequest(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** Review 2 workflow: a request answered or closed. */
+  @Patch('plans/:id/requests/:requestId')
+  updatePlanRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Param('requestId', new ZodValidationPipe(z.uuid())) requestId: string,
+    @Body(new ZodValidationPipe(UpdatePlanRequestBody)) body: Out<typeof UpdatePlanRequestBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.updateRequest(w.businessId, w.tenant, w.userId, id, requestId, body);
+  }
+
+  /** Review 2 approved addition: Duplicate Plan, an editable copy (a new Draft). */
+  @Post('plans/:id/duplicate')
+  duplicatePlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(DuplicatePlanBody)) body: Out<typeof DuplicatePlanBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.duplicate(w.businessId, w.tenant, w.userId, id, body);
   }
 
   /** C27 (Review 2): the plan's history, newest first. */
