@@ -10,6 +10,7 @@ import {
   type SEED_APPOINTMENT_TYPES,
   type SEED_DOCUMENT_CATEGORIES,
   type SEED_SERVICES,
+  SEED_TAX_STATUS_MAP,
 } from './seed-data.js';
 
 export async function seedFirmBasics(
@@ -53,7 +54,7 @@ export async function seedFirmBasics(
     await tx.taxStatus.upsert({
       where: { businessId_name: { businessId, name } },
       update: { sortOrder },
-      create: { businessId, name, sortOrder },
+      create: { businessId, name, sortOrder, workflowStatus: SEED_TAX_STATUS_MAP[name] ?? null },
     });
   }
 }

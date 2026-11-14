@@ -2987,6 +2987,10 @@ model BusinessSettings {
   clientSignupPolicyVersion         Int              @default(1) @map("client_signup_policy_version")
   clientSignupPolicyChangedAt       DateTime?        @map("client_signup_policy_changed_at") @db.Timestamptz(3)
   clientSignupPolicyChangedByUserId String?          @map("client_signup_policy_changed_by_user_id") @db.Uuid
+  /// Tax Returns Review 2 (R60, Nov 15; the lead's design): how a return's amounts are kept.
+  /// EXACT keeps the cents entered; ROUND_TO_DOLLAR stores them rounded half-up to whole dollars
+  /// (the audit keeps the figure as entered). Owner and Admin change it.
+  taxAmountRounding                 TaxAmountRounding @default(EXACT) @map("tax_amount_rounding")
 
   business                    Business    @relation(fields: [businessId], references: [id])
   clientSignupPolicyChangedBy Membership? @relation("ClientSignupPolicyChangedBy", fields: [businessId, clientSignupPolicyChangedByUserId], references: [businessId, userId], onDelete: Restrict)
@@ -3023,6 +3027,9 @@ model TaxStatus {
   businessId String    @map("business_id") @db.Uuid
   name       String
   sortOrder  Int       @default(0) @map("sort_order")
+  /// Tax Returns Review 2 (TX-F36, R60, Nov 15; the lead's approval): the fixed return workflow
+  /// status this label stands for ("Maps to"); null for a client-level label only.
+  workflowStatus TaxReturnWorkflowStatus? @map("workflow_status")
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -4977,6 +4984,10 @@ model TaxReturn {
   formType     String?         @map("form_type")
   status       TaxReturnStatus @default(IN_PROGRESS)
   filedOn      DateTime?       @map("filed_on") @db.Date
+  /// Tax Returns Review 2 (R60, Nov 15): an extension filed outside Firmivra (recorded, never
+  /// submitted here): the day it was filed and the new deadline, set together (SQL).
+  extensionFiledOn DateTime?   @map("extension_filed_on") @db.Date
+  extendedDueOn    DateTime?   @map("extended_due_on") @db.Date
   /// The return PDF the client can view and download.
   documentId   String?         @map("document_id") @db.Uuid
   /// Set by the database the first time the return leaves IN_PROGRESS; never changes. A return
@@ -11659,6 +11670,12 @@ model DocumentSettings {
 
 /// Where a return is in the firm's own workflow (Tax Returns list and workspace). The client
 /// sees the five-value TaxReturnStatus, which the database derives from this.
+/// Tax Returns Review 2: how a firm keeps a return's amounts (business_settings).
+enum TaxAmountRounding {
+  EXACT
+  ROUND_TO_DOLLAR
+}
+
 enum TaxReturnWorkflowStatus {
   IN_PREPARATION
   /// A side state: entered and left from any step without a reason.
@@ -11670,6 +11687,9 @@ enum TaxReturnWorkflowStatus {
   TRANSMITTED
   ACCEPTED
   REJECTED
+  /// Tax Returns Review 2 (R60, Nov 15): the preparer correcting a rejected return; after it, Ready
+  /// for Review (never straight from Rejected). The client sees it as In Progress.
+  IN_CORRECTION
   CLOSED
 }
 
