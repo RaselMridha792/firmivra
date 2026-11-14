@@ -42,6 +42,7 @@ import {
   createDepartmentsClient,
   createMessagesClient,
   createMyAppointmentsClient,
+  createPublicBookingClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,
   createMyContentClient,
@@ -112,6 +113,7 @@ import {
   createAppointmentTypesMock,
   createAvailabilityMock,
   myAppointmentsMock,
+  publicBookingMock,
 } from '../mocks/appointments';
 import {
   createAgreementsMock,
@@ -201,7 +203,7 @@ import { createBookkeepingTermsMock } from '../mocks/bookkeeping-terms';
 import { createPortalInvitationsMock, portalInvitationMock } from '../mocks/portal-invitations';
 import { createClientPortalMock } from '../mocks/client-portal';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
-import { MOCK_ROLE, mocked, mockedEmpty } from './mock';
+import { MOCK_ROLE, failable, mocked, mockedEmpty } from './mock';
 import { sessionFetch } from './session';
 
 /**
@@ -382,7 +384,10 @@ export const api = {
       ? createServicesPricingMock({ role: MOCK_ROLE, empty: mockedEmpty('servicesPricing') })
       : createServicesPricingClient(request),
   /** The firm dashboard's numbers (R30). */
-  dashboard: dev && mocked('dashboard') ? createDashboardMock() : createDashboardClient(request),
+  dashboard:
+    dev && mocked('dashboard')
+      ? failable('dashboard', createDashboardMock())
+      : createDashboardClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) =>
     dev && mocked('myProfile') ? myProfileMock(firmSlug) : createMyProfileClient(request, firmSlug),
@@ -401,11 +406,11 @@ export const api = {
       : createAppointmentTypesClient(request),
   availability:
     dev && mocked('availability')
-      ? createAvailabilityMock({ role: MOCK_ROLE })
+      ? failable('availability', createAvailabilityMock({ role: MOCK_ROLE }))
       : createAvailabilityClient(request),
   appointments:
     dev && mocked('appointments')
-      ? createAppointmentsMock({ role: MOCK_ROLE })
+      ? failable('appointments', createAppointmentsMock({ role: MOCK_ROLE }))
       : createAppointmentsClient(request),
   /** Appointments workspace (R42 contract): KPIs, agenda views, the full scheduling form, availability panel. */
   scheduling:
@@ -417,6 +422,11 @@ export const api = {
     dev && mocked('myAppointments')
       ? myAppointmentsMock(firmSlug)
       : createMyAppointmentsClient(request, firmSlug),
+  /** Review 2 (Appointments row 3): a type behind its public booking link, before sign-in. */
+  publicBooking: (firmSlug: string) =>
+    dev && mocked('publicBooking')
+      ? publicBookingMock(firmSlug)
+      : createPublicBookingClient(request, firmSlug),
   /** Content (R12): resources, tips and external links; the portal reads published ones. */
   content:
     dev && mocked('content')
@@ -716,7 +726,10 @@ export const api = {
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')
-      ? createMessagesMock({ role: MOCK_ROLE, documents: documentsMock ?? undefined })
+      ? failable(
+          'messages',
+          createMessagesMock({ role: MOCK_ROLE, documents: documentsMock ?? undefined }),
+        )
       : createMessagesClient(request),
   /** Messages (R20): the firm's internal notes on a client. Never shown in the portal. */
   clientNotes:

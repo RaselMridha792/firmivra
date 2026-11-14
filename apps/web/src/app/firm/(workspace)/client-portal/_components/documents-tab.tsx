@@ -130,7 +130,7 @@ export function PortalDocuments({ clientId }: { clientId: string }) {
   const filtered = !!(term || category || review || dates);
   return (
     <div
-      className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem]"
+      className="grid items-start gap-6 @5xl:grid-cols-[minmax(0,1fr)_22rem]"
       data-testid="portal-documents"
     >
       <Card className="min-w-0">
@@ -160,14 +160,17 @@ export function PortalDocuments({ clientId }: { clientId: string }) {
             </Button>
           </div>
         </div>
-        <div className="mb-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-5" data-testid="document-kpis">
+        <div
+          className="mb-4 grid grid-cols-2 gap-3 @lg:grid-cols-3 @4xl:grid-cols-5"
+          data-testid="document-kpis"
+        >
           <Kpi icon={Files} tone="blue" value={s?.total} label="Total Documents" />
           <Kpi icon={FileArrowUp} tone="green" value={s?.clientUploaded} label="Client Uploaded" />
           <Kpi icon={ShareNetwork} tone="purple" value={s?.firmShared} label="Firm Shared" />
           <Kpi icon={Hourglass} tone="amber" value={s?.pendingReview} label="Pending Review" />
           <Kpi icon={Tray} tone="red" value={s?.requested} label="Requested" />
         </div>
-        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))_auto] lg:items-end">
+        <div className="mb-4 grid gap-3 @4xl:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))_auto] @4xl:items-end">
           <SearchField
             label="Search documents"
             placeholder="Search documents by name, type, or keyword..."
@@ -330,7 +333,7 @@ function Kpi({
       <IconTile icon={icon} tone={tone} />
       <div className="min-w-0">
         <p className="text-2xl font-bold text-heading">{value ?? '—'}</p>
-        <p className="text-sm text-muted">{label}</p>
+        <p className="text-sm leading-tight [overflow-wrap:normal] text-muted">{label}</p>
       </div>
     </div>
   );

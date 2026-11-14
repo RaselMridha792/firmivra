@@ -46,6 +46,7 @@ import {
   UpdateTaxFilingAttemptRequest,
   UpdateTaxReturnDetailsRequest,
   CorrectTaxReturnBusinessIdentityRequest,
+  CorrectTaxYearRequest,
   UpdateTaxReturnFilingRequest,
   WetSignatureRequest,
 } from './workspace.js';
@@ -96,6 +97,12 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
       request(TaxReturnDetail, `${ret(id)}/details`, {
         method: 'PATCH',
         body: parseInput(UpdateTaxReturnDetailsRequest, body),
+      }),
+    /** Review 2 (TX-F16): Correct Tax Year with the reason (see CorrectTaxYearRequest). */
+    correctTaxYear: async (id: string, body: CorrectTaxYearRequest): Promise<TaxReturnDetail> =>
+      request(TaxReturnDetail, `${ret(id)}/tax-year`, {
+        method: 'POST',
+        body: parseInput(CorrectTaxYearRequest, body),
       }),
     /** A business return's own identity, until its first filing. 409 RETURN_LOCKED after. */
     correctBusinessIdentity: async (

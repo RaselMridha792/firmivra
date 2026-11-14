@@ -2,8 +2,10 @@
 
 import { Check } from 'lucide-react';
 import Link from 'next/link';
+import { useSyncExternalStore } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { portalAuth } from '../../../../../../lib/auth';
+import { pendingBooking } from '../../../../../../lib/booking-intent';
 import { errorCode } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
@@ -14,6 +16,9 @@ import { ContactFirm, Expired } from './verify-step';
 
 const PORTAL_BUTTON_CLASSES =
   'bg-platform-blue! hover:bg-platform-blue-hover! focus-visible:outline-platform-blue';
+
+/** The kept booking changes only on other pages, so there is nothing to subscribe to. */
+const noChanges = () => () => {};
 
 /**
  * Complete (docs/mockups/client-portal/LVP Client Portal Account Confirmation.png). Also where
@@ -45,6 +50,12 @@ export function DoneStep() {
  */
 function Created({ waiting = false, approved = false }: { waiting?: boolean; approved?: boolean }) {
   const { business } = usePortal();
+  // Appointments Review 2 (row 3): a type chosen from a booking link waits in this browser.
+  const booking = useSyncExternalStore(
+    noChanges,
+    () => pendingBooking(business.slug),
+    () => null,
+  );
   return (
     <div
       data-testid="sign-up-done"
@@ -65,6 +76,13 @@ function Created({ waiting = false, approved = false }: { waiting?: boolean; app
           ? `${business.name} approved your account. Your client portal is ready: sign in to start.`
           : `${business.name} reviews every new account. We’ll email you when your client portal is ready.`}
       </p>
+      {booking ? (
+        <p data-testid="booking-after-approval" className="text-lg font-semibold text-firm-text">
+          {approved
+            ? 'Sign in and booking opens on the appointment you chose.'
+            : 'After the firm approves your account you can book this time. When you sign in then, booking opens on the appointment you chose.'}
+        </p>
+      ) : null}
       <ButtonLink className={PORTAL_BUTTON_CLASSES} href={`/${business.slug}/sign-in`}>
         Go to Client Portal
       </ButtonLink>

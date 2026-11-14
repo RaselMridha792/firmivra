@@ -47,6 +47,11 @@ import {
   UpdateTaxOpportunityRequest,
   TaxPlanId,
   PlanReasonRequest,
+  PlanReviewRequest,
+  RecordPlanApprovalRequest,
+  CreatePlanRequestRequest,
+  UpdatePlanRequestRequest,
+  DuplicatePlanRequest,
   TaxPlanPage,
   TaxPlanningOverview,
   TaxPlansQuery,
@@ -159,6 +164,32 @@ export function createTaxPlanningClient(request: ApiRequest) {
     /** C27: a Finalized, sent or Implemented plan back to In Progress, with the reason. */
     revisePlan: async (id: string, body: PlanReasonRequest): Promise<TaxPlanDetail> =>
       request(TaxPlanDetail, `${plan(id)}/revise`, post(parseInput(PlanReasonRequest, body))),
+    /** Review 2 workflow: Send for Internal Review. */
+    reviewPlan: async (id: string, body: PlanReviewRequest): Promise<TaxPlanDetail> =>
+      request(TaxPlanDetail, `${plan(id)}/review`, post(parseInput(PlanReviewRequest, body))),
+    recordApproval: async (id: string, body: RecordPlanApprovalRequest): Promise<TaxPlanDetail> =>
+      request(
+        TaxPlanDetail,
+        `${plan(id)}/approvals`,
+        post(parseInput(RecordPlanApprovalRequest, body)),
+      ),
+    createPlanRequest: async (id: string, body: CreatePlanRequestRequest): Promise<TaxPlanDetail> =>
+      request(
+        TaxPlanDetail,
+        `${plan(id)}/requests`,
+        post(parseInput(CreatePlanRequestRequest, body)),
+      ),
+    updatePlanRequest: async (
+      id: string,
+      requestId: string,
+      body: UpdatePlanRequestRequest,
+    ): Promise<TaxPlanDetail> =>
+      request(TaxPlanDetail, `${plan(id)}/requests/${encodeURIComponent(requestId)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdatePlanRequestRequest, body),
+      }),
+    duplicatePlan: async (id: string, body: DuplicatePlanRequest = {}): Promise<TaxPlanDetail> =>
+      request(TaxPlanDetail, `${plan(id)}/duplicate`, post(parseInput(DuplicatePlanRequest, body))),
     /** C27: the plan's history, newest first. */
     planEvents: async (id: string): Promise<TaxPlanEventList['items']> =>
       (await request(TaxPlanEventList, `${plan(id)}/events`)).items,

@@ -3391,6 +3391,34 @@ describe('a planning discussion (Tax Planning Review 2 C12)', () => {
       expect([res.status, codeOf(res)], taxPlanId).toEqual([404, 'NOT_FOUND']);
     }
   });
+
+  it('moves a Draft plan to Scheduled when its discussion is booked (Review 2 workflow)', async () => {
+    const draft = await asOwner(ids.firmA, (tx) =>
+      tx.taxPlan.create({
+        data: {
+          businessId: ids.firmA,
+          clientId: ids.c1,
+          name: `Setup plan ${randomUUID().slice(0, 6)} (fake)`,
+          planYear: 2027,
+          status: 'DRAFT',
+        },
+        select: { id: true },
+      }),
+    );
+    await scheduled({ taxPlanId: draft.id });
+    expect(
+      await asOwner(ids.firmA, (tx) =>
+        tx.taxPlan.findUniqueOrThrow({ where: { id: draft.id }, select: { status: true } }),
+      ),
+    ).toEqual({ status: 'SCHEDULED' });
+    const events = await asOwner(ids.firmA, (tx) =>
+      tx.taxPlanEvent.findMany({
+        where: { planId: draft.id },
+        select: { kind: true, fromStatus: true, toStatus: true },
+      }),
+    );
+    expect(events).toEqual([{ kind: 'STATUS', fromStatus: 'DRAFT', toStatus: 'SCHEDULED' }]);
+  });
 });
 
 describe('Review 2 (TX-F06): Link to Tax Return', () => {

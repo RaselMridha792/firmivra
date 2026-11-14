@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ClientId, MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 import { HttpsUrl } from '../content/schemas.js';
+import { PublicLinkState } from '../public-links/schemas.js';
 
 // Appointments (R12): the firm's calendar, availability and appointment types, and the client's
 // own appointments in the portal (System Wiring section 2).
@@ -644,6 +645,24 @@ export type BookableType = z.infer<typeof BookableType>;
 
 export const BookableTypeList = z.object({ items: z.array(BookableType) });
 export type BookableTypeList = z.infer<typeof BookableTypeList>;
+
+/**
+ * Review 2 (Appointments row 3): one type behind its public booking link
+ * (`{PORTAL_BASE_URL}/{firmSlug}/book/{typeId}`, `publicItemUrl`), read without signing in by
+ * `GET /portal/{firmSlug}/booking-types/{id}`. Only what a visitor may see: never the firm's
+ * staff-only description. `state` LIVE takes bookings once the client signs in; ARCHIVED (the
+ * type is archived) and HIDDEN (clients can't book it online) are refused on the page. A type of
+ * another firm, or none, is 404.
+ */
+export const PublicBookingType = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  durationMinutes: z.number().int(),
+  /** The meeting methods the client chooses from, in the firm's order. */
+  methods: z.array(LocationKind),
+  state: PublicLinkState.extract(['LIVE', 'ARCHIVED', 'HIDDEN']),
+});
+export type PublicBookingType = z.infer<typeof PublicBookingType>;
 
 /** A free start for the client; the firm picks the staff member when it is booked. */
 export const MySlot = z.object({ startsAt: DateTime, endsAt: DateTime });

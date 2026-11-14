@@ -272,6 +272,97 @@ export const PlanDocument = z.object({
 });
 export type PlanDocument = z.infer<typeof PlanDocument>;
 
+/**
+ * The actions a plan offers now (Review 2, context-relevant actions), in the order shown. The API
+ * refuses any other with 409 INVALID_STATUS.
+ */
+export const PlanAction = z.enum([
+  'START_WORK',
+  'SEND_FOR_REVIEW',
+  'RETURN_TO_WORK',
+  'FINALIZE',
+  'SEND_TO_CLIENT',
+  'REQUEST_INFORMATION',
+  'RECORD_CLIENT_REQUEST',
+  'START_REVISION',
+  'RECORD_APPROVAL',
+  'MARK_IMPLEMENTED',
+  'DELIVER',
+  'REVISE',
+  'CLOSE',
+  'REOPEN',
+  'DUPLICATE',
+]);
+export type PlanAction = z.infer<typeof PlanAction>;
+
+/** One line of the readiness checklist: done or missing, and how to fix it. */
+export const PlanReadinessItem = z.object({
+  key: z.string(),
+  label: z.string(),
+  done: z.boolean(),
+  /** Where and how to fix it; null once done. */
+  fix: z.string().nullable(),
+});
+export type PlanReadinessItem = z.infer<typeof PlanReadinessItem>;
+
+/** The client's approval of one exact version (tax_plan_approvals). */
+export const PlanApproval = z.object({
+  id: z.uuid(),
+  version: z.number().int(),
+  method: z.enum(['PORTAL', 'MANUAL']),
+  approvedOn: CalendarDate,
+  /** How a manual approval was documented. */
+  note: z.string().nullable(),
+  documentId: z.uuid().nullable(),
+  recordedBy: MemberRef.nullable(),
+  createdAt: DateTime,
+});
+export type PlanApproval = z.infer<typeof PlanApproval>;
+
+export const PlanRequestKind = z.enum([
+  'INFORMATION',
+  'DOCUMENT',
+  'QUESTION',
+  'REVISION',
+  'MEETING',
+]);
+export type PlanRequestKind = z.infer<typeof PlanRequestKind>;
+
+/** A request on a plan, either way (tax_plan_requests). */
+export const PlanRequest = z.object({
+  id: z.uuid(),
+  direction: z.enum(['FIRM_TO_CLIENT', 'CLIENT_TO_FIRM']),
+  kind: PlanRequestKind,
+  body: z.string(),
+  status: z.enum(['OPEN', 'ANSWERED', 'CLOSED']),
+  response: z.string().nullable(),
+  documentId: z.uuid().nullable(),
+  requestedBy: MemberRef.nullable(),
+  answeredAt: DateTime.nullable(),
+  closedAt: DateTime.nullable(),
+  createdAt: DateTime,
+});
+export type PlanRequest = z.infer<typeof PlanRequest>;
+
+export const PlanWorkflow = z.object({
+  /** What to do next, in words, and whose it is (null: the client's, or nobody's). */
+  nextAction: z.string(),
+  owner: MemberRef.nullable(),
+  /** The client is the one to act (Awaiting Client Review). */
+  waitingOnClient: z.boolean(),
+  actions: z.array(PlanAction),
+  readiness: z.array(PlanReadinessItem),
+  reviewer: MemberRef.nullable(),
+  reviewRequestedAt: DateTime.nullable(),
+  /** The newest version sent for the client's review, and the version the client approved. */
+  sentVersion: z.number().int().nullable(),
+  approvedVersion: z.number().int().nullable(),
+  approvals: z.array(PlanApproval),
+  delivered: z.object({ at: DateTime, version: z.number().int() }).nullable(),
+  requests: z.array(PlanRequest),
+});
+export type PlanWorkflow = z.infer<typeof PlanWorkflow>;
+
 /** A row of the plan list and the "Select an existing plan" picker. */
 export const TaxPlanRow = z.object({
   id: TaxPlanId,
@@ -342,6 +433,12 @@ export const TaxPlanDetail = TaxPlanRow.extend({
       }),
     )
     .max(100),
+  /**
+   * Tax Planning Review 2's approved workflow: where the plan stands, what comes next and whose
+   * it is, the readiness checklist, the actions that fit now, the internal reviewer, the
+   * client's approvals of exact versions, the delivery, and the requests either way.
+   */
+  workflow: PlanWorkflow,
   /** False once the plan is Closed (C27): it changes only by Reopen. */
   canEdit: z.boolean(),
   /** C27: may change the plan's status, reopen, revise, archive and restore it. */
@@ -560,6 +657,65 @@ export const PlanReasonRequest = z.strictObject({
 });
 export type PlanReasonRequest = z.input<typeof PlanReasonRequest>;
 
+/**
+ * Review 2 workflow: POST .../plans/{id}/review, Send for Internal Review to a chosen reviewer (a
+ * member of the firm): Under Review. 409 INVALID_STATUS from a status it does not fit.
+ */
+export const PlanReviewRequest = z.strictObject({
+  reviewerUserId: z.uuid(),
+  etag: z.string().min(1).max(100),
+});
+export type PlanReviewRequest = z.input<typeof PlanReviewRequest>;
+
+/**
+ * Review 2 workflow: POST .../plans/{id}/approvals records the client's documented approval of an
+ * exact version sent for review (the newest by default), with its date (never after today) and how
+ * it was documented, optionally with the proof (a document of the client's): Client Approved.
+ */
+export const RecordPlanApprovalRequest = z.strictObject({
+  version: z.number().int().min(1).optional(),
+  approvedOn: CalendarDate,
+  note: text(2_000, 'many'),
+  documentId: z.uuid().nullable().optional(),
+  etag: z.string().min(1).max(100),
+});
+export type RecordPlanApprovalRequest = z.input<typeof RecordPlanApprovalRequest>;
+
+/**
+ * Review 2 workflow: POST .../plans/{id}/requests. The firm asks for INFORMATION or a DOCUMENT (the
+ * client is told by a portal message); or staff record what the client asked (QUESTION,
+ * INFORMATION, REVISION, MEETING), which moves a plan waiting on the client to Needs Review.
+ */
+export const CreatePlanRequestRequest = z.discriminatedUnion('direction', [
+  z.strictObject({
+    direction: z.literal('FIRM_TO_CLIENT'),
+    kind: z.enum(['INFORMATION', 'DOCUMENT']),
+    body: text(4_000, 'many'),
+  }),
+  z.strictObject({
+    direction: z.literal('CLIENT_TO_FIRM'),
+    kind: z.enum(['QUESTION', 'INFORMATION', 'REVISION', 'MEETING']),
+    body: text(4_000, 'many'),
+  }),
+]);
+export type CreatePlanRequestRequest = z.input<typeof CreatePlanRequestRequest>;
+
+/** PATCH .../plans/{id}/requests/{requestId}: answered (with the answer or document) or closed. */
+export const UpdatePlanRequestRequest = z.strictObject({
+  status: z.enum(['ANSWERED', 'CLOSED']),
+  response: clearable(text(4_000, 'many')),
+  documentId: z.uuid().nullable().optional(),
+});
+export type UpdatePlanRequestRequest = z.input<typeof UpdatePlanRequestRequest>;
+
+/**
+ * Review 2 approved addition: POST .../plans/{id}/duplicate, an editable copy (a new Draft) of the
+ * plan's setup, figures and strategies under a new name; the original is unchanged. Documents,
+ * tasks, discussions, versions, approvals, requests and history are not copied.
+ */
+export const DuplicatePlanRequest = z.strictObject({ name: text(200).optional() });
+export type DuplicatePlanRequest = z.input<typeof DuplicatePlanRequest>;
+
 /** C27 (Review 2): one entry of a plan's history (GET .../plans/{id}/events), newest first. */
 export const TaxPlanEvent = z.object({
   id: z.uuid(),
@@ -578,6 +734,12 @@ export type FinalizePlanRequest = z.input<typeof FinalizePlanRequest>;
 export const SendPlanRequest = z.strictObject({
   channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
   message: clearable(text(2_000, 'many')),
+  /**
+   * Review 2 workflow: REVIEW (the default) asks the client to review and approve it (Awaiting
+   * Client Review); DELIVERY delivers the approved plan (Deliver to Client): it records the
+   * delivered version and leaves the status as it is.
+   */
+  purpose: z.enum(['REVIEW', 'DELIVERY']).optional().default('REVIEW'),
 });
 export type SendPlanRequest = z.input<typeof SendPlanRequest>;
 

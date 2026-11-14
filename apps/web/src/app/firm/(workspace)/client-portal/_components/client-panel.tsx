@@ -59,7 +59,7 @@ export function ClientPanel({
     if (loaded) void queryClient.invalidateQueries({ queryKey: RECENT_KEY });
   }, [loaded, clientId, queryClient]);
   return (
-    <div className="flex min-w-0 flex-col gap-4" data-testid="client-panel">
+    <div className="@container flex min-w-0 flex-col gap-4" data-testid="client-panel">
       <PageState query={header}>
         {(h) =>
           h ? (
@@ -110,23 +110,45 @@ export function ClientHeader({ header }: { header: ClientPortalHeader }) {
   const stage = STAGES[client.status];
   const since = client.clientSince ? client.clientSince.slice(0, 4) : null;
   return (
-    <Card data-testid="client-portal-header">
-      <div className="flex flex-wrap items-center gap-4">
-        <Avatar name={client.name} size="xl" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-2xl font-bold text-heading">{client.name}</h2>
-            <Badge tone={stage.tone} dot>
-              {stage.label}
-            </Badge>
-            {client.archived ? <Badge tone="neutral">Archived</Badge> : null}
+    <Card data-testid="client-portal-header" className="min-w-0">
+      {/* Octavia (Nov 14): with the sidebar expanded the name wrapped under the actions. The
+          name stays on one line (the full name on hover), the badges never wrap, and the
+          actions move to their own row when the panel is narrow. */}
+      <div className="flex min-w-0 flex-col gap-4 @4xl:flex-row @4xl:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <span className="shrink-0">
+            <Avatar name={client.name} size="xl" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2
+                className="min-w-0 truncate text-2xl font-bold text-heading"
+                title={client.name}
+                data-testid="client-portal-name"
+              >
+                {client.name}
+              </h2>
+              <span className="shrink-0 whitespace-nowrap">
+                <Badge tone={stage.tone} dot>
+                  {stage.label}
+                </Badge>
+              </span>
+              {client.archived ? (
+                <span className="shrink-0 whitespace-nowrap">
+                  <Badge tone="neutral">Archived</Badge>
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 truncate text-sm text-muted">
+              {client.accountType === 'BUSINESS' ? 'Business' : 'Individual'}
+              {since ? ` | Client Since ${since}` : ''} | ID: {client.number}
+            </p>
           </div>
-          <p className="mt-1 text-sm text-muted">
-            {client.accountType === 'BUSINESS' ? 'Business' : 'Individual'}
-            {since ? ` | Client Since ${since}` : ''} | ID: {client.number}
-          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div
+          className="flex shrink-0 flex-wrap items-center gap-2"
+          data-testid="client-portal-actions"
+        >
           <Button
             data-testid="open-client-portal"
             onClick={() => router.push(`/client-portal/${client.id}/preview`)}

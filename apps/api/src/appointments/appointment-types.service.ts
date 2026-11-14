@@ -1,13 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type {
-  AppointmentType,
-  AppointmentTypesQuery,
-  CreateAppointmentTypeRequest,
-  UpdateAppointmentTypeRequest,
+import {
+  type AppointmentType,
+  type AppointmentTypesQuery,
+  type CreateAppointmentTypeRequest,
+  type PublicBookingType,
+  type PublicLink,
+  publicButtonCode,
+  publicItemUrl,
+  type UpdateAppointmentTypeRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { DEFAULT_CUTOFF_HOURS } from './calendar.js';
 import { retryWhenBusy, tryLock, typeNamesLockKey } from './calendar-locks.js';
@@ -30,6 +36,10 @@ const typeSelect = {
 } satisfies Prisma.AppointmentTypeSelect;
 
 type TypeRow = Prisma.AppointmentTypeGetPayload<{ select: typeof typeSelect }>;
+
+/** Whether a type's public booking link takes bookings: archived first, then client self-booking. */
+const publicState = (t: { archivedAt: Date | null; clientBookable: boolean }) =>
+  t.archivedAt ? 'ARCHIVED' : t.clientBookable ? 'LIVE' : 'HIDDEN';
 
 export function toAppointmentType(stored: TypeRow): AppointmentType {
   const { meetingMethods: _stored, ...row } = stored;
@@ -54,6 +64,7 @@ export class AppointmentTypesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** One transaction in the firm's scope, tried again while the names lock is busy. */
@@ -72,6 +83,62 @@ export class AppointmentTypesService {
       select: typeSelect,
     });
     return rows.map(toAppointmentType);
+  }
+
+  /**
+   * Review 2 (Appointments row 3): the type's public booking link (`publicItemUrl`, on the
+   * portal host from config) and a button for the firm's website (`publicButtonCode`, in the
+   * firm's button colour, else its brand colour). Not an iframe: booking needs the portal's
+   * sign-in, which browsers keep out of another site's frame. Read only, so nothing is audited.
+   */
+  async publicLink(businessId: string, id: string): Promise<PublicLink> {
+    return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      const type = await tx.appointmentType.findFirst({
+        where: { businessId, id },
+        select: { id: true, name: true, clientBookable: true, archivedAt: true },
+      });
+      if (!type) throw errors.notFound();
+      const firm = await tx.business.findUniqueOrThrow({
+        where: { id: businessId },
+        select: { slug: true },
+      });
+      const settings = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { buttonColor: true, brandColor: true },
+      });
+      const url = publicItemUrl(this.env.PORTAL_BASE_URL, firm.slug, 'APPOINTMENT_TYPE', type.id);
+      return {
+        kind: 'APPOINTMENT_TYPE',
+        itemId: type.id,
+        url,
+        embedCode: publicButtonCode(
+          url,
+          `Book ${type.name}`,
+          settings?.buttonColor ?? settings?.brandColor,
+        ),
+        state: publicState(type),
+      };
+    });
+  }
+
+  /**
+   * The portal's booking link page (public): what a visitor may see of one of the firm's types,
+   * never its staff-only description. Another firm's type, or none, is 404.
+   */
+  async publicType(businessId: string, id: string): Promise<PublicBookingType> {
+    const row = await this.database.forBusiness(businessId).appointmentType.findFirst({
+      where: { businessId, id },
+      select: typeSelect,
+    });
+    if (!row) throw errors.notFound();
+    const type = toAppointmentType(row);
+    return {
+      id: type.id,
+      name: type.name,
+      durationMinutes: type.durationMinutes,
+      methods: type.methods,
+      state: publicState(row),
+    };
   }
 
   /** `sent`: the fields the request named (not the contract's defaults), for the audit row. */

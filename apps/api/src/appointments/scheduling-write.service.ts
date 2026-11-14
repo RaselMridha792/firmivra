@@ -298,9 +298,26 @@ export class SchedulingWriteService {
           archivedAt: null,
           status: { not: 'CLOSED' },
         },
-        select: { id: true },
+        select: { id: true, status: true },
       });
       if (!plan) throw errors.notFound();
+      // Tax Planning Review 2 workflow: a Draft plan with its client discussion is Scheduled.
+      if (plan.status === 'DRAFT') {
+        await tx.taxPlan.update({
+          where: { businessId_id: { businessId, id: plan.id } },
+          data: { status: 'SCHEDULED' },
+        });
+        await tx.taxPlanEvent.create({
+          data: {
+            businessId,
+            planId: plan.id,
+            kind: 'STATUS',
+            fromStatus: 'DRAFT',
+            toStatus: 'SCHEDULED',
+            actorUserId: actor.userId,
+          },
+        });
+      }
     }
     const confirmedAt = body.status === 'CONFIRMED' ? new Date() : null;
     let firstId = '';
