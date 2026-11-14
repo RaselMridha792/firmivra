@@ -3,6 +3,7 @@ import {
   ApiRequestError,
   CorrectTaxYearRequest,
   RecordTaxExtensionRequest,
+  type TaxAmountHistory,
   ApproveTaxApprovalRequest,
   CarryForwardTaxReturnRequest,
   ChangeTaxReturnStatusRequest,
@@ -645,6 +646,8 @@ function engagementOf(returnId: string, taxYear: number, c: { id: string; name: 
 export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWorkspaceClient {
   const role = options.role ?? 'OWNER';
   const me = role === 'STAFF' ? SAM() : role === 'ADMIN' ? ADAM() : OLIVIA();
+  /** Review 2: each filing's saved amount versions, newest first. */
+  const amountLog = new Map<string, TaxAmountHistory['items']>();
   const clients = mockClients();
   let rows: Stored[] = options.empty ? [] : seedAll();
 
@@ -1337,6 +1340,12 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       touch(r, 'FILING', 'Jurisdictions updated');
       return copy(r.filings);
     },
+    amountHistory: async (id, filingId) => {
+      await mockDelay();
+      const r = find(id);
+      if (!r.filings.some((f) => f.id === filingId)) throw fail(404, 'NOT_FOUND', 'Not found');
+      return copy(amountLog.get(filingId) ?? []);
+    },
     updateFiling: async (id, filingId, body) => {
       await mockDelay();
       const b = parseInput(UpdateTaxReturnFilingRequest, body);
@@ -1358,6 +1367,19 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (amountSent) {
         f.amountSource = source;
         f.amountVersion = status === null ? null : (f.amountVersion ?? 0) + 1;
+        // Review 2: each saved version, as the API reads them back from its audit.
+        amountLog.set(f.id, [
+          {
+            version: f.amountVersion,
+            refundCents: f.refundCents,
+            amountDueCents: f.amountDueCents,
+            amountStatus: f.amountStatus,
+            amountSource: f.amountSource,
+            by: me,
+            at: nowIso(),
+          },
+          ...(amountLog.get(f.id) ?? []),
+        ]);
       }
       touch(r, 'FILING', `${f.jurisdiction} filing updated`);
       return copy(r.filings);

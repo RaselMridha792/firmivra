@@ -59,6 +59,8 @@ export const NotificationTargetKind = z.enum([
   'user',
   /** An automation's run (Automations > Logs): the firm site only. */
   'automation_run',
+  /** A member's own project deadline (Tax Planning > Project Deadlines): the firm site only. */
+  'project_deadline',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -122,6 +124,14 @@ export const NOTIFICATION_EVENTS = {
    * run in Automations > Logs.
    */
   'automation.notice': { category: 'SERVICES', kind: 'automation_run', to: 'staff' },
+
+  // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
+  /**
+   * A project deadline's reminder: a bell item and, when the reminder says so, an email (through
+   * the outbox), to the deadline's owner and the coworkers it is shared with, ACTIVE members
+   * only. It opens Tax Planning > Project Deadlines.
+   */
+  'project-deadline.reminder': { category: 'SERVICES', kind: 'project_deadline', to: 'staff' },
 } as const satisfies Record<
   string,
   {

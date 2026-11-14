@@ -468,6 +468,24 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       (firm) => `Reminder: your appointment with ${firm}`,
     ),
 
+  // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.
+  'project-deadline.reminder': (d, b, o) => ({
+    channel: 'email',
+    subject: `Reminder: ${required(d, 'title')} is due soon`,
+    blocks: [
+      hello(d),
+      text(`This is a reminder of a project deadline at ${b.name}.`),
+      {
+        kind: 'facts',
+        rows: [
+          ['Deadline', required(d, 'title')],
+          ['Due', dateTime(d, 'dueAt', required(d, 'timeZone'))],
+        ],
+      },
+      button('View deadlines', link(d, 'link', o)),
+    ],
+  }),
+
   'invoice.sent': (d, b, o) => {
     const firm = b.name;
     return {

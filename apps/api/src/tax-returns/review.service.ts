@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type {
+  TaxAmountHistory,
   TaxReturnBlocker,
   EfileReport,
   MailingReport,
@@ -236,6 +237,67 @@ export class TaxReturnReviewService {
     return this.inFirm(tenant, async (tx) => {
       await this.reach(tx, tenant, userId, id);
       return this.filingList(tx, tenant.businessId, id);
+    });
+  }
+
+  /**
+   * Review 2 (amount history): a filing's amount, version by version, newest first, from the
+   * audit rows each save wrote (`tax_return.filings_changed` with its `amount`). Read only.
+   */
+  amountHistory(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    filingId: string,
+  ): Promise<TaxAmountHistory['items']> {
+    const businessId = tenant.businessId;
+    return this.inFirm(tenant, async (tx) => {
+      await this.reach(tx, tenant, userId, id);
+      const filing = await tx.taxReturnFiling.findFirst({
+        where: { businessId, id: filingId, taxReturnId: id },
+        select: { id: true },
+      });
+      if (!filing) throw notFound();
+      const rows = await tx.auditLog.findMany({
+        where: {
+          businessId,
+          entityType: 'tax_return',
+          entityId: id,
+          action: 'tax_return.filings_changed',
+          metadata: { path: ['filingId'], equals: filingId },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 200,
+        select: { actorUserId: true, metadata: true, createdAt: true },
+      });
+      const names = await memberNames(
+        tx,
+        businessId,
+        rows.map((r) => r.actorUserId).filter((u): u is string => u !== null),
+      );
+      const int = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) ? v : null);
+      const items: TaxAmountHistory['items'] = [];
+      for (const r of rows) {
+        const amount = (r.metadata as { amount?: Record<string, unknown> } | null)?.amount;
+        if (!amount) continue;
+        items.push({
+          version: int(amount['amountVersion']),
+          refundCents: int(amount['refundCents']),
+          amountDueCents: int(amount['amountDueCents']),
+          amountStatus:
+            amount['amountStatus'] === 'ESTIMATED' || amount['amountStatus'] === 'FINAL'
+              ? amount['amountStatus']
+              : null,
+          amountSource:
+            typeof amount['amountSource'] === 'string' &&
+            ['TAX_SOFTWARE', 'AGENCY_NOTICE', 'STAFF_ESTIMATE'].includes(amount['amountSource'])
+              ? (amount['amountSource'] as TaxAmountHistory['items'][number]['amountSource'])
+              : null,
+          by: memberRef(names, r.actorUserId),
+          at: r.createdAt.toISOString(),
+        });
+      }
+      return items;
     });
   }
 

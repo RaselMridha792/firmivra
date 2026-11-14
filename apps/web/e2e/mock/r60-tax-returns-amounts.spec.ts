@@ -59,3 +59,40 @@ test('Save waits for the source of a new amount', async ({ page }) => {
   await dialog.getByLabel('Source').selectOption('AGENCY_NOTICE');
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeEnabled();
 });
+
+test('Review 2: Edit shows the saved amount beside the new one, and History each version beside the one before', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-returns'));
+  await page
+    .getByTestId('tr-filters')
+    .getByLabel('Status', { exact: true })
+    .selectOption('IN_PREPARATION');
+  await page.getByTestId('return-link').first().click();
+  await page.getByRole('tab', { name: 'Payments & Refunds' }).click();
+  const federal = page.getByTestId('summary').getByRole('row').filter({ hasText: 'Federal' });
+  await federal.getByRole('button', { name: 'Edit the Federal amount' }).click();
+  const dialog = page.getByRole('dialog');
+  const compare = dialog.getByTestId('amount-compare');
+  await expect(compare).toContainText('Now (v1)');
+  await dialog.getByLabel('Refund or amount due').selectOption('refund');
+  await dialog.getByLabel('Amount ($)').fill('2000');
+  await expect(compare).toContainText('$2,000 refund');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Amount saved.')).toBeVisible();
+
+  await federal.getByRole('button', { name: 'Edit the Federal amount' }).click();
+  await dialog.getByLabel('Amount ($)').fill('2100');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Amount saved.').first()).toBeVisible();
+
+  await federal.getByRole('button', { name: 'History of the Federal amount' }).click();
+  const history = page.getByTestId('amount-history');
+  const versions = history.getByTestId('amount-version');
+  await expect(versions).toHaveCount(2);
+  await expect(versions.first()).toContainText('v3');
+  await expect(versions.first()).toContainText('$2,000 refund');
+  await expect(versions.first()).toContainText('$2,100 refund');
+  await page.mouse.move(5, 5);
+  await page.screenshot({ path: 'e2e/screenshots/r60-tax-returns-amounts/history.png' });
+});
