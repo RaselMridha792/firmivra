@@ -1,5 +1,4 @@
 // Server-safe icons: this file is read by the module page (a server component) and the sidebar.
-import { Globe } from '@phosphor-icons/react/ssr';
 import type { Icon } from '@phosphor-icons/react';
 
 /** A firm workspace module whose page is not built yet. */
@@ -14,9 +13,7 @@ export interface FirmModule {
  * /modules/<slug> page. When a module is built, remove it here and point its sidebar item
  * (`firmMenu` in the firm layout) to the real page.
  */
-export const FIRM_MODULES: readonly FirmModule[] = [
-  { slug: 'client-portal', label: 'Client Portal', icon: Globe },
-];
+export const FIRM_MODULES: readonly FirmModule[] = [];
 
 export function findModule(slug: string): FirmModule | undefined {
   return FIRM_MODULES.find((m) => m.slug === slug);

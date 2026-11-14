@@ -212,6 +212,61 @@ export const ListClientsQuery = z
   });
 export type ListClientsQuery = z.input<typeof ListClientsQuery>;
 
+/**
+ * POST /business/clients/export (Octavia's E2 additions): the clients the list's filters show, as
+ * a CSV, for the Owner and anyone whose grid grants Clients EXPORT (403 otherwise, checked on the
+ * server). The same filters as the list, without paging; at most 5,000 rows. Minimal fields: the
+ * name, type, email, phone, stage, services, assignee, missing documents, balance, last activity,
+ * next appointment and the day added; never an SSN, EIN or date of birth. Audited with the count.
+ */
+export const ExportClientsRequest = z.strictObject({
+  search: SearchText.optional(),
+  status: z.enum(['active', 'archived', 'all']).optional().default('active'),
+  assignedUserId: z.uuid().optional(),
+  clientStatus: ClientStatus.optional(),
+  serviceId: z.uuid().optional(),
+  /** With serviceId: a dashboard service card's clients, as the list (D4). */
+  engagementStatus: EngagementStatus.optional(),
+  completedFrom: CalendarDate.optional(),
+  completedTo: CalendarDate.optional(),
+  lastActivityFrom: CalendarDate.optional(),
+  lastActivityTo: CalendarDate.optional(),
+  owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
+  addedFrom: CalendarDate.optional(),
+  deadlineFrom: CalendarDate.optional(),
+  deadlineTo: CalendarDate.optional(),
+  appointmentFrom: CalendarDate.optional(),
+  appointmentTo: CalendarDate.optional(),
+  accountType: ClientAccountType.optional(),
+  state: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'Use a two-letter state code')
+    .optional(),
+  place: SearchText.optional(),
+  balance: z.enum(['DUE', 'NONE']).optional(),
+  documents: z.enum(['MISSING', 'NONE']).optional(),
+  tagId: z.uuid().optional(),
+  source: LeadSource.optional(),
+  priority: ClientPriority.optional(),
+  /**
+   * Bulk Actions' Export Selected: only these of the list's clients (each must be one the member
+   * reaches; 404 otherwise).
+   */
+  clientIds: z.array(z.uuid()).min(1).max(100).optional(),
+});
+export type ExportClientsRequest = z.input<typeof ExportClientsRequest>;
+
+/** A short-lived link to the CSV (five minutes), and how many clients it holds. */
+export const ClientExportLink = z.object({
+  url: z.string(),
+  expiresAt: DateTime,
+  fileName: z.string(),
+  rowCount: z.number().int(),
+});
+export type ClientExportLink = z.infer<typeof ClientExportLink>;
+
 export const ListClientsResponse = z.object({
   items: z.array(ClientListRow).max(100),
   /** Null on the last page (and with `page`). */
@@ -291,6 +346,21 @@ export const BulkClientsRequest = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('RESTORE'),
     clientIds: z.array(z.uuid()).min(1).max(100),
+  }),
+  /**
+   * Octavia's E2 additions: add one of the firm's live tags to each (a client that has it already
+   * is unchanged). Another firm's or an archived tag refuses the whole request (404).
+   */
+  z.strictObject({
+    action: z.literal('TAG'),
+    clientIds: z.array(z.uuid()).min(1).max(100),
+    tagId: z.uuid(),
+  }),
+  /** Octavia's E2 additions: set each one's stage (Inactive included); audited per client. */
+  z.strictObject({
+    action: z.literal('STAGE'),
+    clientIds: z.array(z.uuid()).min(1).max(100),
+    status: ClientStatus,
   }),
 ]);
 export type BulkClientsRequest = z.infer<typeof BulkClientsRequest>;

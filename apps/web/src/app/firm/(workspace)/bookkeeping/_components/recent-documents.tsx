@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { OriginLink } from '../../../../../components/origin-link';
 import { api } from '../../../../../lib/api';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { DocumentViewer } from '../../documents/[id]/_components/document-viewer';
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -77,6 +78,27 @@ export function RecentDocuments({
   );
 }
 
+/**
+ * Review 2 (N03): the file itself, in place. It reuses Documents' own viewer (an image as it is, a
+ * PDF drawn page by page), which reads the file through the library's clean-file link; other types
+ * and unchecked files say why there is no preview. Nothing here leaves Bookkeeping.
+ */
+function Preview({ doc, onDownload }: { doc: FirmDocument; onDownload: () => void }) {
+  const lib = useApiQuery(['library-document', doc.id], () => api.documentLibrary.get(doc.id));
+  if (lib.isPending) return <p className="text-sm text-muted">Loading the preview…</p>;
+  if (lib.isError || !lib.data)
+    return (
+      <p className="text-sm text-muted">
+        The preview could not be loaded. Download the file instead.
+      </p>
+    );
+  return (
+    <div className="h-[60vh] min-h-0" data-testid="document-preview">
+      <DocumentViewer doc={lib.data} onDownload={onDownload} />
+    </div>
+  );
+}
+
 function QuickView({ doc, onClose }: { doc: FirmDocument; onClose: () => void }) {
   const download = useApiMutation(async () => {
     const link = await api.documents.download(doc.id);
@@ -114,8 +136,9 @@ function QuickView({ doc, onClose }: { doc: FirmDocument; onClose: () => void })
         </>
       }
     >
+      <Preview doc={doc} onDownload={() => download.mutate()} />
       <dl
-        className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"
+        className="mt-3 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"
         data-testid="document-quick-view"
       >
         {rows.map(([k, v]) => (
