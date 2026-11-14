@@ -3467,6 +3467,7 @@ describe('report figures from statements, status and documents (BK-RPT part 2)',
         data: {
           ...A,
           kind: 'CHARGEBACK',
+          disputeStatus: 'OPEN',
           refundDate: at(p.periodEnd),
           amountCents: 1_500,
           reason: 'Fake dispute',
