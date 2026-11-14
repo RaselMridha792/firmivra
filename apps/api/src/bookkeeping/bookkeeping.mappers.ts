@@ -269,6 +269,9 @@ export const reconSelect = {
   approvedBy: true,
   reopenedAt: true,
   reopenReason: true,
+  discrepancyNote: true,
+  discrepancyNoteBy: true,
+  discrepancyNoteAt: true,
   updatedAt: true,
   account: { select: { id: true, name: true, type: true, mask: true } },
 } satisfies Prisma.BookkeepingReconciliationSelect;
@@ -298,6 +301,14 @@ export const toReconciliation = (
   approvedBy: memberRefOf(names, r.approvedBy),
   reopenedAt: iso(r.reopenedAt),
   reopenReason: r.reopenReason,
+  discrepancyNote:
+    r.discrepancyNote && r.discrepancyNoteAt
+      ? {
+          text: r.discrepancyNote,
+          by: memberRefOf(names, r.discrepancyNoteBy),
+          at: r.discrepancyNoteAt.toISOString(),
+        }
+      : null,
   updatedAt: r.updatedAt.toISOString(),
 });
 

@@ -365,7 +365,9 @@ function DocumentsTable({ rows }: { rows: LibraryDocument[] }) {
                 <td className="max-w-64 py-2 pr-3">
                   <span className="flex items-center gap-2">
                     <FileText aria-hidden className="size-5 shrink-0 text-danger" />
-                    <span className="truncate text-text">{d.fileName}</span>
+                    <span className="truncate text-text" title={d.fileName}>
+                      {d.fileName}
+                    </span>
                   </span>
                 </td>
                 <td className="py-2 pr-3 text-text">{kindOf(d)}</td>

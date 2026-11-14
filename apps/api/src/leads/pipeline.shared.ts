@@ -249,6 +249,11 @@ const profileSelect = {
   state: true,
   postalCode: true,
   bestTimeToContact: true,
+  dateOfBirth: true,
+  contactPoints: {
+    orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    select: { kind: true, value: true, label: true },
+  },
   engagement: { select: { client: { select: { id: true, displayName: true } } } },
   _count: { select: { intakes: true } },
 } satisfies Prisma.LeadSelect;
@@ -382,8 +387,8 @@ export async function loadProfile(
   return {
     ...toRow(r),
     address: address || null,
-    // No date of birth column on leads (see the PR's gaps).
-    dateOfBirth: null,
+    dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+    otherContacts: r.contactPoints,
     bestTimeToContact: r.bestTimeToContact,
     recentActivity: recent.map((a) => toActivity(a, r.source)),
     // Tasks and appointments have no lead link yet (see the PR's gaps).

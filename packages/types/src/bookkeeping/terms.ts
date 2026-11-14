@@ -129,6 +129,11 @@ const TermsFieldsShape = {
   // Terms tab
   /** The package's name from Services & Pricing (a snapshot), up to 120 characters. */
   packageName: clearable(text(120)),
+  /**
+   * Review 2 (E01b): the package itself, an active Services & Pricing service of this firm; the API
+   * then keeps its name in packageName. Null clears it.
+   */
+  catalogServiceId: z.uuid().nullable(),
   startDate: CalendarDate,
   /** Agreement End Date; null for an open-ended agreement. */
   endDate: CalendarDate.nullable(),
@@ -230,6 +235,8 @@ export const BookkeepingTerms = z.object({
   version: z.number().int(),
   status: BookkeepingTermsStatus,
   packageName: z.string().nullable(),
+  /** Review 2 (E01b): the Services & Pricing service the package is, when chosen from it. */
+  catalogServiceId: z.uuid().nullable().default(null),
   startDate: CalendarDate,
   endDate: CalendarDate.nullable(),
   renewalType: BookkeepingRenewalType,

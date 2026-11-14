@@ -17,11 +17,45 @@ const forbidden = () =>
 const archived = () =>
   new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
 
+/**
+ * Review 2 (N04): the record a note is about must be this firm's (row-level security keeps the
+ * search inside the firm); 404 otherwise.
+ */
+async function relatedExists(
+  tx: TxClient,
+  businessId: string,
+  related: { kind: string; id: string },
+) {
+  const where = { businessId, id: related.id };
+  const select = { id: true } as const;
+  const found =
+    related.kind === 'task'
+      ? await tx.task.findFirst({ where, select })
+      : related.kind === 'document'
+        ? await tx.document.findFirst({ where, select })
+        : related.kind === 'document_request'
+          ? await tx.documentRequest.findFirst({ where, select })
+          : related.kind === 'reconciliation'
+            ? await tx.bookkeepingReconciliation.findFirst({ where, select })
+            : related.kind === 'report'
+              ? await tx.bookkeepingReport.findFirst({ where, select })
+              : related.kind === 'period'
+                ? await tx.bookkeepingPeriod.findFirst({ where, select })
+                : related.kind === 'appointment'
+                  ? await tx.appointment.findFirst({ where, select })
+                  : null;
+  if (!found) throw notFound();
+}
+
 const noteSelect = {
   id: true,
   clientId: true,
   engagementId: true,
   body: true,
+  noteType: true,
+  relatedKind: true,
+  relatedId: true,
+  visibility: true,
   authorUserId: true,
   createdAt: true,
   updatedAt: true,
@@ -70,6 +104,12 @@ export class NotesService {
       clientId: n.clientId,
       engagementId: n.engagementId,
       body: n.body,
+      noteType: (n.noteType as InternalNote['noteType']) ?? null,
+      related:
+        n.relatedKind && n.relatedId
+          ? { kind: n.relatedKind as NonNullable<InternalNote['related']>['kind'], id: n.relatedId }
+          : null,
+      visibility: n.visibility,
       author: { userId: n.authorUserId, name: names.get(n.authorUserId) ?? 'Former staff' },
       canEdit: this.canEdit(actor, n),
       createdAt: n.createdAt.toISOString(),
@@ -134,7 +174,13 @@ export class NotesService {
     businessId: string,
     actor: ClientsActor,
     clientId: string,
-    body: { body: string; engagementId?: string },
+    body: {
+      body: string;
+      engagementId?: string;
+      noteType?: string;
+      related?: { kind: string; id: string };
+      visibility?: 'INTERNAL';
+    },
   ): Promise<InternalNote> {
     return this.inFirm(businessId, async (tx) => {
       await this.client(tx, businessId, actor, clientId);
@@ -146,12 +192,18 @@ export class NotesService {
         });
         if (!engagement) throw notFound();
       }
+      if (body.related) await relatedExists(tx, businessId, body.related);
       const row = await tx.note.create({
         data: {
           businessId,
           clientId,
           engagementId: body.engagementId ?? null,
           body: body.body,
+          // Review 2 (N04): its type, the record it is about, and internal visibility.
+          noteType: body.noteType ?? null,
+          relatedKind: body.related?.kind ?? null,
+          relatedId: body.related?.id ?? null,
+          visibility: 'INTERNAL',
           authorUserId: actor.userId,
         },
         select: noteSelect,

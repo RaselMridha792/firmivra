@@ -3435,6 +3435,10 @@ model Task {
   leadId          String?    @map("lead_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
   taxPlanId       String?    @map("tax_plan_id") @db.Uuid
+  /// R1 (Rasel, Nov 13; Tasks A1): Related To typed by the firm when no record fits, labelled
+  /// custom and never a fake record link. 1 to 200 characters; a task has an engagement or this, never
+  /// both (SQL only: tasks_related_text).
+  relatedText     String?    @map("related_text")
   title           String
   details         String?
   kind            TaskKind   @default(GENERAL)
