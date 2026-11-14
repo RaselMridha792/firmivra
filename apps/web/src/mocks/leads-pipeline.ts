@@ -13,6 +13,9 @@ import {
   ConfirmUploadRequest,
   CreateLeadFileRequest,
   CreateLeadTaskRequest,
+  DismissLeadDuplicateRequest,
+  MergeLeadsRequest,
+  type LeadDuplicatePair,
   EMAIL_SIGNATURE_MAX,
   type LeadActivity,
   LeadActivityQuery,
@@ -560,9 +563,23 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
   };
   const find = (id: string) => {
     const l = s.leads.find((x) => x.profile.id === id) ?? fromBeginOnline(id);
-    if (!l || !visible(l)) throw fail(404, 'NOT_FOUND', 'Not found');
+    // A merged lead stays archived but opens, read only (R2 15), as the API.
+    if (!l || !(visible(l) || (l.profile.mergedInto && reachable(l))))
+      throw fail(404, 'NOT_FOUND', 'Not found');
     return l;
   };
+  /** R2 15: pairs marked "Not a duplicate" (either order). */
+  const dismissed = new Set<string>();
+  const pairKey = (a: string, b: string) => [a, b].sort().join(':');
+  const digits = (v: string | null) => {
+    const d = (v ?? '').replace(/\D/g, '');
+    return d.length >= 7 ? d.slice(-10) : null;
+  };
+  const ref = (l: Lead) => ({
+    id: l.profile.id,
+    name: `${l.profile.firstName} ${l.profile.lastName}`.trim(),
+    number: l.profile.number,
+  });
   const view = (l: Lead): LeadProfile => ({
     ...copy({ ...l.profile, followUps: steps(l) }),
     // As the API: other open leads with this email or phone (warned and linked, never merged).
@@ -853,6 +870,73 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       }
       bump(l);
       return view(l);
+    },
+    // R2 15: possible duplicates among the open leads the member reaches, as the API.
+    duplicates: async () => {
+      await mockDelay();
+      const open = s.leads.filter((l) => visible(l) && l.profile.stage !== 'CONVERTED');
+      const items: LeadDuplicatePair[] = [];
+      for (let i = 0; i < open.length; i++) {
+        for (let j = i + 1; j < open.length; j++) {
+          const [x, y] = [open[i]!.profile, open[j]!.profile];
+          const reasons: LeadDuplicatePair['reasons'] = [];
+          if (x.email.toLowerCase() === y.email.toLowerCase()) reasons.push('EMAIL');
+          if (digits(x.phone) && digits(x.phone) === digits(y.phone)) reasons.push('PHONE');
+          if (
+            `${x.firstName} ${x.lastName}`.toLowerCase() ===
+            `${y.firstName} ${y.lastName}`.toLowerCase()
+          )
+            reasons.push('NAME');
+          if (reasons.length && !dismissed.has(pairKey(x.id, y.id)))
+            items.push({ leads: [toRow(open[i]!), toRow(open[j]!)], reasons });
+        }
+      }
+      return { items: items.slice(0, 100) };
+    },
+    dismissDuplicate: async (body) => {
+      await mockDelay();
+      const { leadId, otherLeadId } = parseInput(DismissLeadDuplicateRequest, body);
+      if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'Only an Owner or Admin can do this');
+      find(leadId);
+      find(otherLeadId);
+      dismissed.add(pairKey(leadId, otherLeadId));
+      return { ok: true as const };
+    },
+    merge: async (id, body) => {
+      await mockDelay();
+      const input = parseInput(MergeLeadsRequest, body);
+      if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'Only an Owner or Admin can merge leads');
+      const kept = find(id);
+      const merged = find(input.mergeLeadId);
+      for (const l of [kept, merged])
+        if (l.profile.archivedAt || l.profile.stage === 'CONVERTED')
+          throw fail(409, 'MERGE_NOT_ALLOWED', 'This lead cannot be merged');
+      const k = kept.profile;
+      const m = merged.profile;
+      const take = input.take as Partial<Record<string, string>>;
+      const from = (f: string) => take[f] === 'MERGED';
+      if (from('name')) Object.assign(k, { firstName: m.firstName, lastName: m.lastName });
+      if (from('businessName')) k.businessName = m.businessName;
+      if (from('email')) k.email = m.email;
+      if (from('phone')) k.phone = m.phone;
+      if (from('address')) k.address = m.address;
+      if (from('dateOfBirth')) k.dateOfBirth = m.dateOfBirth;
+      if (from('source')) Object.assign(k, { source: m.source, sourceDetail: m.sourceDetail });
+      if (from('priority')) k.priority = m.priority;
+      if (from('owner')) k.assignedTo = m.assignedTo;
+      k.tags = [...new Set([...k.tags, ...m.tags])];
+      k.services = [
+        ...k.services,
+        ...m.services.filter((x) => !k.services.some((y) => y.id === x.id)),
+      ];
+      const now = new Date().toISOString();
+      m.archivedAt = now;
+      m.mergedInto = ref(kept);
+      k.mergedFrom = [...(k.mergedFrom ?? []), ref(merged)];
+      log(kept, 'STATUS_CHANGED', `Merged from ${m.number}`);
+      log(merged, 'STATUS_CHANGED', `Merged into ${k.number}`);
+      bump(kept);
+      return view(kept);
     },
     bulk: async (body) => {
       await mockDelay();
