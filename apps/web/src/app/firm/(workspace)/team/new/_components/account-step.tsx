@@ -22,6 +22,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -200,6 +201,8 @@ function AccountForm({
   const router = useRouter();
   const options = useApiQuery(['staff', 'options'], () => api.staff.options());
   const o = options.data;
+  // Dashboard Review 2 (R2 NEW2): only the firm's Owner sets a member's number.
+  const owner = useFirm().role === 'OWNER';
   const [form, setForm] = useState<Form>(() => fromDraft(base));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [draftId, setDraftId] = useState(startDraft);
@@ -343,6 +346,8 @@ function AccountForm({
                 label="Phone Number (Optional)"
                 type="tel"
                 placeholder="(XXX) XXX-XXXX"
+                disabled={!owner}
+                hint={owner ? undefined : "Only the firm's Owner sets a member's phone."}
                 value={form.phone}
                 error={errors.phone}
                 onChange={(e) => set('phone', e.target.value)}

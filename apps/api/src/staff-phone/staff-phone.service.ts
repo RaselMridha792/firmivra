@@ -14,6 +14,32 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 export interface PhoneOwner {
   businessId: string;
   userId: string;
+  /** The member's role in this firm: only an Owner changes their own number (R2 NEW2). */
+  role: string;
+}
+
+/**
+ * The number this firm texts a member at (Dashboard Review 2, R2 NEW2): the firm's own number for
+ * them (memberships.phone, set by the Owner in Edit Staff) when there is one, else the person's
+ * own (users.phone). `firm` says which, for the verification it carries.
+ */
+export async function memberNumber(
+  db: Database,
+  businessId: string,
+  userId: string,
+): Promise<{ phone: string | null; verifiedAt: Date | null; firm: boolean }> {
+  const [member, login] = await Promise.all([
+    db.forBusiness(businessId).membership.findFirst({
+      where: { businessId, userId },
+      select: { phone: true, phoneVerifiedAt: true },
+    }),
+    db.forUser(userId).user.findFirst({
+      where: { id: userId },
+      select: { phone: true, phoneVerifiedAt: true },
+    }),
+  ]);
+  if (member?.phone) return { phone: member.phone, verifiedAt: member.phoneVerifiedAt, firm: true };
+  return { phone: login?.phone ?? null, verifiedAt: login?.phoneVerifiedAt ?? null, firm: false };
 }
 
 /**
@@ -39,6 +65,8 @@ const fail = (status: HttpStatus, code: string, message: string, extra: object =
 const ERRORS = {
   noPhone: () =>
     fail(HttpStatus.CONFLICT, 'NO_PHONE', 'You have no mobile number yet. Add it on My Profile.'),
+  ownerOnly: () =>
+    fail(HttpStatus.FORBIDDEN, 'FORBIDDEN', "Your firm's Owner changes your mobile number."),
   wait: (seconds: number) =>
     fail(
       HttpStatus.TOO_MANY_REQUESTS,
@@ -110,7 +138,7 @@ export class StaffPhoneService {
   }
 
   async state(owner: PhoneOwner): Promise<StaffPhoneState> {
-    const login = await this.login(owner.userId);
+    const login = await this.number(owner);
     const latest = await this.latest(owner);
     const now = Date.now();
     const verified = login.phone !== null && login.phoneVerifiedAt !== null;
@@ -127,6 +155,7 @@ export class StaffPhoneService {
       verifiedAt: verified ? (login.phoneVerifiedAt?.toISOString() ?? null) : null,
       codeSent: open,
       resendAt: !verified && resend > now ? new Date(resend).toISOString() : null,
+      canChange: owner.role === 'OWNER',
     };
   }
 
@@ -136,11 +165,21 @@ export class StaffPhoneService {
    * Audited without the number.
    */
   async setPhone(owner: PhoneOwner, phone: string | null): Promise<StaffPhoneState> {
-    const login = await this.login(owner.userId);
+    // R2 NEW2: an employee's number is the Owner's to set (Edit Staff); they only prove it.
+    if (owner.role !== 'OWNER') throw ERRORS.ownerOnly();
+    const login = await this.number(owner);
     if (login.phone !== phone) {
-      await this.db
-        .forUser(owner.userId)
-        .user.updateMany({ where: { id: owner.userId }, data: { phone } });
+      // The Owner's own: the firm's number for them when one was set, else their login's.
+      if (login.firm) {
+        await this.db.forBusiness(owner.businessId).membership.updateMany({
+          where: { businessId: owner.businessId, userId: owner.userId },
+          data: { phone },
+        });
+      } else {
+        await this.db
+          .forUser(owner.userId)
+          .user.updateMany({ where: { id: owner.userId }, data: { phone } });
+      }
       await this.audit.log(
         phone ? 'staff_phone.changed' : 'staff_phone.removed',
         { type: 'user', id: owner.userId },
@@ -152,7 +191,7 @@ export class StaffPhoneService {
 
   /** Texts a new code to the member's number, within the gap and the daily caps. */
   async sendCode(owner: PhoneOwner): Promise<StaffPhoneState> {
-    const login = await this.login(owner.userId);
+    const login = await this.number(owner);
     const target = login.phone;
     if (!target) throw ERRORS.noPhone();
     if (login.phoneVerifiedAt) return this.state(owner);
@@ -218,7 +257,7 @@ export class StaffPhoneService {
    */
   async verify(owner: PhoneOwner, code: string): Promise<StaffPhoneState> {
     const { businessId, userId } = owner;
-    const login = await this.login(userId);
+    const login = await this.number(owner);
     if (!login.phone) throw ERRORS.noPhone();
     if (login.phoneVerifiedAt) return this.state(owner);
     const latest = await this.latest(owner);
@@ -247,22 +286,25 @@ export class StaffPhoneService {
       if (!refusedByDatabase(e)) throw e;
     }
     if (used !== 1) throw ERRORS.invalid();
-    const marked = await this.db.forUser(userId).user.updateMany({
-      where: { id: userId, phone: latest.target },
-      data: { phoneVerifiedAt: new Date() },
-    });
+    // The number the code went to: the firm's for this member, or their own login's.
+    const marked = login.firm
+      ? await scope.membership.updateMany({
+          where: { businessId, userId, phone: latest.target },
+          data: { phoneVerifiedAt: new Date() },
+        })
+      : await this.db.forUser(userId).user.updateMany({
+          where: { id: userId, phone: latest.target },
+          data: { phoneVerifiedAt: new Date() },
+        });
     if (marked.count !== 1) throw ERRORS.changed();
     await this.audit.log('staff_phone.verified', { type: 'user', id: userId });
     return this.state(owner);
   }
 
-  private async login(userId: string) {
-    const user = await this.db.forUser(userId).user.findFirst({
-      where: { id: userId },
-      select: { phone: true, phoneVerifiedAt: true },
-    });
-    if (!user) throw new Error('staff phone: the signed-in login has no users row');
-    return user;
+  /** The number this firm texts the member at, with its verification (memberNumber). */
+  private async number(owner: PhoneOwner) {
+    const n = await memberNumber(this.db, owner.businessId, owner.userId);
+    return { phone: n.phone, phoneVerifiedAt: n.verifiedAt, firm: n.firm };
   }
 
   private latest({ businessId, userId }: PhoneOwner) {

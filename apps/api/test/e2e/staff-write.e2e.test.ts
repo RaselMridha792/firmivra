@@ -534,6 +534,67 @@ describe('Edit Staff', () => {
     );
   });
 
+  it("keeps the member's phone as the firm's own number, set by the Owner only (Dashboard Review 2, R2 NEW2)", async () => {
+    const v = async () =>
+      StaffDetail.parse(ok(await call('get', `/staff/${member.staffA}`, ownerA))).version;
+    // An Admin may not set or change it, at Edit Staff or Add Staff.
+    expectError(
+      await call('patch', `/staff/${member.staffA}`, adminA, {
+        version: await v(),
+        account: { phone: '(404) 555-0151' },
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('post', '/staff', adminA, {
+        idempotencyKey: randomUUID(),
+        account: account('admin-phone', { phone: '(404) 555-0152' }),
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    const saved = StaffDetail.parse(
+      ok(
+        await call('patch', `/staff/${member.staffA}`, ownerA, {
+          version: await v(),
+          account: { phone: '(404) 555-0151' },
+        }),
+      ),
+    );
+    expect(saved.phone).toBe('+14045550151');
+    // On the firm's membership; the person's own login keeps theirs.
+    const [m, login] = await Promise.all([
+      inFirm('a', (tx) =>
+        tx.membership.findFirstOrThrow({
+          where: { businessId: firms.a, id: member.staffA },
+          select: { phone: true, phoneVerifiedAt: true },
+        }),
+      ),
+      asOwner({ kind: 'platform' }, (tx) =>
+        tx.user.findUniqueOrThrow({ where: { id: staffA.id }, select: { phone: true } }),
+      ),
+    ]);
+    expect(m).toEqual({ phone: '+14045550151', phoneVerifiedAt: null });
+    expect(login.phone).not.toBe('+14045550151');
+    // What Edit Staff shows comes back unchanged with another edit, also from an Admin.
+    ok(
+      await call('patch', `/staff/${member.staffA}`, adminA, {
+        version: await v(),
+        account: { phone: '+14045550151', jobTitle: 'Preparer (fake)' },
+      }),
+    );
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, entityId: member.staffA, action: 'staff.updated' },
+        orderBy: { createdAt: 'desc' },
+        take: 2,
+      }),
+    );
+    expect(JSON.stringify(audit)).toContain('account.phone');
+    expect(JSON.stringify(audit)).not.toContain('5550151');
+  });
+
   it("refuses a change of the person's name or email, and roles the actor cannot give", async () => {
     const v = async () =>
       StaffDetail.parse(ok(await call('get', `/staff/${member.staffA}`, ownerA))).version;

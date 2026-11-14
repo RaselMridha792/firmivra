@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { MyProfileController, MyProfileService } from './my-profile.js';
 import { type PhoneOwner, StaffPhoneService } from './staff-phone.service.js';
 
 const emptyPipe = new ZodValidationPipe(z.strictObject({}));
@@ -19,7 +20,7 @@ function ownerOf(auth: AuthContext | undefined, tenant: TenantContext | undefine
   if (!auth || !tenant || tenant.kind === 'client') {
     throw new Error('staff phone routes need a signed-in member in a firm');
   }
-  return { businessId: tenant.businessId, userId: auth.userId };
+  return { businessId: tenant.businessId, userId: auth.userId, role: tenant.role };
 }
 
 /**
@@ -71,5 +72,8 @@ export class StaffPhoneController {
   }
 }
 
-@Module({ controllers: [StaffPhoneController], providers: [StaffPhoneService] })
+@Module({
+  controllers: [StaffPhoneController, MyProfileController],
+  providers: [StaffPhoneService, MyProfileService],
+})
 export class StaffPhoneModule {}
