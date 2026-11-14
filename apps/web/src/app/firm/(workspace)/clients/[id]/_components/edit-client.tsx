@@ -17,6 +17,7 @@ import { useApiMutation } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
 import { CLIENT_ERRORS, CLIENTS, formatPhone } from '../../_components/client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from '../../_components/duplicate-phone';
+import { zipStateWarning } from '../../_components/zip-state';
 
 const CONTACT_FIELDS = ['displayName', 'email', 'phone'] as const;
 const NAME_FIELDS = ['firstName', 'middleName', 'lastName', 'preferredName'] as const;
@@ -143,6 +144,8 @@ export function EditClient({
     { invalidate: CLIENTS },
   );
   const business = client.accountType === 'BUSINESS';
+  // Clients Review 2 (G10): a ZIP that doesn't match the state warns, never blocks.
+  const zipWarning = zipStateWarning(form.watch('postalCode') ?? '', form.watch('state') ?? '');
   const field = (name: keyof Values) => ({
     error: form.formState.errors[name]?.message,
     ...form.register(name),
@@ -295,6 +298,15 @@ export function EditClient({
             <Input label="City *" {...field('city')} />
             <Input label="State *" placeholder="GA" {...field('state')} />
             <Input label="ZIP code *" inputMode="numeric" {...field('postalCode')} />
+            {zipWarning ? (
+              <p
+                role="status"
+                data-testid="zip-warning"
+                className="text-sm text-warning sm:col-span-2"
+              >
+                {zipWarning}
+              </p>
+            ) : null}
           </fieldset>
           {business ? (
             <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party-fields">
@@ -309,7 +321,7 @@ export function EditClient({
           <fieldset className="grid gap-4">
             <legend className="mb-2 text-sm font-semibold text-text">Firm details</legend>
             <Input label="Referral source" {...field('referralSource')} />
-            <TextArea label="Notes" rows={3} {...field('additionalInfo')} />
+            <TextArea label="Additional Information" rows={3} {...field('additionalInfo')} />
           </fieldset>
           {save.error && !duplicateOf(save.error) ? (
             <p role="alert" className="text-sm text-danger">
