@@ -34,6 +34,7 @@ import {
   CalendarCheck,
   CheckCircle,
   ClockCountdown,
+  EnvelopeSimple,
   FileArrowUp,
   FileText,
   Files,
@@ -194,7 +195,9 @@ export function ReturnsScreen({
   const [pageSize, setPageSize] = useState(10);
   const [sort, setSort] = useState({ id: 'updated', descending: true });
   const [selected, setSelected] = useState<string[]>([]);
-  const [dialog, setDialog] = useState<'create' | 'import' | 'bulk' | 'efile' | 'bulk-assign'>();
+  const [dialog, setDialog] = useState<
+    'create' | 'import' | 'bulk' | 'efile' | 'mailing' | 'bulk-assign'
+  >();
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const notice: Notice = (text, tone) => setMessage({ text, tone });
   const act = useAct(notice);
@@ -757,6 +760,8 @@ export function ReturnsScreen({
                 { label: 'Import Return', icon: UploadSimple, on: () => setDialog('import') },
                 { label: 'Bulk Upload Returns', icon: FileArrowUp, on: () => setDialog('bulk') },
                 { label: 'Generate E-File Reports', icon: FileText, on: () => setDialog('efile') },
+                // TX-F27: every paper filing, with the date mailed, tracking and status.
+                { label: 'Mailing Report', icon: EnvelopeSimple, on: () => setDialog('mailing') },
                 { label: 'Archived Returns', icon: Archive, on: () => filter(setArchived)(true) },
                 ...(manager
                   ? [{ label: 'Print / Export List', icon: Printer, on: () => void exportList() }]
@@ -803,6 +808,12 @@ export function ReturnsScreen({
       ) : null}
       {dialog === 'efile' ? (
         <EfileReportDialog
+          year={year || (s ? String(s.taxYear) : '')}
+          onClose={() => setDialog(undefined)}
+        />
+      ) : null}
+      {dialog === 'mailing' ? (
+        <MailingReportDialog
           year={year || (s ? String(s.taxYear) : '')}
           onClose={() => setDialog(undefined)}
         />
@@ -901,6 +912,111 @@ const HELPFUL_LINKS = [
   { label: 'IRS Tax Information', href: 'https://www.irs.gov', external: true },
   { label: 'State Tax Agencies', href: 'https://www.taxadmin.org/fta-members', external: true },
 ];
+
+const csvCell = (v: string) => `"${(/^[=+\-@]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
+
+const PAPER_STATUS: Record<string, string> = {
+  NOT_FILED: 'Not mailed yet',
+  PAPER_FILED: 'Mailed',
+  TRANSMITTED: 'Transmitted',
+  ACCEPTED: 'Accepted',
+  REJECTED: 'Rejected',
+};
+
+/** TX-F27: the Mailing Report, one row per paper filing of the year, with Download CSV. */
+function MailingReportDialog({ year, onClose }: { year: string; onClose: () => void }) {
+  const report = useApiQuery([...TR_KEY, 'mailing', year], () =>
+    api.taxReturnWorkspace.mailingReport(year ? { taxYear: Number(year) } : {}),
+  );
+  const r = report.data;
+  const csv = r
+    ? [
+        ['Client', 'Return', 'Jurisdiction', 'Date mailed', 'Tracking number', 'Status'],
+        ...r.rows.map((x) => [
+          x.clientName,
+          x.filingType === 'BUSINESS' ? 'Business' : 'Individual',
+          x.jurisdiction === 'US' ? 'Federal' : x.jurisdiction,
+          x.paperFiledOn ?? '',
+          x.mailTrackingNumber ?? '',
+          PAPER_STATUS[x.status] ?? x.status,
+        ]),
+      ]
+        // Quoted, and a leading = + - @ made plain text, so a spreadsheet never runs it.
+        .map((row) => row.map(csvCell).join(','))
+        .join('\r\n')
+    : '';
+  return (
+    <Modal
+      open
+      title={`Mailing Report${r ? ` (${r.taxYear})` : ''}`}
+      subtitle="Paper filings: the date each return was mailed, its tracking number and status"
+      onClose={onClose}
+    >
+      <div className="flex flex-col gap-4" data-testid="mailing-report">
+        {report.isError ? (
+          <p role="alert" className={quiet}>
+            The report is not available right now. Try again in a moment.
+          </p>
+        ) : report.isPending ? (
+          <p className={quiet}>Loading…</p>
+        ) : !r || r.rows.length === 0 ? (
+          <p className={quiet}>No paper filings for this year.</p>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <caption className="sr-only">Paper filings</caption>
+                <thead className="bg-table-head">
+                  <tr>
+                    {['Client', 'Jurisdiction', 'Date Mailed', 'Tracking Number', 'Status'].map(
+                      (h) => (
+                        <th key={h} scope="col" className="px-2 py-2 font-medium">
+                          {h}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.rows.map((x) => (
+                    <tr
+                      key={`${x.taxReturnId}-${x.jurisdiction}`}
+                      className="border-b border-divider"
+                    >
+                      <td className="px-2 py-2">
+                        <Link
+                          href={`/tax-returns/${x.taxReturnId}/review#efile`}
+                          className={linkText}
+                        >
+                          {x.clientName}
+                        </Link>
+                      </td>
+                      <td className="px-2">
+                        {x.jurisdiction === 'US' ? 'Federal' : x.jurisdiction}
+                      </td>
+                      <td className="px-2">
+                        {x.paperFiledOn ? numericDay(`${x.paperFiledOn}T12:00:00Z`) : '—'}
+                      </td>
+                      <td className="px-2">{x.mailTrackingNumber ?? '—'}</td>
+                      <td className="px-2">{PAPER_STATUS[x.status] ?? x.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <a
+              href={`data:text/csv;charset=utf-8,${encodeURIComponent(`\uFEFF${csv}`)}`}
+              download={`mailing-report-${r.taxYear}.csv`}
+              className={`${linkText} text-sm font-medium`}
+            >
+              Download CSV
+            </a>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 /** Generate E-File Reports: transmissions by jurisdiction and the open rejections. */
 function EfileReportDialog({ year, onClose }: { year: string; onClose: () => void }) {

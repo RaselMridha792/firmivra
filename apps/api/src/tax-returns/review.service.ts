@@ -8,6 +8,7 @@ import {
 import type { Database, TxClient } from '@firmivra/db';
 import type {
   EfileReport,
+  MailingReport,
   TaxApprovalList,
   TaxAuthorizationList,
   TaxChecklist,
@@ -1111,6 +1112,62 @@ export class TaxReturnReviewService {
           order(a.jurisdiction).localeCompare(order(b.jurisdiction)),
         ),
         rejections,
+      };
+    });
+  }
+
+  /** TX-F27: the year's paper filings, record by record, newest mailed first; audited. */
+  async mailingReport(
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof EfileQ>,
+  ): Promise<MailingReport> {
+    const businessId = tenant.businessId;
+    return this.inFirm(tenant, async (tx) => {
+      const reach = returnReach(tenant, userId);
+      const latest = await tx.taxReturn.findFirst({
+        where: { AND: [{ businessId, archivedAt: null }, reach] },
+        orderBy: { taxYear: 'desc' },
+        select: { taxYear: true },
+      });
+      const taxYear = q.taxYear ?? latest?.taxYear ?? new Date().getUTCFullYear() - 1;
+      const filings = await tx.taxReturnFiling.findMany({
+        where: {
+          businessId,
+          filingMethod: 'PAPER',
+          taxReturn: { AND: [{ taxYear, archivedAt: null }, reach] },
+        },
+        orderBy: [{ paperFiledOn: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
+        take: 1000,
+        select: {
+          taxReturnId: true,
+          jurisdiction: true,
+          status: true,
+          paperFiledOn: true,
+          mailTrackingNumber: true,
+          taxReturn: {
+            select: { filingType: true, client: { select: { displayName: true } } },
+          },
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_returns.mailing_report_viewed',
+        { type: 'tax_return' },
+        { taxYear, rows: filings.length },
+        { businessId },
+      );
+      return {
+        taxYear,
+        rows: filings.map((f) => ({
+          taxReturnId: f.taxReturnId,
+          clientName: f.taxReturn.client.displayName,
+          filingType: f.taxReturn.filingType,
+          jurisdiction: f.jurisdiction,
+          status: f.status,
+          paperFiledOn: f.paperFiledOn ? f.paperFiledOn.toISOString().slice(0, 10) : null,
+          mailTrackingNumber: f.mailTrackingNumber,
+        })),
       };
     });
   }
