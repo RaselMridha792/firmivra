@@ -27,7 +27,7 @@ import {
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
 import { timelineOf } from './client-timeline';
-import { mockResolveTags } from './tags';
+import { mockFirmTags, mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
 import { serviceMockEngagements } from './service-engagements';
@@ -561,6 +561,9 @@ export function createClientsMock(
       if (req.action === 'ASSIGN' && req.assignedUserId && !assignee(req.assignedUserId)) {
         throw fail(404, 'NOT_FOUND', 'Not found');
       }
+      // E2 additions: a tag that is not one of the firm's live tags refuses the whole request.
+      const tag = req.action === 'TAG' ? mockFirmTags().find((t) => t.id === req.tagId) : undefined;
+      if (req.action === 'TAG' && !tag) throw fail(404, 'NOT_FOUND', 'Not found');
       const skipped: { clientId: string; code: string }[] = [];
       let updated = 0;
       for (const id of ids) {
@@ -571,6 +574,18 @@ export function createClientsMock(
             continue;
           }
           save({ ...row, assignedTo: assignee(req.assignedUserId), updatedAt: now() });
+        } else if (req.action === 'TAG' || req.action === 'STAGE') {
+          if (row.archivedAt) {
+            skipped.push({ clientId: id, code: 'CLIENT_ARCHIVED' });
+            continue;
+          }
+          if (req.action === 'TAG' && tag) {
+            const had = tags.get(row.id) ?? [];
+            if (!had.includes(tag.name)) tags.set(row.id, [...had, tag.name]);
+          } else if (req.action === 'STAGE') {
+            const n = Number(row.id.slice(-12));
+            work()[n] = { ...(work()[n] ?? noWork()), status: req.status };
+          }
         } else if (req.action === 'ARCHIVE') {
           if (!row.archivedAt) save({ ...row, archivedAt: now(), updatedAt: now() });
         } else {
@@ -597,16 +612,19 @@ export function createClientsMock(
       if (!roleCan(options.role ?? 'OWNER', 'CLIENTS', 'EXPORT')) {
         throw fail(403, 'FORBIDDEN', 'You do not have access to this action');
       }
-      const listed = await mock.list({ ...q, page: 1, limit: 100 });
+      // Export Selected: only the clients chosen, as the API.
+      const { clientIds, ...filters } = q;
+      const listed = await mock.list({ ...filters, page: 1, limit: 100 });
+      const items = clientIds ? listed.items.filter((c) => clientIds.includes(c.id)) : listed.items;
       const csv = [
         'Client,Type,Email',
-        ...listed.items.map((c) => `${c.displayName},${c.accountType},${c.email ?? ''}`),
+        ...items.map((c) => `${c.displayName},${c.accountType},${c.email ?? ''}`),
       ].join('\n');
       return {
         url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`,
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         fileName: 'clients.csv',
-        rowCount: listed.total,
+        rowCount: clientIds ? items.length : listed.total,
       };
     },
     // E4: the list's services as enrollments (the newest year's), plus a finished one for

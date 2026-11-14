@@ -43,6 +43,7 @@ import {
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type ExportBody = z.output<typeof ExportClientsRequest>;
+type BulkStage = Extract<z.output<typeof BulkClientsRequest>, { action: 'STAGE' }>['status'];
 type CreateBody = z.output<typeof CreateClientRequest>;
 type UpdateBody = z.output<typeof UpdateClientRequest>;
 type ProfileBody = z.output<typeof UpdateClientProfileRequest>;
@@ -286,6 +287,7 @@ export class ClientsService {
     actor: ClientsActor,
     q: ListQuery,
     audited = true,
+    onlyIds?: string[],
   ): Promise<ListClientsResponse> {
     if (actor.role === 'STAFF' && q.assignedUserId) throw forbidden();
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
@@ -343,6 +345,7 @@ export class ClientsService {
           : {},
       active ? { id: { in: active } } : {},
       owing ? { id: { in: owing } } : {},
+      onlyIds ? { id: { in: onlyIds } } : {},
       added?.start ? { createdAt: { gte: added.start } } : {},
       q.deadlineFrom || q.deadlineTo
         ? {
@@ -456,9 +459,24 @@ export class ClientsService {
     actor: ClientsActor,
     q: ExportBody,
   ): Promise<ClientExportLink> {
+    const { clientIds, ...filters } = q;
+    // Export Selected: each one a client the member reaches, or nothing is made.
+    const only = clientIds ? [...new Set(clientIds)] : undefined;
+    if (only) {
+      const reachable = await this.database.forBusiness(businessId).client.count({
+        where: { AND: [{ businessId, id: { in: only } }, this.reach(actor)] },
+      });
+      if (reachable !== only.length) throw notFound();
+    }
     const rows: string[][] = [];
     for (let page = 1; page <= 50; page++) {
-      const part = await this.list(businessId, actor, { ...q, page, limit: 100 }, false);
+      const part = await this.list(
+        businessId,
+        actor,
+        { ...filters, page, limit: 100 },
+        false,
+        only,
+      );
       for (const c of part.items) {
         rows.push([
           c.displayName,
@@ -790,12 +808,23 @@ export class ClientsService {
       const userId = body.assignedUserId;
       await this.inFirm(businessId, (tx) => this.activeMember(tx, businessId, userId));
     }
+    if (body.action === 'TAG') {
+      const tag = await this.database.forBusiness(businessId).tag.findFirst({
+        where: { businessId, id: body.tagId, archivedAt: null },
+        select: { id: true },
+      });
+      if (!tag) throw notFound();
+    }
     let updated = 0;
     const skipped: BulkClientsResponse['skipped'] = [];
     for (const id of ids) {
       try {
         if (body.action === 'ASSIGN') {
           await this.update(businessId, actor, id, { assignedUserId: body.assignedUserId });
+        } else if (body.action === 'TAG') {
+          await this.addTag(businessId, actor, id, body.tagId);
+        } else if (body.action === 'STAGE') {
+          await this.setStage(businessId, actor, id, body.status);
         } else {
           await this.setArchived(businessId, actor, id, body.action === 'ARCHIVE');
         }
@@ -812,6 +841,63 @@ export class ClientsService {
       { action: body.action, updated, skipped: skipped.length },
     );
     return { updated, skipped };
+  }
+
+  /**
+   * Bulk Add Tag (E2 additions): the tag joins the client's tags (one it has already is left as
+   * it is), audited as the client's tags set, as the client's own Tags card does. An archived
+   * client is skipped (CLIENT_ARCHIVED).
+   */
+  private async addTag(businessId: string, actor: ClientsActor, id: string, tagId: string) {
+    const added = await this.inFirm(businessId, async (tx) => {
+      const current = await this.findForChange(tx, businessId, actor, id);
+      if (current.archivedAt) throw archived();
+      const made = await tx.clientTag.createMany({
+        data: [{ businessId, clientId: current.id, tagId, addedByUserId: actor.userId }],
+        skipDuplicates: true,
+      });
+      return made.count;
+    });
+    if (added) {
+      await this.audit.log(
+        'client.tags_set',
+        { type: 'client', id },
+        { added, removed: 0, bulk: true },
+      );
+    }
+  }
+
+  /**
+   * Bulk Change Status (E2 additions): the client's stage, Inactive included. Audited as
+   * `client.updated` with the field, from and to, as Update Client Status (AU-F27) is, so the
+   * Status Changed trigger sees it. An archived client is skipped (CLIENT_ARCHIVED).
+   */
+  private async setStage(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    to: BulkStage,
+  ): Promise<void> {
+    await this.inFirm(businessId, async (tx) => {
+      const current = await this.findForChange(tx, businessId, actor, id);
+      if (current.archivedAt) throw archived();
+      const was = await tx.client.findUniqueOrThrow({
+        where: { businessId_id: { businessId, id: current.id } },
+        select: { status: true },
+      });
+      if (was.status === to) return;
+      await tx.client.update({
+        where: { businessId_id: { businessId, id: current.id } },
+        data: { status: to, updatedByUserId: actor.userId },
+      });
+      await this.audit.logIn(
+        tx,
+        'client.updated',
+        { type: 'client', id },
+        { fields: ['status'], from: was.status, to, bulk: true },
+        { businessId },
+      );
+    });
   }
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<ClientRecord> {

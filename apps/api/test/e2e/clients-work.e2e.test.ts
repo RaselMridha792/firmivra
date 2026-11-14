@@ -851,3 +851,104 @@ describe('POST /business/clients/export (E2 additions)', () => {
     expect(audit?.metadata).toEqual({ rows: 1, filters: ['search', 'status'] });
   });
 });
+
+describe('Bulk Add Tag, Change Status and Export Selected (E2 additions)', () => {
+  it("tags several clients, skipping an archived one; another firm's tag changes nothing", async () => {
+    const tag = await inFirm('a', (tx) =>
+      tx.tag.create({ data: { businessId: firms.a.id, name: `Fake bulk ${run}` } }),
+    );
+    const theirs = await inFirm('b', (tx) =>
+      tx.tag.create({ data: { businessId: firms.b.id, name: `Fake B ${run}` } }),
+    );
+    const clients = await inFirm('a', (tx) =>
+      tx.client.findMany({
+        where: { businessId: firms.a.id, displayName: { startsWith: 'Filter' } },
+        select: { id: true },
+        orderBy: { displayName: 'asc' },
+      }),
+    );
+    const [a, b] = clients.map((c) => c.id) as [string, string];
+    const refused = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a],
+      tagId: theirs.id,
+    });
+    expect(refused.status).toBe(404);
+    const res = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a, b, ids.w3],
+      tagId: tag.id,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(BulkClientsResponse.parse(res.body)).toEqual({
+      updated: 2,
+      skipped: [{ clientId: ids.w3, code: 'CLIENT_ARCHIVED' }],
+    });
+    const tagged = await inFirm('a', (tx) =>
+      tx.clientTag.findMany({ where: { tagId: tag.id }, select: { clientId: true } }),
+    );
+    expect(tagged.map((t) => t.clientId).sort()).toEqual([a, b].sort());
+    // Again: nothing new to add, nothing written twice.
+    await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a],
+      tagId: tag.id,
+    });
+    const logs = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'client.tags_set', entityId: a },
+        select: { metadata: true },
+      }),
+    );
+    expect(logs.filter((l) => (l.metadata as { bulk?: boolean }).bulk)).toHaveLength(1);
+  });
+
+  it('sets the stage of several clients, audited from and to; Staff may not', async () => {
+    const [x, y] = (
+      await inFirm('a', (tx) =>
+        tx.client.findMany({
+          where: { businessId: firms.a.id, displayName: { startsWith: 'Filter' } },
+          select: { id: true },
+          orderBy: { displayName: 'asc' },
+        }),
+      )
+    ).map((c) => c.id) as [string, string];
+    const res = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'STAGE',
+      clientIds: [x, y],
+      status: 'INACTIVE',
+    });
+    expect(BulkClientsResponse.parse(res.body)).toEqual({ updated: 2, skipped: [] });
+    const rows = await inFirm('a', (tx) =>
+      tx.client.findMany({ where: { id: { in: [x, y] } }, select: { status: true } }),
+    );
+    expect(rows.map((r) => r.status)).toEqual(['INACTIVE', 'INACTIVE']);
+    const [entry] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'client.updated', entityId: x },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(entry?.metadata).toMatchObject({ fields: ['status'], to: 'INACTIVE', bulk: true });
+    const staff = await call('post', '/bulk', people.staffA, 'a', {
+      action: 'STAGE',
+      clientIds: [ids.w1],
+      status: 'ACTIVE',
+    });
+    expect(staff.status).toBe(403);
+  });
+
+  it("exports only the clients chosen; another firm's refuses the export", async () => {
+    const res = await call('post', '/export', people.ownerA, 'a', {
+      status: 'all',
+      clientIds: [ids.w1, ids.w2],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(ClientExportLink.parse(res.body).rowCount).toBe(2);
+    const refused = await call('post', '/export', people.ownerA, 'a', {
+      clientIds: [ids.w1, ids.b1],
+    });
+    expect(refused.status).toBe(404);
+  });
+});
