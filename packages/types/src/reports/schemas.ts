@@ -573,6 +573,8 @@ export type ReportsDashboard = z.infer<typeof ReportsDashboard>;
 /** GET /business/reports/recent ("View All"): the caller's own and the shared reports opened lately. */
 export const RecentReportsQuery = z.strictObject({
   category: ReportCategory.optional(),
+  /** C18 (Tax Planning Review 2): one service area's reports by their data source (`tax_plans`). */
+  dataSource: ReportSourceKey.optional(),
   kind: ReportRunKind.optional(),
   search: SearchText.optional(),
   sort: z.enum(['at', 'name', 'category']).optional().default('at'),
@@ -622,6 +624,8 @@ export type SavedReportDetail = z.infer<typeof SavedReportDetail>;
 
 export const SavedReportsQuery = z.strictObject({
   category: ReportCategory.optional(),
+  /** C18 (Tax Planning Review 2): one service area's reports by their data source (`tax_plans`). */
+  dataSource: ReportSourceKey.optional(),
   /** `mine`: the caller's; `shared`: shared with them; `favorites`; `all`: all they may open. */
   tab: z.enum(['all', 'mine', 'shared', 'favorites']).optional().default('all'),
   includeArchived: z.union([z.boolean(), z.stringbool()]).optional(),

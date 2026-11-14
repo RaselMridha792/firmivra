@@ -152,6 +152,7 @@ function buildRows(empty: boolean) {
     team: [],
     team_members: [],
     advisory: [],
+    tax_plans: [],
   };
   if (empty) return rows;
   const today = Date.now();
@@ -277,6 +278,18 @@ function buildRows(empty: boolean) {
       goalsOpen: 2 + (i % 4),
       status: ['Active', 'Draft'][i % 2]!,
       startedAt: at(i * 20),
+    });
+  }
+  // C18 (Tax Planning Review 2): the Tax Planning service area's plans, as the API's tax_plans.
+  for (let i = 0; i < 8; i += 1) {
+    rows.tax_plans!.push({
+      client: NAMES[i % NAMES.length]!,
+      plan: `${new Date().getUTCFullYear()} Tax Plan`,
+      planYear: new Date().getUTCFullYear(),
+      status: ['IN_PROGRESS', 'AWAITING_CLIENT', 'CLIENT_APPROVED', 'DRAFT'][i % 4]!,
+      assignedTo: STAFF[i % STAFF.length]!,
+      projectedSavings: (2000 + i * 750) * 100,
+      updatedOn: at(i * 9),
     });
   }
   return rows;
@@ -671,6 +684,30 @@ function sources(): Record<string, SourceDef> {
       // A roster, not a period: no date to range by (as the API).
       { dateField: null, supportsComparison: false },
     ),
+    tax_plans: def(
+      'tax_plans',
+      'TAX',
+      'Tax planning plans',
+      'Planning plans by status, year and staff, with their projected (estimated) savings.',
+      [
+        fld('client', 'Client', 'TEXT', { locked: true }),
+        fld('plan', 'Plan', 'TEXT'),
+        fld('planYear', 'Plan Year', 'NUMBER', { aggregatable: false, groupable: true }),
+        fld('status', 'Status', 'STATUS', {
+          options: opts('DRAFT', 'IN_PROGRESS', 'AWAITING_CLIENT', 'CLIENT_APPROVED'),
+        }),
+        fld('assignedTo', 'Assigned To', 'TEXT'),
+        fld('projectedSavings', 'Projected Savings (estimated)', 'MONEY'),
+        fld('updatedOn', 'Last Changed', 'DATE'),
+      ],
+      ['client', 'plan', 'planYear', 'status', 'assignedTo', 'projectedSavings'],
+      'updatedOn',
+      'projectedSavings',
+      'status',
+      '# of Plans',
+      [m('tp-savings', 'Projected Savings', (r) => sum(r, 'projectedSavings'), 'MONEY')],
+      { supportsComparison: false },
+    ),
     advisory: def(
       'advisory',
       'ADVISORY',
@@ -750,6 +787,25 @@ const SYSTEM: {
     source: 'returns',
     groupBy: 'status',
     columns: ['status', 'refund'],
+  },
+  // C18 (Tax Planning Review 2): the Tax Planning service area's quick reports.
+  {
+    key: 'tax_plan_savings',
+    name: 'Projected Savings by Plan',
+    description: 'Each planning plan with its status and projected (estimated) savings.',
+    category: 'TAX',
+    source: 'tax_plans',
+    groupBy: null,
+    columns: ['client', 'plan', 'planYear', 'status', 'assignedTo', 'projectedSavings'],
+    showTotals: true,
+  },
+  {
+    key: 'tax_plans_by_status',
+    name: 'Planning Plans by Status',
+    description: 'Planning plans by status, with their projected savings.',
+    category: 'TAX',
+    source: 'tax_plans',
+    groupBy: 'status',
   },
   {
     key: 'bookkeeping-status',
@@ -1716,6 +1772,12 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
           .filter(
             (r) =>
               (!query.category || r.category === query.category) &&
+              // C18: one service area's runs, by their report's data source.
+              (!query.dataSource ||
+                (r.systemKey
+                  ? SYSTEM.find((x) => x.key === r.systemKey)?.source
+                  : savedReports.find((x) => x.id === r.savedReportId)?.dataSource) ===
+                  query.dataSource) &&
               (!query.kind || r.kind === query.kind) &&
               (!term || r.name.toLowerCase().includes(term)),
           )
@@ -1738,6 +1800,7 @@ export function createReportsMock({ role = 'OWNER', empty = false }: Options = {
             (r) =>
               (query.includeArchived ? true : !r.archived) &&
               (!query.category || r.category === query.category) &&
+              (!query.dataSource || r.dataSource === query.dataSource) &&
               (query.tab !== 'favorites' || r.favorite) &&
               (!query.updatedWithinDays ||
                 Date.parse(r.updatedAt) >= Date.now() - query.updatedWithinDays * 86_400_000) &&

@@ -901,7 +901,9 @@ export class ReportsService {
       orderBy: { createdAt: 'desc' },
       take: 500,
       include: {
-        definition: { select: { id: true, name: true, category: true, ownerUserId: true } },
+        definition: {
+          select: { id: true, name: true, category: true, ownerUserId: true, dataSource: true },
+        },
       },
     });
     const names = await memberNames(
@@ -909,8 +911,20 @@ export class ReportsService {
       businessId,
       rows.map((r) => r.requestedByUserId),
     );
+    const sourceOfRun = new Map<string, string | null>();
     const mapped = rows.flatMap((r) => {
-      const snap = (r.definitionSnapshot ?? {}) as { title?: string; category?: string };
+      const snap = (r.definitionSnapshot ?? {}) as {
+        title?: string;
+        category?: string;
+        dataSource?: string;
+      };
+      sourceOfRun.set(
+        r.id,
+        r.definition?.dataSource ??
+          snap.dataSource ??
+          systemReport(r.systemKey ?? '')?.dataSource ??
+          null,
+      );
       const name = r.definition?.name ?? snap.title ?? 'Report';
       const category = (r.definition?.category ??
         snap.category ??
@@ -933,6 +947,7 @@ export class ReportsService {
     });
     const filtered = mapped
       .filter((m) => !q.category || m.category === q.category)
+      .filter((m) => !q.dataSource || sourceOfRun.get(m.runId) === q.dataSource)
       .filter((m) => !q.search || m.name.toLowerCase().includes(q.search.toLowerCase()));
     const dir = q.direction === 'asc' ? 1 : -1;
     filtered.sort(
