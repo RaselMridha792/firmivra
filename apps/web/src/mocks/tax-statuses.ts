@@ -6,6 +6,7 @@ import {
   RenameTaxStatusRequest,
   TaxStatus,
   TaxStatusId,
+  type TaxReturnWorkflowStatus,
   type TaxStatusesClient,
 } from '@firmivra/types';
 
@@ -16,13 +17,19 @@ import {
  * the real API.
  */
 const at = '2026-10-06T09:00:00.000Z';
-const fixture = (n: number, name: string, archived = false): TaxStatus =>
+const fixture = (
+  n: number,
+  name: string,
+  archived = false,
+  workflowStatus: TaxReturnWorkflowStatus | null = null,
+): TaxStatus =>
   // Parsed, so a fixture that breaks the contract fails on first use.
   TaxStatus.parse({
     id: `0199b6a0-0000-7000-8000-${String(n).padStart(12, '0')}`,
     name,
     sortOrder: n - 1,
     archivedAt: archived ? at : null,
+    workflowStatus,
     createdAt: at,
     updatedAt: at,
   });
@@ -32,12 +39,13 @@ let fixtures: readonly TaxStatus[] | undefined;
 /** Six active statuses and one archived. Built on first use: importing this file runs nothing. */
 export function taxStatusFixtures(): readonly TaxStatus[] {
   fixtures ??= [
-    fixture(1, 'Waiting for documents'),
-    fixture(2, 'Documents received'),
-    fixture(3, 'In preparation'),
-    fixture(4, 'Ready for review'),
-    fixture(5, 'Filed'),
-    fixture(6, 'Accepted'),
+    // Review 2 (TX-F36): the seeded mapping (SEED_TAX_STATUS_MAP).
+    fixture(1, 'Waiting for documents', false, 'WAITING_ON_CLIENT'),
+    fixture(2, 'Documents received', false, 'IN_PREPARATION'),
+    fixture(3, 'In preparation', false, 'IN_PREPARATION'),
+    fixture(4, 'Ready for review', false, 'READY_FOR_REVIEW'),
+    fixture(5, 'Filed', false, 'TRANSMITTED'),
+    fixture(6, 'Accepted', false, 'ACCEPTED'),
     fixture(7, 'Extension filed', true),
   ];
   return fixtures;
@@ -91,7 +99,7 @@ export function createTaxStatusesMock(
     create: async (body) => {
       await pause();
       canChange();
-      const { name } = parseInput(CreateTaxStatusRequest, body);
+      const { name, workflowStatus = null } = parseInput(CreateTaxStatusRequest, body);
       unique(name);
       if (rows.length >= 500) {
         throw fail(
@@ -106,6 +114,7 @@ export function createTaxStatusesMock(
         name,
         sortOrder: last + 1,
         archivedAt: null,
+        workflowStatus,
         createdAt: now(),
         updatedAt: now(),
       };
@@ -115,10 +124,15 @@ export function createTaxStatusesMock(
     rename: async (id, body) => {
       await pause();
       canChange();
-      const { name } = parseInput(RenameTaxStatusRequest, body);
+      const { name, workflowStatus } = parseInput(RenameTaxStatusRequest, body);
       const row = find(id);
-      unique(name, row.id);
-      return replace({ ...row, name, updatedAt: now() });
+      if (name !== undefined) unique(name, row.id);
+      return replace({
+        ...row,
+        ...(name !== undefined ? { name } : {}),
+        ...(workflowStatus !== undefined ? { workflowStatus } : {}),
+        updatedAt: now(),
+      });
     },
     reorder: async (ids) => {
       await pause();

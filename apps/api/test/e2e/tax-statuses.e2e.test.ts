@@ -286,6 +286,49 @@ describe('create, rename, reorder, archive', () => {
     }
   });
 
+  it('Review 2 (TX-F36): maps a label to a workflow status on create or later, or to none', async () => {
+    const made = await call('post', '', people.ownerA, firms.a.id, {
+      name: 'Fake: with the preparer',
+      workflowStatus: 'IN_PREPARATION',
+    });
+    const row = TaxStatus.parse(made.body);
+    expect([made.status, row.workflowStatus]).toEqual([201, 'IN_PREPARATION']);
+    const bad = await call('patch', `/${row.id}`, people.ownerA, firms.a.id, {
+      workflowStatus: 'SOMEWHERE',
+    });
+    expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
+    const empty = await call('patch', `/${row.id}`, people.ownerA, firms.a.id, {});
+    expect(empty.status).toBe(400);
+    const staff = await call('patch', `/${row.id}`, people.staffA, firms.a.id, {
+      workflowStatus: null,
+    });
+    expect(staff.status).toBe(403);
+    const remapped = await call('patch', `/${row.id}`, people.adminA, firms.a.id, {
+      workflowStatus: 'READY_FOR_REVIEW',
+    });
+    expect(TaxStatus.parse(remapped.body)).toMatchObject({
+      name: 'Fake: with the preparer',
+      workflowStatus: 'READY_FOR_REVIEW',
+    });
+    const none = await call('patch', `/${row.id}`, people.ownerA, firms.a.id, {
+      workflowStatus: null,
+    });
+    expect(TaxStatus.parse(none.body).workflowStatus).toBeNull();
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const mapped = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'tax_status.mapped', entityId: row.id },
+        orderBy: { createdAt: 'asc' },
+        select: { metadata: true },
+      }),
+    );
+    await owner.$disconnect();
+    expect(mapped.map((m) => m.metadata)).toEqual([
+      { from: 'IN_PREPARATION', to: 'READY_FOR_REVIEW' },
+      { from: 'READY_FOR_REVIEW', to: null },
+    ]);
+  });
+
   it('audits each change without the names', async () => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>

@@ -104,6 +104,8 @@ export const detailSelect = {
   filedOn: true,
   firstFiledAt: true,
   filedTaxYear: true,
+  extensionFiledOn: true,
+  extendedDueOn: true,
   createdAt: true,
   // A business return's own copy of the business (#1176); the sealed EIN is never read here.
   businessName: true,
@@ -242,6 +244,8 @@ export function toDetail(
     filedOn: day(r.filedOn),
     firstFiledAt: r.firstFiledAt?.toISOString() ?? null,
     filedTaxYear: r.filedTaxYear,
+    extensionFiledOn: day(r.extensionFiledOn),
+    extendedDueOn: day(r.extendedDueOn),
     document: r.document,
     canMoveTo: canMoveTo(r.workflowStatus),
     blockers: blockersOf(r),
@@ -282,6 +286,10 @@ function causeOf(error: unknown): { code?: string; message: string } {
 export function workspaceRefusal(error: unknown): HttpException | undefined {
   const { code, message } = causeOf(error);
   if (code !== '23514') return undefined;
+  // Review 2: an extension's new deadline stays after the due date (also when the due date moves).
+  if (message.includes('tax_returns_extension')) {
+    return invalid('The extended deadline must be after the due date', 'dueOn');
+  }
   if (message.includes('moving back a step needs a reason')) {
     return new BadRequestException({
       code: 'REASON_REQUIRED',

@@ -66,6 +66,14 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'appointment.booked': appointment,
   'appointment.changed': appointment,
   'appointment.reminder': appointment,
+  'appointment.cancelled': {
+    name: 'Robin Example',
+    title: 'Tax review',
+    startsAt: new Date('2026-10-20T14:30:00Z'),
+    timeZone: 'America/Chicago',
+    link,
+    reason: 'The office is closed that day.',
+  },
   'project-deadline.reminder': {
     name: 'Sam Staff',
     title: 'Finish the 2027 planning projections',

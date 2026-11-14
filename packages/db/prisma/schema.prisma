@@ -1154,40 +1154,41 @@ model Membership {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business                  Business               @relation(fields: [businessId], references: [id])
-  user                      User                   @relation(fields: [userId], references: [id])
-  customRole                CustomRole?            @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
-  invites                   Invite[]
+  business                   Business                   @relation(fields: [businessId], references: [id])
+  user                       User                       @relation(fields: [userId], references: [id])
+  customRole                 CustomRole?                @relation(fields: [businessId, customRoleId], references: [businessId, id], onDelete: Restrict)
+  invites                    Invite[]
   // R1 (Oct 21): Locations and secure links.
-  officesManaged            FirmOffice[]           @relation("FirmOfficeManager")
-  officeActionsAbout        FirmOfficeAction[]     @relation("FirmOfficeActionManager")
-  officeActionsNewManager   FirmOfficeAction[]     @relation("FirmOfficeActionNewManager")
-  officeActionsCreated      FirmOfficeAction[]     @relation("FirmOfficeActionCreatedBy")
-  officeActionsUpdated      FirmOfficeAction[]     @relation("FirmOfficeActionUpdatedBy")
-  documentLinksCreated      DocumentLink[]         @relation("DocumentLinkCreatedBy")
-  documentLinksReceived     DocumentLink[]         @relation("DocumentLinkRecipient")
-  assignedClients           Client[]
-  assignedEngagements       Engagement[]           @relation("EngagementAssignee")
-  pausedEngagements         Engagement[]           @relation("EngagementPausedBy")
-  clientLinksCreated        ClientLink[]           @relation("ClientLinkCreatedBy")
-  assignedTasks             Task[]
-  workingHours              WorkingHours[]
-  blockedTimes              BlockedTime[]
-  appointments              Appointment[]
-  appointmentAttendeesAdded AppointmentAttendee[]
-  invoicesCreated           Invoice[]
-  invoicesAssigned          Invoice[]              @relation("InvoiceAssignedTo")
-  paymentSettingsChanged    PaymentSettings[]
-  invoiceEvents             InvoiceEvent[]
-  invoicesArchived          InvoiceTracking[]
-  contentCreated            ContentItem[]
-  agreementsCreated         FirmAgreement[]
-  agreementFiles            FirmAgreementFile[]
-  agreementVersions         FirmAgreementVersion[]
-  taskCollaborations        TaskAssignee[]
-  checklistAssigned         TaskChecklistItem[]
-  taskTemplates             TaskTemplate[]
-  taskSeries                TaskSeries[]
+  officesManaged             FirmOffice[]               @relation("FirmOfficeManager")
+  officeActionsAbout         FirmOfficeAction[]         @relation("FirmOfficeActionManager")
+  officeActionsNewManager    FirmOfficeAction[]         @relation("FirmOfficeActionNewManager")
+  officeActionsCreated       FirmOfficeAction[]         @relation("FirmOfficeActionCreatedBy")
+  officeActionsUpdated       FirmOfficeAction[]         @relation("FirmOfficeActionUpdatedBy")
+  documentLinksCreated       DocumentLink[]             @relation("DocumentLinkCreatedBy")
+  documentLinksReceived      DocumentLink[]             @relation("DocumentLinkRecipient")
+  assignedClients            Client[]
+  assignedEngagements        Engagement[]               @relation("EngagementAssignee")
+  pausedEngagements          Engagement[]               @relation("EngagementPausedBy")
+  clientLinksCreated         ClientLink[]               @relation("ClientLinkCreatedBy")
+  assignedTasks              Task[]
+  workingHours               WorkingHours[]
+  blockedTimes               BlockedTime[]
+  appointments               Appointment[]
+  appointmentAttendeesAdded  AppointmentAttendee[]
+  appointmentWaitlistDecided AppointmentWaitlistEntry[]
+  invoicesCreated            Invoice[]
+  invoicesAssigned           Invoice[]                  @relation("InvoiceAssignedTo")
+  paymentSettingsChanged     PaymentSettings[]
+  invoiceEvents              InvoiceEvent[]
+  invoicesArchived           InvoiceTracking[]
+  contentCreated             ContentItem[]
+  agreementsCreated          FirmAgreement[]
+  agreementFiles             FirmAgreementFile[]
+  agreementVersions          FirmAgreementVersion[]
+  taskCollaborations         TaskAssignee[]
+  checklistAssigned          TaskChecklistItem[]
+  taskTemplates              TaskTemplate[]
+  taskSeries                 TaskSeries[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -3132,6 +3133,7 @@ model Client {
   appointments                   Appointment[]
   /// R55 (Appointments A1): the group appointments this client attends (not as the primary).
   appointmentAttendances         AppointmentAttendee[]
+  appointmentWaitlistEntries     AppointmentWaitlistEntry[]
   messageThreads                 MessageThread[]
   invoices                       Invoice[]
   taxReturns                     TaxReturn[]
@@ -4423,9 +4425,11 @@ model Appointment {
   series     AppointmentSeries?    @relation(fields: [businessId, seriesId], references: [businessId, id], onDelete: Restrict)
   type       AppointmentType?      @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
 
-  intakes   Intake[]
+  intakes         Intake[]
   /// R55 (Appointments A1): the other clients in this appointment.
-  attendees AppointmentAttendee[]
+  attendees       AppointmentAttendee[]
+  /// R55 (Appointments A3): the client's requests for an earlier time.
+  waitlistEntries AppointmentWaitlistEntry[]
 
   @@unique([businessId, idempotencyKey])
   // Target of the reminders' same-firm foreign key.
@@ -12380,20 +12384,83 @@ model AvailabilityOverride {
 /// The firm's Appointments settings: booking limits and buffers every type starts from, and the
 /// master email that gets a copy of appointment notices. Empty means none.
 model AppointmentSettings {
-  businessId              String   @id @map("business_id") @db.Uuid
-  defaultBufferMinutes    Int      @default(0) @map("default_buffer_minutes")
-  bookingMinNoticeMinutes Int      @default(0) @map("booking_min_notice_minutes")
-  bookingMaxAdvanceDays   Int?     @map("booking_max_advance_days")
+  businessId              String                  @id @map("business_id") @db.Uuid
+  defaultBufferMinutes    Int                     @default(0) @map("default_buffer_minutes")
+  bookingMinNoticeMinutes Int                     @default(0) @map("booking_min_notice_minutes")
+  bookingMaxAdvanceDays   Int?                    @map("booking_max_advance_days")
   /// A copy of confirmations, changes and cancellations goes here.
-  copyEmail               String?  @map("copy_email")
-  copyEnabled             Boolean  @default(true) @map("copy_enabled")
-  copyReminders           Boolean  @default(false) @map("copy_reminders")
-  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  copyEmail               String?                 @map("copy_email")
+  copyEnabled             Boolean                 @default(true) @map("copy_enabled")
+  copyReminders           Boolean                 @default(false) @map("copy_reminders")
+  createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// R55 (Appointments A3, approved by the lead under Rasel's delegation, Nov 15): clients may
+  /// wait for an earlier time; off by default.
+  waitlistEnabled         Boolean                 @default(false) @map("waitlist_enabled")
+  /// What a client's request for an offered earlier time does: one mode at a time.
+  waitlistMode            AppointmentWaitlistMode @default(STAFF_APPROVAL) @map("waitlist_mode")
 
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("appointment_settings")
+}
+
+/// R55 (Appointments A3): what a client's request for an offered earlier time does.
+enum AppointmentWaitlistMode {
+  /// The appointment moves at once (after the time is checked again).
+  AUTO_CONFIRM
+  /// Staff approve the move; the original time stands until they do.
+  STAFF_APPROVAL
+}
+
+/// R55 (Appointments A3): where a waitlist entry is.
+enum AppointmentWaitlistStatus {
+  /// Waiting for an earlier opening.
+  WAITING
+  /// An earlier time is offered to this entry (held for it alone until the offer ends).
+  OFFERED
+  /// The client asked for the offered time; staff decide (STAFF_APPROVAL).
+  REQUESTED
+  /// The appointment moved to the offered time.
+  MOVED
+  /// The client turned the offer down.
+  DECLINED
+  /// The offer ran out unanswered.
+  EXPIRED
+  /// The client left the waitlist.
+  LEFT
+  /// Staff turned the request down.
+  REJECTED
+}
+
+/// R55 (Appointments A3, approved by the lead under Rasel's delegation, Nov 15): a client's
+/// request for an earlier time for one of their scheduled appointments. One live entry (WAITING,
+/// OFFERED or REQUESTED) per appointment. An offer names an earlier time; the appointment itself
+/// moves only when the entry is MOVED, so the original time stands until the new one is confirmed.
+model AppointmentWaitlistEntry {
+  id              String                    @id @default(uuid(7)) @db.Uuid
+  businessId      String                    @map("business_id") @db.Uuid
+  appointmentId   String                    @map("appointment_id") @db.Uuid
+  clientId        String                    @map("client_id") @db.Uuid
+  status          AppointmentWaitlistStatus @default(WAITING)
+  offeredStartsAt DateTime?                 @map("offered_starts_at") @db.Timestamptz(3)
+  offeredEndsAt   DateTime?                 @map("offered_ends_at") @db.Timestamptz(3)
+  offeredAt       DateTime?                 @map("offered_at") @db.Timestamptz(3)
+  offerExpiresAt  DateTime?                 @map("offer_expires_at") @db.Timestamptz(3)
+  requestedAt     DateTime?                 @map("requested_at") @db.Timestamptz(3)
+  decidedAt       DateTime?                 @map("decided_at") @db.Timestamptz(3)
+  decidedByUserId String?                   @map("decided_by_user_id") @db.Uuid
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Cascade)
+  client      Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  decidedBy   Membership? @relation(fields: [businessId, decidedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@index([businessId, clientId])
+  @@index([businessId, appointmentId])
+  @@map("appointment_waitlist_entries")
 }
 
 enum ClientStatus {

@@ -198,6 +198,7 @@ export const TR_ERRORS: Record<string, string> = {
   REASON_REQUIRED: 'Say why the return goes back a step.',
   REJECTION_NOT_RECORDED:
     "Record the agency's rejection of a transmission first, on the E-File page.",
+  RETURN_FILED: 'The return is filed; an extension is for a return not filed yet.',
   RETURN_LOCKED: 'A filed return, a transmission or a decided approval does not change.',
   ATTEMPT_PENDING: 'Record the answer to the last transmission first.',
   FILING_IN_USE: 'A jurisdiction with transmissions stays on the return.',

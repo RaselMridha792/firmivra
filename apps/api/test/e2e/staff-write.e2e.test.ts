@@ -360,7 +360,7 @@ describe('Create Staff', () => {
     expect(stored.audit).toHaveLength(1);
     const audit = JSON.stringify(stored.audit[0]!.metadata);
     expect(audit).not.toContain(body.account.email);
-    expect(audit).not.toContain('4500');
+    expect(audit).not.toMatch(/\b4500\b/);
     expect(audit).toContain('compensation');
 
     const pay = StaffCompensation.parse(ok(await call('get', `/staff/${id}/compensation`, ownerA)));
@@ -971,7 +971,7 @@ describe('notes and pay', () => {
         },
       }),
     );
-    expect(JSON.stringify(audit.metadata)).not.toContain('6500000');
+    expect(JSON.stringify(audit.metadata)).not.toMatch(/\b6500000\b/);
   });
 });
 

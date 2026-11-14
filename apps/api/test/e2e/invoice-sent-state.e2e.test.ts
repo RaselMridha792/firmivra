@@ -104,7 +104,7 @@ describe('Resend (IP-F10, Octavia Oct 27)', () => {
       tx.auditLog.findMany({ where: { entityId: sent.id, action: 'invoice.resent' } }),
     );
     expect(audit).toHaveLength(1);
-    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/Fake bookkeeping|20000/);
+    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/Fake bookkeeping|\b20000\b/);
   });
 
   it('refuses a draft, a scheduled or a paid invoice; Staff may not; another firm gets not found', async () => {

@@ -1,5 +1,6 @@
 'use client';
 
+import { type ManageAction, ManageDialog, manageItems, useManager } from './form-manage';
 import {
   ArrowRight,
   CheckCircle,
@@ -447,13 +448,19 @@ function FormRowActions({
   row,
   onResend,
   onRemind,
+  onNotice,
 }: {
   row: AssignedFormRow;
   onResend: (row: AssignedFormRow) => void;
   onRemind: (row: AssignedFormRow) => void;
+  onNotice: (message: string, tone?: 'success' | 'error') => void;
 }) {
   const router = useRouter();
   const canSendAgain = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(row.status);
+  // USABILITY-03: Assign Staff, Extend Expiration, Duplicate and Archive, where permitted.
+  const manager = useManager();
+  const [managing, setManaging] = useState<ManageAction>();
+  const manage = manageItems(row, manager, setManaging);
   return (
     <>
       <IconButton
@@ -495,8 +502,17 @@ function FormRowActions({
                 : []),
             ],
           },
+          ...(manage.length > 0 ? [{ items: manage }] : []),
         ]}
       />
+      {managing ? (
+        <ManageDialog
+          action={managing}
+          row={row}
+          onClose={() => setManaging(undefined)}
+          notify={onNotice}
+        />
+      ) : null}
     </>
   );
 }
@@ -984,6 +1000,7 @@ export function IntakeFormsScreen({
                       row={row}
                       onResend={(target) => sendAgain(target, 'resend')}
                       onRemind={(target) => sendAgain(target, 'remind')}
+                      onNotice={(message, tone = 'success') => setNotice({ message, tone })}
                     />
                   )}
                   noun="forms"

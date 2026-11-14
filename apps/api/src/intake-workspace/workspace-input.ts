@@ -38,4 +38,8 @@ export const UpdateAssignedBody = clean(UpdateAssignedFormRequest);
 export const SaveFormBody = clean(SaveIntakeFormRequest);
 /** Saving a form that exists: a starting point is for new forms only. */
 export const SaveExistingFormBody = clean(SaveIntakeFormRequest.omit({ startFrom: true }));
-export const DuplicateFormBody = z.strictObject({ asTemplate: z.boolean().default(false) });
+export const DuplicateFormBody = z.strictObject({
+  asTemplate: z.boolean().default(false),
+  /** USABILITY-03: the version to copy (an assigned form's own); the newest when left out. */
+  formId: z.uuid().optional(),
+});

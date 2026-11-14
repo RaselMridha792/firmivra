@@ -448,6 +448,39 @@ describe('Document Request & Upload', () => {
     expect(audited).toBe(1);
   });
 
+  it('Request Replacement on a submitted item opens the packet for that upload, audited', async () => {
+    const w2 = ids['tax.W-2 forms']!;
+    const asked = await request(app.getHttpServer())
+      .post(`/api/v1/business/document-requests/${w2}/reject`)
+      .set('x-business-id', firm.id)
+      .set('authorization', `Bearer ${await tokenFor(people.owner)}`)
+      .send({ reason: 'Fake: the scan is cut off' });
+    expect(asked.status, JSON.stringify(asked.body)).toBe(200);
+    const p = await packet(ids.tax!);
+    expect(p.status).toBe('OPEN');
+    expect(p.items.find((i) => i.id === w2)).toMatchObject({
+      status: 'REJECTED',
+      statusNote: 'Fake: the scan is cut off',
+      canUpload: true,
+    });
+    ok(await uploadFor(w2, people.primary, 'W-2 replacement.pdf'), MyDocument);
+    const again = ok(
+      await portal('post', `/request-packets/${ids.tax}/submit`, people.primary, {}),
+      MyRequestPacket,
+    );
+    expect(again.status).toBe('SUBMITTED');
+    expect(again.items.every((i) => !i.canUpload)).toBe(true);
+    const reopened = await asOwner((tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'document_request_packet.reopened', entityId: ids.tax },
+        select: { metadata: true },
+      }),
+    );
+    expect(reopened.map((r) => r.metadata)).toEqual([
+      { requestId: w2, reason: 'replacement_requested' },
+    ]);
+  });
+
   it('closes an expired packet to uploads and Submit', async () => {
     const p = await packet(ids.late!);
     expect(p).toMatchObject({ view: 'EXPIRED', canSubmit: false });

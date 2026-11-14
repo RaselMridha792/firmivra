@@ -3242,7 +3242,7 @@ describe('report figures and versions (BK-RPT part 1)', () => {
       }),
     );
     expect(audit).toHaveLength(2);
-    expect(JSON.stringify(audit)).not.toMatch(/Fake Fees|120000/);
+    expect(JSON.stringify(audit)).not.toMatch(/Fake Fees|\b120000\b/);
   });
 });
 

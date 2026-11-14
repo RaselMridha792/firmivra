@@ -29,6 +29,7 @@ import type {
   StatusBody,
   SummaryQ,
   CorrectTaxYearBody,
+  ExtensionBody,
   UpdateDetailsBody,
 } from './workspace.input.js';
 import {
@@ -770,6 +771,61 @@ export class TaxReturnWorkspaceService {
           to: body.taxYear,
           reason: body.reason,
           filed: r.firstFiledAt !== null,
+        },
+        { businessId },
+      );
+    });
+    return this.get(tenant, userId, id, false);
+  }
+
+  /**
+   * Review 2 (File Extension): records that an extension was filed and the new deadline. The
+   * event only: nothing is sent to an agency. Not on a filed or archived return; recording again
+   * replaces it. Audited with both days, the due date and whether it replaced one.
+   */
+  async recordExtension(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof ExtensionBody>,
+  ): Promise<TaxReturnDetail> {
+    const businessId = tenant.businessId;
+    if (body.extensionFiledOn > new Date().toISOString().slice(0, 10)) {
+      throw invalid('The extension was filed on or before today', 'extensionFiledOn');
+    }
+    await this.write(tenant, async (tx) => {
+      const r = await this.find(tx, tenant, userId, id, true);
+      if (r.archivedAt) throw conflict('RETURN_LOCKED', 'Restore the return first');
+      if (r.firstFiledAt) {
+        throw conflict(
+          'RETURN_FILED',
+          'The return is filed; an extension is for one not filed yet',
+        );
+      }
+      const due = r.dueOn?.toISOString().slice(0, 10) ?? null;
+      if (due && body.extendedDueOn <= due) {
+        throw invalid('The extended deadline must be after the due date', 'extendedDueOn');
+      }
+      if (body.extendedDueOn <= body.extensionFiledOn) {
+        throw invalid('The extended deadline is after the day it was filed', 'extendedDueOn');
+      }
+      await tx.taxReturn.update({
+        where: { id },
+        data: {
+          extensionFiledOn: toDay(body.extensionFiledOn),
+          extendedDueOn: toDay(body.extendedDueOn),
+          updatedByUserId: userId,
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_return.extension_recorded',
+        { type: 'tax_return', id },
+        {
+          extensionFiledOn: body.extensionFiledOn,
+          extendedDueOn: body.extendedDueOn,
+          dueOn: due,
+          replaced: r.extendedDueOn !== null,
         },
         { businessId },
       );
