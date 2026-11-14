@@ -31,7 +31,7 @@ test('the five quick actions open each creation workflow', async ({ page }) => {
   });
 });
 
-test('Send a Message opens a new message, and Bulk Email creates nothing until Start', async ({
+test('Send a Message opens a new message, and Bulk Email opens its composer, saving nothing', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -40,10 +40,11 @@ test('Send a Message opens a new message, and Bulk Email creates nothing until S
   await expect(page).toHaveURL(/\/messages\/new$/, { timeout: 60_000 });
   await expect(page.getByTestId('compose')).toBeVisible({ timeout: 60_000 });
 
+  // Q3 (Dashboard Review 2): the composer itself, no Start page; nothing is saved until Save.
   await page.goto(app('/communications/new?channel=EMAIL'));
-  const start = page.getByTestId('new-communication');
-  await expect(start).toContainText('New Bulk Email', { timeout: 60_000 });
-  await expect(start).toContainText('Nothing is saved or sent until you start');
+  await expect(page.getByTestId('composer-form')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('Not saved yet').first()).toBeVisible();
+  await expect(page.getByTestId('new-communication')).toHaveCount(0);
   await expect(page).toHaveURL(/\/communications\/new\?channel=EMAIL$/);
 });
 

@@ -29,12 +29,14 @@ import {
   Warning,
   XCircle,
 } from '@phosphor-icons/react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type MouseEvent } from 'react';
+import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
 import { uploadFile } from '../../../../../lib/upload';
@@ -142,6 +144,70 @@ export interface ComposerEmbed {
   onDone: (id: string) => void;
 }
 
+/** A composer with nothing saved yet (Octavia's Q3): its first save makes the draft. */
+const NEW_ID = 'new';
+
+/** The empty communication a new composer shows; nothing of it exists on the server yet. */
+function blankDetail(
+  channel: CommunicationRow['channel'],
+  me: { id: string; name: string },
+): CommunicationDetail {
+  const now = new Date().toISOString();
+  return {
+    id: NEW_ID,
+    channel,
+    name: '',
+    subject: null,
+    status: 'DRAFT',
+    opens: 'COMPOSER',
+    audienceSummary: null,
+    finalCount: null,
+    scheduledFor: null,
+    sentAt: null,
+    createdBy: { userId: me.id, name: me.name },
+    deliveredCount: null,
+    failedCount: null,
+    openRatePercent: null,
+    publishStartsAt: null,
+    publishEndsAt: null,
+    sourceId: null,
+    sourceKind: null,
+    archived: false,
+    updatedAt: now,
+    previewText: null,
+    body: '',
+    sender: null,
+    replyTo: null,
+    template: null,
+    attachments: [],
+    mergeFields: { used: [], unknown: [] },
+    sms: channel === 'SMS' ? { characters: 0, parts: 0 } : null,
+    audience: null,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    visibility: null,
+    startedAt: null,
+    cancelledAt: null,
+    editable: true,
+    lockedAt: null,
+    savedAt: now,
+    // The member's right to send is the API's to check; the first save makes the draft first.
+    canSend: true,
+    createdAt: now,
+    etag: '',
+  };
+}
+
+/**
+ * /communications/new?channel= (Octavia's Q3, Dashboard Review 2): the composer at once, with
+ * nothing saved or sent. Save Draft, Choose Recipients, Send Test, a template, an attachment or
+ * Review & Send makes the draft first; leaving before then keeps nothing.
+ */
+export function NewComposer({ channel }: { channel: CommunicationRow['channel'] }) {
+  const { me } = useMe();
+  const [initial] = useState(() => blankDetail(channel, me.user));
+  return <ComposerForm initial={initial} />;
+}
+
 /**
  * /communications/[id]/edit: the channel-aware composer (also inside a panel, `embedded`).
  * `chooseRecipients` (CM-F03, `?recipients=1`) opens Choose Recipients on arrival.
@@ -192,6 +258,8 @@ function ComposerForm({
   const router = useRouter();
   const qc = useQueryClient();
   const [d, setD] = useState(initial);
+  // Q3: nothing saved yet; the first save makes the draft (NewComposer).
+  const isNew = d.id === NEW_ID;
   const [form, setForm] = useState<Form>(() => formOf(initial));
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [dialog, setDialog] = useState<
@@ -221,12 +289,16 @@ function ComposerForm({
   const locations = useApiQuery([...COMM_KEY, 'locations'], () =>
     api.communications.announcementLocations(),
   );
-  const review = useApiQuery([...COMM_KEY, 'review', d.id, d.etag, 'side'], () =>
-    api.communications.review(d.id),
-  );
-  const preview = useApiQuery([...COMM_KEY, 'preview', d.id, d.etag], () =>
-    api.communications.preview(d.id),
-  );
+  const review = useQuery({
+    queryKey: [...COMM_KEY, 'review', d.id, d.etag, 'side'],
+    queryFn: () => api.communications.review(d.id),
+    enabled: !isNew,
+  });
+  const preview = useQuery({
+    queryKey: [...COMM_KEY, 'preview', d.id, d.etag],
+    queryFn: () => api.communications.preview(d.id),
+    enabled: !isNew,
+  });
   const readOnly = !d.editable;
   // CM-F08: images in an email's or an announcement's content (the firm's email images).
   const images = useContentImages('communications');
@@ -270,16 +342,46 @@ function ComposerForm({
     await qc.invalidateQueries({ queryKey: [...COMM_KEY, 'list'] });
     return next;
   };
-  /** Sends only what changed, with the etag. Answers the fresh detail, or undefined after reporting the problem. */
+  /**
+   * Sends only what changed, with the etag. Answers the fresh detail, or undefined after reporting
+   * the problem. A new composer's first save makes the draft (Q3), and the page's address then
+   * names it, so a reload opens it.
+   */
   const save = async (quiet = false): Promise<CommunicationDetail | undefined> => {
-    if (!dirty) return d;
+    if (!dirty && !isNew) return d;
     if (windowProblem) {
       setFieldErrors({ publishEndsAt: windowProblem });
       setSaveError(windowProblem);
       notice(windowProblem, 'error');
       return undefined;
     }
-    const base = formOf(d);
+    let current = d;
+    if (isNew) {
+      setSaving(true);
+      try {
+        current = await api.communications.create({ channel });
+        // From here on this is that draft, even if the changes below are refused: a second save
+        // never makes a second draft.
+        setD(current);
+      } catch (e) {
+        const text = errorMessage(e, COMM_ERRORS);
+        setSaveError(text);
+        notice(text, 'error');
+        setSaving(false);
+        return undefined;
+      }
+      const from = safeOrigin(new URLSearchParams(window.location.search).get(ORIGIN_PARAM));
+      const edit = `/communications/${current.id}/edit`;
+      window.history.replaceState(null, '', from ? withOrigin(edit, from) : edit);
+      if (JSON.stringify(form) === JSON.stringify(formOf(current))) {
+        keep(current);
+        setSaving(false);
+        void qc.invalidateQueries({ queryKey: [...COMM_KEY, 'list'] });
+        if (!quiet) notice('Draft saved.', 'success');
+        return current;
+      }
+    }
+    const base = formOf(current);
     const patch: Record<string, unknown> = {};
     if (form.name !== base.name) patch.name = form.name.trim() || 'Untitled communication';
     if (form.senderId !== base.senderId) patch.senderId = form.senderId || null;
@@ -296,7 +398,7 @@ function ComposerForm({
     if (form.visibility !== base.visibility) patch.visibility = form.visibility || null;
     setSaving(true);
     try {
-      const next = await api.communications.update(d.id, { ...patch, etag: d.etag });
+      const next = await api.communications.update(current.id, { ...patch, etag: current.etag });
       keep(next);
       setFieldErrors({});
       setSaveError(undefined);
@@ -390,7 +492,9 @@ function ComposerForm({
       ? `Not saved: ${saveError}`
       : dirty
         ? 'Unsaved changes'
-        : `Last saved ${savedAt(d.savedAt, d.timezone)}`;
+        : isNew
+          ? 'Not saved yet'
+          : `Last saved ${savedAt(d.savedAt, d.timezone)}`;
   const recipients = (
     <div className="flex flex-col gap-1" data-testid="recipients-field">
       <span className="flex items-center gap-2 text-sm font-medium text-heading">
@@ -737,11 +841,14 @@ function ComposerForm({
                   notice(`${r[0]?.file.name ?? 'That file'} cannot be attached.`, 'error')
                 }
                 onFiles={async (files) => {
+                  // A new composer's draft first (Q3); what is typed is kept, not refreshed away.
+                  const saved = await save(true);
+                  if (!saved) return;
                   setUploading(true);
                   try {
                     for (const file of files) {
                       await uploadFile(file, {
-                        start: (facts) => api.communications.startAttachment(d.id, facts),
+                        start: (facts) => api.communications.startAttachment(saved.id, facts),
                         finish: (uploadToken) =>
                           api.communications.confirmAttachment({ uploadToken }),
                         maxBytes: TEMPLATE_ATTACHMENT_MAX_BYTES,
@@ -862,7 +969,11 @@ function ComposerForm({
                 type="button"
                 disabled={readOnly}
                 className={`${subtle} min-h-9`}
-                onClick={() => setDialog('template')}
+                onClick={() =>
+                  isNew
+                    ? void save(true).then((s) => s && setDialog('template'))
+                    : setDialog('template')
+                }
               >
                 {d.template ? 'Change Template' : 'Use a Template'}
               </button>
@@ -871,7 +982,11 @@ function ComposerForm({
               type="button"
               disabled={readOnly}
               className={`${subtle} mt-2 min-h-9`}
-              onClick={() => setDialog('saveTemplate')}
+              onClick={() =>
+                isNew
+                  ? void save(true).then((s) => s && setDialog('saveTemplate'))
+                  : setDialog('saveTemplate')
+              }
             >
               Save as Template
             </button>
@@ -965,6 +1080,9 @@ function ComposerForm({
           <button
             type="button"
             className={subtle}
+            // While a save is under way it waits: its outcome decides whether anything is unsaved
+            // (a Cancel right after Save Draft asked about changes already being saved).
+            disabled={saving}
             onClick={(event) =>
               dirty && !readOnly ? guard(embedded.onClose)(event) : embedded.onClose()
             }
