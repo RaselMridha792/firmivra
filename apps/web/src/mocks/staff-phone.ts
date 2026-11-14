@@ -16,12 +16,15 @@ const GAP_MS = 60_000;
  * Send Code opens a code for a minute's gap; 000000 verifies. The notifications mock does not
  * follow it (its preferences stay email only); the API offers SMS once the number is verified.
  */
-export function createStaffPhoneMock(): StaffPhoneClient {
+export function createStaffPhoneMock({ role = 'OWNER' }: { role?: string } = {}): StaffPhoneClient {
+  // R2 NEW2: only the Owner changes their own number; an employee's is the Owner's to set.
+  const owner = role === 'OWNER';
   const s: StaffPhoneState = {
     phone: '+17705550123',
     verifiedAt: null,
     codeSent: false,
     resendAt: null,
+    canChange: owner,
   };
   const pause = () => new Promise((r) => setTimeout(r, 150));
   const current = (): StaffPhoneState => {
@@ -36,6 +39,13 @@ export function createStaffPhoneMock(): StaffPhoneClient {
     /** My Profile: a new number is not verified; the same one changes nothing. */
     set: async (body) => {
       await pause();
+      if (!owner) {
+        throw new ApiRequestError(
+          403,
+          'FORBIDDEN',
+          "Your firm's Owner changes your mobile number.",
+        );
+      }
       const { phone } = parseInput(SetStaffPhoneRequest, body);
       if (phone !== s.phone) {
         Object.assign(s, { phone, verifiedAt: null, codeSent: false, resendAt: null });

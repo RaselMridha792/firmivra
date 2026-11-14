@@ -353,7 +353,8 @@ export class StaffReadService {
         firstName,
         lastName,
         email: m.user.email,
-        phone: m.user.phone,
+        // R2 NEW2: the firm's own number for the member, else their login's.
+        phone: m.phone ?? m.user.phone,
         avatarUrl: null,
         role: m.role,
         customRole: m.customRole,

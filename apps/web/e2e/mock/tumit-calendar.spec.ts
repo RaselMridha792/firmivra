@@ -8,7 +8,8 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 test('shows the week, Upcoming Appointments and the right column', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(app('/calendar'));
-  await expect(page).toHaveTitle('Appointments');
+  // The tab says Calendar (since #681); the page's heading says Appointments.
+  await expect(page).toHaveTitle('Calendar');
   await expect(page.getByTestId('page-title')).toHaveText('Appointments');
   await expect(page.getByRole('link', { name: 'Calendar', exact: true })).toHaveAttribute(
     'aria-current',

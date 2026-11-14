@@ -6,3 +6,4 @@ export { createLeadPipelineClient, type LeadPipelineClient } from './pipeline-cl
 export * from './sequences.js';
 export * from './routing.js';
 export * from './reports.js';
+export * from './transfer.js';

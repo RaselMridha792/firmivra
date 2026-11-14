@@ -30,6 +30,8 @@ import { LeadConvertService } from './lead-convert.service.js';
 import { LeadFilesService, LeadFileTokens } from './lead-files.service.js';
 import { LeadMergeService } from './lead-merge.service.js';
 import { LeadReportsService } from './lead-reports.service.js';
+import { LeadTransferController, LeadTransferService } from './lead-transfer.service.js';
+import { ReportsModule } from '../reports/reports.module.js';
 import {
   LeadEmailImagesController,
   MessageSignatureController,
@@ -126,10 +128,12 @@ export class LeadsController {
 }
 
 @Module({
-  imports: [PortalInfoModule, CommunicationsModule],
+  // ReportsModule: the export's file store (R2 16).
+  imports: [PortalInfoModule, CommunicationsModule, ReportsModule],
   // The pipeline and email controllers first: their static paths must match before
   // LeadsController's `:id`.
   controllers: [
+    LeadTransferController,
     LeadEmailImagesController,
     MessageSignatureController,
     PortalEmailImagesController,
@@ -155,6 +159,7 @@ export class LeadsController {
     LeadFilesService,
     LeadMergeService,
     LeadReportsService,
+    LeadTransferService,
     {
       provide: LeadFileTokens,
       inject: [ENV],

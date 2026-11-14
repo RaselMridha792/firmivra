@@ -348,6 +348,7 @@ export class SchedulingReadService {
         row,
         await firmTimeZone(tx, businessId),
         await this.history.events(tx, businessId, row),
+        await this.history.sentNotices(tx, businessId, row),
       );
     });
     await this.audit.log('appointment.viewed', { type: 'appointment', id });
