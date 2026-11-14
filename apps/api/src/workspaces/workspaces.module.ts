@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { TasksService } from './tasks.service.js';
 import {
   MyReportsController,
@@ -10,6 +11,7 @@ import { WorkspacesService } from './workspaces.service.js';
 
 /** R12 step 6: tasks, the Bookkeeping and Tax Planning workspaces, and their reports. */
 @Module({
+  imports: [PortalTabsModule],
   controllers: [WorkspacesController, ReportsController, MyReportsController],
   providers: [TasksService, WorkspacesService, ReportsService],
   exports: [TasksService],

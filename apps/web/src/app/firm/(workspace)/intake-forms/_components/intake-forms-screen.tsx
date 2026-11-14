@@ -47,12 +47,13 @@ import {
 } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState, useSyncExternalStore } from 'react';
 import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 import { PageState as ApiPageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { CreateTemplateDialog } from '../templates/_components/template-dialogs';
 
 const INTAKE_KEY = ['intake-forms'] as const;
 const PAGE_SIZES = [8, 12, 24];
@@ -87,6 +88,43 @@ const statusTones: Record<
   COMPLETED: 'success',
   EXPIRED: 'danger',
   ARCHIVED: 'neutral',
+};
+
+/**
+ * The dashboard's search for this browser tab (INTAKE-USABILITY-02), kept in sessionStorage and in
+ * memory when storage refuses (private windows). The server has none: it draws the empty box.
+ */
+const SEARCH_KEY = 'firmivra:intake-forms:search';
+let searchNow: string | null = null;
+const searchListeners = new Set<() => void>();
+const searchStore = {
+  subscribe: (listener: () => void) => {
+    searchListeners.add(listener);
+    return () => {
+      searchListeners.delete(listener);
+    };
+  },
+  get: () => {
+    if (searchNow === null) {
+      try {
+        searchNow = window.sessionStorage.getItem(SEARCH_KEY) ?? '';
+      } catch {
+        searchNow = '';
+      }
+    }
+    return searchNow;
+  },
+  server: () => '',
+  set: (value: string) => {
+    searchNow = value;
+    try {
+      if (value) window.sessionStorage.setItem(SEARCH_KEY, value);
+      else window.sessionStorage.removeItem(SEARCH_KEY);
+    } catch {
+      // Kept in memory only, then.
+    }
+    for (const listener of searchListeners) listener();
+  },
 };
 
 function dateLabel(value: string | null) {
@@ -473,7 +511,14 @@ export function IntakeFormsScreen({
 } = {}) {
   const router = useRouter();
   const [tab, setTab] = useState<AssignedFormTab>(notFinished ? 'open' : 'all');
-  const [searchText, setSearchText] = useState('');
+  // Review Two, INTAKE-USABILITY-02: the typed search stays until it is cleared, so returning from
+  // a form (its breadcrumb or Back) shows the same matches. Nothing else is kept (her scope).
+  const searchText = useSyncExternalStore(
+    searchStore.subscribe,
+    searchStore.get,
+    searchStore.server,
+  );
+  const setSearchText = searchStore.set;
   const search = useDeferredValue(searchText.trim());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0] ?? 8);
@@ -487,6 +532,8 @@ export function IntakeFormsScreen({
     to: '',
   });
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  /** Create Intake Form's service choice is open (17c). */
+  const [creating, setCreating] = useState(false);
 
   const query = useMemo<AssignedFormsQuery>(
     () => ({
@@ -511,10 +558,16 @@ export function IntakeFormsScreen({
     api.intakeForms.forms({ templates: 'all', sort: 'used' }),
   );
   const createDraft = useApiMutation(
-    (input: { isTemplate: boolean; templateId?: string; category: FormCategory }) =>
+    (input: {
+      isTemplate: boolean;
+      templateId?: string;
+      category: FormCategory;
+      serviceId?: string;
+    }) =>
       api.intakeForms.createForm({
         name: input.isTemplate ? 'Untitled Form Template' : 'Untitled Intake Form',
         category: input.category,
+        ...(input.serviceId ? { serviceId: input.serviceId } : {}),
         description: null,
         internalNotes: null,
         isTemplate: input.isTemplate,
@@ -647,10 +700,15 @@ export function IntakeFormsScreen({
     },
   ];
 
-  function startCreate(isTemplate = false, templateId?: string, category: FormCategory = 'OTHER') {
+  function startCreate(
+    isTemplate = false,
+    templateId?: string,
+    category: FormCategory = 'OTHER',
+    serviceId?: string,
+  ) {
     setNotice(null);
     createDraft.mutate(
-      { isTemplate, templateId, category },
+      { isTemplate, templateId, category, serviceId },
       {
         onSuccess: (form) => router.push(`/intake-forms/builder/${form.id}`),
         onError: (error) => setNotice({ message: errorMessage(error), tone: 'error' }),
@@ -687,7 +745,15 @@ export function IntakeFormsScreen({
               into action.
             </p>
           </div>
-          <Button className="px-5" disabled={createDraft.isPending} onClick={() => startCreate()}>
+          {/* Review Two, 17c: a blank form needs its service first (every form belongs to one). */}
+          <Button
+            className="px-5"
+            disabled={createDraft.isPending}
+            onClick={() => {
+              setNotice(null);
+              setCreating(true);
+            }}
+          >
             <Plus aria-hidden weight="bold" className="size-5" />
             Create Intake Form
           </Button>
@@ -818,10 +884,9 @@ export function IntakeFormsScreen({
               options={[{ value: '', label: 'All Services' }, ...availableServices]}
               className="min-h-10 text-sm"
             />
+            {/* Review Two, INTAKE-USABILITY-01: the two days say what they are, visibly. */}
             <Input
-              label="Sent from"
-              hideLabel
-              aria-label="Filter sent from date"
+              label="Date Sent: From"
               type="date"
               value={filters.from}
               max={filters.to || undefined}
@@ -832,9 +897,7 @@ export function IntakeFormsScreen({
             />
             <div className="flex items-end gap-2">
               <Input
-                label="Sent to"
-                hideLabel
-                aria-label="Filter sent to date"
+                label="To"
                 type="date"
                 value={filters.to}
                 min={filters.from || undefined}
@@ -989,6 +1052,16 @@ export function IntakeFormsScreen({
           </Callout>
         </aside>
       </div>
+      {creating ? (
+        <CreateTemplateDialog
+          form
+          library={templates}
+          category={null}
+          busy={createDraft.isPending}
+          onClose={() => setCreating(false)}
+          onCreate={(service) => startCreate(false, undefined, service.category, service.id)}
+        />
+      ) : null}
     </div>
   );
 }

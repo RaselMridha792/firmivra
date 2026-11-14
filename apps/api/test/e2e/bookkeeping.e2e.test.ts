@@ -2135,6 +2135,45 @@ describe('reconciliations', () => {
     );
   });
 
+  it('needs the statement attached before approval, apart from the zero difference (Review 2, R01c)', async () => {
+    const third = (await mkAccount(bk, { name: 'Fake statement account' })).id;
+    const { statementDocumentId: _none, ...noStatement } = body();
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', `/periods/${period}/reconciliations`, people.staffA, {
+        ...noStatement,
+        accountId: third,
+        clearedBalanceCents: 5_000_000,
+        exceptionsCount: 0,
+      }),
+      201,
+    );
+    expect(r).toMatchObject({ differenceCents: 0, statementDocumentId: null });
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'STATEMENTS_MISSING',
+    );
+    // Back to work, attach it, and the same zero difference approves.
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, {
+      reason: 'Fake: attach the statement',
+    });
+    exact(
+      BookkeepingReconciliation,
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, {
+        statementDocumentId: statement,
+      }),
+    );
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    expect(
+      exact(
+        BookkeepingReconciliation,
+        await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      ).status,
+    ).toBe('APPROVED');
+  });
+
   it("zero tolerance: the firm's old tolerance setting lets no difference through", async () => {
     await call('put', '/settings', people.ownerA, { reconToleranceCents: 500 });
     const second = (await mkAccount(bk, { name: 'Fake tolerance account' })).id;
@@ -3552,12 +3591,14 @@ describe('reconciliation from the ledger (BK-R01)', () => {
     const onCard = await line(card.id, 2, 700, 'DEBIT');
 
     const recons = `/periods/${p.id}/reconciliations`;
+    // Review 2 (R01c): approval needs the account's statement for the period.
     const start = {
       accountId: bank.id,
       statementStart: p.periodStart,
       statementEnd: p.periodEnd,
       beginningBalanceCents: 100_000,
       endingBalanceCents: 125_000,
+      statementDocumentId: await mkDocument(clients.ledger, ws.engagementId),
     };
     // Typed cleared figures are refused once the account has ledger lines.
     expectError(
