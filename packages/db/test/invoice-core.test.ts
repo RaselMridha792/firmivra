@@ -205,6 +205,77 @@ describe('tax in the invoice totals', () => {
   });
 });
 
+describe('archiving a final invoice (Rasel, Nov 13; IP-F10)', () => {
+  it('archives and restores a paid invoice; its amounts, number, payments and status stay final', async () => {
+    const { inv } = await taxedDraft();
+    await firmA().invoice.update({
+      where: { id: inv.id },
+      data: { status: 'OPEN', issuedAt: new Date() },
+    });
+    const p = await firmA().payment.create({
+      data: {
+        ...A(),
+        invoiceId: inv.id,
+        amountCents: 56600,
+        processorRef: `cs_${stripeId()}`,
+        accountId: account,
+      },
+    });
+    await firmA().paymentEvent.create({
+      data: {
+        ...A(),
+        processorEventId: `evt_${stripeId()}`,
+        type: 'checkout.session.completed',
+        paymentId: p.id,
+        accountId: account,
+      },
+    });
+    await firmA().payment.update({
+      where: { id: p.id },
+      data: { status: 'SUCCEEDED', paidAt: new Date() },
+    });
+    await firmA().invoice.update({
+      where: { id: inv.id },
+      data: { status: 'PAID', paidAt: new Date() },
+    });
+    const paid = await read(inv.id);
+    const archived = await firmA().invoice.update({
+      where: { id: inv.id },
+      data: { archivedAt: new Date() },
+    });
+    expect(archived.archivedAt).not.toBeNull();
+    const restored = await firmA().invoice.update({
+      where: { id: inv.id },
+      data: { archivedAt: null },
+    });
+    expect(restored.archivedAt).toBeNull();
+    // Nothing else moved: the same total, tax, number, status and payment.
+    expect(restored).toMatchObject({
+      status: 'PAID',
+      totalCents: paid.totalCents,
+      taxCents: paid.taxCents,
+      number: paid.number,
+      paidAt: paid.paidAt,
+    });
+    expect(await firmA().payment.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({
+      status: 'SUCCEEDED',
+      amountCents: 56600,
+    });
+    // Archiving never carries another change with it.
+    for (const data of [
+      { archivedAt: new Date(), discountCents: 100 },
+      { archivedAt: new Date(), number: `INV-X-${run}` },
+      { archivedAt: new Date(), status: 'OPEN' as const, paidAt: null },
+      { notesToClient: 'Changed later (fake)' },
+    ]) {
+      await expect(
+        firmA().invoice.update({ where: { id: inv.id }, data: data as never }),
+        JSON.stringify(Object.keys(data)),
+      ).rejects.toThrow(/final/);
+    }
+  });
+});
+
 describe('invoice columns', () => {
   it('discount type and percent agree, within 0 to 100', async () => {
     const inv = await draft();

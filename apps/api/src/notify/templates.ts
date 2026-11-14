@@ -543,6 +543,27 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  'intake.lead-link': (d, b, o) => {
+    const firm = b.name;
+    const subject = field(d, 'subject');
+    const shown = typeof subject === 'string' ? oneLine(subject) : '';
+    const given = field(d, 'message');
+    const message = typeof given === 'string' ? multiLine(given) : '';
+    return {
+      channel: 'email',
+      subject: shown ? capped(shown, 200) : `${firm} sent you a form to fill in`,
+      blocks: [
+        text('Hello,'),
+        ...(message ? [text(message)] : []),
+        text(`${firm} sent you ${required(d, 'formTitle')}. Open it with the secure link below.`),
+        button('Open my form', link(d, 'link', o)),
+        small(
+          `The link works until ${dateTime(d, 'expiresAt', b.timeZone)}. A newer link from ${firm} replaces this one. If you were not expecting this form, you can ignore this email.`,
+        ),
+      ],
+    };
+  },
+
   'client.portal-invite': (d, b, o) => {
     const firm = b.name;
     return {

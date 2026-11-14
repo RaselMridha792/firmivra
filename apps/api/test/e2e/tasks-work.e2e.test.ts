@@ -707,6 +707,22 @@ describe('actions', () => {
     expect(reopened).toMatchObject({ status: 'OPEN', completedAt: null, completedBy: null });
     const staged = detail(await act(t.id, 'progress', people.ownerA, { progress: 'WAITING' }));
     expect(staged.progress).toBe('WAITING');
+    // TX-F13: Blocked asks why; the reason comes with the change and stays on the task.
+    expectError(
+      await act(t.id, 'progress', people.ownerA, { progress: 'BLOCKED' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const blocked = detail(
+      await act(t.id, 'progress', people.ownerA, {
+        progress: 'BLOCKED',
+        blockedReason: 'Waiting on the fake W-2',
+      }),
+    );
+    expect(blocked).toMatchObject({
+      progress: 'BLOCKED',
+      blockedReason: 'Waiting on the fake W-2',
+    });
     const cancelled = detail(await act(t.id, 'cancel'));
     expect(cancelled.status).toBe('CANCELLED');
 

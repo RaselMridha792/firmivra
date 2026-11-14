@@ -55,7 +55,7 @@ const SEND_ERRORS: Record<string, string> = {
   PORTAL_UNAVAILABLE:
     'This client has no client portal sign-in yet, so the form can’t reach them. They can sign up on your portal, and you approve it under Sign-ups.',
   LEAD_LINK_UNAVAILABLE:
-    'Forms can’t be sent to leads or new contacts yet. Send it once the lead is a client with a portal sign-in.',
+    'Forms can’t be sent to new contacts yet. Add them as a lead first, then send.',
   SMS_UNAVAILABLE:
     'Text messages are not available for intake forms yet. Choose Email or Client Portal.',
   FORM_NOT_PUBLISHED: 'This form is not published yet. Publish it in Form Templates, then send.',

@@ -57,6 +57,7 @@ import {
   CalendarQuery,
   CreatePlanBody,
   CreateOpportunityBody,
+  UpdateOpportunityBody,
   CreateStrategyBody,
   FinalizeBody,
   OpportunitiesQuery,
@@ -424,6 +425,18 @@ export class TaxPlanningController {
   ): Promise<TaxOpportunityDetail> {
     const w = who(auth, tenant);
     return this.opportunities.get(w.businessId, w.tenant, w.userId, id, queue);
+  }
+
+  /** C10 (Review 2): an open opportunity's details, edited by staff who review opportunities. */
+  @Patch('opportunities/:id')
+  updateOpportunity(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', opportunityPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateOpportunityBody)) body: Out<typeof UpdateOpportunityBody>,
+  ): Promise<TaxOpportunityDetail> {
+    const w = who(auth, tenant);
+    return this.opportunities.update(w.businessId, w.tenant, w.userId, id, body);
   }
 
   @Post('opportunities/:id/actions')

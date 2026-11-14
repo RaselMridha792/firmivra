@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type {
   EfileReport,
+  MailingReport,
   OkResponse,
   TaxApprovalList,
   TaxAuthorizationList,
@@ -113,6 +114,16 @@ export class TaxReturnWorkspaceController {
     @Query(new ZodValidationPipe(EfileQ)) q: Out<typeof EfileQ>,
   ): Promise<EfileReport> {
     return this.review.efileReport(tenant, auth.userId, q);
+  }
+
+  /** TX-F27: the Mailing Report, one row per paper filing of the year. */
+  @Get('reports/mailing')
+  mailingReport(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(EfileQ)) q: Out<typeof EfileQ>,
+  ): Promise<MailingReport> {
+    return this.review.mailingReport(tenant, auth.userId, q);
   }
 
   @Post('export')
