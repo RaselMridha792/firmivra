@@ -15,7 +15,8 @@ import {
   SaveIntakeStepRequest,
   SubmitIntakeRequest,
 } from './schemas.js';
-import { PortalIntakeForm, PortalIntakeFormList, PortalShareToken } from './portal-forms.js';
+import { PortalIntakeForm, PortalIntakeFormList } from './portal-forms.js';
+import { IntakeShareToken } from './share.js';
 import { z } from 'zod';
 
 /**
@@ -108,7 +109,7 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
     startShared: async (token: string): Promise<MyIntake> =>
       request(
         MyIntake,
-        `${portalMe(firmSlug)}/intake-forms/shared/${parseInput(PortalShareToken, token)}/start`,
+        `${portalMe(firmSlug)}/intake-forms/shared/${parseInput(IntakeShareToken, token)}/start`,
         { method: 'POST' },
       ),
   };

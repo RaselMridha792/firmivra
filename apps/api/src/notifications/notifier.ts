@@ -267,6 +267,8 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'appointment.reminder',
   'invoice.sent',
   'payment.received',
+  // Intake Forms Review Two 19b: a form sent by Email (the sender passes `email: false` otherwise).
+  'intake.sent',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
 
 /** Events with a text copy, and its NotifyService template (client side only, on request). */
@@ -304,7 +306,40 @@ async function stillLive(
     const i = await db.invoice.findFirst({ where: { businessId, id }, select: { status: true } });
     return !!i && (event === 'payment.received' || i.status !== 'CANCELED');
   }
+  if (event === 'intake.sent') {
+    // Not once the form is submitted, completed, expired or archived: nothing left to fill in.
+    const i = await db.intake.findFirst({ where: { businessId, id }, select: { status: true } });
+    return !!i && OPEN_INTAKE.includes(i.status);
+  }
   return true;
+}
+
+/** An intake form the client can still fill in. */
+const OPEN_INTAKE: readonly string[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
+
+/**
+ * 19b: the words of a form's email, read when it is sent (never kept in the outbox): the form's
+ * title, the member's subject and message, the due date and the expiry.
+ */
+async function intakeWords(tx: TxClient, businessId: string, id: string) {
+  const row = await tx.intake.findFirst({
+    where: { businessId, id },
+    select: {
+      messageSubject: true,
+      messageBody: true,
+      dueOn: true,
+      expiresAt: true,
+      form: { select: { title: true } },
+    },
+  });
+  if (!row) throw new Error('IntakeGone');
+  return {
+    formTitle: row.form.title,
+    subject: row.messageSubject,
+    message: row.messageBody,
+    dueOn: row.dueOn ? row.dueOn.toISOString().slice(0, 10) : null,
+    expiresAt: row.expiresAt,
+  };
 }
 
 const accountSelect = { userId: true, email: true, user: { select: { name: true } } } as const;
@@ -787,19 +822,27 @@ export class Notifier {
       const data =
         template === 'document.requested'
           ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-          : template === 'invoice.sent' || template === 'payment.received'
-            ? { name: recipient.name, invoiceNumber: str('number'), link }
-            : {
+          : template === 'intake.sent'
+            ? {
                 name: recipient.name,
-                title: str('title'),
-                startsAt: new Date(str('startsAt')),
-                timeZone: str('timeZone'),
                 link,
-                // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
                 ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                  noticeWords(tx, businessId, target.id, template),
+                  intakeWords(tx, businessId, target.id),
                 )),
-              };
+              }
+            : template === 'invoice.sent' || template === 'payment.received'
+              ? { name: recipient.name, invoiceNumber: str('number'), link }
+              : {
+                  name: recipient.name,
+                  title: str('title'),
+                  startsAt: new Date(str('startsAt')),
+                  timeZone: str('timeZone'),
+                  link,
+                  // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                  ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                    noticeWords(tx, businessId, target.id, template),
+                  )),
+                };
       await this.sender.send({
         template,
         to: recipient.email!,

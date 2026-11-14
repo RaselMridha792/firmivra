@@ -19,6 +19,3 @@ export const PortalIntakeForm = z.object({
 export type PortalIntakeForm = z.infer<typeof PortalIntakeForm>;
 
 export const PortalIntakeFormList = z.object({ items: z.array(PortalIntakeForm).max(100) });
-
-/** A share link's token (43 base64url characters), as the start route takes it. */
-export const PortalShareToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Not a valid link');

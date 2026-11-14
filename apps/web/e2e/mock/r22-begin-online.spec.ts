@@ -25,7 +25,16 @@ test('public service links stay within the firm', async ({ page }, testInfo) => 
     await expect(page.getByTestId('service-annual-tax')).toContainText(
       `${new Date().getFullYear()} tax return`,
     );
-    await expect(page.getByRole('link', { name: 'Schedule an Appointment' })).toHaveCount(2);
+    // The page's own two (top and bottom); LVP's site header has one more. All the firm's own.
+    const schedule = page.getByRole('link', { name: 'Schedule an Appointment' });
+    await expect(
+      page.getByRole('main').getByRole('link', { name: 'Schedule an Appointment' }),
+    ).toHaveCount(2);
+    for (const href of await schedule.evaluateAll((links) =>
+      links.map((l) => l.getAttribute('href')),
+    )) {
+      expect(href).toBe(`/${slug}/appointments`);
+    }
   }
   await page.screenshot({ path: testInfo.outputPath('begin-desktop.png'), fullPage: true });
   await page.getByTestId('intake-annual-tax').click();

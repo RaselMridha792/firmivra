@@ -105,6 +105,12 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/intake-forms/:id': { params: { id: 'intakeTemplate' } },
   // A main form's public link (I3): firm B's id is 404 like any other form's.
   'GET /api/v1/business/intake-forms/:id/public-link': { params: { id: 'intakeTemplate' } },
+  // INTAKE-ACCESS-02: the form's share link and Publish in client portal; firm B's id is 404.
+  'GET /api/v1/business/intake-forms/:id/share': { params: { id: 'intakeTemplate' } },
+  'PUT /api/v1/business/intake-forms/:id/share': {
+    params: { id: 'intakeTemplate' },
+    body: { sharing: false, portalPublished: false },
+  },
 
   // The builder.
   'POST /api/v1/business/intake-forms': {

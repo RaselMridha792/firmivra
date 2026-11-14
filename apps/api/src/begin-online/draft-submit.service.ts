@@ -14,8 +14,8 @@ import type { IntakeSigner } from '../intake/intake-signing.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { routeNewLead } from '../leads/lead-routing.service.js';
-import { BeginOnlineService, type Draft, serviceFor } from './begin-online.service.js';
-import { holdDraft, rethrowExpired } from './drafts.js';
+import { BeginOnlineService, type Draft } from './begin-online.service.js';
+import { draftErrors, holdDraft, rethrowExpired } from './drafts.js';
 import { ticketKeys } from './upload-tickets.js';
 
 const changed = () =>
@@ -105,9 +105,14 @@ export class DraftSubmitService {
         }
         // Nothing to sign: 409 NO_INTAKE_AGREEMENT before any file or version changes.
         await requireFirmWideAgreement(tx, businessId);
-        // The agreements signed are those of the block the review step showed: R14's
-        // `beginOnlineService` resolves the service, as the block does.
-        const service = await serviceFor(tx, draft.form);
+        // The agreements signed are those of the draft's own service, as the review step's block
+        // shows them (GET .../draft/agreements): a shared form's service may not be the kind's
+        // Begin Online one (INTAKE-ACCESS-02). An archived service takes no submit.
+        const service = await tx.service.findFirst({
+          where: { id: draft.service.id, archivedAt: null },
+          select: { id: true },
+        });
+        if (!service) throw draftErrors.notFound();
         const removed = hidden.length
           ? await tx.leadUpload.findMany({
               where: { id: { in: hidden.map((f) => f.id) } },

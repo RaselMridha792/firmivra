@@ -22,7 +22,10 @@ import {
   EmailResumeLinkRequest,
   ResumeBeginDraftRequest,
   StartBeginDraftRequest,
+  StartShareDraftRequest,
 } from './schemas.js';
+import { IntakeAgreementBlock } from '../agreements/schemas.js';
+import { IntakeShareToken } from '../intake/share.js';
 
 /**
  * `api.beginOnline(firmSlug)` (apps/web/src/lib/api.ts): Begin Online on the firm's portal site,
@@ -121,6 +124,24 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
       request(BeginSubmitted, `${draft(form)}/submit`, {
         method: 'POST',
         body: parseInput(SubmitIntakeRequest, body),
+      }),
+    /** The agreements this draft signs on submit: those of its own service (the review step). */
+    agreements: async (form: IntakeFormKey): Promise<IntakeAgreementBlock> =>
+      request(IntakeAgreementBlock, `${draft(form)}/agreements`),
+    /**
+     * INTAKE-ACCESS-02: a shared form by its link's token, before a draft exists. 410
+     * LINK_INVALID for an unknown link, sharing turned off, a draft or archived form.
+     */
+    shareForm: async (token: string): Promise<BeginOnlineForm> =>
+      request(BeginOnlineForm, `${base()}/share/${parseInput(IntakeShareToken, token)}`),
+    /**
+     * Starts this browser's draft of the shared form (it is the draft of the form's kind, as
+     * `start` makes one); then the draft goes on through the routes above. 429 RATE_LIMITED.
+     */
+    startShare: async (token: string, body: StartShareDraftRequest): Promise<BeginDraft> =>
+      request(BeginDraft, `${base()}/share/${parseInput(IntakeShareToken, token)}/draft`, {
+        method: 'POST',
+        body: parseInput(StartShareDraftRequest, body),
       }),
   };
 }

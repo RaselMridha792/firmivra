@@ -9,16 +9,20 @@ import {
   type FormCategory,
   INTAKE_FORMS,
   IntakeFormKey,
+  type IntakeShare,
   publicEmbedCode,
   type PublicLink,
   type PublicLinkState,
+  type SaveIntakeShareRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import type { TenantContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { memberNames, memberRef, notFound } from '../workspaces/common.js';
+import { AuditService } from '../audit/audit.service.js';
+import { conflict, memberNames, memberRef, notFound } from '../workspaces/common.js';
+import { intakeShareHash, intakeShareUrl } from './intake-share.js';
 import type { FormsQ } from './workspace-input.js';
 import { categoryOf, formMetaOf, iso, questionCount, sectionsOf } from './workspace.common.js';
 
@@ -54,6 +58,7 @@ export class IntakeLibraryService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(ENV) private readonly env: Env,
+    private readonly audit: AuditService,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -258,46 +263,153 @@ export class IntakeLibraryService {
    * while its kind's page is its own (one Begin Online service per kind); anything else is 404.
    */
   async publicLink(tenant: TenantContext, id: string): Promise<PublicLink> {
-    return this.inFirm(tenant, async (tx) => {
-      const businessId = tenant.businessId;
-      const t = await tx.intakeTemplate.findFirst({
-        where: { businessId, id, serviceDefault: true, archivedAt: null },
-        include: {
-          service: {
-            select: {
-              id: true,
-              name: true,
-              kind: true,
-              status: true,
-              beginOnline: true,
-              archivedAt: true,
-            },
+    return this.inFirm(tenant, (tx) => this.mainLink(tx, tenant.businessId, id));
+  }
+
+  /** The main form's link (its Begin Online page), in the caller's transaction; else 404. */
+  private async mainLink(tx: TxClient, businessId: string, id: string): Promise<PublicLink> {
+    const t = await tx.intakeTemplate.findFirst({
+      where: { businessId, id, serviceDefault: true, archivedAt: null },
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            kind: true,
+            status: true,
+            beginOnline: true,
+            archivedAt: true,
           },
-          forms: { select: { title: true, status: true }, orderBy: { version: 'desc' } },
+        },
+        forms: { select: { title: true, status: true }, orderBy: { version: 'desc' } },
+      },
+    });
+    const kind = IntakeFormKey.safeParse(t?.service.kind);
+    if (!t || !kind.success) throw notFound();
+    const pageOwner = await tx.service.findFirst({
+      where: { businessId, kind: kind.data, beginOnline: true, archivedAt: null },
+      select: { id: true },
+    });
+    if (pageOwner && pageOwner.id !== t.service.id) throw notFound();
+    const firm = await tx.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
+    });
+    const live = t.forms.find((f) => f.status === 'PUBLISHED');
+    const url = beginOnlinePageUrl(this.env.PORTAL_BASE_URL, firm.slug, kind.data);
+    const title = (live ?? t.forms[0])?.title ?? t.service.name;
+    return {
+      kind: 'INTAKE_FORM',
+      itemId: t.id,
+      url,
+      embedCode: publicEmbedCode(url, title),
+      state: linkState(t.service, live !== undefined),
+    };
+  }
+
+  /**
+   * GET /business/intake-forms/{id}/share (INTAKE-ACCESS-02): how the form is shared. A main form
+   * is reached through its Begin Online page; any other published form through its own share link
+   * while sharing is on (its stored hash is the link's). A form whose link was made under an older
+   * server secret shows sharing off, so turning it on gives the current link.
+   */
+  async share(tenant: TenantContext, id: string): Promise<IntakeShare> {
+    return this.inFirm(tenant, (tx) => this.shareIn(tx, tenant.businessId, id));
+  }
+
+  private async shareIn(tx: TxClient, businessId: string, id: string): Promise<IntakeShare> {
+    const t = await tx.intakeTemplate.findFirst({
+      where: { businessId, id },
+      select: {
+        id: true,
+        archivedAt: true,
+        portalPublished: true,
+        shareTokenHash: true,
+        service: { select: { name: true, status: true, archivedAt: true, beginOnline: true } },
+        forms: { select: { title: true, status: true }, orderBy: { version: 'desc' } },
+      },
+    });
+    if (!t) throw notFound();
+    const live = t.forms.find((f) => f.status === 'PUBLISHED');
+    const shareable = live !== undefined && t.archivedAt === null;
+    const main = await this.mainLink(tx, businessId, id).catch(() => null);
+    if (main) {
+      return {
+        templateId: t.id,
+        main: true,
+        shareable,
+        sharing: false,
+        portalPublished: t.portalPublished,
+        link: main,
+      };
+    }
+    const sharing =
+      t.shareTokenHash !== null && t.shareTokenHash === intakeShareHash(this.env, t.id);
+    const firm = await tx.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { slug: true },
+    });
+    const url = intakeShareUrl(this.env, firm.slug, t.id);
+    const title = (live ?? t.forms[0])?.title ?? t.service.name;
+    return {
+      templateId: t.id,
+      main: false,
+      shareable,
+      sharing,
+      portalPublished: t.portalPublished,
+      link: sharing
+        ? {
+            kind: 'INTAKE_FORM',
+            itemId: t.id,
+            url,
+            embedCode: publicEmbedCode(url, title),
+            state: t.archivedAt
+              ? 'ARCHIVED'
+              : !live
+                ? 'DRAFT'
+                : t.service.archivedAt || t.service.status !== 'ACTIVE'
+                  ? 'INACTIVE'
+                  : 'LIVE',
+          }
+        : null,
+    };
+  }
+
+  /**
+   * PUT /business/intake-forms/{id}/share (Owner and Admin): the share link on or off (a main
+   * form's is its Begin Online page, so it has none of its own) and Publish in client portal.
+   * Turning either on needs a published, unarchived form (409 NOT_SHAREABLE); off always works,
+   * and the link refuses at once. Audited with the two switches only.
+   */
+  async saveShare(
+    tenant: TenantContext,
+    id: string,
+    body: z.output<typeof SaveIntakeShareRequest>,
+  ): Promise<IntakeShare> {
+    const businessId = tenant.businessId;
+    const share = await this.inFirm(tenant, async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM intake_templates
+        WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
+      const before = await this.shareIn(tx, businessId, id);
+      if ((body.sharing || body.portalPublished) && !before.shareable) {
+        throw conflict('NOT_SHAREABLE', 'Publish the form before you share it');
+      }
+      const sharing = body.sharing && !before.main;
+      await tx.intakeTemplate.update({
+        where: { id },
+        data: {
+          shareTokenHash: sharing ? intakeShareHash(this.env, id) : null,
+          portalPublished: body.portalPublished,
         },
       });
-      const kind = IntakeFormKey.safeParse(t?.service.kind);
-      if (!t || !kind.success) throw notFound();
-      const pageOwner = await tx.service.findFirst({
-        where: { businessId, kind: kind.data, beginOnline: true, archivedAt: null },
-        select: { id: true },
-      });
-      if (pageOwner && pageOwner.id !== t.service.id) throw notFound();
-      const firm = await tx.business.findUniqueOrThrow({
-        where: { id: businessId },
-        select: { slug: true },
-      });
-      const live = t.forms.find((f) => f.status === 'PUBLISHED');
-      const url = beginOnlinePageUrl(this.env.PORTAL_BASE_URL, firm.slug, kind.data);
-      const title = (live ?? t.forms[0])?.title ?? t.service.name;
-      return {
-        kind: 'INTAKE_FORM',
-        itemId: t.id,
-        url,
-        embedCode: publicEmbedCode(url, title),
-        state: linkState(t.service, live !== undefined),
-      };
+      return this.shareIn(tx, businessId, id);
     });
+    await this.audit.log(
+      'intake_form.share_changed',
+      { type: 'intake_form', id },
+      { sharing: share.sharing, portalPublished: share.portalPublished },
+    );
+    return share;
   }
 }
 

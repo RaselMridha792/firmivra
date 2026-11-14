@@ -1561,6 +1561,7 @@ function JurisdictionsDialog({
 export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
   const q = usePart(detail.id, 'filings', () => api.taxReturnWorkspace.filings(detail.id));
   const [edit, setEdit] = useState<TaxReturnFiling>();
+  const [history, setHistory] = useState<TaxReturnFiling>();
   const filings = (q.data ?? []).filter((f) => f.required || f.attempts.length);
   return (
     <Panel title="Federal & State Summary" testId="summary">
@@ -1623,6 +1624,16 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
                     >
                       {f.amountStatus ? 'Edit' : 'Add Amount'}
                     </button>
+                    {f.amountVersion ? (
+                      <button
+                        type="button"
+                        className={`${textButton} ml-3`}
+                        aria-label={`History of the ${jurisdiction(f.jurisdiction)} amount`}
+                        onClick={() => setHistory(f)}
+                      >
+                        History
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               );
@@ -1640,6 +1651,13 @@ export function SummaryPanel({ detail, onNotice }: { detail: TaxReturnDetail; on
           filing={edit}
           onClose={() => setEdit(undefined)}
           onNotice={onNotice}
+        />
+      ) : null}
+      {history ? (
+        <AmountHistoryDialog
+          detail={detail}
+          filing={history}
+          onClose={() => setHistory(undefined)}
         />
       ) : null}
     </Panel>
@@ -1732,6 +1750,150 @@ function AmountDialog({
         ]}
       />
       <p className="-mt-2 text-xs text-muted">Leave the amount empty to clear it.</p>
+      {filing.amountStatus ? (
+        // Review 2 (amount history): what is saved now beside what Save would keep.
+        <div className="grid grid-cols-2 gap-2 text-sm" data-testid="amount-compare">
+          <AmountCard
+            title={`Now (v${filing.amountVersion ?? '?'})`}
+            cents={start}
+            due={(filing.amountDueCents ?? 0) > 0}
+            status={filing.amountStatus}
+            source={filing.amountSource}
+          />
+          <AmountCard
+            title="New"
+            cents={bad ? null : cents}
+            due={kind === 'due'}
+            status={cents === null ? null : status}
+            source={source || null}
+            changedFrom={bad ? undefined : start}
+          />
+        </div>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/** One side of the comparison: the amount, refund or due, its status and source. */
+function AmountCard({
+  title,
+  cents,
+  due,
+  status,
+  source,
+  changedFrom,
+}: {
+  title: string;
+  cents: number | null;
+  due: boolean;
+  status: 'ESTIMATED' | 'FINAL' | null;
+  source: TaxAmountSource | null;
+  /** The saved amount, to show the difference on the new side. */
+  changedFrom?: number | null;
+}) {
+  const diff =
+    changedFrom !== undefined && changedFrom !== null && cents !== null
+      ? cents - changedFrom
+      : null;
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-divider p-2">
+      <span className="text-xs font-semibold text-muted">{title}</span>
+      <span className="font-bold text-heading">
+        {cents === null ? 'Cleared' : `${money(cents)} ${due ? 'due' : 'refund'}`}
+      </span>
+      {status ? (
+        <span className="text-xs text-muted">
+          {status === 'FINAL' ? 'Final' : 'Estimated'}
+          {source ? ` · ${AMOUNT_SOURCE_LABEL[source]}` : ''}
+        </span>
+      ) : null}
+      {diff ? (
+        <span className={`text-xs font-semibold ${diff > 0 ? 'text-success' : 'text-danger'}`}>
+          {diff > 0 ? '+' : '−'}
+          {money(Math.abs(diff))}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Review 2 (amount history): each saved version of a jurisdiction's amount, newest first, each
+ * beside the one before it (the change), with where it came from, who and when.
+ */
+function AmountHistoryDialog({
+  detail,
+  filing,
+  onClose,
+}: {
+  detail: TaxReturnDetail;
+  filing: TaxReturnFiling;
+  onClose: () => void;
+}) {
+  const q = usePart(detail.id, `amount-history-${filing.id}`, () =>
+    api.taxReturnWorkspace.amountHistory(detail.id, filing.id),
+  );
+  const rows = q.data ?? [];
+  const value = (r: (typeof rows)[number]) => r.amountDueCents ?? r.refundCents;
+  const words = (r: (typeof rows)[number]) =>
+    value(r) === null
+      ? 'Cleared'
+      : `${money(value(r)!)} ${(r.amountDueCents ?? 0) > 0 ? 'due' : 'refund'}`;
+  return (
+    <Dialog
+      title={`${jurisdiction(filing.jurisdiction)} Amount History`}
+      confirm="Close"
+      onConfirm={onClose}
+      onClose={onClose}
+      testId="amount-history"
+    >
+      {q.isError ? (
+        <p role="alert" className={quiet}>
+          The history is not available right now.
+        </p>
+      ) : q.isPending ? (
+        <p className={quiet}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className={quiet}>No amount saved yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">Amount versions, newest first</caption>
+            <thead className="bg-table-head">
+              <tr>
+                {['Version', 'Before', 'After', 'Status', 'By'].map((h) => (
+                  <th key={h} scope="col" className="px-2 py-1.5 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const before = rows[i + 1];
+                return (
+                  <tr
+                    key={`${r.at}-${i}`}
+                    className="border-b border-divider"
+                    data-testid="amount-version"
+                  >
+                    <td className="px-2 py-1.5">{r.version ? `v${r.version}` : '—'}</td>
+                    <td className="px-2 py-1.5 text-muted">{before ? words(before) : '—'}</td>
+                    <td className="px-2 py-1.5 font-semibold text-heading">{words(r)}</td>
+                    <td className="px-2 py-1.5 text-xs">
+                      {r.amountStatus === 'FINAL' ? 'Final' : r.amountStatus ? 'Estimated' : '—'}
+                      {r.amountSource ? ` · ${AMOUNT_SOURCE_LABEL[r.amountSource]}` : ''}
+                    </td>
+                    <td className="px-2 py-1.5 text-xs text-muted">
+                      {r.by?.name ?? 'A member'}, {dateTimeText(r.at)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Dialog>
   );
 }

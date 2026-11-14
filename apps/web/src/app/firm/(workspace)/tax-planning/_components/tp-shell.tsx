@@ -37,6 +37,12 @@ const TABS = [
     label: 'Reports',
     match: (p: string) => p.startsWith('/tax-planning/reports'),
   },
+  // Tax Planning Review 2 (approved addition): beside Reports.
+  {
+    href: '/tax-planning/deadlines',
+    label: 'Project Deadlines',
+    match: (p: string) => p.startsWith('/tax-planning/deadlines'),
+  },
 ];
 
 /** The module's header and tabs, shared by its list pages. */

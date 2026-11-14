@@ -17,7 +17,7 @@ import {
   type IntakeStatus,
   type MyIntake,
   PortalIntakeForm,
-  PortalShareToken,
+  IntakeShareToken,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -216,7 +216,7 @@ export class IntakeSelfService {
   }
 }
 
-const shareTokenPipe = new ZodValidationPipe(PortalShareToken);
+const shareTokenPipe = new ZodValidationPipe(IntakeShareToken);
 
 /**
  * `api.myIntakes(slug).forms() / startForm(id) / startShared(token)`: the signed-in client's

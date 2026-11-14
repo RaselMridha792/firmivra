@@ -19,6 +19,7 @@ export const conflict = (code: string, message: string, details?: unknown) =>
 /** The database's step of each workflow status (tax_return_step); Waiting on Client has none. */
 export const STEP: Partial<Record<TaxReturnWorkflowStatus, number>> = {
   IN_PREPARATION: 1,
+  IN_CORRECTION: 1,
   READY_FOR_REVIEW: 2,
   READY_FOR_SIGNATURE: 3,
   READY_TO_FILE: 4,
@@ -36,6 +37,7 @@ const ALL: TaxReturnWorkflowStatus[] = [
   'TRANSMITTED',
   'ACCEPTED',
   'REJECTED',
+  'IN_CORRECTION',
   'CLOSED',
 ];
 
@@ -44,7 +46,10 @@ export function canMoveTo(from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatu
   if (from === 'TRANSMITTED') return ['ACCEPTED', 'REJECTED', 'CLOSED'];
   if (from === 'ACCEPTED') return ['CLOSED'];
   if (from === 'CLOSED') return [];
-  return ALL.filter((s) => s !== from);
+  // Review 2: a rejected return goes to In Correction before review (never straight to it), and
+  // In Correction follows only a rejection.
+  if (from === 'REJECTED') return ALL.filter((s) => s !== from && s !== 'READY_FOR_REVIEW');
+  return ALL.filter((s) => s !== from && s !== 'IN_CORRECTION');
 }
 
 /** Going back a step (it needs a reason). */

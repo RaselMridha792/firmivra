@@ -376,7 +376,7 @@ export class IntakeRecordService {
     action: 'intake.resent' | 'intake.reminded',
   ): Promise<AssignedFormRecord> {
     const businessId = tenant.businessId;
-    const token = await this.inFirm(tenant, async (tx) => {
+    const { token, channel } = await this.inFirm(tenant, async (tx) => {
       const row = await this.find(tx, tenant, userId, id, true);
       if (!FILLABLE.includes(row.status)) throw invalidStatus();
       if (!row.engagement && !row.leadId) throw invalidStatus();
@@ -385,11 +385,20 @@ export class IntakeRecordService {
         where: { id: row.id },
         data: { lastActivityAt: new Date(), ...(link?.data ?? {}) },
       });
-      return link?.token ?? null;
+      // 19b: a form sent by Email is resent or reminded by email too.
+      return { token: link?.token ?? null, channel: row.deliveryChannel };
     });
     const reached = token
       ? await this.sender.emailLink(businessId, id, token)
-      : await this.sender.deliver(businessId, id, userId, `${action}:${randomUUID()}`);
+      : (
+          await this.sender.deliver(
+            businessId,
+            id,
+            userId,
+            `${action}:${randomUUID()}`,
+            channel === 'EMAIL',
+          )
+        ).status !== 'FAILED';
     await this.audit.log(action, { type: 'intake', id }, { delivered: reached });
     return this.load(tenant, userId, id);
   }

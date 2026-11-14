@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { PublicLink } from '../public-links/schemas.js';
+import { IntakeShare, SaveIntakeShareRequest } from './share.js';
 import { OkResponse } from '../schemas.js';
 import { IntakeView, RequestIntakeCorrectionRequest } from './intakes.js';
 import { IntakeId } from './schemas.js';
@@ -133,9 +134,17 @@ export function createIntakeFormsClient(request: ApiRequest) {
       request(IntakeFormDetail, `${form(id)}/duplicate`, post({ asTemplate })),
     archiveForm: async (id: string): Promise<IntakeFormDetail> =>
       request(IntakeFormDetail, `${form(id)}/archive`, post()),
-    /** The main form's link and embed code: its Begin Online page. 404 for any other form. */
+    /** The main form's link and website button: its Begin Online page. 404 for any other form. */
     publicLink: async (id: string): Promise<PublicLink> =>
       request(PublicLink, `${form(id)}/public-link`),
+    /** ACCESS-02: how the form is shared (link, website button, Publish in client portal). */
+    share: async (id: string): Promise<IntakeShare> => request(IntakeShare, `${form(id)}/share`),
+    /** Owner and Admin: sharing on or off, and Publish in client portal. 409 NOT_SHAREABLE. */
+    saveShare: async (id: string, body: SaveIntakeShareRequest): Promise<IntakeShare> =>
+      request(IntakeShare, `${form(id)}/share`, {
+        method: 'PUT',
+        body: parseInput(SaveIntakeShareRequest, body),
+      }),
 
     // Settings
     settings: async (): Promise<IntakeSettings> => request(IntakeSettings, SETTINGS),
