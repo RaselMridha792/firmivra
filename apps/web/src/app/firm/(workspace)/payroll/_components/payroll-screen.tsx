@@ -319,7 +319,7 @@ export function PayrollScreen({ initial: fromServer = PAYROLL_VIEW }: { initial?
 
   return (
     <ServiceDocumentsProvider onDone={(text) => notice(text, 'success')}>
-      <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-page">
+      <div className="@container flex min-w-0 flex-col gap-5" data-testid="payroll-page">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
           <Link href="/" aria-label="Home" className="text-link">
             <ArrowLeft aria-hidden weight="bold" className="size-4" />
@@ -379,7 +379,7 @@ export function PayrollScreen({ initial: fromServer = PAYROLL_VIEW }: { initial?
         </div>
         <ul
           data-testid="payroll-kpis"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5"
+          className="grid grid-cols-1 gap-4 @md:grid-cols-2 @5xl:grid-cols-5"
         >
           {kpi(
             'clients',
@@ -419,7 +419,7 @@ export function PayrollScreen({ initial: fromServer = PAYROLL_VIEW }: { initial?
 
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex min-w-0 flex-col gap-4">
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 @xl:grid-cols-2 @6xl:grid-cols-4">
               <StatusCard
                 data={overview.data}
                 loading={overview.isPending}
@@ -686,7 +686,7 @@ export function PayrollScreen({ initial: fromServer = PAYROLL_VIEW }: { initial?
               </p>
             </section>
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 @4xl:grid-cols-2">
             <UpcomingCard
               data={overview.data}
               loading={overview.isPending}
