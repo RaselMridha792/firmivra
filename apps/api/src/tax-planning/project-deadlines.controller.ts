@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import {
   type OkResponse,
   type ProjectDeadline,
+  type ProjectDeadlineCoworkerList,
   ProjectDeadlineId,
   type ProjectDeadlineList,
   ProjectDeadlinesQuery,
@@ -38,6 +39,15 @@ export class ProjectDeadlinesController {
     @Query(new ZodValidationPipe(ProjectDeadlinesQuery)) q: z.output<typeof ProjectDeadlinesQuery>,
   ): Promise<ProjectDeadlineList> {
     return { items: await this.deadlines.list(who(auth, tenant), q) };
+  }
+
+  /** Before `:id`, so "coworkers" is never read as an id. */
+  @Get('coworkers')
+  async coworkers(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<ProjectDeadlineCoworkerList> {
+    return { items: await this.deadlines.coworkers(who(auth, tenant)) };
   }
 
   @Get(':id')

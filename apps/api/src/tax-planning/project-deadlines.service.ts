@@ -169,6 +169,23 @@ export class ProjectDeadlinesService {
     return rows.map((row) => this.view(who, row));
   }
 
+  /** The share picker: the firm's active members but the caller, by name. */
+  async coworkers(who: DeadlineActor): Promise<{ userId: string; name: string }[]> {
+    const rows = await this.inFirm(who.tenant.businessId, (tx) =>
+      tx.membership.findMany({
+        where: {
+          businessId: who.tenant.businessId,
+          status: 'ACTIVE',
+          userId: { not: who.userId },
+        },
+        select: { userId: true, user: { select: { name: true } } },
+        orderBy: [{ user: { name: 'asc' } }, { userId: 'asc' }],
+        take: 500,
+      }),
+    );
+    return rows.map(ref);
+  }
+
   async get(who: DeadlineActor, id: string): Promise<ProjectDeadline> {
     const row = await this.inFirm(who.tenant.businessId, (tx) => this.visibleRow(tx, who, id));
     await this.audit.log('project_deadline.viewed', { type: 'project_deadline', id });

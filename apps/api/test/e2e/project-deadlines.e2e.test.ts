@@ -272,6 +272,17 @@ describe('a shared deadline', () => {
     expectError(await read(d.id, people.ownerP), 404, 'NOT_FOUND');
   });
 
+  it('Staff pick from the firm’s active coworkers, never themselves or another firm’s people', async () => {
+    const res = await call('get', '/coworkers', people.staffP);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const found = (res.body as { items: { userId: string }[] }).items.map((m) => m.userId);
+    expect(found).toEqual(
+      expect.arrayContaining([people.ownerP.id, people.adminP.id, people.staff2P.id]),
+    );
+    expect(found).not.toContain(people.staffP.id);
+    expect(found).not.toContain(people.ownerQ.id);
+  });
+
   it('the lists split the caller’s own from the ones shared with them', async () => {
     const mine = await create(people.staff2P);
     const shared = await create(people.ownerP, {

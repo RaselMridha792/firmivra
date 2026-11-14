@@ -72,6 +72,10 @@ export type ProjectDeadline = z.infer<typeof ProjectDeadline>;
 export const ProjectDeadlineList = z.object({ items: z.array(ProjectDeadline) });
 export type ProjectDeadlineList = z.infer<typeof ProjectDeadlineList>;
 
+/** The coworkers a deadline can be shared with: the firm's active members but the caller, by name. */
+export const ProjectDeadlineCoworkerList = z.object({ items: z.array(MemberRef) });
+export type ProjectDeadlineCoworkerList = z.infer<typeof ProjectDeadlineCoworkerList>;
+
 /**
  * Open (not completed) by default, soonest first; completed, most recently due first.
  * `scope`: the caller's own, the ones shared with them, or both.
@@ -178,6 +182,9 @@ export function createProjectDeadlinesClient(request: ApiRequest) {
           `${BASE}${toQuery(parseInput(ProjectDeadlinesQuery, query))}`,
         )
       ).items,
+    /** Who the share picker offers (every member with Tax Planning reads it). */
+    coworkers: async (): Promise<ProjectDeadlineCoworkerList['items']> =>
+      (await request(ProjectDeadlineCoworkerList, `${BASE}/coworkers`)).items,
     get: async (id: string): Promise<ProjectDeadline> => request(ProjectDeadline, one(id)),
     create: async (body: SaveProjectDeadlineRequest): Promise<ProjectDeadline> =>
       request(ProjectDeadline, BASE, {
