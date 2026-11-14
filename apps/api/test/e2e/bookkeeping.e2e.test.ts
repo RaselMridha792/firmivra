@@ -2716,6 +2716,26 @@ describe('transactions and categories (BK-T01, read side)', () => {
       ),
     );
     expect(ranged.total).toBe(1);
+    // Review 2 (T01a): by source, and by amount with both ends included.
+    const by = async (query: string) =>
+      exact(
+        BookkeepingTransactionPage,
+        await call('get', `/clients/${bk}/transactions?${query}`, people.ownerA),
+      ).items.map((r) => r.payee);
+    expect(await by('source=MANUAL')).toHaveLength(3);
+    expect(await by('source=SYNC')).toEqual([]);
+    expect(await by('amountMin=1850&amountMax=4200')).toEqual([
+      'Fake Coffee Roasters',
+      'Fake Paper Co',
+    ]);
+    expect(await by('amountMin=100000')).toEqual(['Fake Landlord LLC']);
+    for (const bad of ['amountMin=500&amountMax=100', 'amountMin=-1', 'source=BANK']) {
+      expectError(
+        await call('get', `/clients/${bk}/transactions?${bad}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
     expectError(
       await call('get', `/clients/${bk}/transactions?from=nope`, people.ownerA),
       400,

@@ -71,6 +71,16 @@ export class BookkeepingTransactionsService {
         ...(q.direction ? { direction: q.direction } : {}),
         ...(q.accountId ? { accountId: q.accountId } : {}),
         ...(q.categoryId ? { categoryId: q.categoryId } : {}),
+        // Review 2 (T01a): by source, and by amount (both ends included).
+        ...(q.source ? { source: q.source } : {}),
+        ...(q.amountMin !== undefined || q.amountMax !== undefined
+          ? {
+              amountCents: {
+                ...(q.amountMin !== undefined ? { gte: q.amountMin } : {}),
+                ...(q.amountMax !== undefined ? { lte: q.amountMax } : {}),
+              },
+            }
+          : {}),
         ...(q.from || q.to
           ? {
               transactionDate: {
