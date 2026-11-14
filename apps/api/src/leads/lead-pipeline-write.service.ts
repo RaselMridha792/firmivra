@@ -10,6 +10,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { routeNewLead } from './lead-routing.service.js';
 import { CommunicationsService } from '../communications/communications.service.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
@@ -132,6 +133,14 @@ export class LeadPipelineWriteService {
         data: serviceIds.map((serviceId) => ({ businessId, leadId: lead.id, serviceId })),
       });
       await setOtherContacts(tx, businessId, lead.id, body.otherContacts);
+      // R2 17: a lead added without an owner goes where the firm's rules send it.
+      if (!assignedUserId) {
+        await routeNewLead(tx, this.audit, businessId, lead.id, {
+          source: body.source,
+          serviceIds,
+          priority: body.priority,
+        });
+      }
       if (steps.length) {
         await addSteps(tx, businessId, lead.id, actor.userId, steps);
         await syncNextAction(tx, businessId, lead.id, actor.userId);
@@ -207,6 +216,8 @@ export class LeadPipelineWriteService {
       if (body.assignedUserId !== undefined && body.assignedUserId !== lead.assignedUserId) {
         if (body.assignedUserId) await requireActiveMember(tx, businessId, body.assignedUserId);
         data.assignedUserId = body.assignedUserId;
+        // A manual assignment wins over the rule that gave the lead its owner (R2 17).
+        data.assignedByRuleId = null;
       }
       if (body.stage && body.stage !== lead.status) {
         if (lead.status === 'CONVERTED')
@@ -285,7 +296,7 @@ export class LeadPipelineWriteService {
               .map((r) => r.id);
             await tx.lead.updateMany({
               where: { businessId, id: { in: todo } },
-              data: { ...base, assignedUserId: body.assignedUserId },
+              data: { ...base, assignedUserId: body.assignedUserId, assignedByRuleId: null },
             });
             return todo;
           }

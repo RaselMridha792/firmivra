@@ -105,3 +105,36 @@ describe('booking window in hours (P1 row 2)', () => {
     }
   });
 });
+
+describe('appointment drafts (Save as Draft)', () => {
+  const draft = (data: unknown = { method: 'VIDEO', internalNotes: 'Fake draft' }) =>
+    A().appointmentDraft.create({
+      data: { businessId: f.firmA, createdByUserId: f.memberA, data: data as object },
+    });
+
+  it('keeps a member’s form as a JSON object of at most 64 KB; firm B sees and writes none', async () => {
+    const d = await draft();
+    expect(d.data).toEqual({ method: 'VIDEO', internalNotes: 'Fake draft' });
+    expect(await failure(draft(['not', 'an', 'object']))).toMatch(/appointment_drafts_data/);
+    expect(await failure(draft({ internalNotes: 'x'.repeat(66_000) }))).toMatch(
+      /appointment_drafts_data/,
+    );
+    const B = db.forBusiness(f.firmB);
+    expect(await B.appointmentDraft.findMany({ where: { id: d.id } })).toEqual([]);
+    expect(
+      await failure(
+        B.appointmentDraft.create({
+          data: { businessId: f.firmA, createdByUserId: f.memberA, data: {} },
+        }),
+      ),
+    ).not.toBe('');
+    // Its author must be a member of the firm.
+    expect(
+      await failure(
+        A().appointmentDraft.create({
+          data: { businessId: f.firmA, createdByUserId: f.memberB, data: {} },
+        }),
+      ),
+    ).not.toBe('');
+  });
+});

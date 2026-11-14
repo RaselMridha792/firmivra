@@ -39,6 +39,11 @@ export type AppointmentDisplayStatus = z.infer<typeof AppointmentDisplayStatus>;
  * appointment or appointment type takes it yet (400 VALIDATION_FAILED).
  */
 export const MeetingMethod = z.enum(['IN_PERSON', 'PHONE', 'VIDEO', 'OTHER']);
+/**
+ * Appointments Review 2 (P1 row 1): OTHER is an Other Video Meeting; its platform (Teams, Google
+ * Meet...) is named, 1 to 60 characters.
+ */
+export const OtherVideoPlatform = text(60);
 export type MeetingMethod = z.infer<typeof MeetingMethod>;
 
 /** Who the appointment is with: a client, a lead (no client yet), or a new contact. */
@@ -116,6 +121,8 @@ export const AgendaItem = z.object({
   /** Assigned staff; the first is the owner. */
   staff: z.array(MemberRef).min(1),
   method: MeetingMethod,
+  /** The platform of an Other Video Meeting (method OTHER); null for any other method. */
+  otherVideoPlatform: z.string().nullable().default(null),
   place: AppointmentVenue,
   /** Join Meeting shows when set (VIDEO). */
   videoUrl: z.string().nullable(),
@@ -250,6 +257,11 @@ const scheduleFields = {
   allDay: z.boolean(),
   /** One of the type's meeting methods (400 VALIDATION_FAILED at `method` otherwise). */
   method: MeetingMethod,
+  /**
+   * Review 2 (P1 row 1): an Other Video Meeting's platform; left out, the type's. Required for
+   * OTHER (400 at `otherVideoPlatform`); ignored for any other method.
+   */
+  otherVideoPlatform: clearable(OtherVideoPlatform),
   officeId: z.uuid().nullable().optional(),
   roomId: z.uuid().nullable().optional(),
   details: clearable(text(500, 'many')),
@@ -284,6 +296,11 @@ export const ScheduleAppointmentRequest = z
      * plans that is not closed or archived (404 otherwise). The plan lists it.
      */
     taxPlanId: z.uuid().optional(),
+    /**
+     * Review 2 (Save as Draft): the member's draft this books; it is deleted with the booking
+     * (404 when it is not the member's own).
+     */
+    draftId: z.uuid().optional(),
     allDay: scheduleFields.allDay.default(false),
     generateVideoLink: scheduleFields.generateVideoLink.default(false),
     status: scheduleFields.status.default('CONFIRMED'),
@@ -348,10 +365,15 @@ export const AppointmentRecord = AgendaItem.extend({
 });
 export type AppointmentRecord = z.infer<typeof AppointmentRecord>;
 
-/** A saved draft (Save as Draft): the form so far. */
+/**
+ * A saved draft (Save as Draft; Review 2): the form so far, the member's own. `createdBy` is
+ * their name.
+ */
 export const AppointmentDraft = z.object({
   id: z.uuid(),
   data: z.record(z.string(), z.unknown()),
+  /** The client the draft names, as the form shows it; null when it names none (or a contact). */
+  contact: AppointmentContact.nullable().default(null),
   createdBy: z.string().nullable(),
   updatedAt: DateTime,
 });
@@ -544,13 +566,17 @@ export const AppointmentTypeConfig = z.object({
   serviceId: z.uuid().nullable(),
   /** Empty: anyone. */
   eligibleStaffUserIds: z.array(z.uuid()),
-  /** The meeting methods the type offers, in order (A1, 1 to 3); the first is its location kind. */
+  /** The meeting methods the type offers, in order (A1, 1 to 4); the first is its location kind. */
   methods: z.array(MeetingMethod),
+  /** Review 2 (P1 row 1): the platform of its Other Video Meeting; null when it offers none. */
+  otherVideoPlatform: z.string().nullable().default(null),
   officeIds: z.array(z.uuid()),
   bufferBeforeMinutes: z.number().int(),
   bufferAfterMinutes: z.number().int(),
   minNoticeHours: z.number().int(),
   maxWindowDays: z.number().int(),
+  /** Review 2 (P1 row 2): a booking window in hours (2, 6, 12...); when set, it is the window. */
+  maxWindowHours: z.number().int().nullable().default(null),
   requiredIntakeFormId: z.uuid().nullable(),
   requiredDocuments: z.array(z.string()),
   defaultReminders: z.array(AppointmentReminder),
@@ -563,20 +589,27 @@ export const SetAppointmentTypeConfigRequest = z.strictObject({
   serviceId: z.uuid().nullable().optional(),
   eligibleStaffUserIds: z.array(z.uuid()).max(200).optional(),
   /**
-   * A1: 1 to 3 of in person, phone and video, no repeats, in the order shown; the first becomes
-   * the type's location kind. Each problem is named at its item (`methods.1`). Existing
-   * appointments keep their methods.
+   * A1: 1 to 4 of in person, phone, video and an Other Video Meeting, no repeats, in the order
+   * shown; the first becomes the type's location kind. Each problem is named at its item
+   * (`methods.N`). Existing appointments keep their methods.
    */
   methods: z
     .array(MeetingMethod)
     .min(1, 'Choose at least one meeting method')
     .superRefine(checkMeetingMethods)
     .optional(),
+  /**
+   * Review 2 (P1 row 1): required while the type offers OTHER (400 at `otherVideoPlatform`);
+   * dropped when it no longer does.
+   */
+  otherVideoPlatform: clearable(OtherVideoPlatform),
   officeIds: z.array(z.uuid()).max(50).optional(),
   bufferBeforeMinutes: z.number().int().min(0).max(120).optional(),
   bufferAfterMinutes: z.number().int().min(0).max(120).optional(),
   minNoticeHours: z.number().int().min(0).max(720).optional(),
   maxWindowDays: z.number().int().min(1).max(730).optional(),
+  /** Review 2 (P1 row 2): 2 to 17,520 hours, or null to use `maxWindowDays`. */
+  maxWindowHours: z.number().int().min(2).max(17_520).nullable().optional(),
   requiredIntakeFormId: z.uuid().nullable().optional(),
   requiredDocuments: z.array(text(100)).max(20).optional(),
   defaultReminders: z.array(AppointmentReminder).max(10).optional(),

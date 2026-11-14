@@ -219,12 +219,14 @@ export class SchedulingActionsService {
         clientInstructions: row.clientInstructions,
         reminders: row.reminders.map((r) => reminderFromOffset(r.channel, r.offsetMinutes)),
       };
-      return { data, who };
+      return { data, who, contact: item.contact };
     });
     await this.audit.log('appointment.duplicated', { type: 'appointment', id });
     return {
       id: randomUUID(),
       data: draft.data,
+      // The duplicate opens on the same client.
+      contact: draft.contact,
       createdBy: draft.who,
       updatedAt: new Date().toISOString(),
     };

@@ -14,7 +14,8 @@ const id = (v: Param) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? 
  * the engagement's service, and Cancel returns to `from` without creating anything. Tax Planning's
  * Schedule a Planning Consultation (C02) sends `serviceId` alone: its service is chosen and the
  * client is picked in the form. A plan's Schedule Client Discussion (C12) adds `taxPlanId`: the
- * appointment is that plan's discussion.
+ * appointment is that plan's discussion. Review 2 (Save as Draft): `?draft=` reopens one of the
+ * member's saved drafts; scheduling it deletes the draft.
  */
 export default async function CalendarNewPage({
   searchParams,
@@ -26,10 +27,12 @@ export default async function CalendarNewPage({
     engagementId?: Param;
     serviceId?: Param;
     taxPlanId?: Param;
+    draft?: Param;
     from?: Param;
   }>;
 }) {
-  const { date, time, clientId, engagementId, serviceId, taxPlanId, from } = await searchParams;
+  const { date, time, clientId, engagementId, serviceId, taxPlanId, draft, from } =
+    await searchParams;
   const at =
     typeof date === 'string' &&
     isCalendarDate(date) &&
@@ -47,6 +50,7 @@ export default async function CalendarNewPage({
       }}
       cancelHref={safeOrigin(from) ?? undefined}
       taxPlanId={id(taxPlanId)}
+      draftId={id(draft)}
     />
   );
 }

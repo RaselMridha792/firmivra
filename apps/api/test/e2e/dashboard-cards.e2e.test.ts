@@ -57,8 +57,8 @@ async function call(
 const CARDS = '/business/settings/dashboard-cards';
 const codeOf = (res: request.Response) => (res.body as { error?: { code?: string } }).error?.code;
 
-async function cards(who: Person = people.ownerA, firm: 'a' | 'b' = 'a') {
-  const res = await call('get', '/business/dashboard/summary', who, firm);
+async function cards(who: Person = people.ownerA, firm: 'a' | 'b' = 'a', query = '') {
+  const res = await call('get', `/business/dashboard/summary${query}`, who, firm);
   expect(res.status, JSON.stringify(res.body)).toBe(200);
   return DashboardSummary.parse(res.body);
 }
@@ -496,5 +496,69 @@ describe('D4: Settings > Dashboard Cards', () => {
     expect(
       DashboardCardSettings.parse((await call('get', CARDS, people.ownerB, 'b')).body),
     ).toMatchObject({ items: [], usingDefaults: true, services: [{ id: ids.serviceB }] });
+  });
+});
+
+describe('Dashboard Review 2 (K4, V1): a past period', () => {
+  it('opens each card on the list as it stood at the period end, the same number', async () => {
+    const DAY = 86_400_000;
+    // A return made 70 days ago in the tax service, Accepted only now: last month it was in
+    // progress, today it is not.
+    await inFirm('a', async (tx) => {
+      const businessId = firms.a.id;
+      const c = await tx.client.create({
+        data: {
+          businessId,
+          displayName: 'D4 then (fake)',
+          createdAt: new Date(Date.now() - 80 * DAY),
+        },
+      });
+      const e = await tx.engagement.create({
+        data: {
+          businessId,
+          clientId: c.id,
+          serviceId: ids.tax,
+          title: 'Fake 2024 engagement',
+          taxYear: 2024,
+          createdAt: new Date(Date.now() - 75 * DAY),
+        },
+      });
+      const r = await tx.taxReturn.create({
+        data: {
+          businessId,
+          clientId: c.id,
+          engagementId: e.id,
+          taxYear: 2024,
+          filingType: 'INDIVIDUAL',
+          createdAt: new Date(Date.now() - 70 * DAY),
+        },
+      });
+      await tx.taxReturn.update({
+        where: { id: r.id },
+        data: { workflowStatus: 'ACCEPTED', filedOn: new Date() },
+      });
+    });
+    const then = await cards(people.ownerA, 'a', '?period=LAST_MONTH');
+    const returns = then.serviceCards.find((c) => c.label === 'Personal Returns In Progress');
+    expect(returns).toMatchObject({
+      value: 1,
+      link: { list: 'tax-returns', query: { workflowGroup: 'IN_PROGRESS', asOf: then.range.to } },
+    });
+    const now = await cards(people.ownerA, 'a');
+    expect(
+      now.serviceCards.find((c) => c.label === 'Personal Returns In Progress')?.link.query,
+    ).not.toHaveProperty('asOf');
+    for (const who of [people.ownerA, people.staffA]) {
+      for (const query of ['', '?period=LAST_MONTH', '?period=LAST_YEAR']) {
+        const s = await cards(who, 'a', query);
+        for (const card of s.serviceCards) {
+          expect([query, card.label, await listTotal(who, card)]).toEqual([
+            query,
+            card.label,
+            card.value,
+          ]);
+        }
+      }
+    }
   });
 });

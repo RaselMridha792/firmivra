@@ -13,6 +13,7 @@ import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-subm
 import type { IntakeSigner } from '../intake/intake-signing.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
+import { routeNewLead } from '../leads/lead-routing.service.js';
 import { BeginOnlineService, type Draft, serviceFor } from './begin-online.service.js';
 import { holdDraft, rethrowExpired } from './drafts.js';
 import { ticketKeys } from './upload-tickets.js';
@@ -138,6 +139,18 @@ export class DraftSubmitService {
           where: { id: leadId },
           data: { status: 'SUBMITTED', submittedAt },
         });
+        // Leads R2 17: a request with no owner yet goes where the firm's rules send it.
+        const owner = await tx.lead.findUniqueOrThrow({
+          where: { id: leadId },
+          select: { assignedUserId: true, priority: true },
+        });
+        if (!owner.assignedUserId) {
+          await routeNewLead(tx, this.audit, businessId, leadId, {
+            source: 'BEGIN_ONLINE',
+            serviceIds: [draft.service.id],
+            priority: owner.priority,
+          });
+        }
         await this.audit.logIn(
           tx,
           'begin_online.submitted',

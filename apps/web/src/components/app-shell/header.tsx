@@ -2,7 +2,7 @@
 
 import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
 import Link from 'next/link';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useMe } from '../signed-in';
 import { HeaderClock } from './header-clock';
 import { initials } from './types';
@@ -23,9 +23,15 @@ export function Header({
   actions,
   accountMenu = [],
   clock = false,
+  clockZone,
 }: {
   /** The current date and time with its time zone (SM10): the firm workspace and Super Admin. */
   clock?: boolean;
+  /**
+   * The clock's time zone (U2): the firm's in its workspace; null while it loads (no clock yet,
+   * never another zone's time first); undefined: the person's own.
+   */
+  clockZone?: string | null;
   /** Account menu entries above Sign out (the firm's My Profile, My Settings, Help & Support). */
   accountMenu?: AccountMenuItem[];
   /** Replaces the search box or greeting, for example the firm's search form. */
@@ -48,10 +54,30 @@ export function Header({
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  // Dashboard Review 2 (R2 NEW1): the account menu closes on a click or tap outside it, and on
+  // Escape wherever focus is; from inside the menu, focus goes back to its button.
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const root = accountRef.current;
+      if (root?.contains(document.activeElement)) root.querySelector('button')?.focus();
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
 
   return (
     <header
-      onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
       // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
       // Phones get tighter gaps so the controls fit a 320 px screen.
       className={`flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 md:px-6 ${search && !start ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
@@ -86,7 +112,9 @@ export function Header({
             : 'ml-auto flex items-center gap-2'
         }
       >
-        {clock ? <HeaderClock /> : null}
+        {clock && clockZone !== null ? (
+          <HeaderClock {...(clockZone ? { timeZone: clockZone } : {})} />
+        ) : null}
         {actions}
         {bell ?? (
           <button
@@ -99,7 +127,7 @@ export function Header({
         )}
         {search ? <span aria-hidden className="h-8 w-px bg-border" /> : null}
 
-        <div className="relative">
+        <div ref={accountRef} className="relative">
           <button
             type="button"
             aria-haspopup="menu"

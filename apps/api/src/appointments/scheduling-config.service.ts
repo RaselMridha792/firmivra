@@ -58,10 +58,12 @@ const configSelect = {
   serviceId: true,
   locationKind: true,
   meetingMethods: true,
+  otherVideoPlatform: true,
   bufferBeforeMinutes: true,
   bufferAfterMinutes: true,
   minNoticeMinutes: true,
   maxAdvanceDays: true,
+  maxWindowHours: true,
   reminderDefaults: true,
   color: true,
   // A9 (#1303): the service intake a booking of this type asks the client for.
@@ -77,11 +79,13 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
     // No table of eligible staff, offices or required documents yet: empty.
     eligibleStaffUserIds: [],
     methods: typeMethods(row).map(methodOf),
+    otherVideoPlatform: row.otherVideoPlatform,
     officeIds: [],
     bufferBeforeMinutes: row.bufferBeforeMinutes,
     bufferAfterMinutes: row.bufferAfterMinutes,
     minNoticeHours: Math.ceil(row.minNoticeMinutes / 60),
     maxWindowDays: row.maxAdvanceDays ?? NO_LIMIT_DAYS,
+    maxWindowHours: row.maxWindowHours,
     requiredIntakeFormId: row.requiredIntakeTemplateId,
     requiredDocuments: [],
     defaultReminders: remindersOf(row.reminderDefaults),
@@ -169,17 +173,37 @@ export class SchedulingConfigService {
           set('serviceId', 'serviceId', body.serviceId, body.serviceId === current.serviceId);
         }
         if (body.methods !== undefined) {
-          // The contract refused OTHER, repeats and more than three, each at its `methods.N`.
+          // The contract refused repeats and more than four, each at its `methods.N`.
           const kinds = locationKindsOf(body.methods);
-          const first = kinds?.[0];
-          if (!kinds || !first) {
-            throw errors.invalidField('methods', 'Choose in person, phone or video');
-          }
+          const first = kinds[0];
+          if (!first) throw errors.invalidField('methods', 'Choose at least one meeting method');
           const same = sameMethods(kinds, typeMethods(current));
           // Both, in step: the database also makes the first method the location kind.
           set('methods', 'meetingMethods', kinds, same);
           set('methods', 'locationKind', first, same);
         }
+        // Review 2 (P1 row 1): an Other Video Meeting names its platform; without the method,
+        // there is none (the database insists on both).
+        const offersOther = (
+          body.methods !== undefined ? locationKindsOf(body.methods) : typeMethods(current)
+        ).includes('OTHER_VIDEO');
+        const platform = offersOther
+          ? body.otherVideoPlatform !== undefined
+            ? body.otherVideoPlatform
+            : current.otherVideoPlatform
+          : null;
+        if (offersOther && !platform) {
+          throw errors.invalidField(
+            'otherVideoPlatform',
+            'Name the video platform of the Other Video Meeting, such as Google Meet',
+          );
+        }
+        set(
+          'otherVideoPlatform',
+          'otherVideoPlatform',
+          platform,
+          platform === current.otherVideoPlatform,
+        );
         if (body.bufferBeforeMinutes !== undefined) {
           set(
             'bufferBeforeMinutes',
@@ -199,6 +223,15 @@ export class SchedulingConfigService {
         if (body.minNoticeHours !== undefined) {
           const minutes = body.minNoticeHours * 60;
           set('minNoticeHours', 'minNoticeMinutes', minutes, minutes === current.minNoticeMinutes);
+        }
+        if (body.maxWindowHours !== undefined) {
+          // Review 2 (P1 row 2): 2, 6 or 12 hours (or any 2 to 17,520); null uses the days.
+          set(
+            'maxWindowHours',
+            'maxWindowHours',
+            body.maxWindowHours,
+            body.maxWindowHours === current.maxWindowHours,
+          );
         }
         if (body.maxWindowDays !== undefined) {
           set(

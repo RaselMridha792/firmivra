@@ -26,7 +26,10 @@ import { useApiQuery } from '../../../../lib/query';
 /** The count query runs inside SignedIn, so the sidebar never guesses a pending total. */
 export function ConsoleShell({ children }: { children: ReactNode }) {
   const counts = useApiQuery(['firm-applications', 'counts'], () => api.firmApplications.counts());
-  const pendingReview = counts.isError ? undefined : counts.data?.pendingReview;
+  // SA-APP-Y04: the work on Firmivra's side, Pending and In Review, the Dashboard's figure too
+  // (Awaiting Information waits on the applicant).
+  const pending =
+    counts.isError || !counts.data ? undefined : counts.data.pendingReview + counts.data.inReview;
   const sections: NavSections = [
     [
       { label: 'Dashboard', icon: House, href: '/' },
@@ -34,7 +37,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         label: 'Firm Applications',
         icon: FileText,
         href: '/applications',
-        badge: pendingReview ? pendingReview : undefined,
+        badge: pending ? pending : undefined,
       },
       { label: 'Firms', icon: Building2, href: '/firms' },
     ],

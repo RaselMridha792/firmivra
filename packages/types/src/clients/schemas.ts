@@ -149,6 +149,13 @@ export const ListClientsQuery = z
      */
     completedFrom: CalendarDate.optional(),
     completedTo: CalendarDate.optional(),
+    /**
+     * As the firm's books stood at the end of this day (the firm's calendar), as a dashboard card
+     * of a past period counts them (Dashboard Review 2, K1 and V1): clients added by then and not
+     * archived then, whatever `status` says; with serviceId and engagementStatus, an engagement
+     * of that service in that status then (its status history).
+     */
+    asOf: CalendarDate.optional(),
     /** Last activity on or after / on or before these days (the firm's calendar days). */
     lastActivityFrom: CalendarDate.optional(),
     lastActivityTo: CalendarDate.optional(),

@@ -395,7 +395,7 @@ function Summary({ r }: { r: AppointmentRecord }) {
     r.method === 'IN_PERSON'
       ? [r.place.office?.name, r.place.room?.name, r.place.details].filter(Boolean).join(', ') ||
         'In-Person'
-      : `${METHOD_LABELS[r.method]}${r.place.details ? `, ${r.place.details}` : ''}`;
+      : `${METHOD_LABELS[r.method]}${r.otherVideoPlatform ? ` (${r.otherVideoPlatform})` : ''}${r.place.details ? `, ${r.place.details}` : ''}`;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
