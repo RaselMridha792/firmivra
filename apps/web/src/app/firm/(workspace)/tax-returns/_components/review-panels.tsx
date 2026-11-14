@@ -654,6 +654,19 @@ export const authLabel = (a: Pick<TaxAuthorization, 'kind' | 'jurisdiction'>) =>
       ? `${a.jurisdiction} e-file authorization`
       : 'Client consent / engagement';
 
+/** Review 2 (TX-F24): the rejection's corrective task, its owner and status, with Back here. */
+function CorrectiveTask({ task }: { task: NonNullable<TaxFilingAttempt['correctiveTask']> }) {
+  return (
+    <span className="block text-xs text-text" data-testid="corrective-task">
+      Corrective task:{' '}
+      <OriginLink href={`/tasks/${task.id}`} className="font-medium text-link hover:underline">
+        {task.title}
+      </OriginLink>{' '}
+      · {task.owner?.name ?? 'Unassigned'} · {task.status.replaceAll('_', ' ').toLowerCase()}
+    </span>
+  );
+}
+
 /**
  * Client Signatures: the authorizations the return needs (Form 8879, a state's, the consent),
  * sent through Firm Sign or signed on paper. An unsigned required one blocks Ready to File.
@@ -1151,6 +1164,7 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                     {last.correctiveAction ? (
                       <span className="block text-text">Action: {last.correctiveAction}</span>
                     ) : null}
+                    {last.correctiveTask ? <CorrectiveTask task={last.correctiveTask} /> : null}
                   </p>
                 ) : null}
                 <div className="mt-2 flex flex-wrap gap-3">
@@ -1205,6 +1219,7 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                                   Recorded by {a.recordedBy.name}
                                 </span>
                               ) : null}
+                              {a.correctiveTask ? <CorrectiveTask task={a.correctiveTask} /> : null}
                             </span>
                           ) : null}
                         </li>

@@ -58,6 +58,7 @@ import {
   ReturnsQ,
   StatusBody,
   SummaryQ,
+  CorrectTaxYearBody,
   UpdateDetailsBody,
   BusinessIdentityBody,
 } from './workspace.input.js';
@@ -154,6 +155,19 @@ export class TaxReturnWorkspaceController {
     @Body(new ZodValidationPipe(UpdateDetailsBody)) body: Out<typeof UpdateDetailsBody>,
   ): Promise<TaxReturnDetail> {
     return this.returns.updateDetails(tenant, auth.userId, id, body);
+  }
+
+  /** Review 2 (TX-F16): Correct Tax Year, with the reason. */
+  @Post(':id/tax-year')
+  @HttpCode(200)
+  @Access('TAX_RETURNS', 'EDIT')
+  correctTaxYear(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CorrectTaxYearBody)) body: Out<typeof CorrectTaxYearBody>,
+  ): Promise<TaxReturnDetail> {
+    return this.returns.correctTaxYear(tenant, auth.userId, id, body);
   }
 
   /** A business return's own identity, until its first filing (TX-F31, F32). */
