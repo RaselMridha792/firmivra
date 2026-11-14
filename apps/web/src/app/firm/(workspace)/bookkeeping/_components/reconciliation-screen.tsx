@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
+import { approveBlocked } from './recon-rules';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { uploadFile } from '../../../../../lib/upload';
@@ -88,6 +89,7 @@ export function ReconciliationScreen({ id }: { id: string }) {
   const editable = (r.status === 'IN_PROGRESS' || r.status === 'REOPENED') && !locked;
   // The lines' figures are worked out fresh; the saved ones stand in until they load.
   const f = items ?? r;
+  const blocked = approveBlocked({ ...f, statementDocumentId: r.statementDocumentId });
   const exceptions = (items?.items ?? []).filter((i) => i.exception);
   const clear = async (ids: string[], cleared: boolean) => {
     setPending((m) => ({ ...m, ...Object.fromEntries(ids.map((x) => [x, cleared])) }));
@@ -222,7 +224,9 @@ export function ReconciliationScreen({ id }: { id: string }) {
             <button
               type="button"
               className={primary}
-              disabled={f.differenceCents !== 0 || f.exceptionsCount > 0}
+              // Review 2 (R01c): the statement, the zero difference and no open exceptions.
+              disabled={!!blocked}
+              title={blocked ?? undefined}
               onClick={() =>
                 void act(() => api.bookkeeping.approveReconciliation(r.id), 'Approved.')
               }
@@ -265,11 +269,9 @@ export function ReconciliationScreen({ id }: { id: string }) {
           value={String(f.exceptionsCount)}
           tone={f.exceptionsCount === 0 ? 'text-heading' : 'text-danger'}
         />
-        {r.status === 'READY_FOR_REVIEW' && (f.differenceCents !== 0 || f.exceptionsCount > 0) ? (
+        {r.status === 'READY_FOR_REVIEW' && blocked ? (
           <p className="col-span-full text-sm text-danger" data-testid="recon-blocked">
-            {f.differenceCents !== 0
-              ? 'The difference must be zero to approve.'
-              : 'Resolve the open exceptions first.'}
+            {blocked}
           </p>
         ) : null}
       </section>

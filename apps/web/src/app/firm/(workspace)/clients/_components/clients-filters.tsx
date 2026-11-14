@@ -1,16 +1,27 @@
 'use client';
 
-import type { ClientServiceRef, ClientStatus, MemberRef } from '@firmivra/types';
+import {
+  type ClientServiceRef,
+  type ClientStatus,
+  type MemberRef,
+  US_STATES,
+} from '@firmivra/types';
 import {
   Button,
   DateRangePicker,
   FilterBar,
+  FilterChip,
   FilterGroup,
+  Input,
   SearchField,
   Select,
   type DateRange,
 } from '@firmivra/ui';
 import { CalendarDots } from '@phosphor-icons/react';
+import { useState } from 'react';
+import { api } from '../../../../../lib/api';
+import { useApiQuery } from '../../../../../lib/query';
+import { SOURCES } from '../../leads/_components/lead-shared';
 import { dateText } from './client-parts';
 import { type ClientFilters, type Records, STAGE_ORDER, STAGES } from './list-parts';
 
@@ -109,8 +120,96 @@ const RECORDS: { value: Records; label: string }[] = [
   { value: 'all', label: 'Current and archived' },
 ];
 
+/** The firm's tags (the same key as the client's Tags card and Add Tag). */
+const FIRM_TAGS = ['tags'] as const;
+
 // The design's 12 px, 36 px tall filter controls.
 const select = '!h-9 !min-h-0 !py-1.5 !text-xs';
+
+/** What More Filters sets (Octavia's E2 additions), applied together with Apply Filters. */
+const MORE_KEYS = [
+  'clientStatus',
+  'serviceId',
+  'records',
+  'deadlineFrom',
+  'deadlineTo',
+  'appointmentFrom',
+  'appointmentTo',
+  'accountType',
+  'state',
+  'area',
+  'balance',
+  'documents',
+  'tagId',
+  'source',
+  'priority',
+] as const;
+type More = Pick<ClientFilters, (typeof MORE_KEYS)[number]>;
+const pickMore = (f: ClientFilters): More =>
+  Object.fromEntries(MORE_KEYS.map((k) => [k, f[k]])) as More;
+const NO_MORE: More = {
+  clientStatus: '',
+  serviceId: '',
+  records: 'active',
+  deadlineFrom: '',
+  deadlineTo: '',
+  appointmentFrom: '',
+  appointmentTo: '',
+  accountType: '',
+  state: '',
+  area: '',
+  balance: '',
+  documents: '',
+  tagId: '',
+  source: '',
+  priority: '',
+};
+const STATE_OPTIONS = [
+  { value: '', label: 'All States' },
+  ...Object.entries(US_STATES).map(([value, label]) => ({ value, label })),
+];
+const PRIORITY_LABEL = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' } as const;
+const BALANCE_LABEL = { DUE: 'Balance due', NONE: 'No balance' } as const;
+const DOCUMENTS_LABEL = { MISSING: 'Missing documents', NONE: 'No missing documents' } as const;
+const RECORD_LABEL = {
+  active: 'Current clients',
+  archived: 'Archived',
+  all: 'Current and archived',
+};
+
+/** "Oct 2 to Oct 9", "From Oct 2", "To Oct 9". */
+const span = (from: string, to: string) => rangeText({ from, to });
+
+function Dates({
+  label,
+  from,
+  to,
+  onChange,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Input
+        label={`${label} from`}
+        type="date"
+        className={select}
+        value={from}
+        onChange={(e) => onChange(e.target.value, to)}
+      />
+      <Input
+        label={`${label} to`}
+        type="date"
+        className={select}
+        value={to}
+        onChange={(e) => onChange(from, e.target.value)}
+      />
+    </div>
+  );
+}
 
 /**
  * The filter row of clients.jpg: search, services, stages, staff (Owner and Admin: Staff get 403
@@ -132,45 +231,238 @@ export function ClientsFilterRow({
   onReset: () => void;
 }) {
   const stageOptions = STAGE_ORDER.map((value) => ({ value, label: STAGES[value].label }));
+  const tags = useApiQuery(FIRM_TAGS, () => api.tags.list());
+  // More Filters edits a draft; Apply Filters applies it, Clear Filters clears them all.
+  const [draft, setDraft] = useState<More>(() => pickMore(filters));
+  const applied = JSON.stringify(pickMore(filters));
+  // A change from outside (a chip, a tab, Reset) shows in the draft too.
+  const [seen, setSeen] = useState(applied);
+  if (seen !== applied) {
+    setSeen(applied);
+    setDraft(JSON.parse(applied) as More);
+  }
+  const set = (patch: Partial<More>) => setDraft((was) => ({ ...was, ...patch }));
+  // Four columns, as the design's panel.
   const more = (
     <>
-      <FilterGroup title="Client Status">
-        <Choices<ClientStatus | ''>
-          name="more-client-status"
-          value={filters.clientStatus}
-          options={[{ value: '', label: 'Any status' }, ...stageOptions]}
-          onChange={(clientStatus) => onChange({ clientStatus })}
-        />
-      </FilterGroup>
-      <FilterGroup title="Service Type">
-        <Choices
-          name="more-service"
-          value={filters.serviceId}
-          options={[
-            { value: '', label: 'Any service' },
-            ...services.map((s) => ({ value: s.id, label: s.name })),
-          ]}
-          onChange={(serviceId) => onChange({ serviceId })}
-        />
-      </FilterGroup>
-      <FilterGroup title="Records">
-        <Choices
-          name="more-records"
-          value={filters.records}
-          options={RECORDS}
-          onChange={(records) => onChange({ records })}
-        />
-      </FilterGroup>
+      <div className="flex min-w-0 flex-col gap-5">
+        <FilterGroup title="Client Status">
+          <Choices<ClientStatus | ''>
+            name="more-client-status"
+            value={draft.clientStatus}
+            options={[{ value: '', label: 'Any status' }, ...stageOptions]}
+            onChange={(clientStatus) => set({ clientStatus })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Service Type">
+          <Choices
+            name="more-service"
+            value={draft.serviceId}
+            options={[
+              { value: '', label: 'Any service' },
+              ...services.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+            onChange={(serviceId) => set({ serviceId })}
+          />
+        </FilterGroup>
+      </div>
+      <div className="flex min-w-0 flex-col gap-5">
+        <FilterGroup title="Due Date / Deadline">
+          <Dates
+            label="Deadline"
+            from={draft.deadlineFrom}
+            to={draft.deadlineTo}
+            onChange={(deadlineFrom, deadlineTo) => set({ deadlineFrom, deadlineTo })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Next Appointment">
+          <Dates
+            label="Appointment"
+            from={draft.appointmentFrom}
+            to={draft.appointmentTo}
+            onChange={(appointmentFrom, appointmentTo) => set({ appointmentFrom, appointmentTo })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Client Source">
+          <Select
+            label="Client Source"
+            hideLabel
+            className={select}
+            value={draft.source}
+            onChange={(e) => set({ source: e.target.value })}
+            options={[{ value: '', label: 'All Sources' }, ...SOURCES]}
+          />
+        </FilterGroup>
+        <FilterGroup title="Records">
+          <Choices
+            name="more-records"
+            value={draft.records}
+            options={RECORDS}
+            onChange={(records) => set({ records })}
+          />
+        </FilterGroup>
+      </div>
+      <div className="flex min-w-0 flex-col gap-5">
+        <FilterGroup title="Client Type">
+          <Choices<More['accountType']>
+            name="more-type"
+            value={draft.accountType}
+            options={[
+              { value: '', label: 'Any type' },
+              { value: 'INDIVIDUAL', label: 'Individual' },
+              { value: 'BUSINESS', label: 'Business' },
+            ]}
+            onChange={(accountType) => set({ accountType })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Location / State">
+          <Select
+            label="State"
+            className={select}
+            value={draft.state}
+            onChange={(e) => set({ state: e.target.value })}
+            options={STATE_OPTIONS}
+          />
+          <Input
+            label="City or County (optional)"
+            className={select}
+            maxLength={100}
+            value={draft.area}
+            onChange={(e) => set({ area: e.target.value })}
+          />
+        </FilterGroup>
+      </div>
+      <div className="flex min-w-0 flex-col gap-5">
+        <FilterGroup title="Balance Due">
+          <Choices<More['balance']>
+            name="more-balance"
+            value={draft.balance}
+            options={[
+              { value: '', label: 'Any amount' },
+              { value: 'DUE', label: BALANCE_LABEL.DUE },
+              { value: 'NONE', label: BALANCE_LABEL.NONE },
+            ]}
+            onChange={(balance) => set({ balance })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Missing Documents">
+          <Choices<More['documents']>
+            name="more-documents"
+            value={draft.documents}
+            options={[
+              { value: '', label: 'Any' },
+              { value: 'MISSING', label: DOCUMENTS_LABEL.MISSING },
+              { value: 'NONE', label: DOCUMENTS_LABEL.NONE },
+            ]}
+            onChange={(documents) => set({ documents })}
+          />
+        </FilterGroup>
+        <FilterGroup title="Tags">
+          <Select
+            label="Tags"
+            hideLabel
+            className={select}
+            value={draft.tagId}
+            onChange={(e) => set({ tagId: e.target.value })}
+            options={[
+              { value: '', label: 'All Tags' },
+              ...(tags.data?.items ?? []).map((t) => ({ value: t.id, label: t.name })),
+            ]}
+          />
+        </FilterGroup>
+        <FilterGroup title="Priority">
+          <Select
+            label="Priority"
+            hideLabel
+            className={select}
+            value={draft.priority}
+            onChange={(e) => set({ priority: e.target.value as More['priority'] })}
+            options={[
+              { value: '', label: 'All Priorities' },
+              ...(['HIGH', 'MEDIUM', 'LOW'] as const).map((v) => ({
+                value: v,
+                label: PRIORITY_LABEL[v],
+              })),
+            ]}
+          />
+        </FilterGroup>
+      </div>
     </>
   );
 
+  // The chips of what More Filters has set, each removed on its own.
+  const tagName = tags.data?.items.find((t) => t.id === filters.tagId)?.name ?? 'A tag';
+  const chips: { label: string; clear: Partial<ClientFilters> }[] = [
+    ...(filters.addedFrom
+      ? [{ label: `Added since ${day(filters.addedFrom)}`, clear: { addedFrom: '' } }]
+      : []),
+    ...(filters.deadlineFrom || filters.deadlineTo
+      ? [
+          {
+            label: `Deadline: ${span(filters.deadlineFrom, filters.deadlineTo)}`,
+            clear: { deadlineFrom: '', deadlineTo: '' },
+          },
+        ]
+      : []),
+    ...(filters.appointmentFrom || filters.appointmentTo
+      ? [
+          {
+            label: `Appointment: ${span(filters.appointmentFrom, filters.appointmentTo)}`,
+            clear: { appointmentFrom: '', appointmentTo: '' },
+          },
+        ]
+      : []),
+    ...(filters.accountType
+      ? [
+          {
+            label: filters.accountType === 'BUSINESS' ? 'Business' : 'Individual',
+            clear: { accountType: '' as const },
+          },
+        ]
+      : []),
+    ...(filters.state ? [{ label: `State: ${filters.state}`, clear: { state: '' } }] : []),
+    ...(filters.area.trim()
+      ? [{ label: `Area: ${filters.area.trim()}`, clear: { area: '' } }]
+      : []),
+    ...(filters.balance
+      ? [{ label: BALANCE_LABEL[filters.balance], clear: { balance: '' as const } }]
+      : []),
+    ...(filters.documents
+      ? [{ label: DOCUMENTS_LABEL[filters.documents], clear: { documents: '' as const } }]
+      : []),
+    ...(filters.tagId ? [{ label: `Tag: ${tagName}`, clear: { tagId: '' } }] : []),
+    ...(filters.source
+      ? [
+          {
+            label: `Source: ${SOURCES.find((x) => x.value === filters.source)?.label ?? filters.source}`,
+            clear: { source: '' },
+          },
+        ]
+      : []),
+    ...(filters.priority
+      ? [
+          {
+            label: `Priority: ${PRIORITY_LABEL[filters.priority]}`,
+            clear: { priority: '' as const },
+          },
+        ]
+      : []),
+    ...(filters.records !== 'active'
+      ? [{ label: RECORD_LABEL[filters.records], clear: { records: 'active' as const } }]
+      : []),
+  ];
+
   return (
     // A compact "More Filters" button, as narrow as the design's.
-    <div className="min-w-0 [&>div>button]:!h-9 [&>div>button]:!text-xs [&>div>button[aria-controls]]:!gap-1.5 [&>div>button[aria-controls]]:!px-3">
+    <div className="flex min-w-0 flex-col gap-2 [&>div>button]:!h-9 [&>div>button]:!text-xs [&>div>button[aria-controls]]:!gap-1.5 [&>div>button[aria-controls]]:!px-3">
       <FilterBar
         more={more}
         onReset={onReset}
-        onClear={() => onChange({ clientStatus: '', serviceId: '', records: 'active' })}
+        onApply={() => onChange(draft)}
+        onClear={() => {
+          setDraft(NO_MORE);
+          onChange(NO_MORE);
+        }}
       >
         <SearchField
           label="Search clients"
@@ -226,6 +518,17 @@ export function ClientsFilterRow({
           onChange={({ from, to }) => onChange({ from, to })}
         />
       </FilterBar>
+      {chips.length ? (
+        <div
+          className="flex flex-wrap gap-2"
+          aria-label="Filters applied"
+          data-testid="filter-chips"
+        >
+          {chips.map((c) => (
+            <FilterChip key={c.label} label={c.label} onRemove={() => onChange(c.clear)} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

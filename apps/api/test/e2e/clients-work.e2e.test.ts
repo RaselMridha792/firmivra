@@ -11,11 +11,34 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { BulkClientsResponse, ClientsSummary, ListClientsResponse } from '@firmivra/types';
+import {
+  BulkClientsResponse,
+  ClientExportLink,
+  ClientsSummary,
+  ListClientsResponse,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
+
+/** The reports file store in memory (the export's CSV). */
+class MemoryFiles implements ReportFiles {
+  readonly objects = new Map<string, Buffer>();
+  put(key: string, bytes: Uint8Array) {
+    this.objects.set(key, Buffer.from(bytes));
+    return Promise.resolve();
+  }
+  presignDownload(input: { key: string }) {
+    return Promise.resolve(`memory:${input.key}`);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+}
+const files = new MemoryFiles();
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -85,7 +108,10 @@ async function summary(who: Person, firm: 'a' | 'b' = 'a') {
   return ClientsSummary.parse(res.body);
 }
 
-const ids = {} as Record<'w1' | 'w2' | 'w3' | 'w4' | 'w5' | 'b1' | 'personal' | 'books', string>;
+const ids = {} as Record<
+  'w1' | 'w2' | 'w3' | 'w4' | 'w5' | 'b1' | 'personal' | 'books' | 'tag',
+  string
+>;
 
 beforeAll(async () => {
   await runInScope(db, { kind: 'platform' }, async (tx) => {
@@ -248,7 +274,10 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(REPORT_FILES)
+    .useValue(files)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -362,7 +391,9 @@ describe('GET /business/clients/summary', () => {
     const s = await summary(people.ownerA);
     expect(s.kpis).toEqual({
       totalClients: { value: 4, previous: 0 },
-      newClients: { value: 5, previous: 0 },
+      // Clients Review 2: New Clients is the New tab's count; the month's additions are their own.
+      newClients: { value: 1, previous: null },
+      addedThisMonth: { value: 5, previous: 0 },
       activeClients: { value: 1, previous: null },
       pendingDocuments: { value: 1, previous: null },
       balancesDue: { value: 1, previous: null },
@@ -648,5 +679,175 @@ describe("E2: a client's Last Activity is its latest event", () => {
     // Its note 6 days ago is not its latest event: the both-client is not in that day.
     expect(await within(-6, -6)).toEqual([e.note]);
     expect(await within(-30, 0)).toEqual(mine.filter((id) => id !== e.none).sort());
+  });
+});
+
+describe('More Filters and Added Last 30 Days (E2 additions)', () => {
+  const f = {} as Record<'a' | 'b' | 'c', string>;
+
+  beforeAll(async () => {
+    await inFirm('a', async (tx) => {
+      const businessId = firms.a.id;
+      const tag = await tx.tag.create({ data: { businessId, name: `Fake VIP ${run}` } });
+      ids.tag = tag.id;
+      f.a = (
+        await tx.client.create({
+          data: {
+            businessId,
+            displayName: 'Filter A (fake)',
+            accountType: 'BUSINESS',
+            priority: 'HIGH',
+            source: 'REFERRAL',
+          },
+        })
+      ).id;
+      await tx.clientProfile.create({
+        data: { businessId, clientId: f.a, state: 'TX', city: 'Fake Austin' },
+      });
+      await tx.clientTag.create({ data: { businessId, clientId: f.a, tagId: tag.id } });
+      f.b = (
+        await tx.client.create({
+          data: { businessId, displayName: 'Filter B (fake)', createdAt: onDay(-60) },
+        })
+      ).id;
+      await tx.clientProfile.create({
+        data: { businessId, clientId: f.b, state: 'GA', county: 'Fake Fulton' },
+      });
+      f.c = (await tx.client.create({ data: { businessId, displayName: 'Filter C (fake)' } })).id;
+      const deadline = (clientId: string, status: 'UPCOMING' | 'COMPLETED') =>
+        tx.complianceDeadline.create({
+          data: {
+            businessId,
+            clientId,
+            name: 'Fake 941',
+            type: 'TAX_FILING',
+            dueOn: new Date(`${nyDay(5)}T00:00:00.000Z`),
+            status,
+            completedAt: status === 'COMPLETED' ? new Date() : null,
+          },
+        });
+      await deadline(f.b, 'UPCOMING');
+      await deadline(f.c, 'COMPLETED');
+      const visit = (clientId: string, status: 'SCHEDULED' | 'CANCELLED') =>
+        tx.appointment.create({
+          data: {
+            businessId,
+            clientId,
+            staffUserId: people.adminA.id,
+            startsAt: onDay(3),
+            endsAt: new Date(onDay(3).getTime() + 3_600_000),
+            locationKind: 'PHONE',
+            status,
+            cancelledAt: status === 'CANCELLED' ? new Date() : null,
+          },
+        });
+      await visit(f.b, 'SCHEDULED');
+      await visit(f.c, 'CANCELLED');
+    });
+  });
+
+  const mine = (items: { id: string }[]) =>
+    items
+      .map((r) => r.id)
+      .filter((id) => Object.values(f).includes(id))
+      .sort();
+  const only = async (query: string) => mine((await list(`?limit=100&${query}`)).items);
+
+  it('narrows by type, place, priority, source, tag and when the client was added', async () => {
+    expect(await only('accountType=BUSINESS')).toEqual([f.a]);
+    expect(await only('state=tx')).toEqual([f.a]);
+    expect(await only('place=austin')).toEqual([f.a]);
+    expect(await only('place=fulton')).toEqual([f.b]);
+    expect(await only('priority=HIGH')).toEqual([f.a]);
+    expect(await only('source=REFERRAL')).toEqual([f.a]);
+    expect(await only(`tagId=${ids.tag}`)).toEqual([f.a]);
+    // Added Last 30 Days: by the creation date, not the New stage.
+    expect(await only(`addedFrom=${nyDay(-29)}`)).toEqual([f.a, f.c].sort());
+  });
+
+  it('narrows by an open deadline and a scheduled appointment on those days', async () => {
+    expect(await only(`deadlineFrom=${nyDay(4)}&deadlineTo=${nyDay(6)}`)).toEqual([f.b]);
+    expect(await only(`deadlineFrom=${nyDay(6)}`)).toEqual([]);
+    expect(await only(`appointmentFrom=${nyDay(3)}&appointmentTo=${nyDay(3)}`)).toEqual([f.b]);
+    expect(await only(`appointmentTo=${nyDay(2)}`)).toEqual([]);
+  });
+
+  it('narrows by a balance due or documents owed, or none', async () => {
+    const has = async (query: string, id: string) =>
+      (await list(`?limit=100&${query}`)).items.some((r) => r.id === id);
+    expect([await has('balance=DUE', ids.w1), await has('balance=DUE', f.a)]).toEqual([
+      true,
+      false,
+    ]);
+    expect([await has('balance=NONE', ids.w1), await has('balance=NONE', f.a)]).toEqual([
+      false,
+      true,
+    ]);
+    expect([await has('documents=MISSING', ids.w1), await has('documents=MISSING', f.a)]).toEqual([
+      true,
+      false,
+    ]);
+    expect([await has('documents=NONE', ids.w1), await has('documents=NONE', f.a)]).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('refuses a bad filter as 400', async () => {
+    for (const query of [
+      'state=Georgia',
+      'balance=SOME',
+      'priority=URGENT',
+      'tagId=nope',
+      `deadlineFrom=${nyDay(5)}&deadlineTo=${nyDay(1)}`,
+    ]) {
+      const res = await call('get', `?${query}`, people.ownerA);
+      expect(res.status, query).toBe(400);
+    }
+  });
+});
+
+describe('POST /business/clients/export (E2 additions)', () => {
+  it("exports the list's clients with minimal fields, for those with EXPORT, audited", async () => {
+    const formula = await inFirm('a', (tx) =>
+      tx.client.create({ data: { businessId: firms.a.id, displayName: '=Fake formula' } }),
+    );
+    const res = await call('post', '/export', people.ownerA, 'a', { search: 'Filter A' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const link = ClientExportLink.parse(res.body);
+    expect(link.rowCount).toBe(1);
+    expect(link.fileName).toMatch(/^clients-\d{4}-\d{2}-\d{2}\.csv$/);
+    const key = link.url.replace(/^memory:/, '');
+    expect(key.startsWith(`tenant/${firms.a.id}/reports/`)).toBe(true);
+    const csv = files.objects.get(key)!.toString('utf8');
+    const [head, row] = csv
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\r\n');
+    expect(head).toBe(
+      '"Client","Type","Email","Phone","Stage","Services","Assigned to","Missing documents","Balance due","Last activity","Next appointment","Added","Archived"',
+    );
+    expect(row).toContain('"Filter A (fake)","Business"');
+    // A name a spreadsheet would read as a formula starts with a quote.
+    const all = ClientExportLink.parse(
+      (await call('post', '/export', people.ownerA, 'a', { search: 'Fake formula' })).body,
+    );
+    const text = files.objects.get(all.url.replace(/^memory:/, ''))!.toString('utf8');
+    expect(text).toContain(`"'=Fake formula"`);
+    expect(formula.id).toBeTruthy();
+    // Staff's default grid has no Clients EXPORT; a client login none either.
+    expect((await call('post', '/export', people.staffA, 'a', {})).status).toBe(403);
+    // Bad filters are 400, before anything is written.
+    expect((await call('post', '/export', people.ownerA, 'a', { state: 'Georgia' })).status).toBe(
+      400,
+    );
+    const [audit] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'clients.exported' },
+        orderBy: { createdAt: 'asc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit?.metadata).toEqual({ rows: 1, filters: ['search', 'status'] });
   });
 });

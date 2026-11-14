@@ -93,6 +93,8 @@ const reconciliation = (state: 'IN_PROGRESS' | 'READY_FOR_REVIEW'): RecordDef =>
         endingBalanceCents: 5000,
         clearedBalanceCents: 5000,
         differenceCents: 0,
+        // Review 2 (R01c): an approvable reconciliation has its statement.
+        statementDocumentId: await get('workspaceDocument'),
         status: state,
         ...(state === 'READY_FOR_REVIEW' ? { readyForReviewAt: new Date() } : {}),
       },

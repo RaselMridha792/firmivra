@@ -11,6 +11,13 @@ import {
   PortalSummaryDays,
   RecentPortalClients,
 } from './management.js';
+import {
+  ClientPortalAccessResult,
+  ClientPortalDocumentsSummary,
+  ClientPortalFormsSummary,
+  ClientPortalVisibility,
+  UpdateClientPortalVisibilityRequest,
+} from './visibility.js';
 
 const BASE = '/business/client-portal';
 const clientPath = (clientId: string) => `${BASE}/clients/${encodeURIComponent(clientId)}`;
@@ -55,6 +62,45 @@ export function createClientPortalClient(request: ApiRequest) {
       }),
     unlock: async (clientId: string): Promise<ClientPortalLock> =>
       request(ClientPortalLock, `${clientPath(clientId)}/unlock`, { method: 'POST', body: {} }),
+    visibility: async (clientId: string): Promise<ClientPortalVisibility> =>
+      request(ClientPortalVisibility, `${clientPath(clientId)}/visibility`),
+    /** Owner and Admin: only the areas sent change; audited. */
+    setVisibility: async (
+      clientId: string,
+      body: UpdateClientPortalVisibilityRequest,
+    ): Promise<ClientPortalVisibility> =>
+      request(ClientPortalVisibility, `${clientPath(clientId)}/visibility`, {
+        method: 'PUT',
+        body: parseInput(UpdateClientPortalVisibilityRequest, body),
+      }),
+    /** Owner and Admin: every ACTIVE login DISABLED, records kept. */
+    deactivate: async (clientId: string): Promise<ClientPortalAccessResult> =>
+      request(ClientPortalAccessResult, `${clientPath(clientId)}/deactivate`, {
+        method: 'POST',
+        body: {},
+      }),
+    /** Owner and Admin: the logins deactivated here ACTIVE again. */
+    reactivate: async (clientId: string): Promise<ClientPortalAccessResult> =>
+      request(ClientPortalAccessResult, `${clientPath(clientId)}/reactivate`, {
+        method: 'POST',
+        body: {},
+      }),
+    /** Owner and Admin: each active login gets the password reset code by email. */
+    resetAccess: async (clientId: string): Promise<ClientPortalAccessResult> =>
+      request(ClientPortalAccessResult, `${clientPath(clientId)}/reset-access`, {
+        method: 'POST',
+        body: {},
+      }),
+    /** Owner and Admin: forgets the logins' authenticator apps; their sessions end. */
+    resetMfa: async (clientId: string): Promise<ClientPortalAccessResult> =>
+      request(ClientPortalAccessResult, `${clientPath(clientId)}/mfa/reset`, {
+        method: 'POST',
+        body: {},
+      }),
+    documentsSummary: async (clientId: string): Promise<ClientPortalDocumentsSummary> =>
+      request(ClientPortalDocumentsSummary, `${clientPath(clientId)}/documents/summary`),
+    formsSummary: async (clientId: string): Promise<ClientPortalFormsSummary> =>
+      request(ClientPortalFormsSummary, `${clientPath(clientId)}/forms/summary`),
   };
 }
 export type ClientPortalClient = ReturnType<typeof createClientPortalClient>;

@@ -19,6 +19,23 @@ export interface ClientsPlace {
   engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   completedFrom: string;
   completedTo: string;
+  // Octavia's E2 additions: Added Last 30 Days and More Filters.
+  addedFrom: string;
+  deadlineFrom: string;
+  deadlineTo: string;
+  appointmentFrom: string;
+  appointmentTo: string;
+  accountType: '' | 'INDIVIDUAL' | 'BUSINESS';
+  /** A two-letter state code. */
+  state: string;
+  /** Part of the city or county. */
+  area: string;
+  balance: '' | 'DUE' | 'NONE';
+  documents: '' | 'MISSING' | 'NONE';
+  tagId: string;
+  /** A lead source code. */
+  source: string;
+  priority: '' | 'HIGH' | 'MEDIUM' | 'LOW';
   page: number;
   limit: number;
 }
@@ -28,6 +45,8 @@ const STAGES = ['NEW', 'PENDING_DOCUMENTS', 'IN_PROGRESS', 'ACTIVE', 'ON_HOLD', 
 const ENGAGEMENT_STATUSES = ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const STATE = /^[A-Z]{2}$/;
+const SOURCE = /^[A-Z_]{2,30}$/;
 
 /** The session key that remembers the last list address, for Return to Clients. */
 export const LAST_CLIENTS_LIST = 'firmivra:clients:last-list';
@@ -62,6 +81,22 @@ export function clientsPlaceFrom(params: Record<string, Param>): ClientsPlace {
     ) as ClientsPlace['engagementStatus'],
     completedFrom: withService('completedFrom', (v) => DAY.test(v)),
     completedTo: withService('completedTo', (v) => DAY.test(v)),
+    addedFrom: pick('added', (v) => DAY.test(v)),
+    deadlineFrom: pick('dueFrom', (v) => DAY.test(v)),
+    deadlineTo: pick('dueTo', (v) => DAY.test(v)),
+    appointmentFrom: pick('visitFrom', (v) => DAY.test(v)),
+    appointmentTo: pick('visitTo', (v) => DAY.test(v)),
+    accountType: pick('type', (v) => v === 'INDIVIDUAL' || v === 'BUSINESS') as
+      '' | 'INDIVIDUAL' | 'BUSINESS',
+    state: pick('state', (v) => STATE.test(v)),
+    area: one(params['area']).slice(0, 100),
+    balance: pick('balance', (v) => v === 'DUE' || v === 'NONE') as ClientsPlace['balance'],
+    documents: pick('docs', (v) => v === 'MISSING' || v === 'NONE') as ClientsPlace['documents'],
+    tagId: pick('tag', (v) => UUID.test(v)),
+    source: pick('source', (v) => SOURCE.test(v)),
+    priority: pick('priority', (v) =>
+      ['HIGH', 'MEDIUM', 'LOW'].includes(v),
+    ) as ClientsPlace['priority'],
     page: Number.isInteger(page) && page > 1 && page <= 10_000 ? page : 1,
     limit: CLIENT_PAGE_SIZES.includes(limit) ? limit : (CLIENT_PAGE_SIZES[0] ?? 8),
   };
@@ -82,6 +117,19 @@ export function clientsPlaceQuery(place: ClientsPlace): string {
   set('engagement', place.engagementStatus);
   set('completedFrom', place.completedFrom);
   set('completedTo', place.completedTo);
+  set('added', place.addedFrom);
+  set('dueFrom', place.deadlineFrom);
+  set('dueTo', place.deadlineTo);
+  set('visitFrom', place.appointmentFrom);
+  set('visitTo', place.appointmentTo);
+  set('type', place.accountType);
+  set('state', place.state);
+  set('area', place.area);
+  set('balance', place.balance);
+  set('docs', place.documents);
+  set('tag', place.tagId);
+  set('source', place.source);
+  set('priority', place.priority);
   if (place.page > 1) q.set('page', String(place.page));
   if (place.limit !== CLIENT_PAGE_SIZES[0]) q.set('limit', String(place.limit));
   return q.toString();
