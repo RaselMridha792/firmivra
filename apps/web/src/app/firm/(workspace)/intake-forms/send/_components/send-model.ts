@@ -53,8 +53,9 @@ export interface ChannelState {
 /**
  * Whether the chosen recipient can receive the form this way, and the address shown, as the API
  * delivers today (Octavia's review, I2): a form reaches a client through their client portal
- * sign-in, by the portal alone or with its email copy; leads need the secure link page and text
- * messages have no sender for intake forms yet, so those are refused before Send, not after.
+ * sign-in, by the portal alone or with its email copy; a lead by email, with a secure link to the
+ * form (no sign-in). Text messages have no sender for intake forms yet, so those are refused
+ * before Send, not after.
  */
 export function channelState(
   recipient: Recipient | undefined,
@@ -68,8 +69,8 @@ export function channelState(
       : { available: false, detail: 'No portal access' };
   }
   if (!recipient) return { available: true, detail: 'Email address' };
-  if (recipient.kind === 'LEAD') return { available: false, detail: 'Not available for leads yet' };
   if (!recipient.email) return { available: false, detail: 'No email on file' };
+  if (recipient.kind === 'LEAD') return { available: true, detail: recipient.email };
   return recipient.portal
     ? { available: true, detail: recipient.email }
     : { available: false, detail: 'Needs a portal sign-in first' };
@@ -86,7 +87,7 @@ export function noRouteReason(recipient: Recipient | undefined): string | undefi
   );
   if (any) return undefined;
   if (recipient.kind === 'LEAD')
-    return 'Forms can’t be sent to leads yet: they need a secure link page that isn’t available. Send it once the lead is a client with a portal sign-in.';
+    return `${recipient.name} has no email address, so the form can’t reach them. Add one on the lead, then send.`;
   return `${recipient.name} has no client portal sign-in yet, so an intake form can’t reach them. They can sign up on your portal, and you approve it under Sign-ups; then send the form.`;
 }
 
@@ -117,6 +118,8 @@ export function routeLine(recipient: Recipient | undefined, channel: FormDeliver
     return `${who} will receive a text message with a secure link to access and complete the form.`;
   if (channel === 'PORTAL')
     return `${who} will find the form in their client portal and complete it after signing in.`;
+  if (recipient?.kind === 'LEAD')
+    return 'The lead will receive an email with a secure link to complete the form, without signing in. A newer link replaces it.';
   return `${who} will receive an email that takes them to their client portal, where they sign in and complete the form.`;
 }
 

@@ -455,6 +455,8 @@ export const StaffDayQuery = z.strictObject({
   startsAt: DateTime.optional(),
   endsAt: DateTime.optional(),
   excludeAppointmentId: z.uuid().optional(),
+  /** Review 2 (Appointments B11): the type being booked, so its buffers count as at save. */
+  typeId: z.uuid().optional(),
 });
 export type StaffDayQuery = z.input<typeof StaffDayQuery>;
 
@@ -477,6 +479,8 @@ export const ConflictCheckRequest = z.strictObject({
   roomId: z.uuid().nullable().optional(),
   recurrence: AppointmentRecurrence.optional(),
   excludeAppointmentId: z.uuid().optional(),
+  /** Review 2 (Appointments B11): the type being booked, so its buffers count as at save. */
+  typeId: z.uuid().optional(),
 });
 export type ConflictCheckRequest = z.input<typeof ConflictCheckRequest>;
 

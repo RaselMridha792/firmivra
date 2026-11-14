@@ -469,7 +469,14 @@ export const DuplicateTaskRequest = z
 export type DuplicateTaskRequest = z.input<typeof DuplicateTaskRequest>;
 
 /** POST /business/tasks/{id}/progress: the stage of an OPEN task, nothing else. */
-export const SetTaskProgressRequest = z.strictObject({ progress: TaskProgress });
+/**
+ * PATCH .../progress. TX-F13: Blocked carries its reason (required unless the task already has one
+ * or waits on a prerequisite); the reason is kept and shown on the task.
+ */
+export const SetTaskProgressRequest = z.strictObject({
+  progress: TaskProgress,
+  blockedReason: text(500, 'many').optional(),
+});
 export type SetTaskProgressRequest = z.input<typeof SetTaskProgressRequest>;
 
 /** POST /business/tasks/{id}/checklist/{itemId}/complete or reopen needs no body. */
