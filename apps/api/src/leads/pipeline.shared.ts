@@ -223,6 +223,10 @@ const ACTIVITY_LABELS: Partial<Record<ActivityData['kind'], string>> = {
 export function activityLabel(a: ActivityData, source: LeadSource): string {
   if (a.kind === 'CREATED') return `Lead created from ${SOURCE_LABELS[source]}`;
   if (a.kind === 'STATUS_CHANGED') {
+    // R2 15: a merge is told on both leads, with the other's number.
+    const merge = a.metadata as { mergedFrom?: string; mergedInto?: string } | null;
+    if (merge?.mergedFrom) return `Merged from ${merge.mergedFrom}`;
+    if (merge?.mergedInto) return `Merged into ${merge.mergedInto}`;
     return `Status changed to ${a.status ? LEAD_STATUS_LABELS[a.status as LeadPipelineStatus] : 'a new status'}`;
   }
   if (a.kind === 'ASSIGNED') {
@@ -253,6 +257,12 @@ const profileSelect = {
   dateOfBirth: true,
   // R2 17: the rule that gave the lead its owner.
   assignedByRule: { select: { id: true, name: true } },
+  // R2 15: the merge links, both ways.
+  mergedInto: { select: { id: true, firstName: true, lastName: true, number: true } },
+  mergedFrom: {
+    orderBy: [{ mergedAt: 'desc' }, { id: 'asc' }],
+    select: { id: true, firstName: true, lastName: true, number: true },
+  },
   contactPoints: {
     orderBy: [{ position: 'asc' }, { id: 'asc' }],
     select: { kind: true, value: true, label: true },
@@ -338,7 +348,8 @@ export async function loadProfile(
         visibleLead(businessId),
         unrestricted ? {} : reach(actor),
         { id },
-        archived ? {} : { archivedAt: null },
+        // A merged lead stays archived but opens, read only (R2 15): its writes need an open lead.
+        archived ? {} : { OR: [{ archivedAt: null }, { mergedIntoLeadId: { not: null } }] },
       ],
     },
     select: profileSelect,
@@ -393,6 +404,8 @@ export async function loadProfile(
     dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
     assignedByRule: r.assignedByRule,
     otherContacts: r.contactPoints,
+    mergedFrom: r.mergedFrom.map(leadRef),
+    mergedInto: r.mergedInto ? leadRef(r.mergedInto) : null,
     bestTimeToContact: r.bestTimeToContact,
     recentActivity: recent.map((a) => toActivity(a, r.source)),
     // Appointments have no lead link yet (see the PR's gaps).
@@ -444,6 +457,13 @@ export async function leadTasksOf(
       : null,
   }));
 }
+
+/** A lead named with its number, as the merge links show it. */
+const leadRef = (l: { id: string; firstName: string; lastName: string; number: number }) => ({
+  id: l.id,
+  name: `${l.firstName} ${l.lastName}`.trim(),
+  number: `LD-${l.number}`,
+});
 
 /** The lead held for this transaction, if the member reaches it: 404 otherwise. */
 export async function lockLead(tx: TxClient, businessId: string, actor: PipelineActor, id: string) {

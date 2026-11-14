@@ -1013,6 +1013,7 @@ export function createInvoicesMock(
       const to = q.to ?? day;
       const rows: PaymentRow[] = [];
       for (const r of s.rows.filter(visible)) {
+        if (q.clientId && r.clientId !== q.clientId) continue;
         const client = {
           id: r.clientId,
           displayName: clientFixtures().find((c) => c.id === r.clientId)?.displayName ?? '',

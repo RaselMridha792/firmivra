@@ -745,7 +745,12 @@ export function createClientsMock(
       ): ClientService => {
         const area = MODULE[s.kind];
         return {
-          id: `0199b6a5-0000-7000-8000-${String(n * 10 + i).padStart(12, '0')}`,
+          // G8: client 1's first service is the engagements mock's first engagement, so the
+          // Services tab's actions reach a real mock record.
+          id:
+            n === 1 && i === 0
+              ? '0199b6a2-0000-7000-8000-000000000001'
+              : `0199b6a5-0000-7000-8000-${String(n * 10 + i).padStart(12, '0')}`,
           service: s,
           title,
           status,

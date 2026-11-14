@@ -67,9 +67,19 @@ const TABS = [
   'Settings',
 ] as const;
 type TabId = (typeof TABS)[number];
+/**
+ * Review 2 (N02): Documents opens on this client and this bookkeeping service, and on the current
+ * period's uploads when there is one (a chip there names it and clears it).
+ */
+const documentsHref = (w: BookkeepingClientWorkspace) => {
+  const base = `/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`;
+  const p = w.currentPeriod;
+  return p
+    ? `${base}&uploadedFrom=${p.periodStart}&uploadedTo=${p.periodEnd}&period=${encodeURIComponent(p.label)}`
+    : base;
+};
 const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> = {
-  // Review 2 (N02): Documents opens on this client and this bookkeeping service.
-  Documents: (w) => `/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`,
+  Documents: documentsHref,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
   // BK-E01: the client's Terms page (six areas).
   Terms: (w) => `/bookkeeping/clients/${w.id}/terms`,
@@ -493,10 +503,7 @@ export function ClientWorkspace({ id }: { id: string }) {
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="font-display text-lg font-bold text-heading">Recent Documents</h2>
-                  <OriginLink
-                    href={`/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`}
-                    className={linkBtn}
-                  >
+                  <OriginLink href={documentsHref(w)} className={linkBtn}>
                     View All
                   </OriginLink>
                 </div>

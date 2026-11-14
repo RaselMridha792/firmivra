@@ -157,9 +157,52 @@ function PossibleDuplicates({ lead }: { lead: LeadProfile }) {
             </Link>
           </span>
         ))}
-        . Nothing is merged; check them before converting.
+        . Nothing is merged unless you merge it.{' '}
+        {leads[0] ? (
+          <Link
+            href={`/leads/duplicates/merge?a=${lead.id}&b=${leads[0].id}`}
+            className="text-link underline"
+          >
+            Compare and merge
+          </Link>
+        ) : null}
       </span>
     </Callout>
+  );
+}
+
+/**
+ * R2 15: a merged lead (read only, archived) names the lead it was merged into; a kept lead lists
+ * the leads merged into it, each opened as it was.
+ */
+function MergeLinks({ lead }: { lead: LeadProfile }) {
+  if (lead.mergedInto) {
+    return (
+      <Callout icon={WarningCircle} tone="amber" surface="warning" size="compact">
+        <span data-testid="lead-merged-into">
+          This lead was merged into{' '}
+          <Link href={`/leads/${lead.mergedInto.id}`} className="text-link underline">
+            {lead.mergedInto.name} ({lead.mergedInto.number})
+          </Link>
+          . It is kept as it was, read only.
+        </span>
+      </Callout>
+    );
+  }
+  if (!lead.mergedFrom?.length) return null;
+  return (
+    <p className="text-sm text-text" data-testid="lead-merged-from">
+      Merged from{' '}
+      {lead.mergedFrom.map((m, i) => (
+        <span key={m.id}>
+          {i ? ', ' : ''}
+          <Link href={`/leads/${m.id}`} className="text-link underline">
+            {m.name} ({m.number})
+          </Link>
+        </span>
+      ))}
+      : their notes, activity, tasks, files and forms are on those leads.
+    </p>
   );
 }
 
@@ -206,7 +249,8 @@ export function OverviewTab() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="lead-overview">
-      {lead ? <PossibleDuplicates lead={lead} /> : null}
+      {lead ? <MergeLinks lead={lead} /> : null}
+      {lead && !lead.mergedInto ? <PossibleDuplicates lead={lead} /> : null}
       <div className="grid items-start gap-4 lg:grid-cols-2 min-[1440px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1.45fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <CardFrame

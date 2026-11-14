@@ -54,6 +54,8 @@ const LABELS: Record<string, string> = {
 
 /** "Payroll", "Bookkeeping"…: the place the origin path belongs to. */
 export function originLabel(origin: string): string {
+  // Dashboard Review 2 (R2 NEW6): a page the dashboard opened goes back to it, with its periods.
+  if (/^\/(?:[?#]|$)/.test(origin)) return 'Dashboard';
   // RP-F03: a report opened from the library goes back to that tab and page.
   if (/^\/reports\/library(?:[/?#]|$)/.test(origin)) return 'Report Library';
   // CD-F16: a record opened from Compliance's Logs or Manage goes back to that tab.

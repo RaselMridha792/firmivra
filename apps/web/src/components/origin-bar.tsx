@@ -8,7 +8,7 @@ import { markReturn, ORIGIN_PARAM, originLabel, safeOrigin, takeScroll } from '.
 import { hasUnsavedChanges } from '../lib/unsaved';
 
 /** Tries for about two seconds, while the page's lists load, to reach the remembered position. */
-function restoreScroll(y: number) {
+export function restoreScroll(y: number) {
   let tries = 0;
   const step = () => {
     const room = document.documentElement.scrollHeight - window.innerHeight;
