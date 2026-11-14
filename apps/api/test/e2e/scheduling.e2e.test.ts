@@ -1158,7 +1158,8 @@ describe('schedule', () => {
     await refused({ contact: { kind: 'CONTACT', name: 'New Person', email: 'new@sample.test' } });
     await refused({ staffUserIds: [people.staffA.id, people.staffA2.id] });
     await refused({ method: 'OTHER' });
-    await refused({ related: { taxReturnId: randomUUID() } });
+    // Review 2 (TX-F06): Link to Tax Return is kept now; the other related items still are not.
+    await refused({ related: { intakeFormId: randomUUID() } });
     await refused({ recurrence: { frequency: 'CUSTOM', interval: 1, count: 3 } });
     await refused({ color: '#123456' });
     await refused({ timezone: 'Not/AZone' });
@@ -3389,5 +3390,70 @@ describe('a planning discussion (Tax Planning Review 2 C12)', () => {
       );
       expect([res.status, codeOf(res)], taxPlanId).toEqual([404, 'NOT_FOUND']);
     }
+  });
+});
+
+describe('Review 2 (TX-F06): Link to Tax Return', () => {
+  it("keeps one of the client's returns (as its engagement), shows it, and takes it off", async () => {
+    const fx = await asOwner(ids.firmA, async (tx) => {
+      const A = { businessId: ids.firmA };
+      const e = await tx.engagement.create({
+        data: { ...A, clientId: ids.c1, serviceId: ids.serviceA, title: 'Fake 2025 return' },
+      });
+      const linked = await tx.taxReturn.create({
+        data: {
+          ...A,
+          clientId: ids.c1,
+          engagementId: e.id,
+          taxYear: 2025,
+          filingType: 'INDIVIDUAL',
+          formType: '1040',
+        },
+      });
+      const bare = await tx.taxReturn.create({
+        data: { ...A, clientId: ids.c1, taxYear: 2024, filingType: 'INDIVIDUAL', formType: '1040' },
+      });
+      const theirs = await tx.taxReturn.create({
+        data: { ...A, clientId: ids.c2, taxYear: 2025, filingType: 'INDIVIDUAL', formType: '1040' },
+      });
+      return { linked: linked.id, bare: bare.id, theirs: theirs.id, engagement: e.id };
+    });
+    const r = await scheduled({ related: { taxReturnId: fx.linked } });
+    expect(r.related.taxReturn).toEqual({ id: fx.linked, name: '2025 1040 Return' });
+    const stored = await asOwner(ids.firmA, (tx) =>
+      tx.appointment.findUniqueOrThrow({ where: { id: r.id }, select: { engagementId: true } }),
+    );
+    expect(stored.engagementId).toBe(fx.engagement);
+
+    // Another client's return: 404; a return without its service yet: 400 at the field.
+    expectError(
+      await call(
+        'post',
+        '/appointments/schedule',
+        people.ownerA,
+        schedule({ related: { taxReturnId: fx.theirs } }),
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call(
+        'post',
+        '/appointments/schedule',
+        people.ownerA,
+        schedule({ related: { taxReturnId: fx.bare } }),
+      ),
+      400,
+      'VALIDATION_FAILED',
+    );
+
+    const off = exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${r.id}/details`, people.ownerA, {
+        version: r.version,
+        related: { taxReturnId: null },
+      }),
+    );
+    expect(off.related.taxReturn).toBeNull();
   });
 });
