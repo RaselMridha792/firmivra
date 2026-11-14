@@ -15,6 +15,9 @@ import {
   SaveIntakeStepRequest,
   SubmitIntakeRequest,
 } from './schemas.js';
+import { PortalIntakeForm, PortalIntakeFormList } from './portal-forms.js';
+import { IntakeShareToken } from './share.js';
+import { z } from 'zod';
 
 /**
  * `api.myIntakes(firmSlug)` (apps/web/src/lib/api.ts): the signed-in client's Intake Forms tab.
@@ -86,6 +89,29 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
       request(OkResponse, `${one(id)}/uploads/${parseInput(IntakeUploadId, uploadId)}`, {
         method: 'DELETE',
       }),
+    /**
+     * INTAKE-ACCESS-02: the forms the firm published in the client portal, each with the
+     * client's open form of it (to continue), if any.
+     */
+    forms: async (): Promise<PortalIntakeForm[]> =>
+      (await request(PortalIntakeFormList, `${portalMe(firmSlug)}/intake-forms`)).items,
+    /**
+     * Starts a portal-published form (the primary login; 403 otherwise): the client's open one of
+     * it, or a new one on a PENDING service for the firm to review. 404 when it isn't published.
+     */
+    startForm: async (templateId: string): Promise<MyIntake> =>
+      request(
+        MyIntake,
+        `${portalMe(firmSlug)}/intake-forms/${parseInput(z.uuid(), templateId)}/start`,
+        { method: 'POST' },
+      ),
+    /** The same through the form's share link (published in the portal or not). 410 LINK_INVALID. */
+    startShared: async (token: string): Promise<MyIntake> =>
+      request(
+        MyIntake,
+        `${portalMe(firmSlug)}/intake-forms/shared/${parseInput(IntakeShareToken, token)}/start`,
+        { method: 'POST' },
+      ),
   };
 }
 

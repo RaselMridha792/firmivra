@@ -570,3 +570,27 @@ PR bodies follow #1130's: what and why, the screenshot table (shots in `e2e/scre
   - **Next:** B10 to B12, then B13 onward.
 - 2026-11-10: Advisory batch 2 on `rasel/R56-advisory-batch2`: B11, Generate Zoom Link never saves without a link (409 VIDEO_LINK_MISSING; options `meetingLinkStaff`, ids only), the form says why it is off (Integrations, or Settings > Availability, in a new tab, with Check again), and Settings > Availability sets a member's meeting link; B12 and B34, `YearSelect` (this year, six back, three ahead, stored years, custom) on the client's Documents, Upload and Edit Details, and a firm with no document categories says where they are set up; tests: scheduling e2e (one new), web unit `lib/years`, mock `r56-advisory-batch2` (6). B10 waits on R1's columns and the approval answer.
 - 2026-11-10: Advisory batch 5 on `rasel/R56-advisory-batch5` (stacked on batch 2): B19, Create Appointment Type beside the type choice (Owner and Admin; a new tab, so the draft is kept; Staff are told who creates them) and Check again, which chooses the one type just made; B20, the Color comes from the appointment type, read-only ("Color (from type)"; an older appointment's own colour shows as kept), and the per-appointment colour choice is gone; tests: web unit `new-type`, mock `r56-advisory-batch5` (2), schedule-form specs passing.
+- 2026-11-14: Appointments Review 2, merged:
+  - #1421: B4, B5, B6 and B11;
+  - #1440 (db) and #1445: rows 1 and 2;
+  - #1448 (db) and #1451: P1 Save as Draft;
+  - #1453: B1, B2 and row 7;
+  - #1462: B3 and B8, with the two old calendar specs fixed;
+  - #1465: B9 and B7.
+  - Also #1472, a flaky `platform-mrr` db test (each refused write now starts only when awaited).
+- 2026-11-15: Appointments Review 2 row 3, booking links (#1478; Option A, the lead's review):
+  - Copy Booking Link and Copy Embed Code on every type. The embed is a button, not an iframe.
+  - The public `/{slug}/book/{typeId}` page refuses archived, non-bookable and unknown types.
+  - The type survives sign-in and sign-up.
+- 2026-11-15: Tax Planning Review 2 "Project Deadlines" (the lead's approval under Rasel's db delegation):
+  - #1482 (db), with its migration renamed after R55's of the same minute;
+  - #1489: the API, the tab beside Reports, Add Deadline, private or shared;
+  - #1493: the reminders job, to the owner and coworkers, in-app and by email through the outbox.
+  - Also fixed: `r22-begin-online` counts the page's own links.
+- 2026-11-15: B10 time zones (#1494): e2e and mock proof, and the Preferences hint.
+- 2026-11-15: `docs/qa/appointments.md` maps every Review 2 row to a PR and test, or a GAP:
+  - row 8 and P8: client confirmation;
+  - P3: the cancel notice;
+  - B4 to B6: mock checks;
+  - A1 to A3.
+  - **Next:** the Messaging email choices db PR (approved; the schema is drafted on `rasel/R56-db-message-email`), then the GAPs as the lead orders them.

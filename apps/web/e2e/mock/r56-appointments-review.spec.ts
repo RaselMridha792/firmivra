@@ -488,6 +488,33 @@ test('Review 2 (B7, B9): instructions per channel, the confirmation message and 
   await expect(card.getByLabel('Email Reminder note')).toHaveValue('Fake: bring your 1099s.');
 });
 
+test("Review 2 (B10): a new appointment starts in the firm's time zone and keeps another one chosen for it", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  // The firm's zone (the mock firm's America/New_York) by default.
+  await expect(page.getByLabel('Time Zone')).toHaveValue('America/New_York');
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('09:00');
+  await page.getByLabel('End Time *').selectOption('09:30');
+  // This appointment's own zone.
+  await page.getByLabel('Time Zone').selectOption('America/Chicago');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  await page.getByRole('link', { name: 'Edit', exact: true }).click();
+  await expect(page.getByLabel('Time Zone')).toHaveValue('America/Chicago', { timeout: 60_000 });
+  await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
+});
+
 test('Review 2 (P3): Cancel says the client is told, and that they see the reason', async ({
   page,
 }) => {

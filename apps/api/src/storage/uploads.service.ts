@@ -224,6 +224,7 @@ export class UploadsService {
           categoryId: claim.categoryId,
           requestId: claim.requestId,
           clientArchived: archived,
+          intake: Boolean(claim.intakeId),
         });
         const now = new Date();
         const years = target.category?.retentionYears ?? null;

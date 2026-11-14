@@ -1,0 +1,114 @@
+# Appointments: Review 2 QA map
+
+This file maps every row of Octavia's Appointments Review 2 to the PR that changed it and the test that covers it:
+- the Review One corrections (A0 and 1 to 10);
+- the pending tests (P1 to P10);
+- the additional corrections (B1 to B11);
+- the approved additions (A1 to A3);
+- the checks she found working (W1 to W11).
+
+A row that needed no code gets the exact steps on dev that show it instead. A row still open is a **GAP** with a plan. The report is kept privately, outside the repo; rows are named by their IDs and headings only.
+
+**Where the tests are**
+- API e2e: `apps/api/test/e2e/`
+- Mock specs: `apps/web/e2e/mock/`
+- db tests: `packages/db/test/`
+- Isolation: `apps/api/test/isolation/` (every firm route, both firms)
+
+**Steps on dev.** Use `https://app.dev.firmivra.com` with the QA logins Rasel hands over:
+- `qa-owner-b@`, `qa-admin-b@` and `qa-staff-b@dev.firmivra.com` (all in Test Firm B);
+- `qa-client-b@dev.firmivra.com`, a Test Firm B client, at `https://portal.dev.firmivra.com/test-firm-b`.
+
+Test Firm B has twelve upcoming appointments for a synthetic client (QA seed part 4, #1463). They are marked reminded, so nothing is emailed by itself. Use the synthetic client for any row that sends something.
+
+**Notices, for P2 to P5 and P7**
+
+| Action | What the client gets | What the firm gets |
+| --- | --- | --- |
+| A booking | a bell item and an email | a bell item (Owners, Admins and the client's assigned member) |
+| A reschedule (new time or staff member) | a bell item and an email | a bell item |
+| Staff Confirm on a Pending one | nothing (see **row 8**) | nothing |
+| The automatic reminder (the job, inside the 24 hours before) | a bell item and an email, with the reminder's own note (B7) | a bell item |
+| Send Reminder by hand | an email, with the reminder's own note | nothing |
+| Cancel | nothing today (see **P3**) | nothing |
+| Complete or No-show | nothing (internal outcomes) | nothing |
+
+Text messages for appointments are not sent yet (no text template), so a Text reminder is kept but not delivered.
+
+## Review One corrections
+
+| Row | Status | PR | Test or steps |
+| --- | --- | --- | --- |
+| A0: Archive and Restore status | Done | approved earlier; #1478 | The archived-booking check is now proven. e2e `booking-link` "the signed-in client books the exact type of the link; an archived or hidden type is refused": free times and booking are 404, and nothing is written. Mock `r56-booking-link` "an archived type, one clients cannot book online, and no type are refused plainly". Dev: archive a bookable type in Appointments > Manage Appointment Types, then open its Booking Link: "… Is No Longer Offered". |
+| 1: Meeting methods and validation | Done | #1440 (db), #1445 | e2e `scheduling` "meeting methods (A1)". Mock `r56-appointments-review` "A1 and Review 2 (P1 row 1): several methods save together; Other Video Meeting names its platform". Dev: tick In-Person, Zoom / Video and Other Video Meeting, name a platform, Save, then reload. Without a platform the field says so and keeps your entries. |
+| 2: Booking window | Done | #1440 (db), #1445 | Mock `r56-appointments-review` "A3, A10 and Review 2 (P1 row 2): the window in hours or days, notice in hours, all kept". Dev: choose 2, 6 and 12 hours ahead in turn; each is kept after reload, and Minimum Notice stays as set. |
+| 3: Booking links and archive | Done | #1478 | Every type's menu has Copy Booking Link and Copy Embed Code, and its settings show both. The embed is a button, not an iframe; the dialog says why. e2e `booking-link` (exact type, states, button code, cross-firm 404, public read never shows the staff-only description). Isolation: a case for the firm route, and the public route excluded with its reason. Mock `r56-booking-link` (5). |
+| 4: Save Client inline | Verified (Octavia) | (earlier) | Mock `r56-appointments-review` "A5: Save Client saves the typed contact as a client and chooses it; entries stay". |
+| 5: Staff Availability | Verified (Octavia); buffers added | #1421 | e2e `scheduling` "counts the booked type's buffers before saving, as the save does (Review 2, Appointments B11)". Mock `r56-appointments-review` "A2: weekly hours and time off save together …". |
+| 6: Zoom link layout | Verified (Octavia) | (earlier) | Mock `r56-appointments-review` "A6: the video link has its own full-width row …". |
+| 7: Multiple reminders and channels | Done | #1453 | Mock `r56-appointments-review` "Review 2 (row 7): an appointment keeps two reminders on one channel". Automatic delivery is under **P7**. |
+| 8: Client confirmation | **GAP** | | See the GAP list: the client has no Confirm in the portal yet. Staff Confirm (Pending to Confirmed) works: e2e `scheduling` "turns Pending into Confirmed, once, and audits it". |
+| 9: Service intake request | Evidence | (earlier, A9) | e2e `intake-workspace-actions` "A9: a type asks for its service form; a form sent for an appointment shows on it until completed". Mock `r56-appointments-review` "A9: a type names its intake form; the appointment sends it and shows it waiting". Dev: give a type a Required intake form, book it for the synthetic client, Send Intake Form, complete it as `qa-client-b`; the appointment's Related Items shows it completed. |
+| 10: Internal description | Done | (earlier A10), #1478 | e2e `booking-link` "shows a visitor the type without signing in, and never its staff-only description". The portal's bookable types carry no description, and no appointment email reads it. Dev: give a type a staff-only description; the portal's Schedule an Appointment and the booking link page don't show it. |
+
+## Pending tests
+
+| Row | Status | PR | Test or steps |
+| --- | --- | --- | --- |
+| P1: Draft | Done | #1448 (db), #1451 | The cause: Save as Draft had no storage behind it, so nothing was written and the error showed. A member's draft is now kept in `appointment_drafts` (64 KB, RLS). e2e `scheduling` "drafts (Review 2, Save as Draft)". Mock `r56-appointments-review` "Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved drafts, and goes with the booking". |
+| P2: Reschedule | Evidence | (R12) | e2e `appointments` "reschedule moves the time and the staff member; the detail lists who did what". e2e `scheduling` "a new time or staff member is a reschedule: history, a notice, and the conflict check". e2e `appointments` "tells the client's primary login about a booking and a new time; nothing for a cancel". Dev: reschedule a Test Firm B appointment; its history shows the move, and the synthetic client gets the new time. |
+| P3: Cancel | **GAP** (notice) | | Cancelling works and is final. e2e `appointments` "cancelled, completed and no-show are final (409 APPOINTMENT_CLOSED)". But the Cancel dialog says "The client is told when an appointment is canceled", and no notice is sent. See the GAP list. |
+| P4: Complete | Evidence | (R12) | Same e2e: final once done. Nothing is sent. Dev: Complete a past Test Firm B appointment; the status is Completed and nothing is emailed. |
+| P5: No-show | Evidence | (R12) | As P4: final, and nothing is sent. |
+| P6: Recurring | Verified (Octavia) | | Kept; the summary now also shows the repeat and its count (B4). |
+| P7: Reminder delivery | Evidence | #1462 (history) | e2e `notify-jobs` "appointment reminders: a due appointment once (bell on both sides, the email copy)" and "a rescheduled appointment gets a reminder for its new time". A reminder, sent by hand or automatically, shows in the appointment's notice history (B8). Text is pending, as the notices table says. |
+| P8: Confirmation behavior | **GAP** | | With row 8. |
+| P9: Intake completion | Evidence | (earlier, A9) | As row 9. |
+| P10: Staff Status permissions | Evidence | (R12, R58) | e2e `scheduling` "is 404 for Staff on someone else's and for another firm, 409 once closed". e2e `appointments` "Staff get 404 for a Busy appointment's detail and every change, and a client not theirs". Dev: as `qa-staff-b`, an appointment of a client not assigned to you shows as Busy and has no actions. |
+
+## Additional corrections
+
+| Row | Status | PR | Test or steps |
+| --- | --- | --- | --- |
+| B1: Appointment type and location mismatch | Done | #1453 | Mock `r56-appointments-review` "Review 2 (B1): choosing a type sets one of its methods, and the others are off". |
+| B2: Unsaved details after availability detour | Done | #1453 | Mock "Review 2 (B2): the unsaved form is kept through Edit My Availability and Back". |
+| B3: Return navigation preserves context | Done | #1462 | Mock "Review 2 (B3): Back from an appointment returns to the same list filters and calendar view". |
+| B4: Selected recurrence in Appointment Summary | Done | #1421 | No spec yet; a mock check follows in a test PR (GAP list). Dev: Repeat Every week, 6 times; the summary says it. |
+| B5: Calculated End Time matches duration | Done | #1421 | No spec yet; follows with B4. Dev: a 15-minute type at 3:00 PM sets the End Time to 3:15 PM, and the summary agrees. |
+| B6: All Day label in Today | Done | #1421 | No spec yet; follows with B4. Dev: an all-day appointment reads All Day in Today. |
+| B7: Notification and reminder customization | Done | #1465 | e2e `scheduling` "carries the firm's own words …". Unit `notify-templates`. Mock "Review 2 (B7, B9): …". |
+| B8: Notice history after sent reminder | Done | #1462 | e2e `scheduling` "emails the client now, counts it, and leaves the automatic schedule alone": the appointment's notice history shows the reminder, after a fresh read too. |
+| B9: Client instructions in client notices | Done | #1465 | As B7: Email, Portal and Text are chosen apart; internal notes never reach the client. |
+| B10: Company timezone default and override | Done | #1494 | e2e `scheduling` "Review 2 (B10): …" (default, override kept, a firm change moves nothing). Mock "Review 2 (B10): …". Preferences' Time Zone says what a change does. The New York header was the browser's zone, fixed by Dashboard U2 (#1452). |
+| B11: Pre-save buffer conflict display | Done | #1421 | e2e `scheduling` "counts the booked type's buffers before saving, as the save does". |
+
+## Approved additions
+
+| Row | Status | PR | Plan |
+| --- | --- | --- | --- |
+| A1: Group appointments | **GAP** (partly there) | | An appointment already takes up to 5 staff members, but one client. Needed: more client attendees per appointment (an attendees table under RLS), the form's attendee picker, each attendee's portal, notices and conflict check, and an isolation case. About 2 PRs (db, then API and screens). |
+| A2: Resource management and booking | **GAP** (partly there) | | Rooms exist (`firm_rooms`, per office). The form chooses one, and the database refuses two live appointments in one room (e2e `scheduling` "refuses a time the staff member, client or room already has with 409 SCHEDULING_CONFLICT"). Needed: Settings > Appointment Settings to add, rename and archive rooms, and equipment as a kind of resource with the same overlap rule. About 2 PRs. |
+| A3: Appointment waitlist | **GAP** | | Nothing yet. Needed: a Settings on/off switch with the two exclusive modes (automatic confirmation, or staff approval); a client joining the waitlist for an earlier time; a job that finds an opening and offers it in Portal and Email; the client's accept; and the move, which keeps the original appointment until the new one is confirmed. About 3 PRs (db, API and job, portal and settings). |
+
+## Verified working (Octavia, Nov 8)
+
+| Row | Status |
+| --- | --- |
+| W1: List filters and search | Kept |
+| W2: Calendar display and detail navigation | Kept |
+| W3: Form prefill and retention | Kept |
+| W4: All Day form and saved persistence | Kept |
+| W5: Normal scheduling save and reload | Kept |
+| W6: Internal note persistence | Kept |
+| W7: Cancel edit discards changes | Kept |
+| W8: Saved record in calendar and Upcoming | Kept |
+| W9: Today date scope and detail link | Kept |
+| W10: Availability conflicts and timezones | Kept |
+| W11: Required fields and time range | Kept |
+
+## GAP list
+
+1. **Row 8 and P8, client confirmation.** For a Pending appointment, the portal gets Confirm (`POST /portal/{slug}/me/appointments/{id}/confirm`), and its booked and reminder emails ask the client to confirm. Once confirmed, later reminders stop asking. Tests: e2e, isolation and a mock spec. One PR, no schema.
+2. **P3, the cancel notice.** The dialog promises a notice that is not sent. Either send `appointment.cancelled` (a bell item and an email to the client's primary login, with an optional reason), or change the words to say the client is not told. Rasel decides; the first is one PR.
+3. **B4, B5 and B6 mock checks.** The code is merged; one test PR adds the three checks to `r56-appointments-review`.
+4. **A1, A2 and A3** as planned above.

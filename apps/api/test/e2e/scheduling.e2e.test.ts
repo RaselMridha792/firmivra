@@ -3485,3 +3485,50 @@ describe('Review 2 (TX-F06): Link to Tax Return', () => {
     expect(off.related.taxReturn).toBeNull();
   });
 });
+
+describe("Review 2 (B10): the firm's time zone and an appointment's own", () => {
+  const recordOf = async (id: string) =>
+    exact(AppointmentRecord, await call('get', `/appointments/${id}/record`, people.ownerA));
+  const setFirmZone = (timezone: string) =>
+    asOwner(ids.firmA, (tx) =>
+      tx.businessSettings.update({ where: { businessId: ids.firmA }, data: { timezone } }),
+    );
+  const firmZone = () =>
+    asOwner(ids.firmA, (tx) =>
+      tx.businessSettings.findUniqueOrThrow({
+        where: { businessId: ids.firmA },
+        select: { timezone: true },
+      }),
+    ).then((s) => s.timezone);
+
+  it('a new appointment takes the firm zone; another zone stays after reopening; the firm setting never changes', async () => {
+    const plain = await scheduled();
+    expect(plain.timezone).toBe(TZ);
+    const other = 'America/New_York';
+    const own = await scheduled({ timezone: other });
+    expect(own.timezone).toBe(other);
+    const reopened = await recordOf(own.id);
+    expect([reopened.timezone, reopened.startsAt, reopened.endsAt]).toEqual([
+      other,
+      own.startsAt,
+      own.endsAt,
+    ]);
+    expect(await firmZone()).toBe(TZ);
+
+    // The firm moves to another zone: the first follows it (it never chose one), the second keeps
+    // its own, and neither moves in time; their reminders keep their offsets from the start.
+    await setFirmZone('Europe/London');
+    try {
+      const a = await recordOf(plain.id);
+      expect([a.timezone, a.startsAt, a.reminders]).toEqual([
+        'Europe/London',
+        plain.startsAt,
+        plain.reminders,
+      ]);
+      const b = await recordOf(own.id);
+      expect([b.timezone, b.startsAt, b.reminders]).toEqual([other, own.startsAt, own.reminders]);
+    } finally {
+      await setFirmZone(TZ);
+    }
+  });
+});

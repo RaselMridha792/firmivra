@@ -139,6 +139,8 @@ export async function findTarget(
     categoryId?: string | null;
     requestId?: string | null;
     clientArchived: boolean;
+    /** A file answering an open intake: a PENDING service takes it too (INTAKE-ACCESS-02). */
+    intake?: boolean;
   },
 ): Promise<Target> {
   const engagement = await tx.engagement.findFirst({
@@ -156,7 +158,9 @@ export async function findTarget(
   const request = ids.requestId ? await lockRequest(tx, businessId, ids.requestId) : null;
   const theirs = !ids.requestId || request?.client_id === clientId.toLowerCase();
   if (!engagement || (ids.categoryId && !category) || !theirs) throw notFound();
-  if (engagement.status !== 'ACTIVE' || ids.clientArchived) throw refusal('NO_OPEN_SERVICE');
+  const open =
+    engagement.status === 'ACTIVE' || (ids.intake === true && engagement.status === 'PENDING');
+  if (!open || ids.clientArchived) throw refusal('NO_OPEN_SERVICE');
   if (request && request.engagement_id !== engagement.id) throw refusal('REQUEST_CLOSED');
   if (request && !(await takesUpload(tx, businessId, request))) throw refusal('REQUEST_CLOSED');
   if (category?.archived_at) throw refusal('CATEGORY_ARCHIVED');
