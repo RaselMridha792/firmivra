@@ -109,6 +109,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
   // A step of the form (cases/intake-forms.ts's Annual Tax form), not a record.
   { param: 'stepKey', value: 'personal', routes: /\/intakes\/:id\/steps\/:stepKey$/ },
+  // A share link's token (ACCESS-02), not a record: a made-up one is 410 at any firm.
+  { param: 'token', value: 'T'.repeat(43), routes: /\/me\/intake-forms\/shared\/:token\/start$/ },
   // Each Firm Sign template record has version 1 (cases/esign.ts).
   {
     param: 'version',

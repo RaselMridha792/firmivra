@@ -3,6 +3,7 @@ export * from './answers.js';
 export * from './schemas.js';
 export { createMyIntakesClient, type MyIntakesClient } from './client.js';
 export * from './link.js';
+export * from './portal-forms.js';
 export * from './share.js';
 export { US_STATES, UsState, MONTHS } from './options.js';
 export { INTAKE_FORMS } from './forms/index.js';

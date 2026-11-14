@@ -732,6 +732,9 @@ export function myIntakesMock(firmSlug: string): MyIntakesClient {
  * An in-memory `api.myIntakes(slug)` for the signed-in portal client (client 1). The firm is
  * checked first: a slug that isn't one is 400, another firm's 404.
  */
+/** The mock's one form published in the client portal (INTAKE-ACCESS-02 part B). */
+export const MOCK_PORTAL_TEMPLATE_ID = '0199c0d0-0f00-7000-8000-0000000000aa';
+
 export function createMyIntakesMock(
   options: { portalRole?: ClientPortalRole } = {},
   firmSlug: string = mockBusiness.slug,
@@ -740,6 +743,8 @@ export function createMyIntakesMock(
   let rows: Row[] | undefined;
   const all = () => (rows ??= intakeFixtures().map((r) => structuredClone(r)));
   const uploads = createMockSlotUploads();
+  /** The form the client started from the portal list (ACCESS-02 part B), once started. */
+  let started: string | null = null;
   const definition = (row: Row) => mockForm(row.item.form);
 
   const firm = () => {
@@ -870,6 +875,37 @@ export function createMyIntakesMock(
       if (!row.files.some((f) => f.upload.id === fid)) throw notFound();
       row.files = row.files.filter((f) => f.upload.id !== fid);
       return { ok: true };
+    },
+    // INTAKE-ACCESS-02 part B: one form published in the portal; starting it opens the SENT
+    // fixture (the API makes a new form on a PENDING service; the mock reuses one).
+    forms: async () => {
+      await mockDelay();
+      firm();
+      return [
+        {
+          templateId: MOCK_PORTAL_TEMPLATE_ID,
+          title: 'Quarterly Check-In',
+          form: 'QUARTERLY_TAX',
+          serviceName: 'Quarterly Taxes',
+          intakeId: started,
+        },
+      ];
+    },
+    startForm: async (templateId) => {
+      await mockDelay();
+      firm();
+      if (!primary) throw forbidden();
+      if (templateId !== MOCK_PORTAL_TEMPLATE_ID) throw notFound();
+      started ??= all().find((r) => r.item.status === 'SENT')!.item.id;
+      return view(find(started));
+    },
+    startShared: async (token) => {
+      await mockDelay();
+      firm();
+      if (!primary) throw forbidden();
+      if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw notFound();
+      started ??= all().find((r) => r.item.status === 'SENT')!.item.id;
+      return view(find(started));
     },
   };
 }
