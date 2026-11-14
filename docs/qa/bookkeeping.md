@@ -20,7 +20,7 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | D03: date filter refresh | Done | #1394 | `r56-module-fixes` "BK-D03: a custom Report Due period filters the list, start no later than end" |
 | N02 N03: Documents scope (client and service) | Done | #1399 | `r56-review2-bookkeeping` "View All keeps the client and service…" |
 | N02 N03: recent document inline preview | Done | #1399, #1401 | `r56-review2-bookkeeping` "a recent document opens in a quick view on the workspace…" |
-| N02: Documents scope by period | Done (G2) | R56 G2 PR | `r56-review2-bookkeeping` "View All opens Documents on the current period's uploads, in a chip that clears"; `documents.e2e` "keeps a period's uploads: the days from and to, both included" |
+| N02: Documents scope by period | Done (G2) | #1441 | `r56-review2-bookkeeping` "View All opens Documents on the current period's uploads, in a chip that clears"; `documents.e2e` "keeps a period's uploads: the days from and to, both included" |
 | N04 update: note fields and route | Done | #1408 (schema), #1424 | `notes.e2e` "keeps a note's type and the record it is about, and every note stays internal"; `r56-bookkeeping-transactions` "Add Note opens in place, internal and on this service" |
 | N05 update: recurrence context and clickable relations | Done | #1379 | `tasks-work.e2e` "names the engagement's own workspace, so Related To can open it"; `new-task-href.test` |
 | N05 original: task service and origin return | Done | #1379 | `new-task-href.test`; `r56-service-tasks` "Bookkeeping: Create Task carries the current period into the details" |
@@ -71,7 +71,7 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | GAP | Row | Plan | Status |
 | --- | --- | --- | --- |
 | G1 | A01 | A note written on a client's Bookkeeping service, or a file uploaded to it (by staff or the client), adds an entry to the client's Bookkeeping Activity. The entry shows who and when, never the note's text or the file's content. | Fixed in #1436 |
-| G2 | N02 (period) | A document has a client, a service and a tax year, but no bookkeeping period. The lead chose (Nov 14) the default with no schema change: Documents opened from Bookkeeping keeps the current period's uploads (its first to last day), in a chip that names the period and clears. | Fixed in the R56 G2 PR |
+| G2 | N02 (period) | A document has a client, a service and a tax year, but no bookkeeping period. The lead chose (Nov 14) the default with no schema change: Documents opened from Bookkeeping keeps the current period's uploads (its first to last day), in a chip that names the period and clears. | Fixed in #1441 |
 
 ## Not in scope here
 
