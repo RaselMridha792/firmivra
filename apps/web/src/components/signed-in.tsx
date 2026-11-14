@@ -54,17 +54,21 @@ function endFor(site: Site, firmSlug: string | undefined): () => Promise<unknown
  * (GET /admin/me on the Super Admin site, GET /portal/{slug}/me on a firm's portal, GET /me on the
  * firm site), shows a loading state, and gives the
  * pages the user through useMe(). On a 401 it refreshes the session once, then sends the visitor
- * to the site's sign-in page. A different person than last time on this tab starts with an empty
- * data cache, and sign-out empties it (lib/session.ts).
+ * to the site's sign-in page (`signedOutHome` instead when they opened the site's root). A
+ * different person than last time on this tab starts with an empty data cache, and sign-out
+ * empties it (lib/session.ts).
  */
 export function SignedIn({
   site,
   signInPath,
+  signedOutHome,
   firmSlug,
   children,
 }: {
   site: Site;
   signInPath: string;
+  /** Where a signed-out visitor to the site's root (`/`) goes: the firm site's Welcome page. */
+  signedOutHome?: string;
   /** The portal's firm (portal only): its sign-out ends that firm's session. */
   firmSlug?: string;
   children: ReactNode;
@@ -100,14 +104,18 @@ export function SignedIn({
         },
         (e: unknown) => {
           if (!active) return;
-          if (is401(e)) router.replace(signInPath);
-          else setState({ status: 'error', code: e instanceof ApiRequestError ? e.code : 'ERROR' });
+          if (is401(e)) {
+            router.replace(
+              signedOutHome && window.location.pathname === '/' ? signedOutHome : signInPath,
+            );
+          } else
+            setState({ status: 'error', code: e instanceof ApiRequestError ? e.code : 'ERROR' });
         },
       );
     return () => {
       active = false;
     };
-  }, [site, signInPath, firmSlug, router, queryClient, attempt]);
+  }, [site, signInPath, signedOutHome, firmSlug, router, queryClient, attempt]);
 
   const signOut = useCallback(async () => {
     await endFor(site, firmSlug)();

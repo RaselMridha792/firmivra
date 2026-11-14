@@ -73,8 +73,11 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
     await expect(page.getByText('Super Admin', { exact: false }).first()).toBeVisible();
   });
 
-  test('signed-out visitors are sent to sign in', async ({ page }) => {
-    await page.goto(site('app', '/'));
+  test('signed-out visitors are sent to sign in; the root opens Welcome', async ({ page }) => {
+    await page.goto(site('app', '/clients'));
     await expect(page).toHaveURL(site('app', '/sign-in'));
+    // Octavia's Oct 31 test blocker: the firm site's root offers sign-in and the application.
+    await page.goto(site('app', '/'));
+    await expect(page).toHaveURL(site('app', '/welcome'));
   });
 });
