@@ -178,6 +178,13 @@ export class SchedulingWriteService {
     actor: FirmActor,
     body: Schedule,
   ): Promise<{ record: AppointmentRecord; firstId: string }> {
+    // Review 2 (Save as Draft): the member's own draft goes with the booking (404 otherwise).
+    if (body.draftId) {
+      const gone = await tx.appointmentDraft.deleteMany({
+        where: { businessId, id: body.draftId, createdByUserId: actor.userId },
+      });
+      if (!gone.count) throw errors.notFound();
+    }
     const client = await this.clientFor(tx, businessId, actor, body.contact);
     if (body.staffUserIds.length > 1) {
       throw errors.unsupported('An appointment has one staff member for now. Choose one.');
