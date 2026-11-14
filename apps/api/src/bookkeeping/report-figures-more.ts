@@ -31,8 +31,13 @@ export interface FigureRefund {
   kind: string;
   status: string;
   amountCents: number;
+  /** The reason given (Refund Report), when there is one. */
+  reason?: string | null;
 }
 export interface FigureSettlement {
+  /** The processor ("stripe") and payout day (YYYY-MM-DD), for the Settlement Report's rows. */
+  processor?: string;
+  payoutOn?: string;
   grossCents: number;
   refundsCents: number;
   chargebacksCents: number;
@@ -66,7 +71,9 @@ export type MoreReportType =
   | 'CASH_FLOW'
   | 'RECONCILIATION'
   | 'BOOKKEEPING_STATUS'
-  | 'MISSING_DOCUMENTS';
+  | 'MISSING_DOCUMENTS'
+  | 'REFUND'
+  | 'SETTLEMENT';
 export const MORE_REPORT_TYPES: readonly MoreReportType[] = [
   'GENERAL_LEDGER',
   'BALANCE_SHEET',
@@ -74,6 +81,9 @@ export const MORE_REPORT_TYPES: readonly MoreReportType[] = [
   'RECONCILIATION',
   'BOOKKEEPING_STATUS',
   'MISSING_DOCUMENTS',
+  // Review 2 (RP01): the period's refunds and chargebacks, and its processor settlements.
+  'REFUND',
+  'SETTLEMENT',
 ];
 
 const LIABILITY_ACCOUNTS = ['CREDIT_CARD', 'LOAN'];
@@ -298,8 +308,89 @@ function reconciliation(ctx: FigureContext, notes: string[]) {
   };
 }
 
+const KIND_TITLE: Record<string, string> = {
+  REFUND_ISSUED: 'Refunds Issued to Customers',
+  REFUND_RECEIVED: 'Refunds Received from Vendors',
+  CHARGEBACK: 'Chargebacks',
+};
+
 /**
- * The figures of the six part-2 types. `counted` are the period's lines less the excluded ones,
+ * Review 2 (RP01): the period's refunds and chargebacks the firm includes in reports, by kind and
+ * status, then by reason. Each comes from the client's refund records, never from a guess.
+ */
+function refundReport(ctx: FigureContext) {
+  const total = (kind: string) =>
+    ctx.refunds.filter((f) => f.kind === kind).reduce((n, f) => n + f.amountCents, 0);
+  const sections = Object.entries(KIND_TITLE).map(([kind, title]) => {
+    const rows = new Map<string, FigureRow>();
+    for (const f of ctx.refunds.filter((x) => x.kind === kind))
+      bump(rows, words(f.status), f.amountCents);
+    return section(title, sorted(rows));
+  });
+  const reasons = new Map<string, FigureRow>();
+  for (const f of ctx.refunds) bump(reasons, f.reason?.trim() || 'No reason given', f.amountCents);
+  return {
+    lineCount: ctx.refunds.length,
+    sections: [...sections, section('By Reason', sorted(reasons))],
+    totals: {
+      refundsIssuedCents: total('REFUND_ISSUED'),
+      refundsReceivedCents: total('REFUND_RECEIVED'),
+      chargebacksCents: total('CHARGEBACK'),
+      pendingCount: ctx.refunds.filter((f) => f.status === 'PENDING').length,
+    },
+  };
+}
+
+/**
+ * Review 2 (RP01): each processor payout of the period (gross less refunds, chargebacks and fees,
+ * with adjustments), then the period's totals and how many are not matched to a bank deposit.
+ */
+function settlementReport(ctx: FigureContext) {
+  const sum = (k: Exclude<keyof FigureSettlement, 'status' | 'processor' | 'payoutOn'>) =>
+    ctx.settlements.reduce((n, s) => n + s[k], 0);
+  const payouts = [...ctx.settlements]
+    .sort((a, b) => (a.payoutOn ?? '').localeCompare(b.payoutOn ?? ''))
+    .map((s) => ({
+      label: [
+        s.processor ? words(s.processor) : 'Payout',
+        s.payoutOn ?? null,
+        `(${words(s.status).toLowerCase()})`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+      amountCents: s.netPayoutCents,
+    }));
+  const unmatched = ctx.settlements.filter((s) => s.status !== 'MATCHED').length;
+  return {
+    lineCount: ctx.settlements.length,
+    sections: [
+      section('Payouts', payouts, sum('netPayoutCents')),
+      section(
+        'Totals',
+        ctx.settlements.length
+          ? [
+              { label: 'Gross', amountCents: sum('grossCents'), count: ctx.settlements.length },
+              { label: 'Refunds', amountCents: -sum('refundsCents') },
+              { label: 'Chargebacks', amountCents: -sum('chargebacksCents') },
+              { label: 'Fees', amountCents: -sum('feesCents') },
+              { label: 'Adjustments', amountCents: sum('adjustmentsCents') },
+              { label: 'Not matched to a deposit', count: unmatched },
+            ]
+          : [],
+        sum('netPayoutCents'),
+      ),
+    ],
+    totals: {
+      grossCents: sum('grossCents'),
+      feesCents: sum('feesCents'),
+      netPayoutCents: sum('netPayoutCents'),
+      unmatchedCount: unmatched,
+    },
+  };
+}
+
+/**
+ * The figures of the part-2 types. `counted` are the period's lines less the excluded ones,
  * `all` every line of the period (the status report counts the excluded).
  */
 export function moreFigures(
@@ -324,6 +415,8 @@ export function moreFigures(
   if (type === 'GENERAL_LEDGER') return out(generalLedger(counted));
   if (type === 'CASH_FLOW') return out(cashFlow(counted, ctx, notes));
   if (type === 'RECONCILIATION') return out(reconciliation(ctx, notes));
+  if (type === 'REFUND') return out(refundReport(ctx));
+  if (type === 'SETTLEMENT') return out(settlementReport(ctx));
 
   if (type === 'BALANCE_SHEET') {
     const assets: FigureRow[] = [];

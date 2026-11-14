@@ -70,6 +70,65 @@ export interface ReportFigures {
   /** Net income (P&L), the equal totals (trial balance), or the lines' total. */
   totals: Record<string, number>;
   lineCount: number;
+  /**
+   * Review 2 (RP03): where the figures come from. LEDGER, the client's Firmivra ledger (synced or
+   * entered transactions); MANUAL, a P&L made from the income and expenses entered for a period.
+   * Never both. Absent on versions made before Review 2 (they are the ledger's).
+   */
+  source?: 'LEDGER' | 'MANUAL';
+}
+
+/** A period's income and expenses as entered in Firmivra (Review 2, RP03: a MANUAL P&L). */
+export interface EnteredFigures {
+  /** The period's first day (YYYY-MM-DD). */
+  start: string;
+  incomeCents: number;
+  expensesCents: number;
+}
+
+/**
+ * Review 2 (RP03): a P&L made in Firmivra from the income and expenses entered for the period(s),
+ * for a client whose P&L source is MANUAL. The ledger's lines are never added in.
+ */
+export function enteredProfitAndLoss(
+  basis: 'CASH' | 'ACCRUAL' | null,
+  periods: readonly EnteredFigures[],
+): ReportFigures {
+  const income = periods.reduce((n, p) => n + p.incomeCents, 0);
+  const expenses = periods.reduce((n, p) => n + p.expensesCents, 0);
+  const many = periods.length > 1;
+  return {
+    type: 'PROFIT_LOSS',
+    basis: 'CASH',
+    basisNote:
+      basis === 'ACCRUAL'
+        ? 'Shown as entered: the income and expenses were entered for the period, not worked out from invoices and bills.'
+        : null,
+    notes: [
+      `Made in Firmivra from the income and expenses entered for ${many ? 'each period' : 'the period'}. The ledger's transactions are not added in, so nothing is counted twice.`,
+    ],
+    sections: [
+      {
+        title: 'Income',
+        rows: [{ label: 'Income (entered)', amountCents: income }],
+        totalCents: income,
+      },
+      { title: 'Cost of Goods Sold', rows: [], totalCents: 0 },
+      {
+        title: 'Expenses',
+        rows: [{ label: 'Expenses (entered)', amountCents: expenses }],
+        totalCents: expenses,
+      },
+    ],
+    totals: {
+      incomeCents: income,
+      costOfGoodsCents: 0,
+      expensesCents: expenses,
+      netIncomeCents: income - expenses,
+    },
+    lineCount: periods.length,
+    source: 'MANUAL',
+  };
 }
 
 /** The parts of a line that carry a category: its own, or each split part. */
@@ -111,7 +170,14 @@ export function reportFigures(
   if ((MORE_REPORT_TYPES as readonly string[]).includes(type)) {
     return moreFigures(type as MoreReportType, { basis: 'CASH', basisNote }, counted, lines, ctx);
   }
-  const base = { type, basis: 'CASH' as const, basisNote, notes: [], lineCount: counted.length };
+  const base = {
+    type,
+    basis: 'CASH' as const,
+    basisNote,
+    notes: [],
+    lineCount: counted.length,
+    source: 'LEDGER' as const,
+  };
 
   if (type === 'PROFIT_LOSS') {
     const income = new Map<string, FigureRow>();

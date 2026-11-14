@@ -11,6 +11,7 @@ import {
   BookkeepingStatus,
   ConnectionStatus,
   FiguresSource,
+  BookkeepingPnlSource,
   ReconciliationStatus,
   ReportCadence,
   ReportReviewStatus,
@@ -548,6 +549,12 @@ export const BookkeepingClientWorkspace = z.object({
   /** The client's own day, else the firm's. */
   closeTargetDay: Int,
   nextReportDueOn: CalendarDate.nullable(),
+  /**
+   * Review 2 (RP03): where this client's P&L comes from: ACCOUNTING_SOFTWARE (the ledger synced
+   * from QuickBooks...) or MANUAL (the income and expenses entered per period). Null until staff
+   * choose; a P&L waits for the choice. The two are never added together.
+   */
+  pnlSource: BookkeepingPnlSource.nullable().default(null),
   paused: z.boolean(),
   pausedAt: DateTime.nullable(),
   pauseReason: z.string().nullable(),
@@ -621,6 +628,8 @@ export const UpdateBookkeepingClientRequest = z
     reportSchedule: z.array(ReportScheduleItem).max(30).nullable().optional(),
     documentChecklist: z.array(DocumentChecklistItem).max(50).nullable().optional(),
     // Staff too:
+    /** Review 2 (RP03): where this client's P&L comes from; the two are never blended. */
+    pnlSource: BookkeepingPnlSource.optional(),
     portalDefaults: PortalDefaults.optional(),
     alerts: BookkeepingAlerts.optional(),
     categorizationRules: z.array(CategorizationRule).max(200).optional(),

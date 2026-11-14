@@ -257,9 +257,20 @@ let reportVersionStore: Map<string, BookkeepingReportVersionRow[]> | undefined;
 const reportVersions = () => (reportVersionStore ??= new Map());
 /** The accounts a mock Balance Sheet has no statement for (generating waits for them). */
 const mockMissingStatements = (type: string) => (type === 'BALANCE_SHEET' ? ['Business Card'] : []);
+/** Review 2 (RP03): the reports that read the P&L, and what they say before its source is set. */
+const pnlType = (t: string) =>
+  t === 'PROFIT_LOSS' || t === 'QUARTERLY_REVIEW' || t === 'YEAR_TO_DATE_SUMMARY';
+const PNL_SOURCE_REASON =
+  "Choose where this client's P&L comes from first, in the client's Settings: the connected accounting software (QuickBooks...) or figures entered in Firmivra from what the client provides. The two are never added together.";
 /** Synthetic figures for the types BK-RPT works out; null for the rest. */
 function mockFigures(type: string): BookkeepingReportFigures | null {
-  const base = { basis: 'CASH' as const, basisNote: null, notes: [] as string[], lineCount: 12 };
+  const base = {
+    basis: 'CASH' as const,
+    basisNote: null,
+    notes: [] as string[],
+    lineCount: 12,
+    source: 'LEDGER' as const,
+  };
   if (type === 'PROFIT_LOSS') {
     return {
       ...base,
@@ -433,6 +444,68 @@ function mockFigures(type: string): BookkeepingReportFigures | null {
         refundsCents: 12_500,
         settlementsNetCents: 0,
       },
+    };
+  }
+  // Review 2 (RP01).
+  if (type === 'REFUND') {
+    return {
+      ...base,
+      type,
+      lineCount: 2,
+      sections: [
+        {
+          title: 'Refunds Issued to Customers',
+          rows: [{ label: 'Completed', amountCents: 12_500, count: 1 }],
+          totalCents: 12_500,
+        },
+        { title: 'Refunds Received from Vendors', rows: [], totalCents: 0 },
+        {
+          title: 'Chargebacks',
+          rows: [{ label: 'Pending', amountCents: 4_000, count: 1 }],
+          totalCents: 4_000,
+        },
+        {
+          title: 'By Reason',
+          rows: [
+            { label: 'Damaged item', amountCents: 12_500, count: 1 },
+            { label: 'No reason given', amountCents: 4_000, count: 1 },
+          ],
+          totalCents: 16_500,
+        },
+      ],
+      totals: {
+        refundsIssuedCents: 12_500,
+        refundsReceivedCents: 0,
+        chargebacksCents: 4_000,
+        pendingCount: 1,
+      },
+    };
+  }
+  if (type === 'SETTLEMENT') {
+    return {
+      ...base,
+      type,
+      lineCount: 1,
+      sections: [
+        {
+          title: 'Payouts',
+          rows: [{ label: 'Stripe 2026-09-15 (matched)', amountCents: 95_100 }],
+          totalCents: 95_100,
+        },
+        {
+          title: 'Totals',
+          rows: [
+            { label: 'Gross', amountCents: 100_000, count: 1 },
+            { label: 'Refunds', amountCents: -2_000 },
+            { label: 'Chargebacks', amountCents: 0 },
+            { label: 'Fees', amountCents: -2_900 },
+            { label: 'Adjustments', amountCents: 0 },
+            { label: 'Not matched to a deposit', count: 0 },
+          ],
+          totalCents: 95_100,
+        },
+      ],
+      totals: { grossCents: 100_000, feesCents: 2_900, netPayoutCents: 95_100, unmatchedCount: 0 },
     };
   }
   if (type === 'MISSING_DOCUMENTS') {
@@ -725,6 +798,8 @@ export function createBookkeepingMock({
       TRANSACTION_DETAIL: 'Transaction Detail',
       UNCATEGORIZED: 'Uncategorized Transactions',
       RECONCILIATION: 'Reconciliation Report',
+      REFUND: 'Refund Report',
+      SETTLEMENT: 'Settlement Report',
       QUARTERLY_REVIEW: 'Quarterly Review',
       YEAR_TO_DATE_SUMMARY: 'Year-to-Date Summary',
       BOOKKEEPING_STATUS: 'Bookkeeping Status',
@@ -858,6 +933,8 @@ export function createBookkeepingMock({
         cadence: 'MONTHLY',
         cadenceMonths: null,
         closeTargetDay: settings.closeTargetDay,
+        // Review 2 (RP03): the demo clients' P&L comes from their synced ledger.
+        pnlSource: 'ACCOUNTING_SOFTWARE',
         nextReportDueOn:
           s.status === 'NOT_STARTED'
             ? null
@@ -1453,6 +1530,7 @@ export function createBookkeepingMock({
           // SH9: a catalog bookkeeping service by id is the plan: its link and its name.
           plan: chosen?.name ?? input.plan ?? null,
           catalogServiceId: chosen?.id ?? null,
+          pnlSource: null,
           status: 'NOT_STARTED',
           statusReason: null,
           connections: [],
@@ -1517,6 +1595,7 @@ export function createBookkeepingMock({
           c.portalDefaults = { ...c.portalDefaults, ...input.portalDefaults };
         if (input.alerts) c.alerts = { ...c.alerts, ...input.alerts };
         if (input.categorizationRules) c.categorizationRules = input.categorizationRules;
+        if (input.pnlSource) c.pnlSource = input.pnlSource;
         return view(c);
       }),
     setStatus: (cid, body) =>
@@ -2334,6 +2413,16 @@ export function createBookkeepingMock({
     reportPreview: (rid) =>
       run(() => {
         const r = findReport(rid);
+        // Review 2 (RP03): a P&L waits for its source, as the API does.
+        if (pnlType(r.reportType) && !findClient(r.bookkeepingClientId).pnlSource) {
+          return {
+            supported: false,
+            reason: PNL_SOURCE_REASON,
+            period: mockPeriodOf(r.reportType),
+            figures: null,
+            missingStatements: [],
+          };
+        }
         const figures = mockFigures(r.reportType);
         return figures
           ? {
@@ -2354,6 +2443,8 @@ export function createBookkeepingMock({
     generateReport: (rid) =>
       run(() => {
         const r = findReport(rid);
+        if (pnlType(r.reportType) && !findClient(r.bookkeepingClientId).pnlSource)
+          throw fail(409, 'PNL_SOURCE_NOT_SET', PNL_SOURCE_REASON);
         const figures = mockFigures(r.reportType);
         if (!figures) {
           throw fail(

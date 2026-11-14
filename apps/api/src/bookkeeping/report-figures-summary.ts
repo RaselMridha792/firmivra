@@ -77,6 +77,8 @@ export function summaryFigures(
   range: DayRange,
   profitAndLoss: ReportFigures,
   lines: readonly FigureLine[],
+  /** Review 2 (RP03): a MANUAL P&L's entered net by month (YYYY-MM), in place of the ledger's. */
+  entered?: ReadonlyMap<string, number>,
 ): ReportFigures {
   const t = profitAndLoss.totals;
   const months = new Map<string, FigureRow>();
@@ -90,7 +92,13 @@ export function summaryFigures(
     });
     d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
   }
-  for (const l of lines) {
+  if (entered) {
+    for (const [key, cents] of entered) {
+      const row = months.get(key);
+      if (row) row.amountCents = (row.amountCents ?? 0) + cents;
+    }
+  }
+  for (const l of entered ? [] : lines) {
     const row = l.on ? months.get(l.on.slice(0, 7)) : undefined;
     if (!row || l.status === 'EXCLUDED') continue;
     row.amountCents = (row.amountCents ?? 0) + netOf(l);
@@ -103,7 +111,8 @@ export function summaryFigures(
     basis: 'CASH',
     basisNote: profitAndLoss.basisNote,
     // The days are the period the preview and each version carry, so no note repeats them.
-    notes: [],
+    notes: profitAndLoss.notes,
+    source: profitAndLoss.source ?? 'LEDGER',
     lineCount: profitAndLoss.lineCount,
     sections: [
       {

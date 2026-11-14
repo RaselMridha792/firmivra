@@ -29,6 +29,10 @@ function headline(f: BookkeepingReportFigures): string {
       return `Beginning cash ${money(t('beginningCashCents'))} · Net change ${money(t('netChangeCents'))} · Ending cash ${money(t('endingCashCents'))}`;
     case 'RECONCILIATION':
       return `${t('approvedCount')} of ${t('accountsCount')} approved · ${t('openCount')} open · difference ${money(t('differenceCents'))}`;
+    case 'REFUND':
+      return `Refunds issued ${money(t('refundsIssuedCents'))} · Refunds received ${money(t('refundsReceivedCents'))} · Chargebacks ${money(t('chargebacksCents'))} · ${t('pendingCount')} pending`;
+    case 'SETTLEMENT':
+      return `Gross ${money(t('grossCents'))} · Fees ${money(t('feesCents'))} · Net payouts ${money(t('netPayoutCents'))} · ${t('unmatchedCount')} not matched to a deposit`;
     case 'MISSING_DOCUMENTS':
       return `${t('receiptsMissing')} receipts (${money(t('amountWithoutReceiptCents'))}) · ${t('statementsMissing')} statements missing`;
     case 'BOOKKEEPING_STATUS':
@@ -39,6 +43,24 @@ function headline(f: BookkeepingReportFigures): string {
     default:
       return `${f.lineCount} lines · net ${money(t('netCents'))}`;
   }
+}
+
+/** Review 2 (RP03): what an empty report means, by what it reads. */
+function noData(f: BookkeepingReportFigures): string {
+  if (f.type === 'REFUND')
+    return 'No refunds or chargebacks are recorded for this period, so there are no totals. This is not a verified zero.';
+  if (f.type === 'SETTLEMENT')
+    return 'No processor settlements are recorded for this period, so there are no totals. This is not a verified zero.';
+  return "Nothing is recorded in this client's ledger for this period, so there are no totals. This is not a verified zero.";
+}
+
+/** Review 2 (RP01, RP03): where the figures come from, in words. */
+function sourceText(f: BookkeepingReportFigures): string {
+  if (f.source === 'MANUAL')
+    return 'Source: income and expenses entered in Firmivra for the period (the ledger is not added in)';
+  if (f.type === 'REFUND') return "Source: this client's refund and chargeback records";
+  if (f.type === 'SETTLEMENT') return "Source: this client's processor settlements";
+  return "Source: this client's Firmivra ledger (synced or entered transactions)";
 }
 
 function Figures({ f }: { f: BookkeepingReportFigures }) {
@@ -88,8 +110,7 @@ function Figures({ f }: { f: BookkeepingReportFigures }) {
       {/* Review 2 (RP03): nothing recorded is not a set of verified zero totals. */}
       {f.lineCount === 0 && f.type !== 'BOOKKEEPING_STATUS' && f.type !== 'MISSING_DOCUMENTS' ? (
         <p className="rounded-lg bg-canvas p-2 text-text" data-testid="report-no-data">
-          Nothing is recorded in this client&apos;s ledger for this period, so there are no totals.
-          This is not a verified zero.
+          {noData(f)}
         </p>
       ) : (
         <p className="font-semibold text-heading" data-testid="report-totals">
@@ -97,7 +118,7 @@ function Figures({ f }: { f: BookkeepingReportFigures }) {
         </p>
       )}
       <p className="text-xs text-muted" data-testid="report-source">
-        Source: this client&apos;s Firmivra ledger (synced or entered transactions) · Cash basis
+        {sourceText(f)} · Cash basis
       </p>
     </div>
   );

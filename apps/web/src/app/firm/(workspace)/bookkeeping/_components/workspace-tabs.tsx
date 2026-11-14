@@ -6,7 +6,7 @@ import {
   type BookkeepingPeriodSummary,
   type BookkeepingReportRow,
 } from '@firmivra/types';
-import { Button, Checkbox, Input, Modal, Select, Table, type Column } from '@firmivra/ui';
+import { Button, Checkbox, Input, Modal, Radio, Select, Table, type Column } from '@firmivra/ui';
 import { Plus, Trash } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -38,6 +38,9 @@ const REPORT_TYPES = [
   ['TRANSACTION_DETAIL', 'Transaction Detail'],
   ['UNCATEGORIZED', 'Uncategorized Transactions'],
   ['RECONCILIATION', 'Reconciliation Report'],
+  // Review 2 (RP01).
+  ['REFUND', 'Refund Report'],
+  ['SETTLEMENT', 'Settlement Report'],
   ['QUARTERLY_REVIEW', 'Quarterly Review'],
   ['YEAR_TO_DATE_SUMMARY', 'Year-to-Date Summary'],
   ['BOOKKEEPING_STATUS', 'Bookkeeping Status'],
@@ -409,6 +412,8 @@ export function SettingsTab({ w, onNotice }: { w: BookkeepingClientWorkspace; on
   const [portal, setPortal] = useState(w.portalDefaults);
   const [alerts, setAlerts] = useState(w.alerts);
   const [rules, setRules] = useState(w.categorizationRules);
+  // Review 2 (RP03): where the P&L comes from, chosen here; never a blend of the two.
+  const [pnlSource, setPnlSource] = useState(w.pnlSource);
   const [acct, setAcct] = useState({
     name: '',
     type: 'BANK' as 'BANK' | 'CREDIT_CARD' | 'LOAN' | 'OTHER',
@@ -438,6 +443,26 @@ export function SettingsTab({ w, onNotice }: { w: BookkeepingClientWorkspace; on
             onChange={(e) => setCloseDay(e.target.value)}
           />
         </div>
+        <fieldset className="flex flex-col" data-testid="pnl-source">
+          <legend className="mb-1 text-sm font-semibold text-heading">P&amp;L source</legend>
+          <Radio
+            name="pnl-source"
+            label="Connected accounting software (QuickBooks...): the synced ledger"
+            checked={pnlSource === 'ACCOUNTING_SOFTWARE'}
+            onChange={() => setPnlSource('ACCOUNTING_SOFTWARE')}
+          />
+          <Radio
+            name="pnl-source"
+            label="Entered in Firmivra: each period's income and expenses from what the client provides"
+            checked={pnlSource === 'MANUAL'}
+            onChange={() => setPnlSource('MANUAL')}
+          />
+          <p className="text-xs text-muted">
+            {pnlSource
+              ? 'The P&L, Quarterly Review and Year-to-Date Summary use only this source: the two are never added together.'
+              : 'Not chosen yet: the P&L, Quarterly Review and Year-to-Date Summary wait for this choice.'}
+          </p>
+        </fieldset>
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-sm font-semibold text-heading">
             Shown in the client portal
@@ -521,6 +546,7 @@ export function SettingsTab({ w, onNotice }: { w: BookkeepingClientWorkspace; on
                   portalDefaults: portal,
                   alerts,
                   categorizationRules: rules.filter((r) => r.match.trim() && r.category.trim()),
+                  ...(pnlSource ? { pnlSource } : {}),
                 }),
               'Settings saved.',
             );
