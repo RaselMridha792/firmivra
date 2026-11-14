@@ -6,6 +6,8 @@ import { ClientServiceList } from './services.js';
 import {
   BulkClientsRequest,
   BulkClientsResponse,
+  ClientExportLink,
+  ExportClientsRequest,
   ClientId,
   ClientProfile,
   ClientRecord,
@@ -68,6 +70,12 @@ export function createClientsClient(request: ApiRequest) {
         ClientTimelinePage,
         `${clientPath(id)}/timeline${toQuery(parseInput(ClientTimelineQuery, query))}`,
       ),
+    /** E2 additions: the list's clients as a CSV link (Clients EXPORT; 403 otherwise). */
+    exportList: async (body: ExportClientsRequest): Promise<ClientExportLink> =>
+      request(ClientExportLink, '/business/clients/export', {
+        method: 'POST',
+        body: parseInput(ExportClientsRequest, body),
+      }),
     /** E4: the client's services, with the module record that opens each (when permitted). */
     services: async (id: string): Promise<ClientServiceList['items']> =>
       (await request(ClientServiceList, `${clientPath(id)}/services`)).items,

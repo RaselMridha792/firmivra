@@ -4,6 +4,7 @@ import {
   type BulkClientsRequest,
   type ClientAccountType,
   type CreateClientRequest,
+  type ExportClientsRequest,
   type MemberRef,
   NewClientForm,
   US_STATES,
@@ -334,6 +335,78 @@ export function BulkDialog({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** The columns the export holds (the API's, in order): no SSN, EIN or date of birth. */
+const EXPORT_COLUMNS =
+  'Client, Type, Email, Phone, Stage, Services, Assigned to, Missing documents, Balance due, Last activity, Next appointment, Added, Archived';
+
+/**
+ * Export (Octavia's E2 additions): what will be exported before it is: the clients the list shows
+ * now (its filters and search), how many, and the columns, then the CSV link. For the Owner and
+ * anyone granted Clients EXPORT; the API checks again and records the export.
+ */
+export function ExportDialog({
+  query,
+  total,
+  onClose,
+  onDone,
+}: {
+  query: ExportClientsRequest;
+  total: number;
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const exporting = useApiMutation((body: ExportClientsRequest) => api.clients.exportList(body));
+  const count = Math.min(total, 5000);
+  const noun = count === 1 ? 'client' : 'clients';
+  return (
+    <Modal
+      open
+      title="Export Clients"
+      subtitle="A CSV file of the clients this list shows now."
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={count === 0 || exporting.isPending}
+            onClick={() =>
+              exporting.mutate(query, {
+                onSuccess: (link) => {
+                  window.open(link.url, '_blank', 'noopener');
+                  onDone(
+                    `Exported ${link.rowCount} ${link.rowCount === 1 ? 'client' : 'clients'}.`,
+                  );
+                },
+              })
+            }
+          >
+            {exporting.isPending ? 'Exporting…' : `Export ${count} ${noun}`}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3 text-sm text-text" data-testid="export-dialog">
+        <p>
+          <span className="font-semibold">Scope:</span> the {count} {noun} the list shows with its
+          filters and search{total > 5000 ? ` (the first 5,000 of ${total})` : ''}.
+        </p>
+        <p>
+          <span className="font-semibold">Columns:</span> {EXPORT_COLUMNS}. Never an SSN, EIN or
+          date of birth.
+        </p>
+        <p className="text-muted">The export is recorded in your firm&apos;s audit log.</p>
+        {exporting.error ? (
+          <p role="alert" className="text-danger">
+            {errorMessage(exporting.error, CLIENT_ERRORS)}
+          </p>
+        ) : null}
+      </div>
     </Modal>
   );
 }

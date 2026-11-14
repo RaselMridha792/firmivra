@@ -4,9 +4,11 @@ import { Phone } from '../client-auth/schemas.js';
 import {
   ClientAccountType,
   ClientPortalRole,
+  ClientPriority,
   ClientStatus,
   ContactMethod,
   EngagementStatus,
+  LeadSource,
   ServiceKind,
 } from '../db-enums.js';
 import { US_STATES } from '../intake/options.js';
@@ -152,6 +154,35 @@ export const ListClientsQuery = z
      * unpaid balance on an OPEN invoice, overdue or not.
      */
     owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
+    // ---- Octavia's approved additions (Oct 25 review, E2 additions): Added Last 30 Days and
+    // More Filters. Each narrows the list; days are the firm's calendar days, both ends included.
+    /** Added on or after this day (Added Last 30 Days: the creation date, not the New stage). */
+    addedFrom: CalendarDate.optional(),
+    /** An open compliance deadline (not completed, cancelled or not applicable) due on these days. */
+    deadlineFrom: CalendarDate.optional(),
+    deadlineTo: CalendarDate.optional(),
+    /** A scheduled appointment on these days. */
+    appointmentFrom: CalendarDate.optional(),
+    appointmentTo: CalendarDate.optional(),
+    /** The primary client type, separate from the business's entity type. */
+    accountType: ClientAccountType.optional(),
+    /** The profile's state (two letters) and its city or county (part of either). */
+    state: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{2}$/, 'Use a two-letter state code')
+      .optional(),
+    place: SearchText.optional(),
+    /** DUE: an unpaid balance on an OPEN invoice; NONE: nothing owed. */
+    balance: z.enum(['DUE', 'NONE']).optional(),
+    /** MISSING: a document request still owed (REQUESTED or REJECTED); NONE: nothing owed. */
+    documents: z.enum(['MISSING', 'NONE']).optional(),
+    /** One of the firm's tags (Settings > Tags). */
+    tagId: z.uuid().optional(),
+    /** Where the client came from (the lead sources). */
+    source: LeadSource.optional(),
+    priority: ClientPriority.optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */
@@ -170,8 +201,66 @@ export const ListClientsQuery = z
   .refine((q) => !q.completedFrom || !q.completedTo || q.completedFrom <= q.completedTo, {
     message: 'The start is after the end',
     path: ['completedTo'],
+  })
+  .refine((q) => !q.deadlineFrom || !q.deadlineTo || q.deadlineFrom <= q.deadlineTo, {
+    message: 'The start is after the end',
+    path: ['deadlineTo'],
+  })
+  .refine((q) => !q.appointmentFrom || !q.appointmentTo || q.appointmentFrom <= q.appointmentTo, {
+    message: 'The start is after the end',
+    path: ['appointmentTo'],
   });
 export type ListClientsQuery = z.input<typeof ListClientsQuery>;
+
+/**
+ * POST /business/clients/export (Octavia's E2 additions): the clients the list's filters show, as
+ * a CSV, for the Owner and anyone whose grid grants Clients EXPORT (403 otherwise, checked on the
+ * server). The same filters as the list, without paging; at most 5,000 rows. Minimal fields: the
+ * name, type, email, phone, stage, services, assignee, missing documents, balance, last activity,
+ * next appointment and the day added; never an SSN, EIN or date of birth. Audited with the count.
+ */
+export const ExportClientsRequest = z.strictObject({
+  search: SearchText.optional(),
+  status: z.enum(['active', 'archived', 'all']).optional().default('active'),
+  assignedUserId: z.uuid().optional(),
+  clientStatus: ClientStatus.optional(),
+  serviceId: z.uuid().optional(),
+  /** With serviceId: a dashboard service card's clients, as the list (D4). */
+  engagementStatus: EngagementStatus.optional(),
+  completedFrom: CalendarDate.optional(),
+  completedTo: CalendarDate.optional(),
+  lastActivityFrom: CalendarDate.optional(),
+  lastActivityTo: CalendarDate.optional(),
+  owes: z.enum(['DOCUMENTS', 'BALANCE']).optional(),
+  addedFrom: CalendarDate.optional(),
+  deadlineFrom: CalendarDate.optional(),
+  deadlineTo: CalendarDate.optional(),
+  appointmentFrom: CalendarDate.optional(),
+  appointmentTo: CalendarDate.optional(),
+  accountType: ClientAccountType.optional(),
+  state: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'Use a two-letter state code')
+    .optional(),
+  place: SearchText.optional(),
+  balance: z.enum(['DUE', 'NONE']).optional(),
+  documents: z.enum(['MISSING', 'NONE']).optional(),
+  tagId: z.uuid().optional(),
+  source: LeadSource.optional(),
+  priority: ClientPriority.optional(),
+});
+export type ExportClientsRequest = z.input<typeof ExportClientsRequest>;
+
+/** A short-lived link to the CSV (five minutes), and how many clients it holds. */
+export const ClientExportLink = z.object({
+  url: z.string(),
+  expiresAt: DateTime,
+  fileName: z.string(),
+  rowCount: z.number().int(),
+});
+export type ClientExportLink = z.infer<typeof ClientExportLink>;
 
 export const ListClientsResponse = z.object({
   items: z.array(ClientListRow).max(100),
@@ -197,8 +286,13 @@ export const ClientsSummary = z.object({
   kpis: z.object({
     /** Clients not archived; previous: at the start of this month. */
     totalClients: ClientsKpi,
-    /** Clients added this month; previous: last month. */
+    /**
+     * Not archived, stage NEW: the New tab lists the same clients (Clients Review 2: it counted
+     * clients added this month, which differed from its tab); previous is null.
+     */
     newClients: ClientsKpi,
+    /** Clients added this month, archived ones too; previous: last month. */
+    addedThisMonth: ClientsKpi.optional(),
     /**
      * Not archived, stage ACTIVE (the Active tab lists the same clients with clientStatus=ACTIVE);
      * previous is null (stage changes keep no history).
@@ -373,6 +467,13 @@ export const CreateClientRequest = z.strictObject({
   assignedUserId: z.uuid().optional(),
   /** The same fields as the profile update; `{}` is the same as leaving it out. */
   profile: ProfileFields.optional(),
+  /**
+   * Clients Review 2 (C2-038): a phone another client of the firm already has is 409
+   * DUPLICATE_PHONE (details: `count` and the `matches` the caller may see, each with `id`,
+   * `name`, `clientNumber` and `archived`). Sent again with true once the person confirms it is a
+   * different client, it is saved. Nothing is ever merged.
+   */
+  allowDuplicatePhone: z.boolean().optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
 
@@ -448,8 +549,14 @@ export const UpdateClientRequest = z
     email: clearable(Email),
     phone: clearable(Phone),
     assignedUserId: z.uuid().nullable().optional(),
+    /** As on create: confirms a phone another client already has (409 DUPLICATE_PHONE). */
+    allowDuplicatePhone: z.boolean().optional(),
   })
-  .refine((body) => Object.values(body).some((v) => v !== undefined), 'Change at least one field');
+  .refine(
+    ({ allowDuplicatePhone: _confirm, ...body }) =>
+      Object.values(body).some((v) => v !== undefined),
+    'Change at least one field',
+  );
 export type UpdateClientRequest = z.input<typeof UpdateClientRequest>;
 
 // ---------- Tax status per year (firm) ----------

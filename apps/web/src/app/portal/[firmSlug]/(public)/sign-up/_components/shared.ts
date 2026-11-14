@@ -17,4 +17,5 @@ export const SIGN_UP_ERRORS: Record<string, string> = {
   CODE_INVALID: 'That code is not right or has expired. Check it or send a new one.',
   ALREADY_VERIFIED: 'This step is already done.',
   WRONG_STEP: 'Please follow the steps in order.',
+  OFFICE_NOT_AVAILABLE: 'That office is no longer available. Please choose another.',
 };

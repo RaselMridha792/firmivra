@@ -1,16 +1,20 @@
 'use client';
 
-import type { PortalTab } from '@firmivra/types';
+import type { PortalTab, PortalTabs } from '@firmivra/types';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 
 /** The page each switchable tab opens (Settings > Client Portal > Features). */
-export const TAB_PAGES: Record<string, PortalTab> = {
+type More = keyof NonNullable<PortalTabs['more']>;
+export const TAB_PAGES: Record<string, PortalTab | More> = {
   intake: 'INTAKE_FORMS',
   documents: 'DOCUMENTS',
   taxes: 'TAX_RETURNS',
   invoices: 'INVOICES_PAYMENTS',
   messages: 'MESSAGES',
+  // Hidden for this client only (the firm's Client Portal module, Portal Content).
+  appointments: 'APPOINTMENTS',
+  requests: 'TASKS_REQUESTS',
 };
 
 /**
@@ -22,6 +26,9 @@ export function usePortalTabs(slug: string) {
   const query = useApiQuery(['portal-tabs', slug], () => api.portalTabs.mine(slug));
   return (page: string) => {
     const tab = TAB_PAGES[page];
-    return !tab || query.data?.tabs[tab] !== false;
+    if (!tab) return true;
+    const data = query.data;
+    const on = tab in (data?.tabs ?? {}) ? data?.tabs[tab as PortalTab] : data?.more?.[tab as More];
+    return on !== false;
   };
 }

@@ -20,7 +20,9 @@ test('the overview shows the record with the SSN masked', async ({ page }) => {
   await expect(overview).toContainText('•••-••-0001');
   await expect(overview).toContainText('April 12, 1985');
   await expect(overview).toContainText('123 Main Street');
-  await expect(overview).toContainText('Primary login');
+  // E10: Portal Access (Business Advisory B3's card) lists the login and its role.
+  await expect(page.getByTestId('portal-access')).toContainText('jamie.sample@example.test');
+  await expect(page.getByTestId('portal-access')).toContainText('primary');
   const tabs = page.getByRole('navigation', { name: 'Client' });
   await expect(tabs.getByRole('link', { name: 'Overview', exact: true })).toHaveAttribute(
     'aria-current',

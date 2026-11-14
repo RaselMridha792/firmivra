@@ -45,6 +45,12 @@ export const errors = {
   reconState: (message: string) => conflict('RECON_STATE', message),
   reconDifference: () =>
     conflict('RECON_DIFFERENCE', 'The difference must be zero. Resolve it first'),
+  /** Review 2 (R01c): no approval without the account's statement for the period. */
+  reconStatement: () =>
+    conflict(
+      'STATEMENTS_MISSING',
+      'Attach the bank or credit card statement for this account and period, then approve.',
+    ),
   reportState: (message: string) => conflict('REPORT_STATE', message),
   reportNotPublished: () =>
     conflict(

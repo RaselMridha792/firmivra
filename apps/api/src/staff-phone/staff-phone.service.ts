@@ -38,11 +38,7 @@ const fail = (status: HttpStatus, code: string, message: string, extra: object =
   new HttpException({ code, message, ...extra }, status);
 const ERRORS = {
   noPhone: () =>
-    fail(
-      HttpStatus.CONFLICT,
-      'NO_PHONE',
-      'Your staff record has no mobile number. Ask an administrator to add it.',
-    ),
+    fail(HttpStatus.CONFLICT, 'NO_PHONE', 'You have no mobile number yet. Add it on My Profile.'),
   wait: (seconds: number) =>
     fail(
       HttpStatus.TOO_MANY_REQUESTS,
@@ -132,6 +128,26 @@ export class StaffPhoneService {
       codeSent: open,
       resendAt: !verified && resend > now ? new Date(resend).toISOString() : null,
     };
+  }
+
+  /**
+   * My Profile (Overview guide 20): the member's own number on their login, or none. A new number
+   * is not verified (the database clears `phone_verified_at`); the same number changes nothing.
+   * Audited without the number.
+   */
+  async setPhone(owner: PhoneOwner, phone: string | null): Promise<StaffPhoneState> {
+    const login = await this.login(owner.userId);
+    if (login.phone !== phone) {
+      await this.db
+        .forUser(owner.userId)
+        .user.updateMany({ where: { id: owner.userId }, data: { phone } });
+      await this.audit.log(
+        phone ? 'staff_phone.changed' : 'staff_phone.removed',
+        { type: 'user', id: owner.userId },
+        { hadNumber: login.phone !== null, wasVerified: login.phoneVerifiedAt !== null },
+      );
+    }
+    return this.state(owner);
   }
 
   /** Texts a new code to the member's number, within the gap and the daily caps. */

@@ -1,11 +1,13 @@
 'use client';
 
 import type { Address, ClientRecord, ContactMethod } from '@firmivra/types';
-import { Badge, Card } from '@firmivra/ui';
+import { Card } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
-import { dateText, formatPhone } from '../../_components/client-parts';
+import { PortalAccessCard } from '../../../business-advisory/_components/portal-invitation';
+import { clientKey, dateText, formatPhone } from '../../_components/client-parts';
 import { RecentActivityCard } from '../activity/_components/client-activity-screen';
 import { ActiveServicesCard } from './client-services';
 import { ClientTagsCard } from './client-tags';
@@ -16,14 +18,6 @@ const CONTACT: Record<ContactMethod, string> = {
   PHONE: 'Phone call',
   TEXT: 'Text message',
 };
-const ROLES = { PRIMARY: 'Primary', SPOUSE: 'Spouse', AUTHORIZED: 'Authorized' } as const;
-const STATUS = {
-  ACTIVE: ['Active', 'success'],
-  INVITED: ['Invited', 'info'],
-  PENDING_APPROVAL: ['Awaiting approval', 'warning'],
-  DECLINED: ['Declined', 'danger'],
-  DISABLED: ['Off', 'neutral'],
-} as const;
 
 /** A date of birth as written, without a time-zone shift (it is a calendar date). */
 const birthDate = (day: string) =>
@@ -120,34 +114,31 @@ function Contact({ client }: { client: ClientRecord }) {
   );
 }
 
-function Portal({ client }: { client: ClientRecord }) {
+/**
+ * Octavia's E10: Portal Access with Send Invitation (Business Advisory B3's card, the canonical
+ * Client Portal identity): who can sign in, the last invitation and its state, Send with the
+ * recipient confirmed, and Resend and Revoke where the API allows. The record's portal badge
+ * follows.
+ */
+function PortalAccess({ client }: { client: ClientRecord }) {
+  const qc = useQueryClient();
+  const [notice, setNotice] = useState<string>();
   return (
-    <Card title="Portal access">
-      {client.portalLogins.length ? (
-        <ul className="divide-y divide-border">
-          {client.portalLogins.map((login) => {
-            const [label, tone] = STATUS[login.status];
-            return (
-              <li
-                key={login.clientAccountId}
-                className="flex flex-wrap items-center justify-between gap-2 py-3"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm wrap-anywhere text-text">{login.email}</span>
-                  <span className="block text-xs text-muted">{ROLES[login.portalRole]} login</span>
-                </span>
-                <Badge tone={tone}>{label}</Badge>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted">
-          No portal login yet. The client can sign up on your portal, and you approve it under
-          Sign-ups.
+    <div className="flex min-w-0 flex-col gap-2">
+      <PortalAccessCard
+        firmClientId={client.id}
+        failed={false}
+        onDone={(text) => {
+          setNotice(text);
+          void qc.invalidateQueries({ queryKey: clientKey(client.id) });
+        }}
+      />
+      {notice ? (
+        <p role="status" className="text-sm text-success" data-testid="portal-notice">
+          {notice}
         </p>
-      )}
-    </Card>
+      ) : null}
+    </div>
   );
 }
 
@@ -184,7 +175,7 @@ export function ClientOverview() {
           <Profile client={client} />
           <Contact client={client} />
           <ActiveServicesCard clientId={client.id} />
-          <Portal client={client} />
+          <PortalAccess client={client} />
           <FirmDetails client={client} />
           <ClientTagsCard client={client} />
           <div className="lg:col-span-2">

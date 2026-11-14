@@ -33,6 +33,7 @@ import { DATABASE } from '../database/database.module.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
 import {
   createClientFromSignUp,
+  takeChosenOffice,
   linkable,
   lockClientEmails,
   PRIMARY_LOGINS,
@@ -491,6 +492,8 @@ export class ClientSignUpsService {
         where: { id: account.id },
         data: { clientId: linkedTo, portalRole: 'PRIMARY' },
       });
+      if (clientId)
+        await takeChosenOffice(tx, actor.businessId, linkedTo, account.selectedOfficeId);
       const result: ApproveSignUpResponse = {
         clientAccountId: account.id,
         clientId: linkedTo,
@@ -742,6 +745,7 @@ export class ClientSignUpsService {
         where: { id: account.id },
         data: { clientId: candidateClientId, portalRole: 'PRIMARY' },
       });
+      await takeChosenOffice(tx, actor.businessId, candidateClientId, account.selectedOfficeId);
       await this.resolve(tx, actor, account.id, candidate, 'VERIFIED', null);
       const result: ApproveSignUpResponse = {
         clientAccountId: account.id,
@@ -1182,6 +1186,7 @@ export class ClientSignUpsService {
         status: true,
         email: true,
         accountType: true,
+        selectedOfficeId: true,
         version: true,
         emailVerifiedAt: true,
         phoneVerifiedAt: true,
@@ -1225,6 +1230,7 @@ export class ClientSignUpsService {
         email: account.email,
         phone: account.user.phone,
         accountType: account.accountType,
+        officeId: account.selectedOfficeId,
       });
     } catch (e) {
       if (isUniqueViolation(e)) throw duplicateEmail();

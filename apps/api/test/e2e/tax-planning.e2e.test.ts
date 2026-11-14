@@ -611,6 +611,25 @@ describe('plans', () => {
     expect(adjusted.inputs?.find((i) => i.key === 'other_income')?.kind).toBe('ADJUSTMENT');
     expect(JSON.stringify(await auditRows(id))).not.toContain('bonus');
     expect(adjusted.staleData).toBe(false);
+    // C06 (Review 2): the firm's own additional item, labelled from its key, with its source and
+    // as-of date; any other unknown key is still refused.
+    const extra = TaxPlanDetail.parse(
+      ok(
+        await saveInputs(id, [
+          {
+            ...money('custom_home_office_costs', 120_000),
+            source: 'Client estimate',
+            asOf: new Date().toISOString(),
+          },
+        ]),
+      ),
+    );
+    expect(extra.inputs?.find((i) => i.key === 'custom_home_office_costs')).toMatchObject({
+      label: 'Home office costs',
+      source: 'Client estimate',
+      amountCents: 120_000,
+    });
+    expectError(await saveInputs(id, [money('custom_', 1_000)]), 400, 'VALIDATION_FAILED');
   });
 });
 
@@ -984,11 +1003,13 @@ describe('documents, status, versions and delivery', () => {
     );
     expectError(notReady, 409, 'PLAN_NOT_READY');
     expect(JSON.stringify(notReady.body)).toMatch(/Select at least one strategy/);
-    expectError(
-      await call('post', `/plans/${fresh.id}/send`, ownerA, { channel: 'PORTAL_MESSAGE' }),
-      409,
-      'PLAN_NOT_READY',
-    );
+    // C08, C09 (Review 2): each blocker names where to fix it.
+    expect(JSON.stringify(notReady.body)).toMatch(/in Goals & Strategies/);
+    const unsent = await call('post', `/plans/${fresh.id}/send`, ownerA, {
+      channel: 'PORTAL_MESSAGE',
+    });
+    expectError(unsent, 409, 'PLAN_NOT_READY');
+    expect(JSON.stringify(unsent.body)).toMatch(/Finalize Plan in Review & Save/);
 
     // The main plan: finalize, change it, and find that it has to be finalized again before sending.
     const id = shared.planId;
@@ -1032,6 +1053,15 @@ describe('documents, status, versions and delivery', () => {
       ),
     );
     expect(sent.version).toBe(3);
+    // C09 (Review 2): a sent plan is Awaiting Client Review, in every view.
+    expect(sent.status).toBe('AWAITING_CLIENT');
+    expect((await plan(id)).status).toBe('AWAITING_CLIENT');
+    const sentAudit = (await auditRows(id)).filter((r) => r.action === 'tax_plan.sent');
+    expect(sentAudit.at(-1)?.metadata).toMatchObject({
+      from: 'IN_PROGRESS',
+      to: 'AWAITING_CLIENT',
+    });
+    ok(await setStatus(id, 'IN_PROGRESS'));
     const versions = PlanVersionList.parse(ok(await call('get', `/plans/${id}/versions`, ownerA)));
     expect(versions.items.map((v) => [v.version, v.event])).toEqual([
       [3, 'SENT'],

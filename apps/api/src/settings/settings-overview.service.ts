@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type { SettingsOverview } from '@firmivra/types';
+import type { SecurityAlertItem, SecurityAlerts, SettingsOverview } from '@firmivra/types';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { zonedDate, zonedInstant } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -26,29 +26,67 @@ export const FAILED_SIGN_IN_BURST = 3;
  * "resolved": the count is of the window.
  */
 export async function securityAlerts(tx: TxClient, businessId: string): Promise<number> {
-  const [row] = await tx.$queryRaw<{ n: bigint | number }[]>`
+  return (await securityAlertItems(tx, businessId)).length;
+}
+
+/** The alerts behind the count, newest first (Security & Access; the Settings badge). */
+export async function securityAlertItems(
+  tx: TxClient,
+  businessId: string,
+): Promise<SecurityAlertItem[]> {
+  const rows = await tx.$queryRaw<
+    {
+      id: string;
+      kind: SecurityAlertItem['kind'];
+      at: Date;
+      pool: string | null;
+      attempts: bigint | number | null;
+      until: string | null;
+    }[]
+  >`
     WITH recent AS (
-      SELECT action, created_at, metadata FROM audit_logs
+      SELECT id, action, created_at, metadata FROM audit_logs
       WHERE business_id = ${businessId}::uuid
         AND created_at > now() - make_interval(days => ${SECURITY_ALERT_DAYS}::int)
         AND action IN ('auth.locked', 'auth.sign_in_failed', 'staff.mfa_reset')
     ),
     locks AS (
-      SELECT DISTINCT metadata ->> 'emailKey' AS who, metadata ->> 'lockedUntil' AS until,
-        date_trunc('hour', created_at) AS hour
+      SELECT metadata ->> 'emailKey' AS who, metadata ->> 'lockedUntil' AS until,
+        (array_agg(id ORDER BY created_at DESC, id DESC))[1] AS id, max(created_at) AS at,
+        max(metadata ->> 'pool') AS pool,
+        array_agg(DISTINCT date_trunc('hour', created_at)) AS hours
       FROM recent WHERE action = 'auth.locked'
+      GROUP BY 1, 2
     ),
     bursts AS (
       SELECT coalesce(metadata ->> 'emailKey', metadata ->> 'attemptId') AS who,
-        date_trunc('hour', created_at) AS hour
+        date_trunc('hour', created_at) AS hour,
+        (array_agg(id ORDER BY created_at DESC, id DESC))[1] AS id, max(created_at) AS at,
+        max(metadata ->> 'pool') AS pool, count(*) AS attempts
       FROM recent WHERE action = 'auth.sign_in_failed'
       GROUP BY 1, 2 HAVING count(*) >= ${FAILED_SIGN_IN_BURST}::int
     )
-    SELECT (SELECT count(*) FROM (SELECT DISTINCT who, until FROM locks) l)
-      + (SELECT count(*) FROM bursts b WHERE b.who IS NOT NULL AND NOT EXISTS (
-          SELECT 1 FROM locks l WHERE l.who = b.who AND l.hour = b.hour))
-      + (SELECT count(*) FROM recent WHERE action = 'staff.mfa_reset') AS n`;
-  return Number(row?.n ?? 0);
+    SELECT id, 'LOCKOUT' AS kind, at, pool, NULL::bigint AS attempts, until FROM locks
+    UNION ALL
+    SELECT b.id, 'FAILED_SIGN_INS', b.at, b.pool, b.attempts, NULL FROM bursts b
+    WHERE b.who IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM locks l WHERE l.who = b.who AND b.hour = ANY (l.hours))
+    UNION ALL
+    SELECT id, 'MFA_RESET', created_at, NULL, NULL, NULL FROM recent
+    WHERE action = 'staff.mfa_reset'
+    ORDER BY at DESC, id DESC`;
+  const instant = (text: string | null) => {
+    const t = text ? Date.parse(text) : Number.NaN;
+    return Number.isNaN(t) ? null : new Date(t).toISOString();
+  };
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    at: r.at.toISOString(),
+    pool: r.pool === 'STAFF' || r.pool === 'CLIENT' ? r.pool : null,
+    attempts: r.attempts === null ? null : Number(r.attempts),
+    lockedUntil: r.kind === 'LOCKOUT' ? instant(r.until) : null,
+  }));
 }
 
 /** The first instant of this month on the firm's clock. */
@@ -133,5 +171,17 @@ export class SettingsOverviewService {
     );
     await this.audit.log('settings.overview_viewed', { type: 'business', id: businessId });
     return overview;
+  }
+
+  /**
+   * Security Alerts, listed (Overview guide 6 and 19): the same alerts as the Overview's count.
+   * Read on every page for the Settings badge, so the read itself is not audited (the alerts are
+   * audit entries already, and no client data is read).
+   */
+  async alerts(businessId: string): Promise<SecurityAlerts> {
+    const items = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+      securityAlertItems(tx, businessId),
+    );
+    return { count: items.length, windowDays: SECURITY_ALERT_DAYS, items: items.slice(0, 200) };
   }
 }

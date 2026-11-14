@@ -1,11 +1,17 @@
 'use client';
 
-import type { ClientListRow, ListClientsQuery, TeamMember } from '@firmivra/types';
+import {
+  type ClientListRow,
+  type ListClientsQuery,
+  roleCan,
+  type TeamMember,
+} from '@firmivra/types';
 import { ActionMenu, Button, EmptyState, Tabs, Toast, type TabItem } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
   Archive,
   CaretDown,
+  DownloadSimple,
   Plus,
   ShieldCheck,
   Users,
@@ -18,7 +24,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { TEAM } from '../../../setup/_components/shared';
-import { AddClientDialog, BulkDialog, type BulkKind } from './clients-dialogs';
+import { AddClientDialog, BulkDialog, type BulkKind, ExportDialog } from './clients-dialogs';
 import { ClientsFilterRow } from './clients-filters';
 import { ClientsKpis } from './clients-kpis';
 import { ClientCards, ClientsTable, type RowAction } from './clients-table';
@@ -63,7 +69,27 @@ function listQuery(filters: ClientFilters, search: string, manager: boolean) {
       : {}),
     ...(filters.serviceId && filters.completedFrom ? { completedFrom: filters.completedFrom } : {}),
     ...(filters.serviceId && filters.completedTo ? { completedTo: filters.completedTo } : {}),
+    // Octavia's E2 additions. A range whose start is after its end is left out.
+    ...(filters.addedFrom ? { addedFrom: filters.addedFrom } : {}),
+    ...span('deadline', filters.deadlineFrom, filters.deadlineTo),
+    ...span('appointment', filters.appointmentFrom, filters.appointmentTo),
+    ...(filters.accountType ? { accountType: filters.accountType } : {}),
+    ...(/^[A-Z]{2}$/.test(filters.state) ? { state: filters.state } : {}),
+    ...(filters.area.trim() ? { place: filters.area.trim().slice(0, 100) } : {}),
+    ...(filters.balance ? { balance: filters.balance } : {}),
+    ...(filters.documents ? { documents: filters.documents } : {}),
+    ...(filters.tagId ? { tagId: filters.tagId } : {}),
+    ...(filters.source ? { source: filters.source as ListClientsQuery['source'] } : {}),
+    ...(filters.priority ? { priority: filters.priority } : {}),
   } satisfies ListClientsQuery;
+}
+
+function span<K extends 'deadline' | 'appointment'>(key: K, from: string, to: string) {
+  if (from && to && from > to) return {};
+  return {
+    ...(from ? { [`${key}From`]: from } : {}),
+    ...(to ? { [`${key}To`]: to } : {}),
+  } as Partial<Record<`${K}From` | `${K}To`, string>>;
 }
 
 type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] } | null;
@@ -118,6 +144,9 @@ export function ClientsScreen({
   const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
+  const [exporting, setExporting] = useState(false);
+  // Export (E2 additions): the Owner, and roles whose grid grants it; the API checks the member.
+  const mayExport = !!role && roleCan(role, 'CLIENTS', 'EXPORT');
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
@@ -161,8 +190,11 @@ export function ClientsScreen({
     { id: 'new', label: 'New', count: counts?.new },
     ...services.map((s) => ({ id: `service:${s.id}`, label: s.name, count: s.count })),
     { id: 'inactive', label: 'Inactive', count: counts?.inactive },
+    // Octavia's E2 additions: the creation date (New stays the stage) and the archived records.
+    { id: 'recent', label: 'Added Last 30 Days' },
+    { id: 'archived', label: 'Archived' },
   ];
-  const selectTab = (id: string) => change(filtersForTab(id));
+  const selectTab = (id: string) => change(filtersForTab(id, filters));
 
   // The list's states; its Try again reloads the cards and tabs too.
   const listAndSummary: typeof list = {
@@ -252,6 +284,17 @@ export function ClientsScreen({
                   ? `${selected.length} ${selected.length === 1 ? 'client' : 'clients'} selected`
                   : ''}
               </p>
+            ) : null}
+            {mayExport ? (
+              <Button
+                variant="secondary"
+                data-testid="export-clients"
+                className="!min-h-9"
+                onClick={() => setExporting(true)}
+              >
+                <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                Export
+              </Button>
             ) : null}
             <Button
               data-testid="add-client"
@@ -387,6 +430,17 @@ export function ClientsScreen({
 
       {adding ? (
         <AddClientDialog manager={manager} members={members} onClose={() => setAdding(false)} />
+      ) : null}
+      {exporting ? (
+        <ExportDialog
+          query={listQuery(filters, search, manager)}
+          total={list.data?.total ?? 0}
+          onClose={() => setExporting(false)}
+          onDone={(text) => {
+            setExporting(false);
+            setNotice(text);
+          }}
+        />
       ) : null}
       {pending ? (
         <BulkDialog

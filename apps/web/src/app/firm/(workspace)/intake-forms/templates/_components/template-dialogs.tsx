@@ -26,13 +26,21 @@ export function CreateTemplateDialog({
   busy,
   onClose,
   onCreate,
+  form = false,
 }: {
   library: UseQueryResult<IntakeFormListItem[]>;
   category: FormCategory | null;
   busy: boolean;
   onClose: () => void;
   onCreate: (service: NewTemplateService) => void;
+  /**
+   * Intake Forms' own Create Intake Form (Review Two, 17c): a blank form, not a template, asks the
+   * same question first.
+   */
+  form?: boolean;
 }) {
+  const noun = form ? 'form' : 'template';
+  const action = form ? 'Create Intake Form' : 'Create Template';
   const services = [
     ...new Map(
       (library.data ?? [])
@@ -49,8 +57,8 @@ export function CreateTemplateDialog({
   return (
     <Modal
       open
-      title="Create Template"
-      subtitle="Choose the service this template is for. It starts as a blank draft."
+      title={action}
+      subtitle={`Choose the service this ${noun} is for. It starts as a blank draft.`}
       onClose={onClose}
       footer={
         <>
@@ -58,7 +66,7 @@ export function CreateTemplateDialog({
             Cancel
           </Button>
           <Button disabled={!chosen || busy} onClick={() => chosen && onCreate(chosen)}>
-            Create Template
+            {action}
           </Button>
         </>
       }

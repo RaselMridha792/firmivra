@@ -11,7 +11,7 @@ import { firmTimeZone } from '../appointments/calendar-data.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { assignee, day, memberNames, memberRef, notFound } from '../workspaces/common.js';
-import { INPUT_KEYS } from './catalog.js';
+import { inputDef } from './catalog.js';
 import {
   clientRef,
   clientRefSelect,
@@ -172,7 +172,7 @@ export class TaxPlanReadService {
     const inputs: PlanInput[] | null = ctx.perms.viewInputs
       ? rows.map((r) => ({
           key: r.key,
-          label: INPUT_KEYS.get(r.key)?.label ?? r.key,
+          label: inputDef(r.key)?.label ?? r.key,
           kind: r.kind,
           taxYear: r.taxYear,
           amountCents: r.amountCents,

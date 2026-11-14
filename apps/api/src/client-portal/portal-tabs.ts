@@ -18,7 +18,9 @@ import type { Request } from 'express';
 import type { z } from 'zod';
 import type { Database, TxClient } from '@firmivra/db';
 import {
+  PORTAL_MODULE_LABELS,
   PORTAL_TAB_LABELS,
+  PortalModule,
   PortalTab,
   type PortalTabs,
   UpdatePortalTabsRequest,
@@ -35,13 +37,16 @@ import { DATABASE } from '../database/database.module.js';
 // on restores it as it was.
 
 /** 403 MODULE_OFF, as a switched-off Firm Sign or calculators (common/modules). */
-export const tabOff = (tab: PortalTab) =>
+export const tabOff = (area: PortalModule) =>
   new ForbiddenException({
     code: 'MODULE_OFF',
-    message: `${PORTAL_TAB_LABELS[tab]} is turned off in this portal.`,
+    message: `${(PORTAL_TAB_LABELS as Partial<Record<PortalModule, string>>)[area] ?? PORTAL_MODULE_LABELS[area]} is turned off in this portal.`,
   });
 
 type Tabs = Record<PortalTab, boolean>;
+/** Each portal area: the firm's switch (on where it has none) and this client's own. */
+export type ClientAreas = Record<PortalModule, { firmOn: boolean; clientOn: boolean }>;
+const isTab = (m: PortalModule): m is PortalTab => (PortalTab.options as string[]).includes(m);
 
 @Injectable()
 export class PortalTabsService {
@@ -97,6 +102,60 @@ export class PortalTabsService {
     });
   }
 
+  /**
+   * The Client Portal module's switches for one client (rows with the client's id) on top of
+   * the firm's. In the caller's firm transaction.
+   */
+  async areasIn(tx: TxClient, clientId: string): Promise<ClientAreas> {
+    const firm = await this.read(tx);
+    const rows = await tx.portalModuleVisibility.findMany({
+      where: { clientId },
+      orderBy: { updatedAt: 'asc' },
+      select: { module: true, visible: true },
+    });
+    const own = new Map(rows.map((r) => [r.module, r.visible]));
+    return Object.fromEntries(
+      PortalModule.options.map((m) => [
+        m,
+        { firmOn: isTab(m) ? firm[m] : true, clientOn: own.get(m) ?? true },
+      ]),
+    ) as ClientAreas;
+  }
+
+  /** What a signed-in client sees: each area on only when the firm's and their own are. */
+  async forClientAccount(businessId: string, clientAccountId: string): Promise<PortalTabs> {
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      const account = await tx.clientAccount.findUnique({
+        where: { id: clientAccountId },
+        select: { clientId: true },
+      });
+      if (!account?.clientId) return { tabs: await this.read(tx) };
+      const areas = await this.areasIn(tx, account.clientId);
+      const on = (m: PortalModule) => areas[m].firmOn && areas[m].clientOn;
+      return {
+        tabs: Object.fromEntries(PortalTab.options.map((t) => [t, on(t)])) as Tabs,
+        more: {
+          APPOINTMENTS: on('APPOINTMENTS'),
+          TASKS_REQUESTS: on('TASKS_REQUESTS'),
+          REPORTS: on('REPORTS'),
+        },
+      };
+    });
+  }
+
+  /** A signed-in client's route of a hidden area: 403 MODULE_OFF. */
+  async assertClientOn(
+    businessId: string,
+    clientAccountId: string,
+    area: PortalModule,
+  ): Promise<void> {
+    const mine = await this.forClientAccount(businessId, clientAccountId);
+    const on = isTab(area)
+      ? mine.tabs[area]
+      : (mine.more?.[area as keyof typeof mine.more] ?? true);
+    if (!on) throw tabOff(area);
+  }
+
   private async read(tx: TxClient): Promise<Tabs> {
     const rows = await tx.portalModuleVisibility.findMany({
       where: { clientId: null, module: { in: [...PortalTab.options] } },
@@ -121,20 +180,21 @@ export class PortalTabGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const tab = this.reflector.getAllAndOverride<PortalTab | undefined>(TAB_KEY, [
+    const area = this.reflector.getAllAndOverride<PortalModule | undefined>(TAB_KEY, [
       ctx.getHandler(),
       ctx.getClass(),
     ]);
     const tenant = ctx.switchToHttp().getRequest<Request>().tenant;
-    if (!tab || tenant?.kind !== 'client') return true;
-    await this.tabs.assertOn(tenant.businessId, tab);
+    if (!area || tenant?.kind !== 'client') return true;
+    // The firm's switch and the client's own (Client Portal module, Portal Content).
+    await this.tabs.assertClientOn(tenant.businessId, tenant.clientAccountId, area);
     return true;
   }
 }
 
 /** `@PortalTabRoute('TAX_RETURNS')` on a portal controller. Its module imports PortalTabsModule. */
-export const PortalTabRoute = (tab: PortalTab) =>
-  applyDecorators(SetMetadata(TAB_KEY, tab), UseGuards(PortalTabGuard));
+export const PortalTabRoute = (area: PortalModule) =>
+  applyDecorators(SetMetadata(TAB_KEY, area), UseGuards(PortalTabGuard));
 
 /** Settings > Client Portal > Features: Owner and Admin. */
 @Controller('business/settings/portal-tabs')
@@ -166,7 +226,8 @@ export class MyPortalTabsController {
 
   @Get()
   async mine(@CurrentTenant() tenant: TenantContext): Promise<PortalTabs> {
-    return { tabs: await this.tabs.tabs(tenant.businessId) };
+    if (tenant.kind !== 'client') return { tabs: await this.tabs.tabs(tenant.businessId) };
+    return this.tabs.forClientAccount(tenant.businessId, tenant.clientAccountId);
   }
 }
 

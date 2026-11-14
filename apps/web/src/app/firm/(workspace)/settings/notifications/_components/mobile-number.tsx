@@ -4,18 +4,19 @@ import type { StaffPhoneState } from '@firmivra/types';
 import { Badge, Button, Input, Skeleton } from '@firmivra/ui';
 import { CheckCircle, DeviceMobile } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { type FormEvent, useEffect, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NOT_LOADED, Quiet, SettingsCard } from '../../_components/settings-parts';
 
-const PHONE = ['staff-phone'];
+export const PHONE = ['staff-phone'];
 /** The preferences' key (notifications-screen.tsx): a verified number offers texts there. */
-const PREFERENCES = ['notifications', 'preferences'];
+export const PREFERENCES = ['notifications', 'preferences'];
 
 const PHONE_ERRORS: Record<string, string> = {
-  NO_PHONE: 'Your staff record has no mobile number. Ask an administrator to add it.',
+  NO_PHONE: 'You have no mobile number yet. Add it on My Profile.',
   CODE_WAIT: 'A code was sent less than a minute ago. Wait a moment, then send another.',
   CODE_LIMIT: 'No more codes can be sent today. Try again tomorrow.',
   CODE_INVALID:
@@ -26,7 +27,7 @@ const PHONE_ERRORS: Record<string, string> = {
 };
 
 /** A US number as (770) 555-0123; any other number as it is. */
-const formatPhone = (value: string) => {
+export const formatPhone = (value: string) => {
   const us = value.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
   return us ? `(${us[1]}) ${us[2]}-${us[3]}` : value;
 };
@@ -48,7 +49,8 @@ function useSecondsUntil(iso: string | null) {
  * Mobile Number (R60's column requests 9 and 13): the number on the member's staff record and
  * whether they proved they hold it. Send Code texts a 6-digit code (one a minute); a right code
  * verifies the number and the preferences below then offer text messages. A new number on the
- * staff record clears the verification. Administrators set the number in Staff Management.
+ * number clears the verification. The member sets it on My Profile (Overview guide 20), and
+ * administrators in Staff Management.
  */
 export function MobileNumberCard() {
   const phone = useApiQuery(PHONE, () => api.staffPhone.get());
@@ -70,7 +72,8 @@ export function MobileNumberCard() {
   );
 }
 
-function MobileNumber({ state }: { state: StaffPhoneState }) {
+/** The number, verified or not, with Send Code and Verify (My Settings and My Profile). */
+export function MobileNumber({ state }: { state: StaffPhoneState }) {
   const queryClient = useQueryClient();
   const [code, setCode] = useState('');
   const wait = useSecondsUntil(state.resendAt);
@@ -83,8 +86,11 @@ function MobileNumber({ state }: { state: StaffPhoneState }) {
   if (!state.phone) {
     return (
       <Quiet>
-        Your staff record has no mobile number. Ask an administrator to add it in Staff Management,
-        then verify it here.
+        You have no mobile number yet. Add it on{' '}
+        <Link href="/profile" className="font-medium text-link hover:underline">
+          My Profile
+        </Link>
+        , then verify it here.
       </Quiet>
     );
   }
