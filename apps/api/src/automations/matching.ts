@@ -209,6 +209,8 @@ const LOADERS: Record<string, Loader> = {
       where: {
         businessId: s.businessId,
         status: 'OPEN',
+        // A lead's task has no client (Leads R2 2): it is the lead's, not a client's work.
+        leadId: null,
         archivedAt: null,
         dueOn: { lt: todayDate(s.today) },
         ...(s.recordId ? { id: s.recordId } : {}),

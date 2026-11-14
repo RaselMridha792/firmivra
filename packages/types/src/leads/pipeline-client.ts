@@ -8,6 +8,7 @@ import {
   ConvertLeadToClientRequest,
   ConvertLeadToClientResult,
   CreateLeadRequest,
+  CreateLeadTaskRequest,
   LeadActivity,
   LeadActivityPage,
   LeadActivityQuery,
@@ -31,6 +32,7 @@ import {
   UpdateLeadFollowUpRequest,
   CompleteLeadFollowUpRequest,
   UpdateLeadRequest,
+  UpdateLeadTaskRequest,
 } from './pipeline.js';
 import {
   ConfirmEmailImageUploadRequest,
@@ -157,6 +159,19 @@ export function createLeadPipelineClient(request: ApiRequest) {
       request(LeadNote, `${one(id)}/notes`, post(parseInput(AddLeadNoteRequest, body))),
     tasks: async (id: string): Promise<LeadTask[]> =>
       (await request(LeadTaskList, `${one(id)}/tasks`)).items,
+    /** R2 2: Create Task opened from the lead. */
+    createTask: async (id: string, body: CreateLeadTaskRequest): Promise<LeadTask> =>
+      request(LeadTask, `${one(id)}/tasks`, post(parseInput(CreateLeadTaskRequest, body))),
+    /** R2 2: the lead's task done, or open again. */
+    updateTask: async (
+      id: string,
+      taskId: string,
+      body: UpdateLeadTaskRequest,
+    ): Promise<LeadTask> =>
+      request(LeadTask, `${one(id)}/tasks/${parseInput(z.uuid(), taskId)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdateLeadTaskRequest, body),
+      }),
     appointments: async (id: string): Promise<LeadAppointment[]> =>
       (await request(LeadAppointmentList, `${one(id)}/appointments`)).items,
     documentsAndForms: async (id: string): Promise<LeadDocumentsAndForms> =>

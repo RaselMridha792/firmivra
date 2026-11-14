@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   AddLeadNoteRequest,
@@ -7,6 +7,7 @@ import {
   CompleteFollowUpRequest,
   ConvertLeadToClientRequest,
   type ConvertLeadToClientResult,
+  CreateLeadTaskRequest,
   type LeadActivity,
   LeadActivityQuery,
   type LeadActivityPage,
@@ -18,6 +19,7 @@ import {
   type LeadTask,
   LogLeadActivityRequest,
   SetFollowUpRequest,
+  UpdateLeadTaskRequest,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
@@ -107,6 +109,29 @@ export class LeadPipelineTabsController {
     @Param('id', idPipe) id: string,
   ): Promise<{ items: LeadTask[] }> {
     return { items: await this.tabs.tasks(tenant.businessId, pipelineActor(auth, tenant), id) };
+  }
+
+  @Post(':id/tasks')
+  createTask(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateLeadTaskRequest))
+    body: z.output<typeof CreateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    return this.tabs.createTask(tenant.businessId, pipelineActor(auth, tenant), id, body);
+  }
+
+  @Patch(':id/tasks/:taskId')
+  updateTask(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('taskId', idPipe) taskId: string,
+    @Body(new ZodValidationPipe(UpdateLeadTaskRequest))
+    body: z.output<typeof UpdateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    return this.tabs.updateTask(tenant.businessId, pipelineActor(auth, tenant), id, taskId, body);
   }
 
   @Get(':id/appointments')

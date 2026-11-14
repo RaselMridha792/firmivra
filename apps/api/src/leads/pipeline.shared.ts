@@ -6,6 +6,7 @@ import {
   type LeadFollowUp,
   type LeadPipelineStatus,
   type LeadProfile,
+  type LeadTask,
   type LeadRow,
   type LeadSource,
   roleCan,
@@ -386,9 +387,9 @@ export async function loadProfile(
     dateOfBirth: null,
     bestTimeToContact: r.bestTimeToContact,
     recentActivity: recent.map((a) => toActivity(a, r.source)),
-    // Tasks and appointments have no lead link yet (see the PR's gaps).
+    // Appointments have no lead link yet (see the PR's gaps).
     upcomingAppointments: [],
-    openTasks: [],
+    openTasks: (await leadTasksOf(tx, businessId, id)).filter((t) => !t.done),
     client: r.engagement
       ? { id: r.engagement.client.id, name: r.engagement.client.displayName }
       : null,
@@ -402,6 +403,38 @@ export async function loadProfile(
     archivedAt: r.archivedAt?.toISOString() ?? null,
     version: r.updatedAt.toISOString(),
   };
+}
+
+/** R2 2: a lead's tasks (tasks.lead_id): open ones first by due date, then the done ones. */
+export async function leadTasksOf(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+): Promise<LeadTask[]> {
+  const rows = await tx.task.findMany({
+    where: { businessId, leadId, archivedAt: null, status: { in: ['OPEN', 'DONE'] } },
+    // OPEN before DONE (the enum's order).
+    orderBy: [{ status: 'asc' }, { dueOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+    take: 200,
+    select: {
+      id: true,
+      title: true,
+      dueOn: true,
+      priority: true,
+      status: true,
+      assignedMember: { select: { userId: true, user: { select: { name: true } } } },
+    },
+  });
+  return rows.map((t) => ({
+    id: t.id,
+    title: t.title,
+    dueOn: t.dueOn?.toISOString().slice(0, 10) ?? null,
+    priority: t.priority,
+    done: t.status === 'DONE',
+    assignedTo: t.assignedMember
+      ? { userId: t.assignedMember.userId, name: t.assignedMember.user.name }
+      : null,
+  }));
 }
 
 /** The lead held for this transaction, if the member reaches it: 404 otherwise. */

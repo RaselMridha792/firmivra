@@ -390,14 +390,35 @@ export const LeadNoteList = z.object({ items: z.array(LeadNote) });
 export const AddLeadNoteRequest = z.strictObject({ text: text(2000, 'many') });
 export type AddLeadNoteRequest = z.input<typeof AddLeadNoteRequest>;
 
+const LeadTaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
 export const LeadTask = z.object({
   id: z.uuid(),
   title: z.string(),
   dueOn: CalendarDate.nullable(),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']),
+  priority: LeadTaskPriority,
   done: z.boolean(),
+  /** R2 2: who it is assigned to, when someone is. */
+  assignedTo: MemberRef.nullable().optional(),
 });
 export type LeadTask = z.infer<typeof LeadTask>;
+
+/**
+ * Leads R2 2: POST /business/leads/{id}/tasks, Create Task opened from the lead (its Tasks tab and
+ * Overview). The task is the lead's (tasks.lead_id): it shows on the lead, not in the Tasks
+ * module's lists, which are clients' work. Staff assign it to themselves.
+ */
+export const CreateLeadTaskRequest = z.strictObject({
+  title: text(200, 'one', 'Enter the task name'),
+  details: clearable(text(5_000, 'many')),
+  dueOn: CalendarDate,
+  priority: LeadTaskPriority.default('MEDIUM'),
+  assignedUserId: z.uuid().nullable().optional(),
+});
+export type CreateLeadTaskRequest = z.input<typeof CreateLeadTaskRequest>;
+
+/** PATCH /business/leads/{id}/tasks/{taskId}: done, or open again. */
+export const UpdateLeadTaskRequest = z.strictObject({ done: z.boolean() });
+export type UpdateLeadTaskRequest = z.input<typeof UpdateLeadTaskRequest>;
 
 export const LeadAppointment = z.object({
   id: z.uuid(),
