@@ -118,6 +118,8 @@ interface Form {
   officeId: string;
   roomId: string;
   details: string;
+  /** Review 2 (P1 row 1): an Other Video Meeting's platform; blank uses the type's. */
+  otherVideoPlatform: string;
   generateVideoLink: boolean;
   videoUrl: string;
   staffUserIds: string[];
@@ -154,6 +156,7 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
     officeId: o.offices?.[0]?.id ?? '',
     roomId: '',
     details: '',
+    otherVideoPlatform: '',
     generateVideoLink: false,
     videoUrl: '',
     staffUserIds: o.staff[0] ? [o.staff[0].userId] : [],
@@ -197,6 +200,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     officeId: r.place.office?.id ?? '',
     roomId: r.place.room?.id ?? '',
     details: r.place.details ?? '',
+    otherVideoPlatform: r.otherVideoPlatform ?? '',
     videoUrl: r.videoUrl ?? '',
     staffUserIds: r.staff.map((s) => s.userId),
     status: r.status === 'PENDING' ? 'PENDING' : 'CONFIRMED',
@@ -723,6 +727,9 @@ function FormBody({
     officeId: form.method === 'IN_PERSON' ? form.officeId || null : null,
     roomId: form.method === 'IN_PERSON' ? form.roomId || null : null,
     details: form.details.trim() || null,
+    // Blank: the appointment type's platform (the API refuses OTHER with neither).
+    otherVideoPlatform:
+      form.method === 'OTHER' ? form.otherVideoPlatform.trim() || null : undefined,
     generateVideoLink: generating,
     videoUrl:
       form.method === 'VIDEO' && !generating && form.videoUrl.trim() ? form.videoUrl.trim() : null,
@@ -1253,9 +1260,26 @@ function FormBody({
               />
             ) : null}
           </div>
-          {form.method === 'PHONE' || form.method === 'OTHER' ? (
+          {form.method === 'OTHER' ? (
+            <div className="grid gap-4 md:grid-cols-2" data-testid="other-video">
+              <Input
+                label="Video platform"
+                maxLength={60}
+                placeholder="Teams, Google Meet…"
+                hint="Blank uses the appointment type's platform."
+                value={form.otherVideoPlatform}
+                onChange={(e) => set('otherVideoPlatform', e.target.value)}
+              />
+              <Input
+                label="Meeting link or details"
+                value={form.details}
+                onChange={(e) => set('details', e.target.value)}
+              />
+            </div>
+          ) : null}
+          {form.method === 'PHONE' ? (
             <Input
-              label={form.method === 'PHONE' ? 'Phone number to call' : 'Where'}
+              label="Phone number to call"
               value={form.details}
               onChange={(e) => set('details', e.target.value)}
             />
@@ -1563,6 +1587,8 @@ function FormBody({
                       {room ? <br /> : null}
                       {room}
                     </span>
+                  ) : form.method === 'OTHER' && form.otherVideoPlatform.trim() ? (
+                    `${METHOD_LABELS.OTHER} (${form.otherVideoPlatform.trim()})`
                   ) : (
                     METHOD_LABELS[form.method]
                   ),

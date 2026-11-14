@@ -1663,6 +1663,22 @@ async function main() {
         bookedByClient: true,
       },
     });
+    // Review 2 (Save as Draft): the owner's Schedule Appointment form, saved before booking.
+    await tx.appointmentDraft.upsert({
+      where: { id: SEED_CALENDAR_IDS.appointmentDraft },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_CALENDAR_IDS.appointmentDraft,
+        createdByUserId: SEED_USERS.lvpOwner.id,
+        data: {
+          typeId: appointmentType('Tax consultation'),
+          method: 'VIDEO',
+          allDay: false,
+          internalNotes: 'Draft: confirm the time with the client first.',
+        },
+      },
+    });
 
     // Messages: the client asks about a W-2 (with the 1099-INT attached) and staff answer;
     // the firm's welcome thread.

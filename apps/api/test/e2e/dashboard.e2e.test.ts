@@ -475,6 +475,21 @@ describe('GET /business/dashboard/summary', () => {
     }
   });
 
+  // Dashboard Review 2 (K1, V1): a past period's Total Clients opens the books as they stood then.
+  it('opens Total Clients on the clients it counts, for a past period too', async () => {
+    for (const who of [people.ownerA, people.staffA]) {
+      for (const period of ['THIS_MONTH', 'LAST_MONTH', 'LAST_YEAR']) {
+        const s = await read(who, 'a', `?period=${period}`);
+        const past = s.range.to < s.today;
+        const total = await totalOf(who, `/business/clients${past ? `?asOf=${s.range.to}` : ''}`);
+        expect([period, total]).toEqual([period, s.kpis.totalClients.value]);
+      }
+    }
+    // Last month the client made 62 days ago was on the books; the ones made since were not.
+    const last = await read(people.ownerA, 'a', '?period=LAST_MONTH');
+    expect(last.kpis.totalClients.value).toBeGreaterThan(0);
+  });
+
   it("gives each due task its priority, and no tax season until the firm's settings hold one", async () => {
     const s = await read(people.ownerA, 'a');
     expect(s.tasksDue.map((t) => [t.title, t.priority])).toEqual([

@@ -184,6 +184,7 @@ function seed(empty: boolean): Store {
           status,
           staff: [staff],
           method,
+          otherVideoPlatform: null,
           place: {
             office: method === 'IN_PERSON' ? { id: uuid('0f10', 1), name: 'Main Office' } : null,
             room:
@@ -271,6 +272,31 @@ function seed(empty: boolean): Store {
  * What a type offers until its configuration says otherwise. One method, as the types screen
  * (#1029) still expects; the API takes 1 to 3 since A1, and the mock follows when that screen does.
  */
+/** Review 2 (P1 row 1): an Other Video Meeting's platform, as the API works it out. */
+function platformOf(
+  method: string,
+  sent: string | null | undefined,
+  fallback: string | null | undefined,
+): string | null {
+  if (method !== 'OTHER') return null;
+  const platform = sent || fallback || null;
+  if (!platform)
+    throw new ApiRequestError(
+      400,
+      'VALIDATION_FAILED',
+      'Name the video platform of the Other Video Meeting, such as Google Meet',
+      undefined,
+      undefined,
+      [
+        {
+          path: 'otherVideoPlatform',
+          message: 'Name the video platform of the Other Video Meeting, such as Google Meet',
+        },
+      ],
+    );
+  return platform;
+}
+
 const DEFAULT_METHODS: MeetingMethod[] = ['IN_PERSON'];
 
 /** The firm's buffers, notice and window, which Edit My Availability shows and cannot change. */
@@ -616,6 +642,11 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       }
       if (input.generateVideoLink && input.method !== 'VIDEO')
         throw fail(400, 'VALIDATION_FAILED', 'Video links are for Zoom / Video');
+      const otherVideoPlatform = platformOf(
+        input.method,
+        input.otherVideoPlatform,
+        s.typeConfigs.get(input.typeId)?.otherVideoPlatform,
+      );
       if (
         input.generateVideoLink &&
         staffByIds(input.staffUserIds.slice(0, 1)).some((m) => m.name === NO_LINK)
@@ -641,6 +672,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         status: input.status,
         staff,
         method: input.method,
+        otherVideoPlatform,
         place: { office: null, room: null, details: input.details ?? null },
         videoUrl: input.generateVideoLink
           ? `https://zoom.example.test/j/${s.next}000`
@@ -713,6 +745,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         ...(input.contact ? { contact: contactOf(input.contact) } : {}),
         ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
         ...(input.method ? { method: input.method } : {}),
+        ...(input.method || input.otherVideoPlatform !== undefined
+          ? {
+              otherVideoPlatform: platformOf(
+                input.method ?? r.method,
+                input.otherVideoPlatform,
+                r.otherVideoPlatform ?? s.typeConfigs.get(r.type?.id ?? '')?.otherVideoPlatform,
+              ),
+            }
+          : {}),
         ...(input.status ? { status: input.status } : {}),
         ...(input.color !== undefined ? { color: input.color } : {}),
         ...(input.internalNotes !== undefined ? { internalNotes: input.internalNotes } : {}),
@@ -963,11 +1004,13 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           serviceId: null,
           eligibleStaffUserIds: [],
           methods: DEFAULT_METHODS,
+          otherVideoPlatform: null,
           officeIds: [],
           bufferBeforeMinutes: 0,
           bufferAfterMinutes: 15,
           minNoticeHours: 24,
           maxWindowDays: 60,
+          maxWindowHours: null,
           requiredIntakeFormId: null,
           requiredDocuments: [],
           defaultReminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
@@ -981,24 +1024,19 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const input = parseInput(SetAppointmentTypeConfigRequest, body);
       // The types list is the appointment types mock's, with its own ids: any id has settings.
       const type = TYPES().find((t) => t.id === typeId);
-      if (input.methods && (input.methods.length !== 1 || input.methods[0] === 'OTHER')) {
-        throw fail(
-          400,
-          'VALIDATION_FAILED',
-          'An appointment type has one meeting method for now (in person, phone or video).',
-        );
-      }
       const base = s.typeConfigs.get(typeId) ?? {
         typeId,
         description: null,
         serviceId: null,
         eligibleStaffUserIds: [],
         methods: DEFAULT_METHODS,
+        otherVideoPlatform: null,
         officeIds: [],
         bufferBeforeMinutes: 0,
         bufferAfterMinutes: 0,
         minNoticeHours: 0,
         maxWindowDays: 60,
+        maxWindowHours: null,
         requiredIntakeFormId: null,
         requiredDocuments: [],
         defaultReminders: [],
@@ -1007,6 +1045,22 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const next = { ...base };
       for (const [k, v] of Object.entries(input))
         if (v !== undefined) Object.assign(next, { [k]: v });
+      // Review 2 (P1 row 1): an Other Video Meeting names its platform, as the API insists.
+      if (!next.methods.includes('OTHER')) next.otherVideoPlatform = null;
+      else if (!next.otherVideoPlatform)
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'Name the video platform of the Other Video Meeting, such as Google Meet',
+          undefined,
+          undefined,
+          [
+            {
+              path: 'otherVideoPlatform',
+              message: 'Name the video platform of the Other Video Meeting, such as Google Meet',
+            },
+          ],
+        );
       s.typeConfigs.set(typeId, next);
       return copy(next);
     },

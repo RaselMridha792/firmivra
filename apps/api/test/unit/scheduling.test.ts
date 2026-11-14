@@ -65,9 +65,9 @@ describe('colours and methods', () => {
     expect(colorFromHex('#2563EB')).toBe('BLUE');
     expect(colorFromHex('#123456')).toBeUndefined();
   });
-  it('has no database kind for Other', () => {
+  it('keeps Other as an Other Video Meeting (Review 2, P1 row 1)', () => {
     expect(locationKindOf('VIDEO')).toBe('VIDEO');
-    expect(locationKindOf('OTHER')).toBeNull();
+    expect(locationKindOf('OTHER')).toBe('OTHER_VIDEO');
   });
 });
 
@@ -80,9 +80,9 @@ describe('meeting methods of a type (A1)', () => {
     expect(typeMethods({ locationKind: 'IN_PERSON', meetingMethods: [] })).toEqual(['IN_PERSON']);
   });
 
-  it('turns the form methods into stored kinds, keeping the order; Other has none', () => {
+  it('turns the form methods into stored kinds, keeping the order; Other is OTHER_VIDEO', () => {
     expect(locationKindsOf(['IN_PERSON', 'VIDEO'])).toEqual(['IN_PERSON', 'VIDEO']);
-    expect(locationKindsOf(['VIDEO', 'OTHER'])).toBeNull();
+    expect(locationKindsOf(['VIDEO', 'OTHER'])).toEqual(['VIDEO', 'OTHER_VIDEO']);
     expect(sameMethods(['VIDEO', 'PHONE'], ['VIDEO', 'PHONE'])).toBe(true);
     expect(sameMethods(['VIDEO', 'PHONE'], ['PHONE', 'VIDEO'])).toBe(false);
     expect(sameMethods(['VIDEO'], ['VIDEO', 'PHONE'])).toBe(false);
@@ -110,11 +110,12 @@ describe('meeting methods of a type (A1)', () => {
       { path: 'methods.1', message: 'This meeting method is already chosen' },
     ]);
     expect(details(UpdateTypeBody, { methods: ['PHONE', 'VIDEO', 'IN_PERSON', 'PHONE'] })).toEqual([
-      { path: 'methods.3', message: 'Choose at most 3 meeting methods' },
+      { path: 'methods.3', message: 'This meeting method is already chosen' },
     ]);
-    expect(details(TypeConfigBody, { methods: ['PHONE', 'OTHER'] })).toEqual([
-      { path: 'methods.1', message: 'Choose in person, phone or video' },
-    ]);
+    // Review 2 (P1 row 1): four methods with Other; a fifth is refused at its place.
+    expect(
+      details(TypeConfigBody, { methods: ['PHONE', 'VIDEO', 'IN_PERSON', 'OTHER', 'PHONE'] }),
+    ).toEqual([{ path: 'methods.4', message: 'Choose at most 4 meeting methods' }]);
     expect(details(TypeConfigBody, { methods: [] })).toEqual([
       { path: 'methods', message: 'Choose at least one meeting method' },
     ]);

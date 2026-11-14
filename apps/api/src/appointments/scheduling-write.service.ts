@@ -50,16 +50,27 @@ const HOUR = 60 * MINUTE;
 const inactiveOffice = () =>
   errors.unsupported('This location is inactive. Choose an active location.');
 
-/** The form's method as a location kind; OTHER cannot be kept yet (400 at `method`). */
-function kindOf(method: Schedule['method']): StoredKind {
-  const kind = locationKindOf(method);
-  if (!kind) {
+/** The form's method as a location kind (OTHER is an Other Video Meeting). */
+const kindOf = (method: Schedule['method']): StoredKind => locationKindOf(method);
+
+/**
+ * Review 2 (P1 row 1): an Other Video Meeting's platform: the one sent, else `fallback` (the one
+ * it has, or its type's); 400 at `otherVideoPlatform` with none. Null for any other method.
+ */
+function platformFor(
+  kind: StoredKind,
+  sent: string | null | undefined,
+  fallback: string | null | undefined,
+): string | null {
+  if (kind !== 'OTHER_VIDEO') return null;
+  const platform = sent || fallback || null;
+  if (!platform) {
     throw errors.invalidField(
-      'method',
-      'The "Other" meeting method is not available yet. Choose another.',
+      'otherVideoPlatform',
+      'Name the video platform of the Other Video Meeting, such as Google Meet',
     );
   }
-  return kind;
+  return platform;
 }
 
 const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
@@ -195,6 +206,7 @@ export class SchedulingWriteService {
         serviceId: true,
         locationKind: true,
         meetingMethods: true,
+        otherVideoPlatform: true,
       },
     });
     if (!type) throw errors.notFound();
@@ -203,6 +215,7 @@ export class SchedulingWriteService {
     if (serviceId) await this.requireService(tx, businessId, serviceId);
     const kind = kindOf(body.method);
     if (!typeMethods(type).includes(kind)) throw errors.methodNotOffered('method');
+    const otherVideoPlatform = platformFor(kind, body.otherVideoPlatform, type.otherVideoPlatform);
     this.requireSupported(body.related, body.recurrence);
     const timeZone = await this.zoneFor(tx, businessId, body.timezone);
     const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
@@ -294,6 +307,7 @@ export class SchedulingWriteService {
           timeZone,
           allDay: body.allDay,
           locationKind: kind,
+          otherVideoPlatform,
           locationDetails: location,
           officeId: place.officeId,
           roomId: place.roomId,
@@ -403,6 +417,8 @@ export class SchedulingWriteService {
       };
       // The type's meeting methods, when the type or the method changes (A1).
       let offered: StoredKind[] | null = null;
+      // Review 2 (P1 row 1): the platform of the type the appointment is (or becomes) of.
+      let typePlatform: string | null = null;
       const typeChanged = body.typeId !== undefined && body.typeId !== current.typeId;
       if (typeChanged) {
         const type = await tx.appointmentType.findFirst({
@@ -414,11 +430,13 @@ export class SchedulingWriteService {
             bufferAfterMinutes: true,
             locationKind: true,
             meetingMethods: true,
+            otherVideoPlatform: true,
           },
         });
         if (!type) throw errors.notFound();
         if (type.archivedAt) throw errors.typeArchived();
         offered = typeMethods(type);
+        typePlatform = type.otherVideoPlatform;
         buffers = { before: type.bufferBeforeMinutes, after: type.bufferAfterMinutes };
         set('type', 'typeId', type.id, false);
         set('buffers', 'bufferBeforeMinutes', buffers.before, false);
@@ -451,12 +469,19 @@ export class SchedulingWriteService {
       if (kindChanged && !typeChanged && current.typeId) {
         const type = await tx.appointmentType.findFirst({
           where: { businessId, id: current.typeId },
-          select: { locationKind: true, meetingMethods: true },
+          select: { locationKind: true, meetingMethods: true, otherVideoPlatform: true },
         });
         offered = type ? typeMethods(type) : null;
+        typePlatform = type?.otherVideoPlatform ?? null;
       }
       if (offered && !offered.includes(kind)) throw errors.methodNotOffered('method');
       set('method', 'locationKind', kind, !kindChanged);
+      const platform = platformFor(
+        kind,
+        body.otherVideoPlatform,
+        kindChanged ? typePlatform : current.otherVideoPlatform,
+      );
+      set('method', 'otherVideoPlatform', platform, platform === current.otherVideoPlatform);
 
       // The office and room only belong to an in-person appointment (the database checks it).
       let roomId = current.roomId;
