@@ -1228,10 +1228,10 @@ model Membership {
   automationRules              AutomationRule[]
   automationEventConfirmations AutomationEventConfirmation[]
   bookkeepingProfiles          BookkeepingProfile[]
-  taxPlans                     TaxPlan[]                    @relation("TaxPlanAssignee")
-  taxPlansReviewing            TaxPlan[]                    @relation("TaxPlanReviewer")
-  taxPlanApprovalsRecorded     TaxPlanApproval[]            @relation("TaxPlanApprovalRecordedBy")
-  taxPlanRequestsMade          TaxPlanRequest[]             @relation("TaxPlanRequestRequestedBy")
+  taxPlans                     TaxPlan[]                     @relation("TaxPlanAssignee")
+  taxPlansReviewing            TaxPlan[]                     @relation("TaxPlanReviewer")
+  taxPlanApprovalsRecorded     TaxPlanApproval[]             @relation("TaxPlanApprovalRecordedBy")
+  taxPlanRequestsMade          TaxPlanRequest[]              @relation("TaxPlanRequestRequestedBy")
   taxOpportunities             TaxOpportunity[]
 
   // Staff management (R35).
@@ -2911,6 +2911,11 @@ model BusinessSettings {
   postalCode          String?   @map("postal_code")
   country             String    @default("US")
   timezone            String    @default("America/New_York")
+  /// Dashboard Review 2: the firm's tax season, `MM-DD` to `MM-DD` every year in the firm's time
+  /// zone (it may run across Jan 1; never Feb 29). Both set or both null (CHECK); null: no season,
+  /// the dashboard shows none. Owner and Admin set it in the firm settings.
+  taxSeasonStart      String?   @map("tax_season_start")
+  taxSeasonEnd        String?   @map("tax_season_end")
   /// S3 key under the firm's prefix.
   logoKey             String?   @map("logo_key")
   /// S3 key of the logo for light backgrounds (footer, portal, emails); `logo_key` is for dark ones.
@@ -3532,23 +3537,23 @@ model Task {
   /// Create Task, 'deadline:<deadline id>'.
   idempotencyScope  String?      @map("idempotency_scope")
 
-  client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  client             Client?                  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement         Engagement?              @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   /// R1 (Nov 14, Review 2 C15, S4): the planning plan this implementation task is for (the same client's).
-  taxPlan            TaxPlan?            @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
-  assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
-  service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  dependsOn          Task?               @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
-  dependents         Task[]              @relation("TaskDependency")
+  taxPlan            TaxPlan?                 @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember     Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  type               TaskType?                @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+  service            Service?                 @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  dependsOn          Task?                    @relation("TaskDependency", fields: [businessId, dependsOnTaskId], references: [businessId, id], onDelete: Restrict)
+  dependents         Task[]                   @relation("TaskDependency")
   assignees          TaskAssignee[]
   taskChecklistItems TaskChecklistItem[]
   taskReminders      TaskReminder[]
   taskAttachments    TaskAttachment[]
   taskOccurrence     TaskOccurrence?
-  deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
-  template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
-  lead               Lead?               @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  deadline           ComplianceDeadline?      @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
+  template           TaskTemplate?            @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  lead               Lead?                    @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   /// TX-F24: the rejected e-file attempts this task corrects.
   correctsAttempts   TaxReturnFilingAttempt[] @relation("TaxAttemptCorrectiveTask")
 
