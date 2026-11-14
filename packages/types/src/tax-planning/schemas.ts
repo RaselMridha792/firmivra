@@ -13,6 +13,7 @@ import {
   StrategyCategory,
   TaskPriority,
   TaxFilingStatus,
+  TaxPlanEventKind,
   TaxPlanStatus,
   TaxPlanType,
 } from '../db-enums.js';
@@ -292,7 +293,10 @@ export const TaxPlanDetail = TaxPlanRow.extend({
   /** The client's data is older than a period the firm sets: prompt to review. */
   staleData: z.boolean(),
   disclaimer: z.string(),
+  /** False once the plan is Closed (C27): it changes only by Reopen. */
   canEdit: z.boolean(),
+  /** C27: may change the plan's status, reopen, revise, archive and restore it. */
+  canChangeStatus: z.boolean(),
   canOverride: z.boolean(),
   canSend: z.boolean(),
   createdAt: DateTime,
@@ -494,6 +498,33 @@ export type SetPlanStatusRequest = z.input<typeof SetPlanStatusRequest>;
  * estimate shown as such, a stale input).
  */
 export const FinalizePlanRequest = z.strictObject({ etag: z.string().min(1).max(100) });
+
+/**
+ * C27 (Review 2): POST .../plans/{id}/reopen (a Closed plan back to In Progress) and
+ * POST .../plans/{id}/revise (a Finalized, sent or Implemented plan back to In Progress, to be
+ * finalized again as a new version). Each needs its reason, kept in the plan's history. 409
+ * INVALID_STATUS when the plan's status does not fit; SAVE_CONFLICT on a stale etag.
+ */
+export const PlanReasonRequest = z.strictObject({
+  reason: text(1_000, 'many'),
+  etag: z.string().min(1).max(100),
+});
+export type PlanReasonRequest = z.input<typeof PlanReasonRequest>;
+
+/** C27 (Review 2): one entry of a plan's history (GET .../plans/{id}/events), newest first. */
+export const TaxPlanEvent = z.object({
+  id: z.uuid(),
+  kind: TaxPlanEventKind,
+  fromStatus: TaxPlanStatus.nullable(),
+  toStatus: TaxPlanStatus.nullable(),
+  version: z.number().int().nullable(),
+  reason: z.string().nullable(),
+  actor: MemberRef.nullable(),
+  createdAt: DateTime,
+});
+export type TaxPlanEvent = z.infer<typeof TaxPlanEvent>;
+export const TaxPlanEventList = z.object({ items: z.array(TaxPlanEvent) });
+export type TaxPlanEventList = z.infer<typeof TaxPlanEventList>;
 export type FinalizePlanRequest = z.input<typeof FinalizePlanRequest>;
 export const SendPlanRequest = z.strictObject({
   channel: z.enum(['PORTAL_MESSAGE', 'EMAIL']),
