@@ -180,6 +180,12 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Automation notice',
     body: forClient(p, text(p, 'title') ?? 'A rule ran.'),
   }),
+  // Tax Planning Review 2 (Project Deadlines): the deadline's name and when it is due.
+  'project-deadline.reminder': (p) => {
+    const title = text(p, 'title') ?? 'A project deadline';
+    const due = dateTime(text(p, 'dueAt'), text(p, 'timeZone'));
+    return { title: 'Deadline reminder', body: due ? `${title}, due ${due}` : title };
+  },
 };
 
 /**
