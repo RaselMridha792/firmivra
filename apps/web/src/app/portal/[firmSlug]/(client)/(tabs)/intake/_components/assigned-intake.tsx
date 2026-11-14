@@ -2,20 +2,26 @@
 
 import {
   ApiRequestError,
+  type ConfirmUploadRequest,
+  type CreateIntakeUploadRequest,
   fillIntakeText,
+  type IntakeAgreementBlock,
   INTAKE_ERRORS,
   type IntakeSignatureInput,
   type IntakeStep,
   type IntakeUpload,
   type MyIntake,
+  type SaveIntakeStepRequest,
   shownIntakeKeys,
+  type SubmitIntakeRequest,
   UPLOAD_LIMITS,
+  type UploadTicket,
 } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CircleCheck, Info, Save } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -49,6 +55,69 @@ import { usePortal } from '../../../../layout';
 /** The portal's query for one assigned intake. */
 export const assignedKey = (slug: string, id: string) => ['portal', slug, 'intakes', id] as const;
 
+/** What the form needs of an intake: the portal's MyIntake or a lead link's LinkIntake. */
+export type FlowIntake = Pick<
+  MyIntake,
+  | 'id'
+  | 'form'
+  | 'version'
+  | 'dueOn'
+  | 'definition'
+  | 'taxYear'
+  | 'answers'
+  | 'uploads'
+  | 'maxFileSizeMb'
+  | 'savedSteps'
+  | 'signature'
+  | 'canEdit'
+> & { correction: { note: string } | null };
+
+/**
+ * Where the form reads and writes: the signed-in client's intake (`api.myIntakes`) or a lead's
+ * secure link (`api.intakeLink`).
+ */
+export interface IntakeSource {
+  /** The form's query (set again after a submit). */
+  key: readonly unknown[];
+  get: () => Promise<FlowIntake>;
+  saveStep: (step: string, body: SaveIntakeStepRequest) => Promise<unknown>;
+  submit: (body: SubmitIntakeRequest) => Promise<FlowIntake>;
+  agreementsKey: readonly unknown[];
+  agreements: () => Promise<IntakeAgreementBlock>;
+  createUpload: (body: CreateIntakeUploadRequest) => Promise<UploadTicket>;
+  confirmUpload: (body: ConfirmUploadRequest) => Promise<IntakeUpload>;
+  removeUpload: (uploadId: string) => Promise<unknown>;
+  /** Anything else a submit changes (the portal's list). */
+  onSubmitted?: () => void;
+  /** The way back, above the form. */
+  back?: ReactNode;
+  /** What Save and Continue Later says once saved. */
+  laterNotice: string;
+}
+
+function mySource(
+  slug: string,
+  id: string,
+  refresh: (key: readonly unknown[]) => void,
+): IntakeSource {
+  const client = api.myIntakes(slug);
+  return {
+    key: assignedKey(slug, id),
+    get: () => client.get(id),
+    saveStep: (step, body) => client.saveStep(id, step, body),
+    submit: (body) => client.submit(id, body),
+    agreementsKey: ['portal', slug, 'intakes', id, 'agreements'],
+    agreements: () => api.myIntakeAgreements(slug).block(id),
+    createUpload: (body) => client.createUpload(id, body),
+    confirmUpload: (body) => client.confirmUpload(id, body),
+    removeUpload: (uploadId) => client.removeUpload(id, uploadId),
+    // The list counts again.
+    onSubmitted: () => refresh(['portal', slug, 'intakes']),
+    back: <BackToList slug={slug} />,
+    laterNotice: 'Your answers are saved. Come back to Intake Forms any time to finish and submit.',
+  };
+}
+
 /**
  * One intake form the firm sent this client (Intake Forms Review Two, INTAKE-ACCESS-01): the exact
  * version assigned, opened from its email, its portal notice or the Intake Forms list. The client
@@ -57,19 +126,40 @@ export const assignedKey = (slug: string, id: string) => ['portal', slug, 'intak
  * submitted form, or one this login may only read, shows the answers without editing.
  */
 export function AssignedIntake({ slug, id }: { slug: string; id: string }) {
-  const intake = useApiQuery(assignedKey(slug, id), () => api.myIntakes(slug).get(id));
+  const queryClient = useQueryClient();
+  const source = useMemo(
+    () => mySource(slug, id, (key) => void queryClient.invalidateQueries({ queryKey: [...key] })),
+    [slug, id, queryClient],
+  );
+  const intake = useApiQuery(source.key, source.get);
   return (
     <div data-theme="begin-online" data-testid="assigned-intake" className="min-w-0">
       <PageState query={intake} isEmpty={() => false}>
-        {(found) =>
-          found.canEdit ? (
-            <IntakeFlow key={`${found.id}:${found.version}`} slug={slug} intake={found} />
-          ) : (
-            <ReadOnlyIntake slug={slug} intake={found} />
-          )
-        }
+        {(found) => <IntakeForm slug={slug} intake={found} source={source} />}
       </PageState>
     </div>
+  );
+}
+
+/** The form to fill while it is open, else its answers to read. */
+export function IntakeForm({
+  slug,
+  intake,
+  source,
+}: {
+  slug: string;
+  intake: FlowIntake;
+  source: IntakeSource;
+}) {
+  return intake.canEdit ? (
+    <IntakeFlow
+      key={`${intake.id}:${intake.version}`}
+      slug={slug}
+      intake={intake}
+      source={source}
+    />
+  ) : (
+    <ReadOnlyIntake intake={intake} back={source.back} />
   );
 }
 
@@ -94,7 +184,7 @@ const day = (iso: string) =>
   });
 
 /** A submitted form, or one this login may only read: its answers and files, no editing. */
-function ReadOnlyIntake({ slug, intake }: { slug: string; intake: MyIntake }) {
+function ReadOnlyIntake({ intake, back }: { intake: FlowIntake; back?: ReactNode }) {
   const fill = useFill(intake.taxYear);
   const { definition } = intake;
   const values = useMemo(() => screenValues(definition, intake.answers), [definition, intake]);
@@ -102,7 +192,7 @@ function ReadOnlyIntake({ slug, intake }: { slug: string; intake: MyIntake }) {
   const shown = useMemo(() => shownIntakeKeys(definition, answers), [definition, answers]);
   return (
     <Card className="grid min-w-0 gap-4">
-      <BackToList slug={slug} />
+      {back}
       <h1 className="font-display text-3xl font-bold text-heading">{fill(definition.title)}</h1>
       <p
         role="status"
@@ -128,9 +218,16 @@ function ReadOnlyIntake({ slug, intake }: { slug: string; intake: MyIntake }) {
   );
 }
 
-function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
+function IntakeFlow({
+  slug,
+  intake,
+  source,
+}: {
+  slug: string;
+  intake: FlowIntake;
+  source: IntakeSource;
+}) {
   const { definition } = intake;
-  const client = useMemo(() => api.myIntakes(slug), [slug]);
   const queryClient = useQueryClient();
   const fill = useFill(intake.taxYear);
   const look = formLook(intake.form);
@@ -165,7 +262,7 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
   useEffect(() => {
     if (!checking) return;
     const timer = setTimeout(() => {
-      client.get(intake.id).then(
+      source.get().then(
         (fresh) =>
           setUploads((list) => {
             const byId = new Map(fresh.uploads.map((u) => [u.id, u]));
@@ -175,18 +272,16 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
       );
     }, 3000);
     return () => clearTimeout(timer);
-  }, [checking, client, intake.id, uploads]);
+  }, [checking, source, uploads]);
 
   const save = useApiMutation((key: string) => {
     const s = definition.steps.find((x) => x.key === key)!;
-    return client.saveStep(intake.id, key, { answers: stepAnswers(s, values, shown.fields) });
+    return source.saveStep(key, { answers: stepAnswers(s, values, shown.fields) });
   });
   // The firm's current agreements for this form's service, signed on the review step.
-  const agreements = useApiQuery(['portal', slug, 'intakes', intake.id, 'agreements'], () =>
-    api.myIntakeAgreements(slug).block(intake.id),
-  );
+  const agreements = useApiQuery(source.agreementsKey, source.agreements);
   const submit = useApiMutation((signature: IntakeSignatureInput) =>
-    client.submit(intake.id, { answers: stepAnswers(step, values, shown.fields), signature }),
+    source.submit({ answers: stepAnswers(step, values, shown.fields), signature }),
   );
 
   const onChange = (key: string, value: ScreenValue) => {
@@ -256,8 +351,7 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
   }
 
   async function later() {
-    if (await saveStep())
-      setNotice('Your answers are saved. Come back to Intake Forms any time to finish and submit.');
+    if (await saveStep()) setNotice(source.laterNotice);
   }
 
   async function send() {
@@ -282,9 +376,9 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
     setAgreementError('');
     try {
       const done = await submit.mutateAsync(signed.signature);
-      // The form as it now is (submitted, read only); the list counts again.
-      queryClient.setQueryData(assignedKey(slug, intake.id), done);
-      void queryClient.invalidateQueries({ queryKey: ['portal', slug, 'intakes'] });
+      // The form as it now is (submitted, read only).
+      queryClient.setQueryData(source.key, done);
+      source.onSubmitted?.();
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === 'AGREEMENT_OUTDATED') {
         setAgreement((a) => ({ ...a, ticked: [] }));
@@ -315,14 +409,14 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
       upload: async (slot: string, file: File) => {
         checkFirmFileSize(file, intake.maxFileSizeMb);
         const saved = await uploadFile(file, {
-          start: (facts) => client.createUpload(intake.id, { slot, ...facts }),
-          finish: (uploadToken) => client.confirmUpload(intake.id, { uploadToken }),
+          start: (facts) => source.createUpload({ slot, ...facts }),
+          finish: (uploadToken) => source.confirmUpload({ uploadToken }),
           maxBytes: UPLOAD_LIMITS.maxBytes,
         });
         setUploads((list) => [...list, saved]);
       },
       remove: async (uploadId: string) => {
-        await client.removeUpload(intake.id, uploadId);
+        await source.removeUpload(uploadId);
         setUploads((list) => list.filter((u) => u.id !== uploadId));
       },
     },
@@ -330,7 +424,7 @@ function IntakeFlow({ slug, intake }: { slug: string; intake: MyIntake }) {
 
   return (
     <div ref={topRef} tabIndex={-1} className="grid min-w-0 gap-3 outline-none">
-      <BackToList slug={slug} />
+      {source.back}
       <header className="grid gap-1">
         <h1 className="font-display text-3xl font-bold text-heading">{fill(definition.title)}</h1>
         {definition.subtitle ? <p className="text-text">{fill(definition.subtitle)}</p> : null}

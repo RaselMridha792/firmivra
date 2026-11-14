@@ -2286,6 +2286,59 @@ describe('staff availability (day)', () => {
     expect(excluded.conflict?.ok).toBe(true);
   });
 
+  it('counts the booked type’s buffers before saving, as the save does (Review 2, Appointments B11)', async () => {
+    const n = freshDay();
+    const buffered = await asOwner(ids.firmA, (tx) =>
+      tx.appointmentType.create({
+        data: {
+          businessId: ids.firmA,
+          name: `Buffered both sides ${run}`,
+          durationMinutes: 30,
+          bufferBeforeMinutes: 30,
+          bufferAfterMinutes: 30,
+        },
+        select: { id: true },
+      }),
+    );
+    await scheduled({ startsAt: at(n, '15:00'), endsAt: at(n, '15:30') });
+    const check = (from: string, to: string, typeId?: string) =>
+      day_(
+        `staffUserId=${people.staffA.id}&date=${day(n)}&startsAt=${encodeURIComponent(at(n, from))}&endsAt=${encodeURIComponent(at(n, to))}${typeId ? `&typeId=${typeId}` : ''}`,
+      );
+    // Inside the buffers: a conflict before saving, as at save.
+    for (const [from, to] of [
+      ['14:30', '15:00'],
+      ['15:30', '16:00'],
+    ] as const) {
+      expect((await check(from, to, buffered.id)).conflict).toMatchObject({
+        ok: false,
+        conflicts: [{ kind: 'BUFFER' }],
+      });
+      // Without the type, no buffer is applied (the old panel's answer).
+      expect((await check(from, to)).conflict?.ok).toBe(true);
+    }
+    // The exact edges stay free.
+    expect((await check('14:00', '14:30', buffered.id)).conflict?.ok).toBe(true);
+    expect((await check('16:00', '16:30', buffered.id)).conflict?.ok).toBe(true);
+    // The conflict check takes the type too; another firm's type is not found.
+    const res = await call('post', '/appointments/conflicts', people.ownerA, {
+      staffUserIds: [people.staffA.id],
+      startsAt: at(n, '14:30'),
+      endsAt: at(n, '15:00'),
+      typeId: buffered.id,
+    });
+    expect((res.body as { ok: boolean }).ok).toBe(false);
+    expectError(
+      await call(
+        'get',
+        `/availability/day?staffUserId=${people.staffA.id}&date=${day(n)}&startsAt=${encodeURIComponent(at(n, '14:30'))}&endsAt=${encodeURIComponent(at(n, '15:00'))}&typeId=${ids.typeB}`,
+        people.ownerA,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
   it("shows time off and date overrides, is 404 for another firm's member and 400 for bad input", async () => {
     const n = freshDay();
     await asOwner(ids.firmA, async (tx) => {

@@ -23,8 +23,9 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/notes': { params: { id: 'client' } },
   'POST /api/v1/business/clients/:id/notes': {
     params: { id: 'client' },
-    bodyIds: { engagementId: 'engagement' },
-    body: { body: 'Fake note' },
+    // Review 2 (N04): the record the note is about.
+    bodyIds: { engagementId: 'engagement', 'related.id': 'task' },
+    body: { body: 'Fake note', related: { kind: 'task', id: '' } },
   },
   'PATCH /api/v1/business/notes/:id': { params: { id: 'note' }, body: { body: 'Fake edit' } },
   'DELETE /api/v1/business/notes/:id': { params: { id: 'note' } },

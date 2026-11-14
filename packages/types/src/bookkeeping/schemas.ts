@@ -849,6 +849,14 @@ export const BookkeepingReconciliation = z.object({
   approvedBy: MemberRef.nullable(),
   reopenedAt: DateTime.nullable(),
   reopenReason: z.string().nullable(),
+  /**
+   * Review 2 (R01, Octavia): the note on the difference for this account and period, who wrote it
+   * and when, shown to the reviewer. It never waives the zero difference or the statement.
+   */
+  discrepancyNote: z
+    .object({ text: z.string(), by: MemberRef.nullable(), at: DateTime })
+    .nullable()
+    .default(null),
   updatedAt: DateTime,
 });
 export type BookkeepingReconciliation = z.infer<typeof BookkeepingReconciliation>;
@@ -926,6 +934,8 @@ export const UpdateBookkeepingReconciliationRequest = z
     clearedCount: z.number().int().min(0).max(10_000_000).optional(),
     exceptionsCount: z.number().int().min(0).max(10_000_000).optional(),
     statementDocumentId: z.uuid().nullable().optional(),
+    /** Review 2 (R01): the note on the difference; null clears it. */
+    discrepancyNote: optionalText(2_000, 'many'),
   })
   .refine((b) => Object.values(b).some((v) => v !== undefined), 'Send at least one field');
 export type UpdateBookkeepingReconciliationRequest = z.input<

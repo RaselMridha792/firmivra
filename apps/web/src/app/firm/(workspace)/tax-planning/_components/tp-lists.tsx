@@ -3,6 +3,7 @@
 import type {
   PlanningClientRow,
   PlanningDeadline,
+  PlanningResource,
   PlanningStrategy,
   TaxOpportunityRow,
   TaxPlanRow,
@@ -34,6 +35,12 @@ import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import {
+  OpportunityFields,
+  type OpportunityDraft,
+  emptyDraft,
+  fieldsOf,
+} from './opportunity-fields';
 import { Disclaimer, TpShell } from './tp-shell';
 import {
   CATEGORY_LABEL,
@@ -733,6 +740,8 @@ function AddOpportunity({
   const [name, setName] = useState('');
   const [category, setCategory] = useState('DEDUCTIONS');
   const [savings, setSavings] = useState('');
+  // C10 (Review 2): the reasoning is entered with the opportunity, not left blank.
+  const [draft, setDraft] = useState<OpportunityDraft>(emptyDraft);
   return (
     <Modal
       open
@@ -754,6 +763,7 @@ function AddOpportunity({
                   category: category as never,
                   taxYear: new Date().getFullYear(),
                   ...(savings ? { estimatedSavingsCents: Math.round(Number(savings) * 100) } : {}),
+                  ...fieldsOf(draft, true),
                 });
                 onDone('Opportunity added.');
               } catch (e) {
@@ -792,6 +802,7 @@ function AddOpportunity({
           value={savings}
           onChange={(e) => setSavings(e.target.value)}
         />
+        <OpportunityFields draft={draft} onChange={setDraft} showData />
       </div>
     </Modal>
   );
@@ -806,6 +817,7 @@ export function StrategyLibrary() {
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<PlanningStrategy | 'new'>();
+  const [viewing, setViewing] = useState<PlanningStrategy>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery([...TP_KEY, 'library', term, category, archived, page], () =>
     api.taxPlanning.strategies({
@@ -908,6 +920,7 @@ export function StrategyLibrary() {
                 sections={[
                   {
                     items: [
+                      { label: 'View Details', onSelect: () => setViewing(r) },
                       { label: 'Edit', onSelect: () => setEditing(r) },
                       r.archived
                         ? {
@@ -936,6 +949,16 @@ export function StrategyLibrary() {
           />
         </div>
       </section>
+      {viewing ? (
+        <StrategyView
+          strategy={viewing}
+          onClose={() => setViewing(undefined)}
+          onEdit={() => {
+            setViewing(undefined);
+            setEditing(viewing);
+          }}
+        />
+      ) : null}
       {editing ? (
         <StrategyDialog
           strategy={editing === 'new' ? undefined : editing}
@@ -967,6 +990,11 @@ function StrategyDialog({
   const [description, setDescription] = useState(strategy?.description ?? '');
   const [priority, setPriority] = useState(strategy?.defaultPriority ?? 'MEDIUM');
   const [eligibility, setEligibility] = useState((strategy?.eligibility ?? []).join('\n'));
+  // C13 (Review 2): the structured fields a strategy carries into plans and opportunities.
+  const [inputs, setInputs] = useState<string[]>(strategy?.requiredInputs ?? []);
+  const [documents, setDocuments] = useState((strategy?.requiredDocuments ?? []).join('\n'));
+  const [checklist, setChecklist] = useState((strategy?.implementationChecklist ?? []).join('\n'));
+  const catalog = useApiQuery([...TP_KEY, 'input-catalog'], () => api.taxPlanning.inputCatalog());
   const [active, setActive] = useState(strategy?.active ?? true);
   const lines = (s: string) =>
     s
@@ -993,6 +1021,9 @@ function StrategyDialog({
                   description: description.trim() || null,
                   defaultPriority: priority as never,
                   eligibility: lines(eligibility),
+                  requiredInputs: inputs,
+                  requiredDocuments: lines(documents),
+                  implementationChecklist: lines(checklist),
                 };
                 if (strategy)
                   await api.taxPlanning.updateLibraryStrategy(strategy.id, { ...body, active });
@@ -1037,6 +1068,38 @@ function StrategyDialog({
           value={eligibility}
           onChange={(e) => setEligibility(e.target.value)}
         />
+        <fieldset className="flex flex-col gap-1" data-testid="required-inputs">
+          <legend className="mb-1 text-sm font-medium text-heading">Required Inputs</legend>
+          <p className="text-xs text-muted">
+            The client figures the estimate and the screening read for this strategy.
+          </p>
+          <div className="grid max-h-40 gap-x-4 overflow-auto sm:grid-cols-2">
+            {(catalog.data ?? []).map((c) => (
+              <Checkbox
+                key={c.key}
+                label={c.label}
+                checked={inputs.includes(c.key)}
+                onChange={(e) =>
+                  setInputs(
+                    e.target.checked ? [...inputs, c.key] : inputs.filter((k) => k !== c.key),
+                  )
+                }
+              />
+            ))}
+          </div>
+        </fieldset>
+        <Textarea
+          label="Required Documents (one per line)"
+          rows={3}
+          value={documents}
+          onChange={(e) => setDocuments(e.target.value)}
+        />
+        <Textarea
+          label="Implementation Checklist (one step per line)"
+          rows={4}
+          value={checklist}
+          onChange={(e) => setChecklist(e.target.value)}
+        />
         {strategy ? (
           <Checkbox
             label="Active (offered in new plans)"
@@ -1044,6 +1107,73 @@ function StrategyDialog({
             onChange={(e) => setActive(e.target.checked)}
           />
         ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * C23 (Review 2): a library strategy, read-only: its description, eligibility, required inputs,
+ * documents and implementation checklist. Edit stays a separate, authorized step.
+ */
+function StrategyView({
+  strategy: s,
+  onClose,
+  onEdit,
+}: {
+  strategy: PlanningStrategy;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const catalog = useApiQuery([...TP_KEY, 'input-catalog'], () => api.taxPlanning.inputCatalog());
+  const label = (key: string) => catalog.data?.find((c) => c.key === key)?.label ?? key;
+  const list = (items: string[], empty: string) =>
+    items.length ? (
+      <ul className="list-disc pl-5">
+        {items.map((x) => (
+          <li key={x}>{x}</li>
+        ))}
+      </ul>
+    ) : (
+      <p className="text-muted">{empty}</p>
+    );
+  return (
+    <Modal
+      open
+      title={s.name}
+      subtitle={`${CATEGORY_LABEL[s.category] ?? s.category} · ${s.archived ? 'Archived' : s.active ? 'Active' : 'Inactive'}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          {s.archived ? null : <Button onClick={onEdit}>Edit</Button>}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-sm" data-testid="strategy-view">
+        <p className="text-text">{s.description ?? 'No description.'}</p>
+        <p className="text-muted">
+          Default priority {PRIORITY_LABEL[s.defaultPriority] ?? s.defaultPriority} · In{' '}
+          {s.planCount} plan(s) · {s.openOpportunityCount} open opportunities
+        </p>
+        <div>
+          <h3 className="mb-1 font-semibold text-heading">Eligibility</h3>
+          {list(s.eligibility, 'No eligibility criteria.')}
+        </div>
+        <div>
+          <h3 className="mb-1 font-semibold text-heading">Required Inputs</h3>
+          {list(s.requiredInputs.map(label), 'No required inputs.')}
+        </div>
+        <div>
+          <h3 className="mb-1 font-semibold text-heading">Required Documents</h3>
+          {list(s.requiredDocuments, 'No required documents.')}
+        </div>
+        <div>
+          <h3 className="mb-1 font-semibold text-heading">Implementation Checklist</h3>
+          {list(s.implementationChecklist, 'No implementation steps.')}
+        </div>
       </div>
     </Modal>
   );
@@ -1312,6 +1442,7 @@ export function PlanningResources() {
   const [msg, setMsg] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [search, setSearch] = useState('');
   const [sending, setSending] = useState<string>();
+  const [viewing, setViewing] = useState<string>();
   const term = useDeferredValue(search.trim());
   const q = useApiQuery([...TP_KEY, 'resources', term], () =>
     api.taxPlanning.resources({ ...(term ? { search: term } : {}) }),
@@ -1361,6 +1492,14 @@ export function PlanningResources() {
                   {r.clientFacing ? '' : ' · staff only'}
                 </span>
               </span>
+              <button
+                type="button"
+                className="text-sm font-medium text-link"
+                data-testid="view-resource"
+                onClick={() => setViewing(r.key)}
+              >
+                View
+              </button>
               {r.url ? (
                 <a href={r.url} className="text-sm font-medium text-link">
                   Open
@@ -1378,6 +1517,16 @@ export function PlanningResources() {
           ))}
         </ul>
       </section>
+      {viewing ? (
+        <ResourceView
+          resource={q.data?.find((r) => r.key === viewing)}
+          onClose={() => setViewing(undefined)}
+          onSend={() => {
+            setSending(viewing);
+            setViewing(undefined);
+          }}
+        />
+      ) : null}
       {sending ? (
         <Modal
           open
@@ -1443,6 +1592,55 @@ export function PlanningResources() {
         </Modal>
       ) : null}
     </TpShell>
+  );
+}
+
+/**
+ * C17 (Review 2): a resource, read-only: what it is, who it is for and what it says. A staff-only
+ * one is never sent to a client. Editing the firm's own copy needs the resources table (TP-D).
+ */
+function ResourceView({
+  resource: r,
+  onClose,
+  onSend,
+}: {
+  resource: PlanningResource | undefined;
+  onClose: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <Modal
+      open
+      title={r?.title ?? 'Resource'}
+      subtitle={r ? `${r.category} · ${r.kind.toLowerCase()}` : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          {r?.clientFacing ? <Button onClick={onSend}>Send to Client</Button> : null}
+        </>
+      }
+    >
+      {r ? (
+        <div className="flex flex-col gap-3 text-sm" data-testid="resource-view">
+          <span
+            className={`w-fit rounded-pill px-2 py-0.5 text-xs font-medium ${r.clientFacing ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'}`}
+          >
+            {r.clientFacing ? 'Client-facing' : 'Staff only: never sent to a client'}
+          </span>
+          <p className="text-text">{r.summary ?? 'No summary.'}</p>
+          {r.url ? (
+            <a href={r.url} className="w-fit font-medium text-link">
+              Open the full resource
+            </a>
+          ) : null}
+        </div>
+      ) : (
+        <p className={quiet}>This resource is no longer listed.</p>
+      )}
+    </Modal>
   );
 }
 

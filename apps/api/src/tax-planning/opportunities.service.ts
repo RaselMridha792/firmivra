@@ -26,6 +26,7 @@ import {
 import type {
   ActionBody,
   CreateOpportunityBody,
+  UpdateOpportunityBody,
   OpportunitiesQuery,
 } from './tax-planning-input.js';
 import { type TaxCtx, TaxPlanReadService } from './plan-read.service.js';
@@ -53,6 +54,11 @@ const isOpen = (s: string) => (OPEN_OPPORTUNITY_STATUSES as readonly string[]).i
 const QUEUE_LIMIT = 5_000;
 
 const array = (json: unknown): unknown[] => (Array.isArray(json) ? json : []);
+/** C10: figures as kept: each with its label and an amount or a value. */
+const dataPoints = (
+  points: { label: string; amountCents?: number | null; text?: string | null }[],
+): Prisma.InputJsonValue =>
+  points.map((d) => ({ label: d.label, amountCents: d.amountCents ?? null, text: d.text ?? null }));
 const strings = (json: unknown): string[] =>
   array(json).filter((x): x is string => typeof x === 'string');
 
@@ -346,6 +352,10 @@ export class TaxOpportunitiesService {
             estimateBasis: body.estimateBasis ?? null,
             recommendedActions: body.recommendedActions,
             documentsNeeded: body.documentsNeeded.map((label) => ({ label, received: false })),
+            // C10 (Review 2): the reasoning staff give when they create it.
+            whyExplanation: body.whyExplanation ?? null,
+            clientDataUsed: ctx.perms.viewInputs ? dataPoints(body.clientDataUsed) : [],
+            eligibility: body.eligibility,
             createdByUserId: userId,
           },
           select: { id: true },
@@ -383,6 +393,81 @@ export class TaxOpportunitiesService {
         { clientId: body.clientId, taxYear: body.taxYear },
       );
       return this.detail(ctx, await this.load(ctx, created.id));
+    });
+  }
+
+  /**
+   * C10 (Review 2): an open opportunity's details, edited. Its history gets a NOTE naming what
+   * changed (never the values), and so does the audit log. The figures it rests on need "View
+   * Financial Inputs"; a document kept by name keeps its received mark.
+   */
+  update(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof UpdateOpportunityBody>,
+  ): Promise<TaxOpportunityDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.review) throw tpErrors.forbidden();
+      if (body.clientDataUsed !== undefined && !ctx.perms.viewInputs)
+        throw tpErrors.financialRestricted();
+      const { tx } = ctx;
+      await this.load(ctx, id);
+      await tx.$queryRaw`
+        SELECT 1 FROM tax_opportunities WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+        FOR UPDATE`;
+      const o = await this.load(ctx, id);
+      if (body.etag !== undefined && body.etag !== o.updatedAt.toISOString())
+        throw tpErrors.saveConflict();
+      if (!isOpen(o.status))
+        throw tpErrors.invalidStatus(`An opportunity that is ${o.status} is not edited`);
+      const { etag: _etag, ...changes } = body;
+      const fields = Object.entries(changes)
+        .filter(([, v]) => v !== undefined)
+        .map(([k]) => k)
+        .sort();
+      const data: Prisma.TaxOpportunityUncheckedUpdateInput = { updatedAt: new Date() };
+      if (body.name !== undefined) data.name = body.name;
+      if (body.priority !== undefined) data.priority = body.priority;
+      if (body.description !== undefined) data.description = body.description;
+      if (body.whyExplanation !== undefined) data.whyExplanation = body.whyExplanation;
+      if (body.estimatedSavingsCents !== undefined)
+        data.estimatedSavingsCents = body.estimatedSavingsCents;
+      if (body.estimateBasis !== undefined) data.estimateBasis = body.estimateBasis;
+      if (body.clientDataUsed !== undefined) data.clientDataUsed = dataPoints(body.clientDataUsed);
+      if (body.recommendedActions !== undefined) data.recommendedActions = body.recommendedActions;
+      if (body.eligibility !== undefined) data.eligibility = body.eligibility;
+      if (body.documentsNeeded !== undefined) {
+        const had = new Map(
+          (array(o.documentsNeeded) as { label?: unknown; received?: unknown }[]).map((d) => [
+            String(d.label),
+            d.received === true,
+          ]),
+        );
+        data.documentsNeeded = body.documentsNeeded.map((label) => ({
+          label,
+          received: had.get(label) ?? false,
+        }));
+      }
+      await tx.taxOpportunity.update({ where: { businessId_id: { businessId, id } }, data });
+      await tx.taxOpportunityEvent.create({
+        data: {
+          businessId,
+          opportunityId: id,
+          kind: 'NOTE',
+          // A NOTE's text is its details' note (the history shows it as the entry's reason).
+          details: { note: `Details edited: ${fields.join(', ')}`, edited: fields },
+          actorUserId: userId,
+        },
+      });
+      await this.audit.logIn(
+        tx,
+        'tax_opportunity.updated',
+        { type: 'tax_opportunity', id },
+        { clientId: o.clientId, fields },
+      );
+      return this.detail(ctx, await this.load(ctx, id));
     });
   }
 

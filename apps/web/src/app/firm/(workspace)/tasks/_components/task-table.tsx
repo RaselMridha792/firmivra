@@ -10,6 +10,7 @@ import {
   Modal,
   Select,
   Table,
+  Textarea,
   Toast,
 } from '@firmivra/ui';
 import {
@@ -99,16 +100,25 @@ export function TaskTable({
   const complete = useApiMutation((id: string) => api.taskWork.complete(id), options);
   const reopen = useApiMutation((id: string) => api.taskWork.reopen(id), options);
   const progress = useApiMutation(
-    (v: { id: string; progress: TaskProgress }) =>
-      api.taskWork.setProgress(v.id, { progress: v.progress }),
+    (v: { id: string; progress: TaskProgress; blockedReason?: string }) =>
+      api.taskWork.setProgress(v.id, {
+        progress: v.progress,
+        ...(v.blockedReason ? { blockedReason: v.blockedReason } : {}),
+      }),
     options,
   );
+  // TX-F13: Blocked asks why first (the reason shows on the task).
+  const [blocking, setBlocking] = useState<TaskRow | null>(null);
+  const [reason, setReason] = useState('');
   /** The inline status: a stage of an open task, Completed, or a completed task reopened. */
   const setStatus = (t: TaskRow, value: string) => {
     if (value === 'DONE') {
       complete.mutate(t.id, { onSuccess: done(`${t.title} completed.`), onError: fail });
     } else if (value === 'REOPEN') {
       reopen.mutate(t.id, { onSuccess: done(`${t.title} reopened.`), onError: fail });
+    } else if (value === 'BLOCKED') {
+      setReason('');
+      setBlocking(t);
     } else {
       progress.mutate(
         { id: t.id, progress: value as TaskProgress },
@@ -520,6 +530,45 @@ export function TaskTable({
           }}
         />
       ) : null}
+      <Modal
+        open={blocking !== null}
+        title="Why is this task blocked?"
+        onClose={() => setBlocking(null)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setBlocking(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!reason.trim() || progress.isPending}
+              onClick={() => {
+                const t = blocking;
+                if (!t) return;
+                progress.mutate(
+                  { id: t.id, progress: 'BLOCKED', blockedReason: reason.trim() },
+                  {
+                    onSuccess: () => {
+                      setBlocking(null);
+                      done(`${t.title}: Blocked.`)();
+                    },
+                    onError: fail,
+                  },
+                );
+              }}
+            >
+              Mark Blocked
+            </Button>
+          </>
+        }
+      >
+        <Textarea
+          label="Reason *"
+          value={reason}
+          maxLength={500}
+          onChange={(e) => setReason(e.target.value)}
+          hint="Shown on the task, so the next person knows what it waits for."
+        />
+      </Modal>
     </div>
   );
 }

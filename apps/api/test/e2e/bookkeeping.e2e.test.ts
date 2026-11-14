@@ -2181,6 +2181,54 @@ describe('reconciliations', () => {
     ).toBe('APPROVED');
   });
 
+  it('keeps a note on the difference with who wrote it and when, for the reviewer (Review 2, R01)', async () => {
+    const fourth = (await mkAccount(bk, { name: 'Fake note account' })).id;
+    const r = exact(
+      BookkeepingReconciliation,
+      await call('post', `/periods/${period}/reconciliations`, people.staffA, {
+        ...body(),
+        accountId: fourth,
+        exceptionsCount: 0,
+      }),
+      201,
+    );
+    expect(r.discrepancyNote).toBeNull();
+    const noted = exact(
+      BookkeepingReconciliation,
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, {
+        discrepancyNote: '  Fake: a $5,000 deposit in transit clears on the 3rd  ',
+      }),
+    );
+    expect(noted.discrepancyNote).toMatchObject({
+      text: 'Fake: a $5,000 deposit in transit clears on the 3rd',
+      by: { userId: people.staffA.id },
+    });
+    // The reviewer reads it; it never lets a difference through.
+    await call('post', `/reconciliations/${r.id}/ready`, people.staffA, {});
+    const read = exact(
+      BookkeepingReconciliation,
+      await call('get', `/reconciliations/${r.id}`, people.ownerA),
+    );
+    expect(read.discrepancyNote?.text).toMatch(/deposit in transit/);
+    expectError(
+      await call('post', `/reconciliations/${r.id}/approve`, people.ownerA, {}),
+      409,
+      'RECON_DIFFERENCE',
+    );
+    // The note's text never goes to the audit log.
+    const logged = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({ where: { entityId: r.id }, select: { metadata: true } }),
+    );
+    expect(logged.length).toBeGreaterThan(0);
+    expect(JSON.stringify(logged)).not.toMatch(/deposit in transit/);
+    await call('post', `/reconciliations/${r.id}/reopen`, people.ownerA, { reason: 'Fake: redo' });
+    const cleared = exact(
+      BookkeepingReconciliation,
+      await call('patch', `/reconciliations/${r.id}`, people.staffA, { discrepancyNote: null }),
+    );
+    expect(cleared.discrepancyNote).toBeNull();
+  });
+
   it("zero tolerance: the firm's old tolerance setting lets no difference through", async () => {
     await call('put', '/settings', people.ownerA, { reconToleranceCents: 500 });
     const second = (await mkAccount(bk, { name: 'Fake tolerance account' })).id;

@@ -791,6 +791,29 @@ export const EfileReport = z.object({
 });
 export type EfileReport = z.infer<typeof EfileReport>;
 
+/**
+ * GET /business/tax-returns/reports/mailing?taxYear=: TX-F27's Mailing Report, one row per paper
+ * filing of the year (the return, jurisdiction, date mailed, tracking and status), newest mailed
+ * first; filings set to paper and not yet mailed come last with no date. Same reach as the list.
+ */
+export const MailingReport = z.object({
+  taxYear: z.number().int(),
+  rows: z
+    .array(
+      z.object({
+        taxReturnId: z.uuid(),
+        clientName: z.string(),
+        filingType: TaxFilingType,
+        jurisdiction: z.string(),
+        status: TaxJurisdictionStatus,
+        paperFiledOn: CalendarDate.nullable(),
+        mailTrackingNumber: z.string().nullable(),
+      }),
+    )
+    .max(1000),
+});
+export type MailingReport = z.infer<typeof MailingReport>;
+
 /** POST /business/tax-returns/export (EXPORT): the filtered list as CSV, masked, audited. */
 export const TaxReturnExportLink = z.object({
   url: z.string(),

@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  GoneException,
   HttpException,
   Inject,
   Injectable,
@@ -12,9 +11,7 @@ import {
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { z } from 'zod';
 import {
-  checkIntakeAnswers,
   COUNTED_UPLOAD_STATUSES,
-  INTAKE_ERRORS,
   INTAKE_UPLOAD_STATUS,
   type IntakeAnswersInput,
   IntakeFormKey,
@@ -26,7 +23,6 @@ import {
   MyIntake,
   MyIntakeListItem,
   type NotificationEvent,
-  restoreMaskedNumbers,
   type SavedIntakeStep,
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
@@ -41,20 +37,18 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
 import { intakeFileSizeMb } from './intake-file-size.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
-import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
+import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
+import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from './intake-step.js';
 import { lockVersion, prepareSubmit, type SlotFile } from './intake-submit.js';
 
-/** Statuses in which the client can change the answers (contract B's INTAKE_EDITABLE_STATUSES). */
-export const OPEN_STATUSES: IntakeStatus[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
+export { OPEN_STATUSES, requireOpen };
 /** An engagement has at most one live intake: a new one only after it expired or was archived. */
 const LIVE_STATUSES: IntakeStatus[] = [...OPEN_STATUSES, 'SUBMITTED', 'UNDER_REVIEW', 'COMPLETED'];
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
-const locked = () => conflict('INTAKE_LOCKED', INTAKE_ERRORS.INTAKE_LOCKED);
-const expired = () =>
-  new GoneException({ code: 'INTAKE_EXPIRED', message: INTAKE_ERRORS.INTAKE_EXPIRED });
+const locked = intakeLocked;
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 const invalidStatus = () => conflict('INVALID_STATUS', 'Not possible in this status');
@@ -63,12 +57,6 @@ const changed = () =>
   conflict(CHANGED, 'The form changed while it was being sent. Review it and send again.');
 /** How often a submit starts again when a save or an upload landed while it checked the form. */
 const SUBMIT_ATTEMPTS = 3;
-
-/** 409 INTAKE_LOCKED, or 410 INTAKE_EXPIRED, unless the intake is open for changes. */
-export function requireOpen(status: IntakeStatus): void {
-  if (status === 'EXPIRED') throw expired();
-  if (!OPEN_STATUSES.includes(status)) throw locked();
-}
 
 /**
  * Contract B's gate for a change (save, upload, remove, submit), after the 404: 403 FORBIDDEN for
@@ -482,62 +470,15 @@ export class IntakesService {
     const definition = readDefinition(before.form, before.engagement!.service.kind);
     const draft = before.submissions[0];
     if (!draft || draft.submittedAt) throw locked();
-    const stored = answersOf(draft.answers);
-    const checked = checkIntakeAnswers(definition, answers, { mode: 'save', step: stepKey });
-    const restored = restoreMaskedNumbers(
+    const savedAt = await saveIntakeStep(
+      { database: this.database, fe: this.fe },
+      businessId,
+      id,
       definition,
-      checked.answers,
-      await maskStoredNumbers(definition, stored),
+      draft,
+      stepKey,
+      answers,
     );
-    const issues = [...checked.issues, ...restored.issues];
-    if (issues.length > 0) {
-      throw new BadRequestException({
-        code: 'VALIDATION_FAILED',
-        message: 'Some answers need attention',
-        details: { issues },
-      });
-    }
-    const sealed = await sealIntakeNumbers(
-      this.fe,
-      { businessId, intakeId: id },
-      definition,
-      restored.answers,
-      stored,
-    );
-    const step = definition.steps.find((s) => s.key === stepKey)!;
-    const stepKeys = new Set(step.sections.flatMap((s) => s.fields.map((f) => f.key)));
-    const savedAt = await this.inFirm(businessId, async (tx) => {
-      const rows = await tx.$queryRaw<{ status: IntakeStatus }[]>`
-        SELECT status::text AS status FROM intakes WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
-      const current = await tx.intakeSubmission.findFirst({
-        where: { businessId, intakeId: id },
-        orderBy: { version: 'desc' },
-        select: { id: true, submittedAt: true, savedSteps: true, answers: true },
-      });
-      if (!rows[0]) throw notFound();
-      requireOpen(rows[0].status);
-      if (current?.id !== draft.id || current.submittedAt) throw locked();
-      // Merged onto the answers as they are now, under the lock: a save of another step that
-      // landed since the read above is kept.
-      const merged = Object.fromEntries(
-        Object.entries(answersOf(current.answers)).filter(([k]) => !stepKeys.has(k)),
-      );
-      Object.assign(merged, sealed);
-      const updated = await tx.intakeSubmission.update({
-        where: { id: draft.id },
-        data: {
-          answers: merged as Prisma.InputJsonValue,
-          savedSteps: current.savedSteps.includes(stepKey)
-            ? current.savedSteps
-            : [...current.savedSteps, stepKey],
-        },
-        select: { updatedAt: true },
-      });
-      if (rows[0].status === 'SENT') {
-        await tx.intake.update({ where: { id }, data: { status: 'IN_PROGRESS' } });
-      }
-      return updated.updatedAt;
-    });
     await this.audit.log(
       'intake.step_saved',
       { type: 'intake', id },

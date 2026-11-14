@@ -256,6 +256,45 @@ describe('internal notes', () => {
     );
   });
 
+  it('keeps a note’s type and the record it is about, and every note stays internal (Review 2, N04)', async () => {
+    const plain = await addNote({ body: `Plain ${run}` });
+    expect(plain).toMatchObject({ noteType: null, related: null, visibility: 'INTERNAL' });
+    const task = await asApp(people.ownerA.id, (tx) =>
+      tx.task.create({
+        data: { businessId: ids.firmA, clientId: ids.one, title: `Fake task ${run}` },
+        select: { id: true },
+      }),
+    );
+    const about = await addNote({
+      body: 'Called about the receipts',
+      noteType: 'CALL',
+      related: { kind: 'task', id: task.id },
+      visibility: 'INTERNAL',
+    });
+    expect(about).toMatchObject({
+      noteType: 'CALL',
+      related: { kind: 'task', id: task.id },
+      visibility: 'INTERNAL',
+    });
+    // A record that is not this firm's is not found; sharing with the client is not offered yet.
+    const missing = await firm('post', `/clients/${ids.one}/notes`, people.ownerA, {
+      body: 'x',
+      related: { kind: 'task', id: randomUUID() },
+    });
+    expect([missing.status, codeOf(missing)]).toEqual([404, 'NOT_FOUND']);
+    for (const bad of [
+      { visibility: 'CLIENT' },
+      { noteType: 'GOSSIP' },
+      { related: { kind: 'invoice', id: task.id } },
+    ]) {
+      const res = await firm('post', `/clients/${ids.one}/notes`, people.ownerA, {
+        body: 'x',
+        ...bad,
+      });
+      expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+    }
+  });
+
   it("refuses another client's engagement, unassigned Staff and another firm", async () => {
     const wrong = await firm('post', `/clients/${ids.one}/notes`, people.ownerA, {
       body: 'x',
