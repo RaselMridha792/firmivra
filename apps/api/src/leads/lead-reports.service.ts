@@ -122,8 +122,19 @@ export class LeadReportsService {
           { mergedAt: null },
           q.archived === 'exclude' ? { archivedAt: null } : {},
           q.source ? { source: q.source } : {},
-          q.serviceId ? { serviceId: q.serviceId } : {},
+          // As the Leads list: the lead's first service or any of its services.
+          q.serviceId
+            ? {
+                OR: [
+                  { serviceId: q.serviceId },
+                  { services: { some: { serviceId: q.serviceId } } },
+                ],
+              }
+            : {},
           q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
+          q.campaignId
+            ? { commAudience: { some: { communicationId: q.campaignId, kind: 'LEAD' as const } } }
+            : {},
           {
             createdAt: {
               gte: new Date(Date.parse(`${from}T00:00:00.000Z`) - DAY),

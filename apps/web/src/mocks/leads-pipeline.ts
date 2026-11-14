@@ -44,6 +44,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { beginOnlineFixture } from './leads';
+import { mockFunnelReport, mockFunnelReportLeads } from './lead-funnel';
 import { mockFirmTags, mockResolveTags } from './tags';
 import { mockUploadTicket } from './upload-ticket';
 
@@ -735,6 +736,21 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         notQualified: count((l) => l.profile.stage === 'DECLINED'),
         overdueFollowUps: count((l) => l.profile.nextAction?.overdue === true),
       };
+    },
+    // Leads R2 18: the funnel and aging report, on the leads the member reaches.
+    funnelReport: async (query) => {
+      await mockDelay();
+      return mockFunnelReport(
+        s.leads.filter(reachable).map((l) => l.profile),
+        query,
+      );
+    },
+    funnelReportLeads: async (query) => {
+      await mockDelay();
+      return mockFunnelReportLeads(
+        s.leads.filter(reachable).map((l) => l.profile),
+        query,
+      );
     },
     options: async () => {
       await mockDelay();

@@ -6,7 +6,8 @@ import { LeadSource, LeadStatus } from '../db-enums.js';
 // summary cards). Read only, the same firm and role reach as the Leads list (Staff: their own
 // leads). Definitions, shown on the page too:
 // - The leads counted: submitted leads (never a draft or a merged duplicate) created on the
-//   firm's days from `from` to `to`, both included; archived ones only when asked for.
+//   firm's days from `from` to `to`, both included; archived ones only when asked for. The
+//   source, service, owner and campaign filters mean what they mean on the Leads list.
 // - The funnel's stages, in order: New (SUBMITTED, IN_REVIEW), Contacted, In Follow-Up,
 //   Appointment Scheduled, Qualified, Converted. A lead "reached" a stage when its status is that
 //   stage or a later one now, or its history shows it there (a lead lost after Qualified reached
@@ -40,6 +41,8 @@ export const LeadReportQuery = z
     serviceId: z.uuid().optional(),
     /** Owner and Admin (Staff see only their own leads anyway). */
     assignedUserId: z.uuid().optional(),
+    /** In a campaign's audience (Communications), as the Leads list's filter. */
+    campaignId: z.uuid().optional(),
     archived: z.enum(['exclude', 'include']).optional().default('exclude'),
   })
   .refine((q) => !q.from || !q.to || q.from <= q.to, {
