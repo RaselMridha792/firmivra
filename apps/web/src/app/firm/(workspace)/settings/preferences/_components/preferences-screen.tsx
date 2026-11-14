@@ -110,7 +110,7 @@ export function PreferencesScreen() {
       />
       {firm.data && branding.data ? (
         <PreferencesForm
-          key={`${branding.data.version}|${firm.data.timezone}`}
+          key={`${branding.data.version}|${firm.data.timezone}|${firm.data.taxSeasonStart}|${firm.data.taxSeasonEnd}`}
           firm={firm.data}
           branding={branding.data}
           saved={saved}
@@ -159,14 +159,36 @@ function PreferencesForm({
   const noteId = useId();
   const qc = useQueryClient();
   const [zone, setZone] = useState(firm.timezone);
+  // Dashboard Review 2: the firm's tax season, `MM-DD` to `MM-DD` every year ('' when not set).
+  const [seasonStart, setSeasonStart] = useState(firm.taxSeasonStart ?? '');
+  const [seasonEnd, setSeasonEnd] = useState(firm.taxSeasonEnd ?? '');
+  const seasonChanged =
+    seasonStart !== (firm.taxSeasonStart ?? '') || seasonEnd !== (firm.taxSeasonEnd ?? '');
+  const seasonError =
+    !seasonStart !== !seasonEnd
+      ? 'Choose both days of the tax season, or neither.'
+      : seasonStart && seasonStart === seasonEnd
+        ? 'The tax season ends on another day than it starts.'
+        : '';
   const [prefs, setPrefs] = useState<FirmPreferences>(branding.preferences);
   const save = useApiMutation(
     async () => {
-      if (zone !== firm.timezone) {
-        await api.settings.update({ timezone: zone });
+      if (seasonError) {
+        setSaved('');
+        return;
+      }
+      if (zone !== firm.timezone || seasonChanged) {
+        await api.settings.update({
+          ...(zone !== firm.timezone ? { timezone: zone } : {}),
+          ...(seasonChanged
+            ? { taxSeasonStart: seasonStart || null, taxSeasonEnd: seasonEnd || null }
+            : {}),
+        });
         await onFirmSaved();
-        // Dashboard Review 2 (U2): the header clock and the dashboard follow the new zone at once.
+        // Dashboard Review 2 (U2): the header clock and the dashboard follow the new zone and
+        // season at once.
         await qc.invalidateQueries({ queryKey: ['availability'] });
+        await qc.invalidateQueries({ queryKey: ['dashboard'] });
       }
       const changed = (Object.keys(prefs) as (keyof FirmPreferences)[]).some(
         (k) => prefs[k] !== branding.preferences[k],
@@ -174,7 +196,9 @@ function PreferencesForm({
       if (changed) await api.branding.update({ version: branding.version, preferences: prefs });
       // Said here: the saved version refills this form before mutate's own callback would run.
       setSaved(
-        changed || zone !== firm.timezone ? 'Preferences saved.' : 'Nothing has changed yet.',
+        changed || zone !== firm.timezone || seasonChanged
+          ? 'Preferences saved.'
+          : 'Nothing has changed yet.',
       );
     },
     { invalidate: ['branding'] },
@@ -215,6 +239,34 @@ function PreferencesForm({
               setSaved('');
             }}
           />
+          <fieldset className="flex flex-col gap-2" data-testid="tax-season-fields">
+            <legend className="text-sm font-medium text-heading">Tax Season</legend>
+            <MonthDayField
+              label="Tax season starts"
+              value={seasonStart}
+              onChange={(v) => {
+                setSeasonStart(v);
+                setSaved('');
+              }}
+            />
+            <MonthDayField
+              label="Tax season ends"
+              value={seasonEnd}
+              onChange={(v) => {
+                setSeasonEnd(v);
+                setSaved('');
+              }}
+            />
+            <p className="text-xs text-muted">
+              Every year, in the firm&apos;s time zone; it may run across January 1. The dashboard
+              shows Tax Season or Off-Season from these days. Leave both empty for none.
+            </p>
+            {seasonError ? (
+              <p role="alert" className="text-sm text-danger">
+                {seasonError}
+              </p>
+            ) : null}
+          </fieldset>
           <Select
             label="Language & Region"
             options={options(
@@ -302,6 +354,8 @@ function PreferencesForm({
             disabled={save.isPending}
             onClick={() => {
               setZone(firm.timezone);
+              setSeasonStart(firm.taxSeasonStart ?? '');
+              setSeasonEnd(firm.taxSeasonEnd ?? '');
               setPrefs(branding.preferences);
               setSaved('');
             }}
@@ -314,5 +368,68 @@ function PreferencesForm({
         </div>
       </div>
     </form>
+  );
+}
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+/** Days in each month every year has (never Feb 29). */
+const DAYS_IN = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const two = (n: number) => String(n).padStart(2, '0');
+
+/** A day of the year as `MM-DD` ('' when not set): a month and a day the month has. */
+function MonthDayField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const month = value ? Number(value.slice(0, 2)) : 0;
+  const day = value ? Number(value.slice(3)) : 0;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Select
+        label={`${label}: month`}
+        options={[
+          { value: '', label: 'Not set' },
+          ...MONTHS.map((name, i) => ({ value: String(i + 1), label: name })),
+        ]}
+        value={month ? String(month) : ''}
+        onChange={(e) => {
+          const m = Number(e.target.value);
+          if (!m) return onChange('');
+          onChange(`${two(m)}-${two(Math.min(day || 1, DAYS_IN[m - 1] ?? 31))}`);
+        }}
+      />
+      <Select
+        label={`${label}: day`}
+        disabled={!month}
+        options={
+          month
+            ? Array.from({ length: DAYS_IN[month - 1] ?? 31 }, (_, i) => ({
+                value: String(i + 1),
+                label: String(i + 1),
+              }))
+            : [{ value: '', label: '—' }]
+        }
+        value={day ? String(day) : ''}
+        onChange={(e) => onChange(`${two(month)}-${two(Number(e.target.value))}`)}
+      />
+    </div>
   );
 }

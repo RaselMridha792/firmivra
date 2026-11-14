@@ -398,6 +398,8 @@ export class SettingsService {
       teamSize: s?.teamSize ?? null,
       services,
       description: s?.description ?? null,
+      taxSeasonStart: s?.taxSeasonStart ?? null,
+      taxSeasonEnd: s?.taxSeasonEnd ?? null,
       updatedAt: updatedAt.toISOString(),
     };
   }

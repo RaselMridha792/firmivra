@@ -10,7 +10,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { DashboardSummary, INTAKE_FORMS } from '@firmivra/types';
+import { DashboardSummary, INTAKE_FORMS, addDays, seasonOf } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -528,6 +528,45 @@ describe('GET /business/dashboard/summary', () => {
       ['Fake task tomorrow', 'MEDIUM'],
     ]);
     expect(s.taxSeason).toBeNull();
+  });
+
+  it("shows the firm's tax season from its settings: in season, off season, across Jan 1, never another firm's", async () => {
+    const setSeason = (k: 'a' | 'b', start: string | null, end: string | null) =>
+      inFirm(k, k === 'a' ? people.ownerA : people.ownerB, (tx) =>
+        tx.businessSettings.upsert({
+          where: { businessId: firms[k].id },
+          create: { businessId: firms[k].id, taxSeasonStart: start, taxSeasonEnd: end },
+          update: { taxSeasonStart: start, taxSeasonEnd: end },
+        }),
+      );
+    const { today } = await read(people.ownerA, 'a');
+    // A day of the year some days from today (never Feb 29, which no season takes).
+    const md = (days: number) => {
+      const d = addDays(today, days).slice(5);
+      return d === '02-29' ? '03-01' : d;
+    };
+    try {
+      // Ten days either side of today: in season, for every role.
+      await setSeason('a', md(-10), md(10));
+      const now = (await read(people.staffA, 'a')).taxSeason;
+      expect(now).toMatchObject({ inSeason: true });
+      expect(now && now.start <= today && today <= now.end).toBe(true);
+      // Starting in 20 days: Off-Season, with the next season's dates.
+      await setSeason('a', md(20), md(40));
+      const next = (await read(people.ownerA, 'a')).taxSeason;
+      expect(next).toMatchObject({ inSeason: false });
+      expect(next && next.start > today).toBe(true);
+      // Across Jan 1.
+      await setSeason('a', '12-01', '04-30');
+      expect((await read(people.ownerA, 'a')).taxSeason).toEqual(seasonOf('12-01', '04-30', today));
+      // Firm B's own season; firm A keeps its own.
+      await setSeason('b', '02-01', '03-15');
+      expect((await read(people.ownerB, 'b')).taxSeason).toEqual(seasonOf('02-01', '03-15', today));
+      expect((await read(people.ownerA, 'a')).taxSeason).toEqual(seasonOf('12-01', '04-30', today));
+    } finally {
+      await setSeason('a', null, null);
+      await setSeason('b', null, null);
+    }
   });
 
   it('refuses a client (403) and audits each view without numbers', async () => {

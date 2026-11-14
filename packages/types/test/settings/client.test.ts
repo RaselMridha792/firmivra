@@ -54,6 +54,8 @@ const settings = {
   teamSize: null,
   services: [],
   description: null,
+  taxSeasonStart: null,
+  taxSeasonEnd: null,
   updatedAt: at,
 };
 const setup = { completedSteps: ['branding'], completedAt: null };
