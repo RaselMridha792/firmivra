@@ -149,7 +149,7 @@ export function ClientWorkspaceScreen({ id, tab }: { id: string; tab: string | u
     : undefined;
   return (
     <ServiceDocumentsProvider target={docTarget} onDone={(text) => notice(text, 'success')}>
-      <div className="flex min-w-0 flex-col gap-5" data-testid="payroll-client">
+      <div className="@container flex min-w-0 flex-col gap-5" data-testid="payroll-client">
         <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
           <Link href="/payroll" aria-label="Back to Payroll" className="text-link">
             <ArrowLeft aria-hidden weight="bold" className="size-4" />
@@ -434,7 +434,7 @@ function Overview({
   ];
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="client-overview">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-6">
         <Stat icon={FileText} title="Payroll Provider" testId="stat-provider">
           {w ? (
             <>
@@ -624,7 +624,7 @@ function Overview({
         ) : null}
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid items-start gap-4 @6xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <section className={card} data-testid="panel-upcoming" aria-label="Upcoming Payroll Runs">
           <CardHead
             icon={CalendarCheck}
@@ -730,9 +730,9 @@ function Overview({
           onAll={() => onTab('tasks')}
         />
       </div>
-      <div className="grid items-start gap-4 lg:grid-cols-3">
+      <div className="grid items-start gap-4 @4xl:grid-cols-3">
         <section
-          className={`${card} lg:col-span-1`}
+          className={`${card} min-w-0 @4xl:col-span-1`}
           data-testid="panel-workers"
           aria-label="Employees & Recent Changes"
         >

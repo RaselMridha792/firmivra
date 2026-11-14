@@ -8,6 +8,13 @@ export const UPLOAD_ACTIONS = {
   confirmed: 'begin_online.upload_confirmed',
   refused: 'begin_online.upload_refused',
 } as const;
+/** The same three for a lead's files through the secure intake link (audited on the intake). */
+export const LINK_UPLOAD_ACTIONS = {
+  started: 'intake_link.upload_started',
+  confirmed: 'intake_link.upload_confirmed',
+  refused: 'intake_link.upload_refused',
+} as const;
+export type UploadActions = typeof UPLOAD_ACTIONS | typeof LINK_UPLOAD_ACTIONS;
 
 /** The last part of a lead upload's key (tenant/{businessId}/leads/{leadId}/{uploadId}). */
 export const uploadIdOf = (key: string) => key.slice(key.lastIndexOf('/') + 1);
@@ -22,9 +29,14 @@ const Started = z.object({
   seconds: z.number().int().positive().optional(),
 });
 
-async function ticketsOf(tx: TxClient, leadId: string, since: Date) {
+async function ticketsOf(
+  tx: TxClient,
+  entityId: string,
+  since: Date,
+  actions: UploadActions = UPLOAD_ACTIONS,
+) {
   const rows = await tx.auditLog.findMany({
-    where: { action: UPLOAD_ACTIONS.started, entityId: leadId, createdAt: { gte: since } },
+    where: { action: actions.started, entityId, createdAt: { gte: since } },
     select: { metadata: true, createdAt: true },
   });
   return rows.flatMap((r) => {
@@ -38,22 +50,23 @@ async function ticketsOf(tx: TxClient, leadId: string, since: Date) {
  * multipart upload's 70) that were neither confirmed nor refused. They count toward the slot's
  * and the draft's file caps, so a visitor who never confirms can't take more tickets (and leave
  * more objects) than the caps allow. Run it holding the lead (holdDraft), as confirm counts its
- * files, and the counts are exact.
+ * files, and the counts are exact. A link's tickets are the intake's (`entityId`, LINK actions).
  */
 export async function openTickets(
   tx: TxClient,
-  leadId: string,
+  entityId: string,
+  actions: UploadActions = UPLOAD_ACTIONS,
 ): Promise<{ slot: string; uploadId: string }[]> {
   const now = Date.now();
   const since = new Date(now - LONGEST_UPLOAD_SECONDS * 1000);
-  const started = (await ticketsOf(tx, leadId, since)).filter(
+  const started = (await ticketsOf(tx, entityId, since, actions)).filter(
     (t) => t.createdAt.getTime() + (t.seconds ?? UPLOAD_TOKEN_SECONDS) * 1000 > now,
   );
   if (started.length === 0) return [];
   const ended = await tx.auditLog.findMany({
     where: {
-      action: { in: [UPLOAD_ACTIONS.confirmed, UPLOAD_ACTIONS.refused] },
-      entityId: leadId,
+      action: { in: [actions.confirmed, actions.refused] },
+      entityId,
       createdAt: { gte: since },
     },
     select: { metadata: true },
@@ -74,7 +87,11 @@ export async function ticketKeys(
   businessId: string,
   leadId: string,
   since: Date,
+  /** A link's tickets: the intake's, under LINK_UPLOAD_ACTIONS (keys stay under the lead). */
+  link?: { intakeId: string },
 ): Promise<string[]> {
-  const tickets = await ticketsOf(tx, leadId, since);
+  const tickets = link
+    ? await ticketsOf(tx, link.intakeId, since, LINK_UPLOAD_ACTIONS)
+    : await ticketsOf(tx, leadId, since);
   return [...new Set(tickets.map((t) => leadUploadKey(businessId, leadId, t.uploadId)))];
 }

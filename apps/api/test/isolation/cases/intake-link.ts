@@ -4,7 +4,8 @@
 // hash at that firm, and then this browser's HttpOnly cookie (fv_il_{slug}: sealed by the API,
 // binding the firm, the intake and the token's hash, checked against the intake on every call).
 // test/e2e/intake-link.e2e.test.ts checks them: another firm's slug, a made-up, replaced or
-// expired token, and a missing, made-up or other firm's cookie are each 410 LINK_INVALID.
+// expired token, and a missing, made-up or other firm's cookie are each 410 LINK_INVALID;
+// test/e2e/intake-link-uploads.e2e.test.ts that a file is removed only through its own link.
 import type { CaseModule } from '../world.js';
 
 const LINK =
@@ -20,4 +21,10 @@ export const excluded: CaseModule['excluded'] = {
   [`GET ${BASE}/agreements`]: LINK + "; the firm's own agreements for that intake's service",
   [`PUT ${BASE}/steps/:step`]: LINK + '; :step is a step of the form, not a record',
   [`POST ${BASE}/submit`]: LINK,
+  // Leads item n: the lead's own files on that intake (intake-link-uploads e2e).
+  [`POST ${BASE}/uploads`]: LINK + '; the slot is an upload field of that form, not a record',
+  [`POST ${BASE}/uploads/confirm`]:
+    LINK + '; the sealed ticket names that intake and its token hash, or it is refused',
+  [`DELETE ${BASE}/uploads/:uploadId`]:
+    LINK + "; :uploadId is found only among that intake's own files (another lead's, made-up: 404)",
 };
