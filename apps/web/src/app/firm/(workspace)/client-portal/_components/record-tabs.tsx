@@ -147,7 +147,7 @@ export function PortalAppointments({ clientId }: { clientId: string }) {
           >
             <span className="min-w-0 flex-1">
               <span className="block font-semibold text-heading">
-                {a.type?.name ?? 'Appointment'}
+                {a.restricted ? 'Busy' : (a.type?.name ?? 'Appointment')}
               </span>
               <span className="block text-sm text-muted">
                 {dayText(a.startsAt)} {timeText(a.startsAt)} · {a.staff.name}
