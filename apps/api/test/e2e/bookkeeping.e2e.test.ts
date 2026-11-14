@@ -3106,7 +3106,7 @@ describe('report figures and versions (BK-RPT part 1)', () => {
     expect(file.status).toBe(200);
     expect(file.headers['content-type']).toMatch(/text\/csv/);
     expect(file.text).toContain(`Income,Fake Fees ${tag},,,1200.00,`);
-    expect(file.text).toContain('Total,netIncomeCents,,,900.00,');
+    expect(file.text).toContain('Total,Net income,,,900.00,');
     expectError(
       await call('get', `/reports/${r.id}/versions/9/csv`, people.ownerA),
       404,
