@@ -346,6 +346,22 @@ export const cases: CaseModule['cases'] = {
       'rules.assigneeUserId': 'staffUser',
     },
   },
+  // Leads R2 16: import checks rows against the firm's own default service (a dry run here);
+  // export of the selected leads: no file store in tests, so the firm's own lead gets 503.
+  'POST /api/v1/business/leads/import': {
+    params: {},
+    body: {
+      rows: [{ firstName: 'Fake', lastName: 'Import', email: 'iso-import@iso.test' }],
+      dryRun: true,
+    },
+    bodyIds: { defaultServiceId: 'leadService' },
+  },
+  'POST /api/v1/business/leads/export': {
+    params: {},
+    body: { scope: 'SELECTED', fields: ['name'] },
+    bodyIds: { ids: 'lead' },
+    expect: 503,
+  },
   // Leads R2 15: "Not a duplicate" names two leads; a merge names the lead merged in.
   'POST /api/v1/business/leads/duplicates/dismiss': {
     params: {},

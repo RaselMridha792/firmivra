@@ -48,6 +48,7 @@ import {
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
+  createLeadTransferClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -141,6 +142,7 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
 import { leadRoutingMock } from '../mocks/lead-routing';
+import { createLeadTransferMock } from '../mocks/lead-transfer';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
@@ -351,6 +353,11 @@ export const api = {
     dev && mocked('leadPipeline')
       ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
       : createLeadPipelineClient(request),
+  /** Leads R2 16 (R55): bulk import (mapped, checked, then created) and export (scoped CSV). */
+  leadTransfer:
+    dev && mocked('leadTransfer')
+      ? createLeadTransferMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
+      : createLeadTransferClient(request),
   /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
   intakeForms:
     dev && mocked('intakeForms')
