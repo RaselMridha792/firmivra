@@ -251,6 +251,8 @@ const profileSelect = {
   postalCode: true,
   bestTimeToContact: true,
   dateOfBirth: true,
+  // R2 17: the rule that gave the lead its owner.
+  assignedByRule: { select: { id: true, name: true } },
   contactPoints: {
     orderBy: [{ position: 'asc' }, { id: 'asc' }],
     select: { kind: true, value: true, label: true },
@@ -389,6 +391,7 @@ export async function loadProfile(
     ...toRow(r),
     address: address || null,
     dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+    assignedByRule: r.assignedByRule,
     otherContacts: r.contactPoints,
     bestTimeToContact: r.bestTimeToContact,
     recentActivity: recent.map((a) => toActivity(a, r.source)),

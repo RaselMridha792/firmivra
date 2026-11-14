@@ -137,6 +137,15 @@ export const records: CaseModule['records'] = {
       return get('leadStep');
     },
   },
+  /** Leads R2 17: an assignment rule of the firm, its owner the assignee. */
+  leadRule: {
+    async create({ tx, businessId, owner }) {
+      const row = await tx.leadAssignmentRule.create({
+        data: { businessId, name: 'Fake rule', position: 0, assigneeUserId: owner.id },
+      });
+      return row.id;
+    },
+  },
   /** The lead's clean file, made with the lead (above). */
   leadUpload: {
     async create({ get }) {
@@ -299,6 +308,21 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/notes': { params: { id: 'lead' } },
   'POST /api/v1/business/leads/:id/notes': { params: { id: 'lead' }, body: { text: 'Fake note' } },
   'GET /api/v1/business/leads/:id/tasks': { params: { id: 'lead' } },
+  // Leads R2 17: Settings > Lead assignment names members, services and rules.
+  'PUT /api/v1/business/lead-routing': {
+    params: {},
+    body: {
+      enabled: false,
+      fallbackUserId: null,
+      rules: [{ id: null, name: 'Fake rule', serviceIds: [], assigneeUserId: null }],
+    },
+    bodyIds: {
+      fallbackUserId: 'staffUser',
+      id: 'leadRule',
+      serviceIds: 'leadService',
+      assigneeUserId: 'staffUser',
+    },
+  },
   // Leads R2 2: a lead's own tasks; the assignee is a member of the lead's firm.
   'POST /api/v1/business/leads/:id/tasks': {
     params: { id: 'leadTaskLead' },

@@ -552,6 +552,8 @@ export const LeadProfile = LeadRow.extend({
    * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
    */
   duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
+  /** R2 17: the assignment rule that gave the lead its owner (cleared by a manual assignment). */
+  assignedByRule: NamedRef.nullable().optional(),
   /** L8: every follow-up step, unfinished first by date, then the finished ones, newest first. */
   followUps: z.array(LeadFollowUp),
   archivedAt: DateTime.nullable(),
