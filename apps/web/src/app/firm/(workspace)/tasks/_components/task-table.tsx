@@ -289,7 +289,8 @@ export function TaskTable({
       {
         label: 'Convert to Recurring',
         icon: Repeat,
-        onSelect: () => go(`/tasks/${t.id}`),
+        // Review 2 (TX-F15): the setup opens straight away, and Back keeps the way here.
+        onSelect: () => go(`/tasks/${t.id}?convert=recurring`),
       },
       {
         label: 'Save as Template',

@@ -37,9 +37,12 @@ export function NewRequest({
   clientId,
   templateId,
   documentId,
+  engagementId,
 }: {
   clientId?: string;
   templateId?: string;
+  /** The service the request is for (a tax return's Signatures). */
+  engagementId?: string;
   /** Documents' Request e-sign (Clients C2-051): this client file goes into the new request. */
   documentId?: string;
 }) {
@@ -51,6 +54,9 @@ export function NewRequest({
             fromClient={ClientId.safeParse(clientId).success ? clientId : undefined}
             fromTemplate={EsignTemplateId.safeParse(templateId).success ? templateId : undefined}
             fromDocument={DocumentId.safeParse(documentId).success ? documentId : undefined}
+            fromEngagement={
+              engagementId && /^[0-9a-f-]{36}$/i.test(engagementId) ? engagementId : undefined
+            }
             canListMembers={isOwnerOrAdmin(role)}
           />
         ) : (
@@ -67,11 +73,13 @@ function StartForm({
   fromClient,
   fromTemplate,
   fromDocument,
+  fromEngagement,
   canListMembers,
 }: {
   fromClient?: string;
   fromTemplate?: string;
   fromDocument?: string;
+  fromEngagement?: string;
   canListMembers: boolean;
 }) {
   const router = useRouter();
@@ -94,7 +102,7 @@ function StartForm({
   });
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState(fromClient ?? '');
-  const [engagementId, setEngagementId] = useState('');
+  const [engagementId, setEngagementId] = useState(fromEngagement ?? '');
   const [titleError, setTitleError] = useState<string>();
   const services = useQuery({
     queryKey: ['engagements', clientId],
