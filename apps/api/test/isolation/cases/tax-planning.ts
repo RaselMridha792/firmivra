@@ -187,10 +187,14 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/plans/:id/reopen`]: {
     params: { id: 'taxPlan' },
     body: { etag: ETAG, reason: 'Fake reason' },
+    // The record plan is neither closed nor finalized: reached, then refused for its status.
+    expect: 409,
   },
   [`POST ${BASE}/plans/:id/revise`]: {
     params: { id: 'taxPlan' },
     body: { etag: ETAG, reason: 'Fake reason' },
+    // The record plan is neither closed nor finalized: reached, then refused for its status.
+    expect: 409,
   },
   [`GET ${BASE}/plans/:id/events`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/archive`]: { params: { id: 'taxPlan' } },
