@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useUrlTab } from '../../../../../lib/url-tab';
 import { RecentDocuments } from './recent-documents';
+import { NotesPanel } from './notes-panel';
 import { useApiQuery } from '../../../../../lib/query';
 import { ClientMenu, ConnectDialog, useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -70,7 +71,6 @@ const LINKS: Partial<Record<TabId, (w: BookkeepingClientWorkspace) => string>> =
   // Review 2 (N02): Documents opens on this client and this bookkeeping service.
   Documents: (w) => `/documents?clientId=${w.client.id}&serviceId=${w.engagementId}`,
   Tasks: (w) => `/tasks?clientId=${w.client.id}`,
-  Notes: (w) => `/clients/${w.client.id}`,
   // BK-E01: the client's Terms page (six areas).
   Terms: (w) => `/bookkeeping/clients/${w.id}/terms`,
   // SH5: this client's conversations in Messages, not every message.
@@ -513,9 +513,10 @@ export function ClientWorkspace({ id }: { id: string }) {
               <section className={card} aria-label="Client notes" data-testid="shared-notes">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="font-display text-lg font-bold text-heading">Client Notes</h2>
-                  <OriginLink href={`/clients/${w.client.id}`} className={linkBtn}>
+                  {/* Review 2 (N04): View All opens the Notes tab, not the client's profile. */}
+                  <button type="button" className={linkBtn} onClick={() => setTab('Notes')}>
                     View All
-                  </OriginLink>
+                  </button>
                 </div>
                 <p className="text-sm text-heading">{w.shared.notes} notes</p>
                 {/* BK-NAV: Add Note opens here (internal, on this service), not the profile. */}
@@ -670,6 +671,9 @@ export function ClientWorkspace({ id }: { id: string }) {
           <PeriodsTab w={w} onNotice={notice} />
         ) : tab === 'Reports' ? (
           <ReportsTab w={w} onNotice={notice} />
+        ) : tab === 'Notes' ? (
+          // Review 2 (N04): the Notes tab opens Notes, here.
+          <NotesPanel w={w} />
         ) : (
           <SettingsTab w={w} onNotice={notice} />
         )}

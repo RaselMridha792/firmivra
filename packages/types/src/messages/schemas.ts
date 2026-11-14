@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MessageDirection } from '../db-enums.js';
+import { MessageDirection, NoteVisibility } from '../db-enums.js';
 import { MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 
@@ -268,11 +268,32 @@ export type FirmUnreadCount = z.infer<typeof FirmUnreadCount>;
 // ---------------------------------------------------------------------------------------------
 
 /** One of the firm's internal notes on a client. Never shown in the portal. */
+/** Review 2 (N04): what a note is. */
+export const NoteType = z.enum(['GENERAL', 'CALL', 'MEETING', 'FOLLOW_UP', 'DOCUMENT', 'BILLING']);
+export type NoteType = z.infer<typeof NoteType>;
+/** Review 2 (N04): the record a note is about. */
+export const NoteRelatedKind = z.enum([
+  'task',
+  'document',
+  'document_request',
+  'reconciliation',
+  'report',
+  'period',
+  'appointment',
+]);
+export type NoteRelatedKind = z.infer<typeof NoteRelatedKind>;
+export const NoteRelated = z.object({ kind: NoteRelatedKind, id: z.uuid() });
+// Review 2 (N04): who may see a note (NoteVisibility, from the database). Every note is INTERNAL
+// for now: CLIENT waits for Octavia's decision on shared notes (C02), so the API refuses it.
+
 export const InternalNote = z.object({
   id: z.uuid(),
   clientId: z.uuid(),
   engagementId: z.uuid().nullable(),
   body: z.string(),
+  noteType: NoteType.nullable().default(null),
+  related: NoteRelated.nullable().default(null),
+  visibility: NoteVisibility.default('INTERNAL'),
   author: MemberRef,
   /** The author, the Owner and Admins may edit and delete it. */
   canEdit: z.boolean(),
@@ -291,6 +312,11 @@ export const CreateInternalNoteRequest = z.strictObject({
   body: InternalNoteBody,
   /** One of this client's engagements (404 otherwise). */
   engagementId: z.uuid().optional(),
+  noteType: NoteType.optional(),
+  /** A record of this firm (404 otherwise). */
+  related: NoteRelated.optional(),
+  /** Only INTERNAL until shared notes are decided (C02). */
+  visibility: z.literal('INTERNAL').optional(),
 });
 export type CreateInternalNoteRequest = z.input<typeof CreateInternalNoteRequest>;
 

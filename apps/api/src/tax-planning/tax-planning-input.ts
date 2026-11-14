@@ -7,6 +7,7 @@ import {
   CreateTaxPlanRequest,
   FinalizePlanRequest,
   OpportunityActionRequest,
+  UpdateTaxOpportunityRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
   PlanningResourcesQuery,
@@ -88,6 +89,7 @@ export const UpdateStrategyLibraryBody = atMost(clean(UpdatePlanningStrategyRequ
 export const OpportunitiesQuery = clean(TaxOpportunitiesQuery);
 export const CreateOpportunityBody = clean(CreateTaxOpportunityRequest);
 export const ActionBody = clean(OpportunityActionRequest);
+export const UpdateOpportunityBody = clean(UpdateTaxOpportunityRequest);
 export const ScreeningBody = clean(RunScreeningRequest);
 
 export const CalculateBody = clean(CalculateSavingsRequest);
