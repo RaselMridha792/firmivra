@@ -456,8 +456,8 @@ export class TaxOpportunitiesService {
           businessId,
           opportunityId: id,
           kind: 'NOTE',
-          reason: `Details edited: ${fields.join(', ')}`,
-          details: { edited: fields },
+          // A NOTE's text is its details' note (the history shows it as the entry's reason).
+          details: { note: `Details edited: ${fields.join(', ')}`, edited: fields },
           actorUserId: userId,
         },
       });
