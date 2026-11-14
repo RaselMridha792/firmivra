@@ -714,8 +714,10 @@ export class InvoicesService {
     const result = await this.inFirm(businessId, async (tx) => {
       const { timeZone, today } = await firmToday(tx, businessId);
       const from = q.from ?? `${today.slice(0, 4)}-01-01`;
+      // G11: one client's payments, inside the member's reach.
       const to = q.to ?? today;
-      const reach = { client: this.reach(actor) };
+      // G11: one client's payments, inside the member's reach.
+      const reach = { client: this.reach(actor), ...(q.clientId ? { clientId: q.clientId } : {}) };
       const widen = (d: string, days: number) =>
         new Date(Date.parse(`${d}T00:00:00Z`) + days * DAY);
       const invoiceRef = {
@@ -806,7 +808,12 @@ export class InvoicesService {
     await this.audit.log(
       'invoices.payments_listed',
       { type: 'invoice' },
-      { from: result.from, to: result.to, count: result.items.length },
+      {
+        from: result.from,
+        to: result.to,
+        count: result.items.length,
+        ...(q.clientId ? { clientId: q.clientId } : {}),
+      },
     );
     return result;
   }
