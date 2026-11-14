@@ -156,7 +156,10 @@ describe('the member’s own mobile number', () => {
       verifiedAt: null,
       codeSent: false,
       resendAt: null,
+      // R2 NEW2: the Owner changes their own number; an employee does not.
+      canChange: true,
     });
+    expect((await state(people.staffA, 'a')).canChange).toBe(false);
     expect((await preferences(people.ownerA, 'a')).channels).toEqual(['EMAIL']);
   });
 
@@ -293,21 +296,33 @@ describe('PUT /business/me/phone', () => {
       }),
     );
 
-  it('sets the member’s own number as typed, unverified, and audits it without the number', async () => {
+  it('refuses an employee (403): the firm’s Owner sets their number (Dashboard Review 2, R2 NEW2)', async () => {
     const res = await put(people.staffA, 'a', { phone: '(404) 555-0121' });
+    expect([res.status, res.body.error?.code]).toEqual([403, 'FORBIDDEN']);
+    expect((await state(people.staffA, 'a')).phone).toBeNull();
+    expect(await audits('a', people.staffA.id)).toEqual([]);
+  });
+
+  it('sets the Owner’s own number as typed, unverified, and audits it without the number', async () => {
+    STAFF_PHONE_LIMITS.resendGapMs = 0;
+    await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.user.update({ where: { id: people.ownerB.id }, data: { phone: null } }),
+    );
+    const res = await put(people.ownerB, 'b', { phone: '(404) 555-0121' });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(StaffPhoneState.parse(res.body)).toMatchObject({
       phone: '+14045550121',
       verifiedAt: null,
       codeSent: false,
+      canChange: true,
     });
-    const [row] = (await audits('a', people.staffA.id)).filter(
+    const [row] = (await audits('b', people.ownerB.id)).filter(
       (a) => a.action === 'staff_phone.changed',
     );
     expect(row?.metadata).toEqual({ hadNumber: false, wasVerified: false });
     expect(JSON.stringify(row)).not.toContain('5550121');
     // Send Code now works for the new number.
-    expect((await call(people.staffA, 'a', '/code')).status).toBe(200);
+    expect((await call(people.ownerB, 'b', '/code')).status).toBe(200);
   });
 
   it('a new number undoes a verification; the same number keeps it', async () => {
@@ -353,5 +368,118 @@ describe('PUT /business/me/phone', () => {
       .set('x-business-id', firms.a.id)
       .set('authorization', `Bearer ${token}`);
     expect(res.status).toBe(403);
+  });
+});
+
+describe("Dashboard Review 2 (R2 NEW2): the firm's own number for a member", () => {
+  it("texts the member at the firm's number in that firm only, and a code verifies it there", async () => {
+    STAFF_PHONE_LIMITS.resendGapMs = 0;
+    // The Owner of firm A set a number for the member (Edit Staff writes memberships.phone).
+    await runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.membership.updateMany({
+        where: { businessId: firms.a.id, userId: people.both.id },
+        data: { phone: '+14045550141' },
+      }),
+    );
+    expect(await state(people.both, 'a')).toMatchObject({
+      phone: '+14045550141',
+      verifiedAt: null,
+      canChange: false,
+    });
+    // Firm B still texts the person's own number: firm A never wrote it.
+    expect((await state(people.both, 'b')).phone).toBe('+14045550102');
+    expect((await call(people.both, 'a', '/code')).status).toBe(200);
+    const verified = await call(people.both, 'a', '/verify', { code: '000000' });
+    expect(verified.status, JSON.stringify(verified.body)).toBe(200);
+    expect(StaffPhoneState.parse(verified.body).verifiedAt).not.toBeNull();
+    expect((await preferences(people.both, 'a')).channels).toContain('SMS');
+    // The verification is firm A's number's, not the login's: firm B offers no texts.
+    const [member, login] = await Promise.all([
+      runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.membership.findFirstOrThrow({
+          where: { businessId: firms.a.id, userId: people.both.id },
+          select: { phoneVerifiedAt: true },
+        }),
+      ),
+      runInScope(db, { kind: 'platform' }, (tx) =>
+        tx.user.findUniqueOrThrow({
+          where: { id: people.both.id },
+          select: { phone: true, phoneVerifiedAt: true },
+        }),
+      ),
+    ]);
+    expect(member.phoneVerifiedAt).not.toBeNull();
+    expect(login).toEqual({ phone: '+14045550102', phoneVerifiedAt: null });
+    expect((await preferences(people.both, 'b')).channels).toEqual(['EMAIL']);
+  });
+});
+
+describe('Dashboard Review 2 (R2 NEW2): My Profile', () => {
+  const profile = async (who: Person, method: 'get' | 'patch', body?: object) => {
+    const { token } = await app.get(TokenService).signLocal(who.id, 'STAFF');
+    const req = request(app.getHttpServer())[method]('/api/v1/business/me/profile');
+    return (body ? req.send(body) : req)
+      .set('x-business-id', firms.a.id)
+      .set('authorization', `Bearer ${token}`);
+  };
+
+  it('shows each member their own details; only the Owner may edit them', async () => {
+    const mine = await profile(people.staffA, 'get');
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect(mine.body).toMatchObject({
+      firstName: 'Fake',
+      lastName: 'R60 staffA',
+      email: people.staffA.email,
+      canEdit: false,
+    });
+    const refused = await profile(people.staffA, 'patch', {
+      firstName: 'Fake',
+      lastName: 'Renamed',
+    });
+    expect([refused.status, refused.body.error?.code]).toEqual([403, 'FORBIDDEN']);
+    expect((await profile(people.ownerA, 'get')).body.canEdit).toBe(true);
+  });
+
+  it("saves the Owner's name and job title, audited by field name, and refuses anything else", async () => {
+    const saved = await profile(people.ownerA, 'patch', {
+      firstName: 'Fake',
+      lastName: 'Owner Renamed',
+      jobTitle: 'Managing Partner (fake)',
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body).toMatchObject({
+      firstName: 'Fake',
+      lastName: 'Owner Renamed',
+      jobTitle: 'Managing Partner (fake)',
+      canEdit: true,
+    });
+    const [login, member, audit] = await Promise.all([
+      runInScope(db, { kind: 'platform' }, (tx) =>
+        tx.user.findUniqueOrThrow({ where: { id: people.ownerA.id }, select: { name: true } }),
+      ),
+      runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.membership.findFirstOrThrow({
+          where: { businessId: firms.a.id, userId: people.ownerA.id },
+          select: { jobTitle: true },
+        }),
+      ),
+      runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: firms.a.id, entityId: people.ownerA.id, action: 'profile.updated' },
+          select: { metadata: true },
+        }),
+      ),
+    ]);
+    expect(login.name).toBe('Fake Owner Renamed');
+    expect(member.jobTitle).toBe('Managing Partner (fake)');
+    expect(audit.map((a) => a.metadata)).toEqual([{ fields: ['lastName', 'jobTitle'] }]);
+    // A blank name, the email or the role are not changed here.
+    for (const body of [
+      { firstName: '', lastName: 'Owner' },
+      { firstName: 'Fake', lastName: 'Owner', email: 'other@r60.test' },
+      { firstName: 'Fake', lastName: 'Owner', role: 'STAFF' },
+    ]) {
+      expect((await profile(people.ownerA, 'patch', body)).status, JSON.stringify(body)).toBe(400);
+    }
   });
 });

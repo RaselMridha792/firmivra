@@ -315,3 +315,155 @@ test('A9: a type names its intake form; the appointment sends it and shows it wa
   await expect(page.getByTestId('detail-related')).toContainText('(waiting)');
   await expect(page.getByTestId('send-intake')).toHaveCount(0);
 });
+
+test('Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved drafts, and goes with the booking', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page
+    .getByLabel('Internal Notes (not visible to client)')
+    .fill('Fake: confirm the time first');
+  await page.getByRole('button', { name: 'Save as Draft' }).click();
+  await expect(page.getByTestId('schedule-note')).toContainText('Draft saved');
+
+  // Listed under Your saved drafts; Continue opens it with every entry kept.
+  const drafts = page.getByTestId('my-drafts');
+  await drafts.getByRole('listitem').filter({ hasText: 'Follow-Up' }).getByRole('link').click();
+  await expect(page).toHaveURL(/\/calendar\/new\?draft=[0-9a-f-]{36}/);
+  await expect(page.getByLabel('Internal Notes (not visible to client)')).toHaveValue(
+    'Fake: confirm the time first',
+  );
+  await expect(page.getByLabel('Appointment Type *').locator('option:checked')).toHaveText(
+    'Follow-Up',
+  );
+
+  // It books like any form; the API deletes the draft with the booking (scheduling.e2e).
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('08:00');
+  await page.getByLabel('End Time *').selectOption('08:30');
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+});
+
+test('Review 2 (B1): choosing a type sets one of its methods, and the others are off', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  const where = page.getByRole('radiogroup', { name: 'Location Type *' });
+  await expect(where).toBeVisible({ timeout: 60_000 });
+  await where.getByRole('radio', { name: 'Phone' }).click();
+  await expect(where.getByRole('radio', { name: 'Phone' })).toHaveAttribute('aria-checked', 'true');
+  // The mock's types offer In-Person only.
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await expect(where.getByRole('radio', { name: 'In Person' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(where.getByRole('radio', { name: 'Phone' })).toBeDisabled();
+  await expect(page.getByTestId('type-methods')).toHaveText('Follow-Up offers In-Person.');
+});
+
+test('Review 2 (B2): the unsaved form is kept through Edit My Availability and Back', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Appointment Type *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  const notes = page.getByLabel('Internal Notes (not visible to client)');
+  await notes.fill('Unsaved QA navigation recovery probe.');
+  const end = await page.getByLabel('End Time *').inputValue();
+  await page
+    .getByRole('navigation', { name: 'Availability' })
+    .getByRole('link', { name: 'Edit My Availability' })
+    .click();
+  await expect(page).toHaveURL(/\/calendar\/availability\?from=/);
+  await page.goBack();
+  await expect(page.getByTestId('form-restored')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByLabel('Appointment Type *').locator('option:checked')).toHaveText(
+    'Follow-Up',
+  );
+  await expect(notes).toHaveValue('Unsaved QA navigation recovery probe.');
+  await expect(page.getByLabel('End Time *')).toHaveValue(end);
+  // Discard gives the blank form back.
+  await page.getByRole('button', { name: 'Discard them' }).click();
+  await expect(notes).toHaveValue('');
+  await expect(page.getByTestId('form-restored')).toHaveCount(0);
+});
+
+test('Review 2 (row 7): an appointment keeps two reminders on one channel', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('08:00');
+  await page.getByLabel('End Time *').selectOption('08:30');
+  const card = page.getByTestId('client-reminders');
+  await card.getByLabel('Email Reminder', { exact: true }).check();
+  await card.getByRole('button', { name: '+ Add Reminder' }).click();
+  const more = card.getByTestId('more-reminders');
+  await more.getByLabel('Additional reminder 1 channel').selectOption('EMAIL');
+  await more.getByLabel('Additional reminder 1 amount').selectOption('2');
+  await more.getByLabel('Additional reminder 1 unit').selectOption('HOURS');
+  await expect(page.getByTestId('appointment-summary')).toContainText(/\d reminders/);
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  // Edit shows both Email reminders again.
+  await page.getByRole('link', { name: 'Edit', exact: true }).click();
+  await expect(page.getByTestId('more-reminders')).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByTestId('more-reminders').getByLabel('Additional reminder 1 unit'),
+  ).toHaveValue('HOURS');
+  await expect(
+    page.getByTestId('client-reminders').getByLabel('Email Reminder', { exact: true }),
+  ).toBeChecked();
+});
+
+test('Review 2 (B3): Back from an appointment returns to the same list filters and calendar view', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  // The list: Last 30 days and a status; the address keeps them, and Back brings them back.
+  await page.goto(app('/calendar/list'));
+  const toolbar = page.getByTestId('appointments-toolbar');
+  await expect(toolbar.getByLabel('Status')).toBeVisible({ timeout: 60_000 });
+  await toolbar.getByLabel('Period').selectOption('next7');
+  await toolbar.getByLabel('Status').selectOption('CONFIRMED');
+  await toolbar.getByLabel('Search appointments').fill('a');
+  await expect(page).toHaveURL(/status=CONFIRMED/);
+  await expect(page).toHaveURL(/period=next7/);
+  await page.goto(app('/calendar'));
+  await page.goBack();
+  await expect(toolbar.getByLabel('Period')).toHaveValue('next7', { timeout: 60_000 });
+  await expect(toolbar.getByLabel('Status')).toHaveValue('CONFIRMED');
+  await expect(toolbar.getByLabel('Search appointments')).toHaveValue('a');
+
+  // The calendar: a month and its date stay in the address.
+  await page.goto(app('/calendar?date=2026-10-01'));
+  const calToolbar = page.getByTestId('appointments-toolbar');
+  await expect(calToolbar.getByLabel('Show')).toBeVisible({ timeout: 60_000 });
+  await calToolbar.getByLabel('Show').selectOption('month');
+  await expect(page).toHaveURL(/view=month/);
+  await expect(page.getByTestId('calendar-period')).toHaveText('October 2026');
+  await page.goto(app('/calendar/list'));
+  await page.goBack();
+  await expect(page.getByTestId('calendar-period')).toHaveText('October 2026', { timeout: 60_000 });
+  await expect(calToolbar.getByLabel('Show')).toHaveValue('month');
+});

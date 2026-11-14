@@ -25,6 +25,9 @@ import {
   UpdateClientRequest,
   UpdateMyProfileRequest,
   SetClientOfficeRequest,
+  AddClientLinkRequest,
+  type ClientLink,
+  UpdateClientLinkRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
 import { timelineOf } from './client-timeline';
@@ -463,6 +466,42 @@ export function createClientsMock(
       },
     );
   };
+  // G9: linked profiles. Client 1 (Jamie Sample) starts as the owner of client 2's business.
+  const links: {
+    id: string;
+    clientId: string;
+    linkedClientId: string;
+    role: ClientLink['role'];
+    note: string | null;
+    createdAt: string;
+  }[] = [
+    {
+      id: '0199b6aa-0000-7000-8000-000000000900',
+      clientId: '0199b6a1-0000-7000-8000-000000000002',
+      linkedClientId: '0199b6a1-0000-7000-8000-000000000001',
+      role: 'OWNER',
+      note: null,
+      createdAt: '2026-10-01T15:00:00.000Z',
+    },
+  ];
+  const linkView = (l: (typeof links)[number], fromId: string): ClientLink => {
+    const added = l.clientId === fromId;
+    const other = rows.find((r) => r.id === (added ? l.linkedClientId : l.clientId))!;
+    return {
+      id: l.id,
+      other: {
+        id: other.id,
+        displayName: other.displayName,
+        accountType: other.accountType,
+        clientNumber: `CL-${10000 + Number(other.id.slice(-12))}`,
+        archived: !!other.archivedAt,
+      },
+      role: l.role,
+      side: added ? 'LINKED' : 'ADDED_TO',
+      note: l.note,
+      createdAt: l.createdAt,
+    };
+  };
   const assignee = (userId: string | null) => {
     const member = members().find((m) => m.userId === userId);
     return member ? { ...member } : null;
@@ -679,6 +718,67 @@ export function createClientsMock(
       };
     },
     // PRT-1 part 2: client 1 chose Lawrenceville at sign-up and has it; the others have none.
+    // Clients Review 2 (G9): linked profiles, as the API (one link per pair; Staff, their own).
+    links: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      return links
+        .filter((l) => l.clientId === row.id || l.linkedClientId === row.id)
+        .filter((l) => {
+          const otherId = l.clientId === row.id ? l.linkedClientId : l.clientId;
+          return rows.some((r) => r.id === otherId && visible(r));
+        })
+        .map((l) => linkView(l, row.id));
+    },
+    addLink: async (id, body) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const input = parseInput(AddClientLinkRequest, body);
+      if (input.linkedClientId === row.id) {
+        throw new ApiRequestError(400, 'SELF_LINK', 'A client cannot be linked to itself');
+      }
+      const other = find(input.linkedClientId);
+      if (row.archivedAt || other.archivedAt) {
+        throw new ApiRequestError(409, 'CLIENT_ARCHIVED', 'Restore the archived client first');
+      }
+      const pair = (l: (typeof links)[number]) =>
+        [l.clientId, l.linkedClientId].sort().join() === [row.id, other.id].sort().join();
+      if (links.some(pair)) {
+        throw new ApiRequestError(409, 'ALREADY_LINKED', 'These clients are already linked');
+      }
+      const link = {
+        id: `0199b6aa-0000-7000-8000-${String(links.length + 1).padStart(12, '0')}`,
+        clientId: row.id,
+        linkedClientId: other.id,
+        role: input.role,
+        note: input.note ?? null,
+        createdAt: now(),
+      };
+      links.push(link);
+      return linkView(link, row.id);
+    },
+    updateLink: async (id, linkId, body) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const input = parseInput(UpdateClientLinkRequest, body);
+      const link = links.find(
+        (l) => l.id === linkId && (l.clientId === row.id || l.linkedClientId === row.id),
+      );
+      if (!link) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      if (input.role) link.role = input.role;
+      if (input.note !== undefined) link.note = input.note || null;
+      return linkView(link, row.id);
+    },
+    removeLink: async (id, linkId) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const at = links.findIndex(
+        (l) => l.id === linkId && (l.clientId === row.id || l.linkedClientId === row.id),
+      );
+      if (at < 0) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      links.splice(at, 1);
+      return { ok: true as const };
+    },
     office: async (id) => {
       await pause();
       const row = find(parseInput(ClientId, id));

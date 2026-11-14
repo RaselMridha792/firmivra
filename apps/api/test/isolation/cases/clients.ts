@@ -57,6 +57,39 @@ export const records: CaseModule['records'] = {
       return client.id;
     },
   },
+  /** G9: another client of the firm, linked to client X. */
+  linkedClient: {
+    async create({ tx, businessId }) {
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Fake linked client', accountType: 'BUSINESS' },
+      });
+      return client.id;
+    },
+  },
+  /** G9: client X's link to the linked client. */
+  clientLink: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const link = await tx.clientLink.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          linkedClientId: await get('linkedClient'),
+          role: 'OWNER',
+        },
+      });
+      return link.id;
+    },
+  },
+  /** G9: a client not yet linked to client X (what Add Link names in its body). */
+  linkTarget: {
+    async create({ tx, businessId }) {
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Fake link target' },
+      });
+      return client.id;
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -87,6 +120,20 @@ export const cases: CaseModule['cases'] = {
   // E4: the client's services and the module record that opens each.
   'GET /api/v1/business/clients/:id/services': { params: { id: 'client' } },
   // PRT-1 part 2: the client's local office, and changing it (Owner and Admin).
+  // Clients Review 2 (G9): linked profiles; firm Q naming firm P's clients or link is 404.
+  'GET /api/v1/business/clients/:id/links': { params: { id: 'client' } },
+  'POST /api/v1/business/clients/:id/links': {
+    params: { id: 'client' },
+    bodyIds: { linkedClientId: 'linkTarget' },
+    body: { linkedClientId: PLACEHOLDER, role: 'SPOUSE' },
+  },
+  'PATCH /api/v1/business/clients/:id/links/:linkId': {
+    params: { id: 'client', linkId: 'clientLink' },
+    body: { role: 'PARTNER' },
+  },
+  'DELETE /api/v1/business/clients/:id/links/:linkId': {
+    params: { id: 'client', linkId: 'clientLink' },
+  },
   'GET /api/v1/business/clients/:id/office': { params: { id: 'client' } },
   'PUT /api/v1/business/clients/:id/office': {
     params: { id: 'client' },

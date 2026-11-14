@@ -58,6 +58,10 @@ export type PeriodChoice<P extends string> = { period: P; from?: string; to?: st
  * A period dropdown; Custom adds a start and an end date, applied once both are valid (the start
  * on or before the end, the end not after the firm's today). A bad pair stays in the fields with
  * the reason and changes nothing.
+ *
+ * Dashboard Review 2 (R2 NEW3 to NEW5): it sits in its parent's wrapping row, the dropdown beside
+ * the title, and Custom's From and To, each label with its field, take the next row whole (side by
+ * side on a desktop, one under the other when narrow), so the title never wraps.
  */
 export function PeriodSelect<P extends string>({
   label,
@@ -65,6 +69,7 @@ export function PeriodSelect<P extends string>({
   labels,
   today,
   onChange,
+  align = 'start',
 }: {
   /** The accessible name: "Dashboard period", "Client Pipeline period"… */
   label: string;
@@ -73,6 +78,8 @@ export function PeriodSelect<P extends string>({
   /** The firm's today (YYYY-MM-DD), the latest end a Custom period may have. */
   today: string | undefined;
   onChange: (next: PeriodChoice<P>) => void;
+  /** Where Custom's dates line up on their row: under the title, or under the dropdown. */
+  align?: 'start' | 'end';
 }) {
   const id = useId();
   const [custom, setCustom] = useState({ from: value.from ?? '', to: value.to ?? '' });
@@ -90,8 +97,9 @@ export function PeriodSelect<P extends string>({
     const bad = next.from > next.to || (today !== undefined && next.to > today);
     if (next.from && next.to && !bad) onChange({ period: 'CUSTOM' as P, ...next });
   };
+  const pair = 'flex items-center gap-2';
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <>
       <select
         aria-label={label}
         value={choosing ? 'CUSTOM' : value.period}
@@ -114,41 +122,52 @@ export function PeriodSelect<P extends string>({
         ))}
       </select>
       {choosing ? (
-        <fieldset className="flex flex-wrap items-center gap-2 text-sm">
+        <fieldset
+          data-testid="custom-dates"
+          className={`flex basis-full flex-wrap items-center gap-x-4 gap-y-2 text-sm ${align === 'end' ? 'justify-end' : ''}`}
+        >
           <legend className="sr-only">{label}: custom dates</legend>
-          <label htmlFor={`${id}-from`} className="text-muted">
-            From
-          </label>
-          <input
-            id={`${id}-from`}
-            type="date"
-            value={custom.from}
-            max={today}
-            onChange={(e) => apply({ ...custom, from: e.target.value })}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby={problem ? `${id}-problem` : undefined}
-            className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
-          />
-          <label htmlFor={`${id}-to`} className="text-muted">
-            To
-          </label>
-          <input
-            id={`${id}-to`}
-            type="date"
-            value={custom.to}
-            max={today}
-            onChange={(e) => apply({ ...custom, to: e.target.value })}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby={problem ? `${id}-problem` : undefined}
-            className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
-          />
+          <div className={pair}>
+            <label htmlFor={`${id}-from`} className="text-muted">
+              From
+            </label>
+            <input
+              id={`${id}-from`}
+              type="date"
+              value={custom.from}
+              max={today}
+              onChange={(e) => apply({ ...custom, from: e.target.value })}
+              aria-invalid={problem ? true : undefined}
+              aria-describedby={problem ? `${id}-problem` : undefined}
+              className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
+            />
+          </div>
+          <div className={pair}>
+            <label htmlFor={`${id}-to`} className="text-muted">
+              To
+            </label>
+            <input
+              id={`${id}-to`}
+              type="date"
+              value={custom.to}
+              max={today}
+              onChange={(e) => apply({ ...custom, to: e.target.value })}
+              aria-invalid={problem ? true : undefined}
+              aria-describedby={problem ? `${id}-problem` : undefined}
+              className="min-h-10 rounded-control border border-control-border bg-surface px-2 text-heading"
+            />
+          </div>
           {problem ? (
-            <span id={`${id}-problem`} role="alert" className="basis-full text-right text-danger">
+            <span
+              id={`${id}-problem`}
+              role="alert"
+              className={`basis-full text-danger ${align === 'end' ? 'text-right' : ''}`}
+            >
               {problem}
             </span>
           ) : null}
         </fieldset>
       ) : null}
-    </div>
+    </>
   );
 }

@@ -5,6 +5,7 @@ export * from './work-schedules.js';
 export * from './roles.js';
 export * from './security-defaults.js';
 export * from './my-security.js';
+export * from './my-profile.js';
 export * from './mfa-policy.js';
 export {
   createDepartmentsClient,

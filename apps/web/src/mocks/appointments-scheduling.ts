@@ -251,6 +251,7 @@ function seed(empty: boolean): Store {
           {
             id: uuid('0d30', 1),
             data: { typeId: types[0]?.id, staffUserIds: [owner.userId] },
+            contact: null,
             createdBy: 'Morgan Avery',
             updatedAt: at(today, '08:30'),
           },
@@ -642,6 +643,12 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       }
       if (input.generateVideoLink && input.method !== 'VIDEO')
         throw fail(400, 'VALIDATION_FAILED', 'Video links are for Zoom / Video');
+      // Review 2 (Save as Draft): the draft goes with the booking.
+      if (input.draftId) {
+        if (!s.drafts.some((d) => d.id === input.draftId))
+          throw fail(404, 'NOT_FOUND', 'Not found');
+        s.drafts = s.drafts.filter((d) => d.id !== input.draftId);
+      }
       const otherVideoPlatform = platformOf(
         input.method,
         input.otherVideoPlatform,
@@ -837,6 +844,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           method: r.method,
           contact: r.contact.id ? { kind: r.contact.kind, id: r.contact.id } : undefined,
         },
+        contact: copy(r.contact),
         createdBy: me.name,
         updatedAt: new Date().toISOString(),
       };
@@ -848,12 +856,21 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       await mockDelay();
       return copy(s.drafts);
     },
+    draft: async (id) => {
+      await mockDelay();
+      const d = s.drafts.find((x) => x.id === id);
+      if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
+      const named = d.data['contact'] as { kind?: string; id?: string } | undefined;
+      const known = s.records.find((r) => named?.id && r.contact.id === named.id)?.contact;
+      return copy({ ...d, contact: known ?? null });
+    },
     createDraft: async (body) => {
       await mockDelay();
       const data = parseInput(SaveAppointmentDraftRequest, body);
       const d: AppointmentDraft = {
         id: uuid('0d30', s.next++),
         data: copy(data) as Record<string, unknown>,
+        contact: null,
         createdBy: me.name,
         updatedAt: new Date().toISOString(),
       };

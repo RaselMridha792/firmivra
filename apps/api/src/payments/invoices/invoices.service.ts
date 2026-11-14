@@ -717,7 +717,16 @@ export class InvoicesService {
       // G11: one client's payments, inside the member's reach.
       const to = q.to ?? today;
       // G11: one client's payments, inside the member's reach.
-      const reach = { client: this.reach(actor), ...(q.clientId ? { clientId: q.clientId } : {}) };
+      const reach: Prisma.InvoiceWhereInput = {
+        client: this.reach(actor),
+        ...(q.clientId ? { clientId: q.clientId } : {}),
+        // C4 (Dashboard Review 2): one service's payments, as Service Breakdown counts them.
+        ...(q.serviceId === 'NONE'
+          ? { engagementId: null }
+          : q.serviceId
+            ? { engagement: { serviceId: q.serviceId } }
+            : {}),
+      };
       const widen = (d: string, days: number) =>
         new Date(Date.parse(`${d}T00:00:00Z`) + days * DAY);
       const invoiceRef = {

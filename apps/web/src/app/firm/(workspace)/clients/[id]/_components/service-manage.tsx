@@ -63,6 +63,8 @@ const FIELD_WORDS: Record<string, string> = {
 const ACTION_WORDS: Record<EngagementActivityAction, string> = {
   CREATED: 'Enrolled',
   UPDATED: 'Details changed',
+  PAUSED: 'Paused',
+  RESUMED: 'Resumed',
   BILLING_STOPPED: 'Billing paused',
   BILLING_RESUMED: 'Billing resumed',
   COMPLETED: 'Marked completed',
@@ -312,7 +314,7 @@ export function ServiceRowActions({
         <ModuleServiceBilling
           service={service}
           clientName={clientName}
-          engagementId={engagement.id}
+          engagement={engagement}
           onClose={close}
           onDone={done}
         />
@@ -470,28 +472,35 @@ function EditServiceDialog({
   );
 }
 
-/** Service & Billing for any service: the module's own pause where it has one (G8). */
+/**
+ * Service & Billing for any service (G8): Bookkeeping and Payroll pause in their module, every
+ * other service on its engagement (POST /business/engagements/{id}/pause, with the reason).
+ */
 function ModuleServiceBilling({
   service,
   clientName,
-  engagementId,
+  engagement,
   onClose,
   onDone,
 }: {
   service: ClientService;
   clientName: string;
-  engagementId: string;
+  engagement: Engagement;
   onClose: () => void;
   onDone: (text: string, tone: 'success' | 'error') => void;
 }) {
   const w = service.workspace;
   const books = w?.module === 'BOOKKEEPING' && w.id ? w.id : null;
   const payroll = w?.module === 'PAYROLL' && w.id ? w.id : null;
-  const record = useApiQuery(['clients', 'service-pause', books ?? payroll ?? 'none'], async () => {
-    if (books) return { paused: (await api.bookkeeping.getClient(books)).paused };
-    if (payroll) return { paused: (await api.payroll.getClient(payroll)).status === 'ON_HOLD' };
-    return { paused: false };
-  });
+  const record = useApiQuery(
+    // The engagement's own pause is read from it, so its key follows the engagement.
+    ['clients', 'service-pause', books ?? payroll ?? engagement.id, engagement.pausedAt ?? ''],
+    async () => {
+      if (books) return { paused: (await api.bookkeeping.getClient(books)).paused };
+      if (payroll) return { paused: (await api.payroll.getClient(payroll)).status === 'ON_HOLD' };
+      return { paused: !!engagement.pausedAt };
+    },
+  );
   if (record.isPending) return null;
   const pause = books
     ? {
@@ -503,12 +512,15 @@ function ModuleServiceBilling({
           pauseService: (reason: string) => api.payroll.pause(payroll, { reason }),
           resumeService: () => api.payroll.resume(payroll),
         }
-      : {};
+      : {
+          pauseService: (reason: string) => api.engagements.pause(engagement.id, { reason }),
+          resumeService: () => api.engagements.resume(engagement.id),
+        };
   return (
     <ServiceBillingDialog
       service={service.service.name}
       clientName={clientName}
-      engagementId={engagementId}
+      engagementId={engagement.id}
       servicePaused={record.data?.paused ?? false}
       {...(payroll ? { serviceNote: 'Payroll at the provider is not paused.' } : {})}
       {...pause}

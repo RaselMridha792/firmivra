@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useFirm } from '../../../../../../components/firm-context';
+import { formatPhone } from '../../../clients/_components/client-parts';
 import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -95,7 +96,8 @@ function fromMember(m: StaffDetail): Form {
     firstName: m.firstName,
     lastName: m.lastName,
     email: m.email,
-    phone: m.phone ?? '',
+    // Stored as E.164 (R2 NEW2); shown as people type a US number.
+    phone: formatPhone(m.phone) ?? '',
     departmentIds: m.departments.map((d) => d.id),
     jobTitle: m.jobTitle ?? '',
     role: m.role,
@@ -304,6 +306,8 @@ function EditForm({
     { invalidate: ['staff'] },
   );
   const locked = !manages || save.isPending;
+  // R2 NEW2: the phone field is the firm's Owner's.
+  const { role } = useFirm();
 
   const onSave = () => {
     if (!m) return;
@@ -413,7 +417,9 @@ function EditForm({
             label="Phone Number"
             type="tel"
             placeholder="(XXX) XXX-XXXX"
-            disabled={locked}
+            // Dashboard Review 2 (R2 NEW2): only the firm's Owner sets a member's number.
+            disabled={locked || role !== 'OWNER'}
+            hint={role === 'OWNER' ? undefined : "Only the firm's Owner changes a member's phone."}
             value={form.phone}
             error={errors.phone}
             onChange={(e) => set('phone', e.target.value)}

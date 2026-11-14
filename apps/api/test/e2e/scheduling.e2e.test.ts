@@ -1742,6 +1742,14 @@ describe('send reminder', () => {
     );
     expect(audit).toHaveLength(1);
     expect(JSON.stringify(audit)).not.toContain('Jamie');
+    // Review 2 (B8): the appointment's notice history shows it, after a fresh read too.
+    const record = exact(
+      AppointmentRecord,
+      await call('get', `/appointments/${r.id}/record`, people.staffA),
+    );
+    expect(record.notices).toHaveLength(1);
+    expect(record.notices[0]).toMatchObject({ kind: 'REMINDER', channel: 'EMAIL', status: 'SENT' });
+    expect(record.notices[0]!.recipient).not.toContain('Jamie');
   });
 
   it('skips what cannot be reached: a past or closed appointment, and channels without a sender', async () => {
@@ -1753,6 +1761,13 @@ describe('send reminder', () => {
       }),
     );
     expect(portal).toEqual({ sent: 0, skipped: 1 });
+    // Review 2 (B8): a reminder that could not go out is in the history as FAILED.
+    expect(
+      exact(AppointmentRecord, await call('get', `/appointments/${r.id}/record`, people.ownerA))
+        .notices,
+    ).toMatchObject([
+      { kind: 'REMINDER', channel: 'PORTAL', status: 'FAILED', recipient: 'Client portal' },
+    ]);
     await call('post', `/appointments/${r.id}/cancel`, people.ownerA, {});
     expect(
       exact(
@@ -2036,29 +2051,113 @@ describe('duplicate', () => {
   });
 });
 
-describe('drafts', () => {
-  it('list is empty and saving, changing and deleting say it is not available yet (403 MODULE_OFF)', async () => {
-    expect(
-      exact(AppointmentDraftList, await call('get', '/appointment-drafts', people.staffA)),
-    ).toEqual({ items: [] });
-    expectError(
-      await call('post', '/appointment-drafts', people.staffA, { method: 'VIDEO' }),
-      403,
-      'MODULE_OFF',
+describe('drafts (Review 2, Save as Draft)', () => {
+  const form = {
+    contact: { kind: 'CLIENT', id: '' },
+    typeId: '',
+    method: 'PHONE',
+    details: '',
+    internalNotes: 'Fake: confirm the time with the client first',
+    staffUserIds: [] as string[],
+    reminders: [],
+    sendConfirmation: false,
+  };
+  const formFor = () => ({
+    ...form,
+    contact: { kind: 'CLIENT', id: ids.c1 },
+    typeId: ids.typeA,
+    staffUserIds: [people.staffA.id],
+  });
+  const one = (id: string) => `/appointment-drafts/${id}`;
+
+  it("keeps a member's form and reopens it; only they read, change or delete it", async () => {
+    // Phone with no number and no reminders: the form that once answered "Something went wrong".
+    const made = exact(
+      AppointmentDraft,
+      await call('post', '/appointment-drafts', people.staffA, formFor()),
+      201,
     );
-    expectError(
-      await call('put', `/appointment-drafts/${randomUUID()}`, people.staffA, { method: 'VIDEO' }),
-      403,
-      'MODULE_OFF',
+    expect(made.data).toMatchObject({
+      method: 'PHONE',
+      internalNotes: 'Fake: confirm the time with the client first',
+      typeId: ids.typeA,
+    });
+    expect(made.createdBy).not.toBeNull();
+    const reopened = exact(AppointmentDraft, await call('get', one(made.id), people.staffA));
+    expect(reopened.data).toEqual(made.data);
+    // Reopened, it brings its client as the form shows it.
+    expect(reopened.contact).toMatchObject({ kind: 'CLIENT', id: ids.c1 });
+    const saved = exact(
+      AppointmentDraft,
+      await call('put', one(made.id), people.staffA, {
+        ...formFor(),
+        internalNotes: 'Fake: the client prefers mornings',
+      }),
     );
-    expectError(
-      await call('delete', `/appointment-drafts/${randomUUID()}`, people.staffA, {}),
-      403,
-      'MODULE_OFF',
+    expect(saved.data).toMatchObject({ internalNotes: 'Fake: the client prefers mornings' });
+    const mine = exact(
+      AppointmentDraftList,
+      await call('get', '/appointment-drafts', people.staffA),
     );
-    expect(
-      (await call('get', '/appointment-drafts', people.ownerB, undefined, ids.firmA)).status,
-    ).toBe(404);
+    expect(mine.items.map((d) => d.id)).toContain(made.id);
+
+    // Another member, even the Owner, and another firm: none of it.
+    const owners = exact(
+      AppointmentDraftList,
+      await call('get', '/appointment-drafts', people.ownerA),
+    );
+    expect(owners.items.map((d) => d.id)).not.toContain(made.id);
+    for (const [method, who, firm] of [
+      ['get', people.ownerA, ids.firmA],
+      ['put', people.staffA2, ids.firmA],
+      ['delete', people.ownerA, ids.firmA],
+      ['get', people.ownerB, ids.firmB],
+    ] as const) {
+      expectError(
+        await call(method, one(made.id), who, method === 'put' ? formFor() : undefined, firm),
+        404,
+        'NOT_FOUND',
+      );
+    }
+
+    expect((await call('delete', one(made.id), people.staffA)).body).toEqual({ ok: true });
+    expectError(await call('get', one(made.id), people.staffA), 404, 'NOT_FOUND');
+  });
+
+  it('checks every record a draft names and refuses what a booking cannot keep', async () => {
+    const refused = async (body: object, status: number, code: string) =>
+      expectError(await call('post', '/appointment-drafts', people.staffA, body), status, code);
+    await refused({ ...formFor(), typeId: randomUUID() }, 404, 'NOT_FOUND');
+    await refused({ ...formFor(), staffUserIds: [people.ownerB.id] }, 404, 'NOT_FOUND');
+    // A client of another member is out of Staff's reach.
+    await refused({ ...formFor(), contact: { kind: 'CLIENT', id: ids.c2 } }, 404, 'NOT_FOUND');
+    await refused({ ...formFor(), internalNotes: 'x'.repeat(2001) }, 400, 'VALIDATION_FAILED');
+  });
+
+  it("booking a draft deletes it with the booking; anyone else's draft is not booked", async () => {
+    const made = exact(
+      AppointmentDraft,
+      await call('post', '/appointment-drafts', people.ownerA, formFor()),
+      201,
+    );
+    const n = freshDay();
+    expectError(
+      await call(
+        'post',
+        '/appointments/schedule',
+        people.staffA,
+        schedule({ draftId: made.id, startsAt: at(n, '09:00'), endsAt: at(n, '09:30') }),
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    const booked = await scheduled({
+      draftId: made.id,
+      startsAt: at(n, '11:00'),
+      endsAt: at(n, '11:30'),
+    });
+    expect(booked.id).toBeTruthy();
+    expectError(await call('get', one(made.id), people.ownerA), 404, 'NOT_FOUND');
   });
 });
 
