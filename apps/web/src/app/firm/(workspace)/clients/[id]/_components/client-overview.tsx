@@ -3,6 +3,7 @@
 import type { Address, ClientRecord, ContactMethod } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -24,13 +25,22 @@ const CONTACT: Record<ContactMethod, string> = {
 const birthDate = (day: string) =>
   new Date(`${day}T00:00:00`).toLocaleDateString('en-US', { dateStyle: 'long' });
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  empty = 'Not on file',
+  children,
+}: {
+  label: string;
+  /** What an empty value reads as. */
+  empty?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
       <dt className="text-sm text-muted">{label}</dt>
       <dd className="text-sm wrap-anywhere text-text sm:col-span-2">
         {children === null || children === undefined || children === '' ? (
-          <span className="text-muted">Not on file</span>
+          <span className="text-muted">{empty}</span>
         ) : (
           children
         )}
@@ -150,10 +160,21 @@ function FirmDetails({ client }: { client: ClientRecord }) {
         <Field label="Assigned to">{client.assignedTo?.name ?? 'Unassigned'}</Field>
         <Field label="Client since">{dateText(client.createdAt)}</Field>
         <Field label="Referral source">{client.profile.referralSource}</Field>
-        <Field label="Notes">
+        {/* The profile's own text, not the firm's notes (Octavia read "Notes: Not on file" as no
+            notes, BK N04): its name says so, and the internal notes are one click away. */}
+        <Field label="Additional Information" empty="None added">
           {client.profile.additionalInfo ? (
             <span className="whitespace-pre-line">{client.profile.additionalInfo}</span>
           ) : null}
+        </Field>
+        <Field label="Internal notes">
+          <Link
+            href={`/clients/${client.id}/notes`}
+            data-testid="open-client-notes"
+            className="font-medium text-link hover:underline"
+          >
+            Open Notes
+          </Link>
         </Field>
         {client.archivedAt ? <Field label="Archived">{dateText(client.archivedAt)}</Field> : null}
       </dl>
