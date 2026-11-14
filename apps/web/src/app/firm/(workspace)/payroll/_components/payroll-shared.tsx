@@ -261,15 +261,17 @@ export function CardHead({
   aside?: ReactNode;
 }) {
   return (
-    <header className="mb-3 flex items-center justify-between gap-2">
-      <div className="flex items-center gap-3">
+    // Octavia (Nov 14): with the side menu expanded a link beside the title left its card; the
+    // header wraps instead.
+    <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-3">
         <span
           aria-hidden
           className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-info-soft text-action"
         >
           <Glyph weight="fill" className="size-5" />
         </span>
-        <h2 className="font-display text-base font-bold text-heading">{title}</h2>
+        <h2 className="min-w-0 font-display text-base font-bold text-heading">{title}</h2>
       </div>
       {aside}
     </header>
