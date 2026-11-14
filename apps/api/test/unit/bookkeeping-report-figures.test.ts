@@ -3,6 +3,7 @@ import {
   type FigureLine,
   figuresCsv,
   reportFigures,
+  totalLabel,
 } from '../../src/bookkeeping/report-figures.js';
 
 // BK-RPT part 1: a report's figures from the period's ledger lines (cash basis).
@@ -97,7 +98,36 @@ describe('reportFigures', () => {
     );
     expect(csv.split('\r\n')[0]).toBe('"Section","Line","Debit","Credit","Amount","Count"');
     expect(csv).toContain('"Expenses","Fake Rent",,,"350.00",');
-    expect(csv).toContain('"Total","netIncomeCents",,,"430.00",');
+    expect(csv).toContain('"Total","Net income",,,"430.00",');
     expect(csv).toContain('"Note","Shown on the cash basis');
+  });
+
+  it('says whose figures they are, and leaves totals blank when nothing is recorded (Review 2, RP03)', () => {
+    const q = (v: string | number | null) => (v === null ? '' : `"${String(v)}"`);
+    const context = {
+      client: 'Fake Client',
+      period: '2026-09-01 to 2026-09-30',
+      basis: 'Cash',
+      source: "This client's Firmivra ledger",
+    };
+    const full = figuresCsv(reportFigures('PROFIT_LOSS', 'CASH', lines), q, context).split('\r\n');
+    expect(full.slice(0, 5)).toEqual([
+      '"Client","Fake Client"',
+      '"Period","2026-09-01 to 2026-09-30"',
+      '"Basis","Cash"',
+      '"Source","This client\'s Firmivra ledger"',
+      expect.stringMatching(/^"Data","\d+ recorded lines"$/),
+    ]);
+    expect(full[6]).toBe('"Section","Line","Debit","Credit","Amount","Count"');
+    const none = figuresCsv(reportFigures('PROFIT_LOSS', 'CASH', []), q, context);
+    expect(none).toContain('"Data","Nothing is recorded for this period');
+    expect(none).toContain('"Total","Net income",,,,');
+    expect(none).not.toMatch(/"0\.00"/);
+  });
+
+  it('names each total in words', () => {
+    expect(totalLabel('incomeCents')).toBe('Income');
+    expect(totalLabel('costOfGoodsCents')).toBe('Cost of goods sold');
+    expect(totalLabel('openingBalanceCents')).toBe('Opening balance');
   });
 });

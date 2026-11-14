@@ -252,6 +252,10 @@ export function ProvidersCard({
           </OriginLink>
         }
       />
+      <p className="mb-2 text-xs text-muted" data-testid="provider-states">
+        Authorized means the provider allowed access; figures arrive only after the first successful
+        sync, shown on each client&apos;s workspace.
+      </p>
       {rows.length === 0 ? (
         <p className={quiet}>
           {note(
@@ -269,17 +273,18 @@ export function ProvidersCard({
             >
               <span className="min-w-0 truncate text-sm font-semibold text-heading">{r.label}</span>
               <span className="shrink-0 text-xs text-muted">
-                {r.clientCount} {r.clientCount === 1 ? 'Client' : 'Clients'}
+                {/* Review 2 (F01): chosen for clients is not authorized; authorized is not synced. */}
+                {r.clientCount} {r.clientCount === 1 ? 'client chose it' : 'clients chose it'}
               </span>
               {r.connected ? (
-                <Badge tone="success">Connected</Badge>
+                <Badge tone="success">Authorized</Badge>
               ) : (
                 <button
                   type="button"
                   onClick={onConnect}
                   className="rounded-pill bg-info-soft px-3 py-1 text-xs font-semibold text-action"
                 >
-                  Connect
+                  Not authorized · Connect
                 </button>
               )}
             </li>
