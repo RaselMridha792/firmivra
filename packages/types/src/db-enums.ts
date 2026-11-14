@@ -1850,6 +1850,23 @@ export type BlockedTimeKind = z.infer<typeof BlockedTimeKind>;
 export const RecurrenceFrequency = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
 export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;
 
+/** R55 (Appointments A3): what a client's request for an offered earlier time does. */
+export const AppointmentWaitlistMode = z.enum(['AUTO_CONFIRM', 'STAFF_APPROVAL']);
+export type AppointmentWaitlistMode = z.infer<typeof AppointmentWaitlistMode>;
+
+/** R55 (Appointments A3): where a waitlist entry is. */
+export const AppointmentWaitlistStatus = z.enum([
+  'WAITING',
+  'OFFERED',
+  'REQUESTED',
+  'MOVED',
+  'DECLINED',
+  'EXPIRED',
+  'LEFT',
+  'REJECTED',
+]);
+export type AppointmentWaitlistStatus = z.infer<typeof AppointmentWaitlistStatus>;
+
 export const ClientStatus = z.enum([
   'NEW',
   'PENDING_DOCUMENTS',
