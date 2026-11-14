@@ -232,6 +232,8 @@ function PreferencesForm({
         >
           <Select
             label="Time Zone"
+            // Appointments Review 2 (B10): what a change does to what is already booked.
+            hint="New appointments start in this zone. Changing it moves no booked appointment or reminder: each keeps its exact time. Appointments given their own zone keep it."
             options={options(zones)}
             value={zone}
             onChange={(e) => {
