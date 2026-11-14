@@ -193,10 +193,13 @@ export const scheduleHref = (
   serviceId: string | null | undefined,
   from: string,
   clientId?: string,
+  /** C12: the plan the appointment is a client discussion of. */
+  taxPlanId?: string,
 ): string => {
   const q = new URLSearchParams();
   if (clientId) q.set('clientId', clientId);
   if (serviceId) q.set('serviceId', serviceId);
+  if (taxPlanId) q.set('taxPlanId', taxPlanId);
   q.set('from', from);
   return `/calendar/new?${q.toString()}`;
 };

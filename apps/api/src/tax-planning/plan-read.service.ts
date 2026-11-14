@@ -127,12 +127,39 @@ export class TaxPlanReadService {
 
   async detail(ctx: TaxCtx, plan: PlanShape): Promise<TaxPlanDetail> {
     const { tx, businessId } = ctx;
-    const [rows, docs] = await Promise.all([
+    const [rows, docs, tasks, discussions] = await Promise.all([
       this.inputRows(ctx, plan.id),
       tx.taxPlanDocument.findMany({
         where: { businessId, planId: plan.id },
         orderBy: { createdAt: 'asc' },
         include: { document: { select: { fileName: true } } },
+      }),
+      // C15 (Review 2): the plan's implementation tasks, due first.
+      tx.task.findMany({
+        where: { businessId, taxPlanId: plan.id, status: { not: 'DRAFT' } },
+        orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+        take: 100,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          dueOn: true,
+          assignedMember: { select: { userId: true, user: { select: { name: true } } } },
+        },
+      }),
+      // C12 (Review 2): the plan's client discussions, soonest first.
+      tx.appointment.findMany({
+        where: { businessId, taxPlanId: plan.id },
+        orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+        take: 50,
+        select: {
+          id: true,
+          startsAt: true,
+          endsAt: true,
+          timeZone: true,
+          status: true,
+          staff: { select: { userId: true, user: { select: { name: true } } } },
+        },
       }),
     ]);
     const names = await memberNames(tx, businessId, [
@@ -206,6 +233,21 @@ export class TaxPlanReadService {
       // C27 (Review 2): a Closed plan is read-only until Reopen.
       canEdit: ctx.perms.edit && plan.status !== 'CLOSED',
       canChangeStatus: ctx.perms.edit,
+      discussions: discussions.map((a) => ({
+        id: a.id,
+        startsAt: a.startsAt.toISOString(),
+        endsAt: a.endsAt.toISOString(),
+        timeZone: a.timeZone,
+        status: a.status,
+        staff: assignee(a.staff),
+      })),
+      tasks: tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        dueOn: day(t.dueOn),
+        assignedTo: assignee(t.assignedMember),
+      })),
       canOverride: ctx.perms.override,
       canSend: ctx.perms.send,
       createdAt: plan.createdAt.toISOString(),

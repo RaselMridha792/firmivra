@@ -366,6 +366,7 @@ export function ScheduleForm({
   at,
   prefill,
   cancelHref,
+  taxPlanId,
 }: {
   record?: AppointmentRecord;
   /** The date and hour picked on the calendar (`/calendar/new?date=&time=`). */
@@ -378,6 +379,8 @@ export function ScheduleForm({
   prefill?: { clientId?: string; engagementId?: string; serviceId?: string };
   /** Where Cancel goes when a workspace opened the form (its `from`). */
   cancelHref?: string;
+  /** C12 (Tax Planning Review 2): the planning plan this discussion is for. */
+  taxPlanId?: string;
 }) {
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
   const client = useApiQuery(
@@ -415,6 +418,7 @@ export function ScheduleForm({
         at={at}
         prefill={start}
         cancelHref={cancelHref}
+        taxPlanId={taxPlanId}
         header={header}
       />
     );
@@ -529,6 +533,7 @@ function FormBody({
   at,
   prefill,
   cancelHref,
+  taxPlanId,
   header,
 }: {
   options: SchedulingOptions;
@@ -536,6 +541,7 @@ function FormBody({
   at?: { date: string; time: string };
   prefill?: Prefill;
   cancelHref?: string;
+  taxPlanId?: string;
   header: ReactNode;
 }) {
   const router = useRouter();
@@ -796,6 +802,7 @@ function FormBody({
         {
           idempotencyKey: key,
           ...body,
+          ...(taxPlanId ? { taxPlanId } : {}),
           ...(conflict && override.trim()
             ? { overrideConflicts: { reason: override.trim() } }
             : {}),

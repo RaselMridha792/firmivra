@@ -141,7 +141,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   {
     param: 'key',
     value: 'year-end-planning-checklist',
-    routes: /\/tax-planning\/resources\/:key\/send$/,
+    // C17 (Review 2): editing it too (the firm's own copy).
+    routes: /\/tax-planning\/resources\/:key(\/send)?$/,
   },
   // Each advisory plan record has a version 1 (cases/advisory.ts).
   { param: 'version', value: '1', routes: /\/advisory\/plans\/:id\/versions\/:version$/ },

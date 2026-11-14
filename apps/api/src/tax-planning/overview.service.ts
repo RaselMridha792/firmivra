@@ -30,6 +30,7 @@ import type {
   PlanningClientsListQuery,
   ResourcesQuery,
   SendResourceBody,
+  UpdateResourceBody,
 } from './tax-planning-input.js';
 import {
   clientRef,
@@ -290,7 +291,7 @@ export class TaxOverviewService {
         recentClients: recentRows,
         topOpportunities: top,
         deadlines: (await this.deadlines(ctx, today, addDays(today, 120))).slice(0, 5),
-        resources: RESOURCES.slice(0, 5).map(toResource),
+        resources: (await this.mergedResources(ctx)).slice(0, 5).map(toResource),
         disclaimer: DISCLAIMER,
         canCreatePlan: ctx.perms.create,
         canSend: ctx.perms.send,
@@ -529,14 +530,85 @@ export class TaxOverviewService {
 
   // ---------- Resources ----------
 
-  resources(q: Out<typeof ResourcesQuery>): PlanningResource[] {
-    const search = q.search?.toLowerCase();
-    return RESOURCES.filter(
-      (r) =>
-        (!search || r.title.toLowerCase().includes(search)) &&
-        (!q.category || r.category.toLowerCase() === q.category.toLowerCase()) &&
-        (!q.kind || r.kind === q.kind),
-    ).map(toResource);
+  /**
+   * C17 (Review 2): the catalog with the firm's own words over each built-in resource it edited
+   * (tax_planning_resources by catalog key). The built-in entries never change.
+   */
+  private async mergedResources(ctx: TaxCtx) {
+    const rows = await ctx.tx.taxPlanningResource.findMany({
+      where: { businessId: ctx.businessId, catalogKey: { not: null }, archivedAt: null },
+    });
+    const byKey = new Map(rows.map((r) => [r.catalogKey as string, r]));
+    return RESOURCES.map((def) => {
+      const row = byKey.get(def.key);
+      return row
+        ? {
+            ...def,
+            title: row.title,
+            category: row.category,
+            kind: row.kind,
+            clientFacing: row.clientFacing,
+            summary: row.summary ?? def.summary,
+            edited: true,
+          }
+        : { ...def, edited: false };
+    });
+  }
+
+  resources(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    q: Out<typeof ResourcesQuery>,
+  ): Promise<PlanningResource[]> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const search = q.search?.toLowerCase();
+      return (await this.mergedResources(ctx))
+        .filter(
+          (r) =>
+            (!search || r.title.toLowerCase().includes(search)) &&
+            (!q.category || r.category.toLowerCase() === q.category.toLowerCase()) &&
+            (!q.kind || r.kind === q.kind),
+        )
+        .map(toResource);
+    });
+  }
+
+  /** C17 (Review 2): the firm's own words for a built-in resource (Manage Strategies). */
+  updateResource(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    key: string,
+    body: Out<typeof UpdateResourceBody>,
+  ): Promise<PlanningResource> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.manageStrategies) throw tpErrors.forbidden();
+      if (!resourceOf(key)) throw notFound();
+      const data = {
+        title: body.title,
+        category: body.category,
+        kind: body.kind,
+        summary: body.summary ?? null,
+        clientFacing: body.clientFacing,
+        updatedByUserId: userId,
+        archivedAt: null,
+      };
+      await ctx.tx.taxPlanningResource.upsert({
+        where: { businessId_catalogKey: { businessId, catalogKey: key } },
+        create: { businessId, catalogKey: key, createdByUserId: userId, ...data },
+        update: data,
+      });
+      await this.audit.logIn(
+        ctx.tx,
+        'tax_resource.updated',
+        { type: 'tax_resource' },
+        { resourceKey: key, clientFacing: body.clientFacing },
+      );
+      const merged = (await this.mergedResources(ctx)).find((r) => r.key === key);
+      if (!merged) throw notFound();
+      return toResource(merged);
+    });
   }
 
   sendResource(
@@ -548,7 +620,8 @@ export class TaxOverviewService {
   ): Promise<OkResponse> {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.send) throw tpErrors.forbidden();
-      const resource = resourceOf(key);
+      // C17 (Review 2): the firm's own words, and its own client-facing choice, when it edited it.
+      const resource = (await this.mergedResources(ctx)).find((r) => r.key === key);
       if (!resource) throw notFound();
       if (!resource.clientFacing)
         throw tpErrors.invalid('key', 'This resource is for staff and cannot be sent to a client');

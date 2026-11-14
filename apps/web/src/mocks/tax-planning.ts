@@ -9,6 +9,7 @@ import {
   FinalizePlanRequest,
   OpportunityActionRequest,
   PlanReasonRequest,
+  UpdatePlanningResourceRequest,
   type TaxPlanEvent,
   UpdateTaxOpportunityRequest,
   PlanningCalendarQuery,
@@ -504,6 +505,9 @@ export function createTaxPlanningMock({
       overlapNotes: [],
       staleData: false,
       disclaimer: TAX_PLANNING_DISCLAIMER,
+      // C12, C15: a plan's linked discussions and implementation tasks (none seeded).
+      discussions: [],
+      tasks: [],
       canEdit: role !== 'STAFF',
       canChangeStatus: role !== 'STAFF',
       canOverride: role !== 'STAFF',
@@ -1741,6 +1745,23 @@ export function createTaxPlanningMock({
         return items
           .filter((d) => d.date >= query.from && d.date <= query.to)
           .sort((a, b) => a.date.localeCompare(b.date));
+      }),
+    // C17: the firm's own words over a built-in resource (fake, kept for the page's life).
+    updateResource: (key, body) =>
+      run(() => {
+        manage();
+        const input = parseInput(UpdatePlanningResourceRequest, body);
+        const r = RESOURCES.find((x) => x.key === key);
+        if (!r) throw fail(404, 'NOT_FOUND', 'That resource was not found.');
+        Object.assign(r, {
+          title: input.title,
+          category: input.category,
+          kind: input.kind,
+          summary: input.summary ?? r.summary,
+          clientFacing: input.clientFacing,
+          edited: true,
+        });
+        return { ...r };
       }),
     resources: (q = {}) =>
       run(() => {

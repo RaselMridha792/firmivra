@@ -263,6 +263,21 @@ export class SchedulingWriteService {
           })
         : null;
 
+    // C12 (Tax Planning Review 2): a planning discussion of one of the client's open plans.
+    const taxPlanId = body.taxPlanId ?? null;
+    if (taxPlanId) {
+      const plan = await tx.taxPlan.findFirst({
+        where: {
+          businessId,
+          id: taxPlanId,
+          clientId: client.id,
+          archivedAt: null,
+          status: { not: 'CLOSED' },
+        },
+        select: { id: true },
+      });
+      if (!plan) throw errors.notFound();
+    }
     const confirmedAt = body.status === 'CONFIRMED' ? new Date() : null;
     let firstId = '';
     for (const [index, slot] of expansion.occurrences.entries()) {
@@ -273,6 +288,7 @@ export class SchedulingWriteService {
           staffUserId: staff.userId,
           typeId: type.id,
           serviceId,
+          taxPlanId,
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           timeZone,

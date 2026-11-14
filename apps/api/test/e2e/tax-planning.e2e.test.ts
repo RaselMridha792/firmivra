@@ -20,6 +20,7 @@ import {
   PlanVersionList,
   PlanningCalendar,
   PlanningClientPage,
+  PlanningResource,
   PlanningResourceList,
   PlanningStrategy,
   PlanningStrategyPage,
@@ -1671,6 +1672,103 @@ describe('plan lifecycle (Review 2 C08, C11, C27)', () => {
     ).items;
     expect(events[0]).toMatchObject({ fromStatus: 'CLOSED', toStatus: 'UNDER_REVIEW' });
     expect(events.some((e) => e.toStatus === 'CLOSED')).toBe(true);
+  });
+});
+
+describe("a plan's work and the firm's resources (Review 2 C12, C15, C17)", () => {
+  it('lists the tasks and client discussions linked to the plan, only its own', async () => {
+    const p = await createPlan({ clientId: clients.c3, planYear: 2024, name: mark('Work plan') });
+    const ids = await inFirm('a', async (tx) => {
+      const member = await tx.membership.findFirstOrThrow({
+        where: { businessId: firms.a, userId: ownerA.id },
+        select: { userId: true },
+      });
+      const task = await tx.task.create({
+        data: {
+          businessId: firms.a,
+          clientId: clients.c3,
+          taxPlanId: p.id,
+          title: mark('Open the HSA'),
+          dueOn: new Date('2026-12-15T00:00:00Z'),
+          assignedUserId: member.userId,
+        },
+        select: { id: true },
+      });
+      // Another task of the client, not of the plan: never listed.
+      await tx.task.create({
+        data: { businessId: firms.a, clientId: clients.c3, title: mark('Unrelated') },
+      });
+      const startsAt = new Date(Date.now() + 7 * DAY);
+      const appointment = await tx.appointment.create({
+        data: {
+          businessId: firms.a,
+          clientId: clients.c3,
+          staffUserId: member.userId,
+          taxPlanId: p.id,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 3_600_000),
+          locationKind: 'PHONE',
+        },
+        select: { id: true },
+      });
+      return { task: task.id, appointment: appointment.id };
+    });
+    const detail = await plan(p.id);
+    expect(detail.tasks).toEqual([
+      expect.objectContaining({ id: ids.task, dueOn: '2026-12-15', assignedTo: expect.anything() }),
+    ]);
+    expect(detail.discussions).toEqual([
+      expect.objectContaining({ id: ids.appointment, staff: expect.anything() }),
+    ]);
+    expectError(await call('get', `/plans/${p.id}`, ownerB, undefined, 'b'), 404, 'NOT_FOUND');
+  });
+
+  it("edits a built-in resource in the firm's own words, used where it is listed and sent", async () => {
+    // One the other resource tests do not read.
+    const key = 'planning-meeting-prep-checklist';
+    const body = {
+      title: mark('Our meeting prep list'),
+      category: 'Checklists',
+      kind: 'CHECKLIST',
+      summary: 'Our own words for the meeting prep list (fake).',
+      clientFacing: true,
+    };
+    expectError(await call('put', `/resources/${key}`, staffA, body), 403, 'FORBIDDEN');
+    expectError(await call('put', '/resources/no-such-resource', ownerA, body), 404, 'NOT_FOUND');
+    const saved = PlanningResource.parse(ok(await call('put', `/resources/${key}`, ownerA, body)));
+    expect(saved).toMatchObject({ key, title: body.title, summary: body.summary, edited: true });
+    const listed = PlanningResourceList.parse(ok(await call('get', '/resources', ownerA))).items;
+    expect(listed.find((r) => r.key === key)).toMatchObject({ title: body.title, edited: true });
+    // Firm B keeps the built-in one.
+    const bList = PlanningResourceList.parse(
+      ok(await call('get', '/resources', ownerB, undefined, 'b')),
+    ).items;
+    expect(bList.find((r) => r.key === key)).toMatchObject({ edited: false });
+    expect(bList.find((r) => r.key === key)?.title).not.toBe(body.title);
+    // Sent, the client gets the firm's words.
+    ok(
+      await call('post', `/resources/${key}/send`, ownerA, {
+        clientId: clients.c1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+    );
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirstOrThrow({
+        where: { clientId: clients.c1, subject: body.title },
+        include: { messages: true },
+      }),
+    );
+    expect(thread.messages[0]?.body).toContain('Our own words for the meeting prep list');
+    // Made staff-only, it can no longer be sent.
+    ok(await call('put', `/resources/${key}`, ownerA, { ...body, clientFacing: false }));
+    expectError(
+      await call('post', `/resources/${key}/send`, ownerA, {
+        clientId: clients.c1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });
 
