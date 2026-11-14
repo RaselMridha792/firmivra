@@ -1007,6 +1007,31 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       rows = [r, ...rows];
       return toDetail(r);
     },
+    mailingReport: async (query = {}) => {
+      await mockDelay();
+      const q = parseInput(EfileReportQuery, query);
+      const live = rows.filter((r) => reachable(r) && !r.archivedAt);
+      const taxYear =
+        q.taxYear ?? Math.max(new Date().getUTCFullYear() - 1, ...live.map((r) => r.taxYear));
+      return {
+        taxYear,
+        rows: live
+          .filter((r) => r.taxYear === taxYear)
+          .flatMap((r) =>
+            r.filings
+              .filter((f) => f.filingMethod === 'PAPER')
+              .map((f) => ({
+                taxReturnId: r.id,
+                clientName: clientOf(r).name,
+                filingType: r.filingType,
+                jurisdiction: f.jurisdiction,
+                status: f.status,
+                paperFiledOn: f.paperFiledOn,
+                mailTrackingNumber: f.mailTrackingNumber,
+              })),
+          ),
+      };
+    },
     efileReport: async (query = {}) => {
       await mockDelay();
       const q = parseInput(EfileReportQuery, query);
