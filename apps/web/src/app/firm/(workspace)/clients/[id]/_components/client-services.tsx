@@ -243,7 +243,11 @@ export function ServicesTable({ clientId }: { clientId: string }) {
                           : (e?.package ?? '—')}
                       </td>
                       <td className="px-3 py-2">
-                        <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
+                        <span className="flex flex-wrap items-center gap-1">
+                          <Badge tone={STATUS[s.status].tone}>{STATUS[s.status].label}</Badge>
+                          {/* G8: on hold, any service (the reason is in its History). */}
+                          {e?.pausedAt && live ? <Badge tone="warning">Paused</Badge> : null}
+                        </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-text">{dateText(s.since)}</td>
                       <td className="px-3 py-2 text-text">

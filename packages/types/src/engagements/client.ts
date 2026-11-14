@@ -10,6 +10,7 @@ import {
   EngagementId,
   EngagementList,
   ListEngagementsQuery,
+  PauseEngagementRequest,
   MyService,
   MyServiceList,
   RequestCancellationRequest,
@@ -77,6 +78,14 @@ export function createEngagementsClient(request: ApiRequest) {
     /** Status and stage changes, newest first. */
     history: async (id: string): Promise<EngagementHistory['items']> =>
       (await request(EngagementHistory, `${one(id)}/history`)).items,
+    /** Clients Review 2 (G8): any service on hold with the firm's reason, and back. */
+    pause: async (id: string, body: PauseEngagementRequest): Promise<Engagement> =>
+      request(Engagement, `${one(id)}/pause`, {
+        method: 'POST',
+        body: parseInput(PauseEngagementRequest, body),
+      }),
+    resume: async (id: string): Promise<Engagement> =>
+      request(Engagement, `${one(id)}/resume`, { method: 'POST', body: {} }),
     /** Clients Review 2 (G8): what was done to the service, from its audit rows; newest first. */
     activity: async (id: string): Promise<EngagementActivity['items']> =>
       (await request(EngagementActivity, `${one(id)}/activity`)).items,

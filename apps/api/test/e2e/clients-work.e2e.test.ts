@@ -82,7 +82,7 @@ const inFirm = <T>(k: 'a' | 'b', work: (tx: TxClient) => Promise<T>) =>
   );
 
 async function call(
-  method: 'get' | 'post',
+  method: 'get' | 'post' | 'patch' | 'delete',
   path: string,
   who: Person,
   firm: 'a' | 'b' = 'a',
@@ -980,5 +980,112 @@ describe('Bulk Add Tag, Change Status and Export Selected (E2 additions)', () =>
       clientIds: [ids.w1, ids.b1],
     });
     expect(refused.status).toBe(404);
+  });
+});
+
+describe('linked profiles (Clients Review 2, G9)', () => {
+  it('links two clients once, both list it, Staff reach only their own pair, audited without the note', async () => {
+    const [biz, owner, other] = await inFirm('a', (tx) =>
+      Promise.all([
+        tx.client.create({
+          data: {
+            businessId: firms.a.id,
+            displayName: 'Link bakery (fake)',
+            accountType: 'BUSINESS',
+            assignedUserId: people.staffA.id,
+          },
+        }),
+        tx.client.create({
+          data: {
+            businessId: firms.a.id,
+            displayName: 'Link owner (fake)',
+            assignedUserId: people.staffA.id,
+          },
+        }),
+        tx.client.create({ data: { businessId: firms.a.id, displayName: 'Link other (fake)' } }),
+      ]),
+    );
+    const added = await call('post', `/${biz.id}/links`, people.ownerA, 'a', {
+      linkedClientId: owner.id,
+      role: 'OWNER',
+      note: 'Fake: signs for the bakery',
+    });
+    expect(added.status, JSON.stringify(added.body)).toBe(201);
+    expect(added.body).toMatchObject({ role: 'OWNER', side: 'LINKED', other: { id: owner.id } });
+    const linkId = (added.body as { id: string }).id;
+
+    // The other profile lists it too, read the other way.
+    const fromOwner = await call('get', `/${owner.id}/links`, people.ownerA);
+    expect(fromOwner.body).toMatchObject({
+      items: [{ id: linkId, side: 'ADDED_TO', other: { id: biz.id, accountType: 'BUSINESS' } }],
+    });
+
+    // Once per pair, never to itself.
+    const twice = await call('post', `/${owner.id}/links`, people.ownerA, 'a', {
+      linkedClientId: biz.id,
+      role: 'SPOUSE',
+    });
+    expect([twice.status, codeOf(twice.body)]).toEqual([409, 'ALREADY_LINKED']);
+    const self = await call('post', `/${biz.id}/links`, people.ownerA, 'a', {
+      linkedClientId: biz.id,
+      role: 'OTHER',
+    });
+    expect([self.status, codeOf(self.body)]).toEqual([400, 'SELF_LINK']);
+
+    // Staff: a client not theirs is 404, and a link to one stays out of their list.
+    const notTheirs = await call('post', `/${biz.id}/links`, people.staffA, 'a', {
+      linkedClientId: other.id,
+      role: 'RELATED_BUSINESS',
+    });
+    expect(notTheirs.status).toBe(404);
+    const byOwner = await call('post', `/${biz.id}/links`, people.ownerA, 'a', {
+      linkedClientId: other.id,
+      role: 'RELATED_BUSINESS',
+    });
+    expect(byOwner.status).toBe(201);
+    const staffList = await call('get', `/${biz.id}/links`, people.staffA);
+    expect((staffList.body as { items: { id: string }[] }).items.map((i) => i.id)).toEqual([
+      linkId,
+    ]);
+    const otherLink = (byOwner.body as { id: string }).id;
+    expect((await call('delete', `/${biz.id}/links/${otherLink}`, people.staffA)).status).toBe(404);
+
+    // Another firm: 404 on the client and on the link.
+    expect((await call('get', `/${biz.id}/links`, people.ownerB, 'b')).status).toBe(404);
+    expect(
+      (await call('patch', `/${biz.id}/links/${linkId}`, people.ownerB, 'b', { role: 'FAMILY' }))
+        .status,
+    ).toBe(404);
+
+    // Change, then take it off.
+    const changed = await call('patch', `/${owner.id}/links/${linkId}`, people.staffA, 'a', {
+      role: 'RESPONSIBLE_PARTY',
+      note: '',
+    });
+    expect(changed.status, JSON.stringify(changed.body)).toBe(200);
+    expect(changed.body).toMatchObject({ role: 'RESPONSIBLE_PARTY', note: null, side: 'ADDED_TO' });
+    expect((await call('delete', `/${biz.id}/links/${linkId}`, people.ownerA)).body).toEqual({
+      ok: true,
+    });
+    const after = await call('get', `/${owner.id}/links`, people.ownerA);
+    expect((after.body as { items: unknown[] }).items).toEqual([]);
+
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: firms.a.id,
+          action: { in: ['client.link_added', 'client.link_changed', 'client.link_removed'] },
+          entityId: { in: [biz.id, owner.id] },
+        },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'client.link_added',
+      'client.link_added',
+      'client.link_changed',
+      'client.link_removed',
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('signs for the bakery');
   });
 });

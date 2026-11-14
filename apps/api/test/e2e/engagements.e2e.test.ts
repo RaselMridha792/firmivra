@@ -489,6 +489,44 @@ describe('firm: change and lifecycle', () => {
     );
     expect(other.status).toBe(404);
   });
+
+  it('pause and resume (Clients Review 2, G8): any service on hold with a reason, then back', async () => {
+    const empty = await firm('post', `/engagements/${e.id}/pause`, people.ownerA, { reason: ' ' });
+    expect(empty.status).toBe(400);
+    const paused = expectOk(
+      await firm('post', `/engagements/${e.id}/pause`, people.ownerA, {
+        reason: 'Fake: client travelling',
+      }),
+    );
+    const p = Engagement.parse(paused.body);
+    expect(p.pausedAt).not.toBeNull();
+    expect(p.pausedReason).toBe('Fake: client travelling');
+    expect(p.pausedBy?.userId).toBe(people.ownerA.id);
+    expect(p.status).toBe('ACTIVE');
+    const again = await firm('post', `/engagements/${e.id}/pause`, people.ownerA, {
+      reason: 'Fake: again',
+    });
+    expect([again.status, codeOf(again)]).toEqual([409, 'ALREADY_PAUSED']);
+
+    const resumed = Engagement.parse(
+      expectOk(await firm('post', `/engagements/${e.id}/resume`, people.ownerA, {})).body,
+    );
+    expect([resumed.pausedAt, resumed.pausedReason, resumed.pausedBy]).toEqual([null, null, null]);
+    const notPaused = await firm('post', `/engagements/${e.id}/resume`, people.ownerA, {});
+    expect([notPaused.status, codeOf(notPaused)]).toEqual([409, 'NOT_PAUSED']);
+
+    const activity = expectOk(await firm('get', `/engagements/${e.id}/activity`, people.ownerA));
+    const actions = (activity.body as { items: { action: string }[] }).items.map((i) => i.action);
+    expect(actions.slice(0, 2)).toEqual(['RESUMED', 'PAUSED']);
+    // The reason stays out of the audit row.
+    const rows = await inFirm((tx) =>
+      tx.auditLog.findMany({
+        where: { entityType: 'engagement', entityId: e.id, action: 'engagement.paused' },
+        select: { metadata: true },
+      }),
+    );
+    expect(JSON.stringify(rows)).not.toContain('travelling');
+  });
 });
 
 describe('portal: My Services', () => {
