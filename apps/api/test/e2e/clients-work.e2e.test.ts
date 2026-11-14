@@ -666,6 +666,36 @@ describe("E2: a client's Last Activity is its latest event", () => {
     expect(at(e.none)).toBeNull();
   });
 
+  it("counts the client's own recorded changes, never a view (the owner's clarification)", async () => {
+    const edited = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: firms.a.id, displayName: 'Activity edited (fake)' },
+      });
+      await tx.auditLog.create({
+        data: {
+          businessId: firms.a.id,
+          action: 'client.profile_updated',
+          entityType: 'client',
+          entityId: c.id,
+          createdAt: onDay(-8),
+        },
+      });
+      // Opening the record later is no activity.
+      await tx.auditLog.create({
+        data: {
+          businessId: firms.a.id,
+          action: 'client_portal.viewed',
+          entityType: 'client',
+          entityId: c.id,
+          createdAt: onDay(-1),
+        },
+      });
+      return c.id;
+    });
+    const rows = (await list('?limit=100')).items;
+    expect(rows.find((r) => r.id === edited)?.lastActivityAt).toBe(onDay(-8).toISOString());
+  });
+
   it("filters on the firm's days, both ends included, by the latest event only", async () => {
     const mine = Object.values(e);
     const within = async (from: number, to: number) =>

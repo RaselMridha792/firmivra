@@ -566,7 +566,10 @@ export class ClientsService {
    * worked out when the list is read, so no other module has to write it: a message in the
    * client's thread, a document uploaded or requested, a task completed, an appointment held
    * (completed, or scheduled and begun), an invoice sent or paid, an e-sign completed, a note
-   * added, and `clients.last_activity_at` (set on e-sign completion). In the firm's scope. With
+   * added, and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
+   * every recorded client action counts): also the client's own audit rows (profile and contact
+   * edits, assignment, tags, status, archive and restore), never a view, list or export. In the
+   * firm's scope. With
    * `ids`, those clients only; with `between`, only the clients whose latest event is in it.
    */
   private async activity(
@@ -606,6 +609,10 @@ export class ClientsService {
           UNION ALL SELECT client_id, created_at FROM notes WHERE business_id = ${b}::uuid
           UNION ALL SELECT id, last_activity_at FROM clients
             WHERE business_id = ${b}::uuid AND last_activity_at IS NOT NULL
+          UNION ALL SELECT a.entity_id::uuid, a.created_at FROM audit_logs a
+            WHERE a.business_id = ${b}::uuid AND a.entity_type = 'client'
+              AND a.entity_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              AND a.action !~ '(viewed|listed|exported)$'
         ) e
         ${only}
         GROUP BY e.client_id

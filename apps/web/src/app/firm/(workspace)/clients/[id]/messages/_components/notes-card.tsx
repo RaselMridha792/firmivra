@@ -6,6 +6,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { clientKey } from '../../../_components/client-parts';
 import { textareaClass, when } from './parts';
 
 /** The firm's internal notes on this client, newest first. Never shown in the client portal. */
@@ -23,6 +24,9 @@ export function NotesCard({
     invalidate: key,
   });
   const [body, setBody] = useState('');
+  // Clients Review 2: an archived client's notes are read-only (the API says 409 CLIENT_ARCHIVED).
+  const record = useApiQuery(clientKey(clientId), () => api.clients.get(clientId));
+  const archived = Boolean(record.data?.archivedAt);
 
   return (
     <Card title={title} className="flex flex-col gap-4 self-start">
@@ -41,33 +45,39 @@ export function NotesCard({
           </ul>
         )}
       </PageState>
-      <form
-        className="flex flex-col gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add.mutate(body, { onSuccess: () => setBody('') });
-        }}
-      >
-        <label htmlFor="new-note" className="text-sm font-medium">
-          New note
-        </label>
-        <textarea
-          id="new-note"
-          rows={4}
-          required
-          className={textareaClass}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
-        {add.error ? (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(add.error)}
-          </p>
-        ) : null}
-        <Button type="submit" disabled={add.isPending}>
-          {add.isPending ? 'Saving…' : 'Save Note'}
-        </Button>
-      </form>
+      {archived ? (
+        <p className="text-sm text-muted" data-testid="notes-read-only">
+          This client is archived, so its notes are read-only until it is restored.
+        </p>
+      ) : (
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add.mutate(body, { onSuccess: () => setBody('') });
+          }}
+        >
+          <label htmlFor="new-note" className="text-sm font-medium">
+            New note
+          </label>
+          <textarea
+            id="new-note"
+            rows={4}
+            required
+            className={textareaClass}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          {add.error ? (
+            <p role="alert" className="text-sm text-danger">
+              {errorMessage(add.error)}
+            </p>
+          ) : null}
+          <Button type="submit" disabled={add.isPending}>
+            {add.isPending ? 'Saving…' : 'Save Note'}
+          </Button>
+        </form>
+      )}
     </Card>
   );
 }

@@ -7,6 +7,7 @@ import {
   type CreateClientRequest,
   type ExportClientsRequest,
   type MemberRef,
+  type DuplicatePhoneDetails,
   NewClientForm,
   US_STATES,
 } from '@firmivra/types';
@@ -18,6 +19,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS, clientKey } from './client-parts';
+import { DuplicatePhoneDialog, duplicateOf } from './duplicate-phone';
 import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
 
 type Field =
@@ -73,6 +75,11 @@ export function AddClientDialog({
   const router = useRouter();
   const [values, setValues] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
+  // Clients Review 2: a phone another client has asks first (Possible duplicate client).
+  const [duplicate, setDuplicate] = useState<{
+    details: DuplicatePhoneDetails;
+    body: NewClientForm;
+  } | null>(null);
   const create = useApiMutation((body: CreateClientRequest) => api.clients.create(body), {
     invalidate: CLIENTS,
   });
@@ -141,7 +148,13 @@ export function AddClientDialog({
       return;
     }
     setErrors({});
-    create.mutate(body, { onSuccess: (client) => router.push(`/clients/${client.id}`) });
+    create.mutate(body, {
+      onSuccess: (client) => router.push(`/clients/${client.id}`),
+      onError: (error) => {
+        const details = duplicateOf(error);
+        if (details) setDuplicate({ details, body });
+      },
+    });
   };
 
   return (
@@ -231,7 +244,21 @@ export function AddClientDialog({
             ]}
           />
         ) : null}
-        {create.error ? (
+        {duplicate ? (
+          <DuplicatePhoneDialog
+            details={duplicate.details}
+            confirmLabel="Create Anyway"
+            pending={create.isPending}
+            onCancel={() => setDuplicate(null)}
+            onConfirm={() =>
+              create.mutate(
+                { ...duplicate.body, allowDuplicatePhone: true },
+                { onSuccess: (client) => router.push(`/clients/${client.id}`) },
+              )
+            }
+          />
+        ) : null}
+        {create.error && !duplicateOf(create.error) ? (
           <p role="alert" className="text-sm text-danger">
             {errorMessage(create.error, CLIENT_ERRORS)}
           </p>
