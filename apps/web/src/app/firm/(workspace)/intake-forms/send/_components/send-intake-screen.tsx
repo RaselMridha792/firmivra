@@ -125,12 +125,18 @@ export function SendIntakeScreen({
   initialFormId,
   initialLeadId = '',
   initialClientId = '',
+  initialEngagementId = '',
 }: {
   initialFormId: string;
   /** Leads R2 3: opened from this lead's profile; it is the recipient, and Back returns to it. */
   initialLeadId?: string;
   /** The Client Portal module's Request Form: this client is the recipient. */
   initialClientId?: string;
+  /**
+   * TX-F11: a tax return's Send an Intake Form names its service. The form goes on that
+   * engagement when the form is for the same service; otherwise the API picks the open one.
+   */
+  initialEngagementId?: string;
 }) {
   const { me } = useMe();
   const { firm } = useFirm();
@@ -189,6 +195,17 @@ export function SendIntakeScreen({
   const attemptRef = useRef<{ key: string; body: string; retry: boolean } | undefined>(undefined);
 
   const form = forms.data?.find((f) => f.id === state.formId);
+  const fromEngagement = useApiQuery(
+    ['intake-forms', 'send', 'from-engagement', initialEngagementId],
+    async () => (initialEngagementId ? api.engagements.get(initialEngagementId) : null),
+  );
+  const boundEngagement =
+    fromEngagement.data &&
+    state.recipient?.kind === 'CLIENT' &&
+    state.recipient.id === fromEngagement.data.clientId &&
+    form?.service?.id === fromEngagement.data.service.id
+      ? fromEngagement.data
+      : null;
   const choices: SendChoices = {
     ...state,
     subject: state.subject ?? defaultSubject(form?.name),
@@ -233,7 +250,10 @@ export function SendIntakeScreen({
     const fingerprint = JSON.stringify(sendBody(choices, recipient, ''));
     const last = attemptRef.current;
     const key = last?.retry && last.body === fingerprint ? last.key : crypto.randomUUID();
-    const body = sendBody(choices, recipient, key);
+    const body = {
+      ...sendBody(choices, recipient, key),
+      ...(boundEngagement ? { engagementId: boundEngagement.id } : {}),
+    };
     const parsed = SendIntakeFormRequest.safeParse(body);
     if (!parsed.success) {
       const fromSchema: FieldErrors = {};
@@ -307,6 +327,11 @@ export function SendIntakeScreen({
             <span aria-current="page" className="font-semibold text-heading">
               Send Intake Form
             </span>
+            {boundEngagement ? (
+              <span className="text-sm text-text" data-testid="send-for-engagement">
+                For {boundEngagement.title}
+              </span>
+            ) : null}
             {initialLeadId ? (
               <Link
                 href={`/leads/${initialLeadId}/documents`}

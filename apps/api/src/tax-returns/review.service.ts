@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type {
+  TaxReturnBlocker,
   EfileReport,
   MailingReport,
   TaxApprovalList,
@@ -132,11 +133,26 @@ export class TaxReturnReviewService {
     if (m?.status !== 'ACTIVE') throw notAMember();
   }
 
-  /** TX-F20: no filing (a transmission or a paper filing) while an Error issue is open. */
+  /**
+   * TX-F20: no filing (a transmission, a retransmission or a paper filing) while an Error issue
+   * is open or a validation line reads Error. Review 2: checked at every save, also when the
+   * return reached Ready to File before the Error came back.
+   */
   private async notBlockedByIssues(tx: TxClient, businessId: string, id: string) {
-    if ((await openErrorIssues(tx, businessId, id)) === 0) return;
+    const issues = await openErrorIssues(tx, businessId, id);
+    const lines = await tx.taxReturnChecklistItem.count({
+      where: { businessId, taxReturnId: id, section: 'VALIDATION', result: 'ERROR' },
+    });
+    if (issues === 0 && lines === 0) return;
     const r = await tx.taxReturn.findUniqueOrThrow({ where: { id }, select: detailSelect });
-    throw conflict('STATUS_BLOCKED', ISSUES_BLOCK, { blockers: blockersOf(r) });
+    // The return's own blockers, and always the reasons this gate found (whatever its status).
+    const found: TaxReturnBlocker[] = [
+      ...(issues ? (['VALIDATION_ISSUES_OPEN'] as const) : []),
+      ...(lines ? (['VALIDATION_ERRORS'] as const) : []),
+    ];
+    throw conflict('STATUS_BLOCKED', ISSUES_BLOCK, {
+      blockers: [...new Set([...blockersOf(r), ...found])],
+    });
   }
 
   // ---------- Filings and transmissions ----------
