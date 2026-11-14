@@ -615,6 +615,8 @@ export const MyAppointment = z.object({
    * a type), or null once it is past or final.
    */
   changeableUntil: DateTime.nullable(),
+  /** Review 2 (B9): the firm's instructions for it, when the firm shows them in the portal. */
+  instructions: z.string().nullable().default(null),
 });
 export type MyAppointment = z.infer<typeof MyAppointment>;
 

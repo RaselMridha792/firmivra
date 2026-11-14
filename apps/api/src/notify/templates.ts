@@ -222,12 +222,20 @@ function appointment(
   subject: (firm: string) => string,
 ): Content {
   const firm = b.name;
+  // Review 2 (B7, B9): the firm's own words and the client instructions, when there are any.
+  const words = (key: 'message' | 'instructions') => {
+    const value = field(data, key);
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  };
+  const message = words('message');
+  const instructions = words('instructions');
   return {
     channel: 'email',
     subject: subject(firm),
     blocks: [
       hello(data),
       text(intro(firm)),
+      ...(message ? [text(message)] : []),
       {
         kind: 'facts',
         rows: [
@@ -235,6 +243,7 @@ function appointment(
           ['When', dateTime(data, 'startsAt', required(data, 'timeZone'))],
         ],
       },
+      ...(instructions ? [text(`Instructions: ${instructions}`)] : []),
       button('View appointment', link(data, 'link', o)),
     ],
   };
