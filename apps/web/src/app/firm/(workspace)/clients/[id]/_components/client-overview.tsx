@@ -9,6 +9,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { PortalAccessCard } from '../../../business-advisory/_components/portal-invitation';
 import { clientKey, dateText, formatPhone } from '../../_components/client-parts';
 import { RecentActivityCard } from '../activity/_components/client-activity-screen';
+import { BillingCard } from './client-billing';
 import { LocalOfficeCard } from './client-office';
 import { ActiveServicesCard } from './client-services';
 import { ClientTagsCard } from './client-tags';
@@ -180,6 +181,7 @@ export function ClientOverview() {
           <LocalOfficeCard clientId={client.id} />
           <FirmDetails client={client} />
           <ClientTagsCard client={client} />
+          <BillingCard clientId={client.id} />
           <div className="lg:col-span-2">
             <RecentActivityCard clientId={client.id} />
           </div>
