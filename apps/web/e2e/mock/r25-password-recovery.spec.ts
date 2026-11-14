@@ -114,7 +114,7 @@ test('a password that breaks a rule points to the checklist once', async ({ page
   await expect(page.getByLabel('New password')).toHaveAccessibleDescription(
     'Meet every rule below.',
   );
-  await expect(page.getByText('At least 12 characters')).toHaveCount(1);
+  await expect(page.getByText('At least 15 characters')).toHaveCount(1);
 });
 
 test('the firm sign-in shows firm features, the Super Admin one platform features', async ({
