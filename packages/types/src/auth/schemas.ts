@@ -39,15 +39,12 @@ export const AUTH_COOKIES = {
 export const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 
 /**
- * Must match the Cognito pool policy (infra auth-stack: 12+ characters, upper, lower, digit,
- * no symbol required). Cognito also refuses spaces at either end and more than 256 characters.
- * Screens can show PASSWORD_RULES as a checklist; Password checks the same rules.
+ * Must match the Cognito pool policy (infra auth-stack, SEC-2: 15+ characters, spaces and symbols
+ * allowed, no forced mix of character types). Cognito also refuses spaces at either end and more
+ * than 256 characters. Screens can show PASSWORD_RULES as a checklist; Password checks the same.
  */
 export const PASSWORD_RULES = [
-  { id: 'length', label: 'At least 12 characters', test: (p: string) => p.length >= 12 },
-  { id: 'lower', label: 'A lower-case letter', test: (p: string) => /[a-z]/.test(p) },
-  { id: 'upper', label: 'An upper-case letter', test: (p: string) => /[A-Z]/.test(p) },
-  { id: 'number', label: 'A number', test: (p: string) => /[0-9]/.test(p) },
+  { id: 'length', label: 'At least 15 characters', test: (p: string) => p.length >= 15 },
   { id: 'edges', label: 'No space at the start or end', test: (p: string) => /^\S.*\S$/.test(p) },
 ] as const;
 export const PASSWORD_MAX_LENGTH = 256;
