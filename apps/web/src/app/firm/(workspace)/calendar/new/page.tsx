@@ -26,12 +26,13 @@ export default async function CalendarNewPage({
     clientId?: Param;
     engagementId?: Param;
     serviceId?: Param;
+    taxReturnId?: Param;
     taxPlanId?: Param;
     draft?: Param;
     from?: Param;
   }>;
 }) {
-  const { date, time, clientId, engagementId, serviceId, taxPlanId, draft, from } =
+  const { date, time, clientId, engagementId, serviceId, taxReturnId, taxPlanId, draft, from } =
     await searchParams;
   const at =
     typeof date === 'string' &&
@@ -47,6 +48,8 @@ export default async function CalendarNewPage({
         clientId: id(clientId),
         engagementId: id(engagementId),
         serviceId: id(serviceId),
+        // Review 2 (TX-F06): a tax return's Schedule Appointment links it.
+        taxReturnId: id(taxReturnId),
       }}
       cancelHref={safeOrigin(from) ?? undefined}
       taxPlanId={id(taxPlanId)}

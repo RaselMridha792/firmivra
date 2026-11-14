@@ -283,6 +283,10 @@ export class SchedulingWriteService {
           })
         : null;
 
+    // Review 2 (TX-F06): the tax return this appointment is for, as its engagement.
+    const engagementId = body.related?.taxReturnId
+      ? await this.returnEngagement(tx, businessId, client.id, body.related.taxReturnId)
+      : null;
     // C12 (Tax Planning Review 2): a planning discussion of one of the client's open plans.
     const taxPlanId = body.taxPlanId ?? null;
     if (taxPlanId) {
@@ -326,6 +330,7 @@ export class SchedulingWriteService {
           typeId: type.id,
           serviceId,
           taxPlanId,
+          engagementId,
           startsAt: new Date(slot.start),
           endsAt: new Date(slot.end),
           timeZone,
@@ -411,6 +416,14 @@ export class SchedulingWriteService {
         data[key] = value;
         fields.add(field);
       };
+
+      // Review 2 (TX-F06): Link to Tax Return set, changed or taken off.
+      if (body.related?.taxReturnId !== undefined) {
+        const engagementId = body.related.taxReturnId
+          ? await this.returnEngagement(tx, businessId, current.clientId, body.related.taxReturnId)
+          : null;
+        set('taxReturn', 'engagementId', engagementId, engagementId === current.engagementId);
+      }
 
       let staffUserId = current.staffUserId;
       if (body.staffUserIds !== undefined) {
@@ -736,11 +749,15 @@ export class SchedulingWriteService {
     if (!service) throw errors.notFound();
   }
 
-  /** What the form can send but the database cannot keep yet: refused, never dropped silently. */
+  /**
+   * What the form can send but the database cannot keep yet: refused, never dropped silently.
+   * Review 2 (TX-F06): Link to Tax Return is kept (as the return's engagement).
+   */
   private requireSupported(related: Schedule['related'], recurrence: Schedule['recurrence']): void {
-    if (related && Object.values(related).some((v) => v !== null && v !== undefined)) {
+    const { taxReturnId: _kept, ...rest } = related ?? {};
+    if (Object.values(rest).some((v) => v !== null && v !== undefined)) {
       throw errors.unsupported(
-        'Related items (tax return, invoice, task, intake form, documents) cannot be saved yet.',
+        'Related items (invoice, task, intake form, documents) cannot be saved yet.',
       );
     }
     if (recurrence?.frequency === 'CUSTOM') {
@@ -748,6 +765,30 @@ export class SchedulingWriteService {
         'Custom repeats are not available yet. Choose daily, weekly or monthly.',
       );
     }
+  }
+
+  /**
+   * Review 2 (TX-F06): Link to Tax Return. One of the client's returns (404 otherwise), kept as
+   * its engagement, which the appointment, the return and its reassignment rules share.
+   */
+  private async returnEngagement(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+    taxReturnId: string,
+  ): Promise<string> {
+    const r = await tx.taxReturn.findFirst({
+      where: { businessId, id: taxReturnId, clientId, archivedAt: null },
+      select: { engagementId: true },
+    });
+    if (!r) throw errors.notFound();
+    if (!r.engagementId) {
+      throw errors.invalidField(
+        'related.taxReturnId',
+        "This return has no service yet: set it in the return's details first",
+      );
+    }
+    return r.engagementId;
   }
 
   /** An IANA name the database accepts, else 400; null leaves the firm's time zone. */

@@ -28,6 +28,17 @@ export const schedulingSelect = {
     select: { id: true, status: true, form: { select: { title: true } } },
   },
   serviceId: true,
+  // Review 2 (TX-F06): Link to Tax Return, kept as the return's engagement (its newest return).
+  engagement: {
+    select: {
+      taxReturns: {
+        where: { archivedAt: null },
+        orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+        take: 1,
+        select: { id: true, taxYear: true, formType: true },
+      },
+    },
+  },
   // Review 2 (P1 row 1): an Other Video Meeting's platform.
   otherVideoPlatform: true,
   timeZone: true,
@@ -202,7 +213,12 @@ export function toRecord(
     internalNotes: row.internalNotes,
     clientInstructions: row.clientInstructions,
     related: {
-      taxReturn: null,
+      taxReturn: row.engagement?.taxReturns[0]
+        ? {
+            id: row.engagement.taxReturns[0].id,
+            name: `${row.engagement.taxReturns[0].taxYear} ${row.engagement.taxReturns[0].formType ?? 'Tax'} Return`,
+          }
+        : null,
       bookkeepingEngagement: null,
       invoice: null,
       task: null,
