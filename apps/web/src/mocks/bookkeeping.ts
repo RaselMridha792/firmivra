@@ -645,6 +645,7 @@ export function createBookkeepingMock({
       approvedBy: status === 'APPROVED' ? mockMe : null,
       reopenedAt: null,
       reopenReason: null,
+      discrepancyNote: null,
       updatedAt: nowIso(),
     };
   };
@@ -2209,6 +2210,11 @@ export function createBookkeepingMock({
           r.clearedBalanceCents = input.clearedBalanceCents;
         if (input.clearedCount !== undefined) r.clearedCount = input.clearedCount;
         if (input.exceptionsCount !== undefined) r.exceptionsCount = input.exceptionsCount;
+        // Review 2 (R01): the note, with who wrote it and when.
+        if (input.discrepancyNote !== undefined) {
+          const note = input.discrepancyNote?.trim();
+          r.discrepancyNote = note ? { text: note, by: mockMe, at: nowIso() } : null;
+        }
         r.differenceCents = r.endingBalanceCents - r.clearedBalanceCents;
         r.withinTolerance = r.differenceCents === 0;
         if (reconLines(p, r).all.length) {

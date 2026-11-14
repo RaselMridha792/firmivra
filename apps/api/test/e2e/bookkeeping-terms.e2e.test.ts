@@ -233,6 +233,62 @@ describe('Terms', () => {
     );
   });
 
+  it('takes the package from Services & Pricing and keeps its name (Review 2, E01b)', async () => {
+    const [growth, archived, theirs] = await Promise.all([
+      inFirm('a', (tx) =>
+        tx.service.create({
+          data: {
+            businessId: firms.a,
+            kind: 'BOOKKEEPING',
+            name: `Fake Growth ${run}`,
+            status: 'ACTIVE',
+          },
+          select: { id: true },
+        }),
+      ),
+      inFirm('a', (tx) =>
+        tx.service.create({
+          data: {
+            businessId: firms.a,
+            kind: 'BOOKKEEPING',
+            name: `Fake Old ${run}`,
+            status: 'ACTIVE',
+            archivedAt: new Date(),
+          },
+          select: { id: true },
+        }),
+      ),
+      inFirm('b', (tx) =>
+        tx.service.create({
+          data: {
+            businessId: firms.b,
+            kind: 'BOOKKEEPING',
+            name: `Fake B ${run}`,
+            status: 'ACTIVE',
+          },
+          select: { id: true },
+        }),
+      ),
+    ]);
+    v1 = terms(await call('patch', `/terms/${v1.id}`, adminA, { catalogServiceId: growth.id }));
+    expect(v1).toMatchObject({ catalogServiceId: growth.id, packageName: `Fake Growth ${run}` });
+    for (const id of [archived.id, theirs.id]) {
+      expectError(
+        await call('patch', `/terms/${v1.id}`, adminA, { catalogServiceId: id }),
+        404,
+        'NOT_FOUND',
+      );
+    }
+    // Back to the package it had, so the later steps see the draft as they expect.
+    v1 = terms(
+      await call('patch', `/terms/${v1.id}`, adminA, {
+        catalogServiceId: null,
+        packageName: 'Growth Plan',
+      }),
+    );
+    expect(v1).toMatchObject({ catalogServiceId: null, packageName: 'Growth Plan' });
+  });
+
   it("edits a draft's six tabs and records what changed", async () => {
     v1 = terms(
       await call('patch', `/terms/${v1.id}`, adminA, {

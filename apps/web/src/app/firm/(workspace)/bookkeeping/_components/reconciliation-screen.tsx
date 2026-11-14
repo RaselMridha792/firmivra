@@ -5,7 +5,16 @@ import {
   type BookkeepingReconciliationItem,
   UPLOAD_LIMITS,
 } from '@firmivra/types';
-import { Button, FileDropzone, Input, Modal, Table, Toast, type Column } from '@firmivra/ui';
+import {
+  Button,
+  FileDropzone,
+  Input,
+  Modal,
+  Table,
+  Textarea,
+  Toast,
+  type Column,
+} from '@firmivra/ui';
 import { FileArrowUp, Warning } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -275,6 +284,10 @@ export function ReconciliationScreen({ id }: { id: string }) {
           </p>
         ) : null}
       </section>
+
+      {f.differenceCents !== 0 || r.discrepancyNote ? (
+        <DiscrepancyNote r={r} editable={editable} act={act} />
+      ) : null}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section className={card} aria-label="Cleared lines" data-testid="recon-items">
@@ -618,5 +631,73 @@ function StatementDialog({
         />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Review 2 (R01, Octavia): a note on the difference for this account and period, kept with the
+ * reconciliation and shown to the reviewer with who wrote it and when. It explains the
+ * difference; it never waives the zero difference or the statement.
+ */
+function DiscrepancyNote({
+  r,
+  editable,
+  act,
+}: {
+  r: BookkeepingReconciliation;
+  editable: boolean;
+  act: ReturnType<typeof useAct>;
+}) {
+  const [text, setText] = useState(r.discrepancyNote?.text ?? '');
+  const saved = r.discrepancyNote?.text ?? '';
+  return (
+    <section className={card} aria-label="Discrepancy note" data-testid="recon-discrepancy-note">
+      <h2 className="font-display text-lg font-bold text-heading">Discrepancy Note</h2>
+      <p className="mb-2 text-xs text-muted">
+        Explain the difference for the reviewer. A note never allows approval: the difference must
+        still be zero and the statement attached.
+      </p>
+      {editable ? (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            label="Note on the difference"
+            rows={3}
+            maxLength={2000}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <Button
+            variant="secondary"
+            className="self-start"
+            disabled={text.trim() === saved.trim()}
+            onClick={() =>
+              void act(
+                () =>
+                  api.bookkeeping.saveReconciliation(r.id, {
+                    discrepancyNote: text.trim() ? text.trim() : null,
+                  }),
+                text.trim() ? 'Note saved.' : 'Note removed.',
+              )
+            }
+          >
+            Save Note
+          </Button>
+        </div>
+      ) : r.discrepancyNote ? (
+        <p className="whitespace-pre-line text-sm text-text">{r.discrepancyNote.text}</p>
+      ) : null}
+      {r.discrepancyNote ? (
+        <p className="mt-1 text-xs text-muted">
+          {r.discrepancyNote.by?.name ?? 'Someone'} ·{' '}
+          {new Date(r.discrepancyNote.at).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })}
+        </p>
+      ) : null}
+    </section>
   );
 }

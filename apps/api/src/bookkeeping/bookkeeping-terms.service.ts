@@ -57,6 +57,7 @@ const JSON_KEYS = [
 ] as const;
 const PLAIN_KEYS = [
   'packageName',
+  'catalogServiceId',
   'renewalType',
   'noticeDays',
   'billingFrequency',
@@ -73,6 +74,7 @@ const TERMS_KEYS = [...DATE_KEYS, ...JSON_KEYS, ...PLAIN_KEYS];
 /** Which History event a changed field belongs to. */
 const EVENT_OF: Record<string, BookkeepingTermsEventKind> = {
   packageName: 'PACKAGE_CHANGED',
+  catalogServiceId: 'PACKAGE_CHANGED',
   monthlyFeeCents: 'PRICING_CHANGED',
   setupFeeCents: 'PRICING_CHANGED',
   additionalBilling: 'PRICING_CHANGED',
@@ -232,6 +234,7 @@ export class BookkeepingTermsService {
       version: row.version,
       status: s,
       packageName: row.packageName,
+      catalogServiceId: row.catalogServiceId,
       startDate: day(row.startDate) as string,
       endDate: day(row.endDate),
       renewalType: row.renewalType,
@@ -436,6 +439,7 @@ export class BookkeepingTermsService {
             engagementId,
             version: 0,
             packageName: current.packageName,
+            catalogServiceId: current.catalogServiceId,
             startDate: current.startDate,
             endDate: current.endDate,
             renewalType: current.renewalType,
@@ -466,6 +470,8 @@ export class BookkeepingTermsService {
             engagementId,
             version: 0,
             packageName: p.engagement.package?.slice(0, 120) ?? null,
+            // Review 2 (E01b): the client's plan from Services & Pricing, when it has one.
+            catalogServiceId: p.engagement.catalogServiceId,
             startDate: toDay(today),
             effectiveFrom: toDay(today),
           };
@@ -509,6 +515,16 @@ export class BookkeepingTermsService {
     this.assertManager(actor);
     return this.run(businessId, async (tx) => {
       const { row } = await this.findTerms(tx, businessId, actor, termsId);
+      // Review 2 (E01b): a package from Services & Pricing, this firm's and active; its name is
+      // kept as the snapshot.
+      if (body.catalogServiceId) {
+        const service = await tx.service.findFirst({
+          where: { businessId, id: body.catalogServiceId, archivedAt: null, status: 'ACTIVE' },
+          select: { name: true },
+        });
+        if (!service) throw errors.notFound();
+        body = { ...body, packageName: service.name.slice(0, 120) };
+      }
       const sent = TERMS_KEYS.filter((k) => body[k] !== undefined);
       if (sent.length && row.status !== 'DRAFT')
         throw termsState('Only draft terms are edited: create a new version');
