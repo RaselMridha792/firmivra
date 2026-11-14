@@ -70,6 +70,17 @@ export const errors = {
   reportNotSupported: () =>
     conflict('REPORT_NOT_SUPPORTED', 'Figures for custom reports are not worked out yet'),
   noPeriod: () => conflict('NO_PERIOD', 'Set the bookkeeping period this report covers first'),
+  // Review 2 (RP03): a P&L comes from one source staff choose, never a blend of two.
+  pnlSourceNotSet: () =>
+    conflict(
+      'PNL_SOURCE_NOT_SET',
+      "Choose where this client's P&L comes from first: the connected accounting software, or figures entered in Firmivra",
+    ),
+  pnlFiguresMissing: () =>
+    conflict(
+      'PNL_FIGURES_MISSING',
+      "Enter the period's income and expenses first: this client's P&L is made from the figures entered in Firmivra",
+    ),
   // BK-RPT part 2.
   statementsMissing: (names: string) =>
     conflict(

@@ -13,6 +13,8 @@ import { type BookkeepingActor, reachEngagement } from './bookkeeping.mappers.js
 import { csvCell, errors, inFirm, isoDay } from './bookkeeping.shared.js';
 import {
   type CsvContext,
+  type EnteredFigures,
+  enteredProfitAndLoss,
   FIGURE_REPORT_TYPES,
   type FigureLine,
   type FigureReportType,
@@ -73,7 +75,10 @@ export class BookkeepingReportVersionsService {
         /** Accounts a Balance Sheet or Cash Flow has no statement for (generation waits). */
         missing: string[];
       }
-    | { reason: 'type' | 'period'; period: { start: string; end: string } | null }
+    | {
+        reason: 'type' | 'period' | 'source' | 'figures';
+        period: { start: string; end: string } | null;
+      }
   > {
     const period = r.period
       ? { start: isoDay(r.period.periodStart), end: isoDay(r.period.periodEnd) }
@@ -117,17 +122,56 @@ export class BookkeepingReportVersionsService {
       }),
     );
     const basis = r.basis === 'ACCRUAL' ? 'ACCRUAL' : 'CASH';
+    // Review 2 (RP03): a P&L (and a summary's) comes from the one source staff chose for this
+    // client: the ledger (synced from the accounting software) or the figures entered per period.
+    const pnl = summary || r.reportType === 'PROFIT_LOSS';
+    let entered: EnteredFigures[] | null = null;
+    if (pnl) {
+      const profile = await tx.bookkeepingProfile.findFirst({
+        where: scope,
+        select: { pnlSource: true },
+      });
+      if (!profile?.pnlSource) return { reason: 'source', period: range };
+      if (profile.pnlSource === 'MANUAL') {
+        const periods = await tx.bookkeepingPeriod.findMany({
+          where: {
+            ...scope,
+            ...(summary
+              ? { periodStart: { gte: during.gte }, periodEnd: { lte: during.lte }, kind: 'MONTH' }
+              : { id: r.period!.id }),
+            incomeCents: { not: null },
+            expensesCents: { not: null },
+          },
+          select: { periodStart: true, incomeCents: true, expensesCents: true },
+          orderBy: { periodStart: 'asc' },
+        });
+        if (!periods.length) return { reason: 'figures', period: range };
+        entered = periods.map((p) => ({
+          start: isoDay(p.periodStart),
+          incomeCents: p.incomeCents!,
+          expensesCents: p.expensesCents!,
+        }));
+      }
+    }
     if (summary) {
       return {
         figures: summaryFigures(
           r.reportType as SummaryReportType,
           summary,
-          reportFigures('PROFIT_LOSS', basis, lines),
+          entered
+            ? enteredProfitAndLoss(r.basis, entered)
+            : reportFigures('PROFIT_LOSS', basis, lines),
           lines,
+          entered
+            ? new Map(entered.map((p) => [p.start.slice(0, 7), p.incomeCents - p.expensesCents]))
+            : undefined,
         ),
         period: summary,
         missing: [],
       };
+    }
+    if (entered) {
+      return { figures: enteredProfitAndLoss(r.basis, entered), period: range, missing: [] };
     }
     const ctx = await this.context(tx, businessId, r.engagementId, r.period!, during);
     const type = r.reportType as FigureReportType;
@@ -166,11 +210,13 @@ export class BookkeepingReportVersionsService {
       }),
       tx.bookkeepingRefund.findMany({
         where: { ...scope, refundDate: during, includeInReport: true },
-        select: { kind: true, status: true, amountCents: true },
+        select: { kind: true, status: true, amountCents: true, reason: true },
       }),
       tx.bookkeepingSettlement.findMany({
         where: { ...scope, payoutDate: during },
         select: {
+          processor: true,
+          payoutDate: true,
           grossCents: true,
           refundsCents: true,
           chargebacksCents: true,
@@ -192,7 +238,10 @@ export class BookkeepingReportVersionsService {
         hasStatement: statementDocumentId !== null,
       })),
       refunds,
-      settlements,
+      settlements: settlements.map(({ payoutDate, ...s }) => ({
+        ...s,
+        payoutOn: isoDay(payoutDate),
+      })),
       period: {
         status: period.status,
         closeDone: steps.filter((s) => s.completedAt).length,
@@ -223,7 +272,11 @@ export class BookkeepingReportVersionsService {
       reason:
         out.reason === 'type'
           ? 'Figures for custom reports are not worked out yet.'
-          : 'Set the bookkeeping period this report covers first (a Quarterly Review or Year to Date Summary can say it in its label instead, such as "Q3 2026" or "2026").',
+          : out.reason === 'source'
+            ? "Choose where this client's P&L comes from first, in the client's Settings: the connected accounting software (QuickBooks...) or figures entered in Firmivra from what the client provides. The two are never added together."
+            : out.reason === 'figures'
+              ? "Enter the period's income and expenses first: this client's P&L is made in Firmivra from the figures the client provides, so there is nothing to show yet."
+              : 'Set the bookkeeping period this report covers first (a Quarterly Review or Year to Date Summary can say it in its label instead, such as "Q3 2026" or "2026").',
       period: out.period,
       figures: null,
       missingStatements: [],
@@ -264,7 +317,13 @@ export class BookkeepingReportVersionsService {
       const r = await this.report(tx, businessId, actor, id);
       const out = await this.figures(tx, businessId, r);
       if (!('figures' in out)) {
-        throw out.reason === 'type' ? errors.reportNotSupported() : errors.noPeriod();
+        throw out.reason === 'type'
+          ? errors.reportNotSupported()
+          : out.reason === 'source'
+            ? errors.pnlSourceNotSet()
+            : out.reason === 'figures'
+              ? errors.pnlFiguresMissing()
+              : errors.noPeriod();
       }
       if (out.missing.length) throw errors.statementsMissing(out.missing.join(', '));
       const made = await tx.bookkeepingReportVersion.create({
@@ -344,6 +403,9 @@ export class BookkeepingReportVersionsService {
         select: { summary: true },
       });
       if (!row) throw errors.notFound();
+      // Review 2 (RP03): a P&L made from entered figures says so.
+      if ((row.summary as { source?: string } | null)?.source === 'MANUAL')
+        context.source = 'Income and expenses entered in Firmivra for the period (not the ledger)';
       return row;
     });
     await this.audit.log(

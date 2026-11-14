@@ -259,6 +259,116 @@ describe('reportFigures, part 2', () => {
     expect(f.notes).toEqual(['No reconciliation started yet for Fake Card, Fake Loan.']);
   });
 
+  it('Refund Report: refunds and chargebacks by kind and status, then by reason (Review 2, RP01)', () => {
+    const f = reportFigures(
+      'REFUND',
+      'CASH',
+      lines,
+      ctx({
+        refunds: [
+          {
+            kind: 'REFUND_ISSUED',
+            status: 'COMPLETED',
+            amountCents: 2_000,
+            reason: 'Fake damaged',
+          },
+          { kind: 'REFUND_ISSUED', status: 'COMPLETED', amountCents: 1_000, reason: null },
+          { kind: 'REFUND_RECEIVED', status: 'PENDING', amountCents: 500, reason: ' ' },
+          { kind: 'CHARGEBACK', status: 'PENDING', amountCents: 3_000, reason: 'Fake damaged' },
+        ],
+      }),
+    );
+    expect(f.lineCount).toBe(4);
+    expect(f.sections).toEqual([
+      {
+        title: 'Refunds Issued to Customers',
+        rows: [{ label: 'Completed', amountCents: 3_000, count: 2 }],
+        totalCents: 3_000,
+      },
+      {
+        title: 'Refunds Received from Vendors',
+        rows: [{ label: 'Pending', amountCents: 500, count: 1 }],
+        totalCents: 500,
+      },
+      {
+        title: 'Chargebacks',
+        rows: [{ label: 'Pending', amountCents: 3_000, count: 1 }],
+        totalCents: 3_000,
+      },
+      {
+        title: 'By Reason',
+        rows: [
+          { label: 'Fake damaged', amountCents: 5_000, count: 2 },
+          { label: 'No reason given', amountCents: 1_500, count: 2 },
+        ],
+        totalCents: 6_500,
+      },
+    ]);
+    expect(f.totals).toEqual({
+      refundsIssuedCents: 3_000,
+      refundsReceivedCents: 500,
+      chargebacksCents: 3_000,
+      pendingCount: 2,
+    });
+    // Nothing recorded is no rows, not a row of zeros.
+    expect(reportFigures('REFUND', 'CASH', lines, ctx()).lineCount).toBe(0);
+  });
+
+  it('Settlement Report: each payout, then gross less refunds, chargebacks and fees (Review 2, RP01)', () => {
+    const payout = {
+      grossCents: 100_000,
+      refundsCents: 2_000,
+      chargebacksCents: 3_000,
+      feesCents: 2_900,
+      adjustmentsCents: -100,
+      netPayoutCents: 92_000,
+    };
+    const f = reportFigures(
+      'SETTLEMENT',
+      'CASH',
+      lines,
+      ctx({
+        settlements: [
+          { ...payout, processor: 'stripe', payoutOn: '2026-09-30', status: 'MATCHED' },
+          {
+            ...payout,
+            grossCents: 10_000,
+            refundsCents: 0,
+            chargebacksCents: 0,
+            feesCents: 300,
+            adjustmentsCents: 0,
+            netPayoutCents: 9_700,
+            processor: 'square',
+            payoutOn: '2026-09-15',
+            status: 'NEEDS_REVIEW',
+          },
+        ],
+      }),
+    );
+    expect(f.sections[0]).toEqual({
+      title: 'Payouts',
+      rows: [
+        { label: 'Square 2026-09-15 (needs review)', amountCents: 9_700 },
+        { label: 'Stripe 2026-09-30 (matched)', amountCents: 92_000 },
+      ],
+      totalCents: 101_700,
+    });
+    expect(f.sections[1]!.rows).toEqual([
+      { label: 'Gross', amountCents: 110_000, count: 2 },
+      { label: 'Refunds', amountCents: -2_000 },
+      { label: 'Chargebacks', amountCents: -3_000 },
+      { label: 'Fees', amountCents: -3_200 },
+      { label: 'Adjustments', amountCents: -100 },
+      { label: 'Not matched to a deposit', count: 1 },
+    ]);
+    expect(f.totals).toEqual({
+      grossCents: 110_000,
+      feesCents: 3_200,
+      netPayoutCents: 101_700,
+      unmatchedCount: 1,
+    });
+  });
+
   it('Missing Documents: money out without a receipt, and statements not attached', () => {
     const f = reportFigures('MISSING_DOCUMENTS', 'CASH', lines, ctx());
     expect(f.sections[0]!.rows).toEqual([
