@@ -1,6 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { portalMe } from '../clients/client.js';
-import { OkResponse } from '../schemas.js';
+import { PublicLink } from '../public-links/schemas.js';
+import { FirmSlug, OkResponse } from '../schemas.js';
 import {
   Appointment,
   AppointmentDetail,
@@ -32,6 +33,7 @@ import {
   MyAppointmentList,
   MyAppointmentsQuery,
   MySlotList,
+  PublicBookingType,
   MySlotsQuery,
   RescheduleAppointmentRequest,
   RescheduleMyAppointmentRequest,
@@ -71,9 +73,30 @@ export function createAppointmentTypesClient(request: ApiRequest) {
       request(AppointmentType, `${type(id)}/archive`, post()),
     restore: async (id: string): Promise<AppointmentType> =>
       request(AppointmentType, `${type(id)}/restore`, post()),
+    /**
+     * Review 2 (Appointments row 3): the type's public booking link and the button code for the
+     * firm's website (`PublicLink`); everyone at the firm reads it. `state` says whether the
+     * link takes bookings now (LIVE), or is refused while the type is archived or not bookable
+     * by clients (ARCHIVED, HIDDEN).
+     */
+    publicLink: async (id: string): Promise<PublicLink> =>
+      request(PublicLink, `${type(id)}/public-link`),
   };
 }
 export type AppointmentTypesClient = ReturnType<typeof createAppointmentTypesClient>;
+
+/**
+ * `api.publicBooking(slug)`: the portal's booking link page, read without signing in. `type(id)`
+ * answers what a visitor may see of one type of that firm (`PublicBookingType`), or 404.
+ */
+export function createPublicBookingClient(request: ApiRequest, firmSlug: string) {
+  const base = `/portal/${parseInput(FirmSlug, firmSlug)}/booking-types`;
+  return {
+    type: async (id: string): Promise<PublicBookingType> =>
+      request(PublicBookingType, `${base}/${parseInput(AppointmentTypeId, id)}`),
+  };
+}
+export type PublicBookingClient = ReturnType<typeof createPublicBookingClient>;
 
 /**
  * `api.availability`: working hours, blocked time and default meeting links. Owner and Admin

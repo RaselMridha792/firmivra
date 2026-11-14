@@ -42,6 +42,7 @@ import {
   createDepartmentsClient,
   createMessagesClient,
   createMyAppointmentsClient,
+  createPublicBookingClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,
   createMyContentClient,
@@ -112,6 +113,7 @@ import {
   createAppointmentTypesMock,
   createAvailabilityMock,
   myAppointmentsMock,
+  publicBookingMock,
 } from '../mocks/appointments';
 import {
   createAgreementsMock,
@@ -417,6 +419,11 @@ export const api = {
     dev && mocked('myAppointments')
       ? myAppointmentsMock(firmSlug)
       : createMyAppointmentsClient(request, firmSlug),
+  /** Review 2 (Appointments row 3): a type behind its public booking link, before sign-in. */
+  publicBooking: (firmSlug: string) =>
+    dev && mocked('publicBooking')
+      ? publicBookingMock(firmSlug)
+      : createPublicBookingClient(request, firmSlug),
   /** Content (R12): resources, tips and external links; the portal reads published ones. */
   content:
     dev && mocked('content')

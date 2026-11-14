@@ -28,7 +28,12 @@ export const PublicLink = z.object({
   itemId: z.uuid(),
   /** `{PORTAL_BASE_URL}/{firmSlug}/{segment}/{itemId}` (`publicItemUrl`). */
   url: z.url(),
-  /** An iframe of the same page for the firm's website (`publicEmbedCode`). */
+  /**
+   * The code for the firm's website: an iframe of the same page (`publicEmbedCode`), or for an
+   * appointment type a styled button that opens it (`publicButtonCode`). Booking needs the
+   * client's portal sign-in, and browsers keep the portal's sign-in cookies out of another
+   * site's frame, so a framed booking page could never sign anyone in.
+   */
   embedCode: z.string(),
   state: PublicLinkState,
 });
@@ -66,4 +71,40 @@ export const PUBLIC_EMBED_HEIGHT = 760;
 export function publicEmbedCode(url: string, title: string): string {
   const src = `${url}${url.includes('?') ? '&' : '?'}embed=1`;
   return `<iframe src="${attribute(src)}" title="${attribute(title)}" width="100%" height="${PUBLIC_EMBED_HEIGHT}" style="border:0;max-width:100%" loading="lazy"></iframe>`;
+}
+
+/** The embed button's colour when the firm sets none: the portal's default navy. */
+export const PUBLIC_BUTTON_COLOR = '#1F3A6B';
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** Relative luminance (WCAG 2) of a `#RRGGBB` colour. */
+function luminance(hex: string): number {
+  const channel = (i: number) => {
+    const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/**
+ * Review 2 (Appointments row 3): the embed code of a page that needs the portal's sign-in (an
+ * appointment type's booking page). A styled link button, not an iframe: browsers keep the
+ * portal's sign-in cookies out of another site's frame, so the button opens the page in a new
+ * tab. `color` is the firm's button colour (`#RRGGBB`); the label is white, or near-black on a
+ * light colour, whichever reads better.
+ */
+export function publicButtonCode(url: string, label: string, color?: string | null): string {
+  const background = color && HEX.test(color) ? color.toUpperCase() : PUBLIC_BUTTON_COLOR;
+  // White text needs a contrast of 4.5:1 (WCAG AA); below that, near-black reads better.
+  const text = 1.05 / (luminance(background) + 0.05) >= 4.5 ? '#FFFFFF' : '#111111';
+  const style = [
+    'display:inline-block',
+    'padding:12px 24px',
+    'border-radius:8px',
+    `background:${background}`,
+    `color:${text}`,
+    "font:600 16px/1.25 system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif",
+    'text-decoration:none',
+  ].join(';');
+  return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${attribute(style)}">${attribute(label)}</a>`;
 }
