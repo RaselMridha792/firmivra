@@ -27,7 +27,9 @@ const SCOPES: { id: Scope; label: string }[] = [
  * Service & Billing (Octavia's Review 2, cross-service; Payroll F13): pause or resume the service
  * and pause or resume billing in one place. Either or both, with each state and effective date,
  * and what will happen spelled out before confirming. A service billed once has no billing to
- * pause. Bookkeeping and Payroll pass their own pause and resume calls.
+ * pause. Bookkeeping and Payroll pass their own pause and resume calls. Clients Review 2 (G8):
+ * any service opens it from the client's Services tab; one without a pause of its own (no
+ * `pauseService`) changes billing only.
  */
 export function ServiceBillingDialog({
   service,
@@ -49,8 +51,9 @@ export function ServiceBillingDialog({
   /** What pausing does not touch, e.g. Payroll's provider. */
   serviceNote?: string;
   initialScope?: Scope;
-  pauseService: (reason: string) => Promise<unknown>;
-  resumeService: () => Promise<unknown>;
+  /** Absent: the service has no pause of its own, so only its billing changes here. */
+  pauseService?: (reason: string) => Promise<unknown>;
+  resumeService?: () => Promise<unknown>;
   onClose: () => void;
   onDone: (text: string, tone: 'success' | 'error') => void;
 }) {
@@ -61,7 +64,8 @@ export function ServiceBillingDialog({
   );
   const e = engagement.data;
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
-  const [scope, setScope] = useState<Scope>(initialScope);
+  const pausable = !!pauseService && !!resumeService;
+  const [scope, setScope] = useState<Scope>(pausable ? initialScope : 'billing');
   const [reason, setReason] = useState('');
   const [date, setDate] = useState<string>();
   const [confirmed, setConfirmed] = useState(false);
@@ -93,8 +97,8 @@ export function ServiceBillingDialog({
   const stoppingBilling = scope !== 'service' && !!e?.recurring && !e.stopFutureBilling;
 
   const run = async (step: Step) => {
-    if (step.kind === 'pause-service') return pauseService(step.reason);
-    if (step.kind === 'resume-service') return resumeService();
+    if (step.kind === 'pause-service') return pauseService?.(step.reason);
+    if (step.kind === 'resume-service') return resumeService?.();
     const next = await api.engagements.stopBilling(
       engagementId,
       step.kind === 'stop-billing' ? { stop: true, stopsOn: step.on } : { stop: false },
@@ -160,7 +164,7 @@ export function ServiceBillingDialog({
         </dl>
         <fieldset className="flex flex-col">
           <legend className="font-semibold text-heading">What to change</legend>
-          {SCOPES.map((s) => (
+          {(pausable ? SCOPES : SCOPES.filter((s) => s.id === 'billing')).map((s) => (
             <Radio
               key={s.id}
               name="service-billing-scope"
@@ -174,6 +178,11 @@ export function ServiceBillingDialog({
             />
           ))}
           {blocked ? <p className="text-muted">{blocked}</p> : null}
+          {pausable ? null : (
+            <p className="text-muted" data-testid="service-billing-billing-only">
+              {service} has no pause of its own: its billing can be paused here.
+            </p>
+          )}
         </fieldset>
         {pausingService ? (
           <Textarea

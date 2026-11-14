@@ -11,8 +11,9 @@ import { money } from '../../_components/list-parts';
 
 // Clients Review 2 (G11): the client's billing at a glance on Overview, from the client's
 // invoices (GET /business/invoices?clientId=, the firm's scope): open invoices and what they
-// still owe, how many are overdue, the last invoice paid, and the way into Invoices filtered to
-// the client. Shown where the member's role can view Invoices & Payments; the API checks again.
+// still owe, how many are overdue, the last payment received (GET /business/invoices/payments
+// ?clientId=: Stripe's and recorded ones, partial payments included), and the way into Invoices
+// filtered to the client. Shown where the member's role can view Invoices & Payments; the API checks again.
 
 /** The newest 100 invoices are plenty for a client's figures; more says so. */
 const LIMIT = 100;
@@ -23,21 +24,31 @@ export function BillingCard({ clientId }: { clientId: string }) {
   const q = useApiQuery(['invoices', clientId, 'billing-card'], () =>
     may ? api.invoices.list({ clientId, limit: LIMIT }) : Promise.resolve(null),
   );
+  // Any payment since the firm began: the newest received one (voided or refunded ones skipped).
+  const payments = useApiQuery(['invoices', clientId, 'billing-card', 'payments'], () =>
+    may
+      ? api.invoices.payments({ clientId, from: '2000-01-01', pageSize: 25 })
+      : Promise.resolve(null),
+  );
   if (!may) return null;
   const items = q.data?.items ?? [];
   const open = items.filter((i) => i.status === 'OPEN');
   const balance = open.reduce((n, i) => n + i.balanceDueCents, 0);
   const overdue = open.filter((i) => i.overdue).length;
-  const paid = items
-    .filter((i) => i.status === 'PAID' && i.paidAt)
-    .sort((a, b) => b.paidAt!.localeCompare(a.paidAt!))[0];
+  const last = payments.data?.items.find((p) => p.status === 'RECEIVED');
   const facts: [string, string][] = [
     ['Open invoices', String(open.length)],
     ['Balance due', money(balance)],
     ['Overdue', String(overdue)],
     [
-      'Last invoice paid',
-      paid ? `${dateText(paid.paidAt!)} · ${money(paid.totalCents)}` : 'None yet',
+      'Last payment',
+      payments.isError
+        ? 'Not available'
+        : last
+          ? `${dateText(`${last.receivedOn}T12:00:00Z`)} · ${money(last.amountCents)}`
+          : payments.isPending
+            ? 'Loading…'
+            : 'None yet',
     ],
   ];
   return (

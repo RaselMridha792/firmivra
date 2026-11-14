@@ -5,6 +5,7 @@ import {
   StopFutureBillingRequest,
   CreateEngagementRequest,
   Engagement,
+  EngagementActivity,
   EngagementHistory,
   EngagementId,
   EngagementList,
@@ -76,6 +77,9 @@ export function createEngagementsClient(request: ApiRequest) {
     /** Status and stage changes, newest first. */
     history: async (id: string): Promise<EngagementHistory['items']> =>
       (await request(EngagementHistory, `${one(id)}/history`)).items,
+    /** Clients Review 2 (G8): what was done to the service, from its audit rows; newest first. */
+    activity: async (id: string): Promise<EngagementActivity['items']> =>
+      (await request(EngagementActivity, `${one(id)}/activity`)).items,
   };
 }
 

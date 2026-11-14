@@ -49,6 +49,7 @@ export const cases: CaseModule['cases'] = {
   },
   'GET /api/v1/business/engagements/:id': { params: { id: 'engagement' } },
   'GET /api/v1/business/engagements/:id/history': { params: { id: 'engagement' } },
+  'GET /api/v1/business/engagements/:id/activity': { params: { id: 'engagement' } },
   'PATCH /api/v1/business/engagements/:id': {
     params: { id: 'engagement' },
     bodyIds: { assignedUserId: 'staffUser' },

@@ -6,6 +6,7 @@ import {
   ClientId,
   CreateEngagementRequest,
   type Engagement,
+  type EngagementActivity,
   type EngagementHistory,
   EngagementId,
   ListEngagementsQuery,
@@ -142,6 +143,18 @@ export class EngagementsController {
     @Param('id', idPipe) id: string,
   ): Promise<EngagementHistory> {
     return { items: await this.engagements.history(tenant.businessId, actorOf(auth, tenant), id) };
+  }
+
+  /** Clients Review 2 (G8): the service's history from its audit rows. */
+  @Get(':id/activity')
+  async activity(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<EngagementActivity> {
+    return {
+      items: await this.engagements.activity(tenant.businessId, actorOf(auth, tenant), id),
+    };
   }
 }
 
