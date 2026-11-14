@@ -639,6 +639,14 @@ export class TaxOpportunitiesService {
           review();
           break;
         case 'REOPEN':
+          // C11 (Review 2): a Closed one reopens too, to Under Review; its events keep the earlier
+          // reasons, and the date it was implemented goes with the reopening.
+          if (from === 'CLOSED') {
+            setStatus('UNDER_REVIEW', body.note ?? null);
+            data.implementedOn = null;
+            review();
+            break;
+          }
           if (from !== 'NOT_APPLICABLE' && from !== 'DISMISSED') wrong();
           setStatus(o.reviewedAt ? 'UNDER_REVIEW' : 'NEW', body.note ?? null);
           data.dispositionReason = null;
