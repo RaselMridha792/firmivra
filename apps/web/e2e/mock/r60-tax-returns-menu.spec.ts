@@ -33,7 +33,7 @@ test('Request Client Information, Schedule Appointment and Edit Client Details k
 }) => {
   for (const [name, path] of [
     ['Request Client Information', /\/documents\/requests\/new\?clientId=[0-9a-f-]+&from=/],
-    ['Schedule Appointment', /\/calendar\/new\?clientId=[0-9a-f-]+&from=/],
+    ['Schedule Appointment', /\/calendar\/new\?clientId=[0-9a-f-]+&taxReturnId=[0-9a-f-]+&from=/],
     ['Edit Client Details', /\/clients\/[0-9a-f-]+\?edit=1&from=/],
   ] as const) {
     await menuItem(page, name);

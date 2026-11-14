@@ -218,7 +218,8 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
     {
       label: 'Schedule Appointment',
       icon: CalendarPlus,
-      onSelect: out(`/calendar/new?clientId=${row.client.id}`),
+      // Review 2 (TX-F06): linked to this return.
+      onSelect: out(`/calendar/new?clientId=${row.client.id}&taxReturnId=${row.id}`),
     },
   ];
   const filing: ActionMenuItem[] = [

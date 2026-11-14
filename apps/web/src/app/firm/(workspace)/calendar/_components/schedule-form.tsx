@@ -520,7 +520,7 @@ export function ScheduleForm({
    * Schedule a Planning Consultation (C02) sends only its service (`?serviceId=`): the client is
    * then chosen in the form.
    */
-  prefill?: { clientId?: string; engagementId?: string; serviceId?: string };
+  prefill?: { clientId?: string; engagementId?: string; serviceId?: string; taxReturnId?: string };
   /** Where Cancel goes when a workspace opened the form (its `from`). */
   cancelHref?: string;
   /** C12 (Tax Planning Review 2): the planning plan this discussion is for. */
@@ -575,6 +575,7 @@ export function ScheduleForm({
         prefill={start}
         cancelHref={cancelHref}
         taxPlanId={taxPlanId}
+        linkReturnId={prefill?.taxReturnId}
         header={header}
         draft={draft.data ?? undefined}
       />
@@ -744,6 +745,7 @@ function FormBody({
   taxPlanId,
   header,
   draft: savedDraft,
+  linkReturnId,
 }: {
   options: SchedulingOptions;
   /** Review 2 (Save as Draft): the draft reopened here. */
@@ -753,6 +755,8 @@ function FormBody({
   prefill?: Prefill;
   cancelHref?: string;
   taxPlanId?: string;
+  /** Review 2 (TX-F06): opened from a tax return, it is linked to that return. */
+  linkReturnId?: string;
   header: ReactNode;
 }) {
   const router = useRouter();
@@ -766,6 +770,16 @@ function FormBody({
   // discarded. Browser storage only: nothing is sent, and a blocked storage keeps the old behaviour.
   const [kept] = useState<Form | null>(readKept);
   const [form, setForm] = useState<Form>(() => kept ?? start);
+  // Review 2 (TX-F06): Link to Tax Return, one of the client's returns that has its service.
+  const linkClientId = form.contact?.kind === 'CLIENT' ? form.contact.id : null;
+  const clientReturns = useApiQuery(
+    ['tax-returns', 'for-appointment', linkClientId ?? ''],
+    async () => (linkClientId ? api.taxReturns.listForClient(linkClientId) : []),
+  );
+  const linkable = (clientReturns.data ?? []).filter((r) => r.engagementId);
+  const [linkReturn, setLinkReturn] = useState(linkReturnId ?? record?.related.taxReturn?.id ?? '');
+  // Another client: a return of the one before never carries over.
+  const linkedReturn = linkable.some((r) => r.id === linkReturn) ? linkReturn : '';
   // SH1: the workspace's Back asks first once something was changed here.
   const [initial] = useState(() => JSON.stringify(start));
   const dirty = JSON.stringify(form) !== initial;
@@ -964,6 +978,10 @@ function FormBody({
         : null;
 
   const fields = () => ({
+    // Review 2 (TX-F06): Link to Tax Return (kept as the return's engagement); null takes it off.
+    ...(linkClientId && (linkedReturn || record?.related.taxReturn)
+      ? { related: { taxReturnId: linkedReturn || null } }
+      : {}),
     contact: contactInput(),
     typeId: form.typeId,
     serviceId: form.serviceId || null,
@@ -1696,8 +1714,30 @@ function FormBody({
             testId="related-items"
           >
             <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <div className="col-span-2">
+                <Select
+                  label="Link to Tax Return"
+                  data-testid="link-tax-return"
+                  disabled={!linkClientId}
+                  value={linkedReturn}
+                  onChange={(e) => setLinkReturn(e.target.value)}
+                  options={[
+                    {
+                      value: '',
+                      label: !linkClientId
+                        ? 'Choose the client first'
+                        : linkable.length
+                          ? 'No tax return'
+                          : 'No tax return with its service yet',
+                    },
+                    ...linkable.map((r) => ({
+                      value: r.id,
+                      label: `${r.taxYear}${r.quarter ? ` Q${r.quarter}` : ''} ${r.formType ?? 'Tax'} Return`,
+                    })),
+                  ]}
+                />
+              </div>
               {[
-                'Link to Tax Return',
                 'Link to Task',
                 'Link to Bookkeeping Client',
                 'Send Intake Form Before Appointment',

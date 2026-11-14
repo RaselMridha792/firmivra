@@ -22,6 +22,15 @@ export interface ServiceDocumentTarget {
   /** "October 2026", "Tax year 2025": the period the workspace is on, when it knows one. */
   period?: string;
   taxYear?: number | null;
+  /**
+   * Tax Returns Review 2 (TX-F08): opened from a return, the uploaded file can be one of the
+   * return's own documents (its draft, signature form, filed return, ...): the same file, linked.
+   */
+  linkTo?: {
+    label: string;
+    roles: readonly { value: string; label: string }[];
+    link: (documentId: string, role: string) => Promise<unknown>;
+  };
 }
 
 type Kind = 'request' | 'upload';
@@ -279,6 +288,7 @@ function UploadDocumentDialog({
   const [categoryId, setCategoryId] = useState('');
   const [taxYear, setTaxYear] = useState(target?.taxYear ? String(target.taxYear) : '');
   const [share, setShare] = useState(false);
+  const [role, setRole] = useState('');
   const [file, setFile] = useState<File>();
   const [percent, setPercent] = useState<number>();
   const [error, setError] = useState<string>();
@@ -288,7 +298,7 @@ function UploadDocumentDialog({
     if (!file || !picked) return;
     setError(undefined);
     try {
-      await uploadFile(file, {
+      const uploaded = await uploadFile(file, {
         start: (facts) =>
           api.documents.createUpload(picked.clientId, {
             serviceId: picked.engagementId,
@@ -301,6 +311,8 @@ function UploadDocumentDialog({
         maxBytes: UPLOAD_LIMITS.maxBytes,
         onProgress: setPercent,
       });
+      // TX-F08: the same file, linked to the return in the role chosen.
+      if (role && picked.linkTo) await picked.linkTo.link(uploaded.id, role);
       await qc.invalidateQueries();
       onDone(`Uploaded ${file.name} to ${picked.clientName}'s ${picked.service} documents.`);
     } catch (e) {
@@ -353,6 +365,17 @@ function UploadDocumentDialog({
           />
         </div>
         {none ? <NoTypes /> : null}
+        {picked?.linkTo ? (
+          <Select
+            label={picked.linkTo.label}
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            options={[
+              { value: '', label: 'A client document, not the return' },
+              ...picked.linkTo.roles,
+            ]}
+          />
+        ) : null}
         <FileDropzone
           label="File"
           onFiles={(files) => setFile(files[0])}

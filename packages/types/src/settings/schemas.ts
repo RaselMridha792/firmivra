@@ -4,6 +4,7 @@ import { LegalDocument, LegalVersion } from '../client-auth/schemas.js';
 import { text } from '../clients/text.js';
 import { Ein, EntityType, FirmService } from '../firm-applications/schemas.js';
 import { BusinessStatus } from '../schemas.js';
+import { MonthDay } from '../dashboard/tax-season.js';
 
 // Firm settings (Settings > Profile, Branding, Client portal, Legal) and the first-time setup
 // wizard (/setup). Owner and Admin only, also while the firm is Pending Setup.
@@ -119,6 +120,13 @@ export const FirmSettings = z.object({
   services: z.array(FirmService),
   /** What the firm does, in a few lines. Plain text, never HTML or Markdown. */
   description: z.string().nullable(),
+  /**
+   * Dashboard Review 2: the firm's tax season, `MM-DD` to `MM-DD` every year in its time zone (it
+   * may run across Jan 1); both null when it has none. The dashboard shows Tax Season or
+   * Off-Season from these. Missing (an answer from before these existed) reads as not set.
+   */
+  taxSeasonStart: z.string().nullable().default(null),
+  taxSeasonEnd: z.string().nullable().default(null),
   /** The latest change to any of these settings. */
   updatedAt: z.iso.datetime({ offset: true }),
 });
@@ -202,12 +210,31 @@ export const UpdateFirmSettingsRequest = z
       .max(20)
       .transform((list) => [...new Set(list)]),
     description: clearable(text(2000, 'many')),
+    /** Sent together: both days, or both null (or '') for no tax season. */
+    taxSeasonStart: clearable(MonthDay),
+    taxSeasonEnd: clearable(MonthDay),
   })
   .partial()
   .refine(
     (patch) => Object.values(patch).some((value) => value !== undefined),
     'Change at least one setting',
-  );
+  )
+  .superRefine((patch, ctx) => {
+    const { taxSeasonStart: start, taxSeasonEnd: end } = patch;
+    if (start === undefined && end === undefined) return;
+    if (!start !== !end)
+      ctx.addIssue({
+        code: 'custom',
+        path: [start ? 'taxSeasonEnd' : 'taxSeasonStart'],
+        message: 'Choose both days of the tax season, or neither',
+      });
+    else if (start && start === end)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['taxSeasonEnd'],
+        message: 'The tax season ends on another day than it starts',
+      });
+  });
 export type UpdateFirmSettingsRequest = z.input<typeof UpdateFirmSettingsRequest>;
 
 /** The wizard's steps, in order. Finish is POST /business/setup/complete, not a step. */

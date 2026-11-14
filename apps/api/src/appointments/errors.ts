@@ -79,7 +79,7 @@ export const errors = {
     }),
   /** 400 for something the form can send but the database cannot keep yet (see the PR's gaps). */
   unsupported: (message: string) => new BadRequestException({ code: 'VALIDATION_FAILED', message }),
-  invalidField,
+  invalidField: (path: string, message: string) => invalidField(path, message),
   /** 400 at `path`: a booking or change in a meeting method its type does not offer (A1). */
   methodNotOffered: (path: string) =>
     invalidField(path, 'This appointment type is not offered that way. Choose another method.'),
