@@ -2793,6 +2793,8 @@ describe('appointment type configuration', () => {
       requiredDocuments: [],
       defaultReminders: [],
       color: '#2563eb',
+      // Review 2 (B7): no confirmation words of its own.
+      confirmationMessage: null,
     });
   });
 
