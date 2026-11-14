@@ -183,6 +183,16 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'taxPlan' },
     body: { channel: 'PORTAL_MESSAGE' },
   },
+  // C27 (Review 2): reopen and revise with a reason, and the plan's history.
+  [`POST ${BASE}/plans/:id/reopen`]: {
+    params: { id: 'taxPlan' },
+    body: { etag: ETAG, reason: 'Fake reason' },
+  },
+  [`POST ${BASE}/plans/:id/revise`]: {
+    params: { id: 'taxPlan' },
+    body: { etag: ETAG, reason: 'Fake reason' },
+  },
+  [`GET ${BASE}/plans/:id/events`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/archive`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/restore`]: { params: { id: 'taxPlan' } },
   [`GET ${BASE}/plans/:id/versions`]: { params: { id: 'taxPlan' } },
