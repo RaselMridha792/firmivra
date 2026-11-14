@@ -47,8 +47,8 @@ test('the composer, Choose Recipients, Review & Send and the results explain eac
   page,
 }) => {
   await page.goto(`${base}/new?channel=EMAIL`);
-  await page.getByRole('button', { name: 'Start Bulk Email' }).click();
-  await page.waitForURL(/\/edit$/);
+  // Q3 (Dashboard Review 2): the composer opens at once.
+  await expect(page.getByTestId('composer-form')).toBeVisible({ timeout: 60_000 });
   for (const topic of [
     'Writing a communication',
     'Communication type',

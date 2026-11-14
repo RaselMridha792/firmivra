@@ -42,9 +42,8 @@ test('Create New: an email draft opens the composer with the checklist', async (
 
 test('Composer: choose recipients, review and send, then see the results', async ({ page }) => {
   await page.goto(`${base}/new?channel=EMAIL`);
-  // Since #1150 the new page makes the draft only on Start.
-  await page.getByRole('button', { name: 'Start Bulk Email' }).click();
-  await page.waitForURL(/\/edit$/);
+  // Q3 (Dashboard Review 2): the composer at once; Choose Recipients makes the draft.
+  await expect(page.getByTestId('composer-form')).toBeVisible();
   await page.getByLabel('Campaign Name').fill('Spring Check-In');
   await page.getByLabel('Subject Line').fill('A quick hello');
   await page
@@ -52,6 +51,7 @@ test('Composer: choose recipients, review and send, then see the results', async
     .getByRole('textbox', { name: /Message/ })
     .fill('Hello [Client First Name], thank you.');
   await page.getByRole('button', { name: 'Choose Recipients' }).click();
+  await page.waitForURL(/\/edit$/);
   const modal = page.getByRole('dialog');
   await modal.getByLabel(/Small Business Clients/).check();
   await expect(modal.getByTestId('selected-audience')).toContainText('Small Business Clients');
@@ -77,15 +77,15 @@ test('Composer: choose recipients, review and send, then see the results', async
 
 test('Composer: switching to a text message counts its parts', async ({ page }) => {
   await page.goto(`${base}/new?channel=EMAIL`);
-  // Since #1150 the new page makes the draft only on Start.
-  await page.getByRole('button', { name: 'Start Bulk Email' }).click();
-  await page.waitForURL(/\/edit$/);
+  // Q3: nothing is saved until Save Draft, which makes the draft.
+  await expect(page.getByText('Not saved yet').first()).toBeVisible();
   await page
     .getByTestId('composer-form')
     .getByRole('textbox', { name: /Message/ })
     .fill('Some words');
   await page.getByRole('button', { name: 'Save Draft' }).first().click();
   await expect(page.getByText('Draft saved.')).toBeVisible();
+  await page.waitForURL(/\/edit$/);
   await page.getByRole('tab', { name: 'Text Message' }).click();
   await expect(page.getByTestId('sms-count')).toContainText('text part');
   await page.getByRole('tab', { name: 'Announcement' }).click();

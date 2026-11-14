@@ -1,6 +1,5 @@
 'use client';
 
-import { Button } from '@firmivra/ui';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -9,13 +8,13 @@ import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { ORIGIN_PARAM, safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { ChannelNotice } from './channel-notice';
 import { COMM_ERRORS, quiet } from './communications-shared';
-
-const NAMES = { EMAIL: 'Bulk Email', SMS: 'Bulk Text Message', ANNOUNCEMENT: 'Announcement' };
+import { NewComposer } from './composer';
 
 /**
- * /communications/new?channel=: the start of a new communication. Opening it saves and sends
- * nothing (Octavia's Q3): Start makes the draft and opens the composer on it. A template's Use
- * (`templateId`) is already that choice, so it starts at once.
+ * /communications/new?channel=: a new communication. Opening it saves and sends nothing (Octavia's
+ * Q3): Dashboard Review 2 asked for the composer itself, not a Start page, so it opens at once and
+ * its first save makes the draft (NewComposer). A template's Use (`templateId`) is already that
+ * choice, so it makes the draft from the template at once.
  */
 export function NewCommunication({
   channel,
@@ -75,28 +74,5 @@ export function NewCommunication({
       </div>
     );
   if (templateId || starting) return <p className={quiet}>Starting your draft…</p>;
-  return (
-    <section
-      aria-labelledby="new-communication"
-      data-testid="new-communication"
-      className="flex max-w-xl flex-col gap-3 rounded-xl border border-divider bg-surface p-5 shadow-sm"
-    >
-      <h1 id="new-communication" className="text-2xl font-bold text-heading">
-        New {NAMES[channel]}
-      </h1>
-      <p className="text-sm text-text">
-        Write it, choose who receives it, then review and send. Nothing is saved or sent until you
-        start; a started draft stays in Communications until you send or delete it.
-      </p>
-      <div className="flex flex-wrap gap-3">
-        <Button onClick={start}>Start {NAMES[channel]}</Button>
-        <Link
-          href="/communications"
-          className="inline-flex min-h-10 items-center text-sm font-medium text-link"
-        >
-          Back to Communications
-        </Link>
-      </div>
-    </section>
-  );
+  return <NewComposer channel={channel} />;
 }
