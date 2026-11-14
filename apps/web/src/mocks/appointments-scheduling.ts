@@ -699,7 +699,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         },
         confirmationMessage: input.confirmationMessage ?? null,
         related: {
-          taxReturn: null,
+          // Review 2 (TX-F06): Link to Tax Return, as the API keeps it.
+          taxReturn: input.related?.taxReturnId
+            ? { id: input.related.taxReturnId, name: 'Linked tax return' }
+            : null,
           bookkeepingEngagement: null,
           invoice: null,
           task: null,

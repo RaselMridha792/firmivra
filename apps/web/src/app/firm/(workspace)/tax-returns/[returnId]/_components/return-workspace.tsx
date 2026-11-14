@@ -844,7 +844,7 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
         {/* TX-F06 (SH6): the shared appointment form on this client and return's engagement;
             Cancel or Back returns here without creating anything. */}
         <OriginLink
-          href={`/calendar/new?clientId=${detail.client.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
+          href={`/calendar/new?clientId=${detail.client.id}&taxReturnId=${detail.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
           className={button}
         >
           <CalendarPlus aria-hidden weight="fill" className="size-5" /> Create Appointment
