@@ -10,6 +10,7 @@ import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@f
 import type {
   CreateEngagementRequest,
   Engagement,
+  EngagementActivity,
   EngagementHistory,
   ListEngagementsQuery,
   MyService,
@@ -21,6 +22,18 @@ import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClient } from '../workspaces/common.js';
+
+/** G8: the audit actions a service's history shows, by the contract's names. */
+const ACTIVITY: Record<string, EngagementActivity['items'][number]['action']> = {
+  'engagement.created': 'CREATED',
+  'engagement.updated': 'UPDATED',
+  'engagement.billing_stopped': 'BILLING_STOPPED',
+  'engagement.billing_resumed': 'BILLING_RESUMED',
+  'engagement.completed': 'COMPLETED',
+  'engagement.cancelled': 'CANCELLED',
+  'engagement.reactivated': 'REACTIVATED',
+  'portal.cancellation_requested': 'CANCELLATION_REQUESTED',
+};
 
 type ListQuery = z.output<typeof ListEngagementsQuery>;
 type CreateBody = z.output<typeof CreateEngagementRequest>;
@@ -530,6 +543,68 @@ export class EngagementsService {
       });
     });
     await this.audit.log('engagement.history_viewed', { type: 'engagement', id });
+    return items;
+  }
+
+  /**
+   * Clients Review 2 (G8): what was done to the service, from its audit rows in this firm, newest
+   * first (at most 200). Views and lists are left out; only the changed field names and the
+   * billing stop day are read from the row's metadata, never anything else.
+   */
+  async activity(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<EngagementActivity['items']> {
+    const items = await this.inFirm(businessId, async (tx) => {
+      await this.engagement(tx, businessId, actor, id);
+      const rows = await tx.auditLog.findMany({
+        where: {
+          businessId,
+          entityType: 'engagement',
+          entityId: id,
+          action: { in: Object.keys(ACTIVITY) },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 200,
+        select: {
+          id: true,
+          action: true,
+          actorUserId: true,
+          metadata: true,
+          createdAt: true,
+        },
+      });
+      const userIds = [...new Set(rows.map((r) => r.actorUserId).filter((u) => u !== null))];
+      const members = userIds.length
+        ? await tx.membership.findMany({
+            where: { businessId, userId: { in: userIds } },
+            select: { userId: true, user: { select: { name: true } } },
+          })
+        : [];
+      const names = new Map(members.map((m) => [m.userId, m.user.name]));
+      return rows.map((r) => {
+        const meta = (r.metadata ?? {}) as { fields?: unknown; stopsOn?: unknown };
+        const fields = Array.isArray(meta.fields)
+          ? meta.fields.filter((f): f is string => typeof f === 'string' && f.length <= 40)
+          : [];
+        const stopsOn =
+          typeof meta.stopsOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.stopsOn)
+            ? meta.stopsOn
+            : null;
+        const member = r.actorUserId ? names.get(r.actorUserId) : undefined;
+        return {
+          id: r.id,
+          action: ACTIVITY[r.action]!,
+          fields: r.action === 'engagement.updated' ? fields : [],
+          stopsOn: r.action === 'engagement.billing_stopped' ? stopsOn : null,
+          // Only this firm's members are named (a client's own request reads as the client).
+          by: member ?? null,
+          at: r.createdAt.toISOString(),
+        };
+      });
+    });
+    await this.audit.log('engagement.activity_viewed', { type: 'engagement', id });
     return items;
   }
 

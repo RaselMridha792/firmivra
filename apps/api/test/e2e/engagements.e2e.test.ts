@@ -467,6 +467,28 @@ describe('firm: change and lifecycle', () => {
     ]);
     expect(items[0]!.changedBy?.userId).toBe(people.ownerA.id);
   });
+
+  it('activity (Clients Review 2, G8): what was done, from the audit rows, never a view', async () => {
+    // A read first: it never shows in the activity.
+    expectOk(await firm('get', `/engagements/${e.id}`, people.ownerA));
+    const res = expectOk(await firm('get', `/engagements/${e.id}/activity`, people.ownerA));
+    const items = (res.body as { items: { action: string; fields: string[]; by: string | null }[] })
+      .items;
+    const actions = items.map((i) => i.action);
+    expect(actions.at(-1)).toBe('CREATED');
+    expect(actions).toEqual(expect.arrayContaining(['UPDATED', 'CANCELLED', 'REACTIVATED']));
+    expect(items.find((i) => i.action === 'UPDATED')!.fields.length).toBeGreaterThan(0);
+    expect(items[0]!.by).not.toBeNull();
+    // Another firm's member: 404, nothing read.
+    const other = await firm(
+      'get',
+      `/engagements/${e.id}/activity`,
+      people.ownerB,
+      undefined,
+      ids.firmB,
+    );
+    expect(other.status).toBe(404);
+  });
 });
 
 describe('portal: My Services', () => {

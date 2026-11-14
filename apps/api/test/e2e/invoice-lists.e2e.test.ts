@@ -89,6 +89,16 @@ describe('View All Payments (IP-F17)', () => {
     const staff = await page('', t.people.staffA);
     expect(staff.items.map((r) => r.invoice.id)).toEqual([mine.id]);
     expect((await page('', t.people.ownerB, t.ids.firmB)).total).toBe(0);
+
+    // Clients Review 2 (G11): one client's payments, within reach and within the firm only.
+    expect((await page(`?clientId=${t.ids.one}`)).items.map((r) => r.invoice.id)).toEqual([
+      mine.id,
+    ]);
+    expect((await page(`?clientId=${t.ids.two}`)).total).toBe(3);
+    expect((await page(`?clientId=${t.ids.two}`, t.people.staffA)).total).toBe(0);
+    expect((await page(`?clientId=${t.ids.one}`, t.people.ownerB, t.ids.firmB)).total).toBe(0);
+    const bad = await t.firm('get', '/payments?clientId=not-a-uuid', t.people.ownerA);
+    expect(bad.status).toBe(400);
   });
 });
 

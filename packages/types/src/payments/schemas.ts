@@ -740,6 +740,8 @@ export type AddInvoiceHistoryRequest = z.input<typeof AddInvoiceHistoryRequest>;
 /** GET /business/invoices/payments: both days included, the firm's calendar; this year by default. */
 export const ListPaymentsQuery = z
   .strictObject({
+    /** Clients Review 2 (G11): one client's payments (a client out of reach lists none). */
+    clientId: z.uuid().optional(),
     from: CalendarDate.optional(),
     to: CalendarDate.optional(),
     search: SearchText.optional(),

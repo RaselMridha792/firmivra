@@ -142,6 +142,42 @@ export const EngagementHistory = z.object({
 });
 export type EngagementHistory = z.infer<typeof EngagementHistory>;
 
+/**
+ * GET /business/engagements/{id}/activity (Clients Review 2, G8): what was done to the service,
+ * from its audit rows, newest first: enrolled, edited (which fields), billing stopped or resumed,
+ * completed, cancelled, reactivated, and the client's cancellation request. Never a view or a
+ * list; `fields` names what changed, never the values.
+ */
+export const EngagementActivityAction = z.enum([
+  'CREATED',
+  'UPDATED',
+  'BILLING_STOPPED',
+  'BILLING_RESUMED',
+  'COMPLETED',
+  'CANCELLED',
+  'REACTIVATED',
+  'CANCELLATION_REQUESTED',
+]);
+export type EngagementActivityAction = z.infer<typeof EngagementActivityAction>;
+export const EngagementActivity = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        action: EngagementActivityAction,
+        /** UPDATED: the fields changed (title, package, assignedUserId, periodEnd, ...). */
+        fields: z.array(z.string()),
+        /** BILLING_STOPPED: the day billing stops. */
+        stopsOn: CalendarDate.nullable(),
+        /** The member, or null for the client or the system. */
+        by: z.string().nullable(),
+        at: DateTime,
+      }),
+    )
+    .max(200),
+});
+export type EngagementActivity = z.infer<typeof EngagementActivity>;
+
 // ---------- My Services (portal) ----------
 /** What the client sees of an engagement (no staff, internal notes or the firm's reason). */
 export const MyService = z.object({
