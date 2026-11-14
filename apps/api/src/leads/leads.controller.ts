@@ -20,13 +20,14 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { CommunicationsModule } from '../communications/communications.module.js';
-import { loadDocumentsConfig, type DocumentsConfig } from '../storage/config.js';
+import { DOCUMENTS_CONFIG, loadDocumentsConfig, type DocumentsConfig } from '../storage/config.js';
 import {
   createS3Client,
   DOCUMENT_STORAGE,
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { LeadConvertService } from './lead-convert.service.js';
+import { LeadFilesService, LeadFileTokens } from './lead-files.service.js';
 import {
   LeadEmailImagesController,
   MessageSignatureController,
@@ -149,6 +150,13 @@ export class LeadsController {
     LeadFollowUpsService,
     LeadPipelineWriteService,
     LeadMessagesService,
+    LeadFilesService,
+    {
+      provide: LeadFileTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new LeadFileTokens(poolSecrets(env)),
+    },
+    { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
     // R5's documents bucket, made the way storage/documents.controller.ts makes it.
     {
       provide: DOCUMENT_STORAGE,

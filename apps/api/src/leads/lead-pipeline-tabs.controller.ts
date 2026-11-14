@@ -1,12 +1,29 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   AddLeadNoteRequest,
   BulkConvertLeadsRequest,
   type BulkConvertLeadsResult,
   CompleteFollowUpRequest,
+  ConfirmUploadRequest,
   ConvertLeadToClientRequest,
   type ConvertLeadToClientResult,
+  CreateLeadFileRequest,
+  CreateLeadTaskRequest,
+  type LeadDocument,
+  type OkResponse,
+  type UploadTicket,
   type LeadActivity,
   LeadActivityQuery,
   type LeadActivityPage,
@@ -18,11 +35,13 @@ import {
   type LeadTask,
   LogLeadActivityRequest,
   SetFollowUpRequest,
+  UpdateLeadTaskRequest,
 } from '@firmivra/types';
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import { type AuthContext, legacyFirmRole, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { LeadConvertService } from './lead-convert.service.js';
+import { LeadFilesService } from './lead-files.service.js';
 import { pipelineActor } from './lead-pipeline.controller.js';
 import { LeadPipelineTabsService } from './lead-pipeline-tabs.service.js';
 
@@ -36,7 +55,43 @@ export class LeadPipelineTabsController {
   constructor(
     private readonly tabs: LeadPipelineTabsService,
     private readonly converts: LeadConvertService,
+    private readonly files: LeadFilesService,
   ) {}
+
+  /** R2 4: step 1 of adding a file to the lead. */
+  @Post(':id/files')
+  @HttpCode(200)
+  createFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateLeadFileRequest))
+    body: z.output<typeof CreateLeadFileRequest>,
+  ): Promise<UploadTicket> {
+    return this.files.ticket(tenant.businessId, pipelineActor(auth, tenant), id, body);
+  }
+
+  /** R2 4: step 3, after the browser's PUT. */
+  @Post(':id/files/confirm')
+  @HttpCode(200)
+  confirmFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+  ): Promise<LeadDocument> {
+    return this.files.confirm(tenant.businessId, pipelineActor(auth, tenant), id, body.uploadToken);
+  }
+
+  @Delete(':id/files/:fileId')
+  removeFile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('fileId', idPipe) fileId: string,
+  ): Promise<OkResponse> {
+    return this.files.remove(tenant.businessId, pipelineActor(auth, tenant), id, fileId);
+  }
 
   @Put(':id/follow-up')
   setFollowUp(
@@ -107,6 +162,29 @@ export class LeadPipelineTabsController {
     @Param('id', idPipe) id: string,
   ): Promise<{ items: LeadTask[] }> {
     return { items: await this.tabs.tasks(tenant.businessId, pipelineActor(auth, tenant), id) };
+  }
+
+  @Post(':id/tasks')
+  createTask(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateLeadTaskRequest))
+    body: z.output<typeof CreateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    return this.tabs.createTask(tenant.businessId, pipelineActor(auth, tenant), id, body);
+  }
+
+  @Patch(':id/tasks/:taskId')
+  updateTask(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('taskId', idPipe) taskId: string,
+    @Body(new ZodValidationPipe(UpdateLeadTaskRequest))
+    body: z.output<typeof UpdateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    return this.tabs.updateTask(tenant.businessId, pipelineActor(auth, tenant), id, taskId, body);
   }
 
   @Get(':id/appointments')

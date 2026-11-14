@@ -3095,3 +3095,41 @@ describe('notice settings', () => {
     expect(rowsB).toBe(0);
   });
 });
+
+describe('a planning discussion (Tax Planning Review 2 C12)', () => {
+  it("links the appointment to one of the client's open plans, never another's", async () => {
+    const plans = await asOwner(ids.firmA, async (tx) => {
+      const make = (clientId: string, status: 'IN_PROGRESS' | 'CLOSED') =>
+        tx.taxPlan.create({
+          data: {
+            businessId: ids.firmA,
+            clientId,
+            name: `Discussion plan ${randomUUID().slice(0, 6)} (fake)`,
+            planYear: 2027,
+            status,
+          },
+          select: { id: true },
+        });
+      return {
+        open: (await make(ids.c1, 'IN_PROGRESS')).id,
+        other: (await make(ids.c2, 'IN_PROGRESS')).id,
+        closed: (await make(ids.c1, 'CLOSED')).id,
+      };
+    });
+    const linked = await scheduled({ taxPlanId: plans.open });
+    expect(
+      await asOwner(ids.firmA, (tx) =>
+        tx.appointment.findUniqueOrThrow({ where: { id: linked.id }, select: { taxPlanId: true } }),
+      ),
+    ).toEqual({ taxPlanId: plans.open });
+    for (const taxPlanId of [plans.other, plans.closed, randomUUID()]) {
+      const res = await call(
+        'post',
+        '/appointments/schedule',
+        people.ownerA,
+        schedule({ taxPlanId }),
+      );
+      expect([res.status, codeOf(res)], taxPlanId).toEqual([404, 'NOT_FOUND']);
+    }
+  });
+});

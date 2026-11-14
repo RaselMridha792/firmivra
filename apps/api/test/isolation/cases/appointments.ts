@@ -133,7 +133,8 @@ export const cases: CaseModule['cases'] = {
   // Outside the staff member's (absent) working hours, which an Owner overrides with a reason.
   'POST /api/v1/business/appointments/schedule': {
     params: {},
-    bodyIds: scheduleIds,
+    // C12 (Tax Planning Review 2): a discussion of the client's plan.
+    bodyIds: { ...scheduleIds, taxPlanId: 'taxPlan' },
     body: () => ({
       idempotencyKey: randomUUID(),
       contact: { kind: 'CLIENT', id: '' },

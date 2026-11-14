@@ -161,8 +161,24 @@ export const PlanningResource = z.object({
   url: z.string().nullable(),
   /** C17 (Review 2): what it says, as View shows it and as it is sent to a client. */
   summary: z.string().optional(),
+  /** C17: the firm edited this built-in resource (its own words show instead of the built-in's). */
+  edited: z.boolean().optional(),
 });
 export type PlanningResource = z.infer<typeof PlanningResource>;
+
+/**
+ * C17 (Review 2): PUT .../resources/{key}: the firm's own words for a built-in resource (Manage
+ * Strategies). Its title, category, kind, summary (what a client is sent) and whether it may go
+ * to a client. Saved again, it replaces the firm's copy; the built-in one never changes.
+ */
+export const UpdatePlanningResourceRequest = z.strictObject({
+  title: text(200),
+  category: text(100),
+  kind: z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'VIDEO', 'ARTICLE']),
+  summary: clearable(text(1_000, 'many')),
+  clientFacing: z.boolean(),
+});
+export type UpdatePlanningResourceRequest = z.input<typeof UpdatePlanningResourceRequest>;
 
 /** GET /business/tax-planning/overview: Frame 1. Counts open the matching filtered lists. */
 export const TaxPlanningOverview = z.object({
@@ -295,6 +311,37 @@ export const TaxPlanDetail = TaxPlanRow.extend({
   /** The client's data is older than a period the firm sets: prompt to review. */
   staleData: z.boolean(),
   disclaimer: z.string(),
+  /**
+   * C12 (Review 2): the plan's client discussions (Appointments linked to this plan), soonest
+   * first, with the firm's time zone; each opens in Appointments.
+   */
+  discussions: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        startsAt: DateTime,
+        endsAt: DateTime,
+        timeZone: z.string().nullable(),
+        status: z.string(),
+        staff: MemberRef.nullable(),
+      }),
+    )
+    .max(50),
+  /**
+   * C15 (Review 2): the plan's implementation tasks (Tasks, linked to this plan), due first; each
+   * opens in Tasks.
+   */
+  tasks: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        title: z.string(),
+        status: z.string(),
+        dueOn: CalendarDate.nullable(),
+        assignedTo: MemberRef.nullable(),
+      }),
+    )
+    .max(100),
   /** False once the plan is Closed (C27): it changes only by Reopen. */
   canEdit: z.boolean(),
   /** C27: may change the plan's status, reopen, revise, archive and restore it. */

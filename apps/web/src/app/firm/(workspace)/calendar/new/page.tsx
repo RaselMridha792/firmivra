@@ -13,7 +13,8 @@ const id = (v: Param) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? 
  * Schedule Appointment (SH6) adds `clientId` and `engagementId`: the form opens on that client and
  * the engagement's service, and Cancel returns to `from` without creating anything. Tax Planning's
  * Schedule a Planning Consultation (C02) sends `serviceId` alone: its service is chosen and the
- * client is picked in the form.
+ * client is picked in the form. A plan's Schedule Client Discussion (C12) adds `taxPlanId`: the
+ * appointment is that plan's discussion.
  */
 export default async function CalendarNewPage({
   searchParams,
@@ -24,10 +25,11 @@ export default async function CalendarNewPage({
     clientId?: Param;
     engagementId?: Param;
     serviceId?: Param;
+    taxPlanId?: Param;
     from?: Param;
   }>;
 }) {
-  const { date, time, clientId, engagementId, serviceId, from } = await searchParams;
+  const { date, time, clientId, engagementId, serviceId, taxPlanId, from } = await searchParams;
   const at =
     typeof date === 'string' &&
     isCalendarDate(date) &&
@@ -44,6 +46,7 @@ export default async function CalendarNewPage({
         serviceId: id(serviceId),
       }}
       cancelHref={safeOrigin(from) ?? undefined}
+      taxPlanId={id(taxPlanId)}
     />
   );
 }

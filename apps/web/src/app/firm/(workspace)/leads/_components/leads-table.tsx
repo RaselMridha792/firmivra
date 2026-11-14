@@ -66,8 +66,9 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'name',
     label: 'Name',
-    // Leads R2 6: wide enough to read, wrapping onto a second line rather than cut off.
-    className: 'w-44',
+    // Leads R2 6: wide enough to read, wrapping onto a second line rather than cut off; with the
+    // columns below, the whole table still fits 1440 px with the menu open (R1's audit).
+    className: 'w-34',
     cell: (lead) => {
       const name = fullName(lead.firstName, lead.lastName, lead.email);
       return (
@@ -85,7 +86,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'contact',
     label: 'Contact Info',
-    className: 'w-28',
+    className: 'w-25',
     cell: (lead) => (
       <span className="block min-w-0">
         {lead.phone ? (
@@ -100,7 +101,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'source',
     label: 'Lead Source / Campaign',
-    className: 'w-25',
+    className: 'w-23',
     cell: (lead) => (
       <span className="block min-w-0">
         <span className="block truncate text-xs font-semibold text-navigation">
@@ -120,7 +121,7 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'services',
     label: 'Services Interested In',
-    className: 'w-30',
+    className: 'w-26',
     cell: (lead) => (
       <span className="flex min-w-0 flex-wrap gap-1">
         {lead.services.length ? (
@@ -289,7 +290,7 @@ export function LeadsTable({
         // Column widths and 12 px text from leads/source/leads.jpg, so every column fits at 1440 px
         // (R1 firm audit, Oct 20). Leads R2 6: on a narrower window the table scrolls inside its
         // frame while the select box, the name and the actions stay in place at its edges.
-        tableClassName="table-fixed [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-table-head [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-surface [&_th:nth-child(2)]:sticky [&_th:nth-child(2)]:left-10 [&_th:nth-child(2)]:z-10 [&_th:nth-child(2)]:bg-table-head [&_td:nth-child(2)]:sticky [&_td:nth-child(2)]:left-10 [&_td:nth-child(2)]:z-10 [&_td:nth-child(2)]:bg-surface [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-table-head [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:z-10 [&_td:last-child]:border-l [&_td:last-child]:border-divider [&_td:last-child]:bg-surface [&_thead]:!text-navigation [&_th]:!whitespace-normal [&_th]:!px-1 [&_th]:!text-xs [&_th]:!font-semibold [&_th]:!text-navigation [&_th:first-child]:!w-10 [&_th:first-child]:!pl-3 [&_td:first-child]:!pl-3 [&_th:last-child]:!w-50 [&_th:last-child]:!text-left [&_td]:!px-1 [&_td]:!py-2 [&_td:last-child]:!w-50 [&_td:last-child>div]:!justify-start"
+        tableClassName="table-fixed [&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-table-head [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-surface [&_th:nth-child(2)]:sticky [&_th:nth-child(2)]:left-10 [&_th:nth-child(2)]:z-10 [&_th:nth-child(2)]:bg-table-head [&_td:nth-child(2)]:sticky [&_td:nth-child(2)]:left-10 [&_td:nth-child(2)]:z-10 [&_td:nth-child(2)]:bg-surface [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-table-head [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:z-10 [&_td:last-child]:border-l [&_td:last-child]:border-divider [&_td:last-child]:bg-surface [&_thead]:!text-navigation [&_th]:!whitespace-normal [&_th]:!px-1 [&_th]:!text-xs [&_th]:!font-semibold [&_th]:!text-navigation [&_th:first-child]:!w-10 [&_th:first-child]:!pl-3 [&_td:first-child]:!pl-3 [&_th:last-child]:!w-48 [&_th:last-child]:!text-left [&_td]:!px-1 [&_td]:!py-2 [&_td:last-child]:!w-48 [&_td:last-child>div]:!justify-start"
         pageSize={pageSize}
         pageSizes={[8, 16, 24]}
         onPageSize={onPageSize}

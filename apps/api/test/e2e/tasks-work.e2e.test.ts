@@ -1755,3 +1755,47 @@ describe('firm B against firm A', () => {
     expect(await get(a.id)).toEqual(a);
   });
 });
+
+describe("a planning plan's implementation task (Tax Planning Review 2 C15)", () => {
+  it("links the task to one of the client's open plans, never another's", async () => {
+    const plans = await inFirm('a', async (tx) => {
+      const make = (clientId: string, status: 'IN_PROGRESS' | 'CLOSED') =>
+        tx.taxPlan.create({
+          data: {
+            businessId: firms.a,
+            clientId,
+            name: mark('Implementation plan'),
+            planYear: 2027,
+            status,
+          },
+          select: { id: true },
+        });
+      return {
+        open: (await make(clients.c1, 'IN_PROGRESS')).id,
+        other: (await make(clients.c2, 'IN_PROGRESS')).id,
+        closed: (await make(clients.c1, 'CLOSED')).id,
+      };
+    });
+    const task = await create({
+      clientId: clients.c1,
+      taxPlanId: plans.open,
+      title: mark('Open the 401(k) account'),
+    });
+    expect(
+      await inFirm('a', (tx) =>
+        tx.task.findUniqueOrThrow({ where: { id: task.id }, select: { taxPlanId: true } }),
+      ),
+    ).toEqual({ taxPlanId: plans.open });
+    for (const taxPlanId of [plans.other, plans.closed, randomUUID()]) {
+      expectError(
+        await call('post', '/tasks', people.ownerA, {
+          clientId: clients.c1,
+          taxPlanId,
+          title: mark('Refused'),
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    }
+  });
+});

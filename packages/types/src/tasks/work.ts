@@ -427,6 +427,11 @@ export const CreateTaskDetailRequest = z.strictObject({
   /** Documents of the client to attach. */
   attachments: z.array(AddTaskAttachmentRequest).max(20).optional(),
   templateId: TaskTemplateId.optional(),
+  /**
+   * C15 (Tax Planning Review 2): the planning plan this is an implementation task of: one of the
+   * client's plans that is not closed or archived (404 otherwise). The plan lists it.
+   */
+  taxPlanId: z.uuid().optional(),
   idempotencyKey: IdempotencyKey.optional(),
 });
 export type CreateTaskDetailRequest = z.input<typeof CreateTaskDetailRequest>;

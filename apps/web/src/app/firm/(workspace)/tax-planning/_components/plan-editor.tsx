@@ -42,6 +42,8 @@ import {
   subtle,
   toDollars,
   customKey,
+  dayText,
+  scheduleHref,
 } from './tp-shared';
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -1610,6 +1612,8 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
           </button>
         </div>
       </section>
+      <PlanDiscussions plan={plan} />
+      <PlanTasks plan={plan} onNotice={onNotice} onSaved={onSaved} />
       <footer className="flex flex-wrap justify-between gap-3">
         <span className="flex gap-2">
           <button type="button" className={outlined} onClick={onBack}>
@@ -2037,6 +2041,203 @@ function ReasonDialog({
         />
       </div>
     </Modal>
+  );
+}
+
+/**
+ * C12 (Review 2): the plan's client discussions: appointments made for this plan, with their
+ * date, time and time zone, each opening in Appointments; Schedule Client Discussion opens New
+ * Appointment on the client and Tax Planning, linked to this plan, with Back to the plan.
+ */
+function PlanDiscussions({ plan }: { plan: TaxPlanDetail }) {
+  const overview = useApiQuery([...TP_KEY, 'overview'], () => api.taxPlanning.overview());
+  const from = `/tax-planning/plans/${plan.id}/edit/implementation`;
+  const when = (d: TaxPlanDetail['discussions'][number]) =>
+    new Date(d.startsAt).toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      ...(d.timeZone ? { timeZone: d.timeZone, timeZoneName: 'short' } : {}),
+    });
+  return (
+    <section
+      className={`${card} flex flex-col gap-2`}
+      aria-label="Client discussions"
+      data-testid="plan-discussions"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-lg font-bold text-heading">Client Discussions</h2>
+        {plan.canEdit ? (
+          <Link
+            href={scheduleHref(overview.data?.planningServiceId, from, plan.client.id, plan.id)}
+            className={subtle}
+            data-testid="schedule-discussion"
+          >
+            <Plus aria-hidden weight="bold" className="size-4" /> Schedule Client Discussion
+          </Link>
+        ) : null}
+      </div>
+      {plan.discussions.length === 0 ? (
+        <p className={quiet}>No discussion is scheduled for this plan yet.</p>
+      ) : (
+        <ul>
+          {plan.discussions.map((d) => (
+            <li
+              key={d.id}
+              className="flex flex-wrap justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
+            >
+              <Link
+                href={`/calendar/${d.id}?from=${encodeURIComponent(from)}`}
+                className="font-medium text-link"
+              >
+                {when(d)}
+              </Link>
+              <span className="text-muted">
+                {d.staff?.name ?? 'Unassigned'} · {d.status.toLowerCase().replace(/_/g, ' ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * C15 (Review 2): the plan's implementation tasks, each with its owner, due date and status and
+ * opening in Tasks; Add Task makes one in Tasks, linked to this plan and its client.
+ */
+function PlanTasks({
+  plan,
+  onNotice,
+  onSaved,
+}: {
+  plan: TaxPlanDetail;
+  onNotice: (t: string, tone: 'success' | 'error') => void;
+  onSaved: () => Promise<unknown>;
+}) {
+  const team = useApiQuery([...TP_KEY, 'team'], () => api.team.list());
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState('');
+  const [owner, setOwner] = useState('');
+  const [due, setDue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const from = `/tax-planning/plans/${plan.id}/edit/implementation`;
+  return (
+    <section
+      className={`${card} flex flex-col gap-2`}
+      aria-label="Implementation tasks"
+      data-testid="plan-tasks"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-display text-lg font-bold text-heading">Implementation Tasks</h2>
+        <span className="flex gap-3">
+          <Link href="/tasks" className={linkBtn}>
+            Open Tasks <ArrowRight aria-hidden weight="bold" className="size-3" />
+          </Link>
+          {plan.canEdit ? (
+            <button
+              type="button"
+              className={subtle}
+              data-testid="add-plan-task"
+              onClick={() => setAdding(true)}
+            >
+              <Plus aria-hidden weight="bold" className="size-4" /> Add Task
+            </button>
+          ) : null}
+        </span>
+      </div>
+      {plan.tasks.length === 0 ? (
+        <p className={quiet}>
+          No implementation task yet. Add the steps that put the plan into action.
+        </p>
+      ) : (
+        <ul>
+          {plan.tasks.map((t) => (
+            <li
+              key={t.id}
+              className="flex flex-wrap justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
+            >
+              <Link
+                href={`/tasks/${t.id}?from=${encodeURIComponent(from)}`}
+                className="font-medium text-link"
+              >
+                {t.title}
+              </Link>
+              <span className="text-muted">
+                {t.assignedTo?.name ?? 'Unassigned'} ·{' '}
+                {t.dueOn ? `due ${dayText(t.dueOn)}` : 'no due date'} ·{' '}
+                {t.status.toLowerCase().replace(/_/g, ' ')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding ? (
+        <Modal
+          open
+          title="Add Implementation Task"
+          subtitle={`${plan.name} · ${plan.client.name}`}
+          onClose={() => setAdding(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAdding(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={busy || !title.trim()}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await api.taskWork.create({
+                      clientId: plan.client.id,
+                      taxPlanId: plan.id,
+                      title: title.trim(),
+                      ...(owner ? { assignedUserId: owner } : {}),
+                      ...(due ? { dueOn: due } : {}),
+                    });
+                    onNotice('Task added.', 'success');
+                    setAdding(false);
+                    setTitle('');
+                    setOwner('');
+                    setDue('');
+                    await onSaved();
+                  } catch (e) {
+                    onNotice(planError(e), 'error');
+                  }
+                  setBusy(false);
+                }}
+              >
+                Add Task
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3" data-testid="plan-task-form">
+            <Input
+              label="Task *"
+              value={title}
+              maxLength={200}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <Select
+              label="Owner"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              options={[
+                { value: '', label: 'Unassigned' },
+                ...(team.data ?? []).map((m) => ({ value: m.user.id, label: m.user.name })),
+              ]}
+            />
+            <Input
+              label="Due date"
+              type="date"
+              value={due}
+              onChange={(e) => setDue(e.target.value)}
+            />
+          </div>
+        </Modal>
+      ) : null}
+    </section>
   );
 }
 

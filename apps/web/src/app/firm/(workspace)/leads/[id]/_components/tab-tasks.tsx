@@ -359,19 +359,26 @@ export function FollowUpCard({ lead }: { lead: LeadProfile | undefined }) {
   );
 }
 
-/** Open Tasks (Overview and the Tasks tab): the lead's unfinished tasks, Add Task. */
+/**
+ * Open Tasks (Overview and the Tasks tab): the lead's unfinished tasks, each ticked off here, and
+ * Add Task, which opens Create Task on this lead with a way back (Leads R2 2).
+ */
 export function OpenTasksCard() {
   const { id } = useProfile();
   const query = useApiQuery(wsKey(id, 'tasks'), () => api.leadPipeline.tasks(id));
   const open = (query.data ?? []).filter((t) => !t.done);
   const done = (query.data ?? []).length - open.length;
+  const tick = useApiMutation(
+    (taskId: string) => api.leadPipeline.updateTask(id, taskId, { done: true }),
+    { invalidate: wsKey(id, 'tasks') },
+  );
   return (
     <CardFrame
       icon={CheckSquare}
       title="Open Tasks"
       testId="card-open-tasks"
       action={
-        <Link href="/tasks/new" className="text-sm font-medium text-link underline">
+        <Link href={`/tasks/new?leadId=${id}`} className="text-sm font-medium text-link underline">
           Add Task
         </Link>
       }
@@ -394,10 +401,10 @@ export function OpenTasksCard() {
               <label className="flex min-w-0 items-center gap-3 text-sm text-heading">
                 <input
                   type="checkbox"
-                  disabled
                   checked={false}
-                  readOnly
-                  aria-label={`${task.title} is open`}
+                  disabled={tick.isPending}
+                  onChange={() => tick.mutate(task.id)}
+                  aria-label={`Mark ${task.title} done`}
                   className="size-5 shrink-0"
                 />
                 <span className="truncate">{task.title}</span>
@@ -417,6 +424,11 @@ export function OpenTasksCard() {
           ))}
         </ul>
       )}
+      {tick.isError ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {errorMessage(tick.error)}
+        </p>
+      ) : null}
       {done > 0 ? (
         <p className="mt-3 text-xs text-muted">{done} completed task(s) not shown.</p>
       ) : null}

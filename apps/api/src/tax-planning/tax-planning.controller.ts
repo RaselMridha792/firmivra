@@ -18,6 +18,7 @@ import {
   PlanningResourceKey,
   type PlanningCalendar,
   type PlanningClientPage,
+  type PlanningResource,
   type PlanningResourceList,
   type PlanningStrategy,
   type PlanningStrategyPage,
@@ -60,6 +61,7 @@ import {
   CreateOpportunityBody,
   UpdateOpportunityBody,
   PlanReasonBody,
+  UpdateResourceBody,
   CreateStrategyBody,
   FinalizeBody,
   OpportunitiesQuery,
@@ -567,10 +569,25 @@ export class TaxPlanningController {
   }
 
   @Get('resources')
-  resources(
+  async resources(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(ResourcesQuery)) q: Out<typeof ResourcesQuery>,
-  ): PlanningResourceList {
-    return { items: this.overview.resources(q) };
+  ): Promise<PlanningResourceList> {
+    const w = who(auth, tenant);
+    return { items: await this.overview.resources(w.businessId, w.tenant, w.userId, q) };
+  }
+
+  /** C17 (Review 2): the firm's own words for a built-in resource. */
+  @Put('resources/:key')
+  updateResource(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('key', new ZodValidationPipe(PlanningResourceKey)) key: string,
+    @Body(new ZodValidationPipe(UpdateResourceBody)) body: Out<typeof UpdateResourceBody>,
+  ): Promise<PlanningResource> {
+    const w = who(auth, tenant);
+    return this.overview.updateResource(w.businessId, w.tenant, w.userId, key, body);
   }
 
   @Post('resources/:key/send')

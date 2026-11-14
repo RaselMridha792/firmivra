@@ -279,6 +279,11 @@ export const ScheduleAppointmentRequest = z
   .strictObject({
     idempotencyKey: z.uuid(),
     ...scheduleFields,
+    /**
+     * C12 (Tax Planning Review 2): the planning plan this discussion is for: one of the client's
+     * plans that is not closed or archived (404 otherwise). The plan lists it.
+     */
+    taxPlanId: z.uuid().optional(),
     allDay: scheduleFields.allDay.default(false),
     generateVideoLink: scheduleFields.generateVideoLink.default(false),
     status: scheduleFields.status.default('CONFIRMED'),
