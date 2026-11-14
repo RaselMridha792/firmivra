@@ -8,7 +8,6 @@ import type {
 import { Badge, Button, Card, Input, Modal, Select } from '@firmivra/ui';
 import { EnvelopeSimple, ShieldCheck, ShieldWarning } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -422,27 +421,6 @@ export function ActivityTab({ clientId }: { clientId: string }) {
           Load more
         </Button>
       ) : null}
-    </Card>
-  );
-}
-
-/** A tab whose records live in their own module until its table is built here (Web 4, Web 5). */
-export function ModuleLinkTab({
-  label,
-  href,
-  text,
-}: {
-  label: string;
-  href: string;
-  text: string;
-}) {
-  const router = useRouter();
-  return (
-    <Card className="flex flex-col items-start gap-3">
-      <p className="text-text">{text}</p>
-      <Button variant="outline" onClick={() => router.push(href)}>
-        Open {label}
-      </Button>
     </Card>
   );
 }

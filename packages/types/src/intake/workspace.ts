@@ -115,6 +115,8 @@ export const AssignedFormsQuery = z.strictObject({
   assignedUserId: z.uuid().optional(),
   formId: z.uuid().optional(),
   serviceId: z.uuid().optional(),
+  /** One client's forms (the Client Portal module's Intake Forms tab). */
+  clientId: z.uuid().optional(),
   from: CalendarDate.optional(),
   to: CalendarDate.optional(),
   page: z.coerce.number().int().min(1).optional().default(1),

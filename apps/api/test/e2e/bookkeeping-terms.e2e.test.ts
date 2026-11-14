@@ -224,6 +224,13 @@ describe('Terms', () => {
       409,
       'TERMS_DRAFT_EXISTS',
     );
+    // Review 2 (E01a, A01): the new draft shows in the client's bookkeeping Activity.
+    const ws = BookkeepingClientWorkspace.parse(
+      ok(await call('get', `/clients/${bk.assigned.id}`, ownerA)),
+    );
+    expect(ws.recentActivity.map((a) => a.summary)).toContain(
+      'Terms version 1: created as a draft',
+    );
   });
 
   it("edits a draft's six tabs and records what changed", async () => {

@@ -7,8 +7,6 @@ import {
   US_STATES,
 } from '@firmivra/types';
 import {
-  Button,
-  DateRangePicker,
   FilterBar,
   FilterChip,
   FilterGroup,
@@ -17,8 +15,8 @@ import {
   Select,
   type DateRange,
 } from '@firmivra/ui';
-import { CalendarDots } from '@phosphor-icons/react';
 import { useState } from 'react';
+import { DateRangePopover } from '../../../../../components/date-range-popover';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { SOURCES } from '../../leads/_components/lead-shared';
@@ -33,7 +31,10 @@ function rangeText({ from, to }: DateRange) {
   return to ? `To ${day(to)}` : '';
 }
 
-/** "Last Activity" with the calendar icon; opens the From and To days under it. */
+/**
+ * "Last Activity" with the calendar icon; opens the From and To days under it (C2-018, C2-019:
+ * Escape and a click outside close it, and every control has a name).
+ */
 function LastActivityFilter({
   value,
   onChange,
@@ -41,42 +42,14 @@ function LastActivityFilter({
   value: DateRange;
   onChange: (range: DateRange) => void;
 }) {
-  const text = rangeText(value);
   return (
-    <div className="relative w-full sm:w-38">
-      <details className="group">
-        <summary
-          aria-label={text ? `Last activity: ${text}` : 'Last activity: any time'}
-          className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg border border-divider bg-surface px-3 text-xs text-text hover:bg-canvas focus-visible:outline-2 focus-visible:outline-focus [&::-webkit-details-marker]:hidden"
-        >
-          <span className="min-w-0 flex-1 truncate">{text || 'Last Activity'}</span>
-          <CalendarDots aria-hidden weight="fill" className="size-5 shrink-0 text-heading" />
-        </summary>
-        <div className="absolute top-full right-0 left-0 z-30 mt-2 rounded-xl border border-divider bg-surface p-4 shadow-lg sm:left-auto sm:w-md">
-          <DateRangePicker label="Last activity" value={value} onChange={onChange} />
-          <div className="mt-3 flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              className="min-h-9 px-3 py-1"
-              disabled={!value.from && !value.to}
-              onClick={() => onChange({ from: '', to: '' })}
-            >
-              Clear
-            </Button>
-            <Button
-              variant="secondary"
-              className="min-h-9 px-3 py-1"
-              onClick={(event) => {
-                const disclosure = event.currentTarget.closest('details');
-                if (disclosure) disclosure.open = false;
-              }}
-            >
-              Done
-            </Button>
-          </div>
-        </div>
-      </details>
-    </div>
+    <DateRangePopover
+      label="Last activity"
+      value={value}
+      onChange={onChange}
+      summary={rangeText(value)}
+      className="w-full sm:w-38"
+    />
   );
 }
 

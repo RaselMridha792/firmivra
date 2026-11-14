@@ -54,6 +54,21 @@ export type ClientPortalAccessResult = z.infer<typeof ClientPortalAccessResult>;
 
 const Count = z.number().int().nonnegative();
 
+/**
+ * GET .../preview: Open Client Portal's read-only staff preview (developer instructions 3 and
+ * 26): the firm's portal text and the areas this client sees. Never a client session; the view
+ * is audited (`client_portal.preview_opened`).
+ */
+export const ClientPortalPreview = z.object({
+  clientName: z.string(),
+  firmName: z.string(),
+  /** Settings > Client portal: the portal's heading and welcome message, as the client sees them. */
+  portalHeader: z.string().nullable(),
+  welcomeMessage: z.string().nullable(),
+  areas: z.array(ClientPortalArea),
+});
+export type ClientPortalPreview = z.infer<typeof ClientPortalPreview>;
+
 /** GET .../documents/summary: Frame 3's KPIs, of the client's live documents. */
 export const ClientPortalDocumentsSummary = z.object({
   total: Count,

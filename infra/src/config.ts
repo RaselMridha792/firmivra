@@ -127,11 +127,11 @@ const dev: EnvConfig = {
   // No registered toll-free number yet: texts go to the API log (Rasel, Nov 14).
   smsMode: 'log',
   // The email stack's names (EmailStack: no-reply@<zone>, the zone, firmivra-dev-email).
-  cognitoEmail: {
-    from: 'no-reply@dev.firmivra.com',
-    sesVerifiedDomain: 'dev.firmivra.com',
-    configurationSet: 'firmivra-dev-email',
-  },
+  // Cognito's own emails (reset codes) stay on Cognito's default sender on dev until SES has
+  // production access (lead and Rasel, Nov 14): while SES is in the sandbox it would deliver only
+  // to verified addresses, and Octavia's Review 2 retest (to Nov 17) needs her reset emails. Then:
+  //   cognitoEmail: { from: 'no-reply@dev.firmivra.com', sesVerifiedDomain: 'dev.firmivra.com',
+  //     configurationSet: 'firmivra-dev-email' },
   stripeSecretName: 'firmivra/dev/stripe',
   sesSandboxSendFromAnyIdentity: true,
   github: { owner: 'RaselMridha792', ownerId: 149437621, repo: 'firmivra', repoId: 1404534844 },
