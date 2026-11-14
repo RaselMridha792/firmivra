@@ -82,21 +82,41 @@ function SentResult({
 }) {
   const { delivery, form } = result;
   const sent = delivery.status === 'SENT';
+  const byEmail = delivery.channel === 'EMAIL';
+  // Intake Forms Review Two 19b: what really happened, never a portal notice counted as an email.
+  const outcome = sent
+    ? byEmail
+      ? 'Accepted by the mail service'
+      : 'Sent'
+    : delivery.status === 'RETRYING'
+      ? 'Not accepted yet, retrying'
+      : 'Not sent';
   return (
     <div className="flex flex-col gap-3" data-testid="send-result">
       <Note
         tone={sent ? 'success' : 'warning'}
         icon={sent ? CheckCircle : WarningCircle}
-        title={sent ? 'Form Sent' : 'Delivery Failed'}
+        title={
+          sent ? 'Form Sent' : delivery.status === 'RETRYING' ? 'Email Retrying' : 'Delivery Failed'
+        }
       >
         <p>
           {CHANNEL_LABELS[delivery.channel]} to {delivery.to}:{' '}
-          <span className="font-semibold">{sent ? 'Sent' : 'Failed'}</span>
+          <span className="font-semibold">{outcome}</span>
         </p>
+        {byEmail && form.recipient.kind === 'CLIENT' ? (
+          <p>
+            Client portal notice:{' '}
+            <span className="font-semibold">{delivery.portalNotice ? 'Sent' : 'Not sent'}</span>
+          </p>
+        ) : null}
+        {delivery.reason ? <p>{delivery.reason}</p> : null}
         <p>
           {sent
-            ? `${form.form.name} now shows in Intake Forms as Not Started.`
-            : `The form was saved, but nothing reached ${form.recipient.name}. A form reaches a client through their client portal sign-in: check their portal access, then open the form to resend it.`}
+            ? byEmail
+              ? `${form.form.name} now shows in Intake Forms as Not Started. Accepted means the mail service took the email; it does not prove it reached the inbox. If ${form.recipient.name} can't find it, ask them to check their spam folder, or use Resend.`
+              : `${form.form.name} now shows in Intake Forms as Not Started.`
+            : `The form was saved and shows in Intake Forms; open it to resend.`}
         </p>
       </Note>
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">

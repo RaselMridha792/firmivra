@@ -125,6 +125,15 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     subject: 'Your intake form',
     message: 'Please fill this in.',
   },
+  'intake.sent': {
+    name: 'Robin Example',
+    formTitle: 'Personal Tax Intake Form',
+    link: 'https://portal.example.test/sample/intake/00000000-0000-4000-8000-000000000001',
+    subject: 'Your intake form',
+    message: 'Please fill this in.',
+    dueOn: '2026-11-25',
+    expiresAt: new Date('2026-11-30T23:59:59Z'),
+  },
   'client.portal-invite': {
     name: 'Robin Example',
     signUpLink: 'https://portal.example.test/sample/sign-up',

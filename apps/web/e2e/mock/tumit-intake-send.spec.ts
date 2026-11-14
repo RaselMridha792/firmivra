@@ -155,7 +155,8 @@ test('a refused send says why, with where to fix it; a failed delivery says why'
   await page.getByRole('button', { name: 'Send Form' }).click();
   const result = page.getByTestId('send-result');
   await expect(result).toContainText('Delivery Failed');
-  await expect(result).toContainText('A form reaches a client through their client portal sign-in');
+  // Intake Forms Review Two 19b: the real outcome and why.
+  await expect(result).toContainText('this client has no client portal login yet');
 });
 
 test('Send Form without a recipient or form marks the fields', async ({ page }) => {
