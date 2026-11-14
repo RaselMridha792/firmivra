@@ -178,7 +178,8 @@ describe('uploads and scanning', () => {
       { s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}` },
       { contentType: 'image/png' },
       { sha256: 'c'.repeat(64) },
-      { direction: 'INTERNAL' as const },
+      // R55 (C2-052): a firm file's client visibility changes; nothing else of its direction.
+      { direction: 'CLIENT_TO_FIRM' as const },
       { uploadedByUserId: randomUUID() },
     ]) {
       await expect(firmA().document.update({ where: { id: doc.id }, data })).rejects.toThrow(
