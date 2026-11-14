@@ -133,6 +133,12 @@ export const TaxReturnsQuery = z.strictObject({
    */
   acceptedFrom: CalendarDate.optional(),
   acceptedTo: CalendarDate.optional(),
+  /**
+   * As returns stood at the end of this day (the firm's calendar), as a dashboard card of a past
+   * period counts them (Dashboard Review 2, K4 and V1): made by then, with workflowStatus or
+   * workflowGroup read from the status history at that moment instead of today.
+   */
+  asOf: CalendarDate.optional(),
   /** Returns prepared in an engagement of this service (D4, a dashboard card of a tax service). */
   serviceId: z.uuid().optional(),
   archived: z.union([z.boolean(), z.stringbool()]).optional().default(false),

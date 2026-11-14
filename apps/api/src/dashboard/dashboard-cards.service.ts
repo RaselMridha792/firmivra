@@ -351,9 +351,14 @@ export class DashboardCardsService {
     return this.grants.can(tenant.businessId, tenant.role, module, 'VIEW');
   }
 
-  /** The list a card opens, filtered to exactly what it counts. */
-  private linkOf(card: Card, range: DashboardRange): DashboardCardLink {
+  /**
+   * The list a card opens, filtered to exactly what it counts. A status card of a period that
+   * ended before today counts the status then, so its list takes `asOf` (Dashboard Review 2, K4).
+   */
+  private linkOf(card: Card, range: DashboardRange, today: string): DashboardCardLink {
     const key = card.statusKey;
+    const then: Record<string, string> =
+      card.metric !== 'COMPLETED_IN_PERIOD' && range.to !== today ? { asOf: range.to } : {};
     if (key?.startsWith('tax:')) {
       const query: Record<string, string> =
         key === 'tax:IN_PROGRESS'
@@ -362,13 +367,13 @@ export class DashboardCardsService {
       if (card.metric === 'COMPLETED_IN_PERIOD')
         Object.assign(query, { acceptedFrom: range.from, acceptedTo: range.to });
       if (card.serviceId) query['serviceId'] = card.serviceId;
-      return { list: 'tax-returns', query };
+      return { list: 'tax-returns', query: { ...query, ...then } };
     }
     const status = key ? key.slice('engagement:'.length) : 'ACTIVE';
     const query: Record<string, string> = { serviceId: card.serviceId!, engagementStatus: status };
     if (card.metric === 'COMPLETED_IN_PERIOD')
       Object.assign(query, { completedFrom: range.from, completedTo: range.to });
-    return { list: 'clients', query };
+    return { list: 'clients', query: { ...query, ...then } };
   }
 
   /**
@@ -522,7 +527,7 @@ export class DashboardCardsService {
               }));
       const out: DashboardServiceCard[] = [];
       for (const card of cards) {
-        const link = this.linkOf(card, range);
+        const link = this.linkOf(card, range, today);
         if (!view[link.list]) continue;
         const counted = await this.countOf(tx, businessId, actor, card, range, today);
         out.push({
@@ -560,7 +565,7 @@ export class DashboardCardsService {
       };
       return {
         ...(await this.countOf(tx, businessId, actor, card, range, today)),
-        link: this.linkOf(card, range),
+        link: this.linkOf(card, range, today),
       };
     });
   }

@@ -47,6 +47,8 @@ export interface ClientFilters {
   engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   completedFrom: string;
   completedTo: string;
+  /** The books at the end of this day (a past period's dashboard card, Review 2 K1), or ''. */
+  asOf: string;
   /** Octavia's E2 additions: Added Last 30 Days (the creation date) and More Filters. */
   addedFrom: string;
   deadlineFrom: string;
@@ -82,6 +84,7 @@ export const NO_FILTERS: ClientFilters = {
   engagementStatus: '',
   completedFrom: '',
   completedTo: '',
+  asOf: '',
   addedFrom: '',
   deadlineFrom: '',
   deadlineTo: '',

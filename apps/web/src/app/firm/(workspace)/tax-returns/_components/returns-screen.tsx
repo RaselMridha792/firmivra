@@ -167,6 +167,7 @@ export function ReturnsScreen({
   initialStatus = '',
   accepted: acceptedFromUrl = { from: '', to: '' },
   serviceId: serviceFromUrl = '',
+  asOf: asOfFromUrl = '',
   fromDashboard = false,
 }: {
   /** A workflow status, or IN_PROGRESS for the five in-progress ones (the dashboard's K4). */
@@ -175,6 +176,8 @@ export function ReturnsScreen({
   accepted?: { from: string; to: string };
   /** One tax service's returns (D4, a dashboard service card). */
   serviceId?: string;
+  /** The returns as they stood at the end of this day (a past period's card, Review 2 K4). */
+  asOf?: string;
   fromDashboard?: boolean;
 } = {}) {
   const manager = useManager();
@@ -186,6 +189,7 @@ export function ReturnsScreen({
   const [status, setStatus] = useState(initialStatus);
   const [accepted, setAccepted] = useState(acceptedFromUrl);
   const [serviceId, setServiceId] = useState(serviceFromUrl);
+  const [asOf, setAsOf] = useState(asOfFromUrl);
   const [assigned, setAssigned] = useState('');
   const [search, setSearch] = useState('');
   const [more, setMore] = useState(false);
@@ -216,6 +220,7 @@ export function ReturnsScreen({
     ...(accepted.from ? { acceptedFrom: accepted.from } : {}),
     ...(accepted.to ? { acceptedTo: accepted.to } : {}),
     ...(serviceId ? { serviceId } : {}),
+    ...(asOf ? { asOf } : {}),
     ...(assigned ? { assignedUserId: assigned } : {}),
     ...(range.from ? { updatedFrom: range.from } : {}),
     ...(range.to ? { updatedTo: range.to } : {}),
@@ -400,6 +405,22 @@ export function ReturnsScreen({
             }}
           >
             Clear
+          </Button>
+        </div>
+      ) : null}
+      {asOf ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="as-of-filter">
+          <span className="text-muted">Status as it stood at the end of</span>
+          <span className="font-semibold text-heading">{dayText(asOf)}</span>
+          <Button
+            variant="ghost"
+            aria-label="Show each return's status today"
+            onClick={() => {
+              setAsOf('');
+              setPage(1);
+            }}
+          >
+            Show today
           </Button>
         </div>
       ) : null}

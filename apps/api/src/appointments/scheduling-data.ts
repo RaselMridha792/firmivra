@@ -28,6 +28,8 @@ export const schedulingSelect = {
     select: { id: true, status: true, form: { select: { title: true } } },
   },
   serviceId: true,
+  // Review 2 (P1 row 1): an Other Video Meeting's platform.
+  otherVideoPlatform: true,
   timeZone: true,
   allDay: true,
   color: true,
@@ -93,9 +95,10 @@ export function contactOf(row: SchedulingRow): AppointmentContact {
 const colorOf = (row: SchedulingRow): string | null =>
   colorHex(row.color) ?? colorHex(row.type?.color);
 
-/** A video link is shown only for a VIDEO appointment with details that are a web address. */
+/** A video link is shown only for a video meeting (Zoom / Video or Other) with a web address. */
 function videoUrlOf(row: SchedulingRow): string | null {
-  if (row.locationKind !== 'VIDEO' || !row.locationDetails) return null;
+  const video = row.locationKind === 'VIDEO' || row.locationKind === 'OTHER_VIDEO';
+  if (!video || !row.locationDetails) return null;
   return /^https:\/\//i.test(row.locationDetails) ? row.locationDetails : null;
 }
 
@@ -112,6 +115,7 @@ export function toAgendaItem(row: SchedulingRow): AgendaItem {
     status: displayStatus(row),
     staff: [memberRef(row.staff)],
     method: methodOf(row.locationKind),
+    otherVideoPlatform: row.otherVideoPlatform,
     place: {
       office: row.office ? { id: row.office.id, name: row.office.name } : null,
       room: row.room ? { id: row.room.id, name: row.room.name } : null,
