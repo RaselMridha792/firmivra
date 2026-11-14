@@ -832,6 +832,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
           (t) =>
             q.overdue !== true || (t.status === 'OPEN' && t.dueOn !== null && t.dueOn < today()),
         )
+        .filter((t) => q.dueSet !== true || t.dueOn !== null)
         .filter((t) => !q.dueFrom || (t.dueOn !== null && t.dueOn >= q.dueFrom))
         .filter((t) => !q.dueTo || (t.dueOn !== null && t.dueOn <= q.dueTo))
         .filter(

@@ -56,12 +56,12 @@ test('every widget of the design, with trends only where the API gives the perio
   const actions = page.getByTestId('quick-action');
   await expect(actions).toHaveCount(5);
   for (const [i, name, href] of [
-    // Each opens its creation workflow (Octavia's Q1 to Q5).
-    [0, 'Add Client', '/clients?new=1'],
-    [1, 'Send Message', '/messages?new=1'],
-    [2, 'Create Bulk Email', '/communications/new?channel=EMAIL'],
-    [3, 'Create Invoice', '/invoices/new'],
-    [4, 'Upload Now', '/documents/upload'],
+    // Each opens its creation workflow (Octavia's Q1 to Q5), with the way back (Review 2, B01-B05).
+    [0, 'Add Client', '/clients?new=1&back=dashboard'],
+    [1, 'Send Message', '/messages/new?from=%2F'],
+    [2, 'Create Bulk Email', '/communications/new?channel=EMAIL&from=%2F'],
+    [3, 'Create Invoice', '/invoices/new?from=%2F'],
+    [4, 'Upload Now', '/documents/upload?from=%2F'],
   ] as const) {
     await expect(actions.nth(i).getByRole('link', { name })).toHaveAttribute('href', href);
   }

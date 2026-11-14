@@ -303,6 +303,8 @@ export const TaskOverviewQuery = z.strictObject({
   assignedUserId: z.uuid().optional(),
   /** Only OPEN tasks past due (`true`). */
   overdue: QueryBool.optional(),
+  /** Only tasks with a due date (`true`): the dashboard's Tasks Due, Octavia's T2. */
+  dueSet: QueryBool.optional(),
   dueFrom: CalendarDate.optional(),
   dueTo: CalendarDate.optional(),
   search: SearchText.optional(),

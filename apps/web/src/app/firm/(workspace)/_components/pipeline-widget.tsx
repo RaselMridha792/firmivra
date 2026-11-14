@@ -2,7 +2,7 @@
 
 import type { DashboardSummary } from '@firmivra/types';
 import type { UseQueryResult } from '@tanstack/react-query';
-import Link from 'next/link';
+import { DashboardLink as Link } from './dashboard-link';
 import type { ReactNode } from 'react';
 import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
 import { Widget } from './widget';

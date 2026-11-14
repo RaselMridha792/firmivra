@@ -728,7 +728,11 @@ export function IntakeFormsScreen({
     });
   }
 
-  const selectedTab = tabs.find((item) => item.id === tab)?.id ?? 'all';
+  // Dashboard Review 2 (C5): opened from the Intake stage, its filter shows as the selected tab,
+  // not All Forms, while it is on.
+  const shownTabs: typeof tabs =
+    tab === 'open' ? [tabs[0]!, { id: 'open', label: 'Not Finished' }, ...tabs.slice(1)] : tabs;
+  const selectedTab = shownTabs.find((item) => item.id === tab)?.id ?? 'all';
 
   return (
     <div className="space-y-4" data-testid="intake-forms-page">
@@ -772,7 +776,7 @@ export function IntakeFormsScreen({
         <div className="flex flex-col gap-3 border-b border-divider pb-3 xl:flex-row xl:items-center">
           <div className="min-w-0 flex-1 overflow-x-auto">
             <Tabs
-              items={tabs}
+              items={shownTabs}
               value={selectedTab}
               onChange={(value) => {
                 setTab(value as AssignedFormTab);

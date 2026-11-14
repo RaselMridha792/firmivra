@@ -20,7 +20,7 @@ import {
 } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
-import Link from 'next/link';
+import { DashboardLink as Link } from './dashboard-link';
 import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
 import type { ReactNode } from 'react';
 import { IconTile, type Tone } from './icon-tile';

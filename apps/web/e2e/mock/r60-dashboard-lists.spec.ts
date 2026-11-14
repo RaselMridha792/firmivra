@@ -17,10 +17,11 @@ test('a task title opens that task; the client is its own link; completing asks 
   await openDashboard(page);
   const tasks = page.getByRole('region', { name: 'Tasks Due' });
   const title = tasks.getByTestId('task-title').first();
-  await expect(title).toHaveAttribute('href', /^\/tasks\/[0-9a-f-]{36}$/);
+  // Each keeps the way back to the dashboard (Review 2, B08).
+  await expect(title).toHaveAttribute('href', /^\/tasks\/[0-9a-f-]{36}\?from=%2F$/);
   await expect(tasks.getByRole('link', { name: /^Open client / }).first()).toHaveAttribute(
     'href',
-    /^\/clients\/[0-9a-f-]{36}$/,
+    /^\/clients\/[0-9a-f-]{36}\?from=%2F$/,
   );
 
   const name = (await title.textContent())!;
@@ -50,7 +51,7 @@ test('an appointment row opens that appointment, with its menu and a scrolling l
   const row = list.getByTestId('upcoming-row').first();
   await expect(row.getByRole('link').first()).toHaveAttribute(
     'href',
-    /^\/calendar\/[0-9a-f-]{36}$/,
+    /^\/calendar\/[0-9a-f-]{36}\?from=%2F$/,
   );
   await expect(list).toHaveAttribute('tabindex', '0');
   await expect(list).toHaveCSS('overflow-y', 'auto');
@@ -74,7 +75,8 @@ test('an appointment row opens that appointment, with its menu and a scrolling l
 
   await row.getByRole('button', { name: /^Actions for / }).click();
   await page.getByRole('menuitem', { name: 'View Details', exact: true }).click();
-  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}\?from=%2F$/);
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Dashboard');
 });
 
 test('opening the bell marks the notifications it shows as read', async ({ page }) => {

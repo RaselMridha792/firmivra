@@ -4,9 +4,8 @@ import { type Appointment, type DashboardSummary, roleCan } from '@firmivra/type
 import { Button, Modal } from '@firmivra/ui';
 import { MapPin, Phone, VideoCamera } from '@phosphor-icons/react';
 import type { UseQueryResult } from '@tanstack/react-query';
-import Link from 'next/link';
+import { DashboardLink as Link, useDashboardNavigate } from './dashboard-link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useFirm } from '../../../../components/firm-context';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
@@ -102,7 +101,8 @@ export function TasksDue({ summary }: { summary: UseQueryResult<DashboardSummary
     <Widget
       title="Tasks Due"
       query={summary}
-      link={{ href: '/tasks', label: 'View All' }}
+      // T2 (Review 2): the same tasks as the widget, every open one with a due date, soonest first.
+      link={{ href: '/tasks?view=all&due=set', label: 'View All' }}
       isEmpty={(d) => d.tasksDue.length === 0}
       empty="No tasks due"
     >
@@ -195,7 +195,7 @@ const meetingLink = (a: Appointment) =>
     : null;
 
 export function UpcomingAppointments({ timeZone, today }: { timeZone: string; today: string }) {
-  const router = useRouter();
+  const go = useDashboardNavigate();
   const { role } = useFirm();
   const canChange = role ? roleCan(role, 'APPOINTMENTS', 'EDIT') : false;
   const canOpenClient = role ? roleCan(role, 'CLIENTS', 'VIEW') : false;
@@ -217,11 +217,11 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
   ];
   // Octavia's A3: the actions the member may take, through the calendar's own pages and calls.
   const menu = (a: Appointment): RowMenuItem[] => [
-    { label: 'View Details', onSelect: () => router.push(`/calendar/${a.id}`) },
+    { label: 'View Details', onSelect: () => go(`/calendar/${a.id}`) },
     ...(canChange
       ? [
-          { label: 'Edit', onSelect: () => router.push(`/calendar/${a.id}/edit`) },
-          { label: 'Reschedule', onSelect: () => router.push(`/calendar/${a.id}/edit`) },
+          { label: 'Edit', onSelect: () => go(`/calendar/${a.id}/edit`) },
+          { label: 'Reschedule', onSelect: () => go(`/calendar/${a.id}/edit`) },
           {
             label: 'Send Reminder',
             onSelect: () =>
@@ -236,7 +236,7 @@ export function UpcomingAppointments({ timeZone, today }: { timeZone: string; to
         ]
       : []),
     ...(canOpenClient
-      ? [{ label: 'Open Client', onSelect: () => router.push(`/clients/${a.client.id}`) }]
+      ? [{ label: 'Open Client', onSelect: () => go(`/clients/${a.client.id}`) }]
       : []),
   ];
   return (
