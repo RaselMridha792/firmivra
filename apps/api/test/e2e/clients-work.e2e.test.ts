@@ -11,11 +11,34 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { BulkClientsResponse, ClientsSummary, ListClientsResponse } from '@firmivra/types';
+import {
+  BulkClientsResponse,
+  ClientExportLink,
+  ClientsSummary,
+  ListClientsResponse,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
+
+/** The reports file store in memory (the export's CSV). */
+class MemoryFiles implements ReportFiles {
+  readonly objects = new Map<string, Buffer>();
+  put(key: string, bytes: Uint8Array) {
+    this.objects.set(key, Buffer.from(bytes));
+    return Promise.resolve();
+  }
+  presignDownload(input: { key: string }) {
+    return Promise.resolve(`memory:${input.key}`);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+}
+const files = new MemoryFiles();
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -251,7 +274,10 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(REPORT_FILES)
+    .useValue(files)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -778,5 +804,151 @@ describe('More Filters and Added Last 30 Days (E2 additions)', () => {
       const res = await call('get', `?${query}`, people.ownerA);
       expect(res.status, query).toBe(400);
     }
+  });
+});
+
+describe('POST /business/clients/export (E2 additions)', () => {
+  it("exports the list's clients with minimal fields, for those with EXPORT, audited", async () => {
+    const formula = await inFirm('a', (tx) =>
+      tx.client.create({ data: { businessId: firms.a.id, displayName: '=Fake formula' } }),
+    );
+    const res = await call('post', '/export', people.ownerA, 'a', { search: 'Filter A' });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const link = ClientExportLink.parse(res.body);
+    expect(link.rowCount).toBe(1);
+    expect(link.fileName).toMatch(/^clients-\d{4}-\d{2}-\d{2}\.csv$/);
+    const key = link.url.replace(/^memory:/, '');
+    expect(key.startsWith(`tenant/${firms.a.id}/reports/`)).toBe(true);
+    const csv = files.objects.get(key)!.toString('utf8');
+    const [head, row] = csv
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\r\n');
+    expect(head).toBe(
+      '"Client","Type","Email","Phone","Stage","Services","Assigned to","Missing documents","Balance due","Last activity","Next appointment","Added","Archived"',
+    );
+    expect(row).toContain('"Filter A (fake)","Business"');
+    // A name a spreadsheet would read as a formula starts with a quote.
+    const all = ClientExportLink.parse(
+      (await call('post', '/export', people.ownerA, 'a', { search: 'Fake formula' })).body,
+    );
+    const text = files.objects.get(all.url.replace(/^memory:/, ''))!.toString('utf8');
+    expect(text).toContain(`"'=Fake formula"`);
+    expect(formula.id).toBeTruthy();
+    // Staff's default grid has no Clients EXPORT; a client login none either.
+    expect((await call('post', '/export', people.staffA, 'a', {})).status).toBe(403);
+    // Bad filters are 400, before anything is written.
+    expect((await call('post', '/export', people.ownerA, 'a', { state: 'Georgia' })).status).toBe(
+      400,
+    );
+    const [audit] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'clients.exported' },
+        orderBy: { createdAt: 'asc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit?.metadata).toEqual({ rows: 1, filters: ['search', 'status'] });
+  });
+});
+
+describe('Bulk Add Tag, Change Status and Export Selected (E2 additions)', () => {
+  it("tags several clients, skipping an archived one; another firm's tag changes nothing", async () => {
+    const tag = await inFirm('a', (tx) =>
+      tx.tag.create({ data: { businessId: firms.a.id, name: `Fake bulk ${run}` } }),
+    );
+    const theirs = await inFirm('b', (tx) =>
+      tx.tag.create({ data: { businessId: firms.b.id, name: `Fake B ${run}` } }),
+    );
+    const clients = await inFirm('a', (tx) =>
+      tx.client.findMany({
+        where: { businessId: firms.a.id, displayName: { startsWith: 'Filter' } },
+        select: { id: true },
+        orderBy: { displayName: 'asc' },
+      }),
+    );
+    const [a, b] = clients.map((c) => c.id) as [string, string];
+    const refused = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a],
+      tagId: theirs.id,
+    });
+    expect(refused.status).toBe(404);
+    const res = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a, b, ids.w3],
+      tagId: tag.id,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(BulkClientsResponse.parse(res.body)).toEqual({
+      updated: 2,
+      skipped: [{ clientId: ids.w3, code: 'CLIENT_ARCHIVED' }],
+    });
+    const tagged = await inFirm('a', (tx) =>
+      tx.clientTag.findMany({ where: { tagId: tag.id }, select: { clientId: true } }),
+    );
+    expect(tagged.map((t) => t.clientId).sort()).toEqual([a, b].sort());
+    // Again: nothing new to add, nothing written twice.
+    await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'TAG',
+      clientIds: [a],
+      tagId: tag.id,
+    });
+    const logs = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'client.tags_set', entityId: a },
+        select: { metadata: true },
+      }),
+    );
+    expect(logs.filter((l) => (l.metadata as { bulk?: boolean }).bulk)).toHaveLength(1);
+  });
+
+  it('sets the stage of several clients, audited from and to; Staff may not', async () => {
+    const [x, y] = (
+      await inFirm('a', (tx) =>
+        tx.client.findMany({
+          where: { businessId: firms.a.id, displayName: { startsWith: 'Filter' } },
+          select: { id: true },
+          orderBy: { displayName: 'asc' },
+        }),
+      )
+    ).map((c) => c.id) as [string, string];
+    const res = await call('post', '/bulk', people.ownerA, 'a', {
+      action: 'STAGE',
+      clientIds: [x, y],
+      status: 'INACTIVE',
+    });
+    expect(BulkClientsResponse.parse(res.body)).toEqual({ updated: 2, skipped: [] });
+    const rows = await inFirm('a', (tx) =>
+      tx.client.findMany({ where: { id: { in: [x, y] } }, select: { status: true } }),
+    );
+    expect(rows.map((r) => r.status)).toEqual(['INACTIVE', 'INACTIVE']);
+    const [entry] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'client.updated', entityId: x },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(entry?.metadata).toMatchObject({ fields: ['status'], to: 'INACTIVE', bulk: true });
+    const staff = await call('post', '/bulk', people.staffA, 'a', {
+      action: 'STAGE',
+      clientIds: [ids.w1],
+      status: 'ACTIVE',
+    });
+    expect(staff.status).toBe(403);
+  });
+
+  it("exports only the clients chosen; another firm's refuses the export", async () => {
+    const res = await call('post', '/export', people.ownerA, 'a', {
+      status: 'all',
+      clientIds: [ids.w1, ids.w2],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(ClientExportLink.parse(res.body).rowCount).toBe(2);
+    const refused = await call('post', '/export', people.ownerA, 'a', {
+      clientIds: [ids.w1, ids.b1],
+    });
+    expect(refused.status).toBe(404);
   });
 });

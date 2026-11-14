@@ -2,10 +2,13 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
 import { ClientTags, SetClientTagsRequest } from '../tags/schemas.js';
 import { ClientTimelinePage, ClientTimelineQuery } from './timeline.js';
+import { ClientOffice, SetClientOfficeRequest } from './office.js';
 import { ClientServiceList } from './services.js';
 import {
   BulkClientsRequest,
   BulkClientsResponse,
+  ClientExportLink,
+  ExportClientsRequest,
   ClientId,
   ClientProfile,
   ClientRecord,
@@ -68,9 +71,24 @@ export function createClientsClient(request: ApiRequest) {
         ClientTimelinePage,
         `${clientPath(id)}/timeline${toQuery(parseInput(ClientTimelineQuery, query))}`,
       ),
+    /** E2 additions: the list's clients as a CSV link (Clients EXPORT; 403 otherwise). */
+    exportList: async (body: ExportClientsRequest): Promise<ClientExportLink> =>
+      request(ClientExportLink, '/business/clients/export', {
+        method: 'POST',
+        body: parseInput(ExportClientsRequest, body),
+      }),
     /** E4: the client's services, with the module record that opens each (when permitted). */
     services: async (id: string): Promise<ClientServiceList['items']> =>
       (await request(ClientServiceList, `${clientPath(id)}/services`)).items,
+    /** PRT-1: the client's local office and the locations it may be changed to. */
+    office: async (id: string): Promise<ClientOffice> =>
+      request(ClientOffice, `${clientPath(id)}/office`),
+    /** Owner and Admin. 400 OFFICE_NOT_AVAILABLE for anything but an active location. */
+    setOffice: async (id: string, body: SetClientOfficeRequest): Promise<ClientOffice> =>
+      request(ClientOffice, `${clientPath(id)}/office`, {
+        method: 'PUT',
+        body: parseInput(SetClientOfficeRequest, body),
+      }),
     /** Replace the client's tags. 400 UNKNOWN_TAG: a new name, for a member other than Owner or Admin. */
     setTags: async (id: string, body: SetClientTagsRequest): Promise<ClientTags> =>
       request(ClientTags, `${clientPath(id)}/tags`, {

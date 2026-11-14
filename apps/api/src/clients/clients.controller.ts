@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Module,
@@ -14,11 +15,13 @@ import type { z } from 'zod';
 import {
   BulkClientsRequest,
   type BulkClientsResponse,
+  type ClientExportLink,
   ClientId,
   type ClientProfile,
   type ClientRecord,
   type ClientsSummary,
   CreateClientRequest,
+  ExportClientsRequest,
   ListClientsQuery,
   type ListClientsResponse,
   UpdateClientProfileRequest,
@@ -38,7 +41,10 @@ import { FieldEncryptionModule } from '../field-encryption/field-encryption.serv
 import { type ClientsActor, ClientsService } from './clients.service.js';
 import { MyProfileController } from './my-profile.controller.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
+import { ReportsModule } from '../reports/reports.module.js';
+import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { ClientTimelineController, ClientTimelineService } from './client-timeline.controller.js';
+import { ClientOfficeController, ClientOfficeService } from './client-office.controller.js';
 import { ClientServicesController, ClientServicesService } from './client-services.controller.js';
 import { MyProfileService } from './my-profile.service.js';
 import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
@@ -60,7 +66,10 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
 @Controller('business/clients')
 @Access('CLIENTS')
 export class ClientsController {
-  constructor(private readonly clients: ClientsService) {}
+  constructor(
+    private readonly clients: ClientsService,
+    private readonly grants: PermissionGrantsService,
+  ) {}
 
   @Get()
   @Roles(...FIRM_STAFF)
@@ -104,6 +113,34 @@ export class ClientsController {
     @Body(new ZodValidationPipe(BulkClientsRequest)) body: z.output<typeof BulkClientsRequest>,
   ): Promise<BulkClientsResponse> {
     return this.clients.bulk(tenant.businessId, actorOf(auth, tenant), body);
+  }
+
+  /**
+   * E2 additions: the list's clients as a CSV (Clients EXPORT in the member's grid; 403
+   * otherwise). Staff export only their own clients, as the list.
+   */
+  @Post('export')
+  @HttpCode(200)
+  @Roles(...FIRM_STAFF)
+  @Access('CLIENTS', 'EXPORT')
+  async exportList(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(ExportClientsRequest)) body: z.output<typeof ExportClientsRequest>,
+  ): Promise<ClientExportLink> {
+    // The Owner always; anyone else only when their own grid grants it (`@Access` lets Owner,
+    // Admin and Staff through on their role, so the grid is read here).
+    if (
+      tenant.kind !== 'staff' ||
+      (legacyFirmRole(tenant.role) !== 'OWNER' &&
+        !(await this.grants.canTenant(tenant, 'CLIENTS', 'EXPORT')))
+    ) {
+      throw new ForbiddenException({
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this action',
+      });
+    }
+    return this.clients.exportList(tenant.businessId, actorOf(auth, tenant), body);
   }
 
   @Get(':id')
@@ -164,7 +201,8 @@ export class ClientsController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule, NotificationsModule],
+  // The export writes under the firm's reports prefix (ReportsModule's file store).
+  imports: [FieldEncryptionModule, NotificationsModule, ReportsModule],
   controllers: [
     ClientsController,
     ClientTaxYearsController,
@@ -172,6 +210,7 @@ export class ClientsController {
     MyProfileController,
     ClientTimelineController,
     ClientServicesController,
+    ClientOfficeController,
   ],
   providers: [
     ClientsService,
@@ -179,6 +218,7 @@ export class ClientsController {
     MyProfileService,
     ClientTimelineService,
     ClientServicesService,
+    ClientOfficeService,
   ],
 })
 export class ClientsModule {}

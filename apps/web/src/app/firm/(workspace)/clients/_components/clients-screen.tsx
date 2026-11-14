@@ -1,13 +1,22 @@
 'use client';
 
-import type { ClientListRow, ListClientsQuery, TeamMember } from '@firmivra/types';
+import {
+  type ClientListRow,
+  type ListClientsQuery,
+  roleCan,
+  type TeamMember,
+} from '@firmivra/types';
 import { ActionMenu, Button, EmptyState, Tabs, Toast, type TabItem } from '@firmivra/ui';
 import {
   ArrowCounterClockwise,
   Archive,
   CaretDown,
+  DownloadSimple,
+  Flag,
+  Pause,
   Plus,
   ShieldCheck,
+  Tag,
   Users,
 } from '@phosphor-icons/react';
 import { useSearchParams } from 'next/navigation';
@@ -18,7 +27,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { TEAM } from '../../../setup/_components/shared';
-import { AddClientDialog, BulkDialog, type BulkKind } from './clients-dialogs';
+import { AddClientDialog, BulkDialog, type BulkKind, ExportDialog } from './clients-dialogs';
 import { ClientsFilterRow } from './clients-filters';
 import { ClientsKpis } from './clients-kpis';
 import { ClientCards, ClientsTable, type RowAction } from './clients-table';
@@ -86,7 +95,12 @@ function span<K extends 'deadline' | 'appointment'>(key: K, from: string, to: st
   } as Partial<Record<`${K}From` | `${K}To`, string>>;
 }
 
-type Pending = { kind: BulkKind; clients: { id: string; displayName: string }[] } | null;
+type Pending = {
+  kind: BulkKind;
+  clients: { id: string; displayName: string }[];
+  /** Mark Inactive: Change Status with Inactive chosen. */
+  status?: 'INACTIVE';
+} | null;
 
 /** A dashboard service card's clients (D4) in words: "Completed engagements, Nov 1 to Nov 7". */
 const ENGAGEMENT_WORDS: Record<string, string> = {
@@ -138,6 +152,9 @@ export function ClientsScreen({
   const [adding, setAdding] = useState(initialAdding);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState('');
+  const [exporting, setExporting] = useState<false | 'list' | 'selected'>(false);
+  // Export (E2 additions): the Owner, and roles whose grid grants it; the API checks the member.
+  const mayExport = !!role && roleCan(role, 'CLIENTS', 'EXPORT');
 
   // The API refuses control characters and more than 100 characters (SearchText).
   const search = useSettled(filters.search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
@@ -199,7 +216,8 @@ export function ClientsScreen({
   const rows = list.data?.items ?? [];
   const chosen = (ids: string[]) =>
     rows.filter((r) => ids.includes(r.id)).map((r) => ({ id: r.id, displayName: r.displayName }));
-  const openBulk = (kind: BulkKind) => setPending({ kind, clients: chosen(selected) });
+  const openBulk = (kind: BulkKind, status?: 'INACTIVE') =>
+    setPending({ kind, clients: chosen(selected), ...(status ? { status } : {}) });
   const onRowAction = (client: ClientListRow, action: RowAction) =>
     setPending({ kind: action, clients: [{ id: client.id, displayName: client.displayName }] });
 
@@ -276,6 +294,17 @@ export function ClientsScreen({
                   : ''}
               </p>
             ) : null}
+            {mayExport ? (
+              <Button
+                variant="secondary"
+                data-testid="export-clients"
+                className="!min-h-9"
+                onClick={() => setExporting('list')}
+              >
+                <DownloadSimple aria-hidden weight="bold" className="size-4" />
+                Export
+              </Button>
+            ) : null}
             <Button
               data-testid="add-client"
               onClick={() => setAdding(true)}
@@ -299,6 +328,27 @@ export function ClientsScreen({
                           icon: Users,
                           onSelect: () => openBulk('ASSIGN'),
                         },
+                        // Octavia's E2 additions.
+                        { label: 'Add Tag', icon: Tag, onSelect: () => openBulk('TAG') },
+                        {
+                          label: 'Change Status',
+                          icon: Flag,
+                          onSelect: () => openBulk('STAGE'),
+                        },
+                        {
+                          label: 'Mark Inactive',
+                          icon: Pause,
+                          onSelect: () => openBulk('STAGE', 'INACTIVE'),
+                        },
+                        ...(mayExport
+                          ? [
+                              {
+                                label: 'Export Selected',
+                                icon: DownloadSimple,
+                                onSelect: () => setExporting('selected'),
+                              },
+                            ]
+                          : []),
                       ],
                     },
                     {
@@ -411,11 +461,29 @@ export function ClientsScreen({
       {adding ? (
         <AddClientDialog manager={manager} members={members} onClose={() => setAdding(false)} />
       ) : null}
+      {exporting ? (
+        <ExportDialog
+          query={
+            exporting === 'selected'
+              ? { status: 'all', clientIds: selected }
+              : listQuery(filters, search, manager)
+          }
+          total={exporting === 'selected' ? selected.length : (list.data?.total ?? 0)}
+          selected={exporting === 'selected'}
+          onClose={() => setExporting(false)}
+          onDone={(text) => {
+            if (exporting === 'selected') setSelected([]);
+            setExporting(false);
+            setNotice(text);
+          }}
+        />
+      ) : null}
       {pending ? (
         <BulkDialog
           kind={pending.kind}
           clients={pending.clients}
           members={members}
+          {...(pending.status ? { initialStatus: pending.status } : {})}
           onClose={() => setPending(null)}
           onDone={(message) => {
             setPending(null);

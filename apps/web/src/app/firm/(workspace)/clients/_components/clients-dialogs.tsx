@@ -3,7 +3,9 @@
 import {
   type BulkClientsRequest,
   type ClientAccountType,
+  type ClientStatus,
   type CreateClientRequest,
+  type ExportClientsRequest,
   type MemberRef,
   NewClientForm,
   US_STATES,
@@ -13,9 +15,9 @@ import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
-import { useApiMutation } from '../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS } from './client-parts';
-import { bulkSummary } from './list-parts';
+import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
 
 type Field =
   | 'accountType'
@@ -247,30 +249,41 @@ const TITLES: Record<BulkKind, { title: string; button: string; verb: string }> 
   ASSIGN: { title: 'Assign Staff Member', button: 'Assign', verb: 'updated' },
   ARCHIVE: { title: 'Archive Clients', button: 'Archive', verb: 'archived' },
   RESTORE: { title: 'Restore Clients', button: 'Restore', verb: 'restored' },
+  // Octavia's E2 additions.
+  TAG: { title: 'Add Tag', button: 'Add Tag', verb: 'tagged' },
+  STAGE: { title: 'Change Status', button: 'Change Status', verb: 'updated' },
 };
 
 /** The value of the "nobody" choice, which sends `assignedUserId: null`. */
 const NOBODY = 'none';
 
 /**
- * Bulk Actions and the row menu (Owner and Admin): assign, archive or restore the chosen clients
- * (POST /business/clients/bulk). Shows what changed and what was skipped, then the list and the
- * cards refetch.
+ * Bulk Actions and the row menu (Owner and Admin): assign, archive or restore the chosen clients,
+ * and (Octavia's E2 additions) add a tag or change their status, Inactive included
+ * (POST /business/clients/bulk). Each names the clients it changes first; then it shows what
+ * changed and what was skipped, and the list and the cards refetch. Every change is audited per
+ * client on the API.
  */
 export function BulkDialog({
   kind,
   clients,
   members,
+  initialStatus = '',
   onClose,
   onDone,
 }: {
   kind: BulkKind;
   clients: { id: string; displayName: string }[];
   members: MemberRef[];
+  /** Mark Inactive: Change Status with Inactive chosen. */
+  initialStatus?: ClientStatus | '';
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
   const [assignee, setAssignee] = useState('');
+  const [tagId, setTagId] = useState('');
+  const [status, setStatus] = useState<ClientStatus | ''>(initialStatus);
+  const tags = useApiQuery(['tags'], () => api.tags.list());
   const bulk = useApiMutation((body: BulkClientsRequest) => api.clients.bulk(body), {
     invalidate: CLIENTS,
   });
@@ -284,7 +297,11 @@ export function BulkDialog({
     const body: BulkClientsRequest =
       kind === 'ASSIGN'
         ? { action: kind, clientIds, assignedUserId: assignee === NOBODY ? null : assignee }
-        : { action: kind, clientIds };
+        : kind === 'TAG'
+          ? { action: kind, clientIds, tagId }
+          : kind === 'STAGE'
+            ? { action: kind, clientIds, status: status as ClientStatus }
+            : { action: kind, clientIds };
     bulk.mutate(body, { onSuccess: (result) => onDone(bulkSummary(result, verb, names)) });
   };
 
@@ -302,6 +319,38 @@ export function BulkDialog({
               { value: NOBODY, label: 'Nobody (unassign)' },
             ]}
           />
+        ) : kind === 'TAG' ? (
+          <>
+            <Select
+              label="Tag"
+              value={tagId}
+              onChange={(event) => setTagId(event.target.value)}
+              options={[
+                { value: '', label: 'Choose a tag' },
+                ...(tags.data?.items ?? []).map((t) => ({ value: t.id, label: t.name })),
+              ]}
+            />
+            <p className="text-sm text-text">
+              The tag joins each client&apos;s tags; their other tags stay. Archived clients are
+              skipped.
+            </p>
+          </>
+        ) : kind === 'STAGE' ? (
+          <>
+            <Select
+              label="New status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ClientStatus | '')}
+              options={[
+                { value: '', label: 'Choose a status' },
+                ...STAGE_ORDER.map((value) => ({ value, label: STAGES[value].label })),
+              ]}
+            />
+            <p className="text-sm text-text">
+              Each client moves to this status; automations on a status change run for each.
+              Archived clients are skipped.
+            </p>
+          </>
         ) : (
           <p className="text-sm text-text">
             {kind === 'ARCHIVE'
@@ -327,13 +376,95 @@ export function BulkDialog({
           </Button>
           <Button
             type="submit"
-            disabled={bulk.isPending || (kind === 'ASSIGN' && !assignee)}
+            disabled={
+              bulk.isPending ||
+              (kind === 'ASSIGN' && !assignee) ||
+              (kind === 'TAG' && !tagId) ||
+              (kind === 'STAGE' && !status)
+            }
             className={kind === 'ARCHIVE' ? '!bg-danger hover:!bg-danger' : ''}
           >
             {bulk.isPending ? 'Saving…' : button}
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** The columns the export holds (the API's, in order): no SSN, EIN or date of birth. */
+const EXPORT_COLUMNS =
+  'Client, Type, Email, Phone, Stage, Services, Assigned to, Missing documents, Balance due, Last activity, Next appointment, Added, Archived';
+
+/**
+ * Export (Octavia's E2 additions): what will be exported before it is: the clients the list shows
+ * now (its filters and search), how many, and the columns, then the CSV link. For the Owner and
+ * anyone granted Clients EXPORT; the API checks again and records the export.
+ */
+export function ExportDialog({
+  query,
+  total,
+  selected = false,
+  onClose,
+  onDone,
+}: {
+  query: ExportClientsRequest;
+  total: number;
+  /** Bulk Actions' Export Selected: the scope is the clients chosen. */
+  selected?: boolean;
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const exporting = useApiMutation((body: ExportClientsRequest) => api.clients.exportList(body));
+  const count = Math.min(total, 5000);
+  const noun = count === 1 ? 'client' : 'clients';
+  return (
+    <Modal
+      open
+      title="Export Clients"
+      subtitle="A CSV file of the clients this list shows now."
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={count === 0 || exporting.isPending}
+            onClick={() =>
+              exporting.mutate(query, {
+                onSuccess: (link) => {
+                  window.open(link.url, '_blank', 'noopener');
+                  onDone(
+                    `Exported ${link.rowCount} ${link.rowCount === 1 ? 'client' : 'clients'}.`,
+                  );
+                },
+              })
+            }
+          >
+            {exporting.isPending ? 'Exporting…' : `Export ${count} ${noun}`}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3 text-sm text-text" data-testid="export-dialog">
+        <p>
+          <span className="font-semibold">Scope:</span>{' '}
+          {selected
+            ? `the ${count} ${noun} you selected.`
+            : `the ${count} ${noun} the list shows with its filters and search${total > 5000 ? ` (the first 5,000 of ${total})` : ''}.`}
+        </p>
+        <p>
+          <span className="font-semibold">Columns:</span> {EXPORT_COLUMNS}. Never an SSN, EIN or
+          date of birth.
+        </p>
+        <p className="text-muted">The export is recorded in your firm&apos;s audit log.</p>
+        {exporting.error ? (
+          <p role="alert" className="text-danger">
+            {errorMessage(exporting.error, CLIENT_ERRORS)}
+          </p>
+        ) : null}
+      </div>
     </Modal>
   );
 }

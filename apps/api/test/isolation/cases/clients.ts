@@ -71,6 +71,14 @@ export const cases: CaseModule['cases'] = {
     bodyIds: { clientIds: 'client', assignedUserId: 'staffUser' },
     body: { action: 'ASSIGN', clientIds: [PLACEHOLDER], assignedUserId: PLACEHOLDER },
   },
+  // Export Selected: another firm's client refuses the export (404), nothing is made. No file
+  // store in tests: a found client's export can't be written, so the firm's own get 503.
+  'POST /api/v1/business/clients/export': {
+    params: {},
+    bodyIds: { clientIds: 'client' },
+    body: { clientIds: [PLACEHOLDER] },
+    expect: 503,
+  },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tags': { params: { id: 'client' } },
@@ -78,6 +86,13 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/timeline': { params: { id: 'client' } },
   // E4: the client's services and the module record that opens each.
   'GET /api/v1/business/clients/:id/services': { params: { id: 'client' } },
+  // PRT-1 part 2: the client's local office, and changing it (Owner and Admin).
+  'GET /api/v1/business/clients/:id/office': { params: { id: 'client' } },
+  'PUT /api/v1/business/clients/:id/office': {
+    params: { id: 'client' },
+    bodyIds: { officeId: 'firmOffice' },
+    body: { officeId: PLACEHOLDER },
+  },
   'PUT /api/v1/business/clients/:id/tags': {
     params: { id: 'client' },
     body: { tags: ['Fake tag'] },

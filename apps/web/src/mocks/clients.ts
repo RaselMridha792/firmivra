@@ -17,16 +17,18 @@ import {
   roleCan,
   type ClientService,
   type ClientServiceWorkspace,
+  ExportClientsRequest,
   RequestNameChangeRequest,
   SetClientTaxYearRequest,
   TaxYear,
   UpdateClientProfileRequest,
   UpdateClientRequest,
   UpdateMyProfileRequest,
+  SetClientOfficeRequest,
 } from '@firmivra/types';
 import { mockedEmpty } from '../lib/mock';
 import { timelineOf } from './client-timeline';
-import { mockResolveTags } from './tags';
+import { mockFirmTags, mockResolveTags } from './tags';
 import { taxStatusFixtures } from './tax-statuses';
 import { teamFixtures } from './team';
 import { serviceMockEngagements } from './service-engagements';
@@ -367,6 +369,20 @@ export function createClientsMock(
   options: { role?: MockFirmRole; empty?: boolean } = {},
 ): ClientsClient {
   const staffOnly = options.role === 'STAFF';
+  /** PRT-1 part 2: two synthetic locations, and the offices changed in this session. */
+  const MOCK_OFFICES = [
+    {
+      id: '0199d000-0000-7000-8000-000000000001',
+      name: 'Auburn Office',
+      addressLines: ['123 Main St', 'Auburn, GA 30011'],
+    },
+    {
+      id: '0199d000-0000-7000-8000-000000000002',
+      name: 'Lawrenceville Office',
+      addressLines: ['456 Pine Rd, Suite 200', 'Lawrenceville, GA 30046'],
+    },
+  ];
+  const officeOf = new Map<string, string | null>();
   const empty = options.empty ?? mockedEmpty('clients');
   let rows: ClientRecord[] = empty
     ? []
@@ -443,7 +459,7 @@ export function createClientsMock(
     return structuredClone(profile);
   };
 
-  return {
+  const mock: ClientsClient = {
     list: async (query = {}) => {
       await pause();
       const q = parseInput(ListClientsQuery, query);
@@ -560,6 +576,9 @@ export function createClientsMock(
       if (req.action === 'ASSIGN' && req.assignedUserId && !assignee(req.assignedUserId)) {
         throw fail(404, 'NOT_FOUND', 'Not found');
       }
+      // E2 additions: a tag that is not one of the firm's live tags refuses the whole request.
+      const tag = req.action === 'TAG' ? mockFirmTags().find((t) => t.id === req.tagId) : undefined;
+      if (req.action === 'TAG' && !tag) throw fail(404, 'NOT_FOUND', 'Not found');
       const skipped: { clientId: string; code: string }[] = [];
       let updated = 0;
       for (const id of ids) {
@@ -570,6 +589,18 @@ export function createClientsMock(
             continue;
           }
           save({ ...row, assignedTo: assignee(req.assignedUserId), updatedAt: now() });
+        } else if (req.action === 'TAG' || req.action === 'STAGE') {
+          if (row.archivedAt) {
+            skipped.push({ clientId: id, code: 'CLIENT_ARCHIVED' });
+            continue;
+          }
+          if (req.action === 'TAG' && tag) {
+            const had = tags.get(row.id) ?? [];
+            if (!had.includes(tag.name)) tags.set(row.id, [...had, tag.name]);
+          } else if (req.action === 'STAGE') {
+            const n = Number(row.id.slice(-12));
+            work()[n] = { ...(work()[n] ?? noWork()), status: req.status };
+          }
         } else if (req.action === 'ARCHIVE') {
           if (!row.archivedAt) save({ ...row, archivedAt: now(), updatedAt: now() });
         } else {
@@ -589,6 +620,71 @@ export function createClientsMock(
       return { tags: [...(tags.get(row.id) ?? [])] };
     },
     // MSG-F16: what New Message's Add to Client Timeline wrote in this browser session.
+    // E2 additions: the list's clients as a CSV, for the roles whose grid grants Clients EXPORT.
+    exportList: async (body) => {
+      await pause();
+      const q = parseInput(ExportClientsRequest, body);
+      if (!roleCan(options.role ?? 'OWNER', 'CLIENTS', 'EXPORT')) {
+        throw fail(403, 'FORBIDDEN', 'You do not have access to this action');
+      }
+      // Export Selected: only the clients chosen, as the API.
+      const { clientIds, ...filters } = q;
+      const listed = await mock.list({ ...filters, page: 1, limit: 100 });
+      const items = clientIds ? listed.items.filter((c) => clientIds.includes(c.id)) : listed.items;
+      const csv = [
+        'Client,Type,Email',
+        ...items.map((c) => `${c.displayName},${c.accountType},${c.email ?? ''}`),
+      ].join('\n');
+      return {
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`,
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        fileName: 'clients.csv',
+        rowCount: clientIds ? items.length : listed.total,
+      };
+    },
+    // PRT-1 part 2: client 1 chose Lawrenceville at sign-up and has it; the others have none.
+    office: async (id) => {
+      await pause();
+      const row = find(parseInput(ClientId, id));
+      const current = officeOf.has(row.id)
+        ? (officeOf.get(row.id) ?? null)
+        : row.id.endsWith('1')
+          ? MOCK_OFFICES[1]!.id
+          : null;
+      const office = MOCK_OFFICES.find((o) => o.id === current) ?? null;
+      return {
+        office: office ? { ...office, active: true } : null,
+        chosenAtSignUp: row.id.endsWith('1')
+          ? { id: MOCK_OFFICES[1]!.id, name: MOCK_OFFICES[1]!.name }
+          : null,
+        choices: MOCK_OFFICES,
+        canChange: options.role !== 'STAFF',
+      };
+    },
+    setOffice: async (id, body) => {
+      await pause();
+      if (options.role === 'STAFF')
+        throw new ApiRequestError(403, 'FORBIDDEN', 'This action is not permitted');
+      const row = find(parseInput(ClientId, id));
+      const { officeId } = parseInput(SetClientOfficeRequest, body);
+      if (officeId && !MOCK_OFFICES.some((o) => o.id === officeId)) {
+        throw new ApiRequestError(
+          400,
+          'OFFICE_NOT_AVAILABLE',
+          'Choose one of the firm’s active locations.',
+        );
+      }
+      officeOf.set(row.id, officeId);
+      const office = MOCK_OFFICES.find((o) => o.id === officeId) ?? null;
+      return {
+        office: office ? { ...office, active: true } : null,
+        chosenAtSignUp: row.id.endsWith('1')
+          ? { id: MOCK_OFFICES[1]!.id, name: MOCK_OFFICES[1]!.name }
+          : null,
+        choices: MOCK_OFFICES,
+        canChange: true,
+      };
+    },
     // E4: the list's services as enrollments (the newest year's), plus a finished one for
     // client 1; each opens its module's list, where the role's grid views it.
     services: async (id) => {
@@ -745,6 +841,7 @@ export function createClientsMock(
       }));
     },
   };
+  return mock;
 }
 
 /**

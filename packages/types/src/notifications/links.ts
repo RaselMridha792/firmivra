@@ -54,8 +54,12 @@ export function notificationLink(target: unknown, where: NotificationSite): stri
   const { kind, id, clientId } = parsed.data;
   if (where.site === 'portal') {
     const slug = FirmSlug.safeParse(where.firmSlug);
+    if (!slug.success) return null;
+    // An intake opens that exact form, the version sent (Intake Forms Review Two, ACCESS-01); its
+    // page checks the client's access again.
+    if (kind === 'intake') return `/${slug.data}/intake/${id}`;
     const page = PORTAL[kind];
-    return slug.success && page ? `/${slug.data}${page}` : null;
+    return page ? `/${slug.data}${page}` : null;
   }
   // An appointment opens that appointment (Octavia's N3); its page checks access again.
   if (kind === 'appointment') return `/calendar/${id}`;

@@ -50,6 +50,12 @@ export interface EnvConfig {
    */
   sesSandboxSendFromAnyIdentity?: boolean;
   /**
+   * The API's SMS_MODE (default sns). `log` writes each text to the API log instead of sending it:
+   * dev until the toll-free number is registered (Rasel, Nov 14), as US carriers block SMS from
+   * an unregistered number, so Leads campaigns and message delivery can be tested end to end.
+   */
+  smsMode?: 'log' | 'sns';
+  /**
    * The three distributions' *.cloudfront.net domains, filled in after the first app deploy.
    * Used for the documents bucket CORS while there is no custom domain. Unset: CORS allows
    * https://*.cloudfront.net until the domains are known.
@@ -118,6 +124,8 @@ const dev: EnvConfig = {
   region: 'us-east-1',
   // dev.firmivra.com delegated to Route 53 at GoDaddy on Oct 5. Back to *.cloudfront.net: undefined.
   customDomain: DEV_FIRMIVRA_COM,
+  // No registered toll-free number yet: texts go to the API log (Rasel, Nov 14).
+  smsMode: 'log',
   // The email stack's names (EmailStack: no-reply@<zone>, the zone, firmivra-dev-email).
   // Cognito's own emails (reset codes) stay on Cognito's default sender on dev until SES has
   // production access (lead and Rasel, Nov 14): while SES is in the sandbox it would deliver only

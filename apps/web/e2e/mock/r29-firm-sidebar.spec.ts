@@ -74,15 +74,12 @@ test('Clients is an open group: Overview, Sign-ups and Documents, and it closes 
   await expect(page).toHaveURL(app('/clients'));
 });
 
-test('an item without a page opens the module page and is marked in the sidebar', async ({
-  page,
-}) => {
+test('Client Portal opens its module and is marked in the sidebar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(app('/'));
   await nav(page).getByRole('link', { name: 'Client Portal', exact: true }).click();
-  await expect(page).toHaveURL(app('/modules/client-portal'));
+  await expect(page).toHaveURL(new RegExp(`${app('/client-portal')}`));
   await expect(page.getByTestId('page-title')).toHaveText('Client Portal');
-  await expect(page.getByTestId('module-card')).toContainText('This module is on its way.');
   await expect(nav(page).getByRole('link', { name: 'Client Portal', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
@@ -98,11 +95,11 @@ test('an unknown module shows the not-found page', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 });
 
-test('the module page has no horizontal scroll at 1440 and 390 px', async ({ page }) => {
+test('the Client Portal page has no horizontal scroll at 1440 and 390 px', async ({ page }) => {
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(app('/modules/client-portal'));
-    await expect(page.getByTestId('module-card')).toBeVisible();
+    await page.goto(app('/client-portal'));
+    await expect(page.getByTestId('client-portal')).toBeVisible({ timeout: 60_000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
