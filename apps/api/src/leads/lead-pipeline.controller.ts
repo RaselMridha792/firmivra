@@ -1,6 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  DismissLeadDuplicateRequest,
+  type LeadDuplicateList,
+  MergeLeadsRequest,
+  type OkResponse,
   CreateLeadRequest,
   LeadBulkRequest,
   type LeadBulkResult,
@@ -16,6 +20,7 @@ import {
 import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { LeadMergeService } from './lead-merge.service.js';
 import { LeadMessagesService } from './lead-messages.service.js';
 import { LeadPipelineWriteService } from './lead-pipeline-write.service.js';
 import { LeadPipelineService } from './lead-pipeline.service.js';
@@ -41,6 +46,7 @@ export class LeadPipelineController {
     private readonly reads: LeadPipelineService,
     private readonly writes: LeadPipelineWriteService,
     private readonly messages: LeadMessagesService,
+    private readonly merges: LeadMergeService,
   ) {}
 
   @Get('pipeline')
@@ -95,6 +101,39 @@ export class LeadPipelineController {
     @Body(new ZodValidationPipe(LeadMessageRequest)) body: z.output<typeof LeadMessageRequest>,
   ): Promise<LeadBulkResult> {
     return this.messages.send(tenant.businessId, pipelineActor(auth, tenant), body);
+  }
+
+  /** R2 15: possible duplicates (static path, before ':id'). */
+  @Get('duplicates')
+  duplicates(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<LeadDuplicateList> {
+    return this.merges
+      .duplicates(tenant.businessId, pipelineActor(auth, tenant))
+      .then((items) => ({ items }));
+  }
+
+  @Post('duplicates/dismiss')
+  @HttpCode(200)
+  dismissDuplicate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(DismissLeadDuplicateRequest))
+    body: z.output<typeof DismissLeadDuplicateRequest>,
+  ): Promise<OkResponse> {
+    return this.merges.dismiss(tenant.businessId, pipelineActor(auth, tenant), body);
+  }
+
+  @Post(':id/merge')
+  @HttpCode(200)
+  merge(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(MergeLeadsRequest)) body: z.output<typeof MergeLeadsRequest>,
+  ): Promise<LeadProfile> {
+    return this.merges.merge(tenant.businessId, pipelineActor(auth, tenant), id, body);
   }
 
   @Get(':id/profile')

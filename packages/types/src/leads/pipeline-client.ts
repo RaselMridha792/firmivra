@@ -10,6 +10,7 @@ import {
   CreateLeadRequest,
   CreateLeadFileRequest,
   CreateLeadTaskRequest,
+  DismissLeadDuplicateRequest,
   LeadActivity,
   LeadActivityPage,
   LeadActivityQuery,
@@ -18,7 +19,9 @@ import {
   LeadBulkResult,
   LeadDocument,
   LeadDocumentsAndForms,
+  LeadDuplicateList,
   LeadMessageRequest,
+  MergeLeadsRequest,
   LeadNote,
   LeadNoteList,
   LeadOptions,
@@ -162,6 +165,19 @@ export function createLeadPipelineClient(request: ApiRequest) {
       request(LeadNote, `${one(id)}/notes`, post(parseInput(AddLeadNoteRequest, body))),
     tasks: async (id: string): Promise<LeadTask[]> =>
       (await request(LeadTaskList, `${one(id)}/tasks`)).items,
+    /** R2 15: the possible duplicates the member reaches, with why. */
+    duplicates: async (): Promise<LeadDuplicateList> =>
+      request(LeadDuplicateList, `${LEADS}/duplicates`),
+    /** R2 15: "Not a duplicate" (Owner, Admin). */
+    dismissDuplicate: async (body: DismissLeadDuplicateRequest): Promise<OkResponse> =>
+      request(
+        OkResponse,
+        `${LEADS}/duplicates/dismiss`,
+        post(parseInput(DismissLeadDuplicateRequest, body)),
+      ),
+    /** R2 15: merge `mergeLeadId` into lead `id`, keeping the chosen values (Owner, Admin). */
+    merge: async (id: string, body: MergeLeadsRequest): Promise<LeadProfile> =>
+      request(LeadProfile, `${one(id)}/merge`, post(parseInput(MergeLeadsRequest, body))),
     /** R2 2: Create Task opened from the lead. */
     createTask: async (id: string, body: CreateLeadTaskRequest): Promise<LeadTask> =>
       request(LeadTask, `${one(id)}/tasks`, post(parseInput(CreateLeadTaskRequest, body))),

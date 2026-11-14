@@ -1,7 +1,7 @@
 // Begin Online leads in the firm's inbox: review, convert, decline and the visitor's files.
 import { createHash, randomUUID } from 'node:crypto';
 import { submitLeadVersion } from '../../submitted-lead.js';
-import type { CaseModule } from '../world.js';
+import type { CaseModule, SeedContext } from '../world.js';
 
 export const records: CaseModule['records'] = {
   /**
@@ -215,6 +215,29 @@ export const records: CaseModule['records'] = {
       return get('leadStaffFile');
     },
   },
+  // Leads R2 15: open leads of their own for the merge and "Not a duplicate" routes (the firm's
+  // own control call really merges or dismisses them).
+  ...Object.fromEntries(
+    ['leadMergeA', 'leadMergeB', 'leadDismissA', 'leadDismissB'].map((key) => [
+      key,
+      {
+        async create({ tx, businessId, own }: SeedContext) {
+          const row = await tx.lead.create({
+            data: {
+              businessId,
+              serviceId: own.service,
+              status: 'CONTACTED',
+              submittedAt: new Date(),
+              firstName: 'Fake',
+              lastName: key,
+              email: `iso-${key.toLowerCase()}-${randomUUID().slice(0, 8)}@iso.test`,
+            },
+          });
+          return row.id;
+        },
+      },
+    ]),
+  ),
 };
 
 export const cases: CaseModule['cases'] = {
@@ -299,6 +322,17 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/notes': { params: { id: 'lead' } },
   'POST /api/v1/business/leads/:id/notes': { params: { id: 'lead' }, body: { text: 'Fake note' } },
   'GET /api/v1/business/leads/:id/tasks': { params: { id: 'lead' } },
+  // Leads R2 15: "Not a duplicate" names two leads; a merge names the lead merged in.
+  'POST /api/v1/business/leads/duplicates/dismiss': {
+    params: {},
+    body: {},
+    bodyIds: { leadId: 'leadDismissA', otherLeadId: 'leadDismissB' },
+  },
+  'POST /api/v1/business/leads/:id/merge': {
+    params: { id: 'leadMergeA' },
+    body: {},
+    bodyIds: { mergeLeadId: 'leadMergeB' },
+  },
   // Leads R2 2: a lead's own tasks; the assignee is a member of the lead's firm.
   'POST /api/v1/business/leads/:id/tasks': {
     params: { id: 'leadTaskLead' },
