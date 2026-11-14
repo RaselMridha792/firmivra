@@ -914,6 +914,7 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
     locationKind: a.locationKind,
     locationDetails: a.locationDetails,
     changeableUntil: until(a),
+    instructions: null,
   });
   const mine = (appointmentId: string) => {
     const a = db().appointments.find((x) => x.id === appointmentId && x.client.id === client.id);

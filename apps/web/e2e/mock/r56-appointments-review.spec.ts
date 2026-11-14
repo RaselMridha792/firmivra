@@ -467,3 +467,23 @@ test('Review 2 (B3): Back from an appointment returns to the same list filters a
   await expect(page.getByTestId('calendar-period')).toHaveText('October 2026', { timeout: 60_000 });
   await expect(calToolbar.getByLabel('Show')).toHaveValue('month');
 });
+
+test('Review 2 (B7, B9): instructions per channel, the confirmation message and a note per reminder', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  const channels = page.getByTestId('instructions-in');
+  await expect(channels).toBeVisible({ timeout: 60_000 });
+  // Email and Portal on, Text off, each on its own.
+  await expect(channels.getByLabel('Email')).toBeChecked();
+  await expect(channels.getByLabel('Portal')).toBeChecked();
+  await expect(channels.getByLabel('Text (when the client gets texts)')).not.toBeChecked();
+  await channels.getByLabel('Portal').uncheck();
+  await expect(channels.getByLabel('Email')).toBeChecked();
+  await page.getByLabel('Confirmation message (optional)').fill('Fake: see you soon.');
+  const card = page.getByTestId('client-reminders');
+  await card.getByLabel('Email Reminder', { exact: true }).check();
+  await card.getByLabel('Email Reminder note').fill('Fake: bring your 1099s.');
+  await expect(card.getByLabel('Email Reminder note')).toHaveValue('Fake: bring your 1099s.');
+});

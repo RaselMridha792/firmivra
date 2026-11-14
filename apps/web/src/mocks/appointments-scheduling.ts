@@ -198,6 +198,8 @@ function seed(empty: boolean): Store {
           internalNotes: i === 0 ? "Bring last year's return and the new 1099s." : null,
           clientInstructions:
             method === 'VIDEO' ? 'Join from a quiet place; the link works in any browser.' : null,
+          instructionsIn: { email: true, portal: true, sms: false },
+          confirmationMessage: null,
           related: {
             taxReturn: t === 1 ? { id: uuid('1a00', i), name: '2025 Form 1040' } : null,
             bookkeepingEngagement: null,
@@ -689,6 +691,13 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         timezone: input.timezone ?? TZ,
         internalNotes: input.internalNotes ?? null,
         clientInstructions: input.clientInstructions ?? null,
+        // Review 2 (B9, B7).
+        instructionsIn: {
+          email: input.instructionsInEmail ?? true,
+          portal: input.instructionsInPortal ?? true,
+          sms: input.instructionsInSms ?? false,
+        },
+        confirmationMessage: input.confirmationMessage ?? null,
         related: {
           taxReturn: null,
           bookkeepingEngagement: null,
@@ -766,6 +775,14 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         ...(input.internalNotes !== undefined ? { internalNotes: input.internalNotes } : {}),
         ...(input.clientInstructions !== undefined
           ? { clientInstructions: input.clientInstructions }
+          : {}),
+        instructionsIn: {
+          email: input.instructionsInEmail ?? r.instructionsIn.email,
+          portal: input.instructionsInPortal ?? r.instructionsIn.portal,
+          sms: input.instructionsInSms ?? r.instructionsIn.sms,
+        },
+        ...(input.confirmationMessage !== undefined
+          ? { confirmationMessage: input.confirmationMessage }
           : {}),
         ...(input.reminders ? { reminders: input.reminders } : {}),
         ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
@@ -1028,6 +1045,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           minNoticeHours: 24,
           maxWindowDays: 60,
           maxWindowHours: null,
+          confirmationMessage: null,
           requiredIntakeFormId: null,
           requiredDocuments: [],
           defaultReminders: [{ channel: 'EMAIL', amount: 1, unit: 'DAYS' }],
@@ -1054,6 +1072,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         minNoticeHours: 0,
         maxWindowDays: 60,
         maxWindowHours: null,
+        confirmationMessage: null,
         requiredIntakeFormId: null,
         requiredDocuments: [],
         defaultReminders: [],

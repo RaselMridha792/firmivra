@@ -95,6 +95,9 @@ export const appointmentSelect = {
   cancelledAt: true,
   cancelReason: true,
   createdAt: true,
+  // Review 2 (B9): the client's portal shows the instructions only when the firm lets it.
+  clientInstructions: true,
+  instructionsInPortal: true,
   client: { select: { displayName: true, assignedUserId: true } },
   staff: { select: memberSelect },
   type: { select: { id: true, name: true } },

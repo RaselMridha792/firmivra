@@ -58,7 +58,13 @@ export function IntakeFormCard({
       ) : forms.length === 0 ? (
         <div className="flex flex-col gap-2">
           <p className={quiet}>No intake form for {detail.taxYear} yet.</p>
-          <OriginLink href="/intake-forms/send" className={textButton}>
+          {/* Review 2 (TX-F11): on this client and this return's service. */}
+          <OriginLink
+            href={`/intake-forms/send?clientId=${detail.client.id}${
+              detail.engagement ? `&engagementId=${detail.engagement.id}` : ''
+            }`}
+            className={textButton}
+          >
             Send an Intake Form
           </OriginLink>
         </div>

@@ -20,6 +20,7 @@ import {
   XCircle,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { OriginLink } from '../../../../../components/origin-link';
 import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { ConfirmEventButton } from '../../compliance/_components/confirm-event';
@@ -32,7 +33,13 @@ import {
   useRejection,
   type Notice,
 } from './return-actions';
-import { blankIssue, issueBody, type IssueDraft, ReturnIssueChoice } from './issues-panel';
+import {
+  blankIssue,
+  IssueFields,
+  issueBody,
+  type IssueDraft,
+  ReturnIssueChoice,
+} from './issues-panel';
 import {
   BLOCKER_LABEL,
   TR_KEY,
@@ -123,6 +130,19 @@ export function ValidationPanel({
   const q = usePart(detail.id, 'checklist', () => api.taxReturnWorkspace.checklist(detail.id));
   const items = (q.data ?? []).filter((c) => c.section === 'VALIDATION');
   const [adding, setAdding] = useState(false);
+  // Review 2 (TX-F19): each line shows who is responsible and the version, from its open issue;
+  // Assign raises that issue on the line (the Validation Issues panel lists it too).
+  const issues = usePart(detail.id, 'issues', () => api.taxReturnWorkspace.issues(detail.id));
+  const openIssueOf = (lineId: string) =>
+    (issues.data ?? []).find((i) => i.step?.id === lineId && !i.resolvedAt);
+  const [assigning, setAssigning] = useState<IssueDraft>();
+  const assign = (c: { id: string; label: string; note: string | null; result: TaxCheckResult }) =>
+    setAssigning({
+      ...blankIssue(detail.preparer?.userId),
+      severity: c.result === 'ERROR' ? 'ERROR' : c.result === 'WARNING' ? 'MANUAL_WARNING' : 'INFO',
+      note: c.note ? `${c.label}: ${c.note}` : c.label,
+      checklistItemId: c.id,
+    });
   const count = (r: TaxCheckResult) => items.filter((c) => c.result === r).length;
   const errors = count('ERROR');
   const shown = compact ? items.slice(0, 5) : items;
@@ -202,11 +222,14 @@ export function ValidationPanel({
                   <th scope="col" className="px-2 py-1.5 font-medium">
                     Status
                   </th>
+                  <th scope="col" className="px-2 py-1.5 font-medium">
+                    Responsible
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((c) => (
-                  <tr key={c.id} className="border-b border-divider">
+                  <tr key={c.id} className="border-b border-divider" data-testid="validation-line">
                     <td className="px-2 py-1.5">
                       {c.label}
                       {c.note ? <span className="block text-xs text-muted">{c.note}</span> : null}
@@ -264,6 +287,37 @@ export function ValidationPanel({
                         ) : null}
                       </span>
                     </td>
+                    <td className="px-2 py-1.5 text-xs" data-testid="validation-line-owner">
+                      {(() => {
+                        const issue = openIssueOf(c.id);
+                        if (issue) {
+                          return (
+                            <span className="flex flex-col">
+                              <span className="text-text">
+                                {issue.responsible?.name ?? 'No one yet'}
+                              </span>
+                              <span className="text-muted">
+                                {issue.draft
+                                  ? `Version: ${issue.draft.fileName}`
+                                  : 'Not tied to a version'}
+                              </span>
+                            </span>
+                          );
+                        }
+                        return c.result === 'VALID' ? (
+                          <span className="text-muted">—</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={textButton}
+                            aria-label={`Assign ${c.label}`}
+                            onClick={() => assign(c)}
+                          >
+                            Assign
+                          </button>
+                        );
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -295,6 +349,25 @@ export function ValidationPanel({
           onClose={() => setAdding(false)}
           onNotice={onNotice}
         />
+      ) : null}
+      {assigning ? (
+        <Dialog
+          title="Assign Validation Item"
+          confirm="Assign"
+          disabled={!assigning.note.trim()}
+          onConfirm={() =>
+            void act(
+              () => api.taxReturnWorkspace.raiseIssue(detail.id, issueBody(assigning)),
+              'Validation item assigned.',
+            ).then((r) => {
+              if (r) setAssigning(undefined);
+            })
+          }
+          onClose={() => setAssigning(undefined)}
+          testId="assign-validation-dialog"
+        >
+          <IssueFields returnId={detail.id} value={assigning} onChange={setAssigning} />
+        </Dialog>
       ) : null}
     </Panel>
   );
@@ -606,9 +679,12 @@ export function SignaturesPanel({
       testId="signatures"
       action={
         <span className="flex gap-2">
-          <Link href={`/firm-sign/new?clientId=${detail.client.id}`} className={smallButton}>
+          <OriginLink
+            href={`/firm-sign/new?clientId=${detail.client.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
+            className={smallButton}
+          >
             View / Send
-          </Link>
+          </OriginLink>
           <button type="button" className={smallButton} onClick={() => setManage(true)}>
             Manage
           </button>
@@ -817,9 +893,12 @@ function LinkRequestDialog({
           })),
         ]}
       />
-      <Link href={`/firm-sign/new?clientId=${detail.client.id}`} className={textButton}>
+      <OriginLink
+        href={`/firm-sign/new?clientId=${detail.client.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
+        className={textButton}
+      >
         Send a new request with Firm Sign
-      </Link>
+      </OriginLink>
     </Dialog>
   );
 }
@@ -1102,13 +1181,32 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
                     <summary className="cursor-pointer text-muted">
                       Earlier attempts ({f.attempts.length - 1})
                     </summary>
-                    <ul className="mt-1 flex flex-col gap-1">
+                    {/* Review 2 (TX-F24): every earlier attempt keeps its full rejection. */}
+                    <ul className="mt-1 flex flex-col gap-2" data-testid="earlier-attempts">
                       {f.attempts.slice(1).map((a) => (
-                        <li key={a.id} className="text-muted">
-                          {a.submissionId} · {dateTimeText(a.transmittedAt)} ·{' '}
-                          {a.ackStatus.toLowerCase()}
-                          {a.rejectingAgency ? ` by ${a.rejectingAgency}` : ''}
-                          {a.rejectCode ? ` (${a.rejectCode})` : ''}
+                        <li key={a.id} className="flex flex-col gap-0.5 text-muted">
+                          <span>
+                            {a.submissionId} · {dateTimeText(a.transmittedAt)} ·{' '}
+                            {a.ackStatus.toLowerCase()}
+                            {a.acknowledgedAt ? `, ${dateTimeText(a.acknowledgedAt)}` : ''}
+                            {a.rejectingAgency ? ` by ${a.rejectingAgency}` : ''}
+                            {a.rejectCode ? ` (${a.rejectCode})` : ''}
+                          </span>
+                          {a.ackStatus === 'REJECTED' ? (
+                            <span className="rounded bg-danger-soft px-2 py-1 text-text">
+                              <span className="block wrap-anywhere whitespace-pre-wrap">
+                                {a.rejectDescription ?? 'No description recorded.'}
+                              </span>
+                              <span className="block wrap-anywhere whitespace-pre-wrap">
+                                Corrective action: {a.correctiveAction ?? 'None recorded.'}
+                              </span>
+                              {a.recordedBy ? (
+                                <span className="block text-xs text-muted">
+                                  Recorded by {a.recordedBy.name}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -1677,7 +1775,9 @@ export function NextSteps({ detail }: { detail: TaxReturnDetail }) {
       b === 'ORIGINAL_NOT_FILED' ||
       b === 'NO_FILING_TRANSMITTED' ||
       b === 'FILINGS_NOT_ACCEPTED' ||
-      b === 'VALIDATION_ISSUES_OPEN',
+      b === 'VALIDATION_ISSUES_OPEN' ||
+      // Review 2 (TX-F20): an Error line blocks every filing record, also after Ready to File.
+      b === 'VALIDATION_ERRORS',
   );
   return (
     <Panel title="Next Steps" testId="next-steps">

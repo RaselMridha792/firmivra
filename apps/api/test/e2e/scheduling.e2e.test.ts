@@ -1752,6 +1752,58 @@ describe('send reminder', () => {
     expect(record.notices[0]!.recipient).not.toContain('Jamie');
   });
 
+  it("carries the firm's own words and the instructions the appointment shows in email (Review 2, B7, B9)", async () => {
+    // Two days ahead, so a reminder set four weeks before is due now.
+    const r = await scheduled({
+      startsAt: at(2, '05:45'),
+      endsAt: at(2, '06:15'),
+      clientInstructions: 'Fake: bring your books and receipts.',
+      confirmationMessage: 'Fake: we look forward to seeing you.',
+      reminders: [
+        { channel: 'EMAIL', amount: 4, unit: 'WEEKS', note: 'Fake: bring your 1099s.' },
+        { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
+      ],
+      overrideConflicts: { reason: 'Fake: an early meeting' },
+    });
+    expect(r).toMatchObject({
+      instructionsIn: { email: true, portal: true, sms: false },
+      confirmationMessage: 'Fake: we look forward to seeing you.',
+    });
+    expect(r.reminders).toEqual(
+      expect.arrayContaining([
+        { channel: 'EMAIL', amount: 4, unit: 'WEEKS', note: 'Fake: bring your 1099s.' },
+        { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
+      ]),
+    );
+    const sent = async () => {
+      const before = outbox.length;
+      exact(
+        RemindersSent,
+        await call('post', `/appointments/${r.id}/send-reminder`, people.ownerA, {}),
+      );
+      return outbox.slice(before).at(-1)!.data as {
+        message?: string | null;
+        instructions?: string | null;
+      };
+    };
+    expect(await sent()).toMatchObject({
+      message: 'Fake: bring your 1099s.',
+      instructions: 'Fake: bring your books and receipts.',
+    });
+    // Email switched off for the instructions: they stay out; internal notes never go.
+    const off = exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${r.id}/details`, people.ownerA, {
+        version: r.version,
+        instructionsInEmail: false,
+      }),
+    );
+    expect(off.instructionsIn).toEqual({ email: false, portal: true, sms: false });
+    const second = await sent();
+    expect(second.instructions ?? null).toBeNull();
+    expect(JSON.stringify(second)).not.toContain('internal');
+  });
+
   it('skips what cannot be reached: a past or closed appointment, and channels without a sender', async () => {
     const r = await scheduled({ startsAt: at(freshDay(), '10:00'), endsAt: at(nextDay, '10:30') });
     const portal = exact(
@@ -2741,6 +2793,8 @@ describe('appointment type configuration', () => {
       requiredDocuments: [],
       defaultReminders: [],
       color: '#2563eb',
+      // Review 2 (B7): no confirmation words of its own.
+      confirmationMessage: null,
     });
   });
 

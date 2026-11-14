@@ -5,6 +5,7 @@ import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyMessage, type NotifyService } from '../notify/notify.types.js';
 import { firmTimeZone } from './calendar-data.js';
+import { noticeWords } from './notice-words.js';
 
 export type AppointmentNotice =
   'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
@@ -103,6 +104,8 @@ export class AppointmentNotices {
           startsAt: a.startsAt,
           timeZone: await firmTimeZone(tx, businessId),
           link: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/appointments`,
+          // Review 2 (B7, B9): the firm's own words and the instructions shown in email.
+          ...(await noticeWords(tx, businessId, appointmentId, template)),
         },
       };
     });

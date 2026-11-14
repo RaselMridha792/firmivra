@@ -535,6 +535,8 @@ function SettingsForm({
   manages: boolean;
 }) {
   const [description, setDescription] = useState(c.description ?? '');
+  // Review 2 (B7): the scheduled/confirmation notice's words for this type's new appointments.
+  const [confirmation, setConfirmation] = useState(c.confirmationMessage ?? '');
   const [methods, setMethods] = useState<MeetingMethod[]>(c.methods);
   const [platform, setPlatform] = useState(c.otherVideoPlatform ?? '');
   const [before, setBefore] = useState(String(c.bufferBeforeMinutes));
@@ -563,6 +565,7 @@ function SettingsForm({
     async () => {
       await api.scheduling.setTypeConfig(type.id, {
         description: description.trim() || null,
+        confirmationMessage: confirmation.trim() || null,
         methods,
         otherVideoPlatform: methods.includes('OTHER') ? platform.trim() || null : null,
         bufferBeforeMinutes: Number(before),
@@ -637,6 +640,15 @@ function SettingsForm({
       <p className="-mt-2 text-xs text-muted" data-testid="type-description-note">
         For your team only: clients never see it, in the portal, booking or emails.
       </p>
+      <Textarea
+        label="Confirmation message (sent to the client)"
+        rows={2}
+        maxLength={2000}
+        disabled={off}
+        placeholder="Blank uses the standard wording."
+        value={confirmation}
+        onChange={(e) => setConfirmation(e.target.value)}
+      />
       <fieldset
         className="flex flex-col"
         data-testid="meeting-methods"

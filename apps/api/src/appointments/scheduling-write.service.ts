@@ -321,6 +321,11 @@ export class SchedulingWriteService {
           color,
           internalNotes: body.internalNotes ?? null,
           clientInstructions: body.clientInstructions ?? null,
+          // Review 2 (B9, B7): where the instructions show, and the confirmation's own words.
+          instructionsInEmail: body.instructionsInEmail ?? true,
+          instructionsInPortal: body.instructionsInPortal ?? true,
+          instructionsInSms: body.instructionsInSms ?? false,
+          confirmationMessage: body.confirmationMessage ?? null,
           confirmedAt,
           // Only the first carries the key (unique per firm): a retry returns it.
           idempotencyKey: index === 0 ? body.idempotencyKey : null,
@@ -340,6 +345,7 @@ export class SchedulingWriteService {
             appointmentId: row.id,
             channel: r.channel,
             offsetMinutes: r.offsetMinutes,
+            note: r.note,
           })),
         });
       }
@@ -557,6 +563,22 @@ export class SchedulingWriteService {
           'clientInstructions',
           body.clientInstructions,
           body.clientInstructions === current.clientInstructions,
+        );
+      }
+      // Review 2 (B9): each channel on its own; (B7) the confirmation's own words.
+      for (const [key, value] of [
+        ['instructionsInEmail', body.instructionsInEmail],
+        ['instructionsInPortal', body.instructionsInPortal],
+        ['instructionsInSms', body.instructionsInSms],
+      ] as const) {
+        if (value !== undefined) set('instructionsIn', key, value, value === current[key]);
+      }
+      if (body.confirmationMessage !== undefined) {
+        set(
+          'confirmationMessage',
+          'confirmationMessage',
+          body.confirmationMessage,
+          body.confirmationMessage === current.confirmationMessage,
         );
       }
       if (staffUserId !== current.staffUserId) set('staff', 'staffUserId', staffUserId, false);
@@ -862,8 +884,11 @@ export class SchedulingWriteService {
     businessId: string,
     reminders: readonly Reminder[],
     phone: string | null,
-  ): Promise<{ channel: Reminder['channel']; offsetMinutes: number }[]> {
-    const rows = new Map<string, { channel: Reminder['channel']; offsetMinutes: number }>();
+  ): Promise<{ channel: Reminder['channel']; offsetMinutes: number; note: string | null }[]> {
+    const rows = new Map<
+      string,
+      { channel: Reminder['channel']; offsetMinutes: number; note: string | null }
+    >();
     for (const r of reminders) {
       const offsetMinutes = reminderOffset(r);
       if (offsetMinutes === null) {
@@ -871,7 +896,12 @@ export class SchedulingWriteService {
           `A reminder is sent at most ${MAX_REMINDER_OFFSET / 1440} days before`,
         );
       }
-      rows.set(`${r.channel}:${offsetMinutes}`, { channel: r.channel, offsetMinutes });
+      // Review 2 (B7): each reminder's own note; none sends the generic reminder.
+      rows.set(`${r.channel}:${offsetMinutes}`, {
+        channel: r.channel,
+        offsetMinutes,
+        note: r.note ?? null,
+      });
     }
     const list = [...rows.values()];
     if (list.some((r) => r.channel === 'SMS')) {
@@ -896,8 +926,8 @@ export class SchedulingWriteService {
       select: { phone: true },
     });
     const next = await this.remindersFor(tx, businessId, reminders, client?.phone ?? null);
-    const key = (r: { channel: string; offsetMinutes: number }) =>
-      `${r.channel}:${r.offsetMinutes}`;
+    const key = (r: { channel: string; offsetMinutes: number; note: string | null }) =>
+      `${r.channel}:${r.offsetMinutes}:${r.note ?? ''}`;
     const before = new Set(current.reminders.map(key));
     const after = new Set(next.map(key));
     if (before.size === after.size && [...before].every((k) => after.has(k))) return false;
