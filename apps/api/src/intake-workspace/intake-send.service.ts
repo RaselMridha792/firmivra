@@ -17,10 +17,14 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { checkAssignee, conflict, notFound, toDay } from '../workspaces/common.js';
 import { rowInclude, toRow } from './intake-workspace.service.js';
+import { emailLeadLink, newLeadLink } from './lead-link.js';
 import type { SendBody, SendDraftBody } from './workspace-input.js';
 import { day, formMetaOf } from './workspace.common.js';
 
@@ -44,7 +48,7 @@ const unavailable = (code: string, message: string) =>
 const leadLinkUnavailable = () =>
   unavailable(
     'LEAD_LINK_UNAVAILABLE',
-    'Forms for leads and new contacts need the secure link page, which is not available yet',
+    'Forms for new contacts are not available yet: add them as a lead first',
   );
 
 /** "d***@example.test": the address the form went to, masked. */
@@ -72,10 +76,11 @@ interface Recipient {
 /**
  * Send Intake Form (Frame 2) and its drafts. A send draft is a DRAFT intake (R37: send setup saved
  * but not sent), so it needs a recipient (client or lead) and a form; sending promotes it. Clients
- * get the form in the portal: the bell and its email copy through R6's Notifier. Leads and new
- * contacts need the secure link page (503 LEAD_LINK_UNAVAILABLE); SMS has no sender for intake
- * forms yet (400 SMS_UNAVAILABLE). The email subject and message are kept with the intake; the
- * Notifier never sends text from a caller.
+ * get the form in the portal: the bell and its email copy through R6's Notifier (which never sends
+ * text from a caller). A lead gets an email with a secure link (lead-link.ts: the token's hash
+ * kept on the intake; the member's subject and message in the email) to the link page
+ * (IntakeLinkService). New contacts are not available yet (503 LEAD_LINK_UNAVAILABLE); SMS has no
+ * sender for intake forms yet (400 SMS_UNAVAILABLE).
  */
 @Injectable()
 export class IntakeSendService {
@@ -85,6 +90,8 @@ export class IntakeSendService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly notifier: Notifier,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -258,7 +265,7 @@ export class IntakeSendService {
     if (body.recipient.kind === 'LEAD' && body.channel === 'PORTAL') {
       throw conflict('PORTAL_UNAVAILABLE', 'A lead has no portal access: choose Email');
     }
-    if (body.recipient.kind !== 'CLIENT') throw leadLinkUnavailable();
+    if (body.recipient.kind === 'NEW_CONTACT') throw leadLinkUnavailable();
     const recipientRef = body.recipient;
     const businessId = tenant.businessId;
     const sent = await this.inFirm(tenant, async (tx) => {
@@ -299,22 +306,31 @@ export class IntakeSendService {
           );
         }
       } else if (!to.email) {
-        throw invalid('This client has no email address');
+        throw invalid(`This ${to.leadId ? 'lead' : 'client'} has no email address`);
       }
-      // Held so two sends to one engagement run one at a time.
-      await tx.$executeRaw`SELECT 1 FROM engagements
-        WHERE business_id = ${businessId}::uuid AND id = ${to.engagementId}::uuid FOR UPDATE`;
+      // Held so two sends to one engagement (or lead) run one at a time.
+      if (to.engagementId) {
+        await tx.$executeRaw`SELECT 1 FROM engagements
+          WHERE business_id = ${businessId}::uuid AND id = ${to.engagementId}::uuid FOR UPDATE`;
+      } else {
+        await tx.$executeRaw`SELECT 1 FROM leads
+          WHERE business_id = ${businessId}::uuid AND id = ${to.leadId}::uuid FOR UPDATE`;
+      }
+      const whose = to.engagementId ? { engagementId: to.engagementId } : { leadId: to.leadId };
       const open = await tx.intake.findFirst({
         where: {
           businessId,
-          engagementId: to.engagementId,
+          ...whose,
           status: { in: OPEN_FORM_STATUSES },
           form: { templateId: form.id },
         },
         select: { id: true },
       });
       if (open) {
-        throw conflict('FORM_ALREADY_OPEN', 'This client already has this form open: resend it');
+        throw conflict(
+          'FORM_ALREADY_OPEN',
+          `This ${to.leadId ? 'lead' : 'client'} already has this form open: resend it`,
+        );
       }
       const settings = await tx.intakeSettings.findUnique({ where: { businessId } });
       const assignedUserId = await this.assigneeFor(
@@ -332,8 +348,11 @@ export class IntakeSendService {
           ? formDays
           : (settings?.defaultExpiryDays ?? 14),
       );
+      // A lead's secure link: the token for the email only, its hash kept on the intake.
+      const link = to.leadId ? newLeadLink(dates.expiresAt) : null;
       const data = {
         ...dates,
+        ...(link?.data ?? {}),
         assignedUserId,
         deliveryChannel: body.channel,
         messageSubject: body.subject,
@@ -342,11 +361,11 @@ export class IntakeSendService {
         allowSaveResume: body.allowSaveAndContinue,
         ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
       };
-      // The member's own draft of this form for this engagement is the one that is sent.
+      // The member's own draft of this form for this engagement (or lead) is the one that is sent.
       const draft = await tx.intake.findFirst({
         where: {
           businessId,
-          engagementId: to.engagementId,
+          ...whose,
           status: 'DRAFT',
           formId: form.live.id,
           createdByUserId: userId,
@@ -366,6 +385,7 @@ export class IntakeSendService {
               businessId,
               formId: form.live.id,
               engagementId: to.engagementId,
+              leadId: to.leadId,
               status: 'SENT',
               createdByUserId: userId,
             },
@@ -385,12 +405,12 @@ export class IntakeSendService {
           idempotencyKey: body.idempotencyKey,
           channel: body.channel,
           formId: form.id,
-          engagementId: to.engagementId,
+          ...whose,
           fromDraft: draft !== null,
           ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
         },
       );
-      return { replay: false as const, id: intake.id };
+      return { replay: false as const, id: intake.id, token: link?.token ?? null };
     });
 
     let failed: boolean;
@@ -405,7 +425,9 @@ export class IntakeSendService {
           },
         })) > 0;
     } else {
-      failed = !(await this.deliver(businessId, sent.id, userId, `intake-send:${sent.id}`));
+      failed = !(sent.token
+        ? await this.emailLink(businessId, sent.id, sent.token)
+        : await this.deliver(businessId, sent.id, userId, `intake-send:${sent.id}`));
       if (failed) {
         await this.audit.log('intake.delivery_failed', { type: 'intake', id: sent.id });
       }
@@ -422,6 +444,16 @@ export class IntakeSendService {
         to: row.deliveryChannel === 'PORTAL' ? 'Client portal' : maskEmail(form.recipient.email),
       },
     };
+  }
+
+  /** A lead's form: the email with its secure link (lead-link.ts). */
+  emailLink(businessId: string, intakeId: string, token: string): Promise<boolean> {
+    return emailLeadLink(
+      { database: this.database, notify: this.notify, env: this.env, logger: this.logger },
+      businessId,
+      intakeId,
+      token,
+    );
   }
 
   /**

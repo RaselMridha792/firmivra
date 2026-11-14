@@ -43,6 +43,25 @@ const iso = (ms: number) => new Date(ms).toISOString();
  * (times and names; an appointment's type only for the ones they see in full). A member edits
  * their own rules; Owner and Admin anyone's (403 otherwise). Audit rows hold ids, dates and counts.
  */
+/**
+ * Review 2 (Appointments B11): the buffers of the type being booked, so the panel's check before
+ * saving finds the same buffer conflicts the save does. None without a type; 404 for a type that is
+ * not this firm's.
+ */
+async function typeBuffers(
+  tx: TxClient,
+  businessId: string,
+  typeId: string | undefined,
+): Promise<{ bufferBeforeMinutes: number; bufferAfterMinutes: number }> {
+  if (!typeId) return { bufferBeforeMinutes: 0, bufferAfterMinutes: 0 };
+  const type = await tx.appointmentType.findFirst({
+    where: { businessId, id: typeId },
+    select: { bufferBeforeMinutes: true, bufferAfterMinutes: true },
+  });
+  if (!type) throw errors.notFound();
+  return type;
+}
+
 @Injectable()
 export class SchedulingAvailabilityService {
   constructor(
@@ -91,8 +110,7 @@ export class SchedulingAvailabilityService {
         allDay: false,
         clientId,
         roomId: body.roomId ?? null,
-        bufferBeforeMinutes: 0,
-        bufferAfterMinutes: 0,
+        ...(await typeBuffers(tx, businessId, body.typeId)),
         exceptId: body.excludeAppointmentId,
       };
       const data = await loadConflictData(
@@ -174,8 +192,7 @@ export class SchedulingAvailabilityService {
           allDay: false,
           clientId: null,
           roomId: null,
-          bufferBeforeMinutes: 0,
-          bufferAfterMinutes: 0,
+          ...(await typeBuffers(tx, businessId, q.typeId)),
           exceptId: q.excludeAppointmentId,
         };
         const wide = await loadConflictData(

@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   EfileReport,
+  MailingReport,
   TaxApprovalList,
   TaxAuthorizationList,
   TaxChecklist,
@@ -327,6 +328,23 @@ describe('filings', () => {
       paperFiledOn: '2026-03-01',
       mailTrackingNumber: '9400 1000 0000 0000 0000 01',
     });
+    // TX-F27: the Mailing Report lists it, record by record; another firm sees none of it.
+    const mailing = ok(
+      await call('get', '/tax-returns/reports/mailing?taxYear=2025', ownerA),
+      MailingReport,
+    );
+    expect(
+      mailing.rows.find((r) => r.taxReturnId === ids.r && r.jurisdiction === 'CA'),
+    ).toMatchObject({
+      status: 'PAPER_FILED',
+      paperFiledOn: '2026-03-01',
+      mailTrackingNumber: '9400 1000 0000 0000 0000 01',
+    });
+    const theirs = ok(
+      await call('get', '/tax-returns/reports/mailing?taxYear=2025', ownerB, undefined, 'b'),
+      MailingReport,
+    );
+    expect(theirs.rows.some((r) => r.taxReturnId === ids.r)).toBe(false);
     expectError(
       await call('post', `/tax-returns/${ids.r}/filings/${us}/paper-filed`, ownerA, {
         paperFiledOn: '2026-03-01',

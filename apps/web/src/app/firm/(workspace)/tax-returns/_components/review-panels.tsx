@@ -1287,7 +1287,8 @@ function PaperDialog({
   onNotice: Notice;
 }) {
   const act = useAct(onNotice);
-  const [on, setOn] = useState(today);
+  // TX-F26: the date it was actually mailed, entered by staff; never today by default.
+  const [on, setOn] = useState('');
   const [tracking, setTracking] = useState('');
   return (
     <Dialog
@@ -1309,10 +1310,12 @@ function PaperDialog({
       testId="paper-dialog"
     >
       <Input
-        label="Mailed on"
+        label="Date mailed *"
         type="date"
         max={today()}
         value={on}
+        required
+        hint="The day the return was actually mailed."
         onChange={(e) => setOn(e.target.value)}
       />
       <Input

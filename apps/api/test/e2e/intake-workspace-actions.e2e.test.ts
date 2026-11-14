@@ -294,16 +294,6 @@ describe('send a form', () => {
         'post',
         '/intakes/send',
         ownerA,
-        sendBody({ recipient: { kind: 'LEAD', id: ids.lead }, channel: 'EMAIL' }),
-      ),
-      503,
-      'LEAD_LINK_UNAVAILABLE',
-    );
-    expectError(
-      await call(
-        'post',
-        '/intakes/send',
-        ownerA,
         sendBody({
           recipient: { kind: 'NEW_CONTACT', name: 'New Person', email: `new-${run}@x.test` },
           channel: 'EMAIL',
@@ -703,11 +693,15 @@ describe('one form', () => {
       409,
       'INVALID_STATUS',
     );
-    expectError(
-      await call('post', `/intakes/${ids.leadForm}/resend`, ownerA),
-      503,
-      'LEAD_LINK_UNAVAILABLE',
+    // A lead's form is resent with a new secure link (intake-link.e2e.test.ts has the rest).
+    ok(await call('post', `/intakes/${ids.leadForm}/resend`, ownerA));
+    const lead = await inFirm('a', (tx) =>
+      tx.intake.findUniqueOrThrow({
+        where: { id: ids.leadForm! },
+        select: { accessTokenHash: true },
+      }),
     );
+    expect(lead.accessTokenHash).toMatch(/^[0-9a-f]{64}$/);
     expectError(await call('post', `/intakes/${ids.sent}/remind`, otherStaffA), 404, 'NOT_FOUND');
   });
 

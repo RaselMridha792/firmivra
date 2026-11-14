@@ -153,6 +153,7 @@ export class BookkeepingPeriodsService {
       p.reopenedBy,
       ...items.map((i) => i.completedByUserId),
       ...recons.map((r) => r.approvedBy),
+      ...recons.map((r) => r.discrepancyNoteBy),
       ...reportMemberIds(reports),
     ]);
     const reconciled = new Set(recons.map((r) => r.account.id));
@@ -549,7 +550,10 @@ export class BookkeepingPeriodsService {
       where: { businessId, id },
       select: reconSelect,
     });
-    return toReconciliation(row, await memberNames(tx, businessId, [row.approvedBy]));
+    return toReconciliation(
+      row,
+      await memberNames(tx, businessId, [row.approvedBy, row.discrepancyNoteBy]),
+    );
   }
 
   async reconciliations(
@@ -567,7 +571,7 @@ export class BookkeepingPeriodsService {
       const names = await memberNames(
         tx,
         businessId,
-        rows.map((r) => r.approvedBy),
+        rows.flatMap((r) => [r.approvedBy, r.discrepancyNoteBy]),
       );
       return rows.map((r) => toReconciliation(r, names));
     });
@@ -770,6 +774,13 @@ export class BookkeepingPeriodsService {
       if (body.exceptionsCount !== undefined) data.exceptionsCount = body.exceptionsCount;
       if (body.statementDocumentId !== undefined)
         data.statementDocumentId = body.statementDocumentId;
+      // Review 2 (R01): the note, with who wrote it and when (all three or none).
+      if (body.discrepancyNote !== undefined) {
+        const note = body.discrepancyNote?.trim() || null;
+        data.discrepancyNote = note;
+        data.discrepancyNoteBy = note ? actor.userId : null;
+        data.discrepancyNoteAt = note ? new Date() : null;
+      }
       // BK-R01: with ledger lines, the figures come from the lines cleared; none may fall after
       // a new statement end.
       if (await hasLedger(tx, businessId, engagementId, r.account.id)) {

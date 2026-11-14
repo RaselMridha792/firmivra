@@ -200,7 +200,13 @@ export class TasksController {
     @Body(new ZodValidationPipe(SetTaskProgressRequest))
     body: z.output<typeof SetTaskProgressRequest>,
   ): Promise<TaskDetail> {
-    return this.writer.setProgress(tenant.businessId, actorOf(auth, tenant), id, body.progress);
+    return this.writer.setProgress(
+      tenant.businessId,
+      actorOf(auth, tenant),
+      id,
+      body.progress,
+      body.blockedReason,
+    );
   }
 
   @Post(':id/duplicate')

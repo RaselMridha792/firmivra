@@ -31,10 +31,17 @@ export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/clients/:id/terms`]: { params: { id: 'bookkeepingClient' } },
   [`GET ${BASE}/clients/:id/terms/history`]: { params: { id: 'bookkeepingClient' } },
   [`GET ${BASE}/clients/:id/terms/payment-schedule`]: { params: { id: 'bookkeepingClient' } },
-  [`POST ${BASE}/clients/:id/terms`]: { params: { id: 'bookkeepingClient' }, body: {} },
+  [`POST ${BASE}/clients/:id/terms`]: {
+    params: { id: 'bookkeepingClient' },
+    // Review 2 (E01b): the package chosen from Services & Pricing.
+    bodyIds: { catalogServiceId: 'bookkeepingCatalogService' },
+    body: {},
+  },
   [`GET ${BASE}/terms/:termsId`]: { params: { termsId: 'bookkeepingTerms' } },
   [`PATCH ${BASE}/terms/:termsId`]: {
     params: { termsId: 'bookkeepingTerms' },
+    // Review 2 (E01b): the package chosen from Services & Pricing.
+    bodyIds: { catalogServiceId: 'bookkeepingCatalogService' },
     body: { monthlyFeeCents: 29_000 },
   },
   [`POST ${BASE}/terms/:termsId/send`]: { params: { termsId: 'bookkeepingTerms' }, body: {} },

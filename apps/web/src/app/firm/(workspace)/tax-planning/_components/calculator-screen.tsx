@@ -1,16 +1,18 @@
 'use client';
 
-import type { CalculatorResult } from '@firmivra/types';
-import { Button, Input, Select, Toast } from '@firmivra/ui';
+import type { CalculatorResult, TaxScenario } from '@firmivra/types';
+import { Button, Input, Modal, Select, Toast } from '@firmivra/ui';
 import { Calculator } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { Disclaimer, TpShell } from './tp-shell';
 import {
+  CATEGORY_LABEL,
   FILING,
   TP_ERRORS,
   TP_KEY,
@@ -48,8 +50,16 @@ export function SavingsCalculator() {
   const clients = useApiQuery([...TP_KEY, 'pick-clients'], () =>
     api.taxPlanning.clients({ pageSize: 100 }),
   );
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  // C20 (Review 2): a saved scenario opens here (`?scenario=`), from this list or a plan.
+  const openId = params.get('scenario');
   const saved = useApiQuery([...TP_KEY, 'scenarios'], () =>
-    api.taxPlanning.scenarios({ pageSize: 5 }),
+    api.taxPlanning.scenarios({ pageSize: 10 }),
+  );
+  const opened = useApiQuery([...TP_KEY, 'scenario', openId ?? ''], () =>
+    openId ? api.taxPlanning.scenario(openId) : Promise.resolve(null),
   );
   const year = new Date().getFullYear();
   const [clientId, setClientId] = useState('');
@@ -64,19 +74,58 @@ export function SavingsCalculator() {
   const [name, setName] = useState('');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [busy, setBusy] = useState(false);
+  const [planId, setPlanId] = useState('');
+  const [adding, setAdding] = useState(false);
+  const plans = useApiQuery([...TP_KEY, 'client-plans', clientId], () =>
+    clientId ? api.taxPlanning.plans({ clientId, pageSize: 50 }) : Promise.resolve(null),
+  );
+  const livePlans = (plans.data?.items ?? []).filter((p) => !p.archived && p.status !== 'CLOSED');
   const pick = (m: Record<string, string>) =>
     Object.fromEntries(
       Object.entries(m)
         .filter(([, v]) => v.trim() !== '')
         .map(([k, v]) => [k, dollars(v)]),
     );
-  const body = () => ({
-    ...(clientId ? { clientId } : {}),
-    taxYear: Number(taxYear),
-    filingStatus: filing as never,
-    baseline: pick(base) as never,
-    strategy: pick(strat) as never,
+  const bodyOf = (
+    c: string,
+    y: string,
+    f: string,
+    b: Record<string, string>,
+    st: Record<string, string>,
+  ) => ({
+    ...(c ? { clientId: c } : {}),
+    taxYear: Number(y),
+    filingStatus: f as never,
+    baseline: pick(b) as never,
+    strategy: pick(st) as never,
   });
+  const body = () => bodyOf(clientId, taxYear, filing, base, strat);
+  // The opened scenario fills the form with what it kept, once, as it arrives (state set while
+  // rendering, React's way to adjust state to new data). Its kept result counts as calculated for
+  // those inputs until they change; Calculate works it out again with today's tables.
+  const [loaded, setLoaded] = useState<string>();
+  const sc: TaxScenario | null | undefined = opened.data;
+  if (sc && loaded !== sc.id) {
+    const cents = (m: Record<string, unknown>) =>
+      Object.fromEntries(
+        Object.entries(m)
+          .filter(([, v]) => typeof v === 'number')
+          .map(([k, v]) => [k, String((v as number) / 100)]),
+      );
+    const nb = cents(sc.baseline as Record<string, unknown>);
+    const ns = cents(sc.strategy as Record<string, unknown>);
+    const c = sc.client?.id ?? '';
+    const f = sc.filingStatus ?? 'SINGLE';
+    setLoaded(sc.id);
+    setClientId(c);
+    setTaxYear(String(sc.taxYear));
+    setFiling(f);
+    setBase(nb);
+    setStrat(ns);
+    setName(sc.name ?? '');
+    setResult(sc.result);
+    setCalculatedFor(JSON.stringify(bodyOf(c, String(sc.taxYear), f, nb, ns)));
+  }
   const stale = !!result && JSON.stringify(body()) !== calculatedFor;
   const calc = async () => {
     setBusy(true);
@@ -89,17 +138,24 @@ export function SavingsCalculator() {
     }
     setBusy(false);
   };
-  const save = async () => {
-    if (stale) return;
+  // C19 (Review 2): with a plan, the scenario is saved to it as a snapshot that never changes.
+  const save = async (toPlan?: string): Promise<boolean> => {
+    if (stale) return false;
     try {
       await api.taxPlanning.saveScenario({
         ...(name.trim() ? { name: name.trim() } : {}),
+        ...(toPlan ? { planId: toPlan } : {}),
         calculation: body(),
       });
-      await qc.invalidateQueries({ queryKey: [...TP_KEY, 'scenarios'] });
-      setMessage({ text: 'Scenario saved.', tone: 'success' });
+      await qc.invalidateQueries({ queryKey: [...TP_KEY] });
+      setMessage({
+        text: toPlan ? 'Scenario saved to the plan.' : 'Scenario saved.',
+        tone: 'success',
+      });
+      return true;
     } catch (e) {
       setMessage({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
+      return false;
     }
   };
   return (
@@ -194,6 +250,16 @@ export function SavingsCalculator() {
         <div className="flex min-w-0 flex-col gap-4">
           <section className={card} aria-label="Result" data-testid="calc-result">
             <h2 className="mb-2 font-display text-lg font-bold text-heading">Estimated Result</h2>
+            {opened.data && loaded === opened.data.id && !stale ? (
+              <p
+                className="mb-2 rounded-lg bg-info-soft p-3 text-sm text-info"
+                data-testid="kept-result"
+              >
+                Opened from {opened.data.name ?? 'a saved scenario'}
+                {opened.data.plan ? `, saved to ${opened.data.plan.name}` : ''}. This is the result
+                kept then; Calculate again to work it out with today&apos;s tables.
+              </p>
+            ) : null}
             {stale ? (
               <p
                 role="status"
@@ -262,6 +328,75 @@ export function SavingsCalculator() {
                 </Button>
               </div>
             ) : null}
+            {result && result.differenceCents !== null && !stale ? (
+              <div className="mt-3 flex flex-col gap-2" data-testid="save-to-plan">
+                {clientId ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-40 flex-1">
+                      <Select
+                        label="Plan"
+                        value={planId}
+                        onChange={(e) => setPlanId(e.target.value)}
+                        options={[
+                          {
+                            value: '',
+                            label: livePlans.length
+                              ? 'Choose a plan…'
+                              : 'This client has no open plan',
+                          },
+                          ...livePlans.map((p) => ({
+                            value: p.id,
+                            label: `${p.name} (${p.planYear})`,
+                          })),
+                        ]}
+                      />
+                    </div>
+                    <Button
+                      variant="secondary"
+                      disabled={!planId}
+                      onClick={() => void save(planId)}
+                    >
+                      Save to Plan
+                    </Button>
+                    <Button variant="secondary" disabled={!planId} onClick={() => setAdding(true)}>
+                      Add as Strategy
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Choose the client above to save this scenario to one of their plans or add it as
+                    a strategy.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </section>
+          <section className={card} aria-label="How this is worked out" data-testid="methodology">
+            <h2 className="mb-2 font-display text-lg font-bold text-heading">
+              How This Is Worked Out
+            </h2>
+            {/* C21 (Review 2): the method and what it checks, before anyone relies on a figure. */}
+            <ul className="list-disc pl-5 text-sm text-text">
+              <li>
+                Federal ordinary income tax for the tax year chosen, from that year&apos;s brackets
+                and standard deduction for the filing status (the larger of the standard deduction
+                and the itemized deductions entered).
+              </li>
+              <li>
+                The baseline is worked out from the income, adjustments, deductions and credits
+                entered; the scenario subtracts the strategy amounts and adds the extra credit. The
+                saving is the difference.
+              </li>
+              <li>
+                Checked: 401(k) and HSA (self-only) contributions over the year&apos;s limit, and
+                Section 179 or home office deductions without business income, are flagged.
+              </li>
+              <li>
+                Not checked: other limits, phase-outs, overlap between strategies, self-employment
+                tax, the QBI deduction, AMT and state tax. Capital gains make the result
+                unavailable.
+              </li>
+            </ul>
           </section>
           <section className={card} aria-label="Saved scenarios" data-testid="scenarios">
             <h2 className="mb-2 font-display text-lg font-bold text-heading">Recent Scenarios</h2>
@@ -274,9 +409,15 @@ export function SavingsCalculator() {
                   key={s.id}
                   className="flex justify-between gap-2 border-t border-divider py-1.5 text-sm first:border-t-0"
                 >
-                  <span className="text-heading">
+                  <button
+                    type="button"
+                    className="text-left font-medium text-link"
+                    data-testid="open-scenario"
+                    onClick={() => router.replace(`${pathname}?scenario=${s.id}`)}
+                  >
                     {s.name ?? 'Scenario'} · {s.taxYear}
-                  </span>
+                    {s.plan ? ` · ${s.plan.name}` : ''}
+                  </button>
                   <span className="text-muted">
                     {s.result.differenceCents === null
                       ? 'N/A'
@@ -291,6 +432,94 @@ export function SavingsCalculator() {
           </Link>
         </div>
       </div>
+      {adding && result && result.differenceCents !== null ? (
+        <AddAsStrategy
+          planName={livePlans.find((p) => p.id === planId)?.name ?? ''}
+          savingCents={result.differenceCents}
+          taxYear={Number(taxYear)}
+          onClose={() => setAdding(false)}
+          onAdd={async (strategyName, category) => {
+            try {
+              await api.taxPlanning.addStrategy(planId, {
+                kind: 'CUSTOM',
+                name: strategyName,
+                category: category as never,
+                estimatedSavingsCents: result.differenceCents,
+                assumptions:
+                  `From the Tax Savings Calculator (${taxYear}). ${result.assumptions.join(' ')}`.slice(
+                    0,
+                    2000,
+                  ),
+              });
+              // The scenario is kept with the plan too, as a snapshot.
+              await save(planId);
+              setAdding(false);
+              setMessage({ text: `${strategyName} added to the plan.`, tone: 'success' });
+            } catch (e) {
+              setMessage({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
+            }
+          }}
+        />
+      ) : null}
     </TpShell>
+  );
+}
+
+/** C21 (Review 2): the calculated saving as a named strategy in one of the client's plans. */
+function AddAsStrategy({
+  planName,
+  savingCents,
+  taxYear,
+  onClose,
+  onAdd,
+}: {
+  planName: string;
+  savingCents: number;
+  taxYear: number;
+  onClose: () => void;
+  onAdd: (name: string, category: string) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('RETIREMENT');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title="Add as Strategy"
+      subtitle={`To ${planName}: about ${moneyExact(savingCents)} estimated saving for ${taxYear}.`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              await onAdd(name.trim(), category);
+              setBusy(false);
+            }}
+          >
+            Add Strategy
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3" data-testid="add-as-strategy">
+        <Input
+          label="Strategy name"
+          value={name}
+          maxLength={200}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Select
+          label="Category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          options={Object.entries(CATEGORY_LABEL).map(([value, label]) => ({ value, label }))}
+        />
+      </div>
+    </Modal>
   );
 }
