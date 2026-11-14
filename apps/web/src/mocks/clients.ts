@@ -435,6 +435,34 @@ export function createClientsMock(
       throw fail(409, 'DUPLICATE_EMAIL', 'Another client has this email');
     }
   };
+  /** As the API (Clients Review 2): the same phone digits as another client pauses the save. */
+  const uniquePhone = (
+    phone: string | null | undefined,
+    allow: boolean | undefined,
+    exceptId?: string,
+  ) => {
+    const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '').slice(-10);
+    if (!phone || allow) return;
+    const same = rows.filter((r) => r.id !== exceptId && digits(r.phone) === digits(phone));
+    if (same.length === 0) return;
+    throw new ApiRequestError(
+      409,
+      'DUPLICATE_PHONE',
+      'Another client has this phone number',
+      undefined,
+      undefined,
+      undefined,
+      {
+        count: same.length,
+        matches: same.map((r) => ({
+          id: r.id,
+          name: r.displayName,
+          clientNumber: `CL-${10000 + Number(r.id.slice(-12))}`,
+          archived: !!r.archivedAt,
+        })),
+      },
+    );
+  };
   const assignee = (userId: string | null) => {
     const member = members().find((m) => m.userId === userId);
     return member ? { ...member } : null;
@@ -742,9 +770,13 @@ export function createClientsMock(
     },
     create: async (body) => {
       await pause();
-      const { profile, assignedUserId, ...data } = parseInput(CreateClientRequest, body);
+      const { profile, assignedUserId, allowDuplicatePhone, ...data } = parseInput(
+        CreateClientRequest,
+        body,
+      );
       if (staffOnly && assignedUserId) throw forbidden();
       uniqueEmail(data.email);
+      uniquePhone(data.phone, allowDuplicatePhone);
       const row = fixture(nextId++, {
         ...data,
         assignedTo: staffOnly ? mockStaff : assignee(assignedUserId ?? null),
@@ -758,11 +790,15 @@ export function createClientsMock(
     update: async (id, body) => {
       await pause();
       const cid = parseInput(ClientId, id);
-      const { assignedUserId, ...data } = parseInput(UpdateClientRequest, body);
+      const { assignedUserId, allowDuplicatePhone, ...data } = parseInput(
+        UpdateClientRequest,
+        body,
+      );
       if (staffOnly && assignedUserId !== undefined) throw forbidden();
       const row = find(cid);
       notArchived(row);
       uniqueEmail(data.email, row.id);
+      uniquePhone(data.phone, allowDuplicatePhone, row.id);
       const defined = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
       return save({
         ...row,

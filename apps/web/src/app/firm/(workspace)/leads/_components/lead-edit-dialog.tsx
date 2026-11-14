@@ -19,6 +19,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { profileKey } from '../[id]/_components/profile-shared';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
+import { OtherContactsField } from './other-contacts-field';
 
 const CHANNELS: { value: ContactChannel; label: string }[] = [
   { value: 'PHONE', label: 'Phone' },
@@ -30,13 +31,24 @@ const sameText = (a: unknown, b: unknown) =>
   (typeof a === 'string' ? a.trim() : (a ?? '')) === (typeof b === 'string' ? b.trim() : (b ?? ''));
 const sameSet = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((t) => b.some((u) => u.toLowerCase() === t.toLowerCase()));
+/** Other phones and emails, in order, as the lead keeps them (emails lower-cased, no blank label). */
+const contactsKey = (list: unknown) =>
+  JSON.stringify(
+    ((list ?? []) as { kind: string; value: string; label?: string | null }[]).map((c) => [
+      c.kind,
+      c.kind === 'EMAIL' ? c.value.trim().toLowerCase() : c.value.trim(),
+      c.label?.trim() || null,
+    ]),
+  );
 
 /** Every value the save sent is what the lead holds now (R2 7: a save's real outcome). */
 function holds(lead: LeadProfile, sent: UpdateLeadRequest): boolean {
   return Object.entries(sent).every(([key, value]) => {
     if (key === 'version') return true;
     const now = (lead as unknown as Record<string, unknown>)[key];
-    if (Array.isArray(value)) return Array.isArray(now) && sameSet(value, now as string[]);
+    if (key === 'otherContacts') return contactsKey(value) === contactsKey(now);
+    if (Array.isArray(value))
+      return Array.isArray(now) && sameSet(value as string[], now as string[]);
     if (key === 'email') return sameText(String(value).toLowerCase(), now);
     return sameText(value, now);
   });
@@ -44,10 +56,10 @@ function holds(lead: LeadProfile, sent: UpdateLeadRequest): boolean {
 
 /**
  * Edit Lead, from the row, the lead's page and its "+ Add Tag" (L5). Leads R2 8: every field the
- * Contact Information card shows is here (address, preferred contact, best time; date of birth once
- * leads keep one). R2 7: only the changed fields are sent, a saved change shows at once with a
- * message, and an error is checked against the lead before it is shown, so a save that went
- * through is never reported as failed.
+ * Contact Information card shows is here (address, preferred contact, best time, date of birth),
+ * and R2 9 the lead's other phones and emails. R2 7: only the changed fields are sent, a saved
+ * change shows at once with a message, and an error is checked against the lead before it is
+ * shown, so a save that went through is never reported as failed.
  */
 export function LeadEditDialog({
   lead,
@@ -118,7 +130,9 @@ function EditForm({
       lastName: lead.lastName,
       email: lead.email,
       phone: lead.phone ?? '',
+      otherContacts: lead.otherContacts.map((c) => ({ ...c, label: c.label ?? '' })),
       address: lead.address ?? '',
+      dateOfBirth: lead.dateOfBirth,
       preferredContact: lead.preferredContact,
       bestTimeToContact: lead.bestTimeToContact ?? '',
       source: lead.source,
@@ -128,8 +142,14 @@ function EditForm({
       tags: lead.tags,
     },
   });
+  // Read while rendering, so react-hook-form tracks which fields changed (it only does for
+  // what a render reads): the save sends those fields alone.
+  const { dirtyFields } = formState;
   const tags = useWatch({ control, name: 'tags' }) ?? [];
   const preferred = useWatch({ control, name: 'preferredContact' }) ?? [];
+  const others = useWatch({ control, name: 'otherContacts' }) ?? [];
+  const birth = useWatch({ control, name: 'dateOfBirth' });
+  const today = new Date().toISOString().slice(0, 10);
   const options = useApiQuery([...LEAD_PIPELINE_KEY, 'options'], () => api.leadPipeline.options());
   const { role } = useFirm();
   const [checking, setChecking] = useState(false);
@@ -145,10 +165,15 @@ function EditForm({
   const submit = (values: UpdateLeadRequest) => {
     if (save.isPending || checking) return;
     // Only what changed: a field this form did not touch is never written back.
-    const dirty = Object.keys(formState.dirtyFields) as (keyof UpdateLeadRequest)[];
+    const dirty = Object.keys(dirtyFields) as (keyof UpdateLeadRequest)[];
     const body = Object.fromEntries(
       dirty
         .filter((key) => key !== 'tags' || !sameSet(values.tags ?? [], lead.tags))
+        .filter(
+          (key) =>
+            key !== 'otherContacts' ||
+            contactsKey(values.otherContacts) !== contactsKey(lead.otherContacts),
+        )
         .map((key) => [key, values[key]]),
     ) as UpdateLeadRequest;
     if (!Object.keys(body).length) {
@@ -213,6 +238,13 @@ function EditForm({
           {...register('phone')}
         />
       </div>
+      <OtherContactsField
+        value={others}
+        onChange={(next) => setValue('otherContacts', next, { shouldDirty: true })}
+        errors={
+          formState.errors.otherContacts as Parameters<typeof OtherContactsField>[0]['errors']
+        }
+      />
       <Textarea
         label="Address"
         rows={2}
@@ -251,15 +283,15 @@ function EditForm({
         <Input
           label="Date of birth"
           type="date"
-          disabled
-          value={lead.dateOfBirth ?? ''}
-          readOnly
-          aria-describedby="lead-dob-note"
+          min="1900-01-01"
+          max={today}
+          value={birth ?? ''}
+          error={formState.errors.dateOfBirth?.message}
+          onChange={(event) =>
+            setValue('dateOfBirth', event.target.value || null, { shouldDirty: true })
+          }
         />
       </div>
-      <p id="lead-dob-note" className="-mt-2 text-xs text-muted">
-        A lead&apos;s date of birth can be saved once leads keep one (the next update).
-      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <Select label="Lead source" options={SOURCES} {...register('source')} />
         <Input

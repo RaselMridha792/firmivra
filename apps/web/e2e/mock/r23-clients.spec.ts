@@ -38,6 +38,9 @@ test('the cards and tabs show the summary, and both filter the list', async ({ p
     /Bookkeeping\s*3/,
     /Tax Planning\s*3/,
     /Inactive\s*1/,
+    // The Clients additions (#1385): the last 30 days' new clients and the archived ones.
+    /Added Last 30 Days/,
+    /^Archived/,
   ]);
   await expect(names(page)).toHaveCount(8);
 

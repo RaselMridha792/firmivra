@@ -14,6 +14,7 @@ import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES } from './lead-shared';
+import { OtherContactsField } from './other-contacts-field';
 
 /**
  * "No campaign" and "Unassigned" are empty choices: none, not an id. Without this the form
@@ -62,6 +63,7 @@ export function LeadCreateDialog({
       businessName: '',
       email: '',
       phone: '',
+      otherContacts: [],
       source: 'OTHER',
       sourceDetail: '',
       serviceIds: [],
@@ -77,6 +79,7 @@ export function LeadCreateDialog({
   const selectedServices = useWatch({ control, name: 'serviceIds' }) ?? [];
   const preferredContact = useWatch({ control, name: 'preferredContact' }) ?? [];
   const allowDuplicate = useWatch({ control, name: 'allowDuplicate' }) ?? false;
+  const others = useWatch({ control, name: 'otherContacts' }) ?? [];
 
   const submit = (body: CreateLeadBody) => {
     const { campaignId, assignedUserId, ...rest } = body;
@@ -164,6 +167,13 @@ export function LeadCreateDialog({
               {...register('phone')}
             />
           </div>
+          <OtherContactsField
+            value={others}
+            onChange={(next) => setValue('otherContacts', next, { shouldDirty: true })}
+            errors={
+              formState.errors.otherContacts as Parameters<typeof OtherContactsField>[0]['errors']
+            }
+          />
         </section>
 
         <section className="flex flex-col gap-3" aria-labelledby="lead-details-section">

@@ -4,6 +4,7 @@ import {
   type ClientRecord,
   clientFormIssues,
   ContactMethod,
+  type DuplicatePhoneDetails,
   UpdateClientProfileRequest,
   UpdateClientRequest,
 } from '@firmivra/types';
@@ -15,6 +16,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
 import { CLIENT_ERRORS, CLIENTS, formatPhone } from '../../_components/client-parts';
+import { DuplicatePhoneDialog, duplicateOf } from '../../_components/duplicate-phone';
 
 const CONTACT_FIELDS = ['displayName', 'email', 'phone'] as const;
 const NAME_FIELDS = ['firstName', 'middleName', 'lastName', 'preferredName'] as const;
@@ -119,9 +121,23 @@ export function EditClient({
   /** Closing after an edit asks first (Octavia's E6): Save Changes, Discard Changes, Keep Editing. */
   const [leaving, setLeaving] = useState(false);
   const form = useForm<Values>({ defaultValues: initial(client) });
+  // Clients Review 2: a phone another client has asks first (Possible duplicate client).
+  const [duplicate, setDuplicate] = useState<{
+    details: DuplicatePhoneDetails;
+    saving: ReturnType<typeof bodies>;
+  } | null>(null);
   const save = useApiMutation(
-    async ({ contact, profile }: ReturnType<typeof bodies>) => {
-      if (Object.keys(contact).length) await api.clients.update(client.id, contact);
+    async ({
+      contact,
+      profile,
+      allowDuplicatePhone,
+    }: ReturnType<typeof bodies> & { allowDuplicatePhone?: boolean }) => {
+      if (Object.keys(contact).length) {
+        await api.clients.update(client.id, {
+          ...contact,
+          ...(allowDuplicatePhone ? { allowDuplicatePhone: true } : {}),
+        });
+      }
       if (Object.keys(profile).length) await api.clients.updateProfile(client.id, profile);
     },
     { invalidate: CLIENTS },
@@ -166,8 +182,30 @@ export function EditClient({
     }
     if (!valid) return;
     if (!checks.some(Boolean)) return setOpen(false);
-    save.mutate({ contact, profile }, { onSuccess: () => setOpen(false) });
+    save.mutate(
+      { contact, profile },
+      {
+        onSuccess: () => setOpen(false),
+        onError: (error) => {
+          const details = duplicateOf(error);
+          if (details) setDuplicate({ details, saving: { contact, profile } });
+        },
+      },
+    );
   });
+  const saveAnyway = () => {
+    if (!duplicate) return;
+    const { contact, profile } = duplicate.saving;
+    save.mutate(
+      { contact, profile, allowDuplicatePhone: true },
+      {
+        onSuccess: () => {
+          setDuplicate(null);
+          setOpen(false);
+        },
+      },
+    );
+  };
   const dirty = form.formState.isDirty;
   const close = () => (dirty ? setLeaving(true) : setOpen(false));
   const discard = () => {
@@ -273,10 +311,19 @@ export function EditClient({
             <Input label="Referral source" {...field('referralSource')} />
             <TextArea label="Notes" rows={3} {...field('additionalInfo')} />
           </fieldset>
-          {save.error ? (
+          {save.error && !duplicateOf(save.error) ? (
             <p role="alert" className="text-sm text-danger">
               {errorMessage(save.error, CLIENT_ERRORS)}
             </p>
+          ) : null}
+          {duplicate ? (
+            <DuplicatePhoneDialog
+              details={duplicate.details}
+              confirmLabel="Save Anyway"
+              pending={save.isPending}
+              onCancel={() => setDuplicate(null)}
+              onConfirm={saveAnyway}
+            />
           ) : null}
           {leaving ? (
             <div
