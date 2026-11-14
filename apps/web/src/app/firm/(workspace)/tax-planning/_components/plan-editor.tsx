@@ -18,6 +18,7 @@ import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
+import { PlanWorkflow } from './plan-workflow';
 import { Disclaimer } from './tp-shell';
 import {
   CATEGORY_LABEL,
@@ -120,9 +121,11 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
       ) : null}
       {p && p.status === 'CLOSED' && !p.archived ? (
         <p role="status" className="rounded-lg bg-warning-soft p-3 text-sm text-warning">
-          This plan is closed and read-only. Reopen it in Review &amp; Save, with the reason, to
-          change it.
+          This plan is closed and read-only. Use Reopen Plan, with the reason, to change it.
         </p>
+      ) : null}
+      {p ? (
+        <PlanWorkflow plan={p} expanded={step === 5} onNotice={notice} onSaved={refresh} />
       ) : null}
       <nav
         aria-label="Plan steps"
@@ -1642,9 +1645,6 @@ function StepReview({
   const versions = useApiQuery([...TP_KEY, 'versions', plan.id, plan.version, plan.etag], () =>
     api.taxPlanning.versions(plan.id),
   );
-  const [sending, setSending] = useState(false);
-  const [channel, setChannel] = useState<'PORTAL_MESSAGE' | 'EMAIL'>('PORTAL_MESSAGE');
-  const [msg, setMsg] = useState('');
   const run = async (work: () => Promise<unknown>, done: string) => {
     try {
       await work();
@@ -1658,12 +1658,9 @@ function StepReview({
   };
   const chosen = plan.strategies.filter((s) => s.selected);
   const [viewing, setViewing] = useState<number>();
-  // C27 (Review 2): Reopen (a Closed plan) or Revise (a Finalized, sent or Implemented one).
-  const [reasoning, setReasoning] = useState<'REOPEN' | 'REVISE'>();
   const history = useApiQuery([...TP_KEY, 'plan-events', plan.id, plan.etag], () =>
     api.taxPlanning.planEvents(plan.id),
   );
-  const revisable = ['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'].includes(plan.status);
   // C08 (Review 2): what the plan still needs, each with where to fix it. Finalizing checks the
   // strategies and the figures' age again on the server.
   const checks: { done: boolean; text: string; fix: string; step: number }[] = [
@@ -1731,26 +1728,11 @@ function StepReview({
             {plan.name} ({plan.planYear})
           </dd>
           <dt className="text-muted">Status</dt>
-          <dd>
-            <Select
-              label="Plan status"
-              hideLabel
-              value={plan.status}
-              disabled={!plan.canEdit}
-              onChange={(e) =>
-                void run(
-                  () =>
-                    api.taxPlanning.setStatus(plan.id, {
-                      status: e.target.value as never,
-                      etag: plan.etag,
-                    }),
-                  'Status saved.',
-                )
-              }
-              options={Object.entries(PLAN_STATUS)
-                .filter(([value]) => value !== 'FINALIZED' || value === plan.status)
-                .map(([value, label]) => ({ value, label }))}
-            />
+          <dd className="flex flex-wrap items-center gap-2" data-testid="review-status">
+            <PlanPill status={plan.status} />
+            {/* Review 2 workflow: the status changes by the plan's actions above, the same rule in
+                every view. */}
+            <span className="text-muted">Change it with the plan&apos;s actions above.</span>
           </dd>
           <dt className="text-muted">Strategies</dt>
           <dd className="text-heading">
@@ -1839,26 +1821,6 @@ function StepReview({
           </Link>
         </span>
         <span className="flex flex-wrap gap-2">
-          {plan.status === 'CLOSED' && plan.canChangeStatus && !plan.archived ? (
-            <button
-              type="button"
-              className={outlined}
-              data-testid="reopen-plan"
-              onClick={() => setReasoning('REOPEN')}
-            >
-              Reopen Plan
-            </button>
-          ) : null}
-          {revisable && plan.canChangeStatus && !plan.archived ? (
-            <button
-              type="button"
-              className={outlined}
-              data-testid="revise-plan"
-              onClick={() => setReasoning('REVISE')}
-            >
-              Revise Plan
-            </button>
-          ) : null}
           <button
             type="button"
             className={subtle}
@@ -1875,97 +1837,11 @@ function StepReview({
           >
             {plan.archived ? 'Restore Plan' : 'Archive Plan'}
           </button>
-          <button
-            type="button"
-            className={outlined}
-            disabled={!plan.canEdit}
-            onClick={() =>
-              void run(
-                () => api.taxPlanning.finalize(plan.id, { etag: plan.etag }),
-                'Plan finalized.',
-              )
-            }
-          >
-            Finalize Plan
-          </button>
-          <button
-            type="button"
-            className={outlined}
-            disabled={!plan.canSend}
-            onClick={() => setSending(true)}
-          >
-            Send to Client
-          </button>
           <button type="button" className={primary} onClick={onDone}>
             Save &amp; Close
           </button>
         </span>
       </footer>
-      {sending ? (
-        <Modal
-          open
-          title="Send Plan to Client"
-          subtitle="Only the client notes are sent, never the internal ones."
-          onClose={() => setSending(false)}
-          footer={
-            <>
-              <Button variant="secondary" onClick={() => setSending(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={async () => {
-                  const ok = await run(
-                    () =>
-                      api.taxPlanning.send(plan.id, {
-                        channel,
-                        ...(msg.trim() ? { message: msg.trim() } : {}),
-                      }),
-                    'Plan sent.',
-                  );
-                  // C09 (Review 2): a send that is refused stays open; the notice names why.
-                  if (ok) setSending(false);
-                }}
-              >
-                Send
-              </Button>
-            </>
-          }
-        >
-          <div className="flex flex-col gap-3" data-testid="send-plan">
-            <Select
-              label="Send by"
-              value={channel}
-              onChange={(e) => setChannel(e.target.value as never)}
-              options={[
-                { value: 'PORTAL_MESSAGE', label: 'Portal message' },
-                { value: 'EMAIL', label: 'Email' },
-              ]}
-            />
-            <Textarea
-              label="Message (optional)"
-              rows={3}
-              value={msg}
-              onChange={(e) => setMsg(e.target.value)}
-            />
-          </div>
-        </Modal>
-      ) : null}
-      {reasoning ? (
-        <ReasonDialog
-          kind={reasoning}
-          onClose={() => setReasoning(undefined)}
-          onSubmit={async (reason) => {
-            const ok = await run(
-              () =>
-                reasoning === 'REOPEN'
-                  ? api.taxPlanning.reopenPlan(plan.id, { reason, etag: plan.etag })
-                  : api.taxPlanning.revisePlan(plan.id, { reason, etag: plan.etag }),
-              reasoning === 'REOPEN' ? 'Plan reopened.' : 'Plan back in progress for revision.',
-            );
-            if (ok) setReasoning(undefined);
-          }}
-        />
-      ) : null}
       {viewing ? (
         <VersionView
           planId={plan.id}
@@ -1983,66 +1859,15 @@ const EVENT_LABEL: Record<string, string> = {
   REOPEN: 'Reopened',
   REVISE: 'Revised',
   FINALIZE: 'Finalized',
-  SEND: 'Sent to the client',
+  SEND: 'Sent for the client’s review',
   ARCHIVE: 'Archived',
   RESTORE: 'Restored',
+  REVIEW_REQUESTED: 'Sent for internal review',
+  INFO_REQUESTED: 'Information requested',
+  CLIENT_REQUEST: 'Client request recorded',
+  APPROVED: 'Client approval recorded',
+  DELIVERED: 'Delivered to the client',
 };
-
-/**
- * C27 (Review 2): the reason for Reopen or Revise, kept in the plan's history. A revised plan is
- * finalized again as a new version; the versions already kept never change.
- */
-function ReasonDialog({
-  kind,
-  onClose,
-  onSubmit,
-}: {
-  kind: 'REOPEN' | 'REVISE';
-  onClose: () => void;
-  onSubmit: (reason: string) => Promise<void>;
-}) {
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  return (
-    <Modal
-      open
-      title={kind === 'REOPEN' ? 'Reopen this plan?' : 'Revise this plan?'}
-      subtitle={
-        kind === 'REOPEN'
-          ? 'It goes back to In Progress and can be changed again.'
-          : 'It goes back to In Progress; finalize it again to keep a new version.'
-      }
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !reason.trim()}
-            onClick={async () => {
-              setBusy(true);
-              await onSubmit(reason.trim());
-              setBusy(false);
-            }}
-          >
-            {kind === 'REOPEN' ? 'Reopen Plan' : 'Revise Plan'}
-          </Button>
-        </>
-      }
-    >
-      <div data-testid="reason-dialog">
-        <Textarea
-          label="Reason *"
-          rows={3}
-          maxLength={1000}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-      </div>
-    </Modal>
-  );
-}
 
 /**
  * C12 (Review 2): the plan's client discussions: appointments made for this plan, with their
