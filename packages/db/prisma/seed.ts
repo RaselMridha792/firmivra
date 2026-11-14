@@ -2771,6 +2771,31 @@ async function main() {
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
     seedR60(tx, businesses.lvp),
   );
+  // R55 (Appointments A1): R60's sample business client also attends the seeded appointment.
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
+    const seeded = await tx.appointmentAttendee.count({
+      where: { id: SEED_CALENDAR_IDS.appointmentAttendee },
+    });
+    const bakery = await tx.client.findFirst({
+      where: { businessId: businesses.lvp, email: 'bakery.sample@lvp.test' },
+      select: { id: true },
+    });
+    const appointment = await tx.appointment.findUnique({
+      where: { id: SEED_CALENDAR_IDS.appointment },
+      select: { status: true },
+    });
+    if (seeded === 0 && bakery && appointment?.status === 'SCHEDULED') {
+      await tx.appointmentAttendee.create({
+        data: {
+          id: SEED_CALENDAR_IDS.appointmentAttendee,
+          businessId: businesses.lvp,
+          appointmentId: SEED_CALENDAR_IDS.appointment,
+          clientId: bakery.id,
+          addedByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+    }
+  });
 
   // Stage B6: Firmivra's communications. The Super Admin welcomes LVP's owner by email (admin
   // scope), the dispatcher sends it and records the reply (platform scope), and the team keeps an

@@ -355,6 +355,8 @@ export const SEED_CALENDAR_IDS = {
   thanksgiving: '00000000-0000-4000-8000-000000000002',
   // Review 2 (Save as Draft): the owner's unfinished Schedule Appointment form.
   appointmentDraft: '00000000-0000-4000-8000-000000000003',
+  // R55 (Appointments A1): a second client in the seeded appointment (a group appointment).
+  appointmentAttendee: '00000000-0000-4000-8000-000000000004',
 } as const;
 
 /** Fixed ids of seeded message threads, messages and the client's note, for re-seeding. */
