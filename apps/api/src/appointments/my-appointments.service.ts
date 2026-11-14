@@ -40,7 +40,7 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict, isStaffConflict } from './errors.js';
-import { typeMethods } from './scheduling-map.js';
+import { legacyKind, legacyMethods, typeMethods } from './scheduling-map.js';
 import {
   detailsAfterStaffChange,
   linkOf,
@@ -81,7 +81,7 @@ export function toMine(row: AppointmentRow, now: number): MyAppointment {
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     status: row.status,
-    locationKind: row.locationKind,
+    locationKind: legacyKind(row.locationKind),
     locationDetails: row.locationDetails,
     changeableUntil: changeableUntil(row, DEFAULT_CUTOFF_HOURS, now)?.toISOString() ?? null,
   };
@@ -226,8 +226,8 @@ export class MyAppointmentsService {
       id: r.id,
       name: r.name,
       durationMinutes: r.durationMinutes,
-      locationKind: r.locationKind,
-      methods: typeMethods(r),
+      locationKind: legacyKind(r.locationKind),
+      methods: legacyMethods(typeMethods(r)),
       cancelCutoffHours: DEFAULT_CUTOFF_HOURS,
     }));
   }

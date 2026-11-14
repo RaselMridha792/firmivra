@@ -12,7 +12,7 @@ import { DATABASE } from '../database/database.module.js';
 import { DEFAULT_CUTOFF_HOURS } from './calendar.js';
 import { retryWhenBusy, tryLock, typeNamesLockKey } from './calendar-locks.js';
 import { errors, isUniqueViolation } from './errors.js';
-import { sameMethods, typeMethods } from './scheduling-map.js';
+import { legacyKind, legacyMethods, sameMethods, typeMethods } from './scheduling-map.js';
 
 type ListQuery = z.output<typeof AppointmentTypesQuery>;
 type CreateBody = z.output<typeof CreateAppointmentTypeRequest>;
@@ -35,7 +35,8 @@ export function toAppointmentType(stored: TypeRow): AppointmentType {
   const { meetingMethods: _stored, ...row } = stored;
   return {
     ...row,
-    methods: typeMethods(stored),
+    methods: legacyMethods(typeMethods(stored)),
+    locationKind: legacyKind(row.locationKind),
     // appointment_types.cancel_cutoff_hours is requested from R0; until then, the default.
     cancelCutoffHours: DEFAULT_CUTOFF_HOURS,
     archivedAt: row.archivedAt?.toISOString() ?? null,

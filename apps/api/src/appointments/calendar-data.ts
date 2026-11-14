@@ -9,6 +9,7 @@ import {
   zonedInstant,
 } from './calendar.js';
 import { errors } from './errors.js';
+import { legacyKind } from './scheduling-map.js';
 
 // Database reads shared by the appointment services (locks are in calendar-locks.ts). Every
 // function takes the transaction of the firm's business scope (row-level security: this firm
@@ -111,7 +112,7 @@ export function toAppointment(row: AppointmentRow): Appointment {
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     status: row.status,
-    locationKind: row.locationKind,
+    locationKind: legacyKind(row.locationKind),
     locationDetails: row.locationDetails,
     bookedByClient: row.bookedByClient,
     rescheduleCount: row.rescheduleCount,

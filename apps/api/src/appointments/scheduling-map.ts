@@ -84,15 +84,30 @@ export function displayStatusWhere(status: AppointmentDisplayStatus): Prisma.App
 
 // ---------- Meeting method ----------
 
-/** What the database keeps as a location kind (appointments) and meeting method (types). */
-export type StoredKind = 'IN_PERSON' | 'PHONE' | 'VIDEO';
+/**
+ * What the database keeps as a location kind (appointments) and meeting method (types).
+ * Appointments Review 2 (P1 row 1): OTHER_VIDEO is the contract's OTHER, a video meeting on a
+ * platform the firm names; the contract refuses OTHER until its platform field is in the API.
+ */
+export type StoredKind = 'IN_PERSON' | 'PHONE' | 'VIDEO' | 'OTHER_VIDEO';
 
-export const methodOf = (kind: StoredKind): MeetingMethod => kind;
+export const methodOf = (kind: StoredKind): MeetingMethod =>
+  kind === 'OTHER_VIDEO' ? 'OTHER' : kind;
 
-/** The database's location kind for a method; OTHER has none yet (needs a schema change). */
+/**
+ * The database's location kind for a method. OTHER is kept as OTHER_VIDEO only with its platform,
+ * which the API takes from P1 row 1 on; until then it has none here (400 at `method`).
+ */
 export function locationKindOf(method: MeetingMethod): StoredKind | null {
   return method === 'OTHER' ? null : method;
 }
+
+/**
+ * The location kind for the contract's three-valued `locationKind` fields (kept for older
+ * screens): an Other Video Meeting is a video meeting there; `method` says OTHER.
+ */
+export const legacyKind = (kind: StoredKind): 'IN_PERSON' | 'PHONE' | 'VIDEO' =>
+  kind === 'OTHER_VIDEO' ? 'VIDEO' : kind;
 
 /**
  * The stored kinds of a type's methods as the contract checked them (A1), in order; null when one
@@ -104,7 +119,7 @@ export function locationKindsOf(methods: readonly MeetingMethod[]): StoredKind[]
 }
 
 /**
- * A type's meeting methods, in order (A1). The database keeps 1 to 3 with the first its location
+ * A type's meeting methods, in order (A1). The database keeps 1 to 4 with the first its location
  * kind; a row read before the methods were filled in offers its location kind.
  */
 export function typeMethods(row: {
@@ -113,6 +128,11 @@ export function typeMethods(row: {
 }): StoredKind[] {
   return row.meetingMethods.length > 0 ? [...row.meetingMethods] : [row.locationKind];
 }
+
+/** A type's methods for the contract's three-valued lists: OTHER_VIDEO shows as VIDEO, once. */
+export const legacyMethods = (
+  kinds: readonly StoredKind[],
+): ('IN_PERSON' | 'PHONE' | 'VIDEO')[] => [...new Set(kinds.map(legacyKind))];
 
 /** Whether two lists of methods are the same, in the same order. */
 export const sameMethods = (a: readonly string[], b: readonly string[]): boolean =>
