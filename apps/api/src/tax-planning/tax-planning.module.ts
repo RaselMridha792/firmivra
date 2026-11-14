@@ -4,6 +4,8 @@ import { TaxCalculatorService } from './calculator.service.js';
 import { TaxOpportunitiesService } from './opportunities.service.js';
 import { TaxOverviewService } from './overview.service.js';
 import { TaxPlanReadService } from './plan-read.service.js';
+import { ProjectDeadlinesController } from './project-deadlines.controller.js';
+import { ProjectDeadlinesService } from './project-deadlines.service.js';
 import { TaxPlansService } from './plans.service.js';
 import { TaxScreeningService } from './screening.service.js';
 import { PlanningStrategiesService } from './strategies.service.js';
@@ -18,7 +20,7 @@ import { TaxPlanningController } from './tax-planning.controller.js';
  */
 @Module({
   imports: [MessagesModule],
-  controllers: [TaxPlanningController],
+  controllers: [TaxPlanningController, ProjectDeadlinesController],
   providers: [
     TaxPlanReadService,
     TaxPlansService,
@@ -27,6 +29,7 @@ import { TaxPlanningController } from './tax-planning.controller.js';
     TaxScreeningService,
     TaxCalculatorService,
     TaxOverviewService,
+    ProjectDeadlinesService,
   ],
 })
 export class TaxPlanningModule {}
