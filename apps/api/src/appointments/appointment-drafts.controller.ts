@@ -1,39 +1,66 @@
-import { Controller, Delete, ForbiddenException, Get, Post, Put } from '@nestjs/common';
-import type { AppointmentDraftList } from '@firmivra/types';
-import { Access, FIRM_STAFF, Roles } from '../auth/decorators.js';
-
-const off = () =>
-  new ForbiddenException({
-    code: 'MODULE_OFF',
-    message: 'Saving appointment drafts is not available yet.',
-  });
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import type { AppointmentDraft, AppointmentDraftList } from '@firmivra/types';
+import type { z } from 'zod';
+import { Access, CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
+import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { AppointmentDraftsService } from './appointment-drafts.service.js';
+import { firmActor } from './request-actors.js';
+import { DraftBody, DraftId } from './scheduling.input.js';
 
 /**
- * Save as Draft (R58). Drafts need a table of their own, which the schema does not have yet (see
- * the PR's gaps): until it does, the list is empty (a tidy empty state) and saving, changing and
- * deleting a draft answer 403 MODULE_OFF instead of pretending to keep the form.
+ * Save as Draft (R58; Appointments Review 2): each member's own Schedule Appointment drafts, kept
+ * in appointment_drafts. Anyone else's draft is 404; scheduling one deletes it
+ * (POST /business/appointments/schedule with `draftId`).
  */
 @Controller('business/appointment-drafts')
 @Access('APPOINTMENTS')
 @Roles(...FIRM_STAFF)
 export class AppointmentDraftsController {
+  constructor(private readonly drafts: AppointmentDraftsService) {}
+
   @Get()
-  list(): AppointmentDraftList {
-    return { items: [] };
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<AppointmentDraftList> {
+    return this.drafts.list(tenant.businessId, firmActor(auth, tenant));
+  }
+
+  @Get(':id')
+  get(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(DraftId)) id: string,
+  ): Promise<AppointmentDraft> {
+    return this.drafts.get(tenant.businessId, firmActor(auth, tenant), id);
   }
 
   @Post()
-  create(): never {
-    throw off();
+  create(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(DraftBody)) body: z.output<typeof DraftBody>,
+  ): Promise<AppointmentDraft> {
+    return this.drafts.create(tenant.businessId, firmActor(auth, tenant), body);
   }
 
   @Put(':id')
-  save(): never {
-    throw off();
+  save(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(DraftId)) id: string,
+    @Body(new ZodValidationPipe(DraftBody)) body: z.output<typeof DraftBody>,
+  ): Promise<AppointmentDraft> {
+    return this.drafts.save(tenant.businessId, firmActor(auth, tenant), id, body);
   }
 
   @Delete(':id')
-  remove(): never {
-    throw off();
+  remove(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(DraftId)) id: string,
+  ): Promise<{ ok: true }> {
+    return this.drafts.remove(tenant.businessId, firmActor(auth, tenant), id);
   }
 }
