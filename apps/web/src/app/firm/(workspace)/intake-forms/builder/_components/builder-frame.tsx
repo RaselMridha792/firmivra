@@ -41,7 +41,7 @@ import {
   INTAKE_FORMS,
   NOT_LOADED,
 } from './builder-parts';
-import { FormLinkDialog, isMainForm } from '../../_components/form-link-dialog';
+import { FormLinkDialog } from '../../_components/form-link-dialog';
 import { FormDetailsCard } from './form-details';
 import { MoreMenu } from './more-menu';
 import { AddQuestionsCard, FormSettingsCard } from './question-palette';
@@ -343,8 +343,8 @@ export function BuilderFrame({
           if (sending || moved) setLeaving({ from: formId, notice });
           if (sending) router.push(`/intake-forms/send?formId=${saved.id}`);
           else if (moved) router.replace(`/intake-forms/builder/${saved.id}${tabPath(tab)}`);
-          // Published: the main form's link and embed code, to copy (Octavia's I3).
-          else if (mode === 'publish' && !failed && isMainForm(saved)) setLinking(true);
+          // Published: its link, website button and portal switch (Octavia's I3, ACCESS-02).
+          else if (mode === 'publish' && !failed) setLinking(true);
         },
         onError: (error) => {
           // Published elsewhere in the meantime: reload it, so the next save makes a copy.
@@ -482,9 +482,7 @@ export function BuilderFrame({
                     onSelect: () => run('template'),
                   },
                   { label: 'Save & Send', disabled: !state || busy, onSelect: () => run('send') },
-                  ...(data && isMainForm(data)
-                    ? [{ label: 'Form Link', onSelect: () => setLinking(true) }]
-                    : []),
+                  ...(data ? [{ label: 'Share & Publish', onSelect: () => setLinking(true) }] : []),
                 ]}
               />
             </div>

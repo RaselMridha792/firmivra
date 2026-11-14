@@ -30,11 +30,16 @@ import {
   type SavedIntakeStep,
   SaveIntakeStepRequest,
   StartBeginDraftRequest,
+  StartShareDraftRequest,
   SubmitIntakeRequest,
+  IntakeShareToken,
+  type IntakeAgreementBlock,
   type UploadTicket,
 } from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
+import { AgreementsModule } from '../agreements/agreements.controller.js';
+import { AgreementsService } from '../agreements/agreements.service.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ScanRouterModule } from '../storage/scan-queue/scan-router.js';
 import { requestContext } from '../common/request-context.js';
@@ -61,6 +66,8 @@ const byNetwork = (req: Record<string, unknown>) =>
  * Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. Starts and
  * resume links count per network, as the daily start limit does: a whole /24 or /48 is one viewer.
  */
+const shareTokenPipe = new ZodValidationPipe(IntakeShareToken);
+
 export const BEGIN_ONLINE_THROTTLE = {
   start: { default: { limit: 5, ttl: 60_000, getTracker: byNetwork } },
   /** Autosave: one save every 2 seconds at most, within the public write limit. */
@@ -85,6 +92,7 @@ export class BeginOnlineController {
     private readonly links: ResumeLinksService,
     private readonly uploads: DraftUploadsService,
     private readonly submits: DraftSubmitService,
+    private readonly agreements: AgreementsService,
     @Inject(INTAKE_SIGNING) private readonly signing: IntakeSigner,
   ) {}
 
@@ -100,6 +108,42 @@ export class BeginOnlineController {
   @Public()
   form(@Param('firmSlug') slug: string, @Param('formPath') path: string): Promise<BeginOnlineForm> {
     return this.beginOnline.form(slug, path);
+  }
+
+  /** `shareForm(token)` (INTAKE-ACCESS-02): a shared form by its link, before a draft. */
+  @Get('share/:token')
+  @Public()
+  shareForm(
+    @Param('firmSlug') slug: string,
+    @Param('token', shareTokenPipe) token: string,
+  ): Promise<BeginOnlineForm> {
+    return this.beginOnline.shareForm(slug, token);
+  }
+
+  /** `startShare(token, body)`: a draft of the shared form (rate limited, with a honeypot). */
+  @Post('share/:token/draft')
+  @Public()
+  @Throttle(BEGIN_ONLINE_THROTTLE.start)
+  startShare(
+    @Param('firmSlug') slug: string,
+    @Param('token', shareTokenPipe) token: string,
+    @Body(new ZodValidationPipe(StartShareDraftRequest))
+    body: z.output<typeof StartShareDraftRequest>,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<BeginDraft> {
+    return this.beginOnline.startShare(slug, token, body, res);
+  }
+
+  /** `agreements(form)`: what this draft signs on submit (its own service's agreements). */
+  @Get(':formPath/draft/agreements')
+  @Public()
+  async draftAgreements(
+    @Param('firmSlug') slug: string,
+    @Param('formPath') path: string,
+    @Req() req: Request,
+  ): Promise<IntakeAgreementBlock> {
+    const draft = await this.beginOnline.draftOf(slug, path, req);
+    return this.agreements.serviceBlock(slug, draft.service.id);
   }
 
   /** `start(form, body)` */
@@ -244,7 +288,13 @@ export class BeginOnlineController {
 }
 
 @Module({
-  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule, ScanRouterModule],
+  imports: [
+    PortalInfoModule,
+    FieldEncryptionModule,
+    IntakesModule,
+    ScanRouterModule,
+    AgreementsModule,
+  ],
   controllers: [BeginOnlineController],
   providers: [
     BeginOnlineService,

@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { PublicLinkBlock } from './index';
 
 const url = 'https://portal.firmivra.com/lvp/book/1';
-const embedCode = `<iframe src="${url}?embed=1" title="Consultation"></iframe>`;
+const embedCode = `<a href="${url}" target="_blank" rel="noopener">Consultation</a>`;
 
 describe('PublicLinkBlock (R56)', () => {
-  it('shows the link and the embed code, each with its Copy button', () => {
+  it('shows the link and the embed code (a button), each with its Copy button', () => {
     const html = renderToStaticMarkup(
       <PublicLinkBlock
         url={url}
@@ -17,7 +17,9 @@ describe('PublicLinkBlock (R56)', () => {
     );
     expect(html).toContain('Booking Link');
     expect(html).toContain(`value="${url}"`);
-    expect(html).toContain('&lt;iframe src=');
+    expect(html).toContain('&lt;a href=');
+    expect(html).toContain('Embed code');
+    expect(html).toContain('An inline embed will be available once enabled for your site.');
     expect(html).toContain('Copy Booking Link');
     expect(html).toContain('Copy Embed Code');
     expect(html).toContain('readOnly=""');

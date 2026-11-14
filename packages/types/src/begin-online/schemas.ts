@@ -218,6 +218,15 @@ export const StartBeginDraftRequest = z.strictObject({
 export type StartBeginDraftRequest = z.input<typeof StartBeginDraftRequest>;
 
 /**
+ * POST /portal/{slug}/begin/share/{token}/draft (INTAKE-ACCESS-02): the start card of a shared
+ * form. `website` is a field people never see (a honeypot): a value there is refused.
+ */
+export const StartShareDraftRequest = StartBeginDraftRequest.extend({
+  website: z.string().max(200).optional(),
+});
+export type StartShareDraftRequest = z.input<typeof StartShareDraftRequest>;
+
+/**
  * The answers a new draft starts with, as the API and the mock fill them: the start card's
  * contact copied into the form's fields with the same keys (firstName, lastName, fullName as
  * "first last", email, phone). Each is kept only when the form has that field and the value passes

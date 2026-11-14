@@ -10,7 +10,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const url = 'https://portal.firmivra.com/lvp/book/0f000000-0000-4000-a000-000000000001';
-const embedCode = `<iframe src="${url}?embed=1" title="Tax Consultation" width="100%" height="760" style="border:0;max-width:100%" loading="lazy"></iframe>`;
+const embedCode = `<a href="${url}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 20px;border-radius:8px;background:#1f3a5f;color:#ffffff;text-decoration:none">Tax Consultation</a>`;
 
 /** An active appointment type: Copy Booking Link and Copy Embed Code. */
 export const Default: Story = {

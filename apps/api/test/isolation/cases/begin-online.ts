@@ -31,6 +31,13 @@ export const excluded: CaseModule['excluded'] = {
   [`POST ${BASE}/:formPath/draft/submit`]: DRAFT,
   [`POST ${BASE}/resume-link`]:
     'Public: always { received: true }; emails links only to the address of the firm’s own drafts',
+  // INTAKE-ACCESS-02 (intake-share e2e): a firm's shared form, for anyone with its link.
+  [`GET ${BASE}/share/:token`]:
+    "Public: the published form whose share link's hash is the token's at this firm; a link turned off, another firm's or a made-up one is 410",
+  [`POST ${BASE}/share/:token/draft`]:
+    'Public: starts a new draft of that shared form at the firm of the slug and sets its cookie; reads no record',
+  [`GET ${BASE}/:formPath/draft/agreements`]:
+    DRAFT + "; the firm's current agreements for that draft's own service",
   [`POST ${BASE}/resume`]:
     "Public: opens a draft only by the emailed token's hash at this firm; any other token is 410",
 };

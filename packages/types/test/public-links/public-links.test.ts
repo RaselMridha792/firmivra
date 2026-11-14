@@ -3,7 +3,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   PUBLIC_BUTTON_COLOR,
-  PUBLIC_EMBED_HEIGHT,
   PublicLink,
   publicButtonCode,
   publicEmbedCode,
@@ -33,17 +32,18 @@ describe('publicItemUrl', () => {
 });
 
 describe('publicEmbedCode', () => {
-  it('is an iframe of the embed layout, full width, titled with the item', () => {
-    const url = `https://portal.firmivra.com/lvp/book/${ID}`;
+  it('is the website button in the portal default colour, never an iframe', () => {
+    const url = `https://portal.firmivra.com/lvp/forms/${ID}`;
     expect(publicEmbedCode(url, 'Tax Consultation')).toBe(
-      `<iframe src="${url}?embed=1" title="Tax Consultation" width="100%" height="${PUBLIC_EMBED_HEIGHT}" style="border:0;max-width:100%" loading="lazy"></iframe>`,
+      publicButtonCode(url, 'Tax Consultation'),
     );
+    expect(publicEmbedCode(url, 'Tax Consultation')).not.toContain('iframe');
   });
 
   it('escapes the title and keeps an existing query', () => {
     const code = publicEmbedCode('https://p.example/lvp/forms/1?ref=site', 'Q&A "intro" <b>');
-    expect(code).toContain('src="https://p.example/lvp/forms/1?ref=site&amp;embed=1"');
-    expect(code).toContain('title="Q&amp;A &quot;intro&quot; &lt;b&gt;"');
+    expect(code).toContain('href="https://p.example/lvp/forms/1?ref=site"');
+    expect(code).toContain('>Q&amp;A &quot;intro&quot; &lt;b&gt;</a>');
     expect(code).not.toContain('<b>');
   });
 });
