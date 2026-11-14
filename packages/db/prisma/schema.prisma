@@ -3390,6 +3390,10 @@ model Task {
   /// R55 (Rasel, Nov 14; Leads R2 2): a lead's task. A task has a client or a lead, never both.
   leadId          String?    @map("lead_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
+  /// R1 (Rasel, Nov 13; Tasks A1): Related To typed by the firm when no record fits, labelled
+  /// custom and never a fake record link. 1 to 200 characters; a task has an engagement or this, never
+  /// both (SQL only: tasks_related_text).
+  relatedText     String?    @map("related_text")
   title           String
   details         String?
   kind            TaskKind   @default(GENERAL)
