@@ -29,6 +29,7 @@ import {
 import { LeadConvertService } from './lead-convert.service.js';
 import { LeadFilesService, LeadFileTokens } from './lead-files.service.js';
 import { LeadMergeService } from './lead-merge.service.js';
+import { LeadReportsService } from './lead-reports.service.js';
 import {
   LeadEmailImagesController,
   MessageSignatureController,
@@ -153,6 +154,7 @@ export class LeadsController {
     LeadMessagesService,
     LeadFilesService,
     LeadMergeService,
+    LeadReportsService,
     {
       provide: LeadFileTokens,
       inject: [ENV],
