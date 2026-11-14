@@ -64,6 +64,21 @@ const todayUtc = () => new Date().toISOString().slice(0, 10);
 const addDays = (days: number) =>
   new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
+/** What reached the client for one send, resend or reminder (19b). */
+export interface DeliveryOutcome {
+  status: 'SENT' | 'RETRYING' | 'FAILED';
+  /** The portal notice (bell item) was written. */
+  portalNotice: boolean;
+  reason: string | null;
+}
+
+const NO_PORTAL_LOGIN =
+  'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.';
+const WRITE_FAILED =
+  'Nothing was sent: the portal notice could not be written (a problem on our side). Use Resend in a moment.';
+const LEAD_EMAIL_FAILED =
+  'The email with the secure link could not be sent. Use Resend to send a new link.';
+
 interface Recipient {
   engagementId: string | null;
   leadId: string | null;
@@ -413,22 +428,36 @@ export class IntakeSendService {
       return { replay: false as const, id: intake.id, token: link?.token ?? null };
     });
 
-    let failed: boolean;
+    const sentRow = await this.inFirm(tenant, (tx) =>
+      tx.intake.findFirstOrThrow({
+        where: { businessId, id: sent.id },
+        select: { deliveryChannel: true, leadId: true },
+      }),
+    );
+    const byEmail = (sentRow.deliveryChannel ?? body.channel) === 'EMAIL';
+    const key = `intake-send:${sent.id}`;
+    let outcome: DeliveryOutcome;
     if (sent.replay) {
-      failed =
-        (await this.database.forBusiness(businessId).auditLog.count({
-          where: {
-            businessId,
-            action: 'intake.delivery_failed',
-            entityType: 'intake',
-            entityId: sent.id,
-          },
-        })) > 0;
+      // The same answer as the first time: read from what was written, never sent again.
+      outcome = sentRow.leadId
+        ? (await this.database.forBusiness(businessId).auditLog.count({
+            where: {
+              businessId,
+              action: 'intake.delivery_failed',
+              entityType: 'intake',
+              entityId: sent.id,
+            },
+          })) > 0
+          ? { status: 'FAILED', portalNotice: false, reason: LEAD_EMAIL_FAILED }
+          : { status: 'SENT', portalNotice: false, reason: null }
+        : await this.outcomeOf(businessId, sent.id, key, byEmail, null);
     } else {
-      failed = !(sent.token
-        ? await this.emailLink(businessId, sent.id, sent.token)
-        : await this.deliver(businessId, sent.id, userId, `intake-send:${sent.id}`));
-      if (failed) {
+      outcome = sent.token
+        ? (await this.emailLink(businessId, sent.id, sent.token))
+          ? { status: 'SENT', portalNotice: false, reason: null }
+          : { status: 'FAILED', portalNotice: false, reason: LEAD_EMAIL_FAILED }
+        : await this.deliver(businessId, sent.id, userId, key, byEmail);
+      if (outcome.status === 'FAILED') {
         await this.audit.log('intake.delivery_failed', { type: 'intake', id: sent.id });
       }
     }
@@ -440,8 +469,10 @@ export class IntakeSendService {
       form,
       delivery: {
         channel: (row.deliveryChannel ?? body.channel) as FormDeliveryChannel,
-        status: failed ? 'FAILED' : 'SENT',
+        status: outcome.status,
         to: row.deliveryChannel === 'PORTAL' ? 'Client portal' : maskEmail(form.recipient.email),
+        portalNotice: outcome.portalNotice,
+        reason: outcome.reason,
       },
     };
   }
@@ -457,28 +488,86 @@ export class IntakeSendService {
   }
 
   /**
-   * The client's bell item and its email copy (R6's Notifier, `intake.sent`). False when nothing
-   * reached anyone (no portal login, or the database step failed); the form stays sent.
+   * The client's portal notice (R6's Notifier, `intake.sent`) and, for a form sent by Email, its
+   * email through the outbox (19b). The outcome says what really happened: the email accepted by
+   * the mail service, retrying, or not sent and why. The form stays sent either way.
    */
   async deliver(
     businessId: string,
     intakeId: string,
     actorUserId: string,
     eventKey: string,
-  ): Promise<boolean> {
+    byEmail: boolean,
+  ): Promise<DeliveryOutcome> {
+    let written: { written: number; failed?: boolean };
     try {
-      const result = await this.notifier.notify({
+      written = await this.notifier.notify({
         businessId,
         event: 'intake.sent',
         recordId: intakeId,
         actorUserId,
         eventKey,
+        channels: { inApp: true, email: byEmail, sms: false },
       });
-      return !result.failed && result.written > 0;
     } catch (error) {
       this.logger.warn(`intake.sent for intake ${intakeId} not written (${errorName(error)})`);
-      return false;
+      written = { written: 0, failed: true };
     }
+    return this.outcomeOf(businessId, intakeId, eventKey, byEmail, written);
+  }
+
+  /**
+   * What reached the client for one delivery (`eventKey`), read from its portal notice and that
+   * notice's email row in the outbox, so a replayed send answers as the first one did. `written`
+   * is the Notifier's own answer when there is one (a database failure there writes nothing).
+   */
+  async outcomeOf(
+    businessId: string,
+    intakeId: string,
+    eventKey: string,
+    byEmail: boolean,
+    written: { written: number; failed?: boolean } | null,
+  ): Promise<DeliveryOutcome> {
+    const db = this.database.forBusiness(businessId);
+    const notices = await db.notification.findMany({
+      where: { businessId, entityId: intakeId, eventKey },
+      select: { id: true, recipientUserId: true },
+    });
+    const clients = notices.length
+      ? await db.clientAccount.findMany({
+          where: { businessId, userId: { in: notices.map((n) => n.recipientUserId) } },
+          select: { userId: true },
+        })
+      : [];
+    const mine = notices.filter((n) => clients.some((c) => c.userId === n.recipientUserId));
+    if (mine.length === 0) {
+      return {
+        status: 'FAILED',
+        portalNotice: false,
+        reason: written?.failed ? WRITE_FAILED : NO_PORTAL_LOGIN,
+      };
+    }
+    if (!byEmail) return { status: 'SENT', portalNotice: true, reason: null };
+    const email = await db.notificationDelivery.findFirst({
+      where: { businessId, channel: 'EMAIL', notificationId: { in: mine.map((n) => n.id) } },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true, lastError: true },
+    });
+    if (email?.status === 'SENT') return { status: 'SENT', portalNotice: true, reason: null };
+    if (email?.status === 'QUEUED' || email?.status === 'FAILED') {
+      return {
+        status: 'RETRYING',
+        portalNotice: true,
+        reason: `The mail service has not accepted the email yet${email.lastError ? ` (${email.lastError})` : ''}. It is tried again automatically for about 25 minutes; the portal notice is already there.`,
+      };
+    }
+    return {
+      status: 'FAILED',
+      portalNotice: true,
+      reason: email
+        ? 'No email was sent: the form is no longer open.'
+        : 'No email was sent: the client portal login has no email address. The portal notice is there.',
+    };
   }
 
   // ---------- Send drafts ----------

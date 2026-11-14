@@ -75,6 +75,21 @@ export interface NotifyTemplates {
     subject: string | null;
     message: string | null;
   };
+  /**
+   * Intake Forms Review Two 19b: a client sent a form by Email gets this email (the portal notice
+   * is written too). The member's own subject and message, the form's title and its link to the
+   * exact form in the portal (ACCESS-01). Never any answer. Read when the email is sent.
+   */
+  'intake.sent': IgnoredFirmName & {
+    name: string;
+    formTitle: string;
+    link: string;
+    subject: string | null;
+    message: string | null;
+    /** YYYY-MM-DD in the firm's calendar, or null. */
+    dueOn: string | null;
+    expiresAt: Date | null;
+  };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** The firm invites an existing client to its portal: a sealed link that expires. */
@@ -283,6 +298,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.received': 'email',
   'intake.submitted-notice': 'email',
   'intake.lead-link': 'email',
+  'intake.sent': 'email',
   'client.portal-invite': 'email',
   'client.portal-invitation': 'email',
   'message.received': 'email',
@@ -333,6 +349,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.received': 'firm',
   'intake.submitted-notice': 'firm',
   'intake.lead-link': 'firm',
+  'intake.sent': 'firm',
   'client.portal-invite': 'firm',
   'client.portal-invitation': 'firm',
   'message.received': 'firm',
@@ -370,6 +387,8 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'client.portal-invitation',
   // A lead has no account, so no preferences to switch it off; the member chose to send it.
   'intake.lead-link',
+  // The member chose to send this form by Email (19b): the client's preferences don't stop it.
+  'intake.sent',
   'lead.message-email',
   'lead.message-sms',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
@@ -416,6 +435,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.received': 'INTAKE',
   'intake.submitted-notice': 'INTAKE',
   'intake.lead-link': 'ACCOUNT',
+  // Always sent (the member chose Email), so in ACCOUNT, as the lead's link.
+  'intake.sent': 'ACCOUNT',
   'client.portal-invite': 'ACCOUNT',
   'client.portal-invitation': 'ACCOUNT',
   'message.received': 'MESSAGES',
