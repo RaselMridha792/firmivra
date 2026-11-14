@@ -4,8 +4,9 @@ import type { AgendaEntry, AppointmentDisplayStatus } from '@firmivra/types';
 import { CalendarGrid, type CalendarEvent, type CalendarTone, Select, Table } from '@firmivra/ui';
 import { CaretLeft, CaretRight } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { writeListQuery } from '../../../../../lib/list-query';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import type { RowMenuItem } from '../../team/_components/row-menu';
@@ -76,14 +77,27 @@ const sundayOf = (date: string) => addDays(date, -weekdayOf(date));
  * Schedule Appointment on that date and time; a card opens the appointment. Staff see another
  * member's appointment as Busy.
  */
-export function CalendarScreen({ date }: { date?: string }) {
+export function CalendarScreen({ date, view }: { date?: string; view?: string }) {
   const router = useRouter();
+  // Review 2 (B3): the date and the week or month stay in the address (`?date=&view=`), so Back
+  // from an appointment returns to the same view; Back restores the first load's props, so the
+  // address is read first.
+  const params = useSearchParams();
+  const fromAddress = (key: string, fallback: string | undefined) => params.get(key) ?? fallback;
   const options = useApiQuery([...SCHEDULING, 'options'], () => api.scheduling.options());
   const tz = options.data?.timezone ?? 'America/New_York';
   const today = todayIn(tz);
-  const [picked, setPicked] = useState(() => (date && isCalendarDate(date) ? date : null));
+  const [picked, setPicked] = useState(() => {
+    const d = fromAddress('date', date);
+    return d && isCalendarDate(d) ? d : null;
+  });
   const anchor = picked ?? today;
-  const [range, setRange] = useState<Range>('week');
+  const [range, setRange] = useState<Range>(() =>
+    fromAddress('view', view) === 'month' ? 'month' : 'week',
+  );
+  useEffect(() => {
+    writeListQuery({ date: picked ?? '', view: range }, { date: '', view: 'week' });
+  }, [picked, range]);
   const [now] = useState(() => new Date().toISOString());
   const first = range === 'week' ? sundayOf(anchor) : `${anchor.slice(0, 8)}01`;
   const start = dayDate(first);

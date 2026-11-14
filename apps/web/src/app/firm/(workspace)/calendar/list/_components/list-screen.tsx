@@ -1,9 +1,11 @@
 'use client';
 
-import type { AgendaItem, AppointmentDisplayStatus } from '@firmivra/types';
+import { type AgendaItem, AppointmentDisplayStatus } from '@firmivra/types';
 import { Button, SearchField, Select, Table } from '@firmivra/ui';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { readListQuery, writeListQuery } from '../../../../../../lib/list-query';
+import { LIST_VIEW, type ListView } from './list-view';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -49,16 +51,33 @@ const LIST_ERRORS: Record<string, string> = {
  * 50 at a time (Load more). Row actions: Edit, Reschedule, and the menu (View Details, Confirm,
  * Send Reminder, Join Meeting). Another member's appointment shows as Busy.
  */
-export function ListScreen({ serviceKind }: { serviceKind?: 'BUSINESS_DEVELOPMENT' } = {}) {
+
+export function ListScreen({
+  serviceKind,
+  initial: fromServer = LIST_VIEW,
+}: { serviceKind?: 'BUSINESS_DEVELOPMENT'; initial?: ListView } = {}) {
   const router = useRouter();
+  // Browser Back restores this page with its first load's props, while the address holds the
+  // newest view: reading the address keeps the newest search, status and period.
+  const params = useSearchParams();
+  const [initial] = useState<ListView>(() =>
+    params.size ? readListQuery(Object.fromEntries(params), LIST_VIEW) : fromServer,
+  );
   // Advisory B5: opened from Business Advisory, only its meetings, with the whole list a click away.
   const [onlyAdvisory, setOnlyAdvisory] = useState(serviceKind === 'BUSINESS_DEVELOPMENT');
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<AppointmentDisplayStatus | ''>('');
-  const [period, setPeriod] = useState<Period>('next30');
+  const [search, setSearch] = useState(initial.q);
+  const [status, setStatus] = useState<AppointmentDisplayStatus | ''>(
+    AppointmentDisplayStatus.safeParse(initial.status).data ?? '',
+  );
+  const [period, setPeriod] = useState<Period>(
+    PERIODS.find((p) => p.value === initial.period)?.value ?? 'next30',
+  );
   const [limit, setLimit] = useState(50);
   const [message, setMessage] = useState('');
-  const [span, setSpan] = useState(() => range('next30'));
+  const [span, setSpan] = useState(() => range(period));
+  useEffect(() => {
+    writeListQuery({ q: search, status, period }, LIST_VIEW);
+  }, [search, status, period]);
   const { from, to } = span;
   const query = {
     from,

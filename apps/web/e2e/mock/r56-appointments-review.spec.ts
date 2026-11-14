@@ -353,3 +353,35 @@ test('Review 2 (Save as Draft): a draft keeps the form, reopens from Your saved 
   await page.getByRole('button', { name: 'Schedule Appointment' }).click();
   await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
 });
+
+test('Review 2 (B3): Back from an appointment returns to the same list filters and calendar view', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  // The list: Last 30 days and a status; the address keeps them, and Back brings them back.
+  await page.goto(app('/calendar/list'));
+  const toolbar = page.getByTestId('appointments-toolbar');
+  await expect(toolbar.getByLabel('Status')).toBeVisible({ timeout: 60_000 });
+  await toolbar.getByLabel('Period').selectOption('next7');
+  await toolbar.getByLabel('Status').selectOption('CONFIRMED');
+  await toolbar.getByLabel('Search appointments').fill('a');
+  await expect(page).toHaveURL(/status=CONFIRMED/);
+  await expect(page).toHaveURL(/period=next7/);
+  await page.goto(app('/calendar'));
+  await page.goBack();
+  await expect(toolbar.getByLabel('Period')).toHaveValue('next7', { timeout: 60_000 });
+  await expect(toolbar.getByLabel('Status')).toHaveValue('CONFIRMED');
+  await expect(toolbar.getByLabel('Search appointments')).toHaveValue('a');
+
+  // The calendar: a month and its date stay in the address.
+  await page.goto(app('/calendar?date=2026-10-01'));
+  const calToolbar = page.getByTestId('appointments-toolbar');
+  await expect(calToolbar.getByLabel('Show')).toBeVisible({ timeout: 60_000 });
+  await calToolbar.getByLabel('Show').selectOption('month');
+  await expect(page).toHaveURL(/view=month/);
+  await expect(page.getByTestId('calendar-period')).toHaveText('October 2026');
+  await page.goto(app('/calendar/list'));
+  await page.goBack();
+  await expect(page.getByTestId('calendar-period')).toHaveText('October 2026', { timeout: 60_000 });
+  await expect(calToolbar.getByLabel('Show')).toHaveValue('month');
+});
