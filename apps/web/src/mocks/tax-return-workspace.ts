@@ -163,6 +163,8 @@ interface Stored {
   finalValidatedAt: string | null;
   finalValidatedBy: MemberRef | null;
   firstFiledAt: string | null;
+  /** TX-F08: false for a return whose service is not set up yet (no engagement). */
+  serviceSetUp?: boolean;
   /** TX-F16: the year it was first filed under (as the database stamps it). */
   filedTaxYear?: number | null;
   filedOn: string | null;
@@ -566,7 +568,12 @@ function seedAll(): Stored[] {
     [12, 'ACCEPTED', { firstFiledAt: ago(20), filedOn: day(-20) }],
     [0, 'IN_PREPARATION'],
     [1, 'READY_FOR_REVIEW'],
-    [2, 'CLOSED', { taxYear: year - 1, firstFiledAt: ago(320), filedOn: day(-320) }],
+    [
+      2,
+      'CLOSED',
+      // TX-F08: its service was never set up (Set Up Service on its documents).
+      { taxYear: year - 1, firstFiledAt: ago(320), filedOn: day(-320), serviceSetUp: false },
+    ],
   ];
   plan.forEach(([c, status, over], i) =>
     rows.push(seed(clients, i + 1, c, { workflowStatus: status, ...over })),
@@ -710,7 +717,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         phone: c.phone,
       },
       // TX-F08 to F10 (SH3): the return's engagement, known to the documents mock.
-      engagement: engagementOf(r.id, r.taxYear, c),
+      engagement: r.serviceSetUp === false ? null : engagementOf(r.id, r.taxYear, c),
       statusReason: r.statusReason,
       filingStatus: r.filingStatus,
       amends: amends ? { id: amends.id, taxYear: amends.taxYear, formType: amends.formType } : null,
@@ -1154,6 +1161,8 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (b.formType !== undefined) r.formType = b.formType || null;
       if (b.filingStatus !== undefined) r.filingStatus = b.filingStatus;
       if (b.dueOn !== undefined) r.dueOn = b.dueOn;
+      // TX-F08: Set Up Service names the return's engagement.
+      if (b.engagementId) r.serviceSetUp = true;
       const assigned = b.preparerUserId !== undefined || b.reviewerUserId !== undefined;
       if (b.preparerUserId !== undefined) r.preparer = memberRef(b.preparerUserId);
       if (b.reviewerUserId !== undefined) r.reviewer = memberRef(b.reviewerUserId);
