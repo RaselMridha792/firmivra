@@ -984,7 +984,8 @@ describe('documents, status, versions and delivery', () => {
     const setStatus = async (pid: string, status: string, who: Who = ownerA) =>
       call('post', `/plans/${pid}/status`, who, await withEtag(pid, { status }));
     expectError(await setStatus(fresh.id, 'IMPLEMENTED'), 409, 'INVALID_STATUS');
-    expectError(await setStatus(fresh.id, 'DRAFT'), 409, 'INVALID_STATUS');
+    // Review 2 workflow: the status it already has changes nothing.
+    expect(TaxPlanDetail.parse(ok(await setStatus(fresh.id, 'DRAFT'))).status).toBe('DRAFT');
     expectError(
       await call('post', `/plans/${fresh.id}/status`, ownerA, {
         status: 'SCHEDULED',
@@ -1017,8 +1018,10 @@ describe('documents, status, versions and delivery', () => {
     const id = shared.planId;
     expectError(await setStatus(id, 'IMPLEMENTED'), 409, 'INVALID_STATUS');
     ok(await setStatus(id, 'IN_PROGRESS'));
-    const implemented = TaxPlanDetail.parse(ok(await setStatus(id, 'IMPLEMENTED')));
-    expect(implemented.status).toBe('IMPLEMENTED');
+    // Review 2 workflow: implementation only after the client's approval, in the API too.
+    const early = await setStatus(id, 'IMPLEMENTED');
+    expectError(early, 409, 'INVALID_STATUS');
+    expect(JSON.stringify(early.body)).toMatch(/only after the client's approval/);
     ok(await setStatus(id, 'IN_PROGRESS'));
     expectError(
       await call('post', `/plans/${id}/send`, ownerA, { channel: 'PORTAL_MESSAGE' }),
@@ -1641,7 +1644,14 @@ describe('plan lifecycle (Review 2 C08, C11, C27)', () => {
     const history = TaxPlanEventList.parse(
       ok(await call('get', `/plans/${p.id}/events`, ownerA)),
     ).items;
-    expect(history.map((e) => e.kind)).toEqual(['REOPEN', 'STATUS', 'REVISE', 'FINALIZE']);
+    // Review 2 workflow: the first change started the work (STATUS, Draft to In Progress).
+    expect(history.map((e) => e.kind)).toEqual([
+      'REOPEN',
+      'STATUS',
+      'REVISE',
+      'FINALIZE',
+      'STATUS',
+    ]);
     expect(history[0]).toMatchObject({
       fromStatus: 'CLOSED',
       toStatus: 'IN_PROGRESS',
@@ -2377,5 +2387,233 @@ describe('the overview, Clients tab, calendar and resources', () => {
       404,
       'NOT_FOUND',
     );
+  });
+});
+
+describe('the approved workflow (Review 2)', () => {
+  const setStatus = async (pid: string, status: string) =>
+    call('post', `/plans/${pid}/status`, ownerA, await withEtag(pid, { status }));
+  const step = async (pid: string, path: string, body: object = {}, who: Who = ownerA) =>
+    TaxPlanDetail.parse(ok(await call('post', `/plans/${pid}/${path}`, who, body)));
+
+  it('runs from work to internal review, client review, a request, revision, approval, implementation and delivery', async () => {
+    const p = await createPlan({ clientId: clients.c3, planYear: 2026, name: mark('Workflow') });
+    expect(p.status).toBe('DRAFT');
+    expect(p.workflow.actions).toContain('START_WORK');
+    expect(p.workflow.readiness.find((r) => r.key === 'strategy')).toMatchObject({ done: false });
+    // Work begins by itself on the first change.
+    ok(
+      await call('post', `/plans/${p.id}/strategies`, ownerA, {
+        kind: 'CUSTOM',
+        name: mark('Workflow strategy'),
+        category: 'DEDUCTIONS',
+      }),
+      201,
+    );
+    const working = await plan(p.id);
+    expect(working.status).toBe('IN_PROGRESS');
+    expect(working.workflow.actions).toEqual(
+      expect.arrayContaining(['SEND_FOR_REVIEW', 'FINALIZE', 'SEND_TO_CLIENT']),
+    );
+
+    // Internal review by a chosen reviewer of the firm: Under Review, the reviewer's to act on.
+    const outsider = await call(
+      'post',
+      `/plans/${p.id}/review`,
+      ownerA,
+      await withEtag(p.id, { reviewerUserId: ownerB.id }),
+    );
+    expect(outsider.status).toBeGreaterThanOrEqual(400);
+    const reviewing = await step(
+      p.id,
+      'review',
+      await withEtag(p.id, { reviewerUserId: adminA.id }),
+    );
+    expect(reviewing.status).toBe('UNDER_REVIEW');
+    expect(reviewing.workflow).toMatchObject({
+      reviewer: { userId: adminA.id },
+      owner: { userId: adminA.id },
+    });
+    expect(reviewing.workflow.actions).toEqual(
+      expect.arrayContaining(['RETURN_TO_WORK', 'SEND_TO_CLIENT']),
+    );
+
+    // Sent for the client's review: Awaiting Client Review, their move; not yet implementable
+    // or deliverable.
+    await step(p.id, 'finalize', await withEtag(p.id));
+    const sent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
+    expect(sent.status).toBe('AWAITING_CLIENT');
+    expect(sent.workflow).toMatchObject({ waitingOnClient: true, owner: null });
+    const firstSent = sent.workflow.sentVersion ?? 0;
+    expect(firstSent).toBeGreaterThan(0);
+    expectError(await setStatus(p.id, 'IMPLEMENTED'), 409, 'INVALID_STATUS');
+    expectError(
+      await call('post', `/plans/${p.id}/send`, ownerA, {
+        channel: 'PORTAL_MESSAGE',
+        purpose: 'DELIVERY',
+      }),
+      409,
+      'INVALID_STATUS',
+    );
+
+    // The client asks for a change: Needs Review; the revision is In Progress again.
+    const asked = await step(p.id, 'requests', {
+      direction: 'CLIENT_TO_FIRM',
+      kind: 'REVISION',
+      body: 'Please add the HSA (fake).',
+    });
+    expect(asked.status).toBe('READY_FOR_REVIEW');
+    expect(asked.workflow.requests[0]).toMatchObject({
+      direction: 'CLIENT_TO_FIRM',
+      kind: 'REVISION',
+      status: 'OPEN',
+    });
+    expect(asked.workflow.actions).toContain('START_REVISION');
+    expect(TaxPlanDetail.parse(ok(await setStatus(p.id, 'IN_PROGRESS'))).status).toBe(
+      'IN_PROGRESS',
+    );
+    await step(p.id, 'finalize', await withEtag(p.id));
+    const resent = await step(p.id, 'send', { channel: 'PORTAL_MESSAGE' });
+    const sentAgain = resent.workflow.sentVersion ?? 0;
+    expect(sentAgain).toBeGreaterThan(firstSent);
+
+    // The client's approval of that exact version, documented; never after today; once.
+    expectError(
+      await call(
+        'post',
+        `/plans/${p.id}/approvals`,
+        ownerA,
+        await withEtag(p.id, { approvedOn: '2099-01-01', note: 'By phone (fake).' }),
+      ),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const approved = await step(
+      p.id,
+      'approvals',
+      // Yesterday: day() is a UTC date, the firm's today may be a day behind.
+      await withEtag(p.id, { approvedOn: day(-1), note: 'Approved by phone (fake).' }),
+    );
+    expect(approved.status).toBe('CLIENT_APPROVED');
+    expect(approved.workflow.approvedVersion).toBe(sentAgain);
+    expect(approved.workflow.approvals[0]).toMatchObject({
+      version: sentAgain,
+      method: 'MANUAL',
+      approvedOn: day(-1),
+      recordedBy: { userId: ownerA.id },
+    });
+
+    // Implemented only now; delivery is its own step, and neither implies the other.
+    const strategyId = approved.strategies[0]?.id ?? '';
+    ok(
+      await call(
+        'patch',
+        `/plans/${p.id}/strategies/${strategyId}`,
+        ownerA,
+        await withEtag(p.id, { status: 'IN_PROGRESS' }),
+      ),
+    );
+    const done = TaxPlanDetail.parse(ok(await setStatus(p.id, 'IMPLEMENTED')));
+    expect(done.status).toBe('IMPLEMENTED');
+    expect(done.workflow.delivered).toBeNull();
+    const delivered = await step(p.id, 'send', {
+      channel: 'PORTAL_MESSAGE',
+      purpose: 'DELIVERY',
+    });
+    expect(delivered.status).toBe('IMPLEMENTED');
+    expect(delivered.workflow.delivered?.version ?? 0).toBeGreaterThan(sentAgain);
+    const kinds = TaxPlanEventList.parse(
+      ok(await call('get', `/plans/${p.id}/events`, ownerA)),
+    ).items.map((e) => e.kind);
+    expect(kinds).toEqual(
+      expect.arrayContaining(['REVIEW_REQUESTED', 'CLIENT_REQUEST', 'APPROVED', 'DELIVERED']),
+    );
+    // Another firm reaches none of it.
+    expectError(
+      await call(
+        'post',
+        `/plans/${p.id}/approvals`,
+        ownerB,
+        { approvedOn: day(0), note: 'x', etag: 'x' },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('asks the client for information by a portal message and answers the request', async () => {
+    const p = await createPlan({ clientId: clients.c3, planYear: 2027, name: mark('Ask') });
+    const asked = await step(p.id, 'requests', {
+      direction: 'FIRM_TO_CLIENT',
+      kind: 'DOCUMENT',
+      body: mark('Please upload your 1099'),
+    });
+    const r = asked.workflow.requests[0];
+    expect(r).toMatchObject({
+      direction: 'FIRM_TO_CLIENT',
+      kind: 'DOCUMENT',
+      status: 'OPEN',
+      requestedBy: { userId: ownerA.id },
+    });
+    const thread = await inFirm('a', (tx) =>
+      tx.messageThread.findFirst({
+        where: { clientId: clients.c3, subject: 'A question about your 2027 tax plan' },
+        select: { id: true },
+      }),
+    );
+    expect(thread).not.toBeNull();
+    const answered = TaxPlanDetail.parse(
+      ok(
+        await call('patch', `/plans/${p.id}/requests/${r?.id ?? ''}`, ownerA, {
+          status: 'ANSWERED',
+          response: 'Received by email (fake).',
+        }),
+      ),
+    );
+    expect(answered.workflow.requests[0]).toMatchObject({
+      status: 'ANSWERED',
+      response: 'Received by email (fake).',
+    });
+    // The firm asks only for information or a document.
+    expectError(
+      await call('post', `/plans/${p.id}/requests`, ownerA, {
+        direction: 'FIRM_TO_CLIENT',
+        kind: 'MEETING',
+        body: 'x',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('duplicates a plan as an editable Draft, the original unchanged', async () => {
+    const p = await createPlan({ clientId: clients.c3, planYear: 2028, name: mark('Original') });
+    ok(
+      await call('post', `/plans/${p.id}/strategies`, ownerA, {
+        kind: 'CUSTOM',
+        name: mark('Copied strategy'),
+        category: 'DEDUCTIONS',
+      }),
+      201,
+    );
+    const original = await plan(p.id);
+    const copy = TaxPlanDetail.parse(
+      ok(await call('post', `/plans/${p.id}/duplicate`, ownerA, {}), 201),
+    );
+    expect(copy).toMatchObject({
+      status: 'DRAFT',
+      name: `${original.name} (copy)`,
+      planYear: 2028,
+      version: 0,
+      documents: [],
+    });
+    expect(copy.workflow.approvals).toEqual([]);
+    expect(copy.workflow.requests).toEqual([]);
+    expect(copy.id).not.toBe(p.id);
+    expect(copy.strategies.map((s) => [s.name, s.status])).toEqual(
+      original.strategies.map((s) => [s.name, s.status === 'DECLINED' ? 'DECLINED' : 'PROPOSED']),
+    );
+    expect((await plan(p.id)).etag).toBe(original.etag);
   });
 });

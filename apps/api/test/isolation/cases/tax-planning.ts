@@ -62,6 +62,39 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  // Review 2 workflow: a client's question on the plan.
+  taxPlanRequest: {
+    async create({ tx, businessId, get }) {
+      const row = await tx.taxPlanRequest.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          planId: await get('taxPlan'),
+          direction: 'CLIENT_TO_FIRM',
+          kind: 'QUESTION',
+          body: `Fake question ${tag()}`,
+        },
+      });
+      return row.id;
+    },
+  },
+  /** A plan in progress, which Send for Internal Review takes (the record plan is a Draft). */
+  taxPlanInProgress: {
+    async create({ tx, businessId, owner, get }) {
+      const row = await tx.taxPlan.create({
+        data: {
+          businessId,
+          clientId: await get('client'),
+          name: `Fake plan in progress ${tag()}`,
+          planYear: 2026,
+          status: 'IN_PROGRESS',
+          createdByUserId: owner.id,
+          updatedAt: STAMP,
+        },
+      });
+      return row.id;
+    },
+  },
   planStrategy: {
     async create({ tx, businessId, get }) {
       const row = await tx.taxPlanStrategy.create({
@@ -196,6 +229,37 @@ export const cases: CaseModule['cases'] = {
     // The record plan is neither closed nor finalized: reached, then refused for its status.
     expect: 409,
   },
+  // Review 2 workflow: internal review, the client's approval, requests, Duplicate Plan.
+  [`POST ${BASE}/plans/:id/review`]: {
+    // A plan in progress, so firm P's own reviewer succeeds; another firm's is refused (409
+    // NOT_A_MEMBER) exactly like an unknown id, before the plan's status is looked at.
+    params: { id: 'taxPlanInProgress' },
+    bodyIds: { reviewerUserId: 'adminUser' },
+    body: { etag: ETAG, reviewerUserId: PLACEHOLDER },
+  },
+  [`POST ${BASE}/plans/:id/approvals`]: {
+    params: { id: 'taxPlan' },
+    bodyIds: { documentId: 'document' },
+    body: {
+      etag: ETAG,
+      approvedOn: '2026-01-02',
+      note: 'Fake approval note',
+      documentId: PLACEHOLDER,
+    },
+    // Not sent for the client's review: reached, then refused for its status.
+    expect: 409,
+  },
+  [`POST ${BASE}/plans/:id/requests`]: {
+    params: { id: 'taxPlan' },
+    body: { direction: 'CLIENT_TO_FIRM', kind: 'QUESTION', body: 'Fake question' },
+  },
+  [`PATCH ${BASE}/plans/:id/requests/:requestId`]: {
+    params: { id: 'taxPlan', requestId: 'taxPlanRequest' },
+    bodyIds: { documentId: 'document' },
+    // Answered, not closed, so the case can run again on the same request.
+    body: { status: 'ANSWERED', response: 'Fake answer', documentId: PLACEHOLDER },
+  },
+  [`POST ${BASE}/plans/:id/duplicate`]: { params: { id: 'taxPlan' }, body: {} },
   [`GET ${BASE}/plans/:id/events`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/archive`]: { params: { id: 'taxPlan' } },
   [`POST ${BASE}/plans/:id/restore`]: { params: { id: 'taxPlan' } },
