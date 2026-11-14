@@ -351,7 +351,8 @@ describe('the catalogs and the rules', () => {
     const resources = RESOURCES.map((r) => r.key);
     expect(new Set(resources).size).toBe(resources.length);
     expect(resourceOf('nope')).toBeUndefined();
-    expect(Object.keys(toResource(RESOURCES[0] as never))).not.toContain('summary');
+    // C17 (Review 2): View shows what a resource says, so its summary is part of it now.
+    expect(toResource(RESOURCES[0] as never).summary).toBe(RESOURCES[0]?.summary);
     expect(RESOURCES.some((r) => !r.clientFacing)).toBe(true);
   });
 
