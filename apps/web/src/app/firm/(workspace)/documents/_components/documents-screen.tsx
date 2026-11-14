@@ -32,16 +32,29 @@ function sortRows(rows: FirmDocument[], sort?: TableSort): FirmDocument[] {
  * own Documents tab already uses (clients/[id]/documents). Everything else is a quiet empty state
  * until its own module is built: the PR lists each one.
  */
+/** "Sep 1, 2026" for a calendar day, without a time-zone shift. */
+const dayWords = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+
 export function DocumentsScreen({
   initialClientId = '',
   initialServiceId = '',
+  initialPeriod,
 }: {
   initialClientId?: string;
   /** One of the client's services (engagements): the list shows only its documents. */
   initialServiceId?: string;
+  /** Review 2 (Bookkeeping N02): a bookkeeping period: the documents uploaded within it. */
+  initialPeriod?: { label: string; from: string; to: string };
 }) {
   const [clientId, setClientId] = useState(initialClientId);
   const [serviceId, setServiceId] = useState(initialServiceId);
+  const [period, setPeriod] = useState(initialPeriod);
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState<'' | FirmDocument['scanStatus']>('');
   const [search, setSearch] = useState('');
@@ -54,10 +67,23 @@ export function DocumentsScreen({
   const clients = useApiQuery(['documents', 'clients'], () => api.clients.list({ limit: 100 }));
   const categories = useApiQuery(['document-categories'], () => api.documents.categories());
   const documents = useApiQuery(
-    ['documents', 'list', clientId, serviceId, categoryId, search, cursor, pageSize],
+    [
+      'documents',
+      'list',
+      clientId,
+      serviceId,
+      period?.from,
+      period?.to,
+      categoryId,
+      search,
+      cursor,
+      pageSize,
+    ],
     () =>
       api.documents.list(clientId, {
         serviceId: serviceId || undefined,
+        uploadedFrom: period?.from,
+        uploadedTo: period?.to,
         categoryId: categoryId || undefined,
         search: search || undefined,
         cursor,
@@ -97,6 +123,7 @@ export function DocumentsScreen({
               onClientChange={(value) => {
                 setClientId(value);
                 setServiceId('');
+                setPeriod(undefined);
                 setCategoryId('');
                 setStatus('');
                 setSelected(new Set());
@@ -131,6 +158,30 @@ export function DocumentsScreen({
                   Show all of their documents
                 </button>
               </p>
+            ) : null}
+            {clientId && period ? (
+              <div
+                className="flex flex-wrap items-center gap-2 text-sm"
+                data-testid="documents-period"
+              >
+                <span className="inline-flex items-center gap-2 rounded-pill bg-info-soft px-3 py-1 font-medium text-info">
+                  Period: {period.label}
+                  <button
+                    type="button"
+                    className="font-semibold text-link hover:underline"
+                    aria-label={`Clear the period ${period.label}`}
+                    onClick={() => {
+                      setPeriod(undefined);
+                      resetPaging();
+                    }}
+                  >
+                    Clear
+                  </button>
+                </span>
+                <span className="text-muted">
+                  Documents uploaded from {dayWords(period.from)} to {dayWords(period.to)}
+                </span>
+              </div>
             ) : null}
             {!clientId ? (
               <p className="py-10 text-center text-sm text-muted" data-testid="documents-no-client">

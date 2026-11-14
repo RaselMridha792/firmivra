@@ -315,16 +315,25 @@ export type FirmDocument = z.infer<typeof FirmDocument>;
 /**
  * GET /business/clients/{clientId}/documents (client record > Documents). Newest first. Search
  * matches the file name. `direction` filters "From the client", "Shared" or "Internal".
+ * `uploadedFrom` and `uploadedTo` (Review 2, Bookkeeping N02: a bookkeeping period) keep the
+ * documents uploaded on those days and between them (UTC days, as the library's).
  */
-export const ListFirmDocumentsQuery = z.strictObject({
-  serviceId: z.uuid().optional(),
-  categoryId: z.uuid().optional(),
-  taxYear: TaxYear.optional(),
-  direction: Direction.optional(),
-  search: SearchTerm.optional(),
-  cursor: z.string().max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(25),
-});
+export const ListFirmDocumentsQuery = z
+  .strictObject({
+    serviceId: z.uuid().optional(),
+    categoryId: z.uuid().optional(),
+    taxYear: TaxYear.optional(),
+    direction: Direction.optional(),
+    search: SearchTerm.optional(),
+    uploadedFrom: CalendarDate.optional(),
+    uploadedTo: CalendarDate.optional(),
+    cursor: z.string().max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(25),
+  })
+  .refine((q) => !q.uploadedFrom || !q.uploadedTo || q.uploadedFrom <= q.uploadedTo, {
+    path: ['uploadedTo'],
+    message: 'The last day is before the first',
+  });
 export type ListFirmDocumentsQuery = z.input<typeof ListFirmDocumentsQuery>;
 
 export const FirmDocumentList = z.object({

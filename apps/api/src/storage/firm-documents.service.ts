@@ -65,6 +65,11 @@ export class FirmDocumentsService {
         q.taxYear ? { taxYear: q.taxYear } : {},
         q.direction ? { direction: q.direction } : {},
         term ? { fileName: { contains: term, mode: 'insensitive' } } : {},
+        // Review 2 (Bookkeeping N02): a period's documents, by the day they were uploaded.
+        q.uploadedFrom ? { createdAt: { gte: new Date(`${q.uploadedFrom}T00:00:00Z`) } } : {},
+        q.uploadedTo
+          ? { createdAt: { lt: new Date(Date.parse(`${q.uploadedTo}T00:00:00Z`) + 86_400_000) } }
+          : {},
         after
           ? {
               OR: [

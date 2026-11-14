@@ -720,7 +720,7 @@ export class SchedulingWriteService {
   private async placeFor(
     tx: TxClient,
     businessId: string,
-    kind: 'IN_PERSON' | 'PHONE' | 'VIDEO',
+    kind: StoredKind,
     officeId: string | null | undefined,
     roomId: string | null | undefined,
     keepOfficeId: string | null = null,
@@ -767,7 +767,7 @@ export class SchedulingWriteService {
   private async locationOf(
     tx: TxClient,
     businessId: string,
-    kind: 'IN_PERSON' | 'PHONE' | 'VIDEO',
+    kind: StoredKind,
     staffUserId: string,
     input: {
       details: string | null | undefined;
@@ -791,7 +791,7 @@ export class SchedulingWriteService {
     tx: TxClient,
     businessId: string,
     current: SchedulingRow,
-    kind: 'IN_PERSON' | 'PHONE' | 'VIDEO',
+    kind: StoredKind,
     staffUserId: string,
     body: Details,
   ): Promise<string | null> {
