@@ -67,7 +67,7 @@ export function ClientShell({ clientId, children }: { clientId: string; children
   const from = useSearchParams().get('from');
   const keep = (href: string) => (from ? `${href}?from=${encodeURIComponent(from)}` : href);
   return (
-    <div className="flex flex-col gap-4" data-testid="client-portal-manage">
+    <div className="@container flex min-w-0 flex-col gap-4" data-testid="client-portal-manage">
       <nav aria-label="Breadcrumb" className="text-sm text-muted">
         <ol className="flex flex-wrap items-center gap-1.5">
           <li>
@@ -212,7 +212,10 @@ function StatusStrip({ header }: { header: ClientPortalHeader }) {
       <p className="text-sm text-muted">{none}</p>
     );
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" data-testid="status-strip">
+    <div
+      className="grid gap-3 @lg:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-6"
+      data-testid="status-strip"
+    >
       <Tile label="Portal Status">
         <Badge tone={status.tone} dot>
           {status.label}

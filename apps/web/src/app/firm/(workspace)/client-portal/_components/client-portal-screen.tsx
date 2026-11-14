@@ -49,7 +49,7 @@ export function ClientPortalScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-6" data-testid="client-portal">
+    <div className="@container flex min-w-0 flex-col gap-6" data-testid="client-portal">
       <header className="flex items-center gap-4">
         <span className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-action text-on-action">
           <UsersThree aria-hidden weight="fill" className="size-8" />
@@ -63,7 +63,7 @@ export function ClientPortalScreen() {
           </p>
         </div>
       </header>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="grid gap-4 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <Card title="Switch Client" className="min-w-0">
           <ClientSwitcher activeId={active} onSelect={(id) => go(id)} />
         </Card>
@@ -79,7 +79,7 @@ export function ClientPortalScreen() {
           </p>
         </Card>
       </div>
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
+      <div className="grid items-start gap-6 @5xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
         <ClientList activeId={active} onSelect={(id) => go(id)} />
         {active ? (
           <ClientPanel
@@ -222,7 +222,7 @@ function RecentClients({
     );
   }
   return (
-    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="recent-clients">
+    <ul className="grid gap-3 @lg:grid-cols-2 @5xl:grid-cols-4" data-testid="recent-clients">
       {items.slice(0, 4).map((c) => (
         <li key={c.id}>
           <button

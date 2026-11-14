@@ -47,7 +47,7 @@ export function AccessSecurityTab({ clientId }: { clientId: string }) {
     <PageState query={header}>
       {(h) => (
         <div className="flex flex-col gap-6">
-          <div className="grid items-start gap-6 xl:grid-cols-3">
+          <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 @5xl:grid-cols-3">
             <Card title="Portal Invitation" data-testid="invitation-card" className="min-w-0">
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-muted">Status</dt>
@@ -295,7 +295,7 @@ export function PortalContentTab({ clientId }: { clientId: string }) {
   return (
     <PageState query={header}>
       {(h) => (
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="grid items-start gap-6 @5xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <VisibilityCard clientId={clientId} canChange={h.can.manageAccess} />
           <Card title="How visibility works" className="min-w-0">
             <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-text">
@@ -356,7 +356,7 @@ export function ActivityTab({ clientId }: { clientId: string }) {
   };
   return (
     <Card data-testid="activity-tab" className="min-w-0">
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-3 @lg:grid-cols-2 @4xl:grid-cols-4">
         <Select
           label="Event type"
           value={type}
