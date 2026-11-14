@@ -188,6 +188,44 @@ describe('GET and PATCH /business/settings', () => {
     expect(suspended.status).toBe(403);
   });
 
+  it('keeps the tax season: both days or neither, a day every year has, Owner and Admin only', async () => {
+    const saved = await call('patch', '/settings', people.ownerA, firms.a.id, {
+      taxSeasonStart: '01-15',
+      taxSeasonEnd: '04-15',
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(FirmSettings.parse(saved.body)).toMatchObject({
+      taxSeasonStart: '01-15',
+      taxSeasonEnd: '04-15',
+    });
+    for (const body of [
+      { taxSeasonStart: '01-15' },
+      { taxSeasonStart: '01-15', taxSeasonEnd: null },
+      { taxSeasonStart: '02-29', taxSeasonEnd: '04-15' },
+      { taxSeasonStart: '04-31', taxSeasonEnd: '05-15' },
+      { taxSeasonStart: '01-15', taxSeasonEnd: '01-15' },
+    ]) {
+      const bad = await call('patch', '/settings', people.ownerA, firms.a.id, body);
+      expect([bad.status, codeOf(bad)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    const staff = await call('patch', '/settings', people.staffA, firms.a.id, {
+      taxSeasonStart: '02-01',
+      taxSeasonEnd: '03-01',
+    });
+    expect([staff.status, codeOf(staff)]).toEqual([403, 'FORBIDDEN']);
+    // Firm B never sees or changes firm A's.
+    const other = await call('get', '/settings', people.ownerB, firms.b.id);
+    expect(FirmSettings.parse(other.body)).toMatchObject({ taxSeasonStart: null });
+    const cleared = await call('patch', '/settings', people.adminA, firms.a.id, {
+      taxSeasonStart: '',
+      taxSeasonEnd: '',
+    });
+    expect(FirmSettings.parse(cleared.body)).toMatchObject({
+      taxSeasonStart: null,
+      taxSeasonEnd: null,
+    });
+  });
+
   it('changes only the fields sent, in this firm only, and audits the field names', async () => {
     const res = await call('patch', '/settings', people.adminA, firms.a.id, {
       name: '  T02 Firm A ',
