@@ -1,6 +1,7 @@
 import {
   AmendTaxReturnRequest,
   ApiRequestError,
+  CorrectTaxYearRequest,
   ApproveTaxApprovalRequest,
   CarryForwardTaxReturnRequest,
   ChangeTaxReturnStatusRequest,
@@ -162,6 +163,8 @@ interface Stored {
   finalValidatedAt: string | null;
   finalValidatedBy: MemberRef | null;
   firstFiledAt: string | null;
+  /** TX-F16: the year it was first filed under (as the database stamps it). */
+  filedTaxYear?: number | null;
   filedOn: string | null;
   createdAt: string;
   updatedAt: string;
@@ -430,6 +433,7 @@ function filing(id: string, jurisdiction: string, r: Stored, k: number): TaxRetu
               ack === 'REJECTED' ? (jurisdiction === 'US' ? 'IRS' : jurisdiction) : null,
             correctiveAction: null,
             recordedBy: r.preparer,
+            correctiveTask: null,
             createdAt: ago(5),
           },
         ]
@@ -720,6 +724,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       importedAt: null,
       filedOn: r.filedOn,
       firstFiledAt: r.firstFiledAt,
+      filedTaxYear: r.filedTaxYear ?? (r.firstFiledAt ? r.taxYear : null),
       document: null,
       canMoveTo: canMoveTo(r.workflowStatus),
       // TX-F18: the reviewer, or an Owner or Admin as the override.
@@ -1111,6 +1116,37 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       touch(r, 'UPDATED', 'Business identity corrected');
       return toDetail(r);
     },
+    // TX-F16: Correct Tax Year, as the API: never over another return; a filed one keeps its year.
+    correctTaxYear: async (id, body) => {
+      await mockDelay();
+      const b = parseInput(CorrectTaxYearRequest, body);
+      const r = find(id);
+      if (b.taxYear === r.taxYear) throw fail(400, 'VALIDATION_FAILED', 'Choose a different year');
+      const same = rows.find(
+        (x) =>
+          x.id !== r.id &&
+          !x.archivedAt &&
+          x.clientId === r.clientId &&
+          x.taxYear === b.taxYear &&
+          (x.formType ?? '').toLowerCase() === (r.formType ?? '').toLowerCase() &&
+          x.quarter === r.quarter,
+      );
+      if (same) {
+        throw new ApiRequestError(
+          409,
+          'DUPLICATE_RETURN',
+          'This client already has this return for that year',
+          undefined,
+          undefined,
+          undefined,
+          { taxReturnId: same.id },
+        );
+      }
+      if (r.firstFiledAt && r.filedTaxYear == null) r.filedTaxYear = r.taxYear;
+      r.taxYear = b.taxYear;
+      touch(r, 'UPDATED', `Tax year corrected: ${b.reason}`);
+      return toDetail(r);
+    },
     updateDetails: async (id, body) => {
       await mockDelay();
       const b = parseInput(UpdateTaxReturnDetailsRequest, body);
@@ -1303,6 +1339,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         rejectingAgency: null,
         correctiveAction: null,
         recordedBy: me,
+        correctiveTask: null,
         createdAt: nowIso(),
       });
       syncFilingStatus(f);
@@ -1329,6 +1366,13 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
           a.rejectCode = b.rejectCode ?? null;
           a.rejectDescription = b.rejectDescription ?? null;
           a.correctiveAction = b.correctiveAction;
+          // TX-F24: the corrective task, for the return's preparer (as the API).
+          a.correctiveTask = {
+            id: `0199b6af-0000-7000-8000-${String(Date.now() % 1e12).padStart(12, '0')}`,
+            title: `Correct the ${b.rejectingAgency} rejection${b.rejectCode ? ` ${b.rejectCode}` : ''}`,
+            status: 'OPEN',
+            owner: r.preparer,
+          };
         }
       }
       syncFilingStatus(f);

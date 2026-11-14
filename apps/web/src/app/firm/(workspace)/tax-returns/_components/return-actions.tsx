@@ -158,7 +158,7 @@ export function Dialog({
 }
 
 type DialogName =
-  'details' | 'status' | 'assign' | 'amend' | 'carry' | 'activity' | 'archive' | 'delete';
+  'details' | 'year' | 'status' | 'assign' | 'amend' | 'carry' | 'activity' | 'archive' | 'delete';
 
 /** The row's three-dots menu (developer guide, section 7) and the dialogs behind it. */
 export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Notice }) {
@@ -190,6 +190,8 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
   const items: ActionMenuItem[] = [
     open,
     { label: 'Edit Return Details', icon: PencilSimpleLine, onSelect: () => setDialog('details') },
+    // Review 2 (TX-F16): the year, with a reason; never over another return.
+    { label: 'Correct Tax Year', icon: CalendarPlus, onSelect: () => setDialog('year') },
     { label: 'Change Status', icon: Swap, onSelect: () => setDialog('status') },
     { label: 'Assign / Reassign Staff', icon: UserSwitch, onSelect: () => setDialog('assign') },
   ];
@@ -260,6 +262,7 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
         align="right"
       />
       {dialog === 'details' ? <DetailsDialog {...props} /> : null}
+      {dialog === 'year' ? <CorrectYearDialog {...props} /> : null}
       {dialog === 'status' ? <StatusDialog {...props} /> : null}
       {dialog === 'assign' ? <AssignDialog {...props} /> : null}
       {dialog === 'amend' ? <AmendDialog {...props} /> : null}
@@ -743,6 +746,70 @@ function AmendDialog({ row, onClose, onNotice }: DialogProps) {
 }
 
 /** Duplicate / Carry Forward: next period's return with the people and checklist, never amounts. */
+/**
+ * Review 2 (TX-F16): Correct Tax Year. The current year, the corrected one and a required reason.
+ * A matching return for that year is named, never overwritten. A filed return: only its reviewer,
+ * or an Owner or Admin who approves (the API checks), and its filed records keep their year.
+ */
+function CorrectYearDialog({ row, onClose, onNotice }: DialogProps) {
+  const act = useAct(onNotice);
+  const filed = row.status !== 'IN_PROGRESS';
+  const [year, setYear] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const valid = /^\d{4}$/.test(year) && Number(year) !== row.taxYear;
+  const save = async () => {
+    setBusy(true);
+    const done = await act(
+      () =>
+        api.taxReturnWorkspace.correctTaxYear(row.id, {
+          taxYear: Number(year),
+          reason: reason.trim(),
+        }),
+      `Tax year corrected to ${year}.`,
+    );
+    setBusy(false);
+    if (done) onClose();
+  };
+  return (
+    <Dialog
+      title="Correct Tax Year"
+      subtitle={label(row)}
+      confirm="Correct Year"
+      busy={busy}
+      disabled={!valid || !reason.trim()}
+      onConfirm={() => void save()}
+      onClose={onClose}
+      testId="correct-year-dialog"
+    >
+      <p className="text-sm text-text">
+        Current tax year: <span className="font-semibold">{row.taxYear}</span>
+      </p>
+      {filed ? (
+        <p className="rounded-lg bg-warning-soft px-3 py-2 text-sm text-text">
+          This return is filed. Only its reviewer, or an Owner or Admin who approves, can correct
+          its year, and its filed records keep the year it was filed under.
+        </p>
+      ) : null}
+      <Input
+        label="Correct tax year *"
+        inputMode="numeric"
+        maxLength={4}
+        value={year}
+        onChange={(e) => setYear(e.target.value)}
+        {...(year && !valid ? { error: 'Enter a different four-digit year' } : {})}
+      />
+      <Textarea
+        label="Reason *"
+        rows={3}
+        maxLength={500}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
+    </Dialog>
+  );
+}
+
 function CarryDialog({ row, onClose, onNotice }: DialogProps) {
   const act = useAct(onNotice);
   const router = useRouter();
