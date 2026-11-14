@@ -116,6 +116,12 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
           This plan is archived. Restore it to change it.
         </p>
       ) : null}
+      {p && p.status === 'CLOSED' && !p.archived ? (
+        <p role="status" className="rounded-lg bg-warning-soft p-3 text-sm text-warning">
+          This plan is closed and read-only. Reopen it in Review &amp; Save, with the reason, to
+          change it.
+        </p>
+      ) : null}
       <nav
         aria-label="Plan steps"
         data-testid="stepper"
@@ -1648,6 +1654,12 @@ function StepReview({
   };
   const chosen = plan.strategies.filter((s) => s.selected);
   const [viewing, setViewing] = useState<number>();
+  // C27 (Review 2): Reopen (a Closed plan) or Revise (a Finalized, sent or Implemented one).
+  const [reasoning, setReasoning] = useState<'REOPEN' | 'REVISE'>();
+  const history = useApiQuery([...TP_KEY, 'plan-events', plan.id, plan.etag], () =>
+    api.taxPlanning.planEvents(plan.id),
+  );
+  const revisable = ['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'].includes(plan.status);
   // C08 (Review 2): what the plan still needs, each with where to fix it. Finalizing checks the
   // strategies and the figures' age again on the server.
   const checks: { done: boolean; text: string; fix: string; step: number }[] = [
@@ -1731,7 +1743,9 @@ function StepReview({
                   'Status saved.',
                 )
               }
-              options={Object.entries(PLAN_STATUS).map(([value, label]) => ({ value, label }))}
+              options={Object.entries(PLAN_STATUS)
+                .filter(([value]) => value !== 'FINALIZED' || value === plan.status)
+                .map(([value, label]) => ({ value, label }))}
             />
           </dd>
           <dt className="text-muted">Strategies</dt>
@@ -1783,6 +1797,32 @@ function StepReview({
             ))}
           </ul>
         </div>
+        <div data-testid="plan-history">
+          <h3 className="mb-1 text-sm font-semibold text-heading">History</h3>
+          {history.data?.length === 0 ? (
+            <p className={quiet}>No status change has been recorded yet.</p>
+          ) : null}
+          <ul>
+            {(history.data ?? []).map((e) => (
+              <li
+                key={e.id}
+                className="flex flex-wrap justify-between gap-2 border-t border-divider py-1 text-sm first:border-t-0"
+              >
+                <span className="text-heading">
+                  {EVENT_LABEL[e.kind] ?? e.kind}
+                  {e.toStatus ? ` · ${PLAN_STATUS[e.toStatus] ?? e.toStatus}` : ''}
+                  {e.version ? ` · version ${e.version}` : ''}
+                  {e.reason ? (
+                    <span className="block text-xs text-muted">Reason: {e.reason}</span>
+                  ) : null}
+                </span>
+                <span className="text-muted">
+                  {e.actor?.name ?? 'Former staff'} · {dateTimeText(e.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </section>
       <footer className="flex flex-wrap justify-between gap-3">
         <span className="flex gap-2">
@@ -1795,10 +1835,30 @@ function StepReview({
           </Link>
         </span>
         <span className="flex flex-wrap gap-2">
+          {plan.status === 'CLOSED' && plan.canChangeStatus && !plan.archived ? (
+            <button
+              type="button"
+              className={outlined}
+              data-testid="reopen-plan"
+              onClick={() => setReasoning('REOPEN')}
+            >
+              Reopen Plan
+            </button>
+          ) : null}
+          {revisable && plan.canChangeStatus && !plan.archived ? (
+            <button
+              type="button"
+              className={outlined}
+              data-testid="revise-plan"
+              onClick={() => setReasoning('REVISE')}
+            >
+              Revise Plan
+            </button>
+          ) : null}
           <button
             type="button"
             className={subtle}
-            disabled={!plan.canEdit}
+            disabled={!plan.canChangeStatus}
             onClick={() =>
               void run(
                 () =>
@@ -1886,6 +1946,22 @@ function StepReview({
           </div>
         </Modal>
       ) : null}
+      {reasoning ? (
+        <ReasonDialog
+          kind={reasoning}
+          onClose={() => setReasoning(undefined)}
+          onSubmit={async (reason) => {
+            const ok = await run(
+              () =>
+                reasoning === 'REOPEN'
+                  ? api.taxPlanning.reopenPlan(plan.id, { reason, etag: plan.etag })
+                  : api.taxPlanning.revisePlan(plan.id, { reason, etag: plan.etag }),
+              reasoning === 'REOPEN' ? 'Plan reopened.' : 'Plan back in progress for revision.',
+            );
+            if (ok) setReasoning(undefined);
+          }}
+        />
+      ) : null}
       {viewing ? (
         <VersionView
           planId={plan.id}
@@ -1895,6 +1971,72 @@ function StepReview({
         />
       ) : null}
     </>
+  );
+}
+
+const EVENT_LABEL: Record<string, string> = {
+  STATUS: 'Status changed',
+  REOPEN: 'Reopened',
+  REVISE: 'Revised',
+  FINALIZE: 'Finalized',
+  SEND: 'Sent to the client',
+  ARCHIVE: 'Archived',
+  RESTORE: 'Restored',
+};
+
+/**
+ * C27 (Review 2): the reason for Reopen or Revise, kept in the plan's history. A revised plan is
+ * finalized again as a new version; the versions already kept never change.
+ */
+function ReasonDialog({
+  kind,
+  onClose,
+  onSubmit,
+}: {
+  kind: 'REOPEN' | 'REVISE';
+  onClose: () => void;
+  onSubmit: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title={kind === 'REOPEN' ? 'Reopen this plan?' : 'Revise this plan?'}
+      subtitle={
+        kind === 'REOPEN'
+          ? 'It goes back to In Progress and can be changed again.'
+          : 'It goes back to In Progress; finalize it again to keep a new version.'
+      }
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !reason.trim()}
+            onClick={async () => {
+              setBusy(true);
+              await onSubmit(reason.trim());
+              setBusy(false);
+            }}
+          >
+            {kind === 'REOPEN' ? 'Reopen Plan' : 'Revise Plan'}
+          </Button>
+        </>
+      }
+    >
+      <div data-testid="reason-dialog">
+        <Textarea
+          label="Reason *"
+          rows={3}
+          maxLength={1000}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+    </Modal>
   );
 }
 

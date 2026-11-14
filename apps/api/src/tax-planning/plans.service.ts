@@ -5,6 +5,7 @@ import {
   type PlanVersionRow,
   type SavingsEstimate,
   type TaxPlanDetail,
+  type TaxPlanEventList,
   type TaxPlanPage,
   type TaxPlanStatus,
 } from '@firmivra/types';
@@ -38,6 +39,7 @@ import type {
   AttachDocumentBody,
   CreatePlanBody,
   FinalizeBody,
+  PlanReasonBody,
   ReorderBody,
   SaveInputsBody,
   SendBody,
@@ -65,7 +67,20 @@ const SENT_MOVES_TO_AWAITING: readonly string[] = [
   'SCHEDULED',
   'IN_PROGRESS',
   'READY_FOR_REVIEW',
+  'FINALIZED',
 ];
+
+/** C08, C27 (Review 2): the statuses finalizing moves to Finalized (not one already sent on). */
+const FINALIZE_MOVES: readonly string[] = [
+  'DRAFT',
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'READY_FOR_REVIEW',
+  'FINALIZED',
+];
+
+/** C27 (Review 2): what Revise takes back to In Progress, to be finalized again. */
+const REVISABLE: readonly string[] = ['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'];
 
 const NEXT_STATUS: Record<TaxPlanStatus, TaxPlanStatus[]> = {
   DRAFT: ['SCHEDULED', 'IN_PROGRESS', 'CLOSED'],
@@ -118,6 +133,32 @@ export class TaxPlansService {
     return this.read.inFirm(businessId, async (tx) =>
       fn(await this.read.ctx(tx, businessId, tenant, userId)),
     );
+  }
+
+  /** C27 (Review 2): one entry of the plan's history (tax_plan_events), in the same change. */
+  private planEvent(
+    ctx: TaxCtx,
+    planId: string,
+    kind: 'STATUS' | 'REOPEN' | 'REVISE' | 'FINALIZE' | 'SEND' | 'ARCHIVE' | 'RESTORE',
+    data: {
+      fromStatus?: TaxPlanStatus | null;
+      toStatus?: TaxPlanStatus | null;
+      version?: number | null;
+      reason?: string | null;
+    } = {},
+  ) {
+    return ctx.tx.taxPlanEvent.create({
+      data: {
+        businessId: ctx.businessId,
+        planId,
+        kind,
+        fromStatus: data.fromStatus ?? null,
+        toStatus: data.toStatus ?? null,
+        version: data.version ?? null,
+        reason: data.reason ?? null,
+        actorUserId: ctx.actor.userId,
+      },
+    });
   }
 
   /** The plan locked for a change: the caller's own, not archived, not closed. */
@@ -764,6 +805,8 @@ export class TaxPlansService {
       const plan = await this.read.load(ctx, id);
       if (plan.archivedAt) throw tpErrors.planArchived();
       if (body.etag !== plan.updatedAt.toISOString()) throw tpErrors.saveConflict();
+      if (plan.status === 'CLOSED')
+        throw tpErrors.invalidStatus('A closed plan changes only by Reopen, with its reason');
       if (!NEXT_STATUS[plan.status].includes(body.status))
         throw tpErrors.invalidStatus(`A plan cannot go from ${plan.status} to ${body.status}`);
       if (body.status === 'DRAFT' && plan.taxPlanVersions.length > 0)
@@ -779,6 +822,7 @@ export class TaxPlansService {
         where: { businessId_id: { businessId, id } },
         data: { status: body.status },
       });
+      await this.planEvent(ctx, id, 'STATUS', { fromStatus: plan.status, toStatus: body.status });
       await this.audit.logIn(
         tx,
         'tax_plan.status_changed',
@@ -805,6 +849,7 @@ export class TaxPlansService {
         where: { businessId_id: { businessId, id } },
         data: { archivedAt: archive ? new Date() : null },
       });
+      await this.planEvent(ctx, id, archive ? 'ARCHIVE' : 'RESTORE');
       await this.audit.logIn(
         tx,
         archive ? 'tax_plan.archived' : 'tax_plan.restored',
@@ -931,6 +976,18 @@ export class TaxPlansService {
       const missing = this.missingForFinal(plan, kept.snapshot.inputs ?? []);
       if (missing.length > 0) throw tpErrors.planNotReady(missing);
       const v = await this.keepVersion(ctx, plan, 'FINALIZED', kept);
+      // C08, C27 (Review 2): a finalized plan is Finalized in every view. Its updated_at stays,
+      // so the version still matches the plan and it can be sent.
+      const toFinal = FINALIZE_MOVES.includes(plan.status);
+      if (toFinal)
+        await ctx.tx.$executeRaw`
+          UPDATE tax_plans SET status = 'FINALIZED'
+          WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid`;
+      await this.planEvent(ctx, id, 'FINALIZE', {
+        fromStatus: plan.status,
+        toStatus: toFinal ? 'FINALIZED' : plan.status,
+        version: v.version,
+      });
       await this.audit.logIn(
         ctx.tx,
         'tax_plan.finalized',
@@ -1006,6 +1063,11 @@ export class TaxPlansService {
         await ctx.tx.$executeRaw`
           UPDATE tax_plans SET status = 'AWAITING_CLIENT'
           WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid`;
+      await this.planEvent(ctx, id, 'SEND', {
+        fromStatus: plan.status,
+        toStatus: awaiting ? 'AWAITING_CLIENT' : plan.status,
+        version: v.version,
+      });
       await this.audit.logIn(
         ctx.tx,
         'tax_plan.sent',
@@ -1018,6 +1080,89 @@ export class TaxPlansService {
         },
       );
       return this.read.detailById(ctx, id);
+    });
+  }
+
+  /**
+   * C27 (Review 2): Reopen (a Closed plan) or Revise (a Finalized, sent or Implemented one), with
+   * the reason, back to In Progress: kept in the plan's history and the audit (never the reason).
+   * A revised plan is finalized again as a new version; earlier versions never change.
+   */
+  reopen(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    body: Out<typeof PlanReasonBody>,
+    kind: 'REOPEN' | 'REVISE',
+  ): Promise<TaxPlanDetail> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      if (!ctx.perms.edit) throw tpErrors.forbidden();
+      const { tx } = ctx;
+      await this.read.load(ctx, id);
+      await tx.$queryRaw`
+        SELECT 1 FROM tax_plans WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+        FOR UPDATE`;
+      const plan = await this.read.load(ctx, id);
+      if (plan.archivedAt) throw tpErrors.planArchived();
+      if (body.etag !== plan.updatedAt.toISOString()) throw tpErrors.saveConflict();
+      if (kind === 'REOPEN' && plan.status !== 'CLOSED')
+        throw tpErrors.invalidStatus('Only a closed plan is reopened');
+      if (kind === 'REVISE' && !REVISABLE.includes(plan.status))
+        throw tpErrors.invalidStatus(
+          'Only a finalized, sent or implemented plan is revised; change the plan instead',
+        );
+      await tx.taxPlan.update({
+        where: { businessId_id: { businessId, id } },
+        data: { status: 'IN_PROGRESS' },
+      });
+      await this.planEvent(ctx, id, kind, {
+        fromStatus: plan.status,
+        toStatus: 'IN_PROGRESS',
+        version: plan.taxPlanVersions[0]?.version ?? null,
+        reason: body.reason,
+      });
+      await this.audit.logIn(
+        tx,
+        kind === 'REOPEN' ? 'tax_plan.reopened' : 'tax_plan.revised',
+        { type: 'tax_plan', id },
+        { clientId: plan.clientId, from: plan.status, to: 'IN_PROGRESS' },
+      );
+      return this.read.detailById(ctx, id);
+    });
+  }
+
+  /** C27 (Review 2): the plan's history, newest first. */
+  events(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+  ): Promise<TaxPlanEventList> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      await this.read.load(ctx, id);
+      const rows = await ctx.tx.taxPlanEvent.findMany({
+        where: { businessId, planId: id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 200,
+      });
+      const names = await memberNames(
+        ctx.tx,
+        businessId,
+        rows.map((r) => r.actorUserId),
+      );
+      return {
+        items: rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          fromStatus: r.fromStatus,
+          toStatus: r.toStatus,
+          version: r.version,
+          reason: r.reason,
+          actor: memberRef(names, r.actorUserId),
+          createdAt: r.createdAt.toISOString(),
+        })),
+      };
     });
   }
 
