@@ -35,8 +35,36 @@ type Bulk = z.output<typeof LeadBulkRequest>;
 
 const NOT_QUALIFIED_REASON = 'Marked not qualified';
 
-/** A date of birth has no column on leads yet: say so instead of dropping it. */
-const unavailable = (what: string) => invalid(`${what} is not available yet`, 'FIELD_UNAVAILABLE');
+/** R2 8: a date of birth from 1900 (leads_date_of_birth) to today. */
+function birthDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (value < '1900-01-01') throw invalid('Enter a date of birth from 1900 on');
+  if (value > new Date().toISOString().slice(0, 10)) {
+    throw invalid("The date of birth can't be in the future");
+  }
+  return new Date(`${value}T00:00:00Z`);
+}
+
+/** R2 9: replaces a lead's other phones and emails with `list`, in its order. */
+async function setOtherContacts(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  list: Create['otherContacts'],
+): Promise<void> {
+  await tx.leadContactPoint.deleteMany({ where: { businessId, leadId } });
+  if (list.length === 0) return;
+  await tx.leadContactPoint.createMany({
+    data: list.map((c, position) => ({
+      businessId,
+      leadId,
+      kind: c.kind,
+      value: c.kind === 'EMAIL' ? c.value.toLowerCase() : c.value,
+      label: c.label ?? null,
+      position,
+    })),
+  });
+}
 
 /** Add New Lead, Edit and the bulk bar (R57). Every change is one transaction and one audit row per lead. */
 @Injectable()
@@ -103,6 +131,7 @@ export class LeadPipelineWriteService {
       await tx.leadService.createMany({
         data: serviceIds.map((serviceId) => ({ businessId, leadId: lead.id, serviceId })),
       });
+      await setOtherContacts(tx, businessId, lead.id, body.otherContacts);
       if (steps.length) {
         await addSteps(tx, businessId, lead.id, actor.userId, steps);
         await syncNextAction(tx, businessId, lead.id, actor.userId);
@@ -138,7 +167,7 @@ export class LeadPipelineWriteService {
       );
     if (body.campaignId)
       await this.comms.addLeadsToAudience(tenant, actor.userId, body.campaignId, [], true);
-    if (body.dateOfBirth) throw unavailable('Date of birth');
+    const dateOfBirth = birthDate(body.dateOfBirth);
     if (body.address && body.address.length > 200)
       throw invalid('Use at most 200 characters for the address');
     if (body.serviceIds?.length === 0) throw invalid('Choose at least one service');
@@ -156,6 +185,7 @@ export class LeadPipelineWriteService {
         businessName: body.businessName,
         email: body.email?.toLowerCase(),
         phone: body.phone,
+        dateOfBirth,
         bestTimeToContact: body.bestTimeToContact,
         source: body.source,
         sourceDetail: body.sourceDetail,
@@ -192,6 +222,7 @@ export class LeadPipelineWriteService {
       if (body.serviceIds)
         await this.setServices(tx, businessId, id, lead.serviceId, [...new Set(body.serviceIds)]);
       if (body.tags) await this.setTags(tx, businessId, actor, [id], body.tags, true);
+      if (body.otherContacts) await setOtherContacts(tx, businessId, id, body.otherContacts);
       // R2 7: audited in the same transaction, so a save either succeeds whole or reports a real
       // failure; a committed change never comes back as an error.
       await this.audit.logIn(
