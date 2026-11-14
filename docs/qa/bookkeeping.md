@@ -48,7 +48,7 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | T01a: import path, amount and source filters | Done | #1417 | `bookkeeping.e2e` "lists the ledger newest first, with search, filters and counts; Staff only their clients" |
 | R01a R01d: source data and close tests | Review Three | Tests with fixtures; no code change | `bookkeeping.e2e` reconciliation-from-the-ledger and close tests |
 | E01a A01: Terms events and View All | Done | #1417 | `bookkeeping-terms.e2e` "starts empty, then New Terms is a draft from the package" (Terms events in Activity) |
-| A01: note and upload events in the feed | Done (G1) | R56 gaps PR | `bookkeeping.e2e` "a note written on the Bookkeeping service shows in its Activity, never its text"; `documents.e2e` "shows an upload to a Bookkeeping service in that client's Bookkeeping Activity…" |
+| A01: note and upload events in the feed | Done (G1) | #1436 | `bookkeeping.e2e` "a note written on the Bookkeeping service shows in its Activity, never its text"; `documents.e2e` "shows an upload to a Bookkeeping service in that client's Bookkeeping Activity…" |
 | P04 P07 P08 P09: filter, period and status checks | Review Three | Retest; no defect named | `bookkeeping.e2e`, `r56-bookkeeping` |
 | R01 review: consistent approval controls | Done | #1402 | `recon-rules.test`; `r56-bookkeeping` "Close: checklist, figures, reconciliation and the review steps" |
 | R01 review: discrepancy note | Done | #1424 | `bookkeeping.e2e` (R01 note) |
@@ -70,7 +70,7 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 
 | GAP | Row | Plan | Status |
 | --- | --- | --- | --- |
-| G1 | A01 | A note written on a client's Bookkeeping service, or a file uploaded to it (by staff or the client), adds an entry to the client's Bookkeeping Activity. The entry shows who and when, never the note's text or the file's content. | Fixed in the R56 gaps PR |
+| G1 | A01 | A note written on a client's Bookkeeping service, or a file uploaded to it (by staff or the client), adds an entry to the client's Bookkeeping Activity. The entry shows who and when, never the note's text or the file's content. | Fixed in #1436 |
 | G2 | N02 (period) | A document has a client, a service and a tax year, but no bookkeeping period. Proposed default: Documents opened from a period filters by upload date from the period's first day, shown as a chip the user can clear. The alternative is a period link on each document (a schema change). Octavia chooses. | Waiting for the decision |
 
 ## Not in scope here
