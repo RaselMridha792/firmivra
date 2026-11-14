@@ -74,6 +74,7 @@ const clients = {
   reports: '',
   rules: '',
   ledger: '',
+  pnl: '',
 };
 
 let app: INestApplication;
@@ -206,6 +207,12 @@ const mkReport = async (bk: string, body: object = {}) => {
     201,
   );
 };
+/** Review 2 (RP03): the client's P&L from its ledger (synced from the accounting software). */
+const ledgerPnl = async (bk: string) =>
+  exact(
+    BookkeepingClientWorkspace,
+    await call('patch', `/clients/${bk}`, people.staffA, { pnlSource: 'ACCOUNTING_SOFTWARE' }),
+  );
 const mkDocument = (clientId: string, engagementId: string) =>
   asOwner(ids.firmA, async (tx) => {
     const tag = randomUUID();
@@ -307,7 +314,7 @@ beforeAll(async () => {
     });
     clients.other = await mk('Fake Walker Properties', { assignedUserId: people.staffA.id });
     clients.bare = await mk('Fake Bare Client');
-    for (const key of ['conn', 'close', 'recon', 'reports', 'rules', 'ledger'] as const) {
+    for (const key of ['conn', 'close', 'recon', 'reports', 'rules', 'ledger', 'pnl'] as const) {
       clients[key] = await mk(`Fake ${key} client`, { assignedUserId: people.staffA.id });
     }
   });
@@ -3087,6 +3094,7 @@ describe('transaction engines (BK-T01)', () => {
 describe('report figures and versions (BK-RPT part 1)', () => {
   it('previews, generates immutable numbered versions from the period ledger, lists them and downloads one', async () => {
     const bk = await bkOf(clients.assigned);
+    await ledgerPnl(bk);
     const ws = exact(
       BookkeepingClientWorkspace,
       await call('get', `/clients/${bk}`, people.ownerA),
@@ -3241,6 +3249,7 @@ describe('report figures and versions (BK-RPT part 1)', () => {
 describe('report figures from statements, status and documents (BK-RPT part 2)', () => {
   it('works out the statement reports, waits for missing statements, and never completes a report past an open reconciliation', async () => {
     const bk = await bkOf(clients.assigned);
+    await ledgerPnl(bk);
     const ws = exact(
       BookkeepingClientWorkspace,
       await call('get', `/clients/${bk}`, people.ownerA),
@@ -3486,12 +3495,62 @@ describe('report figures from statements, status and documents (BK-RPT part 2)',
       404,
       'NOT_FOUND',
     );
+
+    // Review 2 (RP01): the Refund and Settlement Reports, from the same records.
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingRefund.create({
+        data: {
+          ...A,
+          kind: 'CHARGEBACK',
+          disputeStatus: 'OPEN',
+          refundDate: at(p.periodEnd),
+          amountCents: 1_500,
+          reason: 'Fake dispute',
+        },
+      }),
+    );
+    const rf = await preview('REFUND');
+    expect(rf.figures!.sections.map((s) => s.title)).toEqual([
+      'Refunds Issued to Customers',
+      'Refunds Received from Vendors',
+      'Chargebacks',
+      'By Reason',
+    ]);
+    expect(rf.figures!.sections[0]!.rows).toEqual([
+      { label: 'Completed', amountCents: 2_000, count: 1 },
+    ]);
+    expect(rf.figures!.sections[3]!.rows).toEqual([
+      { label: 'Fake dispute', amountCents: 1_500, count: 1 },
+      { label: 'No reason given', amountCents: 2_000, count: 1 },
+    ]);
+    expect(rf.figures!.totals).toEqual({
+      refundsIssuedCents: 2_000,
+      refundsReceivedCents: 0,
+      chargebacksCents: 1_500,
+      pendingCount: 1,
+    });
+    const sm = await preview('SETTLEMENT');
+    expect(sm.figures!.sections[0]!.rows).toEqual([
+      { label: `Stripe ${p.periodEnd} (unmatched)`, amountCents: 9_700 },
+    ]);
+    expect(sm.figures!.totals).toEqual({
+      grossCents: 10_000,
+      feesCents: 300,
+      netPayoutCents: 9_700,
+      unmatchedCount: 1,
+    });
+    const smV = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${sm.id}/generate`, people.staffA, {}),
+    );
+    expect(smV.figures).toMatchObject({ type: 'SETTLEMENT', lineCount: 1, source: 'LEDGER' });
   });
 });
 
 describe('Quarterly Review and Year to Date Summary from the ledger (BK-RPT, Nov 10)', () => {
   it('works out the days from the label or period, nets each month, generates versions, and firm B reaches none of it', async () => {
     const bk = await bkOf(clients.assigned);
+    await ledgerPnl(bk);
     const ws = exact(
       BookkeepingClientWorkspace,
       await call('get', `/clients/${bk}`, people.ownerA),
@@ -3641,6 +3700,128 @@ describe('Quarterly Review and Year to Date Summary from the ledger (BK-RPT, Nov
         await call('get', `/reports/${ytd.id}/versions`, people.staffA),
       ).items,
     ).toEqual([]);
+  });
+});
+
+describe('P&L source (Review 2, RP03)', () => {
+  it('waits for staff to choose, then uses only the chosen source: the entered figures or the ledger, never both', async () => {
+    const bk = await bkFor(clients.pnl);
+    const ws = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    expect(ws.pnlSource).toBeNull();
+    const A = { businessId: ids.firmA, engagementId: ws.engagementId };
+    const p = await mkPeriod(bk);
+    // The ledger has 400.00 of income in the period.
+    const account = await mkAccount(bk, { name: 'Fake pnl checking' });
+    const sales = await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingCategory.create({
+        data: { ...A, name: `Fake pnl Sales ${run}`, type: 'INCOME' },
+        select: { id: true },
+      }),
+    );
+    await asOwner(ids.firmA, (tx) =>
+      tx.bookkeepingTransaction.create({
+        data: {
+          ...A,
+          accountId: account.id,
+          transactionDate: new Date(`${p.periodStart}T00:00:00.000Z`),
+          description: 'Fake pnl sale',
+          amountCents: 40_000,
+          direction: 'CREDIT',
+          status: 'CATEGORIZED',
+          source: 'MANUAL',
+          categoryId: sales.id,
+        },
+      }),
+    );
+    const r = await mkReport(bk, { reportType: 'PROFIT_LOSS', periodId: p.id });
+    const ytd = await mkReport(bk, { reportType: 'YEAR_TO_DATE_SUMMARY', periodId: p.id });
+    const preview = async (id = r.id) =>
+      exact(BookkeepingReportPreview, await call('get', `/reports/${id}/preview`, people.staffA));
+    const set = async (pnlSource: string) =>
+      exact(
+        BookkeepingClientWorkspace,
+        await call('patch', `/clients/${bk}`, people.staffA, { pnlSource }),
+      );
+
+    // Not chosen: no P&L or summary, and no version.
+    const none = await preview();
+    expect(none).toMatchObject({ supported: false, figures: null });
+    expect(none.reason).toContain("Choose where this client's P&L comes from");
+    expect((await preview(ytd.id)).supported).toBe(false);
+    expectError(
+      await call('post', `/reports/${r.id}/generate`, people.staffA, {}),
+      409,
+      'PNL_SOURCE_NOT_SET',
+    );
+
+    // Entered in Firmivra: waits for the period's figures, then uses only them.
+    expect((await set('MANUAL')).pnlSource).toBe('MANUAL');
+    expectError(
+      await call('post', `/reports/${r.id}/generate`, people.staffA, {}),
+      409,
+      'PNL_FIGURES_MISSING',
+    );
+    exact(
+      BookkeepingPeriod,
+      await call('patch', `/periods/${p.id}`, people.staffA, {
+        incomeCents: 100_000,
+        expensesCents: 35_000,
+      }),
+    );
+    expect((await preview()).figures).toMatchObject({
+      source: 'MANUAL',
+      totals: { incomeCents: 100_000, expensesCents: 35_000, netIncomeCents: 65_000 },
+    });
+    expect((await preview(ytd.id)).figures).toMatchObject({
+      source: 'MANUAL',
+      totals: { incomeCents: 100_000, netIncomeCents: 65_000 },
+    });
+    const v1 = exact(
+      BookkeepingReportVersionRow,
+      await call('post', `/reports/${r.id}/generate`, people.staffA, {}),
+    );
+    expect(v1.figures.totals['netIncomeCents']).toBe(65_000);
+    const file = await call('get', `/reports/${r.id}/versions/1/csv`, people.staffA);
+    expect(file.text).toContain('Income and expenses entered in Firmivra');
+
+    // The connected software's ledger: only the ledger's lines; the entered figures are left out.
+    await set('ACCOUNTING_SOFTWARE');
+    expect((await preview()).figures).toMatchObject({
+      source: 'LEDGER',
+      totals: { incomeCents: 40_000, expensesCents: 0, netIncomeCents: 40_000 },
+    });
+    // The version made from the entered figures never changes.
+    expect(
+      exact(
+        BookkeepingReportVersionList,
+        await call('get', `/reports/${r.id}/versions`, people.staffA),
+      ).items[0]!.figures.totals['netIncomeCents'],
+    ).toBe(65_000);
+
+    // Each choice is in the client's bookkeeping Activity; nothing else is a source; firm B can't.
+    const after = exact(
+      BookkeepingClientWorkspace,
+      await call('get', `/clients/${bk}`, people.ownerA),
+    );
+    expect(after.recentActivity.map((a) => a.summary)).toEqual(
+      expect.arrayContaining([
+        'P&L source set to figures entered in Firmivra',
+        'P&L source set to the connected accounting software',
+      ]),
+    );
+    expectError(
+      await call('patch', `/clients/${bk}`, people.staffA, { pnlSource: 'BOTH' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('patch', `/clients/${bk}`, people.ownerB, { pnlSource: 'MANUAL' }, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
   });
 });
 

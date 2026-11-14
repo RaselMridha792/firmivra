@@ -28,6 +28,7 @@ import {
   TaxOpportunityEventList,
   TaxOpportunityPage,
   TaxPlanDetail,
+  TaxPlanEventList,
   TaxPlanPage,
   TaxPlanningOverview,
   TaxScenario,
@@ -1057,8 +1058,9 @@ describe('documents, status, versions and delivery', () => {
     expect(sent.status).toBe('AWAITING_CLIENT');
     expect((await plan(id)).status).toBe('AWAITING_CLIENT');
     const sentAudit = (await auditRows(id)).filter((r) => r.action === 'tax_plan.sent');
+    // C08 (Review 2): finalizing made it Finalized, so the send moved it on from there.
     expect(sentAudit.at(-1)?.metadata).toMatchObject({
-      from: 'IN_PROGRESS',
+      from: 'FINALIZED',
       to: 'AWAITING_CLIENT',
     });
     ok(await setStatus(id, 'IN_PROGRESS'));
@@ -1449,6 +1451,8 @@ describe('opportunities', () => {
       estimatedSavingsCents: 1,
     });
     expect(again.status).toBe('NEW');
+    // C11 (Review 2): a closed one reopens, but not beside another open one of its strategy.
+    expectError(await act(o.high, { action: 'REOPEN' }), 409, 'DUPLICATE_OPPORTUNITY');
 
     // The history, newest first, and what the audit log holds (ids, actions and statuses).
     const events = TaxOpportunityEventList.parse(
@@ -1562,6 +1566,111 @@ describe('opportunity reasoning (Review 2 C10)', () => {
       409,
       'INVALID_STATUS',
     );
+  });
+});
+
+describe('plan lifecycle (Review 2 C08, C11, C27)', () => {
+  const setStatus = async (pid: string, status: string) =>
+    call('post', `/plans/${pid}/status`, ownerA, await withEtag(pid, { status }));
+
+  it('finalizes to Finalized, revises and reopens with a reason, and keeps the history', async () => {
+    const p = await createPlan({ clientId: clients.c3, planYear: 2025, name: mark('Lifecycle') });
+    ok(
+      await call('post', `/plans/${p.id}/strategies`, ownerA, {
+        kind: 'CUSTOM',
+        name: mark('Custom strategy'),
+        category: 'DEDUCTIONS',
+      }),
+      201,
+    );
+    const finalized = TaxPlanDetail.parse(
+      ok(await call('post', `/plans/${p.id}/finalize`, ownerA, await withEtag(p.id))),
+    );
+    expect(finalized.status).toBe('FINALIZED');
+    expectError(
+      await call('post', `/plans/${p.id}/revise`, ownerA, await withEtag(p.id, { reason: ' ' })),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', `/plans/${p.id}/reopen`, ownerA, await withEtag(p.id, { reason: 'x' })),
+      409,
+      'INVALID_STATUS',
+    );
+    const revised = TaxPlanDetail.parse(
+      ok(
+        await call(
+          'post',
+          `/plans/${p.id}/revise`,
+          ownerA,
+          await withEtag(p.id, { reason: 'Client changed jobs (fake)' }),
+        ),
+      ),
+    );
+    expect(revised.status).toBe('IN_PROGRESS');
+
+    // Closed: read-only until Reopen, which needs the permission and a reason.
+    ok(await setStatus(p.id, 'CLOSED'));
+    const closed = await plan(p.id);
+    expect(closed).toMatchObject({ status: 'CLOSED', canEdit: false, canChangeStatus: true });
+    expectError(await changePlan(p.id, { notes: 'Changed (fake)' }), 409, 'INVALID_STATUS');
+    expectError(await setStatus(p.id, 'IN_PROGRESS'), 409, 'INVALID_STATUS');
+    expectError(
+      await call('post', `/plans/${p.id}/reopen`, preparerA, await withEtag(p.id, { reason: 'x' })),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('post', `/plans/${p.id}/reopen`, ownerB, { reason: 'x', etag: closed.etag }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    const reopened = TaxPlanDetail.parse(
+      ok(
+        await call(
+          'post',
+          `/plans/${p.id}/reopen`,
+          ownerA,
+          await withEtag(p.id, { reason: 'More to do (fake)' }),
+        ),
+      ),
+    );
+    expect(reopened).toMatchObject({ status: 'IN_PROGRESS', canEdit: true });
+
+    const history = TaxPlanEventList.parse(
+      ok(await call('get', `/plans/${p.id}/events`, ownerA)),
+    ).items;
+    expect(history.map((e) => e.kind)).toEqual(['REOPEN', 'STATUS', 'REVISE', 'FINALIZE']);
+    expect(history[0]).toMatchObject({
+      fromStatus: 'CLOSED',
+      toStatus: 'IN_PROGRESS',
+      reason: 'More to do (fake)',
+    });
+    expect(history[2]).toMatchObject({
+      fromStatus: 'FINALIZED',
+      reason: 'Client changed jobs (fake)',
+    });
+    expect(history[3]).toMatchObject({ toStatus: 'FINALIZED', version: 1 });
+    // The audit log has the statuses, never the reasons.
+    expect(JSON.stringify(await auditRows(p.id))).not.toContain('More to do');
+    expectError(
+      await call('get', `/plans/${p.id}/events`, ownerB, undefined, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('reopens a closed opportunity to Under Review, with its history', async () => {
+    const opp = await newOpp({ clientId: clients.c2, name: mark('Reopenable') });
+    await acted(opp.id, { action: 'START_REVIEW' });
+    await acted(opp.id, { action: 'CLOSE', note: 'Not now (fake)' });
+    const reopened = await acted(opp.id, { action: 'REOPEN', note: 'Client asked again (fake)' });
+    expect(reopened.status).toBe('UNDER_REVIEW');
+    const events = TaxOpportunityEventList.parse(
+      ok(await call('get', `/opportunities/${opp.id}/events`, ownerA)),
+    ).items;
+    expect(events[0]).toMatchObject({ fromStatus: 'CLOSED', toStatus: 'UNDER_REVIEW' });
+    expect(events.some((e) => e.toStatus === 'CLOSED')).toBe(true);
   });
 });
 

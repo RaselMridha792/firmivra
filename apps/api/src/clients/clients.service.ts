@@ -22,6 +22,7 @@ import type {
   CreateClientRequest,
   ExportClientsRequest,
   ListClientsQuery,
+  ClientSort,
   ListClientsResponse,
   UpdateClientProfileRequest,
   UpdateClientRequest,
@@ -111,6 +112,14 @@ export function likeEscape(term: string): string {
 export function encodeCursor(row: { createdAt: Date; id: string }): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
 }
+
+/** Clients Review 2 (G12): each order, with the id last so a page never repeats or skips a row. */
+const LIST_ORDER: Record<ClientSort, Prisma.ClientOrderByWithRelationInput[]> = {
+  NEWEST: [{ createdAt: 'desc' }, { id: 'desc' }],
+  OLDEST: [{ createdAt: 'asc' }, { id: 'asc' }],
+  NAME_ASC: [{ displayName: 'asc' }, { id: 'asc' }],
+  NAME_DESC: [{ displayName: 'desc' }, { id: 'desc' }],
+};
 
 export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
   const [at, id] = Buffer.from(cursor, 'base64url').toString().split('|');
@@ -413,7 +422,7 @@ export class ClientsService {
     const [rows, total] = await Promise.all([
       db.client.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: LIST_ORDER[q.sort ?? 'NEWEST'],
         ...(q.page ? { skip: (q.page - 1) * q.limit, take: q.limit } : { take: q.limit + 1 }),
         select: { ...listSelect, status: true },
       }),

@@ -8,6 +8,7 @@ import {
   FinalizePlanRequest,
   OpportunityActionRequest,
   UpdateTaxOpportunityRequest,
+  PlanReasonRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
   PlanningResourcesQuery,
@@ -90,6 +91,7 @@ export const OpportunitiesQuery = clean(TaxOpportunitiesQuery);
 export const CreateOpportunityBody = clean(CreateTaxOpportunityRequest);
 export const ActionBody = clean(OpportunityActionRequest);
 export const UpdateOpportunityBody = clean(UpdateTaxOpportunityRequest);
+export const PlanReasonBody = clean(PlanReasonRequest);
 export const ScreeningBody = clean(RunScreeningRequest);
 
 export const CalculateBody = clean(CalculateSavingsRequest);

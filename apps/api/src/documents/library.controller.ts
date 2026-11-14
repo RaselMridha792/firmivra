@@ -51,6 +51,7 @@ import {
   LibraryQ,
   ReorderFoldersBody,
   ReviewBody,
+  VisibilityBody,
   UpdateCategoryBody,
   UpdateDocumentBody,
   UpdateFolderBody,
@@ -129,6 +130,19 @@ export class DocumentLibraryController {
     @Body(new ZodValidationPipe(UpdateDocumentBody)) body: Out<typeof UpdateDocumentBody>,
   ): Promise<LibraryDocument> {
     return this.library.update(tenant, auth.userId, id, body);
+  }
+
+  /** C2-052: a firm file's client visibility (Staff: their own clients' files). */
+  @Post(':id/visibility')
+  @HttpCode(200)
+  @Access('DOCUMENTS', 'EDIT')
+  setVisibility(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(VisibilityBody)) body: Out<typeof VisibilityBody>,
+  ): Promise<LibraryDocument> {
+    return this.library.setVisibility(tenant, auth.userId, id, body.clientVisible);
   }
 
   @Post(':id/review')

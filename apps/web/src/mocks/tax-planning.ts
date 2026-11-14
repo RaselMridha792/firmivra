@@ -8,6 +8,8 @@ import {
   CreateTaxPlanRequest,
   FinalizePlanRequest,
   OpportunityActionRequest,
+  PlanReasonRequest,
+  type TaxPlanEvent,
   UpdateTaxOpportunityRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
@@ -503,6 +505,7 @@ export function createTaxPlanningMock({
       staleData: false,
       disclaimer: TAX_PLANNING_DISCLAIMER,
       canEdit: role !== 'STAFF',
+      canChangeStatus: role !== 'STAFF',
       canOverride: role !== 'STAFF',
       canSend: role !== 'STAFF',
       createdAt: at,
@@ -650,6 +653,28 @@ export function createTaxPlanningMock({
     if (!p) throw fail(404, 'NOT_FOUND', 'That plan was not found.');
     return p;
   };
+  /** C27: each plan's history, newest first (fake). */
+  const planEventsOf = new Map<string, TaxPlanEvent[]>();
+  const planEvent = (
+    p: TaxPlanDetail,
+    kind: TaxPlanEvent['kind'],
+    from: TaxPlanEvent['fromStatus'],
+    to: TaxPlanEvent['toStatus'],
+    reason: string | null,
+  ) =>
+    planEventsOf.set(p.id, [
+      {
+        id: id('d960'),
+        kind,
+        fromStatus: from,
+        toStatus: to,
+        version: p.version || null,
+        reason,
+        actor: mockMe,
+        createdAt: nowIso(),
+      },
+      ...(planEventsOf.get(p.id) ?? []),
+    ]);
   const editable = (p: TaxPlanDetail) => {
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
     if (p.archived) throw fail(409, 'PLAN_ARCHIVED', 'Restore the plan before changing it.');
@@ -677,13 +702,14 @@ export function createTaxPlanningMock({
       staleData: _sd,
       disclaimer: _di,
       canEdit: _ce,
+      canChangeStatus: _ch,
       canOverride: _co,
       canSend: _cs,
       createdAt: _ca,
       etag: _et,
       ...row
     } = strip(p as TaxPlanDetail & { _versions?: never }) as TaxPlanDetail;
-    void [_f, _e, _g, _o, _n, _c, _i, _s, _d, _ov, _sd, _di, _ce, _co, _cs, _ca, _et];
+    void [_f, _e, _g, _o, _n, _c, _i, _s, _d, _ov, _sd, _di, _ce, _ch, _co, _cs, _ca, _et];
     return row;
   };
   const clientRow = (c: (typeof refs)[number]): PlanningClientRow => {
@@ -1114,7 +1140,11 @@ export function createTaxPlanningMock({
         if (p.strategies.filter((s) => s.selected).length === 0)
           throw fail(409, 'PLAN_NOT_READY', 'Select at least one strategy before finalizing.');
         p.version += 1;
-        p.status = p.status === 'DRAFT' ? 'READY_FOR_REVIEW' : p.status;
+        // C08, C27: a finalized plan is Finalized in every view.
+        const before = p.status;
+        if (['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW'].includes(p.status))
+          p.status = 'FINALIZED';
+        planEvent(p, 'FINALIZE', before, p.status, null);
         p._versions.unshift({
           version: p.version,
           event: 'FINALIZED',
@@ -1153,10 +1183,48 @@ export function createTaxPlanningMock({
           createdAt: nowIso(),
         });
         // C09: a plan sent for the client's review is Awaiting Client Review.
-        if (['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW'].includes(p.status))
+        const sentFrom = p.status;
+        if (
+          ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW', 'FINALIZED'].includes(p.status)
+        )
           p.status = 'AWAITING_CLIENT';
+        planEvent(p, 'SEND', sentFrom, p.status, null);
         return strip(p);
       }),
+    // C27: Reopen (a Closed plan) and Revise (a Finalized, sent or Implemented one), with the
+    // reason in the plan's history.
+    reopenPlan: (pid, body) =>
+      run(() => {
+        const input = parseInput(PlanReasonRequest, body);
+        const p = findPlan(pid);
+        if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
+        conflict(p, input.etag);
+        if (p.status !== 'CLOSED')
+          throw fail(409, 'INVALID_STATUS', 'Only a closed plan is reopened.');
+        planEvent(p, 'REOPEN', p.status, 'IN_PROGRESS', input.reason);
+        p.status = 'IN_PROGRESS';
+        p.canEdit = true;
+        p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    revisePlan: (pid, body) =>
+      run(() => {
+        const input = parseInput(PlanReasonRequest, body);
+        const p = findPlan(pid);
+        if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
+        conflict(p, input.etag);
+        if (!['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'].includes(p.status))
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            'Only a finalized, sent or implemented plan is revised.',
+          );
+        planEvent(p, 'REVISE', p.status, 'IN_PROGRESS', input.reason);
+        p.status = 'IN_PROGRESS';
+        p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    planEvents: (pid) => run(() => [...(planEventsOf.get(findPlan(pid).id) ?? [])]),
     archivePlan: (pid) =>
       run(() => {
         manage();
@@ -1541,6 +1609,7 @@ export function createTaxPlanningMock({
             to('CLOSED');
             break;
           case 'REOPEN':
+            // C11: a Closed one reopens to Under Review too.
             if (OPEN.includes(from)) throw fail(409, 'INVALID_STATUS', 'It is already open.');
             to('UNDER_REVIEW');
             break;

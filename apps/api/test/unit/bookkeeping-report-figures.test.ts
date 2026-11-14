@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  enteredProfitAndLoss,
   type FigureLine,
   figuresCsv,
   reportFigures,
@@ -123,6 +124,28 @@ describe('reportFigures', () => {
     expect(none).toContain('"Data","Nothing is recorded for this period');
     expect(none).toContain('"Total","Net income",,,,');
     expect(none).not.toMatch(/"0\.00"/);
+  });
+
+  it('a P&L from entered figures uses only them and says so; the ledger one says it is the ledger (Review 2, RP03)', () => {
+    const f = enteredProfitAndLoss('CASH', [
+      { start: '2026-10-01', incomeCents: 100_000, expensesCents: 35_000 },
+      { start: '2026-11-01', incomeCents: 20_000, expensesCents: 5_000 },
+    ]);
+    expect(f).toMatchObject({
+      type: 'PROFIT_LOSS',
+      source: 'MANUAL',
+      lineCount: 2,
+      basisNote: null,
+      totals: {
+        incomeCents: 120_000,
+        costOfGoodsCents: 0,
+        expensesCents: 40_000,
+        netIncomeCents: 80_000,
+      },
+    });
+    expect(f.notes[0]).toContain('not added in');
+    expect(enteredProfitAndLoss('ACCRUAL', []).basisNote).toContain('as entered');
+    expect(reportFigures('PROFIT_LOSS', 'CASH', []).source).toBe('LEDGER');
   });
 
   it('names each total in words', () => {
