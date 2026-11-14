@@ -487,3 +487,21 @@ test('Review 2 (B7, B9): instructions per channel, the confirmation message and 
   await card.getByLabel('Email Reminder note').fill('Fake: bring your 1099s.');
   await expect(card.getByLabel('Email Reminder note')).toHaveValue('Fake: bring your 1099s.');
 });
+
+test('Review 2 (P3): Cancel says the client is told, and that they see the reason', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The scheduling mock's Pending appointment (Bruno Sandoval).
+  await page.goto(app('/calendar/0199c0b0-0a10-7000-8000-000000000003'));
+  await expect(page.getByTestId('detail-summary')).toContainText('Bruno Sandoval', {
+    timeout: 60_000,
+  });
+  await page.getByRole('button', { name: 'Cancel Appointment' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Cancel Appointment' });
+  await expect(dialog).toContainText('They are told');
+  await expect(dialog).toContainText('The client sees this in the cancellation email.');
+  await expect(dialog.getByLabel('Reason (optional)')).toBeEditable();
+  // The notice itself (a bell item and an email with the reason) is the API's: e2e
+  // `appointments` "tells the client's primary login about a booking, a new time and a cancel".
+});

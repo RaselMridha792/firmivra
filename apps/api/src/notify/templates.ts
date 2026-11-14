@@ -486,6 +486,32 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  // Appointments Review 2 (P3): the firm cancelled it. The reason is the one staff gave for the
+  // client (the Cancel dialog says so); internal notes never come here.
+  'appointment.cancelled': (d, b, o) => {
+    const firm = b.name;
+    const reason = field(d, 'reason');
+    const why = typeof reason === 'string' && reason.trim() ? reason.trim() : null;
+    return {
+      channel: 'email',
+      subject: `Your appointment with ${firm} is cancelled`,
+      blocks: [
+        hello(d),
+        text(`${firm} cancelled your appointment.`),
+        {
+          kind: 'facts',
+          rows: [
+            ['What', required(d, 'title')],
+            ['When', dateTime(d, 'startsAt', required(d, 'timeZone'))],
+          ],
+        },
+        ...(why ? [text(`Reason: ${why}`)] : []),
+        text('To book another time, open your appointments or contact the firm.'),
+        button('View appointments', link(d, 'link', o)),
+      ],
+    };
+  },
+
   'invoice.sent': (d, b, o) => {
     const firm = b.name;
     return {
