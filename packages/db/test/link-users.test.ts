@@ -200,9 +200,21 @@ describe('parseLinkClient', () => {
     ).toEqual(entry);
   });
 
+  it("takes Test Firm B's QA fixture client, whose account the link creates (Nov 14)", () => {
+    const b = {
+      sub: entry.sub,
+      firmSlug: 'test-firm-b',
+      accountEmail: 'qa-fixture-1@example.test',
+    };
+    expect(parseLinkClient(JSON.stringify(b))).toEqual({ ...b, createForClient: true });
+    expect(parse({ ...b, accountEmail: 'harper.coleman@demo.test' })).toThrow(
+      /seeded @example\.test/,
+    );
+  });
+
   it('refuses another firm, a real address and any other key', () => {
-    expect(parse({ ...entry, firmSlug: 'lvp' })).toThrow(/firmSlug must be demo/);
-    expect(parse({ ...entry, firmSlug: 'demo-north' })).toThrow(/firmSlug must be demo/);
+    expect(parse({ ...entry, firmSlug: 'lvp' })).toThrow(/firmSlug must be one of demo/);
+    expect(parse({ ...entry, firmSlug: 'demo-north' })).toThrow(/firmSlug must be one of demo/);
     expect(parse({ ...entry, accountEmail: 'someone@example.com' })).toThrow(/seeded @demo\.test/);
     expect(parse({ ...entry, name: 'Harper' })).toThrow(/not name/);
     expect(parse({ ...entry, sub: 'nope' })).toThrow(/sub must be a UUID/);
@@ -275,6 +287,47 @@ describe('linkClientAccount', () => {
     expect(await linkClientAccount(owner, { sub, firmSlug: slugs.a, accountEmail })).toMatchObject({
       changed: false,
     });
+  });
+
+  it("creates Test Firm B's portal account for its seeded client, once, and only there", async () => {
+    const clientEmail = `qa-fixture-${run}@example.test`;
+    const clientId = await runInScope(
+      owner,
+      { kind: 'business', businessId: firms.b },
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.b,
+              displayName: 'QA Fixture Client (fake)',
+              email: clientEmail,
+            },
+            select: { id: true },
+          })
+        ).id,
+    );
+    const sub = randomUUID();
+    const entry = { sub, firmSlug: slugs.b, accountEmail: clientEmail, createForClient: true };
+    const login = { email: `qa-client-${run}@dev.test`, name: 'QA Client (fake)' };
+    await expect(linkClientAccount(owner, entry)).rejects.toThrow(/email and name/);
+    const created = await linkClientAccount(owner, entry, login);
+    expect(created).toMatchObject({ businessId: firms.b, changed: true });
+    expect(
+      await db.forBusiness(firms.b).clientAccount.findUniqueOrThrow({
+        where: { id: created.clientAccountId },
+      }),
+    ).toMatchObject({ clientId, email: login.email, status: 'ACTIVE', portalRole: 'PRIMARY' });
+    expect(
+      await platform().user.findUniqueOrThrow({ where: { id: created.userId } }),
+    ).toMatchObject({ cognitoSub: sub, pool: 'CLIENT', email: login.email });
+    // Again: the account exists, so the usual link finds it and changes nothing.
+    expect(
+      await linkClientAccount(owner, { ...entry, accountEmail: login.email }, login),
+    ).toMatchObject({ clientAccountId: created.clientAccountId, changed: false });
+    // Firm A never gets an account it does not have.
+    await expect(
+      linkClientAccount(owner, { ...entry, sub: randomUUID(), firmSlug: slugs.a }, login),
+    ).rejects.toThrow(/has 0 clients with that email/);
   });
 
   it('refuses a missing firm, no matching account, and a sub that is already someone else', async () => {

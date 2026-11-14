@@ -19,6 +19,7 @@ import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { STAGES } from '../../clients/_components/list-parts';
 import { headerKey, RECENT_KEY } from './keys';
+import { PortalDocuments } from './documents-tab';
 import { PortalOverview } from './overview';
 
 /** Frame 1's tabs (developer instructions 4): views of the same active client. */
@@ -83,6 +84,8 @@ export function ClientPanel({
                 <div className="p-4">
                   {tab === 'overview' ? (
                     <PortalOverview clientId={clientId} onTab={onTab} />
+                  ) : tab === 'documents' ? (
+                    <PortalDocuments clientId={clientId} />
                   ) : (
                     <ModuleTab clientId={clientId} tab={tab} name={h.client.name} />
                   )}
@@ -176,7 +179,7 @@ function ModuleTab({
   name,
 }: {
   clientId: string;
-  tab: Exclude<PortalTabId, 'overview'>;
+  tab: Exclude<PortalTabId, 'overview' | 'documents'>;
   name: string;
 }) {
   const router = useRouter();
