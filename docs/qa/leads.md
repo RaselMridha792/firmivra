@@ -1,15 +1,15 @@
 # Leads: Review Two QA (R55)
 
-One line per row of the Leads Review Two table (Octavia, Nov 8; 46 rows): **PASS** with the merged PR(s) and the automated test that covers it; **PASS (manual)** when the change is merged but only checked by hand; **GAP** with why. API e2e tests are in `apps/api/test/e2e/`, mock specs in `apps/web/e2e/mock/`, and the tenant-isolation cases in `apps/api/test/isolation/cases/leads.ts`.
+One line per row of the Leads Review Two table (Octavia, Nov 8; 46 rows): **PASS** with the merged PR(s) and the automated test that covers it; **PASS (manual)** when the change is merged but only checked by hand; **GAP** with why. R2 16 and R2 18 moved to R55 on Nov 14 and are in progress. API e2e tests are in `apps/api/test/e2e/`, mock specs in `apps/web/e2e/mock/`, and the tenant-isolation cases in `apps/api/test/isolation/cases/leads.ts`.
 
 Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-review-two.e2e`, LRT `leads-routing.e2e`, LSQ `leads-sequences.e2e`, LFU `lead-follow-ups.e2e`, LC `lead-campaigns.e2e`, LBC `leads-bulk-convert.e2e`, LE `lead-email.e2e`, BO `begin-online.e2e`.
 
 | Row | Status | PR(s) | Test |
 | --- | --- | --- | --- |
-| 14 setup | GAP | #762, #1412 | `r56-communications.spec` (send a test). Needs a connected email/SMS channel; dev SMS is log-only until the toll-free number is registered. |
+| 14 setup | Email: PASS on dev; SMS: pending carrier registration | #762, #1412 | `r56-communications.spec` (send a test). Dev email delivers to any address (SES production access); SMS goes to the log until the toll-free number is registered. |
 | 14 test | PASS | #1059, #1070 | LC: Add to Campaign puts the leads in the audience and sends nothing; `r55-create-campaign.spec` |
 | 20 | PASS | #1078 | LP: Staff and a Manager get 403 on delete and restore; Owner and Admin may |
-| 24 | GAP | #1089, #1082, #1113 | BO: starts a draft. The Begin Online link is the only website capture; no embed, widget, inbound API or webhook yet. |
+| 24 | Covered by ACCESS-02 once it lands | #1089, #1082, #1113 | BO: starts a draft. Today the Begin Online link captures website leads; the intake share link and embed (ACCESS-02, R55) add a public form on the firm's own site. |
 | 1 | PASS | #586, #769, #1035 | LP: counts the six cards; `r55-leads-overdue.spec` |
 | 2 | PASS | #1035 | `r55-leads-overdue.spec`; `r55-lead-overview.spec` (an overdue follow-up is red) |
 | 3 | PASS | #586, #769, #1098, #1107 | LP: creates leads in several stages; `r55-lead-create.spec` |
@@ -18,7 +18,7 @@ Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-
 | 6 | PASS | #772, #687 | LPT: adds and lists notes; `r56-lead-tabs.spec` (Activity) |
 | 7 | PASS (manual) | #586, #772 | LPT: logs a call. No calling integration: the call opens the phone and the outcome is logged by hand. |
 | 8 | PASS | #1042, #1044, #1049 | LE: sends the cleaned HTML; `r55-lead-email.spec` |
-| 9 | GAP | #1032 | `r55-lead-sms.spec`; LP: sends through NotifyService. Real phone delivery needs the registered SMS number (dev is log-only, #1412). |
+| 9 | Email: PASS on dev; SMS: pending carrier registration | #1032 | `r55-lead-sms.spec`; LP: sends through NotifyService. Texts reach phones once the toll-free number is registered (dev logs them, #1412). |
 | 10 | PASS | #769, #586 | LP: assigns, changes the stage and adds tags; LP: Staff see only their leads |
 | 11 | PASS | #769, #586, #1377 | LP: closes the follow-up with a closed stage; LR2: R2 7 |
 | 12 | PASS | #1048, #1050, #1058 | `r55-tags.spec`; `tags.e2e` |
