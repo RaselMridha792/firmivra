@@ -57,6 +57,7 @@ export const DASHBOARD_CARD_STATUS_LABELS: Record<DashboardCardStatusKey, string
   'tax:TRANSMITTED': 'Transmitted',
   'tax:ACCEPTED': 'Accepted',
   'tax:REJECTED': 'Rejected',
+  'tax:IN_CORRECTION': 'In Correction',
   'tax:CLOSED': 'Closed',
 };
 

@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { SaveIntakeShareRequest } from '@firmivra/types';
 import type {
+  IntakeShare,
   IntakeFormDetail,
   IntakeFormLibrarySummary,
   IntakeFormList,
@@ -94,6 +96,27 @@ export class IntakeFormsController {
     @Body(new ZodValidationPipe(SaveExistingFormBody)) body: Out<typeof SaveExistingFormBody>,
   ): Promise<IntakeFormDetail> {
     return this.builder.save(tenant, auth.userId, id, body);
+  }
+
+  /** INTAKE-ACCESS-02: the form's share link, website button and Publish in client portal. */
+  @Get(':id/share')
+  share(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+  ): Promise<IntakeShare> {
+    return this.library.share(tenant, id);
+  }
+
+  /** Owner and Admin: sharing on or off, and Publish in client portal (409 NOT_SHAREABLE). */
+  @Put(':id/share')
+  @Roles(...FIRM_MANAGERS)
+  saveShare(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', formIdPipe) id: string,
+    @Body(new ZodValidationPipe(SaveIntakeShareRequest))
+    body: z.output<typeof SaveIntakeShareRequest>,
+  ): Promise<IntakeShare> {
+    return this.library.saveShare(tenant, id, body);
   }
 
   @Post(':id/publish')

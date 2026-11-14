@@ -97,6 +97,7 @@ import {
   createAdvisoryClient,
   createIntegrationsClient,
   createTaxPlanningClient,
+  createProjectDeadlinesClient,
   createCommunicationsClient,
   createTaxReturnsClient,
   createTaxReturnWorkspaceClient,
@@ -193,6 +194,7 @@ import { createReportsMock } from '../mocks/reports';
 import { createTaskWorkMock } from '../mocks/tasks-work';
 import { createTaxReturnWorkspaceMock } from '../mocks/tax-return-workspace';
 import { createTaxPlanningMock } from '../mocks/tax-planning';
+import { createProjectDeadlinesMock } from '../mocks/project-deadlines';
 import { createAdvisoryMock } from '../mocks/business-advisory';
 import { createCommunicationsMock } from '../mocks/communications';
 import { createTemplatesMock } from '../mocks/templates';
@@ -551,6 +553,11 @@ export const api = {
     dev && mocked('taxPlanning')
       ? createTaxPlanningMock({ role: MOCK_ROLE, empty: mockedEmpty('taxPlanning') })
       : createTaxPlanningClient(request),
+  /** Tax Planning Review 2: the member's own Project Deadlines and the ones shared with them. */
+  projectDeadlines:
+    dev && mocked('projectDeadlines')
+      ? createProjectDeadlinesMock({ role: MOCK_ROLE, empty: mockedEmpty('projectDeadlines') })
+      : createProjectDeadlinesClient(request),
   /**
    * Communications (R55): overview, the composer for email, text and announcements, recipients
    * and segments, review and send, results and consent. Mock: NEXT_PUBLIC_API_MOCK=communications

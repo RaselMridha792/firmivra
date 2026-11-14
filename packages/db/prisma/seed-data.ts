@@ -64,6 +64,21 @@ export const SEED_TAX_STATUSES = {
   testFirmB: ['Received', 'Filed'],
 } as const;
 
+/** TX-F36: the workflow status each seeded label maps to (as the migration's backfill). */
+export const SEED_TAX_STATUS_MAP: Readonly<
+  Record<
+    string,
+    'WAITING_ON_CLIENT' | 'IN_PREPARATION' | 'READY_FOR_REVIEW' | 'TRANSMITTED' | 'ACCEPTED'
+  >
+> = {
+  'Waiting for documents': 'WAITING_ON_CLIENT',
+  'Documents received': 'IN_PREPARATION',
+  'In preparation': 'IN_PREPARATION',
+  'Ready for review': 'READY_FOR_REVIEW',
+  Filed: 'TRANSMITTED',
+  Accepted: 'ACCEPTED',
+};
+
 /** Fixed id so re-seeding keeps a single open invite for lvpInvited. */
 export const SEED_INVITE_ID = '00000000-0000-4000-b000-000000000001';
 /** Fixed id of the activation link Firmivra sent LVP's owner on approval (accepted). */

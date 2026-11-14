@@ -40,6 +40,8 @@ export const STATUS_LABEL: Record<TaxReturnWorkflowStatus, string> = {
   TRANSMITTED: 'Transmitted',
   ACCEPTED: 'Accepted',
   REJECTED: 'Rejected',
+  // Review 2: the preparer correcting a rejected return, before Ready for Review.
+  IN_CORRECTION: 'In Correction',
   CLOSED: 'Closed',
 };
 export const STATUS_ORDER = Object.keys(STATUS_LABEL) as TaxReturnWorkflowStatus[];
@@ -56,6 +58,7 @@ const STATUS_BADGE: Record<
   TRANSMITTED: { tone: 'neutral', icon: PaperPlaneTilt },
   ACCEPTED: { tone: 'success', icon: CheckCircle },
   REJECTED: { tone: 'danger', icon: XCircle },
+  IN_CORRECTION: { tone: 'warning' },
   CLOSED: { tone: 'neutral', icon: CheckCircle },
 };
 export function StatusBadge({ status }: { status: TaxReturnWorkflowStatus }) {
@@ -85,6 +88,7 @@ export const STATUS_CHART: Record<TaxReturnWorkflowStatus, ChartTone> = {
   IN_PREPARATION: 'yellow',
   WAITING_ON_CLIENT: 'purple',
   REJECTED: 'red',
+  IN_CORRECTION: 'yellow',
 };
 
 export const TABS: { id: TaxReturnTab; label: string }[] = [

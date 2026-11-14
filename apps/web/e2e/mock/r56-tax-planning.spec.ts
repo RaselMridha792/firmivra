@@ -13,9 +13,10 @@ test('Overview: four KPIs, quick actions, recent clients, top opportunities, dea
     page.getByRole('heading', { name: 'Tax Planning & Strategy', level: 1 }),
   ).toBeVisible();
   await expect(page.getByTestId('tp-kpis').getByRole('listitem')).toHaveCount(4);
+  // Eight tabs: Project Deadlines joined beside Reports (Tax Planning Review 2).
   await expect(
     page.getByRole('tablist', { name: 'Tax planning views' }).getByRole('tab'),
-  ).toHaveCount(7);
+  ).toHaveCount(8);
   await expect(page.getByTestId('quick-actions').getByRole('link')).toHaveCount(4);
   await expect(page.getByTestId('recent-clients').getByTestId('client-link')).toHaveCount(5);
   await expect(

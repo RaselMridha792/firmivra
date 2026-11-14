@@ -29,10 +29,11 @@ export const PublicLink = z.object({
   /** `{PORTAL_BASE_URL}/{firmSlug}/{segment}/{itemId}` (`publicItemUrl`). */
   url: z.url(),
   /**
-   * The code for the firm's website: an iframe of the same page (`publicEmbedCode`), or for an
-   * appointment type a styled button that opens it (`publicButtonCode`). Booking needs the
-   * client's portal sign-in, and browsers keep the portal's sign-in cookies out of another
-   * site's frame, so a framed booking page could never sign anyone in.
+   * The code for the firm's website: a styled button that opens the link in a new tab
+   * (`publicButtonCode`; `publicEmbedCode` is the same with the default colour). No iframe is
+   * offered: CloudFront's security headers send X-Frame-Options SAMEORIGIN, so another site
+   * can't show the portal in a frame (an inline embed comes back once framing is enabled), and
+   * browsers keep the portal's sign-in cookies out of another site's frame anyway.
    */
   embedCode: z.string(),
   state: PublicLinkState,
@@ -60,18 +61,6 @@ export function publicItemUrl(
 /** Text for an HTML attribute value. */
 const attribute = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-/** The height the embedded page is drawn at; the firm can change it in the pasted code. */
-export const PUBLIC_EMBED_HEIGHT = 760;
-
-/**
- * The embed code for a public page: an iframe of `url` in its embed layout (`?embed=1`, no
- * portal header), full width, titled for screen readers with the item's name.
- */
-export function publicEmbedCode(url: string, title: string): string {
-  const src = `${url}${url.includes('?') ? '&' : '?'}embed=1`;
-  return `<iframe src="${attribute(src)}" title="${attribute(title)}" width="100%" height="${PUBLIC_EMBED_HEIGHT}" style="border:0;max-width:100%" loading="lazy"></iframe>`;
-}
 
 /** The embed button's colour when the firm sets none: the portal's default navy. */
 export const PUBLIC_BUTTON_COLOR = '#1F3A6B';
@@ -107,4 +96,13 @@ export function publicButtonCode(url: string, label: string, color?: string | nu
     'text-decoration:none',
   ].join(';');
   return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${attribute(style)}">${attribute(label)}</a>`;
+}
+
+/**
+ * The website code of a public page that a frame can't show (every public page today: see
+ * `PublicLink.embedCode`): `publicButtonCode` in the portal's default colour, labelled with the
+ * item's name. INTAKE-ACCESS-02 replaced its iframe; the iframe returns with framing enabled.
+ */
+export function publicEmbedCode(url: string, title: string): string {
+  return publicButtonCode(url, title);
 }

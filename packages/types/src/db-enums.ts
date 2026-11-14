@@ -1748,7 +1748,10 @@ export type DocumentRequestPacketStatus = z.infer<typeof DocumentRequestPacketSt
 export const DocumentShareRecipient = z.enum(['CLIENT', 'MEMBER']);
 export type DocumentShareRecipient = z.infer<typeof DocumentShareRecipient>;
 
-/** Where a return is in the firm's own workflow (Tax Returns list and workspace). The client sees the five-value TaxReturnStatus, which the database derives from this. */
+/** Where a return is in the firm's own workflow (Tax Returns list and workspace). The client sees the five-value TaxReturnStatus, which the database derives from this. Tax Returns Review 2: how a firm keeps a return's amounts (business_settings). */
+export const TaxAmountRounding = z.enum(['EXACT', 'ROUND_TO_DOLLAR']);
+export type TaxAmountRounding = z.infer<typeof TaxAmountRounding>;
+
 export const TaxReturnWorkflowStatus = z.enum([
   'IN_PREPARATION',
   'WAITING_ON_CLIENT',
@@ -1758,6 +1761,7 @@ export const TaxReturnWorkflowStatus = z.enum([
   'TRANSMITTED',
   'ACCEPTED',
   'REJECTED',
+  'IN_CORRECTION',
   'CLOSED',
 ]);
 export type TaxReturnWorkflowStatus = z.infer<typeof TaxReturnWorkflowStatus>;

@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  GoneException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Database, Prisma, ScopedClient, TxClient } from '@firmivra/db';
 import {
@@ -11,6 +19,7 @@ import {
   beginOnlinePrefill,
   checkIntakeAnswers,
   INTAKE_FORMS,
+  INTAKE_LINK_ERRORS,
   INTAKE_UPLOAD_STATUS,
   IntakeFormDefinition,
   IntakeFormKey,
@@ -20,6 +29,7 @@ import {
   type SavedIntakeStep,
   type ScanStatus,
   type StartBeginDraftRequest,
+  type StartShareDraftRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { beginOnlineService } from '../agreements/agreements.service.js';
@@ -38,6 +48,7 @@ import {
   DraftCookies,
   draftErrors,
   formOfPath,
+  hashToken,
   holdDraft,
   notLive,
   renewDraft,
@@ -61,6 +72,8 @@ const nameOf = (error: unknown) => (error instanceof Error ? error.name : typeof
  */
 export const DRAFT_START_LIMITS = { perFirm: 500, perNetwork: 50, windowMs: 24 * 60 * 60_000 };
 const STARTED = 'begin_online.draft_started';
+/** INTAKE-ACCESS-02: starts a shared form takes an hour, at most (its link is public). */
+export const SHARE_STARTS_PER_HOUR = 60;
 
 /** A lead upload row, as the draft's files are read. */
 export interface LeadFile {
@@ -188,10 +201,106 @@ export class BeginOnlineService {
   ): Promise<BeginDraft> {
     const form = formOfPath(path);
     const firm = await this.firm(slug);
-    const businessId = firm.id;
-    const db = this.database.forBusiness(businessId);
-    const service = await this.liveService(businessId, form);
+    const db = this.database.forBusiness(firm.id);
+    const service = await this.liveService(firm.id, form);
     const newest = await this.newestForm(db, service);
+    return this.begin(firm, form, service, newest, body, res, null);
+  }
+
+  /**
+   * INTAKE-ACCESS-02: a shared form by its link's token (only its SHA-256 is stored), before a
+   * draft exists. 410 LINK_INVALID for an unknown link, sharing off, a draft or archived form, or
+   * an archived or inactive service: one answer for each.
+   */
+  async shareForm(slug: string, token: string): Promise<BeginOnlineForm> {
+    const firm = await this.firm(slug);
+    const shared = await this.shared(firm, token);
+    return {
+      form: shared.form,
+      version: shared.newest.version,
+      title: shared.newest.definition.title,
+      definition: shared.newest.definition,
+      taxYear: currentTaxYear(),
+      maxFileSizeMb: await this.fileSizeMb(firm.id),
+    };
+  }
+
+  /**
+   * Starts this browser's draft of a shared form: a lead (source Website Form; routed when it is
+   * sent, as every Begin Online lead) with that form's live version, then the draft of its kind
+   * (the same cookie as `start`) goes on through the draft routes. A value in the hidden `website`
+   * field (a honeypot) is refused; past the start limits, or the form's hourly cap, 429.
+   */
+  async startShare(
+    slug: string,
+    token: string,
+    body: z.output<typeof StartShareDraftRequest>,
+    res: Response,
+  ): Promise<BeginDraft> {
+    const firm = await this.firm(slug);
+    if (body.website?.trim()) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Check the highlighted answers',
+      });
+    }
+    const shared = await this.shared(firm, token);
+    const { website: _honeypot, ...contact } = body;
+    return this.begin(firm, shared.form, shared.service, shared.newest, contact, res, {
+      templateId: shared.templateId,
+    });
+  }
+
+  /** The shared form behind a token at this firm, or 410 LINK_INVALID. */
+  private async shared(firm: Firm, token: string) {
+    const invalid = () =>
+      new GoneException({ code: 'LINK_INVALID', message: INTAKE_LINK_ERRORS.LINK_INVALID });
+    const t = await this.database.forBusiness(firm.id).intakeTemplate.findFirst({
+      where: { businessId: firm.id, shareTokenHash: hashToken(token), archivedAt: null },
+      select: {
+        id: true,
+        service: {
+          select: { id: true, name: true, kind: true, status: true, archivedAt: true },
+        },
+        forms: {
+          where: { status: 'PUBLISHED' },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { id: true, version: true, definition: true },
+        },
+      },
+    });
+    const kind = IntakeFormKey.safeParse(t?.service.kind);
+    const live = t?.forms[0];
+    if (!t || !kind.success || !live || t.service.archivedAt || t.service.status !== 'ACTIVE') {
+      throw invalid();
+    }
+    return {
+      templateId: t.id,
+      form: kind.data,
+      service: { id: t.service.id, name: t.service.name, kind: kind.data },
+      newest: {
+        formId: live.id as string | null,
+        version: live.version,
+        definition: readDefinition(live.definition, kind.data, live.version),
+      },
+    };
+  }
+
+  /**
+   * A new draft of `newest` for the service, as `start` and `startShare` make it. `share`: the
+   * shared form it starts from (its version exactly, source Website Form, and its hourly cap).
+   */
+  private async begin(
+    firm: Firm,
+    form: IntakeFormKey,
+    service: { id: string; name: string; kind: IntakeFormKey },
+    newest: { formId: string | null; version: number; definition: IntakeFormDefinition },
+    body: z.output<typeof StartBeginDraftRequest>,
+    res: Response,
+    share: { templateId: string } | null,
+  ): Promise<BeginDraft> {
+    const businessId = firm.id;
     const { definition } = newest;
     const contact: BeginContact = {
       firstName: body.firstName,
@@ -211,6 +320,7 @@ export class BeginOnlineService {
     const net = networkOf(requestContext.getStore()?.ip);
     const lead = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       await this.checkStartLimits(tx, businessId, net);
+      if (share) await this.checkShareLimit(tx, share.templateId);
       if (newest.formId === null) {
         // The built-in form becomes the firm's version 1 (a parallel start inserts nothing).
         await tx.intakeForm.createMany({
@@ -229,7 +339,10 @@ export class BeginOnlineService {
         });
       }
       const stored = await tx.intakeForm.findFirst({
-        where: { serviceId: service.id, status: 'PUBLISHED' },
+        // A shared form starts its own live version; Begin Online the service's newest.
+        where: share
+          ? { id: newest.formId ?? undefined, status: 'PUBLISHED' }
+          : { serviceId: service.id, status: 'PUBLISHED' },
         orderBy: { version: 'desc' },
         select: { id: true, version: true },
       });
@@ -239,8 +352,9 @@ export class BeginOnlineService {
         data: {
           id: ids.lead,
           businessId,
-          // The firm's website link: Leads shows and filters it as Begin Online (L13).
-          source: 'BEGIN_ONLINE',
+          // The firm's website link: Leads shows and filters it as Begin Online (L13); a shared
+          // form's link as Website Form (INTAKE-ACCESS-02).
+          source: share ? 'WEBSITE_FORM' : 'BEGIN_ONLINE',
           serviceId: service.id,
           firstName: contact.firstName,
           lastName: contact.lastName,
@@ -274,7 +388,13 @@ export class BeginOnlineService {
         tx,
         STARTED,
         { type: 'lead', id: ids.lead },
-        { serviceId: service.id, form, formVersion: newest.version, net },
+        {
+          serviceId: service.id,
+          form,
+          formVersion: newest.version,
+          net,
+          ...(share ? { templateId: share.templateId } : {}),
+        },
         { businessId },
       );
       return { draftExpiresAt: row.draftExpiresAt, updatedAt: row.updatedAt };
@@ -295,6 +415,30 @@ export class BeginOnlineService {
       submission: { id: ids.submission, answers: toStore, savedSteps: [] },
       uploads: [],
     });
+  }
+
+  /**
+   * A shared form's own cap (INTAKE-ACCESS-02): at most SHARE_STARTS_PER_HOUR starts an hour, so
+   * one public link can't fill the firm's Leads; 429 RATE_LIMITED past it. Under the start lock.
+   */
+  private async checkShareLimit(tx: TxClient, templateId: string): Promise<void> {
+    const since = new Date(Date.now() - 3_600_000);
+    const count = await tx.auditLog.count({
+      where: {
+        action: STARTED,
+        createdAt: { gt: since },
+        metadata: { path: ['templateId'], equals: templateId },
+      },
+    });
+    if (count < SHARE_STARTS_PER_HOUR) return;
+    throw new HttpException(
+      {
+        code: 'RATE_LIMITED',
+        message: 'Too many forms were started. Please try again later.',
+        retryAfter: 3600,
+      },
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 
   /**
