@@ -23,6 +23,7 @@ import {
   Files,
   FileText,
   GearSix,
+  Globe,
   House,
   IdentificationCard,
   Notepad,
@@ -57,7 +58,6 @@ import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
 import { COMPANY } from '../../../lib/company';
 import { portalAuth } from '../../../lib/auth';
-import { findModule, moduleHref } from '../../../lib/firm-modules';
 import { useApiQuery } from '../../../lib/query';
 import { applyFirmTheme } from '../../../lib/theme';
 import { claimCache } from '../../../lib/session';
@@ -77,13 +77,6 @@ const link = (label: string, glyph: Icon, href: string, managers?: true) => ({
   href,
   ...(managers && { managers }),
 });
-// A module that is not built opens the shared module page (src/lib/firm-modules.ts).
-const mod = (slug: string): MenuItem => {
-  const m = findModule(slug);
-  if (!m) throw new Error(`Unknown module: ${slug}`);
-  return link(m.label, m.icon, moduleHref(slug));
-};
-
 /**
  * Octavia's order (docs/mockups/firm-workspace/dashboard); the extras keep their place. Clients is
  * a group of Overview, Sign-ups and Documents, as her Client Sign-ups design of Oct 25 draws it.
@@ -102,7 +95,7 @@ const items: MenuItem[] = [
   link('Leads', Target, '/leads'),
   link('Appointments', CalendarDots, '/calendar'),
   link('Intake Forms', FileText, '/intake-forms'),
-  mod('client-portal'),
+  link('Client Portal', Globe, '/client-portal'),
   link('Tax Returns', IdentificationCard, '/tax-returns'),
   link('Bookkeeping', Calculator, '/bookkeeping'),
   link('Payroll', CurrencyDollar, '/payroll'),
