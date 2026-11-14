@@ -153,10 +153,11 @@ describe('the security policy mapping', () => {
 
   it('lists the changed fields with old and new values', () => {
     const after = structuredClone(ADMIN_SECURITY_DEFAULTS);
-    after.password.minLength = 14;
+    after.password.minLength = 16;
     after.ip.allowList = ['203.0.113.7'];
     expect(diffOf(ADMIN_SECURITY_DEFAULTS, after)).toEqual({
-      'password.minLength': { from: 12, to: 14 },
+      // SEC-2: the default minimum is 15.
+      'password.minLength': { from: 15, to: 16 },
       'ip.allowList': { changed: true, count: 1 },
     });
   });
