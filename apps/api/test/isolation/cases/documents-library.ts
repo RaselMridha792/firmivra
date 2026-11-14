@@ -48,6 +48,11 @@ export const cases: CaseModule['cases'] = {
     body: { action: 'START' },
   },
   'POST /api/v1/business/documents/:id/archive': { params: { id: 'document' } },
+  // C2-052: a firm file's client visibility (firm P's file is already shared: 200, no change).
+  'POST /api/v1/business/documents/:id/visibility': {
+    params: { id: 'document' },
+    body: { clientVisible: true },
+  },
   'POST /api/v1/business/documents/:id/restore': { params: { id: 'document' } },
   'POST /api/v1/business/documents/:id/trash': { params: { id: 'document' } },
   'POST /api/v1/business/documents/:id/untrash': { params: { id: 'document' } },

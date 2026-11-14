@@ -552,17 +552,22 @@ export function OpportunityQueue() {
   const [group, setGroup] = useState<'open' | 'closed' | ''>('open');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  // C03 (Review 2): the Clients menu's Opportunities opens the queue on that client.
+  const clientId = useSearchParams().get('clientId') ?? '';
   const term = useDeferredValue(search.trim());
-  const q = useApiQuery([...TP_KEY, 'opps', term, status, category, priority, group, page], () =>
-    api.taxPlanning.opportunities({
-      ...(term ? { search: term } : {}),
-      ...(status ? { status: status as never } : {}),
-      ...(category ? { category: category as never } : {}),
-      ...(priority ? { priority: priority as never } : {}),
-      ...(group ? { group } : {}),
-      page,
-      pageSize: 10,
-    }),
+  const q = useApiQuery(
+    [...TP_KEY, 'opps', term, status, category, priority, group, clientId, page],
+    () =>
+      api.taxPlanning.opportunities({
+        ...(clientId ? { clientId } : {}),
+        ...(term ? { search: term } : {}),
+        ...(status ? { status: status as never } : {}),
+        ...(category ? { category: category as never } : {}),
+        ...(priority ? { priority: priority as never } : {}),
+        ...(group ? { group } : {}),
+        page,
+        pageSize: 10,
+      }),
   );
   const cols: Column<TaxOpportunityRow>[] = [
     {
@@ -630,6 +635,8 @@ export function OpportunityQueue() {
               value={group}
               onChange={(e) => {
                 setGroup(e.target.value as never);
+                // C11 (Review 2): a group and a status of the other group would list nothing.
+                setStatus('');
                 setPage(1);
               }}
               options={[
@@ -646,6 +653,8 @@ export function OpportunityQueue() {
               value={status}
               onChange={(e) => {
                 setStatus(e.target.value);
+                // C11 (Review 2): a status picks its own group (Closed is found under Closed).
+                if (e.target.value) setGroup('');
                 setPage(1);
               }}
               options={[

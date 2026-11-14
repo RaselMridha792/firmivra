@@ -41,8 +41,10 @@ import {
   TaxOpportunityId,
   TaxOpportunityPage,
   TaxPlanDetail,
+  TaxPlanEventList,
   UpdateTaxOpportunityRequest,
   TaxPlanId,
+  PlanReasonRequest,
   TaxPlanPage,
   TaxPlanningOverview,
   TaxPlansQuery,
@@ -149,6 +151,15 @@ export function createTaxPlanningClient(request: ApiRequest) {
     /** Delivers the client-facing plan and keeps a SENT snapshot. 409 PLAN_NOT_READY. */
     send: async (id: string, body: SendPlanRequest): Promise<TaxPlanDetail> =>
       request(TaxPlanDetail, `${plan(id)}/send`, post(parseInput(SendPlanRequest, body))),
+    /** C27: a Closed plan back to In Progress, with the reason. 409 INVALID_STATUS. */
+    reopenPlan: async (id: string, body: PlanReasonRequest): Promise<TaxPlanDetail> =>
+      request(TaxPlanDetail, `${plan(id)}/reopen`, post(parseInput(PlanReasonRequest, body))),
+    /** C27: a Finalized, sent or Implemented plan back to In Progress, with the reason. */
+    revisePlan: async (id: string, body: PlanReasonRequest): Promise<TaxPlanDetail> =>
+      request(TaxPlanDetail, `${plan(id)}/revise`, post(parseInput(PlanReasonRequest, body))),
+    /** C27: the plan's history, newest first. */
+    planEvents: async (id: string): Promise<TaxPlanEventList['items']> =>
+      (await request(TaxPlanEventList, `${plan(id)}/events`)).items,
     archivePlan: async (id: string): Promise<TaxPlanDetail> =>
       request(TaxPlanDetail, `${plan(id)}/archive`, post()),
     restorePlan: async (id: string): Promise<TaxPlanDetail> =>

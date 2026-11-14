@@ -23,6 +23,8 @@ export class ApiRequestError extends Error {
     readonly retryAfter?: number,
     /** The body's `details` when they are `{ path, message }` lines: what is wrong or missing. */
     readonly details?: ApiErrorDetail[],
+    /** The body's `details` as sent, whatever their shape (e.g. DUPLICATE_PHONE's matches). */
+    readonly rawDetails?: unknown,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -164,6 +166,7 @@ export function createRequest(options: ApiClientOptions) {
         e?.requestId,
         retryAfterSeconds(res.headers.get('retry-after')),
         details.success ? details.data : undefined,
+        e?.details,
       );
     }
     return schema.parse(json);

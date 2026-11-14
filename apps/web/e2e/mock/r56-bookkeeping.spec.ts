@@ -22,7 +22,7 @@ test('Overview: five KPIs, the two charts, software, tabs and the client list', 
   await expect(page.getByTestId('status-chart')).toContainText('Clients');
   await expect(page.getByTestId('monthly-chart')).toContainText('Monthly Income vs. Expenses');
   await expect(page.getByTestId('software')).toContainText('QuickBooks Online');
-  await expect(page.getByRole('tablist', { name: 'Client views' }).getByRole('tab')).toHaveCount(7);
+  await expect(page.getByRole('tablist', { name: 'Client views' }).getByRole('tab')).toHaveCount(8);
   await expect(page.getByTestId('bk-clients').getByTestId('bk-link')).toHaveCount(8);
   await expect(page.getByRole('link', { name: 'View Reports' })).toBeVisible();
 });
@@ -60,9 +60,15 @@ test('Actions menu: update the status, log an activity, pause and resume', async
   await expect(page.getByText('Activity logged.')).toBeVisible();
   await page.getByRole('button', { name: 'Actions for Walker Properties' }).click();
   await page.getByRole('menuitem', { name: 'Pause Bookkeeping Service' }).click();
-  await page.getByRole('dialog').getByLabel('Reason').fill('Seasonal pause');
-  await page.getByRole('dialog').getByRole('button', { name: 'Pause' }).click();
-  await expect(page.getByText('Paused.')).toBeVisible();
+  const pause = page.getByRole('dialog', { name: 'Service & Billing' });
+  await pause.getByLabel('Reason for pausing the service').fill('Seasonal pause');
+  await expect(pause.getByRole('region', { name: 'What will happen' })).toContainText(
+    'Billing is not changed.',
+  );
+  await expect(pause.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  await pause.getByLabel('I confirm these changes.').check();
+  await pause.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/Bookkeeping for Walker Properties/)).toBeVisible();
 });
 
 test('Actions menu: sync now and the sync details', async ({ page }) => {
@@ -152,7 +158,10 @@ test('Reports: the firm list, the upcoming tab and the review steps', async ({ p
     .getByRole('button', { name: /^Actions for Profit & Loss/ })
     .first()
     .click();
-  await page.getByRole('menuitem').first().click();
+  await page
+    .getByRole('menuitem', { name: /^(Start Report|Send for Review|Approve)$/ })
+    .first()
+    .click();
   await expect(page.getByText(/Report started\.|Sent for review\.|Approved\./)).toBeVisible();
 });
 

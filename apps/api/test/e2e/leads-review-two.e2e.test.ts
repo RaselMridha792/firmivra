@@ -195,7 +195,7 @@ describe('Leads Review Two, L1', () => {
     ).toBe(1);
   });
 
-  it('R2 8: address, preferred contact and best time are saved from the card; a date of birth is not yet', async () => {
+  it('R2 8: address, preferred contact, best time and date of birth are saved from the card', async () => {
     const lead = await newLead();
     const saved = profile(
       await call('patch', `/${lead.id}`, people.ownerA, {
@@ -209,11 +209,27 @@ describe('Leads Review Two, L1', () => {
       bestTimeToContact: 'Weekday mornings',
     });
     expect([...saved.preferredContact].sort()).toEqual(['EMAIL', 'SMS']);
-    expectError(
+    const born = profile(
       await call('patch', `/${lead.id}`, people.ownerA, { dateOfBirth: '1990-04-02' }),
-      400,
-      'FIELD_UNAVAILABLE',
     );
+    expect(born.dateOfBirth).toBe('1990-04-02');
+    expect(profile(await call('get', `/${lead.id}/profile`, people.ownerA)).dateOfBirth).toBe(
+      '1990-04-02',
+    );
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    expectError(
+      await call('patch', `/${lead.id}`, people.ownerA, { dateOfBirth: tomorrow }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('patch', `/${lead.id}`, people.ownerA, { dateOfBirth: '1899-12-31' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(
+      profile(await call('patch', `/${lead.id}`, people.ownerA, { dateOfBirth: null })).dateOfBirth,
+    ).toBe(null);
     // Cleared again: an empty address is none.
     expect(
       profile(await call('patch', `/${lead.id}`, people.ownerA, { address: '' })).address,
@@ -274,6 +290,47 @@ describe('Leads Review Two, L1', () => {
     expect(again.followUps).toHaveLength(1);
   });
 
+  it('R2 9: other phones and emails are added, kept in order, replaced and refused twice', async () => {
+    const lead = await newLead({
+      otherContacts: [
+        { kind: 'EMAIL', value: ' Pat.Work@Example.TEST ', label: 'Work' },
+        { kind: 'PHONE', value: '(404) 555-0101', label: '' },
+      ],
+    });
+    expect(lead.otherContacts).toEqual([
+      { kind: 'EMAIL', value: 'pat.work@example.test', label: 'Work' },
+      { kind: 'PHONE', value: '(404) 555-0101', label: null },
+    ]);
+    const replaced = profile(
+      await call('patch', `/${lead.id}`, people.ownerA, {
+        otherContacts: [{ kind: 'PHONE', value: '(404) 555-0102', label: 'Mobile' }],
+      }),
+    );
+    expect(replaced.otherContacts).toEqual([
+      { kind: 'PHONE', value: '(404) 555-0102', label: 'Mobile' },
+    ]);
+    // The same email twice, in another letter case: refused, nothing changes.
+    const twice = await call('patch', `/${lead.id}`, people.ownerA, {
+      otherContacts: [
+        { kind: 'EMAIL', value: 'a@example.test', label: null },
+        { kind: 'EMAIL', value: 'A@Example.test', label: null },
+      ],
+    });
+    expectError(twice, 400, 'VALIDATION_FAILED');
+    expect(profile(await call('get', `/${lead.id}/profile`, people.ownerA)).otherContacts).toEqual(
+      replaced.otherContacts,
+    );
+    const audit = await asOwnerA((tx) =>
+      tx.auditLog.findMany({ where: { action: 'lead.updated', entityId: lead.id } }),
+    );
+    expect(audit.map((a) => a.metadata)).toEqual([{ fields: ['otherContacts'] }]);
+    // Emptied.
+    expect(
+      profile(await call('patch', `/${lead.id}`, people.ownerA, { otherContacts: [] }))
+        .otherContacts,
+    ).toEqual([]);
+  });
+
   it("firm B never reaches firm A's lead", async () => {
     const lead = await newLead();
     expectError(
@@ -281,6 +338,29 @@ describe('Leads Review Two, L1', () => {
       404,
       'NOT_FOUND',
     );
+    // Nor its other phones and emails (R2 9): neither read nor replaced.
+    const own = await newLead({
+      otherContacts: [{ kind: 'PHONE', value: '(404) 555-0103', label: null }],
+    });
+    expectError(
+      await call(
+        'patch',
+        `/${own.id}`,
+        people.ownerB,
+        { otherContacts: [{ kind: 'PHONE', value: '(404) 555-0999', label: null }] },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('get', `/${own.id}/profile`, people.ownerB, undefined, ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    expect(
+      await asOwnerA((tx) => tx.leadContactPoint.findMany({ where: { leadId: own.id } })),
+    ).toMatchObject([{ value: '(404) 555-0103' }]);
   });
 });
 

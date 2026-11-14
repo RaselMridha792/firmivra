@@ -40,6 +40,7 @@ import {
   RequestTemplateList,
   RequestTemplatesQuery,
   ReviewDocumentRequest,
+  SetDocumentVisibilityRequest,
   UpdateDocumentCategoryRequest,
   UpdateDocumentFolderRequest,
   UpdateDocumentSettingsRequest,
@@ -98,6 +99,16 @@ export function createDocumentLibraryClient(request: ApiRequest) {
       request(LibraryDocument, `${doc(id)}/review`, post(parseInput(ReviewDocumentRequest, body))),
     archive: async (id: string): Promise<LibraryDocument> =>
       request(LibraryDocument, `${doc(id)}/archive`, post()),
+    /** C2-052: show a firm file to its client, or hide it again (assigned staff, Owner, Admin). */
+    setVisibility: async (
+      id: string,
+      body: SetDocumentVisibilityRequest,
+    ): Promise<LibraryDocument> =>
+      request(
+        LibraryDocument,
+        `${doc(id)}/visibility`,
+        post(parseInput(SetDocumentVisibilityRequest, body)),
+      ),
     restore: async (id: string): Promise<LibraryDocument> =>
       request(LibraryDocument, `${doc(id)}/restore`, post()),
     /** Move to Trash (DELETE capability); `untrash` brings it back. */

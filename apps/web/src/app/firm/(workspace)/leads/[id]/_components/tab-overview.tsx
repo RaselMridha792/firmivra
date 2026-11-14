@@ -225,6 +225,16 @@ export function OverviewTab() {
               <Line icon={Phone} label="Phone">
                 {dash(lead?.phone)}
               </Line>
+              {/* R2 9: the lead's other phones and emails, under their own labels. */}
+              {lead?.otherContacts.map((c, i) => (
+                <Line
+                  key={`${c.kind}-${i}`}
+                  icon={c.kind === 'EMAIL' ? Envelope : Phone}
+                  label={`${c.label ?? 'Other'} ${c.kind === 'EMAIL' ? 'email' : 'phone'}`}
+                >
+                  {c.value}
+                </Line>
+              ))}
               <Line icon={MapPin} label="Address">
                 {dash(lead?.address)}
               </Line>

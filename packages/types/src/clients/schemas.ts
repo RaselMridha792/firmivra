@@ -125,6 +125,10 @@ export type ClientListRow = z.infer<typeof ClientListRow>;
  * their own clients; `assignedUserId` is for Owner and Admin (403 for Staff). Paging: `cursor`
  * (from nextCursor), or `page` for numbered pages (not both); `total` counts every match.
  */
+/** Clients Review 2 (G12): the list's orders (table and cards alike). */
+export const ClientSort = z.enum(['NEWEST', 'OLDEST', 'NAME_ASC', 'NAME_DESC']);
+export type ClientSort = z.infer<typeof ClientSort>;
+
 export const ListClientsQuery = z
   .strictObject({
     search: SearchText.optional(),
@@ -183,6 +187,11 @@ export const ListClientsQuery = z
     /** Where the client came from (the lead sources). */
     source: LeadSource.optional(),
     priority: ClientPriority.optional(),
+    /**
+     * Clients Review 2 (G12): the order, newest first by default. Another order goes with
+     * numbered pages only (the cursor follows newest first).
+     */
+    sort: ClientSort.optional(),
     /** From the previous page's nextCursor. */
     cursor: z.string().max(200).optional(),
     /** A numbered page, 1 first. */
@@ -190,6 +199,10 @@ export const ListClientsQuery = z
     limit: z.coerce.number().int().min(1).max(100).optional().default(25),
   })
   .refine((q) => !(q.cursor && q.page), { message: 'Use cursor or page, not both', path: ['page'] })
+  .refine((q) => !q.sort || q.sort === 'NEWEST' || q.page, {
+    message: 'This order works with numbered pages',
+    path: ['sort'],
+  })
   .refine(
     (q) => !q.lastActivityFrom || !q.lastActivityTo || q.lastActivityFrom <= q.lastActivityTo,
     { message: 'The start is after the end', path: ['lastActivityTo'] },
@@ -418,19 +431,28 @@ export const ClientRecord = ClientListItem.extend({
 });
 export type ClientRecord = z.infer<typeof ClientRecord>;
 
-const AddressInput = z.strictObject({
-  line1: clearable(text(200)),
-  line2: clearable(text(200)),
-  city: clearable(text(100)),
-  state: clearable(text(50)),
-  postalCode: clearable(z.string().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code')),
-  country: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[A-Z]{2}$/, 'Use a two-letter country code')
-    .optional(),
-});
+const AddressInput = z
+  .strictObject({
+    line1: clearable(text(200)),
+    line2: clearable(text(200)),
+    city: clearable(text(100)),
+    state: clearable(text(50)),
+    postalCode: clearable(z.string().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code')),
+    country: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{2}$/, 'Use a two-letter country code')
+      .optional(),
+  })
+  .superRefine((address, ctx) => {
+    // Clients Review 2 (Edit validation): a US address takes a 5-digit ZIP or ZIP+4 on the API as
+    // on Add and Edit; kept as typed, so leading zeros stay.
+    const zip = address.postalCode?.trim();
+    if (zip && (address.country ?? 'US') === 'US' && !/^\d{5}(-\d{4})?$/.test(zip)) {
+      ctx.addIssue({ code: 'custom', path: ['postalCode'], message: 'Enter a 5-digit ZIP code' });
+    }
+  });
 
 const digits = (count: number, message: string) =>
   z
@@ -496,6 +518,20 @@ export const CreateClientRequest = z.strictObject({
   allowDuplicatePhone: z.boolean().optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
+
+/** The details of a 409 DUPLICATE_PHONE: how many clients share it, and those the caller may see. */
+export const DuplicatePhoneDetails = z.object({
+  count: z.number().int().nonnegative(),
+  matches: z.array(
+    z.object({
+      id: z.uuid(),
+      name: z.string(),
+      clientNumber: z.string(),
+      archived: z.boolean(),
+    }),
+  ),
+});
+export type DuplicatePhoneDetails = z.infer<typeof DuplicatePhoneDetails>;
 
 /** What a firm form holds for a client, whichever form it is (Add New Client, Edit Details). */
 export interface ClientFormFields {

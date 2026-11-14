@@ -6,6 +6,7 @@ import {
   ClientAccountType,
   LeadActionType,
   LeadActivityKind,
+  LeadContactKind,
   LeadPriority,
   LeadSource,
   LeadStatus,
@@ -195,6 +196,47 @@ const LeadEmail = z
   .toLowerCase()
   .pipe(z.email('Enter a valid email address').max(254, 'Use at most 254 characters'));
 
+/**
+ * Leads R2 9: one of a lead's other phones and emails, with an optional label ("Work", "Mobile").
+ * The lead's own Email and Phone stay its primary ones; these are listed beside them.
+ */
+export const LeadContactPointInput = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('EMAIL'), value: LeadEmail, label: clearable(text(40)) }),
+  z.strictObject({
+    kind: z.literal('PHONE'),
+    value: text(40, 'one', 'Phone number is required'),
+    label: clearable(text(40)),
+  }),
+]);
+export type LeadContactPointInput = z.input<typeof LeadContactPointInput>;
+
+/** The whole list, in order; each phone or email once (letter case ignored). */
+const OtherContacts = z
+  .array(LeadContactPointInput)
+  .max(10, 'Add at most 10 other phones and emails')
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((c, i) => {
+      const key = `${c.kind}:${c.value.toLowerCase()}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'value'],
+          message: `This ${c.kind === 'EMAIL' ? 'email' : 'phone number'} is already listed`,
+        });
+      }
+      seen.add(key);
+    });
+  });
+
+/** A lead's other phone or email, as the profile shows it. */
+export const LeadContactPoint = z.object({
+  kind: LeadContactKind,
+  value: z.string(),
+  label: z.string().nullable(),
+});
+export type LeadContactPoint = z.infer<typeof LeadContactPoint>;
+
 const NextActionInput = z.strictObject({
   type: NextActionType,
   /** Required with every type, as the database requires it (CLOSE_LEAD: now). */
@@ -209,6 +251,8 @@ export const CreateLeadRequest = z.strictObject({
   businessName: clearable(text(160)),
   email: LeadEmail,
   phone: clearable(text(40)),
+  /** R2 9: other phones and emails beside the primary ones. */
+  otherContacts: OtherContacts.default([]),
   source: LeadSource,
   sourceDetail: clearable(text(120)),
   campaignId: z.uuid().nullable().optional(),
@@ -234,7 +278,10 @@ export const UpdateLeadRequest = z
     email: LeadEmail,
     phone: clearable(text(40)),
     address: clearable(text(300, 'many')),
+    /** R2 8: from 1900 to today. */
     dateOfBirth: CalendarDate.nullable(),
+    /** R2 9: the whole list of other phones and emails (it replaces the stored one). */
+    otherContacts: OtherContacts,
     bestTimeToContact: clearable(text(80)),
     source: LeadSource,
     sourceDetail: clearable(text(120)),
@@ -484,6 +531,8 @@ export type LeadFollowUp = z.infer<typeof LeadFollowUp>;
 export const LeadProfile = LeadRow.extend({
   address: z.string().nullable(),
   dateOfBirth: CalendarDate.nullable(),
+  /** R2 9: other phones and emails, in the order saved. */
+  otherContacts: z.array(LeadContactPoint),
   bestTimeToContact: z.string().nullable(),
   /**
    * Lead Score (85, High Intent). No scoring rule is defined yet: optional, left out until the

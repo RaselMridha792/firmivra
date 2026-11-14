@@ -179,6 +179,11 @@ export const BK_ERRORS: Record<string, string> = {
   // BK-RPT.
   REPORT_NOT_SUPPORTED: 'Figures for this report type are not worked out yet.',
   NO_PERIOD: 'Set the bookkeeping period this report covers first.',
+  // Review 2 (RP03).
+  PNL_SOURCE_NOT_SET:
+    "Choose where this client's P&L comes from first, in the client's Settings: the connected accounting software or figures entered in Firmivra.",
+  PNL_FIGURES_MISSING:
+    "Enter the period's income and expenses first: this client's P&L is made from the figures entered in Firmivra.",
   STATEMENTS_MISSING:
     "Each reconciled account needs the period's statement first: start its reconciliation.",
   RECON_OPEN:

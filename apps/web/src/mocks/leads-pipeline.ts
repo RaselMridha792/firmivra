@@ -321,6 +321,7 @@ function seed(empty: boolean): Store {
         createdAt,
         address: null,
         dateOfBirth: null,
+        otherContacts: n === 1 ? [{ kind: 'PHONE', value: '(404) 555-0199', label: 'Work' }] : [],
         bestTimeToContact: n === 1 ? 'Evenings (after 5 PM)' : null,
         score: priority === 'HOT' ? { value: 85, label: 'High Intent' } : undefined,
         recentActivity: [],
@@ -531,6 +532,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
         createdAt: b.createdAt,
         address: null,
         dateOfBirth: null,
+        otherContacts: [],
         bestTimeToContact: null,
         recentActivity: [],
         upcomingAppointments: [],
@@ -791,6 +793,7 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
           createdAt: at,
           address: null,
           dateOfBirth: null,
+          otherContacts: input.otherContacts.map((c) => ({ ...c, label: c.label ?? null })),
           bestTimeToContact: null,
           recentActivity: [],
           upcomingAppointments: [],
@@ -821,7 +824,17 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
       if (input.version && input.version !== l.profile.version)
         throw fail(409, 'SAVE_CONFLICT', 'Someone saved this lead first');
       const p = l.profile;
-      const { version: _v, serviceIds, assignedUserId, campaignId, stage, ...rest } = input;
+      const {
+        version: _v,
+        serviceIds,
+        assignedUserId,
+        campaignId,
+        stage,
+        otherContacts,
+        ...rest
+      } = input;
+      if (otherContacts)
+        p.otherContacts = otherContacts.map((c) => ({ ...c, label: c.label ?? null }));
       // Tags as the API keeps them: the firm's name in any case, once, new ones Owner/Admin only.
       if (rest.tags) rest.tags = mockResolveTags(rest.tags, role);
       for (const [k, v] of Object.entries(rest)) if (v !== undefined) Object.assign(p, { [k]: v });

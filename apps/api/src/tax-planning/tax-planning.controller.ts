@@ -27,6 +27,7 @@ import {
   type PlanVersionList,
   type RunScreeningResult,
   type TaxOpportunityDetail,
+  type TaxPlanEventList,
   type TaxOpportunityEventList,
   TaxOpportunityId,
   type TaxOpportunityPage,
@@ -58,6 +59,7 @@ import {
   CreatePlanBody,
   CreateOpportunityBody,
   UpdateOpportunityBody,
+  PlanReasonBody,
   CreateStrategyBody,
   FinalizeBody,
   OpportunitiesQuery,
@@ -293,6 +295,43 @@ export class TaxPlanningController {
   ): Promise<TaxPlanDetail> {
     const w = who(auth, tenant);
     return this.plans.send(w.businessId, w.tenant, w.userId, id, body);
+  }
+
+  /** C27 (Review 2): a Closed plan back to In Progress, with its reason. */
+  @Post('plans/:id/reopen')
+  @HttpCode(200)
+  reopenPlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(PlanReasonBody)) body: Out<typeof PlanReasonBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.reopen(w.businessId, w.tenant, w.userId, id, body, 'REOPEN');
+  }
+
+  /** C27 (Review 2): a Finalized, sent or Implemented plan back to work, with its reason. */
+  @Post('plans/:id/revise')
+  @HttpCode(200)
+  revisePlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+    @Body(new ZodValidationPipe(PlanReasonBody)) body: Out<typeof PlanReasonBody>,
+  ): Promise<TaxPlanDetail> {
+    const w = who(auth, tenant);
+    return this.plans.reopen(w.businessId, w.tenant, w.userId, id, body, 'REVISE');
+  }
+
+  /** C27 (Review 2): the plan's history, newest first. */
+  @Get('plans/:id/events')
+  planEvents(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', planPipe) id: string,
+  ): Promise<TaxPlanEventList> {
+    const w = who(auth, tenant);
+    return this.plans.events(w.businessId, w.tenant, w.userId, id);
   }
 
   @Post('plans/:id/archive')

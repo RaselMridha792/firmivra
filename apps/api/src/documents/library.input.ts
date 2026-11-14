@@ -20,6 +20,7 @@ import {
   LibraryQuery,
   ReorderDocumentFoldersRequest,
   ReviewDocumentRequest,
+  SetDocumentVisibilityRequest,
   UpdateDocumentCategoryRequest,
   UpdateDocumentFolderRequest,
   UpdateDocumentSettingsRequest,
@@ -44,6 +45,7 @@ export const LibraryQ = clean(LibraryQuery);
 export const UploadBody = clean(CreateLibraryUploadRequest);
 export const UpdateDocumentBody = clean(UpdateLibraryDocumentRequest);
 export const ReviewBody = clean(ReviewDocumentRequest);
+export const VisibilityBody = clean(SetDocumentVisibilityRequest);
 export const BulkBody = clean(BulkDocumentsRequest);
 export const CreateFolderBody = clean(CreateDocumentFolderRequest);
 export const UpdateFolderBody = clean(UpdateDocumentFolderRequest);

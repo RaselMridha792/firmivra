@@ -22,6 +22,7 @@ import type {
   CreateClientRequest,
   ExportClientsRequest,
   ListClientsQuery,
+  ClientSort,
   ListClientsResponse,
   UpdateClientProfileRequest,
   UpdateClientRequest,
@@ -111,6 +112,14 @@ export function likeEscape(term: string): string {
 export function encodeCursor(row: { createdAt: Date; id: string }): string {
   return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
 }
+
+/** Clients Review 2 (G12): each order, with the id last so a page never repeats or skips a row. */
+const LIST_ORDER: Record<ClientSort, Prisma.ClientOrderByWithRelationInput[]> = {
+  NEWEST: [{ createdAt: 'desc' }, { id: 'desc' }],
+  OLDEST: [{ createdAt: 'asc' }, { id: 'asc' }],
+  NAME_ASC: [{ displayName: 'asc' }, { id: 'asc' }],
+  NAME_DESC: [{ displayName: 'desc' }, { id: 'desc' }],
+};
 
 export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
   const [at, id] = Buffer.from(cursor, 'base64url').toString().split('|');
@@ -413,7 +422,7 @@ export class ClientsService {
     const [rows, total] = await Promise.all([
       db.client.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: LIST_ORDER[q.sort ?? 'NEWEST'],
         ...(q.page ? { skip: (q.page - 1) * q.limit, take: q.limit } : { take: q.limit + 1 }),
         select: { ...listSelect, status: true },
       }),
@@ -566,7 +575,10 @@ export class ClientsService {
    * worked out when the list is read, so no other module has to write it: a message in the
    * client's thread, a document uploaded or requested, a task completed, an appointment held
    * (completed, or scheduled and begun), an invoice sent or paid, an e-sign completed, a note
-   * added, and `clients.last_activity_at` (set on e-sign completion). In the firm's scope. With
+   * added, and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
+   * every recorded client action counts): also the client's own audit rows (profile and contact
+   * edits, assignment, tags, status, archive and restore), never a view, list or export. In the
+   * firm's scope. With
    * `ids`, those clients only; with `between`, only the clients whose latest event is in it.
    */
   private async activity(
@@ -606,6 +618,10 @@ export class ClientsService {
           UNION ALL SELECT client_id, created_at FROM notes WHERE business_id = ${b}::uuid
           UNION ALL SELECT id, last_activity_at FROM clients
             WHERE business_id = ${b}::uuid AND last_activity_at IS NOT NULL
+          UNION ALL SELECT a.entity_id::uuid, a.created_at FROM audit_logs a
+            WHERE a.business_id = ${b}::uuid AND a.entity_type = 'client'
+              AND a.entity_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              AND a.action !~ '(viewed|listed|exported)$'
         ) e
         ${only}
         GROUP BY e.client_id

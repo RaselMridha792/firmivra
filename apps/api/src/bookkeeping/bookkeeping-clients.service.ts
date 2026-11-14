@@ -850,6 +850,7 @@ export class BookkeepingClientsService {
       cadenceMonths: p.cadenceMonths,
       closeTargetDay: p.closeTargetDay ?? settings.closeTargetDay,
       nextReportDueOn: day(p.nextReportDueOn),
+      pnlSource: p.pnlSource,
       paused: p.pausedAt !== null,
       pausedAt: iso(p.pausedAt),
       pauseReason: p.pauseReason,
@@ -944,6 +945,21 @@ export class BookkeepingClientsService {
         data.portalDefaults = { ...(p.portalDefaults as object), ...body.portalDefaults };
       }
       if (body.alerts !== undefined) data.alerts = { ...(p.alerts as object), ...body.alerts };
+      if (body.pnlSource !== undefined && body.pnlSource !== p.pnlSource) {
+        data.pnlSource = body.pnlSource;
+        // Review 2 (RP03): the choice shows in the client's bookkeeping Activity.
+        await addActivity(
+          tx,
+          businessId,
+          p.engagementId,
+          actor.userId,
+          'OTHER',
+          body.pnlSource === 'MANUAL'
+            ? 'P&L source set to figures entered in Firmivra'
+            : 'P&L source set to the connected accounting software',
+          { pnlSource: body.pnlSource },
+        );
+      }
       if (body.categorizationRules !== undefined)
         data.categorizationRules = body.categorizationRules;
       if (body.reportSchedule !== undefined) {

@@ -299,6 +299,29 @@ describe('list: search, filters and paging', () => {
     expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
   });
 
+  it('sorts by name or oldest first on numbered pages (Clients Review 2, G12)', async () => {
+    const made = [];
+    for (const name of ['Bravo', 'Delta', 'Alpha', 'Charlie']) {
+      made.push(await create({ displayName: `Sorter-${run} ${name}` }));
+    }
+    const term = `search=${encodeURIComponent(`Sorter-${run}`)}`;
+    const names = async (sort: string, page: number) =>
+      (await list(`?${term}&sort=${sort}&page=${page}&limit=2`)).items.map((i) =>
+        i.displayName.split(' ').at(-1),
+      );
+    expect(await names('NAME_ASC', 1)).toEqual(['Alpha', 'Bravo']);
+    expect(await names('NAME_ASC', 2)).toEqual(['Charlie', 'Delta']);
+    expect(await names('NAME_DESC', 1)).toEqual(['Delta', 'Charlie']);
+    expect(await names('OLDEST', 1)).toEqual(['Bravo', 'Delta']);
+    expect(await names('NEWEST', 1)).toEqual(['Charlie', 'Alpha']);
+
+    // Another order follows numbered pages only; an unknown one is refused.
+    for (const q of [`?sort=NAME_ASC`, `?sort=NAME_ASC&cursor=${'x'.repeat(10)}`, '?sort=RANDOM']) {
+      const res = await call('get', q, people.ownerA);
+      expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+    }
+  });
+
   it('archived clients leave the default list; the status filter shows them', async () => {
     const c = await create({ displayName: `Archive Me ${run}` });
     const archived = await call('post', `/${c.id}/archive`, people.adminA, 'a', {});
@@ -498,10 +521,16 @@ describe("E5: a Business's responsible party", () => {
       { responsibleParty: { ...party, email: 'not-an-email' } },
       { responsibleParty: { ...party, phone: '12' } },
       { responsibleParty: { ...party, name: '' } },
+      // Clients Review 2: a US address's ZIP is 5 digits or ZIP+4, on the API too.
+      { address: { postalCode: 'abc' } },
+      { address: { postalCode: '3030' } },
     ]) {
       const bad = await put(c.id, body);
       expect([bad.status, codeOf(bad)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
     }
+    // ZIP+4 and a leading zero are kept as typed.
+    const zip = await put(c.id, { address: { postalCode: '02134-0001' } });
+    expect(Profile.parse(zip.body).address.postalCode).toBe('02134-0001');
     // Other profile changes leave it as it is.
     const other = await put(c.id, { entityType: 'LLC' });
     expect(Profile.parse(other.body).responsibleParty).toEqual(party);

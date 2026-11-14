@@ -203,7 +203,9 @@ export class TaxPlanReadService {
       overlapNotes: totals.notes,
       staleData: rows.some((r) => isStale(r.asOf)),
       disclaimer: DISCLAIMER,
-      canEdit: ctx.perms.edit,
+      // C27 (Review 2): a Closed plan is read-only until Reopen.
+      canEdit: ctx.perms.edit && plan.status !== 'CLOSED',
+      canChangeStatus: ctx.perms.edit,
       canOverride: ctx.perms.override,
       canSend: ctx.perms.send,
       createdAt: plan.createdAt.toISOString(),
