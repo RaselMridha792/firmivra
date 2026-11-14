@@ -12,6 +12,14 @@ const SCROLL = 'firmivra:clients:scroll';
 /** Set by Return to Clients just before it opens the list, so the list scrolls back too. */
 export const RETURNING = 'firmivra:clients:returning';
 
+/** When the browser last went Back or Forward: the list then scrolls back too (Review 2). */
+let poppedAt = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    poppedAt = Date.now();
+  });
+}
+
 /** Session storage can be missing or refuse (private windows): the list then simply starts fresh. */
 export const session = {
   get: (key: string) => {
@@ -64,8 +72,10 @@ export function useListPlace(place: ClientsPlace, fromDashboard: boolean, loaded
   useEffect(() => {
     if (!loaded || restoredRef.current) return;
     restoredRef.current = true;
-    if (session.get(RETURNING) !== '1') return;
+    // Return to Clients, or the browser's Back (Clients Review 2: scroll was unverified there).
+    const returning = session.get(RETURNING) === '1' || Date.now() - poppedAt < 5_000;
     session.set(RETURNING, null);
+    if (!returning) return;
     const y = Number(session.get(SCROLL));
     if (y > 0) window.scrollTo(0, y);
   }, [loaded]);

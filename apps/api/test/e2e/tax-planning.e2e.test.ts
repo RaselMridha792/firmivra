@@ -1477,6 +1477,94 @@ describe('opportunities', () => {
   });
 });
 
+describe('opportunity reasoning (Review 2 C10)', () => {
+  it('takes the reasoning on create, and edits an open opportunity with its history and audit', async () => {
+    const created = await newOpp({
+      name: mark('Reasoned'),
+      whyExplanation: 'Wages rose and the 401(k) is not maxed (fake).',
+      clientDataUsed: [
+        { label: '2025 W-2 wages', amountCents: 9_000_000 },
+        { label: 'Plan type', text: '401(k)' },
+      ],
+      eligibility: [{ text: 'Has an employer plan', met: true }],
+      recommendedActions: ['Raise the deferral'],
+      documentsNeeded: ['Latest pay stub', 'Plan summary'],
+    });
+    expect(created).toMatchObject({
+      whyExplanation: 'Wages rose and the 401(k) is not maxed (fake).',
+      clientDataUsed: [
+        { label: '2025 W-2 wages', amountCents: 9_000_000, text: null },
+        { label: 'Plan type', amountCents: null, text: '401(k)' },
+      ],
+      eligibility: [{ text: 'Has an employer plan', met: true }],
+    });
+    // A received document keeps its mark through an edit that keeps it by name.
+    ok(await act(created.id, { action: 'SET_DOCUMENT', index: 0, received: true }));
+    const before = await opp(created.id);
+    const edited = TaxOpportunityDetail.parse(
+      ok(
+        await call('patch', `/opportunities/${created.id}`, ownerA, {
+          whyExplanation: 'Edited reasoning (fake).',
+          eligibility: [
+            { text: 'Has an employer plan', met: true },
+            { text: 'Under 50', met: false },
+          ],
+          documentsNeeded: ['Latest pay stub', 'Beneficiary form'],
+          etag: before.etag,
+        }),
+      ),
+    );
+    expect(edited.whyExplanation).toBe('Edited reasoning (fake).');
+    expect(edited.eligibility).toHaveLength(2);
+    expect(edited.documentsNeeded.map((d) => [d.label, d.received])).toEqual([
+      ['Latest pay stub', true],
+      ['Beneficiary form', false],
+    ]);
+    const history = TaxOpportunityEventList.parse(
+      ok(await call('get', `/opportunities/${created.id}/events`, ownerA)),
+    ).items;
+    expect(history.some((e) => e.kind === 'NOTE' && /Details edited/.test(e.reason ?? ''))).toBe(
+      true,
+    );
+    const audit = (await auditRows(created.id)).find((r) => r.action === 'tax_opportunity.updated');
+    expect(audit?.metadata).toMatchObject({
+      fields: ['documentsNeeded', 'eligibility', 'whyExplanation'],
+    });
+    expect(JSON.stringify(audit)).not.toContain('Edited reasoning');
+    // A stale etag, a role without Review, another firm and a closed opportunity are refused.
+    expectError(
+      await call('patch', `/opportunities/${created.id}`, ownerA, {
+        name: 'x',
+        etag: before.etag,
+      }),
+      409,
+      'SAVE_CONFLICT',
+    );
+    expectError(
+      await call('patch', `/opportunities/${created.id}`, preparerA, { name: 'x' }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call('patch', `/opportunities/${created.id}`, ownerB, { name: 'x' }, 'b'),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('patch', `/opportunities/${created.id}`, ownerA, {}),
+      400,
+      'VALIDATION_FAILED',
+    );
+    ok(await act(created.id, { action: 'START_REVIEW' }));
+    ok(await act(created.id, { action: 'CLOSE' }));
+    expectError(
+      await call('patch', `/opportunities/${created.id}`, ownerA, { name: 'x' }),
+      409,
+      'INVALID_STATUS',
+    );
+  });
+});
+
 describe('screening', () => {
   it('finds opportunities from the plan’s figures, leaves reviewed ones alone and honours suppression', async () => {
     const screenPlan = await createPlan({
@@ -1646,6 +1734,24 @@ describe('the Tax Savings Calculator', () => {
         ok(await calc({ baseline: { ...baseline, state: 'GA' } })),
       ).assumptions.join(' '),
     ).toMatch(/State tax for GA is not modelled/);
+    // C21 (Review 2): the year's limits are flagged, and the method says what is not checked.
+    const over = CalculatorResult.parse(
+      ok(
+        await calc({
+          strategy: { retirementContributionCents: 3_000_000, hsaContributionCents: 500_000 },
+        }),
+      ),
+    );
+    expect(over.assumptions[0]).toMatch(
+      /^Check: the 401\(k\) contribution entered \(\$30,000\) is over the 2026 limit/,
+    );
+    expect(over.assumptions[1]).toMatch(/^Check: the HSA contribution entered/);
+    expect(over.assumptions.join(' ')).toMatch(/overlap between strategies is not checked/);
+    expect(
+      CalculatorResult.parse(ok(await calc({ strategy: { homeOfficeCents: 100_000 } })))
+        .assumptions[0],
+    ).toMatch(/need business or self-employment income/);
+    expect(result.assumptions.some((a) => a.startsWith('Check:'))).toBe(false);
     expectError(await calc({ baseline: { wagesCents: -1 } }), 400, 'VALIDATION_FAILED');
     expectError(await calc({ surprise: 1 }), 400, 'VALIDATION_FAILED');
     expectError(await calc({ clientId: clients.c2 }, staffA), 404, 'NOT_FOUND');
@@ -1994,6 +2100,8 @@ describe('the overview, Clients tab, calendar and resources', () => {
     const all = PlanningResourceList.parse(ok(await call('get', '/resources', staffA))).items;
     expect(all.length).toBeGreaterThanOrEqual(5);
     expect(all.some((r) => !r.clientFacing)).toBe(true);
+    // C17 (Review 2): View shows what each one says.
+    expect(all.every((r) => typeof r.summary === 'string' && r.summary.length > 0)).toBe(true);
     expect(
       PlanningResourceList.parse(
         ok(await call('get', '/resources?kind=CHECKLIST', staffA)),

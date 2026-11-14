@@ -8,6 +8,7 @@ import {
   CreateTaxPlanRequest,
   FinalizePlanRequest,
   OpportunityActionRequest,
+  UpdateTaxOpportunityRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
   PlanningResourcesQuery,
@@ -165,6 +166,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'CHECKLIST',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'retirement-planning-guide',
@@ -173,6 +175,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'GUIDE',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'small-business-deductions',
@@ -181,6 +184,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'PDF',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'charitable-giving-guide',
@@ -189,6 +193,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'ARTICLE',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'entity-comparison',
@@ -197,6 +202,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'VIDEO',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'quarterly-estimates',
@@ -205,6 +211,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'ARTICLE',
     clientFacing: true,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
   {
     key: 'internal-screening-rules',
@@ -213,6 +220,7 @@ const RESOURCES: PlanningResource[] = [
     kind: 'GUIDE',
     clientFacing: false,
     url: null,
+    summary: 'A short guide for the client (fake).',
   },
 ];
 const INPUT_CATALOG = [
@@ -1415,7 +1423,52 @@ export function createTaxPlanningMock({
           label,
           received: false,
         }));
+        // C10: the reasoning staff give.
+        o.whyExplanation = input.whyExplanation ?? null;
+        o.clientDataUsed = input.clientDataUsed.map((d) => ({
+          label: d.label,
+          amountCents: d.amountCents ?? null,
+          text: d.text ?? null,
+        }));
+        o.eligibility = input.eligibility;
         opps.unshift(o);
+        return strip(o);
+      }),
+    updateOpportunity: (oid, body) =>
+      run(() => {
+        if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
+        const input = parseInput(UpdateTaxOpportunityRequest, body);
+        const o = findOpp(oid);
+        if (input.etag && input.etag !== o.etag)
+          throw fail(409, 'SAVE_CONFLICT', 'Someone acted on this after you opened it.');
+        if (!OPEN.includes(o.status))
+          throw fail(409, 'INVALID_STATUS', 'A closed or set-aside opportunity is not edited.');
+        if (input.name !== undefined) o.name = input.name;
+        if (input.priority !== undefined) o.priority = input.priority;
+        if (input.description !== undefined) o.description = input.description;
+        if (input.whyExplanation !== undefined) o.whyExplanation = input.whyExplanation;
+        if (input.estimateBasis !== undefined || input.estimatedSavingsCents !== undefined)
+          o.estimate = estimate(
+            input.estimatedSavingsCents ?? o.estimate.cents,
+            input.estimateBasis ?? o.estimate.basis ?? 'Entered by staff',
+          );
+        if (input.clientDataUsed !== undefined)
+          o.clientDataUsed = input.clientDataUsed.map((d) => ({
+            label: d.label,
+            amountCents: d.amountCents ?? null,
+            text: d.text ?? null,
+          }));
+        if (input.recommendedActions !== undefined) o.recommendedActions = input.recommendedActions;
+        if (input.eligibility !== undefined) o.eligibility = input.eligibility;
+        if (input.documentsNeeded !== undefined) {
+          const had = new Map(o.documentsNeeded.map((d) => [d.label, d.received]));
+          o.documentsNeeded = input.documentsNeeded.map((label, index) => ({
+            index,
+            label,
+            received: had.get(label) ?? false,
+          }));
+        }
+        addEvent(o, 'NOTE', null, null, 'Details edited');
         return strip(o);
       }),
     opportunityAction: (oid, body) =>

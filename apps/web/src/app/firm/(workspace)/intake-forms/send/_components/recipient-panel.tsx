@@ -17,7 +17,7 @@ const KINDS: { kind: Recipient['kind']; label: string }[] = [
 export const contactLine = (r: Pick<Recipient, 'email' | 'phone'>) =>
   [r.email, r.phone].filter(Boolean).join(' | ');
 
-const fromClient = (c: ClientListItem): Recipient => ({
+export const fromClient = (c: ClientListItem): Recipient => ({
   kind: 'CLIENT',
   id: c.id,
   name: c.displayName,

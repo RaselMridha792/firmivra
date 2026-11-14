@@ -42,6 +42,7 @@ import {
   TaxOpportunityPage,
   TaxPlanDetail,
   TaxPlanEventList,
+  UpdateTaxOpportunityRequest,
   TaxPlanId,
   PlanReasonRequest,
   TaxPlanPage,
@@ -217,6 +218,15 @@ export function createTaxPlanningClient(request: ApiRequest) {
         `${BASE}/opportunities`,
         post(parseInput(CreateTaxOpportunityRequest, body)),
       ),
+    /** C10 (Review 2): an open opportunity's details. 409 INVALID_STATUS, SAVE_CONFLICT. */
+    updateOpportunity: async (
+      id: string,
+      body: UpdateTaxOpportunityRequest,
+    ): Promise<TaxOpportunityDetail> =>
+      request(TaxOpportunityDetail, opportunity(id), {
+        method: 'PATCH',
+        body: parseInput(UpdateTaxOpportunityRequest, body),
+      }),
     /** 409 INVALID_STATUS, SAVE_CONFLICT. */
     opportunityAction: async (
       id: string,

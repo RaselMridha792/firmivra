@@ -159,6 +159,8 @@ export const PlanningResource = z.object({
   clientFacing: z.boolean(),
   /** Where it opens (a file, a page or a video); null when it only sends. */
   url: z.string().nullable(),
+  /** C17 (Review 2): what it says, as View shows it and as it is sent to a client. */
+  summary: z.string().optional(),
 });
 export type PlanningResource = z.infer<typeof PlanningResource>;
 
@@ -735,6 +737,17 @@ export type TaxOpportunityPage = z.infer<typeof TaxOpportunityPage>;
  * client has one open opportunity per library strategy and year: another is 409
  * DUPLICATE_OPPORTUNITY with the existing id.
  */
+/** C10 (Review 2): a figure the opportunity rests on, as staff enter it: an amount or a value. */
+export const OpportunityDataPointInput = z
+  .strictObject({
+    label: text(200),
+    amountCents: Cents.nullable().optional(),
+    text: clearable(text(200)),
+  })
+  .refine((d) => d.amountCents != null || d.text != null, 'Enter an amount or a value');
+/** C10 (Review 2): an eligibility check or assumption, and whether the client meets it. */
+export const OpportunityEligibilityInput = z.strictObject({ text: text(300), met: z.boolean() });
+
 export const CreateTaxOpportunityRequest = z.strictObject({
   clientId: z.uuid(),
   strategyId: PlanningStrategyId.nullable().optional(),
@@ -747,8 +760,42 @@ export const CreateTaxOpportunityRequest = z.strictObject({
   estimateBasis: clearable(text(500, 'many')),
   recommendedActions: z.array(text(500, 'many')).max(20).optional().default([]),
   documentsNeeded: z.array(text(200)).max(20).optional().default([]),
+  /** C10 (Review 2): why it applies to this client (Why This Opportunity). */
+  whyExplanation: clearable(text(2_000, 'many')),
+  /** C10: the client's figures it rests on (needs "View Financial Inputs"). */
+  clientDataUsed: z.array(OpportunityDataPointInput).max(20).optional().default([]),
+  /** C10: the eligibility checks and assumptions. */
+  eligibility: z.array(OpportunityEligibilityInput).max(20).optional().default([]),
 });
 export type CreateTaxOpportunityRequest = z.input<typeof CreateTaxOpportunityRequest>;
+
+/**
+ * PATCH .../opportunities/{id} (C10, Review 2): an open opportunity's details, edited by staff
+ * with Review Opportunities: its name, priority, description, why, the figures it rests on (needs
+ * "View Financial Inputs"), the estimate and its basis, the recommended actions, the eligibility
+ * checks and the documents needed (a document kept by name keeps its received mark). Its history
+ * records the edit. 409 INVALID_STATUS once it is closed, implemented or set aside; `etag` is the
+ * detail's `updatedAt` (409 SAVE_CONFLICT when it changed).
+ */
+export const UpdateTaxOpportunityRequest = z
+  .strictObject({
+    name: text(200).optional(),
+    priority: TaskPriority.optional(),
+    description: clearable(text(2_000, 'many')),
+    whyExplanation: clearable(text(2_000, 'many')),
+    estimatedSavingsCents: Cents.nullable().optional(),
+    estimateBasis: clearable(text(500, 'many')),
+    clientDataUsed: z.array(OpportunityDataPointInput).max(20).optional(),
+    recommendedActions: z.array(text(500, 'many')).max(20).optional(),
+    eligibility: z.array(OpportunityEligibilityInput).max(20).optional(),
+    documentsNeeded: z.array(text(200)).max(20).optional(),
+    etag: z.string().max(100).optional(),
+  })
+  .refine(
+    ({ etag: _etag, ...o }) => Object.values(o).some((v) => v !== undefined),
+    'Change at least one field',
+  );
+export type UpdateTaxOpportunityRequest = z.input<typeof UpdateTaxOpportunityRequest>;
 
 /**
  * POST .../opportunities/{id}/actions (Frame 3 and the row menu). Each action is audited and is

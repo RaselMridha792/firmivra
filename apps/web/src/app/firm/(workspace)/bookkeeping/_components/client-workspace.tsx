@@ -525,7 +525,13 @@ export function ClientWorkspace({ id }: { id: string }) {
 
             {/* BK-A01: this client's bookkeeping activity, newest first. */}
             <section className={card} aria-label="Client activity" data-testid="client-activity">
-              <h2 className="mb-2 font-display text-lg font-bold text-heading">Activity</h2>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="font-display text-lg font-bold text-heading">Activity</h2>
+                {/* Review 2 (A01): the client's whole history (messages, documents, notes...). */}
+                <OriginLink href={`/clients/${w.client.id}/activity`} className={linkBtn}>
+                  View All
+                </OriginLink>
+              </div>
               {w.recentActivity.length === 0 ? (
                 <p className={quiet}>No activity for this client yet.</p>
               ) : (

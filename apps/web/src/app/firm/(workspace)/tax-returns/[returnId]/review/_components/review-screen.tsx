@@ -13,6 +13,7 @@ import {
   UsersThree,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import { OriginLink } from '../../../../../../../components/origin-link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
@@ -340,9 +341,10 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
         <ArrowLeft aria-hidden weight="bold" className="size-5" /> Back to Return
       </Link>
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/clients/${detail.client.id}/documents`} className={button}>
+        {/* TX-F04: the firm-side Client Portal for this client, with the way back here. */}
+        <OriginLink href={`/client-portal/${detail.client.id}`} className={button}>
           <UsersThree aria-hidden weight="fill" className="size-5" /> Client Portal
-        </Link>
+        </OriginLink>
         <Link href={`/clients/${detail.client.id}/messages`} className={button}>
           <ChatCircleDots aria-hidden weight="fill" className="size-5" /> Send Message
         </Link>

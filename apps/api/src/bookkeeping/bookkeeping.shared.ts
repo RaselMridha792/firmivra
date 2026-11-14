@@ -446,6 +446,9 @@ export const REPORT_NAMES: Record<BookkeepingReportType, string> = {
   BOOKKEEPING_STATUS: 'Bookkeeping Status',
   MISSING_DOCUMENTS: 'Missing Documents',
   CUSTOM: 'Custom report',
+  // Review 2 (RP01): the schema's new types; their figures come with the feature PR.
+  REFUND: 'Refund Report',
+  SETTLEMENT: 'Settlement Report',
 };
 
 // ---------- CSV ----------

@@ -11,12 +11,13 @@ import {
   US_STATES,
 } from '@firmivra/types';
 import { Button, Input, Modal, Select } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS } from './client-parts';
+import { ACCOUNT_TYPES, CLIENT_ERRORS, CLIENTS, clientKey } from './client-parts';
 import { bulkSummary, STAGE_ORDER, STAGES } from './list-parts';
 
 type Field =
@@ -82,6 +83,11 @@ export function AddClientDialog({
     onChange: (event: { target: { value: string } }) =>
       setValues((was) => ({ ...was, [name]: event.target.value })),
   });
+  // Clients Review 2 (C2-029): closing a filled form asks first, as Edit does (E6): Cancel,
+  // Escape and the X all come here; Keep Editing keeps every value.
+  const [leaving, setLeaving] = useState(false);
+  const dirty = (Object.keys(EMPTY_FORM) as Field[]).some((k) => values[k] !== EMPTY_FORM[k]);
+  const close = () => (dirty ? setLeaving(true) : onClose());
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -143,7 +149,7 @@ export function AddClientDialog({
       open
       title="Add New Client"
       subtitle="Add a client your firm works for. You can invite them to the portal later."
-      onClose={onClose}
+      onClose={close}
     >
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         <Select
@@ -230,14 +236,35 @@ export function AddClientDialog({
             {errorMessage(create.error, CLIENT_ERRORS)}
           </p>
         ) : null}
-        <div className="flex justify-end gap-3">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? 'Adding…' : 'Add Client'}
-          </Button>
-        </div>
+        {leaving ? (
+          <div
+            role="alertdialog"
+            aria-labelledby="add-client-leaving"
+            data-testid="unsaved-changes"
+            className="flex flex-col gap-3 rounded-control border border-warning bg-warning-soft p-4"
+          >
+            <p id="add-client-leaving" className="text-sm font-semibold text-heading">
+              You have entered details for this client. Close without adding them?
+            </p>
+            <div className="flex flex-wrap justify-end gap-3">
+              <Button type="button" variant="secondary" autoFocus onClick={() => setLeaving(false)}>
+                Keep Editing
+              </Button>
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Discard
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending ? 'Adding…' : 'Add Client'}
+            </Button>
+          </div>
+        )}
       </form>
     </Modal>
   );
@@ -287,6 +314,7 @@ export function BulkDialog({
   const bulk = useApiMutation((body: BulkClientsRequest) => api.clients.bulk(body), {
     invalidate: CLIENTS,
   });
+  const queryClient = useQueryClient();
   const { title, button, verb } = TITLES[kind];
   const clientIds = clients.map((c) => c.id);
   const names = new Map(clients.map((c) => [c.id, c.displayName]));
@@ -302,7 +330,18 @@ export function BulkDialog({
           : kind === 'STAGE'
             ? { action: kind, clientIds, status: status as ClientStatus }
             : { action: kind, clientIds };
-    bulk.mutate(body, { onSuccess: (result) => onDone(bulkSummary(result, verb, names)) });
+    bulk.mutate(body, {
+      onSuccess: async (result) => {
+        // Clients Review 2 (C2-034): every chosen client's record is fetched again now, even a
+        // profile that is not on screen, so opening it right after shows the change.
+        await Promise.all(
+          clientIds.map((id) =>
+            queryClient.invalidateQueries({ queryKey: clientKey(id), refetchType: 'all' }),
+          ),
+        );
+        onDone(bulkSummary(result, verb, names));
+      },
+    });
   };
 
   return (
