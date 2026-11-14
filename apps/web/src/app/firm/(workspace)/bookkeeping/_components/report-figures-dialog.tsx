@@ -85,8 +85,19 @@ function Figures({ f }: { f: BookkeepingReportFigures }) {
           )}
         </section>
       ))}
-      <p className="font-semibold text-heading" data-testid="report-totals">
-        {headline(f)}
+      {/* Review 2 (RP03): nothing recorded is not a set of verified zero totals. */}
+      {f.lineCount === 0 && f.type !== 'BOOKKEEPING_STATUS' && f.type !== 'MISSING_DOCUMENTS' ? (
+        <p className="rounded-lg bg-canvas p-2 text-text" data-testid="report-no-data">
+          Nothing is recorded in this client&apos;s ledger for this period, so there are no totals.
+          This is not a verified zero.
+        </p>
+      ) : (
+        <p className="font-semibold text-heading" data-testid="report-totals">
+          {headline(f)}
+        </p>
+      )}
+      <p className="text-xs text-muted" data-testid="report-source">
+        Source: this client&apos;s Firmivra ledger (synced or entered transactions) · Cash basis
       </p>
     </div>
   );

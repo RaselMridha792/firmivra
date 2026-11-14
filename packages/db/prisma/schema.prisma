@@ -1273,6 +1273,7 @@ model Membership {
   clientTimelineEntries ClientTimelineEntry[]
   leadFollowUps         LeadFollowUp[]
   staffDraftAttachments StaffDraftAttachment[]
+  leadUploads           LeadUpload[]
   mfaExceptionsApproved StaffSecurityDefaults[] @relation("StaffSecurityMfaExceptionApprovedBy")
 
   dataDownloadGrants FirmDataDownloadGrant[]
@@ -3408,6 +3409,8 @@ model Task {
   businessId      String     @map("business_id") @db.Uuid
   /// Set on every task but a DRAFT (SQL only: tasks_client_unless_draft).
   clientId        String?    @map("client_id") @db.Uuid
+  /// R55 (Rasel, Nov 14; Leads R2 2): a lead's task. A task has a client or a lead, never both.
+  leadId          String?    @map("lead_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
   taxPlanId       String?    @map("tax_plan_id") @db.Uuid
   title           String
@@ -3469,10 +3472,12 @@ model Task {
   taskOccurrence     TaskOccurrence?
   deadline           ComplianceDeadline? @relation(fields: [businessId, deadlineId], references: [businessId, id], onDelete: Restrict)
   template           TaskTemplate?       @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  lead               Lead?               @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
 
   @@unique([businessId, id])
   @@unique([businessId, idempotencyKey])
   @@index([businessId, clientId])
+  @@index([businessId, leadId])
   @@index([businessId, engagementId])
   @@index([businessId, taxPlanId])
   @@index([businessId, assignedUserId, status])
@@ -3903,6 +3908,8 @@ model Lead {
   preferredContactMethods ContactMethod[] @default([]) @map("preferred_contact_methods")
   /// "Evenings (after 5 PM)": free text, up to 100 characters.
   bestTimeToContact       String?         @map("best_time_to_contact")
+  /// R55 (Rasel, Nov 14; Leads R2 8): the Contact Information card's date of birth.
+  dateOfBirth             DateTime?       @map("date_of_birth") @db.Date
   source                  LeadSource      @default(OTHER)
   /// The campaign or landing page ("Back Taxes Campaign"), up to 200 characters.
   sourceDetail            String?         @map("source_detail")
@@ -3943,6 +3950,10 @@ model Lead {
 
   followUps LeadFollowUp[]
 
+  // R55 (Rasel, Nov 14; Leads Review Two): the lead's other phones and emails, and its tasks.
+  contactPoints LeadContactPoint[]
+  tasks         Task[]
+
   @@unique([businessId, id])
   @@unique([businessId, number])
   @@index([businessId, status, createdAt])
@@ -3959,24 +3970,28 @@ model Lead {
 /// once, file fixed. Added only while the lead is a DRAFT. At conversion it becomes a Document
 /// with the same S3 key (Document.leadUploadId), so the object is never moved.
 model LeadUpload {
-  id          String     @id @default(uuid(7)) @db.Uuid
-  businessId  String     @map("business_id") @db.Uuid
-  leadId      String     @map("lead_id") @db.Uuid
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  leadId           String     @map("lead_id") @db.Uuid
   /// The form's upload slot this file answers.
-  slot        String
-  fileName    String     @map("file_name")
-  contentType String     @map("content_type")
-  sizeBytes   Int        @map("size_bytes")
+  slot             String
+  fileName         String     @map("file_name")
+  contentType      String     @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
   /// SHA-256 of the file, hex.
-  sha256      String
-  s3Key       String     @unique @map("s3_key")
-  scanStatus  ScanStatus @default(PENDING) @map("scan_status")
-  scannedAt   DateTime?  @map("scanned_at") @db.Timestamptz(3)
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  /// R55 (Rasel, Nov 14; Leads R2 4): the staff member who added it (slot 'staff') to an open
+  /// lead; null for the lead's own Begin Online file. Carried over as INTERNAL at conversion.
+  uploadedByUserId String?    @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  lead     Lead      @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
-  document Document?
+  lead       Lead        @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  document   Document?
+  uploadedBy Membership? @relation(fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@unique([businessId, id])
   @@index([businessId, leadId])
@@ -4099,6 +4114,8 @@ model AppointmentType {
   minNoticeMinutes         Int             @default(0) @map("min_notice_minutes")
   maxAdvanceDays           Int?            @map("max_advance_days")
   reminderDefaults         Json            @default("[]") @map("reminder_defaults")
+  /// R55 (Rasel, Nov 14; Appointments B7): new appointments' confirmation message, up to 2,000.
+  confirmationMessage      String?         @map("confirmation_message")
 
   service      Service?      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   business     Business      @relation(fields: [businessId], references: [id])
@@ -4184,29 +4201,37 @@ model Appointment {
   // R37 (Appointments module): the related service, notes, colour, confirmation and booking key.
   // Internal meetings and leads' appointments (client optional) wait for the API: see the PR.
   /// The related service (the screens' Service column).
-  serviceId           String?        @map("service_id") @db.Uuid
+  serviceId            String?        @map("service_id") @db.Uuid
   /// An IANA name; empty means the firm's time zone (business_settings.timezone).
-  timeZone            String?        @map("time_zone")
+  timeZone             String?        @map("time_zone")
   /// A day-long entry: may run past 12 hours (up to 25, for a daylight saving day).
-  allDay              Boolean        @default(false) @map("all_day")
+  allDay               Boolean        @default(false) @map("all_day")
   /// Empty means the type's colour. A token name; the screens map it to packages/ui.
-  color               CalendarColor?
+  color                CalendarColor?
   /// Staff only, never shown to clients, never in notices or the audit log. Up to 5,000.
-  internalNotes       String?        @map("internal_notes")
+  internalNotes        String?        @map("internal_notes")
   /// Shown to the client in the portal and in notices. Up to 2,000.
-  clientInstructions  String?        @map("client_instructions")
+  clientInstructions   String?        @map("client_instructions")
+  /// R55 (Rasel, Nov 14; Appointments B7): the scheduled/confirmation notice's own words, up to
+  /// 2,000 (from the type's, when it has one); null sends the generic one.
+  confirmationMessage  String?        @map("confirmation_message")
+  /// R55 (Appointments B9): where the client instructions show: email and portal on, text off
+  /// (only for a client who chose appointment texts).
+  instructionsInEmail  Boolean        @default(true) @map("instructions_in_email")
+  instructionsInPortal Boolean        @default(true) @map("instructions_in_portal")
+  instructionsInSms    Boolean        @default(false) @map("instructions_in_sms")
   /// Empty while SCHEDULED means "Pending"; set means "Confirmed".
-  confirmedAt         DateTime?      @map("confirmed_at") @db.Timestamptz(3)
+  confirmedAt          DateTime?      @map("confirmed_at") @db.Timestamptz(3)
   /// A retry of the same booking returns the first one; unique per firm.
-  idempotencyKey      String?        @map("idempotency_key") @db.Uuid
+  idempotencyKey       String?        @map("idempotency_key") @db.Uuid
   /// Where in the firm (in-person appointments only), and the room, which cannot be double booked.
-  officeId            String?        @map("office_id") @db.Uuid
-  roomId              String?        @map("room_id") @db.Uuid
+  officeId             String?        @map("office_id") @db.Uuid
+  roomId               String?        @map("room_id") @db.Uuid
   /// One of a repeating series; every occurrence is a normal appointment of its own.
-  seriesId            String?        @map("series_id") @db.Uuid
+  seriesId             String?        @map("series_id") @db.Uuid
   /// Minutes kept free around it for the staff member (copied from the type when booked).
-  bufferBeforeMinutes Int            @default(0) @map("buffer_before_minutes")
-  bufferAfterMinutes  Int            @default(0) @map("buffer_after_minutes")
+  bufferBeforeMinutes  Int            @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes   Int            @default(0) @map("buffer_after_minutes")
 
   client     Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
@@ -10972,54 +10997,63 @@ enum IntakeDelivery {
 /// the defaults here are what "Reset defaults" restores). Automation toggles default off: the
 /// mockup's "On" switches are not approvals (guide).
 model IntakeSettings {
-  businessId              String   @id @map("business_id") @db.Uuid
+  businessId                       String   @id @map("business_id") @db.Uuid
   // General
-  defaultExpiryDays       Int      @default(14) @map("default_expiry_days")
-  allowSaveResume         Boolean  @default(true) @map("allow_save_resume")
-  requireSignature        Boolean  @default(true) @map("require_signature")
-  autoSubmissionId        Boolean  @default(false) @map("auto_submission_id")
-  defaultOwnerUserId      String?  @map("default_owner_user_id") @db.Uuid
+  defaultExpiryDays                Int      @default(14) @map("default_expiry_days")
+  allowSaveResume                  Boolean  @default(true) @map("allow_save_resume")
+  requireSignature                 Boolean  @default(true) @map("require_signature")
+  autoSubmissionId                 Boolean  @default(false) @map("auto_submission_id")
+  defaultOwnerUserId               String?  @map("default_owner_user_id") @db.Uuid
   // Client experience
-  showProgressBar         Boolean  @default(true) @map("show_progress_bar")
-  thankYouMessage         String?  @map("thank_you_message")
-  redirectAfterCompletion Boolean  @default(false) @map("redirect_after_completion")
+  showProgressBar                  Boolean  @default(true) @map("show_progress_bar")
+  thankYouMessage                  String?  @map("thank_you_message")
+  redirectAfterCompletion          Boolean  @default(false) @map("redirect_after_completion")
   /// https only; required while redirectAfterCompletion is on.
-  redirectUrl             String?  @map("redirect_url")
+  redirectUrl                      String?  @map("redirect_url")
   // Notifications
-  sendClientConfirmation  Boolean  @default(true) @map("send_client_confirmation")
-  notifyAssignedStaff     Boolean  @default(true) @map("notify_assigned_staff")
-  remindersEnabled        Boolean  @default(true) @map("reminders_enabled")
-  firstReminderDays       Int      @default(3) @map("first_reminder_days")
-  finalReminderDays       Int      @default(7) @map("final_reminder_days")
-  expiryAlertHours        Int      @default(24) @map("expiry_alert_hours")
+  sendClientConfirmation           Boolean  @default(true) @map("send_client_confirmation")
+  notifyAssignedStaff              Boolean  @default(true) @map("notify_assigned_staff")
+  remindersEnabled                 Boolean  @default(true) @map("reminders_enabled")
+  firstReminderDays                Int      @default(3) @map("first_reminder_days")
+  finalReminderDays                Int      @default(7) @map("final_reminder_days")
+  expiryAlertHours                 Int      @default(24) @map("expiry_alert_hours")
   /// I7: up to 10 more addresses for the staff "form submitted" email (no form content). The API
   /// keeps each a valid, lower-case, unique email.
-  notifyAdditionalEmails  String[] @default([]) @map("notify_additional_emails")
+  notifyAdditionalEmails           String[] @default([]) @map("notify_additional_emails")
   /// I8: the first and final reminders, in minutes after sending: the first 5 minutes to 30 days,
   /// the final after it and at most 60 days. firstReminderDays and finalReminderDays stay until
   /// the API reads these.
-  firstReminderMinutes    Int      @default(4320) @map("first_reminder_minutes")
-  finalReminderMinutes    Int      @default(10080) @map("final_reminder_minutes")
+  firstReminderMinutes             Int      @default(4320) @map("first_reminder_minutes")
+  finalReminderMinutes             Int      @default(10080) @map("final_reminder_minutes")
   /// I9: the expiration alert, in minutes before expiry (30 minutes to 7 days); null: no alert.
   /// expiryAlertHours stays until the API reads this.
-  expiryAlertMinutes      Int?     @default(1440) @map("expiry_alert_minutes")
+  expiryAlertMinutes               Int?     @default(1440) @map("expiry_alert_minutes")
   /// I12: how many years submissions are kept (1 to 100); null: not set. Saving it deletes
   /// nothing, and no job reads it yet.
-  dataRetentionYears      Int?     @map("data_retention_years")
+  dataRetentionYears               Int?     @map("data_retention_years")
   // Automation (all off)
-  autoCreateClient        Boolean  @default(false) @map("auto_create_client")
-  autoCreateFollowUpTask  Boolean  @default(false) @map("auto_create_follow_up_task")
-  routeByService          Boolean  @default(false) @map("route_by_service")
-  followUpOwnerUserId     String?  @map("follow_up_owner_user_id") @db.Uuid
+  autoCreateClient                 Boolean  @default(false) @map("auto_create_client")
+  autoCreateFollowUpTask           Boolean  @default(false) @map("auto_create_follow_up_task")
+  routeByService                   Boolean  @default(false) @map("route_by_service")
+  followUpOwnerUserId              String?  @map("follow_up_owner_user_id") @db.Uuid
   // Branding and security
-  useFirmBranding         Boolean  @default(true) @map("use_firm_branding")
+  useFirmBranding                  Boolean  @default(true) @map("use_firm_branding")
   /// A subset of the platform's allowed upload types; checked by the API against UPLOAD_LIMITS.
-  acceptedFileTypes       String[] @default(["application/pdf", "image/jpeg", "image/png"]) @map("accepted_file_types")
+  acceptedFileTypes                String[] @default(["application/pdf", "image/jpeg", "image/png"]) @map("accepted_file_types")
   /// 1 to 10: the platform's cap is 10 MB (the mockup's 20 MB is refused).
-  maxFileSizeMb           Int      @default(10) @map("max_file_size_mb")
-  consentRequired         Boolean  @default(true) @map("consent_required")
-  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  maxFileSizeMb                    Int      @default(10) @map("max_file_size_mb")
+  consentRequired                  Boolean  @default(true) @map("consent_required")
+  /// R55 (Rasel, Nov 14; Intake 14b): each category's minimum years (1 to 30), counted from the
+  /// linked job or task's completion; nothing is deleted when it ends. data_retention_years stays
+  /// the "apply to all" value. Null: not set.
+  retentionYearsClientDocuments    Int?     @map("retention_years_client_documents")
+  retentionYearsFirmDocuments      Int?     @map("retention_years_firm_documents")
+  retentionYearsIntakeSubmissions  Int?     @map("retention_years_intake_submissions")
+  retentionYearsPortalMessages     Int?     @map("retention_years_portal_messages")
+  retentionYearsSystemEmails       Int?     @map("retention_years_system_emails")
+  retentionYearsTaxReturnDocuments Int?     @map("retention_years_tax_return_documents")
+  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business      Business    @relation(fields: [businessId], references: [id])
   defaultOwner  Membership? @relation("IntakeSettingsOwner", fields: [businessId, defaultOwnerUserId], references: [businessId, userId], onDelete: Restrict)
@@ -11057,6 +11091,12 @@ model IntakeTemplate {
   messageTemplate MessageTemplate?
 
   appointmentTypes AppointmentType[]
+
+  /// R55 (Rasel, Nov 14; INTAKE-ACCESS-02): Publish in client portal, off by default. On: any of
+  /// the firm's clients can open it in the portal, whatever their services.
+  portalPublished Boolean @default(false) @map("portal_published")
+  /// The public share link's and embed's token, kept only as its SHA-256 (hex); null: no link.
+  shareTokenHash  String? @unique @map("share_token_hash")
 
   @@unique([businessId, id])
   // Target of the versions' same-service foreign key.
@@ -11323,6 +11363,9 @@ model DocumentSettings {
   /// R1 (Oct 21): the same for internal (staff) links.
   internalLinkCodeRequired   Boolean  @default(true) @map("internal_link_code_required")
   defaultReviewerUserId      String?  @map("default_reviewer_user_id") @db.Uuid
+  /// R55 (Rasel, Nov 14; DOCUMENTS-LIMIT-01): the largest regular document, in MB: 5, 10, 20, 30,
+  /// 50 or 100 (the platform's limit).
+  maxFileSizeMb              Int      @default(100) @map("max_file_size_mb")
   createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -11730,6 +11773,9 @@ model AppointmentReminder {
   offsetMinutes Int             @map("offset_minutes")
   dueAt         DateTime        @default(now()) @map("due_at") @db.Timestamptz(3)
   sentAt        DateTime?       @map("sent_at") @db.Timestamptz(3)
+  /// R55 (Rasel, Nov 14; Appointments B7): this reminder's own words to the client, up to 500;
+  /// null sends the generic reminder.
+  note          String?
   createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
   appointment Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict)
@@ -14846,6 +14892,32 @@ model LeadFollowUp {
 
   @@index([businessId, leadId, doneAt, dueAt])
   @@map("lead_follow_ups")
+}
+
+/// R55 (Rasel, Nov 14; Leads R2 9): a lead's other phone numbers and email addresses. The lead's
+/// own email and phone stay its primary ones; these are the rest, in their order.
+model LeadContactPoint {
+  id         String          @id @default(uuid(7)) @db.Uuid
+  businessId String          @map("business_id") @db.Uuid
+  leadId     String          @map("lead_id") @db.Uuid
+  kind       LeadContactKind
+  /// An email (up to 254) or a phone number (up to 40).
+  value      String
+  /// "Work", "Mobile": up to 40 characters.
+  label      String?
+  position   Int
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  lead Lead @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, leadId])
+  @@map("lead_contact_points")
+}
+
+enum LeadContactKind {
+  EMAIL
+  PHONE
 }
 
 /// R1 (Nov 7, SM12): a file saved on a staff draft (Save under Remove): its S3 key under

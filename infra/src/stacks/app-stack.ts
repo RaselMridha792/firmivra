@@ -369,7 +369,7 @@ export class AppStack extends Stack {
               SES_CONFIGURATION_SET: email.configurationSet.configurationSetName,
             }
           : { EMAIL_MODE: 'log' }),
-        SMS_MODE: 'sns',
+        SMS_MODE: config.smsMode ?? 'sns',
         SCAN_RESULTS_QUEUE_URL: this.malwareScan.queue.queueUrl,
       },
       secrets: {
