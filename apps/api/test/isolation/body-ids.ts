@@ -71,6 +71,16 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     why: "the list's filter (Clients export, E2 additions): another firm's member, service or tag matches no client of this firm, so nothing of theirs is read (R60)",
   })),
   {
+    field: 'tagId',
+    routes: /^POST \/api\/v1\/business\/clients\/bulk$/,
+    why: "a record of the other bulk action (TAG): the route's one case carries ASSIGN; clients-work.e2e refuses another firm's tag (404) and changes nothing (R60)",
+  },
+  ...['assignedUserId', 'serviceId', 'tagId'].map((field) => ({
+    field,
+    routes: /^POST \/api\/v1\/business\/clients\/export$/,
+    why: "the list's filter (Clients export, E2 additions): another firm's member, service or tag matches no client of this firm, so nothing of theirs is read (R60)",
+  })),
+  {
     field: 'idempotencyKey',
     routes: /^POST \/api\/v1\/business\/intakes\/send$/,
     why: "the sender's retry key, not a record (R55)",
