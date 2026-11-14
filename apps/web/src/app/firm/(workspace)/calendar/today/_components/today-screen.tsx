@@ -45,6 +45,10 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
   );
   const items = agenda.data?.items ?? [];
   const hourOf = (a: AgendaEntry) => Number(localParts(a.startsAt, tz).time.slice(0, 2));
+  // Review 2 (Appointments B6): an all-day appointment says All Day, in its own first row.
+  const allDayOf = (a: AgendaEntry) => 'allDay' in a && a.allDay;
+  const whenOf = (a: AgendaEntry) =>
+    allDayOf(a) ? 'All Day' : `${timeOf(a.startsAt)} – ${timeOf(a.endsAt)}`;
   const timeOf = (iso: string) =>
     new Date(iso).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
   const longDay = new Date(`${today}T12:00:00Z`).toLocaleDateString('en-US', {
@@ -58,7 +62,7 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
   const entry = (a: AgendaEntry) =>
     a.restricted ? (
       <div className="rounded-lg border border-divider bg-subtle px-3 py-2 text-sm text-muted">
-        {timeOf(a.startsAt)} – {timeOf(a.endsAt)} · Busy ({a.staff.map((s) => s.name).join(', ')})
+        {whenOf(a)} · Busy ({a.staff.map((s) => s.name).join(', ')})
       </div>
     ) : (
       <Link
@@ -70,8 +74,7 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
         </span>
         <span className="text-link">{a.type?.name ?? a.service?.name ?? ''}</span>
         <span className="text-muted">
-          {timeOf(a.startsAt)} – {timeOf(a.endsAt)} · {placeOf(a)} ·{' '}
-          {a.staff.map((s) => s.name).join(', ')}
+          {whenOf(a)} · {placeOf(a)} · {a.staff.map((s) => s.name).join(', ')}
         </span>
         <span className="ml-auto">
           <Badge tone={STATUS_LOOKS[a.status].tone}>{STATUS_LOOKS[a.status].label}</Badge>
@@ -96,12 +99,23 @@ export function TodayScreen({ fromDashboard = false }: { fromDashboard?: boolean
             <p className="rounded-lg bg-subtle p-4 text-sm text-muted">{NOT_LOADED}</p>
           ) : (
             <ol className="flex flex-col divide-y divide-divider">
+              {items.some(allDayOf) ? (
+                <li className="grid grid-cols-[5rem_1fr] gap-3 py-2" data-testid="today-all-day">
+                  <span className="pt-2 text-xs font-semibold text-heading">All day</span>
+                  <div className="flex min-h-10 flex-col gap-2">
+                    {items.filter(allDayOf).map((a) => (
+                      <div key={a.id}>{entry(a)}</div>
+                    ))}
+                  </div>
+                </li>
+              ) : null}
               {HOURS.map((h) => {
                 const here = items.filter(
                   (a) =>
-                    hourOf(a) === h ||
-                    (h === HOURS[0] && hourOf(a) < h) ||
-                    (h === HOURS.at(-1) && hourOf(a) > h),
+                    !allDayOf(a) &&
+                    (hourOf(a) === h ||
+                      (h === HOURS[0] && hourOf(a) < h) ||
+                      (h === HOURS.at(-1) && hourOf(a) > h)),
                 );
                 return (
                   <li key={h} className="grid grid-cols-[5rem_1fr] gap-3 py-2">

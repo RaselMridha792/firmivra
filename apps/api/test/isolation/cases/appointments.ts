@@ -101,6 +101,8 @@ export const cases: CaseModule['cases'] = {
       'contact.id': 'client',
       roomId: 'firmRoom',
       excludeAppointmentId: 'appointment',
+      // Review 2 (B11): the type being booked, for its buffers.
+      typeId: 'appointmentType',
     },
     body: { ...inOneHour(), contact: { kind: 'CLIENT', id: '' } },
   },

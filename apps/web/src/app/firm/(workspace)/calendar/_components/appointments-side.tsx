@@ -124,7 +124,8 @@ export function AppointmentsSide({
               {items.slice(0, 4).map((a) => (
                 <li key={a.id} className="flex items-center gap-2 py-2">
                   <span className="w-16 shrink-0 text-sm text-heading">
-                    {timeLabel(a.startsAt, tz)}
+                    {/* Review 2 (B6): an all-day appointment says so. */}
+                    {'allDay' in a && a.allDay ? 'All Day' : timeLabel(a.startsAt, tz)}
                   </span>
                   <span
                     aria-hidden
