@@ -27,6 +27,7 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/client-portal/clients/:id/reactivate': { ...client, expect: 409 },
   'POST /api/v1/business/client-portal/clients/:id/reset-access': client,
   'POST /api/v1/business/client-portal/clients/:id/mfa/reset': client,
+  'GET /api/v1/business/client-portal/clients/:id/preview': client,
   'GET /api/v1/business/client-portal/clients/:id/documents/summary': client,
   'GET /api/v1/business/client-portal/clients/:id/forms/summary': client,
 };

@@ -1,15 +1,10 @@
 import type { Metadata } from 'next';
-import { ModuleLinkTab } from '../../_components/manage/tabs';
+import { PortalMessages } from '../../_components/record-tabs';
 
 export const metadata: Metadata = { title: 'Communications' };
 
+/** The client's conversations with the firm (developer instructions 24). */
 export default async function Page({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = await params;
-  return (
-    <ModuleLinkTab
-      label="Messages"
-      href={`/clients/${clientId}/messages`}
-      text="This client's conversations with the firm are in their Messages."
-    />
-  );
+  return <PortalMessages clientId={clientId} communications />;
 }

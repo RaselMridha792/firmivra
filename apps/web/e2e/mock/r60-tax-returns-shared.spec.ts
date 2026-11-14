@@ -66,9 +66,10 @@ test('Send Message is written here; Create Appointment and Client Portal keep Ba
     'href',
     /^\/calendar\/new\?clientId=[0-9a-f-]+&engagementId=[0-9a-f-]+&from=%2Ftax-returns%2F/,
   );
+  // TX-F04: the firm-side Client Portal for this client, with the way back.
   await expect(bar.getByRole('link', { name: 'Client Portal' })).toHaveAttribute(
     'href',
-    /from=%2Ftax-returns%2F/,
+    /^\/client-portal\/[0-9a-f-]+\?from=%2Ftax-returns%2F/,
   );
 
   await bar.getByRole('button', { name: 'Send Message' }).click();
