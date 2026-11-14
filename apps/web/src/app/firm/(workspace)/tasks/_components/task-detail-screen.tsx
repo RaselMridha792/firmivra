@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
+import { safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
@@ -47,12 +48,21 @@ const btn =
   'inline-flex min-h-10 items-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
 
 /** /tasks/[id]: one task with its actions, checklist, reminders, dependency, attachments and notes. */
-export function TaskDetailScreen({ id }: { id: string }) {
+export function TaskDetailScreen({
+  id,
+  convertToRecurring = false,
+}: {
+  id: string;
+  /** Opened from a list's Convert to Recurring: the setup is open on arrival. */
+  convertToRecurring?: boolean;
+}) {
   const router = useRouter();
   const query = useApiQuery([...TASKS_KEY, 'task', id], () => api.taskWork.task(id));
   const t: TaskDetail | undefined = query.data;
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [dialog, setDialog] = useState<'template' | 'recurring' | null>(null);
+  const [dialog, setDialog] = useState<'template' | 'recurring' | null>(
+    convertToRecurring ? 'recurring' : null,
+  );
   const options = { invalidate: [...TASKS_KEY] };
   const done = (text: string) => () => setMessage({ text, tone: 'success' });
   const fail = (e: unknown) => setMessage({ text: errorMessage(e, TASK_ERRORS), tone: 'error' });
@@ -318,11 +328,17 @@ export function TaskDetailScreen({ id }: { id: string }) {
           }}
         />
       ) : null}
-      {dialog === 'recurring' && t ? (
+      {dialog === 'recurring' && t && !t.series ? (
         <ConvertDialog
           task={t}
           onClose={() => setDialog(null)}
-          onDone={(sid) => router.push(`/tasks/recurring/${sid}`)}
+          // The series keeps this page's way back (a tax return's Overview, say).
+          onDone={(sid) => {
+            const from = safeOrigin(new URLSearchParams(window.location.search).get('from'));
+            router.push(
+              from ? withOrigin(`/tasks/recurring/${sid}`, from) : `/tasks/recurring/${sid}`,
+            );
+          }}
         />
       ) : null}
     </div>

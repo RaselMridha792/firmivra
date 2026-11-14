@@ -7,6 +7,7 @@ import {
   notificationLink,
 } from '@firmivra/types';
 import { firmTimeZone } from '../appointments/calendar-data.js';
+import { noticeWords } from '../appointments/notice-words.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -794,6 +795,10 @@ export class Notifier {
                 startsAt: new Date(str('startsAt')),
                 timeZone: str('timeZone'),
                 link,
+                // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                  noticeWords(tx, businessId, target.id, template),
+                )),
               };
       await this.sender.send({
         template,

@@ -5,6 +5,8 @@ export interface ChannelReminder {
   on: boolean;
   amount: number;
   unit: ReminderUnit;
+  /** Review 2 (B7): its own note; blank sends the standard reminder. */
+  note: string;
 }
 
 const UNIT_MINUTES: Record<ReminderUnit, number> = {
@@ -47,7 +49,7 @@ export function remindersFromType(
       rows[channel] = { ...fallback[channel], on: false };
       unavailable.push(channel);
     } else {
-      rows[channel] = { on: true, amount: first.amount, unit: first.unit };
+      rows[channel] = { on: true, amount: first.amount, unit: first.unit, note: first.note ?? '' };
       extra.push(...rest);
     }
   }

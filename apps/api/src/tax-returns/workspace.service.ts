@@ -827,8 +827,9 @@ export class TaxReturnWorkspaceService {
         }
         // TX-F20: an unresolved Error issue blocks Ready to File and every filing (Transmitted,
         // or Accepted without a transmission; the agency's answer to one sent is not blocked).
+        // Review 2: a validation line reading Error blocks them the same way.
         if (
-          r.issues.length > 0 &&
+          (r.issues.length > 0 || r.checklist.some((c) => c.result === 'ERROR')) &&
           (to === 'READY_TO_FILE' ||
             ((to === 'TRANSMITTED' || to === 'ACCEPTED') && r.workflowStatus !== 'TRANSMITTED'))
         ) {

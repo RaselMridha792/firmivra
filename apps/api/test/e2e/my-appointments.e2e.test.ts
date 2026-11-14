@@ -518,6 +518,8 @@ describe('booking', () => {
       locationKind: 'VIDEO',
       locationDetails: null,
       changeableUntil: minus24h(at(3, '09:00')),
+      // Review 2 (B9): the type gives no client instructions.
+      instructions: null,
     });
     const seen = await firmDetail(mine.id);
     expect(seen).toMatchObject({

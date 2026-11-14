@@ -22,6 +22,7 @@ import {
 import {
   ArrowCounterClockwise,
   ArrowsClockwise,
+  ChartBar,
   Clock,
   ClockCountdown,
   CopySimple,
@@ -107,6 +108,15 @@ function useSettled(value: string, ms = 300) {
     return () => clearTimeout(timer);
   }, [value, ms]);
   return settled;
+}
+
+/** Reports > Leads (R2 18) with the list's dates, source, service, owner and campaign. */
+function funnelReportHref(f: LeadFilters): string {
+  const q = new URLSearchParams();
+  for (const k of ['from', 'to', 'source', 'serviceId', 'assignedUserId', 'campaignId'] as const)
+    if (f[k]) q.set(k, f[k]);
+  const text = q.toString();
+  return text ? `/reports/leads?${text}` : '/reports/leads';
 }
 
 function LeadsSummary({
@@ -762,6 +772,15 @@ export function LeadsScreen({
           The counts are not available right now.
         </p>
       ) : null}
+      {/* R2 18: from the summary cards to Reports > Leads, with the list's dates and filters. */}
+      <Link
+        href={funnelReportHref(filters)}
+        data-testid="leads-report-link"
+        className="-mt-2 flex w-fit items-center gap-2 self-end text-sm font-medium text-link hover:underline"
+      >
+        <ChartBar aria-hidden weight="fill" className="size-4" />
+        Funnel &amp; Aging Report: how these leads move and how long they wait
+      </Link>
       <LeadFilters
         filters={filters}
         options={options.data ?? NO_OPTIONS}

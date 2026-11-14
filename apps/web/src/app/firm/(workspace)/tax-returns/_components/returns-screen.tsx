@@ -1,12 +1,12 @@
 'use client';
 
-import type {
-  ClientAccountType,
-  TaxReturnRow,
-  TaxReturnSummary,
+import {
+  type ClientAccountType,
+  type TaxReturnRow,
+  type TaxReturnSummary,
   TaxReturnTab,
-  TaxReturnWorkflowStatus,
-  TaxReturnsQuery,
+  type TaxReturnWorkflowStatus,
+  type TaxReturnsQuery,
 } from '@firmivra/types';
 import {
   BulkBar,
@@ -53,7 +53,9 @@ import {
   ClockCounterClockwise,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useEffect, useState } from 'react';
+import { writeListQuery } from '../../../../../lib/list-query';
+import { RETURNS_VIEW } from './returns-view';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -164,6 +166,7 @@ function trendOf(
  * that filter, the filters and table, Tax Season Progress, Quick Actions and Helpful Links.
  */
 export function ReturnsScreen({
+  view = RETURNS_VIEW,
   initialStatus = '',
   accepted: acceptedFromUrl = { from: '', to: '' },
   serviceId: serviceFromUrl = '',
@@ -179,23 +182,46 @@ export function ReturnsScreen({
   /** The returns as they stood at the end of this day (a past period's card, Review 2 K4). */
   asOf?: string;
   fromDashboard?: boolean;
+  /** The list's view from the address (RETURNS_VIEW's keys). */
+  view?: typeof RETURNS_VIEW;
 } = {}) {
   const manager = useManager();
   const members = useMembers();
-  const [tab, setTab] = useState<TaxReturnTab>('all');
-  const [year, setYear] = useState('');
-  const [formType, setFormType] = useState('');
-  const [clientType, setClientType] = useState('');
+  const [tab, setTab] = useState<TaxReturnTab>(() => {
+    const t = TaxReturnTab.safeParse(view.tab);
+    return t.success ? t.data : 'all';
+  });
+  const [year, setYear] = useState(/^\d{4}$/.test(view.year) ? view.year : '');
+  const [formType, setFormType] = useState(view.formType);
+  const [clientType, setClientType] = useState(view.clientType);
   const [status, setStatus] = useState(initialStatus);
   const [accepted, setAccepted] = useState(acceptedFromUrl);
   const [serviceId, setServiceId] = useState(serviceFromUrl);
   const [asOf, setAsOf] = useState(asOfFromUrl);
-  const [assigned, setAssigned] = useState('');
-  const [search, setSearch] = useState('');
+  const [assigned, setAssigned] = useState(view.assigned);
+  const [search, setSearch] = useState(view.q);
   const [more, setMore] = useState(false);
   const [range, setRange] = useState({ from: '', to: '' });
-  const [archived, setArchived] = useState(false);
-  const [page, setPage] = useState(1);
+  const [archived, setArchived] = useState(view.archived === '1');
+  const [page, setPage] = useState(() => {
+    const n = Number(view.page);
+    return Number.isInteger(n) && n >= 1 && n <= 10_000 ? n : 1;
+  });
+  useEffect(() => {
+    writeListQuery(
+      {
+        tab,
+        year,
+        formType,
+        clientType,
+        assigned,
+        q: search.trim(),
+        archived: archived ? '1' : '',
+        page: String(page),
+      },
+      RETURNS_VIEW,
+    );
+  }, [tab, year, formType, clientType, assigned, search, archived, page]);
   const [pageSize, setPageSize] = useState(10);
   const [sort, setSort] = useState({ id: 'updated', descending: true });
   const [selected, setSelected] = useState<string[]>([]);

@@ -35,6 +35,11 @@ export const schedulingSelect = {
   color: true,
   internalNotes: true,
   clientInstructions: true,
+  // Review 2 (B9, B7).
+  instructionsInEmail: true,
+  instructionsInPortal: true,
+  instructionsInSms: true,
+  confirmationMessage: true,
   confirmedAt: true,
   rescheduledAt: true,
   officeId: true,
@@ -57,8 +62,9 @@ export const schedulingSelect = {
   office: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
   reminders: {
-    // Review 2 (B8): sentAt, when the automatic reminder went out (its notice history).
-    select: { channel: true, offsetMinutes: true, sentAt: true },
+    // Review 2 (B8): sentAt, when the automatic reminder went out (its notice history); (B7)
+    // each reminder's own note.
+    select: { channel: true, offsetMinutes: true, sentAt: true, note: true },
     orderBy: [{ offsetMinutes: 'desc' }, { channel: 'asc' }],
   },
   series: {
@@ -209,7 +215,16 @@ export function toRecord(
         : null,
       documentRequest: null,
     },
-    reminders: row.reminders.map((r) => reminderFromOffset(r.channel, r.offsetMinutes)),
+    reminders: row.reminders.map((r) => ({
+      ...reminderFromOffset(r.channel, r.offsetMinutes),
+      ...(r.note ? { note: r.note } : {}),
+    })),
+    instructionsIn: {
+      email: row.instructionsInEmail,
+      portal: row.instructionsInPortal,
+      sms: row.instructionsInSms,
+    },
+    confirmationMessage: row.confirmationMessage,
     recurrence: series
       ? {
           frequency: series.frequency,

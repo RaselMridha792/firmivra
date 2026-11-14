@@ -39,6 +39,7 @@ import {
   UpdateLeadRequest,
   UpdateLeadTaskRequest,
 } from './pipeline.js';
+import { LeadReport, LeadReportLeads, LeadReportLeadsQuery, LeadReportQuery } from './reports.js';
 import {
   ConfirmEmailImageUploadRequest,
   CreateEmailImageUploadRequest,
@@ -73,6 +74,15 @@ export function createLeadPipelineClient(request: ApiRequest) {
     summary: async (): Promise<LeadPipelineSummary> =>
       request(LeadPipelineSummary, `${LEADS}/pipeline/summary`),
     options: async (): Promise<LeadOptions> => request(LeadOptions, `${LEADS}/options`),
+    /** Leads R2 18: the funnel and aging (Reports > Leads). */
+    funnelReport: async (query: LeadReportQuery = {}): Promise<LeadReport> =>
+      request(LeadReport, `${LEADS}/reports/funnel${toQuery(parseInput(LeadReportQuery, query))}`),
+    /** The leads behind one of the report's numbers. */
+    funnelReportLeads: async (query: LeadReportLeadsQuery): Promise<LeadReportLeads> =>
+      request(
+        LeadReportLeads,
+        `${LEADS}/reports/funnel/leads${toQuery(parseInput(LeadReportLeadsQuery, query))}`,
+      ),
 
     /** Add New Lead. 409 POSSIBLE_DUPLICATE: ask, then resend with allowDuplicate. */
     create: async (body: CreateLeadRequest): Promise<LeadProfile> =>

@@ -29,6 +29,7 @@ import {
 import { LeadConvertService } from './lead-convert.service.js';
 import { LeadFilesService, LeadFileTokens } from './lead-files.service.js';
 import { LeadMergeService } from './lead-merge.service.js';
+import { LeadReportsService } from './lead-reports.service.js';
 import { LeadTransferController, LeadTransferService } from './lead-transfer.service.js';
 import { ReportsModule } from '../reports/reports.module.js';
 import {
@@ -157,6 +158,7 @@ export class LeadsController {
     LeadMessagesService,
     LeadFilesService,
     LeadMergeService,
+    LeadReportsService,
     LeadTransferService,
     {
       provide: LeadFileTokens,

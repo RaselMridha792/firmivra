@@ -345,12 +345,22 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
         <OriginLink href={`/client-portal/${detail.client.id}`} className={button}>
           <UsersThree aria-hidden weight="fill" className="size-5" /> Client Portal
         </OriginLink>
-        <Link href={`/clients/${detail.client.id}/messages`} className={button}>
+        {/* Review 2 (TX-F03): New Message and New Task open on this client and this return, and
+            Back (or Cancel) comes here. */}
+        <OriginLink
+          href={`/messages/new?clientId=${detail.client.id}&related=tax_return:${detail.id}`}
+          className={button}
+        >
           <ChatCircleDots aria-hidden weight="fill" className="size-5" /> Send Message
-        </Link>
-        <Link href="/tasks/new" className={button}>
+        </OriginLink>
+        <OriginLink
+          href={`/tasks/new?clientId=${detail.client.id}${
+            detail.engagement ? `&engagementId=${detail.engagement.id}` : ''
+          }`}
+          className={button}
+        >
           <CheckSquare aria-hidden weight="fill" className="size-5" /> Create Task
-        </Link>
+        </OriginLink>
         <ActionMenu
           label="More Actions"
           className="[&>button]:min-h-11 [&>button]:px-4"

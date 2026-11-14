@@ -2,7 +2,7 @@
 
 One line per row of the Leads Review Two table (Octavia, Nov 8; 46 rows): **PASS** with the merged PR(s) and the automated test that covers it; **PASS (manual)** when the change is merged but only checked by hand; **GAP** with why. R2 16 and R2 18 moved to R55 on Nov 14 and are in progress. API e2e tests are in `apps/api/test/e2e/`, mock specs in `apps/web/e2e/mock/`, and the tenant-isolation cases in `apps/api/test/isolation/cases/leads.ts`.
 
-Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-review-two.e2e`, LRT `leads-routing.e2e`, LSQ `leads-sequences.e2e`, LFU `lead-follow-ups.e2e`, LC `lead-campaigns.e2e`, LBC `leads-bulk-convert.e2e`, LE `lead-email.e2e`, BO `begin-online.e2e`.
+Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-review-two.e2e`, LRT `leads-routing.e2e`, LSQ `leads-sequences.e2e`, LFU `lead-follow-ups.e2e`, LC `lead-campaigns.e2e`, LBC `leads-bulk-convert.e2e`, LE `lead-email.e2e`, LTR `leads-transfer.e2e`, LRP `leads-reports.e2e`, BO `begin-online.e2e`.
 
 | Row | Status | PR(s) | Test |
 | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-
 | R2 13 | PASS (manual) | #1377 | The reversed range says "End date must be on or after the start date"; no spec yet. |
 | R2 14 | PASS (manual) | #1377 | Escape returns focus to Add New Lead (the dialog restores its opener); no spec yet. |
 | R2 15 | PASS | #1439, #1442 | LR2: merges on purpose, and Not a duplicate; `r55-lead-merge.spec` |
-| R2 16 | GAP | none | Bulk import and export: with R60, not built yet. |
+| R2 16 | PASS | #1460 | LTR: a dry run checks each row and creates nothing; import creates only the new rows, skips possible duplicates or adds them for Review Duplicates, and a repeat creates none; export of the selected, filtered or all leads with the chosen columns, Staff only with Leads EXPORT; `r55-leads-import-export.spec` |
 | R2 17 | PASS | #1439, #1447 | LRT: routes a new lead with no owner; `r55-lead-routing.spec` |
-| R2 18 | GAP | none | Funnel and aging reports: with R60, not built yet. |
+| R2 18 | PASS | #1467 | LRP: the funnel with each lead's history, closed and conversion, aging, every number's leads, the list's filters, Staff only their own; `r55-leads-report.spec` (from the summary cards and the Reports overview) |
 | R2 19 | PASS | #1439, #1455 | LSQ: applies a sequence with the edited steps, once; `r55-lead-sequences.spec` |

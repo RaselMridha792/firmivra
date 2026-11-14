@@ -278,6 +278,16 @@ function Upcoming({
         join
         menu={item.changeableUntil ? <RowMenu item={item} onChoose={open} /> : null}
       />
+      {/* Review 2 (B9): the firm's instructions, when it shows them in the portal. */}
+      {item.instructions ? (
+        <p
+          className="text-sm whitespace-pre-line text-text"
+          data-testid="my-appointment-instructions"
+        >
+          <span className="font-semibold text-heading">Instructions: </span>
+          {item.instructions}
+        </p>
+      ) : null}
       {!item.changeableUntil ? (
         <p className="text-xs text-muted">To change this appointment, please contact us.</p>
       ) : null}

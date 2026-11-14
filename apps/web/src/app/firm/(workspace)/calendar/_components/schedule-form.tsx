@@ -103,6 +103,8 @@ interface Reminder {
   on: boolean;
   amount: number;
   unit: ReminderUnit;
+  /** Review 2 (B7): its own note to the client; blank sends the standard reminder. */
+  note: string;
 }
 
 /** Review 2 (row 7): a reminder beyond a channel's own row (Email 2 hours before, too). */
@@ -111,6 +113,7 @@ interface MoreReminder {
   channel: ReminderChannel;
   amount: number;
   unit: ReminderUnit;
+  note: string;
 }
 /** Review 2 (B2): how long an unsaved Schedule Appointment form is kept to come back to. */
 const KEEP_MS = 2 * 60 * 60 * 1000;
@@ -143,7 +146,7 @@ const reminderKey = () => Math.random().toString(36).slice(2, 10);
  * longest before), and the others are Additional reminders.
  */
 function splitReminders(
-  saved: readonly { channel: string; amount: number; unit: ReminderUnit }[],
+  saved: readonly { channel: string; amount: number; unit: ReminderUnit; note?: string | null }[],
   base: Record<ReminderChannel, Reminder>,
 ): { reminders: Record<ReminderChannel, Reminder>; moreReminders: MoreReminder[] } {
   const reminders = { ...base };
@@ -152,9 +155,10 @@ function splitReminders(
     const mine = saved.filter((x) => x.channel === ch);
     const [first, ...rest] = mine;
     reminders[ch] = first
-      ? { on: true, amount: first.amount, unit: first.unit }
+      ? { on: true, amount: first.amount, unit: first.unit, note: first.note ?? '' }
       : { ...reminders[ch], on: false };
-    for (const r of rest) moreReminders.push({ key: reminderKey(), channel: ch, ...pick(r) });
+    for (const r of rest)
+      moreReminders.push({ key: reminderKey(), channel: ch, ...pick(r), note: r.note ?? '' });
   }
   return { reminders, moreReminders };
 }
@@ -188,6 +192,10 @@ interface Form {
   allDay: boolean;
   internalNotes: string;
   clientInstructions: string;
+  /** Review 2 (B9): where the client instructions show. */
+  instructionsIn: { email: boolean; portal: boolean; sms: boolean };
+  /** Review 2 (B7): the confirmation's own words; blank uses the type's, else the standard. */
+  confirmationMessage: string;
   reminders: Record<ReminderChannel, Reminder>;
   /** Review 2 (row 7): reminders beyond each channel's row. */
   moreReminders: MoreReminder[];
@@ -227,10 +235,12 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
     allDay: false,
     internalNotes: '',
     clientInstructions: '',
+    instructionsIn: { email: true, portal: true, sms: false },
+    confirmationMessage: '',
     reminders: {
-      EMAIL: { on: true, amount: 1, unit: 'DAYS' },
-      SMS: { on: o.smsEnabled, amount: 1, unit: 'DAYS' },
-      PORTAL: { on: o.portalEnabled, amount: 1, unit: 'DAYS' },
+      EMAIL: { on: true, amount: 1, unit: 'DAYS', note: '' },
+      SMS: { on: o.smsEnabled, amount: 1, unit: 'DAYS', note: '' },
+      PORTAL: { on: o.portalEnabled, amount: 1, unit: 'DAYS', note: '' },
     },
     moreReminders: [],
     sendConfirmation: false,
@@ -265,6 +275,8 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     allDay: r.allDay,
     internalNotes: r.internalNotes ?? '',
     clientInstructions: r.clientInstructions ?? '',
+    instructionsIn: r.instructionsIn,
+    confirmationMessage: r.confirmationMessage ?? '',
     reminders,
     moreReminders,
     repeat: (r.recurrence?.frequency === 'CUSTOM' ? 'WEEKLY' : r.recurrence?.frequency) ?? 'NONE',
@@ -310,6 +322,21 @@ function fromDraft(d: Record<string, unknown>, base: Form): Form {
     allDay: typeof d['allDay'] === 'boolean' ? d['allDay'] : base.allDay,
     internalNotes: str('internalNotes') ?? base.internalNotes,
     clientInstructions: str('clientInstructions') ?? base.clientInstructions,
+    instructionsIn: {
+      email:
+        typeof d['instructionsInEmail'] === 'boolean'
+          ? d['instructionsInEmail']
+          : base.instructionsIn.email,
+      portal:
+        typeof d['instructionsInPortal'] === 'boolean'
+          ? d['instructionsInPortal']
+          : base.instructionsIn.portal,
+      sms:
+        typeof d['instructionsInSms'] === 'boolean'
+          ? d['instructionsInSms']
+          : base.instructionsIn.sms,
+    },
+    confirmationMessage: str('confirmationMessage') ?? base.confirmationMessage,
     reminders,
     moreReminders,
     sendConfirmation:
@@ -800,6 +827,7 @@ function FormBody({
           channel: r.channel,
           amount: r.amount,
           unit: r.unit,
+          note: r.note ?? '',
         }));
         setForm((now) =>
           now.typeId === typeId ? { ...now, reminders: rows, moreReminders } : now,
@@ -958,6 +986,10 @@ function FormBody({
     color: form.color || null,
     internalNotes: form.internalNotes.trim() || null,
     clientInstructions: form.clientInstructions.trim() || null,
+    instructionsInEmail: form.instructionsIn.email,
+    instructionsInPortal: form.instructionsIn.portal,
+    instructionsInSms: form.instructionsIn.sms,
+    confirmationMessage: form.confirmationMessage.trim() || null,
     reminders: [
       ...(['EMAIL', 'SMS', 'PORTAL'] as const)
         .filter((ch) => form.reminders[ch].on)
@@ -965,12 +997,18 @@ function FormBody({
           channel: ch,
           amount: form.reminders[ch].amount,
           unit: form.reminders[ch].unit,
+          note: form.reminders[ch].note.trim() || null,
         })),
       ...form.moreReminders
         .filter((r) =>
           r.channel === 'SMS' ? o.smsEnabled : r.channel === 'PORTAL' ? o.portalEnabled : true,
         )
-        .map(({ channel, amount, unit }) => ({ channel, amount, unit })),
+        .map(({ channel, amount, unit, note }) => ({
+          channel,
+          amount,
+          unit,
+          note: note.trim() || null,
+        })),
     ]
       .filter(
         (r, i, all) =>
@@ -1615,6 +1653,38 @@ function FormBody({
               onChange={(e) => set('clientInstructions', e.target.value)}
             />
           </div>
+          {/* Review 2 (B9): each channel on its own; internal notes never show to the client. */}
+          <fieldset className="flex flex-wrap items-center gap-x-4" data-testid="instructions-in">
+            <legend className="mb-1 text-sm font-medium text-text">
+              Show client instructions in
+            </legend>
+            {(
+              [
+                ['email', 'Email'],
+                ['portal', 'Portal'],
+                ['sms', 'Text (when the client gets texts)'],
+              ] as const
+            ).map(([k, label]) => (
+              <Checkbox
+                key={k}
+                label={label}
+                checked={form.instructionsIn[k]}
+                onChange={(e) =>
+                  set('instructionsIn', { ...form.instructionsIn, [k]: e.target.checked })
+                }
+                className="min-h-8 text-sm"
+              />
+            ))}
+          </fieldset>
+          {/* Review 2 (B7): the scheduled/confirmation notice's own words. */}
+          <Textarea
+            label="Confirmation message (optional)"
+            placeholder="Blank uses the appointment type's message, else the standard wording."
+            rows={2}
+            maxLength={2000}
+            value={form.confirmationMessage}
+            onChange={(e) => set('confirmationMessage', e.target.value)}
+          />
         </Section>
 
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.1fr_1.3fr_0.75fr]">
@@ -1697,6 +1767,22 @@ function FormBody({
                     })
                   }
                 />
+                {ok && form.reminders[ch].on ? (
+                  <Input
+                    label={`${label} note`}
+                    hideLabel
+                    placeholder="Note for this reminder (blank: the standard reminder)"
+                    maxLength={500}
+                    className="col-span-3 py-1! text-sm!"
+                    value={form.reminders[ch].note}
+                    onChange={(e) =>
+                      setReminders({
+                        ...form.reminders,
+                        [ch]: { ...form.reminders[ch], note: e.target.value },
+                      })
+                    }
+                  />
+                ) : null}
               </div>
             ))}
             {form.moreReminders.length ? (
@@ -1763,6 +1849,21 @@ function FormBody({
                         )
                       }
                     />
+                    <Input
+                      label={`Additional reminder ${i + 1} note`}
+                      hideLabel
+                      placeholder="Note for this reminder (blank: the standard reminder)"
+                      maxLength={500}
+                      className="col-span-4 py-1! text-sm!"
+                      value={r.note}
+                      onChange={(e) =>
+                        setMoreReminders(
+                          form.moreReminders.map((x) =>
+                            x.key === r.key ? { ...x, note: e.target.value } : x,
+                          ),
+                        )
+                      }
+                    />
                     <button
                       type="button"
                       aria-label={`Remove additional reminder ${i + 1}`}
@@ -1784,7 +1885,7 @@ function FormBody({
                 onClick={() =>
                   setMoreReminders([
                     ...form.moreReminders,
-                    { key: reminderKey(), channel: 'EMAIL', amount: 2, unit: 'HOURS' },
+                    { key: reminderKey(), channel: 'EMAIL', amount: 2, unit: 'HOURS', note: '' },
                   ])
                 }
               >

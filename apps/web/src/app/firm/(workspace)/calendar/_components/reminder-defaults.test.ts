@@ -3,9 +3,9 @@ import { remindersFromType } from './reminder-defaults';
 
 // Schedule Appointment starts from the chosen type's default reminders (Rasel, Oct 24).
 const fallback = {
-  EMAIL: { on: true, amount: 1, unit: 'DAYS' as const },
-  SMS: { on: true, amount: 1, unit: 'DAYS' as const },
-  PORTAL: { on: true, amount: 1, unit: 'DAYS' as const },
+  EMAIL: { on: true, amount: 1, unit: 'DAYS' as const, note: '' },
+  SMS: { on: true, amount: 1, unit: 'DAYS' as const, note: '' },
+  PORTAL: { on: true, amount: 1, unit: 'DAYS' as const, note: '' },
 };
 const all = { EMAIL: true, SMS: true, PORTAL: true };
 
@@ -13,16 +13,17 @@ describe('remindersFromType', () => {
   it("turns each channel on with the type's reminder, and off without one", () => {
     const { rows, extra, unavailable } = remindersFromType(
       [
-        { channel: 'EMAIL', amount: 2, unit: 'DAYS' },
+        { channel: 'EMAIL', amount: 2, unit: 'DAYS', note: 'Fake: bring your 1099s' },
         { channel: 'PORTAL', amount: 2, unit: 'HOURS' },
       ],
       all,
       fallback,
     );
     expect(rows).toEqual({
-      EMAIL: { on: true, amount: 2, unit: 'DAYS' },
-      SMS: { on: false, amount: 1, unit: 'DAYS' },
-      PORTAL: { on: true, amount: 2, unit: 'HOURS' },
+      // Review 2 (B7): a reminder's note comes with it.
+      EMAIL: { on: true, amount: 2, unit: 'DAYS', note: 'Fake: bring your 1099s' },
+      SMS: { on: false, amount: 1, unit: 'DAYS', note: '' },
+      PORTAL: { on: true, amount: 2, unit: 'HOURS', note: '' },
     });
     expect([extra, unavailable]).toEqual([[], []]);
   });
@@ -37,7 +38,7 @@ describe('remindersFromType', () => {
       all,
       fallback,
     );
-    expect(rows.EMAIL).toEqual({ on: true, amount: 1, unit: 'WEEKS' });
+    expect(rows.EMAIL).toEqual({ on: true, amount: 1, unit: 'WEEKS', note: '' });
     expect(extra).toEqual([
       { channel: 'EMAIL', amount: 1, unit: 'DAYS' },
       { channel: 'EMAIL', amount: 2, unit: 'HOURS' },

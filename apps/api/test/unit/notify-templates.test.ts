@@ -123,6 +123,25 @@ describe('templates', () => {
     );
   });
 
+  it("Review 2 (B7, B9): an appointment notice carries the firm's own words and the instructions, else the standard wording", () => {
+    const plain = email('appointment.reminder');
+    expect(plain.text).toContain('This is a reminder of your appointment with');
+    expect(plain.text).not.toContain('Instructions:');
+    const own = email('appointment.reminder', {
+      ...SAMPLE_DATA['appointment.reminder'],
+      message: 'Fake: please bring your 1099s.',
+      instructions: 'Fake: park in the back lot.',
+    });
+    expect(own.text).toContain('This is a reminder of your appointment with');
+    expect(own.text).toContain('Fake: please bring your 1099s.');
+    expect(own.text).toContain('Instructions: Fake: park in the back lot.');
+    const confirmed = email('appointment.booked', {
+      ...SAMPLE_DATA['appointment.booked'],
+      message: 'Fake: we look forward to seeing you.',
+    });
+    expect(confirmed.text).toContain('Fake: we look forward to seeing you.');
+  });
+
   it('q18: a declined client sign-up carries no reason; a declined firm application does', () => {
     const data = { ...SAMPLE_DATA['client.signup-declined'], reason: 'Synthetic private reason' };
     expect(JSON.stringify(email('client.signup-declined', data))).not.toContain('Synthetic');
