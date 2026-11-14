@@ -2292,7 +2292,7 @@ describe('staff availability (day)', () => {
       tx.appointmentType.create({
         data: {
           businessId: ids.firmA,
-          name: `Buffered ${run}`,
+          name: `Buffered both sides ${run}`,
           durationMinutes: 30,
           bufferBeforeMinutes: 30,
           bufferAfterMinutes: 30,
