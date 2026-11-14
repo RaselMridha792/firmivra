@@ -19,6 +19,7 @@ import {
   TaxReturnDetail,
   TaxReturnDocumentList,
   TaxReturnExportLink,
+  TaxAmountHistory,
   TaxReturnFilingList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -273,6 +274,16 @@ describe('filings', () => {
       TaxReturnFilingList,
     );
     expect(required.items[0]).toMatchObject({ amountSource: 'TAX_SOFTWARE', amountVersion: 2 });
+    // Review 2: the amount, version by version, newest first (`required` alone is no version).
+    const history = ok(
+      await call('get', `/tax-returns/${ids.r}/filings/${us}/amount-history`, ownerA),
+      TaxAmountHistory,
+    ).items;
+    expect(history.map((h) => [h.version, h.refundCents, h.amountStatus, h.amountSource])).toEqual([
+      [2, 148250, 'FINAL', 'TAX_SOFTWARE'],
+      [1, 150000, 'ESTIMATED', 'STAFF_ESTIMATE'],
+    ]);
+    expect(history[0]!.by?.userId).toBe(ownerA.id);
     const cleared = ok(
       await call('patch', `/tax-returns/${ids.r}/filings/${us}`, ownerA, {
         refundCents: null,
