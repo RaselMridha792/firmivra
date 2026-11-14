@@ -145,7 +145,7 @@ const FIRM_ERRORS: Record<string, string> = {
 /** Every firm workspace page with the sidebar: the sign-in check, the firm, then the shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   return (
-    <SignedIn site="firm" signInPath="/sign-in">
+    <SignedIn site="firm" signInPath="/sign-in" signedOutHome="/welcome">
       <FirmArea>{children}</FirmArea>
     </SignedIn>
   );

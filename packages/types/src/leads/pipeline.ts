@@ -11,6 +11,7 @@ import {
   LeadSource,
   LeadStatus,
 } from '../db-enums.js';
+import { UPLOAD_FILE_FACTS, uploadNameFitsType } from '../documents/schemas.js';
 import { EMAIL_HTML_MAX } from './email.js';
 
 // Leads workspace (R43 contract, for Arfan's screens): the Leads page (KPIs, filters, bulk
@@ -437,14 +438,36 @@ export const LeadNoteList = z.object({ items: z.array(LeadNote) });
 export const AddLeadNoteRequest = z.strictObject({ text: text(2000, 'many') });
 export type AddLeadNoteRequest = z.input<typeof AddLeadNoteRequest>;
 
+const LeadTaskPriority = z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
 export const LeadTask = z.object({
   id: z.uuid(),
   title: z.string(),
   dueOn: CalendarDate.nullable(),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']),
+  priority: LeadTaskPriority,
   done: z.boolean(),
+  /** R2 2: who it is assigned to, when someone is. */
+  assignedTo: MemberRef.nullable().optional(),
 });
 export type LeadTask = z.infer<typeof LeadTask>;
+
+/**
+ * Leads R2 2: POST /business/leads/{id}/tasks, Create Task opened from the lead (its Tasks tab and
+ * Overview). The task is the lead's (tasks.lead_id): it shows on the lead, not in the Tasks
+ * module's lists, which are clients' work. Staff assign it to themselves.
+ */
+export const CreateLeadTaskRequest = z.strictObject({
+  title: text(200, 'one', 'Enter the task name'),
+  details: clearable(text(5_000, 'many')),
+  dueOn: CalendarDate,
+  /** The Tasks module's priorities (tasks.priority). */
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
+  assignedUserId: z.uuid().nullable().optional(),
+});
+export type CreateLeadTaskRequest = z.input<typeof CreateLeadTaskRequest>;
+
+/** PATCH /business/leads/{id}/tasks/{taskId}: done, or open again. */
+export const UpdateLeadTaskRequest = z.strictObject({ done: z.boolean() });
+export type UpdateLeadTaskRequest = z.input<typeof UpdateLeadTaskRequest>;
 
 export const LeadAppointment = z.object({
   id: z.uuid(),
@@ -456,11 +479,34 @@ export const LeadAppointment = z.object({
 });
 export type LeadAppointment = z.infer<typeof LeadAppointment>;
 
-/** Documents & Forms tab: Begin Online uploads and intake forms sent to the lead. */
+/**
+ * One file of a lead: the lead's own (Begin Online) or one staff added (Leads R2 4, `addedBy`).
+ * At conversion each becomes a document of the new client: the lead's own as the client's, a staff
+ * file firm-only (INTERNAL), to be shared on purpose.
+ */
+export const LeadDocument = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  uploadedAt: DateTime,
+  scanStatus: z.string(),
+  /** The member who added it; null for the lead's own file. */
+  addedBy: MemberRef.nullable().optional(),
+});
+export type LeadDocument = z.infer<typeof LeadDocument>;
+
+/**
+ * Leads R2 4: POST /business/leads/{id}/files, a ticket to add a file to an open lead (not a
+ * draft, an expired, converted or archived one): R5's upload steps and file rules. Then the browser
+ * sends the file and confirms (`.../files/confirm`).
+ */
+export const CreateLeadFileRequest = z
+  .strictObject(UPLOAD_FILE_FACTS)
+  .superRefine(uploadNameFitsType);
+export type CreateLeadFileRequest = z.input<typeof CreateLeadFileRequest>;
+
+/** Documents & Forms tab: the lead's files and the intake forms sent to it. */
 export const LeadDocumentsAndForms = z.object({
-  documents: z.array(
-    z.object({ id: z.uuid(), fileName: z.string(), uploadedAt: DateTime, scanStatus: z.string() }),
-  ),
+  documents: z.array(LeadDocument),
   forms: z.array(
     z.object({ id: z.uuid(), name: z.string(), status: z.string(), sentAt: DateTime.nullable() }),
   ),

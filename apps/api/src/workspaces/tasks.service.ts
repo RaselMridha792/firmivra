@@ -162,7 +162,8 @@ export class TasksService {
   async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<TaskList> {
     const after = q.cursor ? decodeTaskCursor(q.cursor) : undefined;
     const filters: Prisma.TaskWhereInput[] = [
-      { businessId },
+      // A lead's task (Leads R2 2) is the lead's, not a client's work: never in this list.
+      { businessId, leadId: null },
       this.reach(actor),
       q.clientId ? { clientId: q.clientId } : {},
       q.engagementId ? { engagementId: q.engagementId } : {},

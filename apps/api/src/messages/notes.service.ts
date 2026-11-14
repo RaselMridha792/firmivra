@@ -8,6 +8,7 @@ import {
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { InternalNote, MyNoteResponse } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { addServiceEvent } from '../bookkeeping/bookkeeping-activity.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -209,6 +210,12 @@ export class NotesService {
         select: noteSelect,
       });
       await this.audit.logIn(tx, 'note.created', { type: 'note', id: row.id }, { clientId });
+      await addServiceEvent(tx, businessId, body.engagementId ?? null, {
+        kind: 'note',
+        noteId: row.id,
+        noteType: body.noteType ?? null,
+        actorUserId: actor.userId,
+      });
       return (await this.toNotes(tx, businessId, actor, [row]))[0] as InternalNote;
     });
   }

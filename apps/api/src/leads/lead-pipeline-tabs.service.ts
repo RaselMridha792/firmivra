@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   AddLeadNoteRequest,
   CompleteFollowUpRequest,
+  CreateLeadTaskRequest,
   LeadActivity,
   LeadActivityPage,
   LeadActivityQuery,
@@ -13,24 +14,29 @@ import type {
   LeadTask,
   LogLeadActivityRequest,
   SetFollowUpRequest,
+  UpdateLeadTaskRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { decodeCursor, encodeCursor } from '../clients/clients.service.js';
+import { legacyFirmRole } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { conflict, notFound } from './leads.service.js';
 import {
   activitySelect,
   CLOSED_STATUSES,
   invalid,
+  leadTasksOf,
   loadProfile,
   lockLead,
   type PipelineActor,
   reach,
+  requireActiveMember,
   toActivity,
   visibleLead,
 } from './pipeline.shared.js';
 import { addSteps, adoptLegacy, syncNextAction } from './lead-follow-ups.js';
+import { toLeadDocument } from './lead-files.service.js';
 
 type FollowUp = z.output<typeof SetFollowUpRequest>;
 type Complete = z.output<typeof CompleteFollowUpRequest>;
@@ -314,10 +320,85 @@ export class LeadPipelineTabsService {
 
   // ---------- Tasks, appointments, documents and forms ----------
 
-  /** Tasks have no lead link yet (see the PR's gaps): an empty list for a lead the member reaches. */
+  /** R2 2: the lead's tasks (tasks.lead_id), open ones first by due date, then the done ones. */
   async tasks(businessId: string, actor: PipelineActor, id: string): Promise<LeadTask[]> {
-    await this.inFirm(businessId, (tx) => this.reachable(tx, businessId, actor, id));
-    return [];
+    return this.inFirm(businessId, async (tx) => {
+      await this.reachable(tx, businessId, actor, id);
+      return leadTasksOf(tx, businessId, id);
+    });
+  }
+
+  /**
+   * R2 2: Create Task opened from the lead. Due date required; the assignee an active member (Staff
+   * assign themselves, as they do a lead they add). Audited with the task's id only.
+   */
+  async createTask(
+    businessId: string,
+    actor: PipelineActor,
+    id: string,
+    body: z.output<typeof CreateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    const staff = legacyFirmRole(actor.role) === 'STAFF';
+    const assignee = body.assignedUserId === undefined ? actor.userId : body.assignedUserId;
+    if (staff && assignee !== actor.userId) {
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+    }
+    return this.inFirm(businessId, async (tx) => {
+      await lockLead(tx, businessId, actor, id);
+      await this.reachable(tx, businessId, actor, id);
+      if (assignee) await requireActiveMember(tx, businessId, assignee);
+      const task = await tx.task.create({
+        data: {
+          businessId,
+          leadId: id,
+          title: body.title,
+          details: body.details ?? null,
+          dueOn: new Date(`${body.dueOn}T00:00:00Z`),
+          priority: body.priority,
+          assignedUserId: assignee,
+          createdByUserId: actor.userId,
+        },
+        select: { id: true },
+      });
+      await this.audit.logIn(tx, 'lead.task_created', { type: 'lead', id }, { taskId: task.id });
+      const found = (await leadTasksOf(tx, businessId, id)).find((t) => t.id === task.id);
+      if (!found) throw notFound();
+      return found;
+    });
+  }
+
+  /** R2 2: the lead's task done (with when and by whom), or open again. 404 for another lead's. */
+  async updateTask(
+    businessId: string,
+    actor: PipelineActor,
+    id: string,
+    taskId: string,
+    body: z.output<typeof UpdateLeadTaskRequest>,
+  ): Promise<LeadTask> {
+    return this.inFirm(businessId, async (tx) => {
+      await this.reachable(tx, businessId, actor, id);
+      const task = await tx.task.findFirst({
+        where: { businessId, id: taskId, leadId: id, archivedAt: null },
+        select: { id: true, status: true },
+      });
+      if (!task) throw notFound();
+      const done = task.status === 'DONE';
+      if (done !== body.done) {
+        await tx.task.update({
+          where: { id: task.id },
+          data: body.done
+            ? { status: 'DONE', completedAt: new Date(), completedByUserId: actor.userId }
+            : { status: 'OPEN', completedAt: null, completedByUserId: null },
+        });
+        await this.audit.logIn(
+          tx,
+          body.done ? 'lead.task_completed' : 'lead.task_reopened',
+          { type: 'lead', id },
+          { taskId },
+        );
+      }
+      return (await leadTasksOf(tx, businessId, id)).find((t) => t.id === taskId)!;
+    });
   }
 
   /** Appointments have no lead link yet (see the PR's gaps): an empty list. */
@@ -341,7 +422,13 @@ export class LeadPipelineTabsService {
         tx.leadUpload.findMany({
           where: { businessId, leadId: id },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: { id: true, fileName: true, createdAt: true, scanStatus: true },
+          select: {
+            id: true,
+            fileName: true,
+            createdAt: true,
+            scanStatus: true,
+            uploadedBy: { select: { userId: true, user: { select: { name: true } } } },
+          },
         }),
         tx.intake.findMany({
           where: { businessId, leadId: id },
@@ -350,12 +437,7 @@ export class LeadPipelineTabsService {
         }),
       ]);
       return {
-        documents: uploads.map((u) => ({
-          id: u.id,
-          fileName: u.fileName,
-          uploadedAt: u.createdAt.toISOString(),
-          scanStatus: u.scanStatus,
-        })),
+        documents: uploads.map(toLeadDocument),
         forms: intakes.map((i) => ({
           id: i.id,
           name: i.form.title,

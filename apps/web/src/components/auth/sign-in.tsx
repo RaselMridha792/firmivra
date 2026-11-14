@@ -14,20 +14,22 @@ import { Mfa } from './mfa';
 
 /**
  * Email and password, then MFA. `email` fixes the sign-in email (read-only), `title` and
- * `children` (shown above the form) give the screen's context, and `onSignedIn` runs once
- * signed in, in place of opening the workspace.
+ * `children` (shown above the form) give the screen's context, `footer` sits under the form, and
+ * `onSignedIn` runs once signed in, in place of opening the workspace.
  */
 export function SignIn({
   site,
   email,
   title = 'Welcome Back',
   children,
+  footer,
   onSignedIn,
 }: {
   site: 'firm' | 'admin';
   email?: string;
   title?: string;
   children?: ReactNode;
+  footer?: ReactNode;
   onSignedIn?: () => void;
 }) {
   const client = site === 'admin' ? adminAuth : staffAuth;
@@ -140,6 +142,7 @@ export function SignIn({
             </Button>
           </fieldset>
         </form>
+        {footer}
       </AuthFrame>
       {AUTH_MODE === 'local' ? (
         <details open className="mx-auto max-w-auth p-6">

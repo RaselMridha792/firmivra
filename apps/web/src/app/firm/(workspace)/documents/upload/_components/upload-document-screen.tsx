@@ -12,7 +12,8 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
 import { uploadFile } from '../../../../../../lib/upload';
-import { DocumentInfo } from './document-info';
+import { DocumentInfo, UploadForPicker } from './document-info';
+import { LeadUpload } from './lead-upload';
 import { FilePicker } from './file-picker';
 import { DetailsStep, OrganizeStep, ReviewStep } from './upload-steps';
 import { baseName, EMPTY_INFO, savedName, type QueuedFile, type SharedInfo } from './upload-state';
@@ -42,7 +43,11 @@ export function UploadDocumentScreen() {
 
   const [step, setStep] = useState<StepId>('files');
   const [files, setFiles] = useState<QueuedFile[]>([]);
-  const [shared, setShared] = useState<SharedInfo>(EMPTY_INFO);
+  // Opened from a lead's Documents & Forms (`?leadId=`, Leads R2 4): Upload For is that lead.
+  const presetLead = params.get('leadId');
+  const [shared, setShared] = useState<SharedInfo>(() =>
+    presetLead ? { ...EMPTY_INFO, uploadFor: 'LEAD' } : EMPTY_INFO,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -212,133 +217,154 @@ export function UploadDocumentScreen() {
       />
 
       <div className="flex min-w-0 flex-col gap-6 rounded-card bg-surface p-4 shadow-card sm:p-6">
-        <div className="overflow-x-auto pb-1">
-          <div className="min-w-[36rem]">
-            <Stepper steps={[...STEPS]} current={step} variant="wizard" label="Upload steps" />
-          </div>
-        </div>
-
-        {step === 'files' ? (
-          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-            <div className="flex min-w-0 flex-col gap-2">
-              <FilePicker
-                files={files}
-                disabled={locked}
-                onAdd={addFiles}
-                onRemove={(key) => setFiles((list) => list.filter((f) => f.key !== key))}
-                onClear={() => setFiles([])}
-              />
-              {errors['files'] ? (
-                <p role="alert" className="text-sm font-medium text-danger">
-                  {errors['files']}
-                </p>
-              ) : null}
-            </div>
-            <DocumentInfo
-              info={info}
-              onChange={patchInfo}
-              categories={categories.isError ? null : categories.data}
-              folders={folders.isError ? null : folders.data}
-              fileCount={files.length}
-              errors={errors}
-              disabled={locked}
-            />
-          </div>
-        ) : step === 'details' ? (
-          <DetailsStep
+        {info.uploadFor === 'LEAD' ? (
+          <LeadUpload
+            presetLeadId={presetLead}
             files={files}
-            onChange={patchFile}
-            categories={categories.data ?? []}
-            engagements={open}
-            engagementsState={
-              engagements.isPending ? 'loading' : engagements.isError ? 'error' : 'ready'
+            setFiles={setFiles}
+            onAdd={addFiles}
+            picker={
+              <UploadForPicker
+                value={info.uploadFor}
+                onChange={(uploadFor) => patchInfo({ uploadFor })}
+                disabled={busy}
+              />
             }
-            errors={errors}
-          />
-        ) : step === 'organize' ? (
-          <OrganizeStep
-            info={info}
-            onChange={patchInfo}
-            folders={folders.data ?? []}
-            team={manager ? (team.data ?? []) : null}
-            errors={errors}
           />
         ) : (
-          <ReviewStep
-            info={info}
-            files={files}
-            categories={categories.data ?? []}
-            engagements={open}
-            folders={folders.data ?? []}
-            team={manager ? (team.data ?? []) : null}
-          />
-        )}
+          <>
+            <div className="overflow-x-auto pb-1">
+              <div className="min-w-[36rem]">
+                <Stepper steps={[...STEPS]} current={step} variant="wizard" label="Upload steps" />
+              </div>
+            </div>
 
-        {done ? (
-          <div
-            role="status"
-            className="flex flex-wrap items-center gap-3 rounded-card bg-success-soft px-4 py-3 text-heading"
-          >
-            <CheckCircle aria-hidden weight="fill" className="size-6 text-success" />
-            <span className="flex-1">
-              {files.length === 1 ? 'The document was' : `${files.length} documents were`} uploaded
-              to {info.client?.displayName}.
-            </span>
-          </div>
-        ) : failed && !busy ? (
-          <p role="alert" className="rounded-card bg-danger-soft px-4 py-3 text-sm text-heading">
-            {failed === 1 ? 'One file was' : `${failed} files were`} not uploaded. Check the reason
-            beside each, then try again.
-          </p>
-        ) : null}
+            {step === 'files' ? (
+              <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                <div className="flex min-w-0 flex-col gap-2">
+                  <FilePicker
+                    files={files}
+                    disabled={locked}
+                    onAdd={addFiles}
+                    onRemove={(key) => setFiles((list) => list.filter((f) => f.key !== key))}
+                    onClear={() => setFiles([])}
+                  />
+                  {errors['files'] ? (
+                    <p role="alert" className="text-sm font-medium text-danger">
+                      {errors['files']}
+                    </p>
+                  ) : null}
+                </div>
+                <DocumentInfo
+                  info={info}
+                  onChange={patchInfo}
+                  categories={categories.isError ? null : categories.data}
+                  folders={folders.isError ? null : folders.data}
+                  fileCount={files.length}
+                  errors={errors}
+                  disabled={locked}
+                />
+              </div>
+            ) : step === 'details' ? (
+              <DetailsStep
+                files={files}
+                onChange={patchFile}
+                categories={categories.data ?? []}
+                engagements={open}
+                engagementsState={
+                  engagements.isPending ? 'loading' : engagements.isError ? 'error' : 'ready'
+                }
+                errors={errors}
+              />
+            ) : step === 'organize' ? (
+              <OrganizeStep
+                info={info}
+                onChange={patchInfo}
+                folders={folders.data ?? []}
+                team={manager ? (team.data ?? []) : null}
+                errors={errors}
+              />
+            ) : (
+              <ReviewStep
+                info={info}
+                files={files}
+                categories={categories.data ?? []}
+                engagements={open}
+                folders={folders.data ?? []}
+                team={manager ? (team.data ?? []) : null}
+              />
+            )}
 
-        <div className="flex flex-wrap justify-end gap-3">
-          {done ? (
-            <>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setFiles([]);
-                  setShared(EMPTY_INFO);
-                  setStep('files');
-                }}
+            {done ? (
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded-card bg-success-soft px-4 py-3 text-heading"
               >
-                Upload More
-              </Button>
-              <Button onClick={() => router.push('/documents')}>Back to Documents</Button>
-            </>
-          ) : (
-            <>
-              {index > 0 ? (
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => setStep(STEPS[index - 1]!.id)}
-                >
-                  <ArrowLeft aria-hidden weight="bold" className="size-4" />
-                  Back
-                </Button>
-              ) : null}
-              <Button variant="secondary" disabled={busy} onClick={leave}>
-                Cancel
-              </Button>
-              {step === 'review' ? (
-                <Button disabled={busy} onClick={() => void upload()}>
-                  {busy
-                    ? 'Uploading…'
-                    : failed
-                      ? 'Try Again'
-                      : `Upload ${files.length === 1 ? 'Document' : `${files.length} Documents`}`}
-                </Button>
+                <CheckCircle aria-hidden weight="fill" className="size-6 text-success" />
+                <span className="flex-1">
+                  {files.length === 1 ? 'The document was' : `${files.length} documents were`}{' '}
+                  uploaded to {info.client?.displayName}.
+                </span>
+              </div>
+            ) : failed && !busy ? (
+              <p
+                role="alert"
+                className="rounded-card bg-danger-soft px-4 py-3 text-sm text-heading"
+              >
+                {failed === 1 ? 'One file was' : `${failed} files were`} not uploaded. Check the
+                reason beside each, then try again.
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap justify-end gap-3">
+              {done ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setFiles([]);
+                      setShared(EMPTY_INFO);
+                      setStep('files');
+                    }}
+                  >
+                    Upload More
+                  </Button>
+                  <Button onClick={() => router.push('/documents')}>Back to Documents</Button>
+                </>
               ) : (
-                <Button onClick={next}>
-                  Next: {STEPS[index + 1]?.label}
-                  <ArrowRight aria-hidden weight="bold" className="size-4" />
-                </Button>
+                <>
+                  {index > 0 ? (
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => setStep(STEPS[index - 1]!.id)}
+                    >
+                      <ArrowLeft aria-hidden weight="bold" className="size-4" />
+                      Back
+                    </Button>
+                  ) : null}
+                  <Button variant="secondary" disabled={busy} onClick={leave}>
+                    Cancel
+                  </Button>
+                  {step === 'review' ? (
+                    <Button disabled={busy} onClick={() => void upload()}>
+                      {busy
+                        ? 'Uploading…'
+                        : failed
+                          ? 'Try Again'
+                          : `Upload ${files.length === 1 ? 'Document' : `${files.length} Documents`}`}
+                    </Button>
+                  ) : (
+                    <Button onClick={next}>
+                      Next: {STEPS[index + 1]?.label}
+                      <ArrowRight aria-hidden weight="bold" className="size-4" />
+                    </Button>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       <Modal
