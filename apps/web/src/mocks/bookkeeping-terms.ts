@@ -14,6 +14,7 @@ import {
   UpdateBookkeepingTermsRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { catalogPlanRef } from './services-pricing';
 
 const uid = (block: string, n: number) =>
   `0199c0f0-${block}-7000-8000-${String(n).padStart(12, '0')}`;
@@ -42,6 +43,7 @@ function base(id: string, clientId: string, version: number): Version {
     version,
     status: 'DRAFT',
     packageName: null,
+    catalogServiceId: null,
     startDate: today(),
     endDate: null,
     renewalType: 'AUTO',
@@ -285,7 +287,16 @@ export function createBookkeepingTermsMock(): BookkeepingTermsClient {
       const input = parseInput(UpdateBookkeepingTermsRequest, body);
       const t = find(termsId);
       if (t.status !== 'DRAFT') throw fail(409, 'TERMS_NOT_DRAFT', 'Only a draft can change');
-      return save({ ...t, ...input } as Version);
+      // Review 2 (E01b): a package from Services & Pricing names the terms' package.
+      const chosen = input.catalogServiceId
+        ? catalogPlanRef(input.catalogServiceId, 'BOOKKEEPING')
+        : undefined;
+      if (input.catalogServiceId && !chosen) throw fail(404, 'NOT_FOUND', 'No such package');
+      return save({
+        ...t,
+        ...input,
+        ...(chosen ? { packageName: chosen.name } : {}),
+      } as Version);
     },
     send: async (termsId, body) => {
       await mockDelay();
