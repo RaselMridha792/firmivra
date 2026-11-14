@@ -12,6 +12,7 @@ export const PLAN_STATUS: Record<string, string> = {
   // C09 (Review 2): a plan sent for the client's review.
   AWAITING_CLIENT: 'Awaiting Client Review',
   READY_FOR_REVIEW: 'Needs Review',
+  FINALIZED: 'Finalized',
   IMPLEMENTED: 'Implemented',
   CLOSED: 'Closed',
 };
@@ -21,6 +22,7 @@ const PLAN_TONE: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'neu
   IN_PROGRESS: 'success',
   AWAITING_CLIENT: 'warning',
   READY_FOR_REVIEW: 'warning',
+  FINALIZED: 'info',
   IMPLEMENTED: 'success',
   CLOSED: 'neutral',
 };
