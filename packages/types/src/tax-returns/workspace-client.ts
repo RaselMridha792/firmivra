@@ -13,6 +13,7 @@ import {
   CreateWorkspaceTaxReturnRequest,
   EfileReport,
   EfileReportQuery,
+  MailingReport,
   LinkTaxAuthorizationRequest,
   LinkTaxReturnDocumentRequest,
   PaperFiledRequest,
@@ -76,6 +77,12 @@ export function createTaxReturnWorkspaceClient(request: ApiRequest) {
       request(TaxReturnDetail, BASE, post(parseInput(CreateWorkspaceTaxReturnRequest, body))),
     efileReport: async (query: EfileReportQuery = {}): Promise<EfileReport> =>
       request(EfileReport, `${BASE}/reports/efile${toQuery(parseInput(EfileReportQuery, query))}`),
+    /** TX-F27: every paper filing of the year, with the date mailed, tracking and status. */
+    mailingReport: async (query: EfileReportQuery = {}): Promise<MailingReport> =>
+      request(
+        MailingReport,
+        `${BASE}/reports/mailing${toQuery(parseInput(EfileReportQuery, query))}`,
+      ),
     /** Print/Export List (EXPORT): the filtered list as CSV, masked. */
     exportList: async (query: TaxReturnsQuery = {}): Promise<TaxReturnExportLink> =>
       request(TaxReturnExportLink, `${BASE}/export`, post(parseInput(TaxReturnsQuery, query))),

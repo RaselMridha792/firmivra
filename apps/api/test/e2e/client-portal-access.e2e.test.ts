@@ -15,6 +15,7 @@ import {
   ClientPortalAccessResult,
   ClientPortalDocumentsSummary,
   ClientPortalFormsSummary,
+  ClientPortalPreview,
   ClientPortalVisibility,
   PortalTabs,
 } from '@firmivra/types';
@@ -275,6 +276,20 @@ describe('access actions', () => {
       'portal.access_reset',
       'portal.mfa_reset',
     ]);
+  });
+});
+
+describe('Open Client Portal preview', () => {
+  it("shows the firm's portal text and the client's areas, audited, never firm B's", async () => {
+    const res = await send('get', cp(clients.x, '/preview'), staff);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const p = ClientPortalPreview.parse(res.body);
+    expect(p.clientName).toBe('Fake Access Client');
+    expect(p.firmName).toBe(firms.a.slug);
+    expect(p.areas).toHaveLength(8);
+    expect(await audited('client_portal.preview_opened')).toHaveLength(1);
+    expect((await send('get', cp(clients.x, '/preview'), ownerB)).status).toBe(404);
+    expect((await send('get', cp(clients.n, '/preview'), staff)).status).toBe(404);
   });
 });
 

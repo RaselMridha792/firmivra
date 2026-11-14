@@ -48,6 +48,9 @@ describe('seed', () => {
     // a missing row means no plan limits until stage B or the demo seed adds one. The seed also
     // gives the mapped CEO no individual permission override, so that table stays empty too.
     const knownEmpty = [
+      // Tax Planning Review 2 (Nov 14): no plan history or firm resource until a firm acts.
+      'tax_plan_events',
+      'tax_planning_resources',
       'platform_firm_subscriptions',
       'platform_member_permission_overrides',
       // Stage B3: no subscription, so no subscription history (no backfill, change C).
@@ -111,6 +114,8 @@ describe('seed', () => {
       'firm_application_response_codes',
       // Firm closure (Nov 10): no grant, log or exceptional-access request until a firm closes or a
       // request is made.
+      // Review 2 (R1's handoff, Nov 14): none until staff enter an account's opening balance.
+      'bookkeeping_opening_balances',
       'firm_data_download_grants',
       'firm_data_download_log',
       'firm_exceptional_access_requests',

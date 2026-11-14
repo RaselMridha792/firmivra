@@ -61,6 +61,17 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
   const [direction, setDirection] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // Review 2 (T01a): the source and an amount range (dollars typed, cents sent).
+  const [source, setSource] = useState('');
+  const [amountMin, setAmountMin] = useState('');
+  const [amountMax, setAmountMax] = useState('');
+  const centsOf = (v: string) => {
+    const n = Number(v);
+    return v.trim() && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : undefined;
+  };
+  const minC = centsOf(amountMin);
+  const maxC = centsOf(amountMax);
+  const badAmounts = minC !== undefined && maxC !== undefined && minC > maxC;
   const [page, setPage] = useState(1);
   const badRange = !!from && !!to && from > to;
   // BK-T01 engines: the row menu, the selection for bulk actions, and their dialog.
@@ -80,6 +91,9 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
     ...(direction ? { direction: direction as 'DEBIT' | 'CREDIT' } : {}),
     ...(!badRange && from ? { from } : {}),
     ...(!badRange && to ? { to } : {}),
+    ...(source ? { source: source as 'SYNC' | 'IMPORT' | 'MANUAL' } : {}),
+    ...(!badAmounts && minC !== undefined ? { amountMin: minC } : {}),
+    ...(!badAmounts && maxC !== undefined ? { amountMax: maxC } : {}),
   };
   const list = useApiQuery([...BK_KEY, 'transactions', w.id, query], () =>
     api.bookkeeping.transactions(w.id, query),
@@ -97,7 +111,19 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
       setNotice(errorMessage(e, BOOKKEEPING_TXN_ERRORS));
     }
   };
-  const filtered = !!(term || accountId || categoryId || kind || direction || from || to || status);
+  const filtered = !!(
+    term ||
+    accountId ||
+    categoryId ||
+    kind ||
+    direction ||
+    from ||
+    to ||
+    status ||
+    source ||
+    amountMin ||
+    amountMax
+  );
   const sw = w.connections.find((k) => k.status !== 'DISCONNECTED');
   const set =
     <T,>(setter: (v: T) => void) =>
@@ -106,6 +132,9 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
       setPage(1);
     };
   const clear = () => {
+    setSource('');
+    setAmountMin('');
+    setAmountMax('');
     setStatus('');
     setSearch('');
     setAccountId('');
@@ -305,6 +334,29 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
             { value: 'CREDIT', label: 'Credits' },
           ]}
         />
+        <Select
+          label="Source"
+          value={source}
+          onChange={(e) => set(setSource)(e.target.value)}
+          options={[
+            { value: '', label: 'All sources' },
+            { value: 'SYNC', label: 'Synced' },
+            { value: 'IMPORT', label: 'Imported' },
+            { value: 'MANUAL', label: 'Entered' },
+          ]}
+        />
+        <Input
+          label="Amount from ($)"
+          inputMode="decimal"
+          value={amountMin}
+          onChange={(e) => set(setAmountMin)(e.target.value)}
+        />
+        <Input
+          label="Amount to ($)"
+          inputMode="decimal"
+          value={amountMax}
+          onChange={(e) => set(setAmountMax)(e.target.value)}
+        />
         <Input
           label="From"
           type="date"
@@ -332,6 +384,11 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
       {badRange ? (
         <p role="alert" className="mb-2 text-xs text-danger">
           The start date is after the end date.
+        </p>
+      ) : null}
+      {badAmounts ? (
+        <p role="alert" className="mb-2 text-xs text-danger">
+          The smallest amount is more than the largest.
         </p>
       ) : null}
       {selected.length ? (
@@ -383,8 +440,8 @@ export function TransactionsTab({ w }: { w: BookkeepingClientWorkspace }) {
             : filtered
               ? 'Change or clear the filters.'
               : sw
-                ? `Transactions appear here when ${sw.label} sends them with a sync, or when they are imported.`
-                : 'Connect the client’s accounting software, or import transactions, to bring them in.'
+                ? `Transactions appear here when ${sw.label} sends them with a sync. Importing a file is not available yet.`
+                : 'Connect the client’s accounting software to bring transactions in. Importing a file is not available yet; Add Account and Add Period do not create transactions.'
         }
         server={{
           page: list.data?.page ?? 1,

@@ -714,6 +714,7 @@ export class TaskWriteService {
     actor: ClientsActor,
     id: string,
     progress: TaskProgress,
+    blockedReason?: string,
   ): Promise<TaskDetail> {
     const { task, from } = await this.inFirm(businessId, async (tx) => {
       const { current } = await this.open(tx, businessId, actor, id);
@@ -726,12 +727,16 @@ export class TaskWriteService {
         );
         if (prerequisite && prerequisite.status !== 'DONE') throw taskErrors.dependencyOpen();
       }
-      if (progress === 'BLOCKED' && !current.blockedReason && !current.dependsOnTaskId) {
-        throw taskErrors.invalid('progress', 'Say why it is blocked, or choose a prerequisite');
+      const reason = progress === 'BLOCKED' ? blockedReason?.trim() || undefined : undefined;
+      if (progress === 'BLOCKED' && !reason && !current.blockedReason && !current.dependsOnTaskId) {
+        throw taskErrors.invalid(
+          'blockedReason',
+          'Say why it is blocked, or choose a prerequisite',
+        );
       }
       await tx.task.update({
         where: { id },
-        data: { progress, updatedAt: new Date() },
+        data: { progress, ...(reason ? { blockedReason: reason } : {}), updatedAt: new Date() },
         select: { id: true },
       });
       return { task: await this.reader.read(tx, businessId, null, id), from: current.progress };

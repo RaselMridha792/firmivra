@@ -91,7 +91,7 @@ test('the filter row sets the list query, and Reset clears it', async ({ page })
 
   // Last activity from a day no client has reached: nothing matches.
   await page.getByLabel('Last activity: any time').click();
-  await page.getByLabel('From', { exact: true }).fill('2099-01-01');
+  await page.getByLabel('Last activity: From, start date').fill('2099-01-01');
   await expect(page.getByText('No matching clients')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('button', { name: 'Reset', exact: true }).click();
