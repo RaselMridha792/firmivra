@@ -132,6 +132,17 @@ export class TaxReturnWorkspaceService {
 
   // ---------- Overview ----------
 
+  /** The firm's time zone, for its calendar days. */
+  private async firmZone(tenant: TenantContext): Promise<string> {
+    const settings = await this.inFirm(tenant, (tx) =>
+      tx.businessSettings.findUnique({
+        where: { businessId: tenant.businessId },
+        select: { timezone: true },
+      }),
+    );
+    return settings?.timezone ?? 'America/New_York';
+  }
+
   async list(
     tenant: TenantContext,
     userId: string,
@@ -150,9 +161,33 @@ export class TaxReturnWorkspaceService {
     if (q.tab === 'quarterly') and.push({ quarter: { not: null } });
     if (q.tab === 'amended') and.push({ amendsReturnId: { not: null } });
     if (q.tab === 'prior_year') and.push({ taxYear: { lt: year - 1 } });
-    if (q.workflowStatus) and.push({ workflowStatus: q.workflowStatus });
-    if (q.workflowGroup === 'IN_PROGRESS')
-      and.push({ workflowStatus: { in: [...TAX_RETURN_IN_PROGRESS_STATUSES] } });
+    const statuses =
+      q.workflowGroup === 'IN_PROGRESS'
+        ? [...TAX_RETURN_IN_PROGRESS_STATUSES]
+        : q.workflowStatus
+          ? [q.workflowStatus]
+          : null;
+    if (q.asOf) {
+      // K4 and V1 (Dashboard Review 2): a past period's card, the returns as they stood at the
+      // end of that day (made by then, in the status the history gives then), as it counts them.
+      const end = new Date(
+        zonedInstant(q.asOf, '00:00', await this.firmZone(tenant)).getTime() + DAY,
+      );
+      const then = await this.inFirm(
+        tenant,
+        (tx) => tx.$queryRaw<{ id: string }[]>`
+          SELECT t.id FROM tax_returns t
+          WHERE t.business_id = ${businessId}::uuid AND t.created_at < ${end}
+            AND (${statuses}::text[] IS NULL OR COALESCE(
+              (SELECT h.workflow_status FROM tax_return_history h
+                WHERE h.business_id = t.business_id AND h.tax_return_id = t.id
+                  AND h.changed_at < ${end} ORDER BY h.seq DESC LIMIT 1),
+              'IN_PREPARATION')::text = ANY(${statuses}::text[]))`,
+      );
+      and.push({ id: { in: then.map((r) => r.id) } });
+    } else if (statuses) {
+      and.push({ workflowStatus: { in: statuses } });
+    }
     if (q.taxYear) and.push({ taxYear: q.taxYear });
     if (q.serviceId) and.push({ engagement: { serviceId: q.serviceId } });
     if (q.formType) and.push({ formType: { equals: q.formType, mode: 'insensitive' } });
@@ -166,10 +201,7 @@ export class TaxReturnWorkspaceService {
     if (q.updatedTo) and.push({ updatedAt: { lt: new Date(toDay(q.updatedTo).getTime() + DAY) } });
     if (q.acceptedFrom || q.acceptedTo) {
       // Moved to Accepted in these days of the firm's calendar (the dashboard's Accepted Returns).
-      const settings = await this.inFirm(tenant, (tx) =>
-        tx.businessSettings.findUnique({ where: { businessId }, select: { timezone: true } }),
-      );
-      const tz = settings?.timezone ?? 'America/New_York';
+      const tz = await this.firmZone(tenant);
       const changedAt: Prisma.DateTimeFilter = {};
       if (q.acceptedFrom) changedAt.gte = zonedInstant(q.acceptedFrom, '00:00', tz);
       if (q.acceptedTo)

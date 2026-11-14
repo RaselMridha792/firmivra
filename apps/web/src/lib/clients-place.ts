@@ -19,6 +19,8 @@ export interface ClientsPlace {
   engagementStatus: '' | 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   completedFrom: string;
   completedTo: string;
+  /** The books at the end of this day (a past period's dashboard card, Review 2 K1). */
+  asOf: string;
   // Octavia's E2 additions: Added Last 30 Days and More Filters.
   addedFrom: string;
   deadlineFrom: string;
@@ -81,6 +83,7 @@ export function clientsPlaceFrom(params: Record<string, Param>): ClientsPlace {
     ) as ClientsPlace['engagementStatus'],
     completedFrom: withService('completedFrom', (v) => DAY.test(v)),
     completedTo: withService('completedTo', (v) => DAY.test(v)),
+    asOf: pick('asOf', (v) => DAY.test(v)),
     addedFrom: pick('added', (v) => DAY.test(v)),
     deadlineFrom: pick('dueFrom', (v) => DAY.test(v)),
     deadlineTo: pick('dueTo', (v) => DAY.test(v)),
@@ -117,6 +120,7 @@ export function clientsPlaceQuery(place: ClientsPlace): string {
   set('engagement', place.engagementStatus);
   set('completedFrom', place.completedFrom);
   set('completedTo', place.completedTo);
+  set('asOf', place.asOf);
   set('added', place.addedFrom);
   set('dueFrom', place.deadlineFrom);
   set('dueTo', place.deadlineTo);
