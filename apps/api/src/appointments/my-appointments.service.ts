@@ -84,6 +84,8 @@ export function toMine(row: AppointmentRow, now: number): MyAppointment {
     locationKind: legacyKind(row.locationKind),
     locationDetails: row.locationDetails,
     changeableUntil: changeableUntil(row, DEFAULT_CUTOFF_HOURS, now)?.toISOString() ?? null,
+    // Review 2 (B9): the firm's instructions, when it shows them in the portal.
+    instructions: row.instructionsInPortal ? row.clientInstructions : null,
   };
 }
 

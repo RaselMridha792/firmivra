@@ -223,6 +223,13 @@ export interface AppointmentData extends IgnoredFirmName {
   /** The firm's time zone (IANA), so the time reads as the firm means it. */
   timeZone: string;
   link: string;
+  /**
+   * Review 2 (B7): the firm's own words (a confirmation message, or the due reminder's note);
+   * none keeps the standard wording.
+   */
+  message?: string | null;
+  /** Review 2 (B9): the client instructions, when the appointment shows them in email. */
+  instructions?: string | null;
 }
 
 export type NotifyTemplate = keyof NotifyTemplates;

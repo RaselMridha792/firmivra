@@ -28,7 +28,12 @@ type SettingsReq = z.output<typeof NoticeSettingsBody>;
 
 /** What `appointment_types.reminder_defaults` holds, one per reminder. */
 const StoredReminders = z.array(
-  z.object({ channel: z.enum(['EMAIL', 'SMS', 'PORTAL']), offsetMinutes: z.number().int() }),
+  z.object({
+    channel: z.enum(['EMAIL', 'SMS', 'PORTAL']),
+    offsetMinutes: z.number().int(),
+    // Review 2 (B7): the reminder's own note, copied onto new appointments of the type.
+    note: z.string().nullable().optional(),
+  }),
 );
 
 /** The longest booking window the form offers; stands for "no limit" (null in the database). */
@@ -37,17 +42,27 @@ const NO_LIMIT_DAYS = 730;
 function remindersOf(stored: unknown): AppointmentReminder[] {
   const parsed = StoredReminders.safeParse(stored);
   return parsed.success
-    ? parsed.data.map((r) => reminderFromOffset(r.channel as ReminderChannel, r.offsetMinutes))
+    ? parsed.data.map((r) => ({
+        ...reminderFromOffset(r.channel as ReminderChannel, r.offsetMinutes),
+        ...(r.note ? { note: r.note } : {}),
+      }))
     : [];
 }
 
 function storedReminders(reminders: readonly AppointmentReminder[]): Prisma.InputJsonValue {
-  const rows = new Map<string, { channel: ReminderChannel; offsetMinutes: number }>();
+  const rows = new Map<
+    string,
+    { channel: ReminderChannel; offsetMinutes: number; note?: string }
+  >();
   for (const r of reminders) {
     const offsetMinutes = reminderOffset(r);
     if (offsetMinutes === null)
       throw errors.unsupported('A reminder is sent at most 30 days before');
-    rows.set(`${r.channel}:${offsetMinutes}`, { channel: r.channel, offsetMinutes });
+    rows.set(`${r.channel}:${offsetMinutes}`, {
+      channel: r.channel,
+      offsetMinutes,
+      ...(r.note ? { note: r.note } : {}),
+    });
   }
   return [...rows.values()];
 }
@@ -64,6 +79,7 @@ const configSelect = {
   minNoticeMinutes: true,
   maxAdvanceDays: true,
   maxWindowHours: true,
+  confirmationMessage: true,
   reminderDefaults: true,
   color: true,
   // A9 (#1303): the service intake a booking of this type asks the client for.
@@ -86,6 +102,7 @@ function toConfig(row: ConfigRow): AppointmentTypeConfig {
     minNoticeHours: Math.ceil(row.minNoticeMinutes / 60),
     maxWindowDays: row.maxAdvanceDays ?? NO_LIMIT_DAYS,
     maxWindowHours: row.maxWindowHours,
+    confirmationMessage: row.confirmationMessage,
     requiredIntakeFormId: row.requiredIntakeTemplateId,
     requiredDocuments: [],
     defaultReminders: remindersOf(row.reminderDefaults),
@@ -223,6 +240,15 @@ export class SchedulingConfigService {
         if (body.minNoticeHours !== undefined) {
           const minutes = body.minNoticeHours * 60;
           set('minNoticeHours', 'minNoticeMinutes', minutes, minutes === current.minNoticeMinutes);
+        }
+        if (body.confirmationMessage !== undefined) {
+          // Review 2 (B7): the type's confirmation words for its new appointments.
+          set(
+            'confirmationMessage',
+            'confirmationMessage',
+            body.confirmationMessage,
+            body.confirmationMessage === current.confirmationMessage,
+          );
         }
         if (body.maxWindowHours !== undefined) {
           // Review 2 (P1 row 2): 2, 6 or 12 hours (or any 2 to 17,520); null uses the days.

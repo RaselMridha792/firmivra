@@ -435,3 +435,23 @@ test('Review 2 (row 7): an appointment keeps two reminders on one channel', asyn
     page.getByTestId('client-reminders').getByLabel('Email Reminder', { exact: true }),
   ).toBeChecked();
 });
+
+test('Review 2 (B7, B9): instructions per channel, the confirmation message and a note per reminder', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  const channels = page.getByTestId('instructions-in');
+  await expect(channels).toBeVisible({ timeout: 60_000 });
+  // Email and Portal on, Text off, each on its own.
+  await expect(channels.getByLabel('Email')).toBeChecked();
+  await expect(channels.getByLabel('Portal')).toBeChecked();
+  await expect(channels.getByLabel('Text (when the client gets texts)')).not.toBeChecked();
+  await channels.getByLabel('Portal').uncheck();
+  await expect(channels.getByLabel('Email')).toBeChecked();
+  await page.getByLabel('Confirmation message (optional)').fill('Fake: see you soon.');
+  const card = page.getByTestId('client-reminders');
+  await card.getByLabel('Email Reminder', { exact: true }).check();
+  await card.getByLabel('Email Reminder note').fill('Fake: bring your 1099s.');
+  await expect(card.getByLabel('Email Reminder note')).toHaveValue('Fake: bring your 1099s.');
+});

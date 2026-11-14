@@ -213,6 +213,11 @@ export const AppointmentReminder = z.strictObject({
   channel: ReminderChannel,
   amount: z.number().int().min(0).max(60),
   unit: ReminderUnit,
+  /**
+   * Review 2 (B7): this reminder's own note to the client, up to 500 characters; none sends the
+   * generic reminder.
+   */
+  note: clearable(text(500, 'many')),
 });
 export type AppointmentReminder = z.infer<typeof AppointmentReminder>;
 
@@ -277,6 +282,18 @@ const scheduleFields = {
     .optional(),
   internalNotes: clearable(text(2000, 'many')),
   clientInstructions: clearable(text(2000, 'many')),
+  /**
+   * Review 2 (B9): where the client instructions show: Email and Portal on, Text off, each
+   * switched on its own. Internal notes never show anywhere.
+   */
+  instructionsInEmail: z.boolean().optional(),
+  instructionsInPortal: z.boolean().optional(),
+  instructionsInSms: z.boolean().optional(),
+  /**
+   * Review 2 (B7): the scheduled/confirmation notice's own words, up to 2,000 characters; none uses
+   * the appointment type's, else the standard wording.
+   */
+  confirmationMessage: clearable(text(2000, 'many')),
   related: RelatedItemsInput.optional(),
   reminders: z.array(AppointmentReminder).max(10),
   /** "Send Confirmation Message Immediately". */
@@ -353,6 +370,12 @@ export const AppointmentRecord = AgendaItem.extend({
   timezone: z.string(),
   internalNotes: z.string().nullable(),
   clientInstructions: z.string().nullable(),
+  /** Review 2 (B9): the channels the client instructions show in. */
+  instructionsIn: z
+    .object({ email: z.boolean(), portal: z.boolean(), sms: z.boolean() })
+    .default({ email: true, portal: true, sms: false }),
+  /** Review 2 (B7): the appointment's own confirmation words; null uses the type's. */
+  confirmationMessage: z.string().nullable().default(null),
   related: RelatedItems,
   reminders: z.array(AppointmentReminder),
   recurrence: AppointmentRecurrence.nullable(),
@@ -577,6 +600,8 @@ export const AppointmentTypeConfig = z.object({
   maxWindowDays: z.number().int(),
   /** Review 2 (P1 row 2): a booking window in hours (2, 6, 12...); when set, it is the window. */
   maxWindowHours: z.number().int().nullable().default(null),
+  /** Review 2 (B7): the type's confirmation words for its new appointments; null: standard. */
+  confirmationMessage: z.string().nullable().default(null),
   requiredIntakeFormId: z.uuid().nullable(),
   requiredDocuments: z.array(z.string()),
   defaultReminders: z.array(AppointmentReminder),
@@ -610,6 +635,8 @@ export const SetAppointmentTypeConfigRequest = z.strictObject({
   maxWindowDays: z.number().int().min(1).max(730).optional(),
   /** Review 2 (P1 row 2): 2 to 17,520 hours, or null to use `maxWindowDays`. */
   maxWindowHours: z.number().int().min(2).max(17_520).nullable().optional(),
+  /** Review 2 (B7): up to 2,000 characters; empty clears it. */
+  confirmationMessage: clearable(text(2000, 'many')),
   requiredIntakeFormId: z.uuid().nullable().optional(),
   requiredDocuments: z.array(text(100)).max(20).optional(),
   defaultReminders: z.array(AppointmentReminder).max(10).optional(),

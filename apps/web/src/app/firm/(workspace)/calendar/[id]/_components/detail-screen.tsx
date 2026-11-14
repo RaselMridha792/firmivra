@@ -42,9 +42,15 @@ const DETAIL_ERRORS: Record<string, string> = {
 const CHANNELS: Record<string, string> = { EMAIL: 'Email', SMS: 'SMS', PORTAL: 'Portal' };
 
 /** "Email, 1 day before". */
-const reminderText = (m: { channel: string; amount: number; unit: string }) => {
+const reminderText = (m: {
+  channel: string;
+  amount: number;
+  unit: string;
+  note?: string | null;
+}) => {
   const unit = m.unit.toLowerCase().replace(/s$/, '');
-  return `${CHANNELS[m.channel] ?? m.channel}, ${m.amount} ${unit}${m.amount === 1 ? '' : 's'} before`;
+  // Review 2 (B7): a reminder's own note, else the standard reminder.
+  return `${CHANNELS[m.channel] ?? m.channel}, ${m.amount} ${unit}${m.amount === 1 ? '' : 's'} before${m.note ? ` ("${m.note}")` : ''}`;
 };
 
 const ACTIONS: Record<string, string> = {
@@ -242,6 +248,15 @@ export function DetailScreen({ id }: { id: string }) {
                   rows={[
                     ['Internal notes', r.internalNotes ?? 'None'],
                     ['Client instructions', r.clientInstructions ?? 'None'],
+                    // Review 2 (B9, B7): where the instructions show, and the confirmation's words.
+                    [
+                      'Instructions shown in',
+                      (['email', 'portal', 'sms'] as const)
+                        .filter((k) => r.instructionsIn[k])
+                        .map((k) => (k === 'sms' ? 'Text' : k === 'email' ? 'Email' : 'Portal'))
+                        .join(', ') || 'Nowhere',
+                    ],
+                    ['Confirmation message', r.confirmationMessage ?? 'The standard wording'],
                   ]}
                 />
                 <NoteForm id={id} onDone={setMessage} />
