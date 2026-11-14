@@ -1,6 +1,7 @@
-// R60 seed rows (Clients Review 2): a synthetic LVP business client linked to the seeded LVP
-// client as its owner (client_links, G9). Called once by seed.ts; safe to run again (a fixed id,
-// an upsert and a create-once). No real client data.
+// R60 seed rows. Clients Review 2: a synthetic LVP business client linked to the seeded LVP client
+// as its owner (client_links, G9). Tax Returns Review 2 (Messaging): that business client's saved
+// email preference, documents as portal links (client_message_preferences). Called once by
+// seed.ts; safe to run again (fixed ids, upserts and a create-once). No real client data.
 import type { TxClient } from '../src/client.js';
 import { SEED_CLIENT_IDS, SEED_USERS } from './seed-data.js';
 
@@ -36,4 +37,15 @@ export async function seedR60(tx: TxClient, businessId: string) {
       },
     });
   }
+  // The rest (the email, the message text) keeps the firm's default (null).
+  await tx.clientMessagePreference.upsert({
+    where: { businessId_clientId: { businessId, clientId: ID.business } },
+    update: {},
+    create: {
+      businessId,
+      clientId: ID.business,
+      emailIncludesDocuments: true,
+      updatedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
 }
