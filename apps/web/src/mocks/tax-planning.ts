@@ -36,6 +36,14 @@ import {
   type PlanInput,
   type PlanStrategy,
   type PlanVersionDetail,
+  type PlanAction,
+  type PlanApproval,
+  type PlanRequest,
+  CreatePlanRequestRequest,
+  DuplicatePlanRequest,
+  PlanReviewRequest,
+  RecordPlanApprovalRequest,
+  UpdatePlanRequestRequest,
   type PlanningClientRow,
   type PlanningDeadline,
   type PlanningResource,
@@ -73,6 +81,21 @@ const DAY = 86_400_000;
 const day = (offset: number) => new Date(Date.now() + offset * DAY).toISOString().slice(0, 10);
 const uid = (block: string, n: number) =>
   `0199c0f0-${block}-7000-8000-${String(n).padStart(12, '0')}`;
+/** A plan's workflow before strip() works it out (see workflowOf in the mock). */
+const EMPTY_WORKFLOW: TaxPlanDetail['workflow'] = {
+  nextAction: '',
+  owner: null,
+  waitingOnClient: false,
+  actions: [],
+  readiness: [],
+  reviewer: null,
+  reviewRequestedAt: null,
+  sentVersion: null,
+  approvedVersion: null,
+  approvals: [],
+  delivered: null,
+  requests: [],
+};
 const ALEX: MemberRef = { userId: '0199c0f0-0b00-7000-8000-000000000011', name: 'Alex Rivera' };
 
 const CLIENTS = [
@@ -514,6 +537,7 @@ export function createTaxPlanningMock({
       canSend: role !== 'STAFF',
       createdAt: at,
       etag: 'e0',
+      workflow: EMPTY_WORKFLOW,
       _versions: [],
     };
     recompute(p);
@@ -650,8 +674,189 @@ export function createTaxPlanningMock({
       ...rest
     } = x as T & { _versions?: unknown; _events?: unknown };
     void [_v, _e];
+    // Review 2 workflow: a plan's workflow is worked out on every answer, as the API does.
+    if ('planYear' in rest && 'strategies' in rest)
+      (rest as unknown as TaxPlanDetail).workflow = workflowOf(
+        x as unknown as TaxPlanDetail & { _versions: PlanVersionDetail[] },
+      );
     return rest as Omit<T, '_versions' | '_events'>;
   };
+  /** Review 2 workflow (fake): each plan's reviewer, approvals, requests and delivery. */
+  type Flow = {
+    reviewer: TaxPlanDetail['workflow']['reviewer'];
+    reviewRequestedAt: string | null;
+    approvals: PlanApproval[];
+    requests: PlanRequest[];
+    delivered: { at: string; version: number } | null;
+  };
+  const flows = new Map<string, Flow>();
+  const flowOf = (pid: string): Flow => {
+    let f = flows.get(pid);
+    if (!f) {
+      f = { reviewer: null, reviewRequestedAt: null, approvals: [], requests: [], delivered: null };
+      flows.set(pid, f);
+    }
+    return f;
+  };
+  const ACTIONS: Record<string, PlanAction[]> = {
+    DRAFT: ['START_WORK', 'CLOSE', 'DUPLICATE'],
+    SCHEDULED: ['START_WORK', 'CLOSE', 'DUPLICATE'],
+    IN_PROGRESS: [
+      'SEND_FOR_REVIEW',
+      'FINALIZE',
+      'SEND_TO_CLIENT',
+      'REQUEST_INFORMATION',
+      'CLOSE',
+      'DUPLICATE',
+    ],
+    UNDER_REVIEW: ['RETURN_TO_WORK', 'FINALIZE', 'SEND_TO_CLIENT', 'CLOSE', 'DUPLICATE'],
+    FINALIZED: ['SEND_TO_CLIENT', 'SEND_FOR_REVIEW', 'REVISE', 'CLOSE', 'DUPLICATE'],
+    AWAITING_CLIENT: [
+      'RECORD_APPROVAL',
+      'RECORD_CLIENT_REQUEST',
+      'REQUEST_INFORMATION',
+      'REVISE',
+      'CLOSE',
+      'DUPLICATE',
+    ],
+    READY_FOR_REVIEW: ['START_REVISION', 'REQUEST_INFORMATION', 'CLOSE', 'DUPLICATE'],
+    CLIENT_APPROVED: ['MARK_IMPLEMENTED', 'DELIVER', 'REVISE', 'CLOSE', 'DUPLICATE'],
+    IMPLEMENTED: ['DELIVER', 'REVISE', 'CLOSE', 'DUPLICATE'],
+    CLOSED: ['REOPEN', 'DUPLICATE'],
+  };
+  const NEXT: Record<string, string> = {
+    DRAFT: 'Set the plan up: assign it, set the target date and schedule a client discussion.',
+    SCHEDULED: 'Hold the client discussion, then start the work.',
+    IN_PROGRESS: 'Send it for internal review, or send it to the client for review.',
+    UNDER_REVIEW: 'Review the plan, then return it to work or send it to the client for review.',
+    FINALIZED: 'Send it to the client for review.',
+    AWAITING_CLIENT:
+      'Waiting for the client to review it: record their approval or what they asked.',
+    READY_FOR_REVIEW: "Answer the client's request: start the revision.",
+    CLIENT_APPROVED: 'Deliver the approved plan to the client, and put it into action.',
+    IMPLEMENTED: 'Deliver the approved plan to the client.',
+    CLOSED: 'Closed: reopen it, with the reason, to change it.',
+  };
+  const workflowOf = (
+    p: TaxPlanDetail & { _versions?: PlanVersionDetail[] },
+  ): TaxPlanDetail['workflow'] => {
+    const f = flowOf(p.id);
+    const versions = p._versions ?? [];
+    const sent = versions.find((v) => v.event === 'SENT')?.version ?? null;
+    const approved = f.approvals[0]?.version ?? null;
+    const edit = role !== 'STAFF';
+    const actions = (ACTIONS[p.status] ?? []).filter(
+      (a) => edit && !(a === 'DELIVER' && f.delivered),
+    );
+    const item = (key: string, label: string, done: boolean, fix: string) => ({
+      key,
+      label,
+      done,
+      fix: done ? null : fix,
+    });
+    return {
+      nextAction: NEXT[p.status] ?? '',
+      owner:
+        p.status === 'UNDER_REVIEW'
+          ? f.reviewer
+          : ['AWAITING_CLIENT', 'CLOSED'].includes(p.status)
+            ? null
+            : p.assignedTo,
+      waitingOnClient: p.status === 'AWAITING_CLIENT',
+      actions,
+      readiness: [
+        item(
+          'assigned',
+          'Assigned to a team member',
+          !!p.assignedTo,
+          'Choose who owns it in Edit Planning.',
+        ),
+        item(
+          'target',
+          'Target completion date set',
+          !!p.targetCompletionOn,
+          'Set the target date in Edit Planning.',
+        ),
+        item(
+          'strategy',
+          'At least one strategy selected',
+          p.strategies.some((x) => x.selected),
+          'Select a strategy in Goals & Strategies.',
+        ),
+        item(
+          'finalized',
+          'Finalized after the last change',
+          versions.some((v) => v.event === 'FINALIZED'),
+          'Use Finalize Plan in Review & Save.',
+        ),
+        item(
+          'sent',
+          'Sent to the client for review',
+          sent !== null,
+          'Use Send to Client once it is finalized.',
+        ),
+        item(
+          'approved',
+          'Client approval of the sent version recorded',
+          sent !== null && approved !== null && approved >= sent,
+          'Use Record Client Approval with the date and how it was given.',
+        ),
+        item(
+          'delivered',
+          'Delivered to the client',
+          !!f.delivered,
+          'Use Deliver to Client after approval.',
+        ),
+      ],
+      reviewer: f.reviewer,
+      reviewRequestedAt: f.reviewRequestedAt,
+      sentVersion: sent,
+      approvedVersion: approved,
+      approvals: copy(f.approvals),
+      delivered: f.delivered,
+      requests: copy(f.requests),
+    };
+  };
+  // Review 2 workflow (fake): the plan with the client keeps its sent version 1; the implemented
+  // one was approved, by a documented manual approval of version 1, before it was implemented.
+  for (const p of plans.filter((x) => ['AWAITING_CLIENT', 'IMPLEMENTED'].includes(x.status))) {
+    p.version = 1;
+    const kept = {
+      version: 1,
+      taxYear: p.planYear,
+      sourceDataAsOf: nowIso(),
+      createdBy: mockMe,
+      createdAt: nowIso(),
+      planName: p.name,
+      strategies: p.strategies
+        .filter((s) => s.selected)
+        .map((s) => ({
+          name: s.name,
+          category: s.category,
+          priority: s.priority,
+          estimate: s.estimate,
+          assumptions: s.assumptions,
+        })),
+      inputs: p.inputs,
+      projectedSavingsCents: p.projectedSavingsCents,
+      disclaimer: TAX_PLANNING_DISCLAIMER,
+    };
+    p._versions = [
+      { ...kept, event: 'SENT' },
+      { ...kept, event: 'FINALIZED' },
+    ];
+    if (p.status === 'IMPLEMENTED')
+      flowOf(p.id).approvals.push({
+        id: id('d740'),
+        version: 1,
+        method: 'MANUAL',
+        approvedOn: nowIso().slice(0, 10),
+        note: 'Approved by phone, confirmed by email (fake).',
+        documentId: null,
+        recordedBy: mockMe,
+        createdAt: nowIso(),
+      });
+  }
   const findPlan = (pid: string) => {
     const p = plans.find((x) => x.id === pid);
     if (!p) throw fail(404, 'NOT_FOUND', 'That plan was not found.');
@@ -683,6 +888,12 @@ export function createTaxPlanningMock({
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
     if (p.archived) throw fail(409, 'PLAN_ARCHIVED', 'Restore the plan before changing it.');
   };
+  /** Review 2 workflow: work begins by itself, so a change moves Draft or Scheduled to In Progress. */
+  const work = (p: TaxPlanDetail) => {
+    if (p.status !== 'DRAFT' && p.status !== 'SCHEDULED') return;
+    planEvent(p, 'STATUS', p.status, 'IN_PROGRESS', null);
+    p.status = 'IN_PROGRESS';
+  };
   const conflict = (p: { etag: string }, etag: string) => {
     if (etag !== p.etag)
       throw fail(
@@ -706,6 +917,7 @@ export function createTaxPlanningMock({
       staleData: _sd,
       disclaimer: _di,
       canEdit: _ce,
+      workflow: _wf,
       canChangeStatus: _ch,
       canOverride: _co,
       canSend: _cs,
@@ -713,7 +925,7 @@ export function createTaxPlanningMock({
       etag: _et,
       ...row
     } = strip(p as TaxPlanDetail & { _versions?: never }) as TaxPlanDetail;
-    void [_f, _e, _g, _o, _n, _c, _i, _s, _d, _ov, _sd, _di, _ce, _ch, _co, _cs, _ca, _et];
+    void [_f, _e, _g, _o, _n, _c, _i, _s, _d, _ov, _sd, _di, _ce, _ch, _co, _cs, _ca, _et, _wf];
     return row;
   };
   const clientRow = (c: (typeof refs)[number]): PlanningClientRow => {
@@ -963,6 +1175,7 @@ export function createTaxPlanningMock({
         const input = parseInput(UpdateTaxPlanRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         conflict(p, input.etag);
         const { etag: _e, ...fields } = input;
         void _e;
@@ -978,6 +1191,7 @@ export function createTaxPlanningMock({
         const input = parseInput(SavePlanInputsRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         conflict(p, input.etag);
         if (role === 'STAFF')
           throw fail(403, 'FINANCIAL_INPUTS_RESTRICTED', 'The figures are restricted.');
@@ -1013,6 +1227,7 @@ export function createTaxPlanningMock({
         const input = parseInput(AddPlanStrategyRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         if (input.kind === 'LIBRARY') {
           const l = library.find((x) => x.id === input.strategyId);
           if (!l) throw fail(404, 'NOT_FOUND', 'That strategy was not found.');
@@ -1052,6 +1267,7 @@ export function createTaxPlanningMock({
         const input = parseInput(UpdatePlanStrategyRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         conflict(p, input.etag);
         const s = p.strategies.find((x) => x.id === sid);
         if (!s) throw fail(404, 'NOT_FOUND', 'That strategy is not in the plan.');
@@ -1080,6 +1296,7 @@ export function createTaxPlanningMock({
         const input = parseInput(ReorderPlanStrategiesRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         conflict(p, input.etag);
         p.strategies = input.ids
           .map((x) => p.strategies.find((s) => s.id === x))
@@ -1098,6 +1315,7 @@ export function createTaxPlanningMock({
         const input = parseInput(AttachPlanDocumentRequest, body);
         const p = findPlan(pid);
         editable(p);
+        work(p);
         p.documents.push({
           documentId: input.documentId,
           fileName: 'Client_Document.pdf',
@@ -1121,6 +1339,12 @@ export function createTaxPlanningMock({
         const p = findPlan(pid);
         editable(p);
         conflict(p, input.etag);
+        if (input.status === 'IMPLEMENTED' && p.status !== 'CLIENT_APPROVED')
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            "A plan is implemented only after the client's approval: use Record Client Approval first",
+          );
         if (
           input.status === 'IMPLEMENTED' &&
           !p.strategies.some((s) => s.status === 'IN_PROGRESS' || s.status === 'IMPLEMENTED')
@@ -1146,7 +1370,11 @@ export function createTaxPlanningMock({
         p.version += 1;
         // C08, C27: a finalized plan is Finalized in every view.
         const before = p.status;
-        if (['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW'].includes(p.status))
+        if (
+          ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'UNDER_REVIEW', 'READY_FOR_REVIEW'].includes(
+            p.status,
+          )
+        )
           p.status = 'FINALIZED';
         planEvent(p, 'FINALIZE', before, p.status, null);
         p._versions.unshift({
@@ -1175,9 +1403,26 @@ export function createTaxPlanningMock({
     send: (pid, body) =>
       run(() => {
         const input = parseInput(SendPlanRequest, body);
-        void input;
         const p = findPlan(pid);
         editable(p);
+        if (input.purpose === 'DELIVERY') {
+          if (p.status !== 'CLIENT_APPROVED' && p.status !== 'IMPLEMENTED')
+            throw fail(
+              409,
+              'INVALID_STATUS',
+              "Deliver to Client comes after the client's approval.",
+            );
+          const v = p._versions.length + 1;
+          p._versions.unshift({
+            ...copy(p._versions[0]!),
+            version: v,
+            event: 'DELIVERED',
+            createdAt: nowIso(),
+          });
+          flowOf(p.id).delivered = { at: nowIso(), version: v };
+          planEvent(p, 'DELIVERED', p.status, p.status, null);
+          return strip(p);
+        }
         if (p._versions.length === 0)
           throw fail(409, 'PLAN_NOT_READY', 'Finalize the plan before sending it.');
         p._versions.unshift({
@@ -1189,7 +1434,14 @@ export function createTaxPlanningMock({
         // C09: a plan sent for the client's review is Awaiting Client Review.
         const sentFrom = p.status;
         if (
-          ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'READY_FOR_REVIEW', 'FINALIZED'].includes(p.status)
+          [
+            'DRAFT',
+            'SCHEDULED',
+            'IN_PROGRESS',
+            'READY_FOR_REVIEW',
+            'FINALIZED',
+            'UNDER_REVIEW',
+          ].includes(p.status)
         )
           p.status = 'AWAITING_CLIENT';
         planEvent(p, 'SEND', sentFrom, p.status, null);
@@ -1217,7 +1469,7 @@ export function createTaxPlanningMock({
         const p = findPlan(pid);
         if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
         conflict(p, input.etag);
-        if (!['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED'].includes(p.status))
+        if (!['FINALIZED', 'AWAITING_CLIENT', 'IMPLEMENTED', 'CLIENT_APPROVED'].includes(p.status))
           throw fail(
             409,
             'INVALID_STATUS',
@@ -1227,6 +1479,109 @@ export function createTaxPlanningMock({
         p.status = 'IN_PROGRESS';
         p.etag = `e${next++}`;
         return strip(p);
+      }),
+    reviewPlan: (pid, body) =>
+      run(() => {
+        const input = parseInput(PlanReviewRequest, body);
+        const p = findPlan(pid);
+        editable(p);
+        conflict(p, input.etag);
+        if (!['IN_PROGRESS', 'FINALIZED', 'READY_FOR_REVIEW'].includes(p.status))
+          throw fail(409, 'INVALID_STATUS', 'Send for Internal Review is for a plan in progress.');
+        const f = flowOf(p.id);
+        f.reviewer = { userId: input.reviewerUserId, name: 'Morgan Admin (fake)' };
+        f.reviewRequestedAt = nowIso();
+        planEvent(p, 'REVIEW_REQUESTED', p.status, 'UNDER_REVIEW', null);
+        p.status = 'UNDER_REVIEW';
+        p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    recordApproval: (pid, body) =>
+      run(() => {
+        const input = parseInput(RecordPlanApprovalRequest, body);
+        const p = findPlan(pid);
+        editable(p);
+        conflict(p, input.etag);
+        if (p.status !== 'AWAITING_CLIENT' && p.status !== 'READY_FOR_REVIEW')
+          throw fail(
+            409,
+            'INVALID_STATUS',
+            "Record the client's approval of a plan sent for their review.",
+          );
+        const sent = p._versions.find((v) => v.event === 'SENT');
+        if (!sent) throw fail(400, 'VALIDATION_FAILED', 'Choose a version that was sent.');
+        flowOf(p.id).approvals.unshift({
+          id: id('d710'),
+          version: input.version ?? sent.version,
+          method: 'MANUAL',
+          approvedOn: input.approvedOn,
+          note: input.note,
+          documentId: input.documentId ?? null,
+          recordedBy: mockMe,
+          createdAt: nowIso(),
+        });
+        planEvent(p, 'APPROVED', p.status, 'CLIENT_APPROVED', null);
+        p.status = 'CLIENT_APPROVED';
+        p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    createPlanRequest: (pid, body) =>
+      run(() => {
+        const input = parseInput(CreatePlanRequestRequest, body);
+        const p = findPlan(pid);
+        editable(p);
+        const firm = input.direction === 'FIRM_TO_CLIENT';
+        flowOf(p.id).requests.unshift({
+          id: id('d720'),
+          direction: input.direction,
+          kind: input.kind,
+          body: input.body,
+          status: 'OPEN',
+          response: null,
+          documentId: null,
+          requestedBy: firm ? mockMe : null,
+          answeredAt: null,
+          closedAt: null,
+          createdAt: nowIso(),
+        });
+        if (!firm && ['AWAITING_CLIENT', 'CLIENT_APPROVED'].includes(p.status)) {
+          planEvent(p, 'CLIENT_REQUEST', p.status, 'READY_FOR_REVIEW', null);
+          p.status = 'READY_FOR_REVIEW';
+        } else planEvent(p, firm ? 'INFO_REQUESTED' : 'CLIENT_REQUEST', p.status, p.status, null);
+        p.etag = `e${next++}`;
+        return strip(p);
+      }),
+    updatePlanRequest: (pid, rid, body) =>
+      run(() => {
+        const input = parseInput(UpdatePlanRequestRequest, body);
+        const p = findPlan(pid);
+        const r = flowOf(p.id).requests.find((x) => x.id === rid);
+        if (!r) throw fail(404, 'NOT_FOUND', 'That request was not found.');
+        r.status = input.status;
+        if (input.response !== undefined) r.response = input.response;
+        if (!r.answeredAt) r.answeredAt = nowIso();
+        if (input.status === 'CLOSED') r.closedAt = nowIso();
+        return strip(p);
+      }),
+    duplicatePlan: (pid, body) =>
+      run(() => {
+        const input = parseInput(DuplicatePlanRequest, body);
+        const p = findPlan(pid);
+        const c = copy(p) as typeof p;
+        c.id = id('d730');
+        c.name = input.name ?? `${p.name} (copy)`;
+        c.status = 'DRAFT';
+        c.version = 0;
+        c.documents = [];
+        c.strategies = c.strategies.map((x) => ({
+          ...x,
+          status: x.status === 'DECLINED' ? 'DECLINED' : 'PROPOSED',
+          implementedOn: null,
+        }));
+        c._versions = [];
+        c.etag = `e${next++}`;
+        plans.unshift(c);
+        return strip(c);
       }),
     planEvents: (pid) => run(() => [...(planEventsOf.get(findPlan(pid).id) ?? [])]),
     archivePlan: (pid) =>

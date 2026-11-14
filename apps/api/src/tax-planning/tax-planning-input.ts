@@ -9,6 +9,11 @@ import {
   OpportunityActionRequest,
   UpdateTaxOpportunityRequest,
   PlanReasonRequest,
+  PlanReviewRequest,
+  RecordPlanApprovalRequest,
+  CreatePlanRequestRequest,
+  UpdatePlanRequestRequest,
+  DuplicatePlanRequest,
   UpdatePlanningResourceRequest,
   PlanningCalendarQuery,
   PlanningClientsQuery,
@@ -93,6 +98,11 @@ export const CreateOpportunityBody = clean(CreateTaxOpportunityRequest);
 export const ActionBody = clean(OpportunityActionRequest);
 export const UpdateOpportunityBody = clean(UpdateTaxOpportunityRequest);
 export const PlanReasonBody = clean(PlanReasonRequest);
+export const PlanReviewBody = clean(PlanReviewRequest);
+export const RecordApprovalBody = clean(RecordPlanApprovalRequest);
+export const CreatePlanRequestBody = clean(CreatePlanRequestRequest);
+export const UpdatePlanRequestBody = clean(UpdatePlanRequestRequest);
+export const DuplicatePlanBody = clean(DuplicatePlanRequest);
 export const UpdateResourceBody = clean(UpdatePlanningResourceRequest);
 export const ScreeningBody = clean(RunScreeningRequest);
 

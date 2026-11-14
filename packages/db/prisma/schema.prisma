@@ -2911,6 +2911,11 @@ model BusinessSettings {
   postalCode          String?   @map("postal_code")
   country             String    @default("US")
   timezone            String    @default("America/New_York")
+  /// Dashboard Review 2: the firm's tax season, `MM-DD` to `MM-DD` every year in the firm's time
+  /// zone (it may run across Jan 1; never Feb 29). Both set or both null (CHECK); null: no season,
+  /// the dashboard shows none. Owner and Admin set it in the firm settings.
+  taxSeasonStart      String?   @map("tax_season_start")
+  taxSeasonEnd        String?   @map("tax_season_end")
   /// S3 key under the firm's prefix.
   logoKey             String?   @map("logo_key")
   /// S3 key of the logo for light backgrounds (footer, portal, emails); `logo_key` is for dark ones.
