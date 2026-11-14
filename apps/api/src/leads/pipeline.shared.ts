@@ -255,6 +255,8 @@ const profileSelect = {
   postalCode: true,
   bestTimeToContact: true,
   dateOfBirth: true,
+  // R2 17: the rule that gave the lead its owner.
+  assignedByRule: { select: { id: true, name: true } },
   // R2 15: the merge links, both ways.
   mergedInto: { select: { id: true, firstName: true, lastName: true, number: true } },
   mergedFrom: {
@@ -400,6 +402,7 @@ export async function loadProfile(
     ...toRow(r),
     address: address || null,
     dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
+    assignedByRule: r.assignedByRule,
     otherContacts: r.contactPoints,
     mergedFrom: r.mergedFrom.map(leadRef),
     mergedInto: r.mergedInto ? leadRef(r.mergedInto) : null,

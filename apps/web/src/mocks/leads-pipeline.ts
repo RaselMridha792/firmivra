@@ -102,7 +102,7 @@ function services() {
     'Business Formation',
   ].map((name, i) => ({ id: uuid('0e00', i + 1), name }));
 }
-function team() {
+export function team() {
   return [
     staff(1, 'Morgan Avery'),
     staff(3, 'Daniel Okafor'),
