@@ -1,11 +1,12 @@
 'use client';
 
-import type {
-  LeadPipelineQuery,
-  LeadPriority,
-  LeadRow,
-  LeadSource,
-  LeadPipelineStatus,
+import {
+  type LeadPipelineQuery,
+  type LeadPriority,
+  type LeadRow,
+  type LeadSource,
+  type LeadPipelineStatus,
+  roleCan,
 } from '@firmivra/types';
 import {
   BulkBar,
@@ -24,11 +25,13 @@ import {
   Clock,
   ClockCountdown,
   CopySimple,
+  DownloadSimple,
   Handshake,
   Megaphone,
   Plus,
   Tag,
   Trash,
+  UploadSimple,
   UserPlus,
   Users,
   XCircle,
@@ -54,6 +57,7 @@ import { AddTagDialog } from './add-tag-dialog';
 import { CreateCampaignPanel } from './create-campaign-panel';
 import { LeadCreateDialog } from './lead-create-dialog';
 import { LeadEditDialog } from './lead-edit-dialog';
+import { LeadExportDialog } from './lead-export-dialog';
 import { LeadMessageDialog, type MessageRecipient, recipientOf } from './lead-message-dialog';
 import { LeadsDateFilter } from './leads-date-filter';
 import { LEAD_PIPELINE_KEY, PRIORITIES, SOURCES, STAGES, summaryTrend } from './lead-shared';
@@ -433,6 +437,10 @@ export function LeadsScreen({
   // Add New Tag (L6): Owner and Admin add to the firm's one tag list.
   const [tagOpen, setTagOpen] = useState(false);
   const { role } = useFirm();
+  // R2 16: import (Leads CREATE) and export (the Owner, or Leads EXPORT); the API checks again.
+  const mayImport = !!role && roleCan(role, 'LEADS', 'CREATE');
+  const mayExport = !!role && roleCan(role, 'LEADS', 'EXPORT');
+  const [exportOpen, setExportOpen] = useState(false);
   const [message, setMessage] = useState<{
     recipients: MessageRecipient[];
     channel: 'EMAIL' | 'SMS';
@@ -706,6 +714,27 @@ export function LeadsScreen({
             <CopySimple aria-hidden weight="fill" className="size-4" />
             Review Duplicates
           </Link>
+          {/* R2 16: bulk import and export, beside the list's main actions (Octavia, Nov 8). */}
+          {mayImport ? (
+            <Link
+              href="/leads/import"
+              data-testid="import-leads"
+              className="inline-flex min-h-11 items-center gap-2 rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-heading hover:bg-canvas"
+            >
+              <UploadSimple aria-hidden weight="fill" className="size-4" />
+              Import Leads
+            </Link>
+          ) : null}
+          {mayExport ? (
+            <Button
+              variant="secondary"
+              onClick={() => setExportOpen(true)}
+              data-testid="export-leads"
+            >
+              <DownloadSimple aria-hidden weight="fill" className="size-4" />
+              Export
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             onClick={() => setCampaignOpen(true)}
@@ -769,6 +798,14 @@ export function LeadsScreen({
 
       <LeadsActionLegend />
       {tagOpen ? <AddTagDialog onClose={() => setTagOpen(false)} /> : null}
+      {exportOpen ? (
+        <LeadExportDialog
+          selectedIds={selected}
+          query={query}
+          filteredTotal={leads.data?.total ?? 0}
+          onClose={() => setExportOpen(false)}
+        />
+      ) : null}
       {campaignOpen ? <CreateCampaignPanel onClose={() => setCampaignOpen(false)} /> : null}
       {createOpen ? (
         <LeadCreateDialog open options={options.data} onClose={() => setCreateOpen(false)} />

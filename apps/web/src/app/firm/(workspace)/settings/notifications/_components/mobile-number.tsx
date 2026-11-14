@@ -62,7 +62,15 @@ export function MobileNumberCard() {
       testId="mobile-number"
     >
       {phone.data ? (
-        <MobileNumber state={phone.data} />
+        <>
+          <MobileNumber state={phone.data} />
+          {/* Dashboard Review 2 (R2 NEW2): an employee's number is the Owner's to change. */}
+          {phone.data.phone && !phone.data.canChange ? (
+            <p className="mt-2 text-sm text-muted" data-testid="phone-owner-note">
+              Your firm&apos;s Owner can change this.
+            </p>
+          ) : null}
+        </>
       ) : phone.isPending ? (
         <Skeleton className="h-20" />
       ) : (
@@ -84,13 +92,19 @@ export function MobileNumber({ state }: { state: StaffPhoneState }) {
   const error = send.error ?? verify.error;
 
   if (!state.phone) {
-    return (
+    // Dashboard Review 2 (R2 NEW2): only the Owner adds their own; an employee's is the Owner's.
+    return state.canChange ? (
       <Quiet>
         You have no mobile number yet. Add it on{' '}
         <Link href="/profile" className="font-medium text-link hover:underline">
           My Profile
         </Link>
         , then verify it here.
+      </Quiet>
+    ) : (
+      <Quiet>
+        You have no mobile number yet. Your firm&apos;s Owner adds it in Staff Management; then
+        verify it here.
       </Quiet>
     );
   }

@@ -39,7 +39,7 @@ export function Widget<T>({
       className={`flex min-w-0 flex-col gap-3 rounded-xl bg-surface p-5 shadow-md ${className}`}
     >
       <div
-        className={`flex items-center justify-between gap-3 ${navy ? '-mx-5 -mt-5 rounded-t-xl bg-navigation px-5 py-3 text-on-action' : 'text-heading'}`}
+        className={`flex flex-wrap items-center justify-between gap-3 ${navy ? '-mx-5 -mt-5 rounded-t-xl bg-navigation px-5 py-3 text-on-action' : 'text-heading'}`}
       >
         <h2 className="text-xl font-bold">{title}</h2>
         {action}

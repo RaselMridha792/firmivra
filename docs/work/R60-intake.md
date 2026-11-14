@@ -1857,3 +1857,63 @@ Offices need no column: they are R1's Locations API (`firm_offices`).
   blocks a day, services from Services & Pricing, the duplicate rule, unsaved changes, the image
   after save); the deactivate, set primary, manage staff, reassign manager, deactivate manager and
   schedule dialogs. Settings menu: Locations below Overview. Mock 3 of 3.
+- Nov 10: Clients PR 1 of the Nov 10 queue, branch `rasel/R60-clients-activity`: E2 Last Activity
+  worked out when the list is read (Rasel's word of Oct 26: messages, documents uploaded or
+  requested, tasks completed, appointments held, invoices sent or paid, e-signs completed, notes,
+  and the e-sign column), for the column and the From/To filter; `r23-client-record` moved onto the
+  clients mock (5 of 5); `clients-work.e2e`'s `nyDay` counts calendar days. Clients e2e 32 of 32.
+- Nov 10: Settings Overview (`rasel/R60-settings-overview`, stacked on Locations), Overview guide
+  items 3 to 5 and 10 to 13 on R1's overview fields: Active Locations (Manage Locations), Staff
+  Users across all locations (Manage Users), Subscription & Locations (Manage Plan), Location
+  Management (the first 5, View All Locations, Add Location, and the same row actions as
+  Locations, now shared, with Activate added for an inactive office; no Delete), and the Location
+  Management quick link. Tumit's Overview spec updated for the new cards. Mock 5 of 5.
+- Nov 10: Clients E4, branch `rasel/R60-clients-tabs` (stacked on `rasel/R60-clients-activity`):
+  the profile's Services, Intake Forms, Tasks and Notes tabs, the service tabs by enrollment and
+  the member's grid (`GET /business/clients/{id}/services` opens each module's own record), More
+  past eleven tabs, and Active Services and Recent Activity on Overview. API e2e 3 of 3, mock 58 of
+  58 across the client specs.
+- Nov 10: Clients E5, branch `rasel/R60-clients-required` (stacked on `rasel/R60-clients-tabs`):
+  Add New Client and Edit Details share `clientFormIssues` (D1's required fields, plus a
+  Business's responsible party: full name, email, phone, on R1's three columns of #1181), the
+  profile shows it, and the API refuses clearing it on a Business. The calendar's quick add stays
+  looser, as D1. Clients e2e 48 of 48, types 37 of 37, mock `r60-clients-required` 3 of 3.
+- Nov 10: Clients E8 to E10, branch `rasel/R60-clients-e8-e10` (stacked on
+  `rasel/R60-clients-required`): the Documents tab's Upload Document (Documents' upload for the
+  client), View on each file and View Request Details; New Message and Reply show To, Where and the
+  notifier's real email notice; Overview's Portal Access is Business Advisory B3's card (send with
+  the recipient confirmed, resend, revoke). Mock 64 of 64 across the client and messages specs.
+- Nov 10: Clients additions, branch `rasel/R60-clients-filters` (stacked on
+  `rasel/R60-clients-e8-e10`): Added Last 30 Days and Archived tabs; More Filters (deadline, next
+  appointment, type, location, balance, missing documents, tag, source, priority) with Apply,
+  Clear and chips, kept in the address; the list API's new filters. Clients e2e 37 of 37, mock 45
+  of 47 (D1 needed the responsible party: fixed on the E5 branch; `r60-dashboard-lists`' appointment
+  menu test fails independently of these branches). Export, Bulk Actions and linked profiles next.
+- Nov 10: Clients Export, branch `rasel/R60-clients-export` (stacked on
+  `rasel/R60-clients-filters`): `POST /business/clients/export` (the list's filters, minimal
+  fields, at most 5,000 rows, a five-minute CSV link; the Owner, or the member's grid granting
+  Clients EXPORT, read in the controller since `@Access` lets the three base roles through);
+  Export's dialog previews the scope, count and columns. Clients e2e 38 of 38, mock 1 of 1.
+- Nov 10: Clients Bulk Actions, branch `rasel/R60-clients-bulk` (stacked on
+  `rasel/R60-clients-export`): Add Tag, Change Status, Mark Inactive and Export Selected (bulk
+  `TAG` and `STAGE`, export `clientIds`), each naming the clients first, audited per client.
+  Message, document or intake request and service wait for those flows to take several clients.
+  Clients e2e 41 of 41, client mock specs 24 of 24.
+- Nov 10: Client office on the profile (`rasel/R60-clients-office`, stacked on Clients bulk),
+  PRT-1 part 2: `GET /business/clients/{id}/office` (Clients VIEW, Staff their own clients; the
+  office with `active`, the sign-up choice, the active locations, `canChange`) and `PUT` (Owner
+  and Admin; an active location of the firm or null, else 400 OFFICE_NOT_AVAILABLE; audited as
+  `client.office_changed` {from, to}; the same office writes nothing). The client Overview gets
+  a Local Office card with Change Office. API e2e 4 of 4; isolation cases added (GET, and PUT with
+  `officeId` as `firmOffice`), green apart from the two other sessions' exports; mock 6 of 6 with
+  r23-client-record.
+- Nov 11 to 14: the Client Portal module (#1370 and the stack after it), Tax Returns A (#1422:
+  TX-F13 blocked reason, TX-F26, TX-F27 mailing report), the Clients Review 2 and Client Portal
+  QA maps (#1423), then every Clients GAP: G1 file visibility (#1426), G2 to G6 (#1429), G7 bulk
+  message, request and intake (#1431), G12 sort (#1432), G11 Billing on Overview (#1434), G10 ZIP
+  prefix warning and BK N04's Additional Information (#1438), G8 service management with its
+  audit-row history and the payments `clientId` filter (#1444), the `client_links` and
+  engagement pause schema (#1446, the lead's approval under Rasel's delegation), and G9 Linked
+  Profiles with the pause for every service (#1454). docs/qa/clients.md now shows every GAP
+  closed. Leads R2 16 and 18 moved to R55; the R2 18 contract and API started here are on
+  `rasel/R60-leads-reports` for them. Next: Tax Returns Review 2 corrections.

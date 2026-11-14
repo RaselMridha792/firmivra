@@ -36,6 +36,7 @@ import {
   createIntakesClient,
   createInvoicesClient,
   createLeadPipelineClient,
+  createLeadSequencesClient,
   createLeadsClient,
   createDashboardClient,
   createDepartmentsClient,
@@ -48,6 +49,7 @@ import {
   createMyIntakesClient,
   createIntakeLinkClient,
   createLeadRoutingClient,
+  createLeadTransferClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -78,6 +80,7 @@ import {
   createSettingsOverviewClient,
   createLocationsClient,
   createStaffClient,
+  createStaffMyProfileClient,
   createMySecurityClient,
   createMfaPolicyClient,
   createSupportAccessClient,
@@ -140,7 +143,9 @@ import {
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { intakeLinkMock } from '../mocks/intake-link';
+import { createLeadSequencesMock } from '../mocks/lead-sequences';
 import { leadRoutingMock } from '../mocks/lead-routing';
+import { createLeadTransferMock } from '../mocks/lead-transfer';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createLeadPipelineMock } from '../mocks/leads-pipeline';
@@ -158,6 +163,7 @@ import {
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createStaffPhoneMock } from '../mocks/staff-phone';
+import { createStaffProfileMock } from '../mocks/staff-profile';
 import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createFirmBillingMock } from '../mocks/firm-billing';
 import { createPaymentPreferencesMock } from '../mocks/payment-preferences';
@@ -216,6 +222,11 @@ const dev = process.env.NODE_ENV !== 'production';
  * See "Adding a module" in packages/types/README.md.
  */
 /** One documents mock, shared with the library mock so an upload confirms against it. */
+// One leads mock, shared by the sequences mock (it adds a sequence's steps to the lead).
+const leadPipelineMock =
+  dev && mocked('leadPipeline')
+    ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
+    : null;
 const documentsMock = dev && mocked('documents') ? createDocumentsMock({ role: MOCK_ROLE }) : null;
 /** One locations mock, shared with the Settings Overview mock (its Location Management rows). */
 const locationsMock =
@@ -347,10 +358,17 @@ export const api = {
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Leads page and Lead Profile (R43 contract): pipeline, follow-ups, activity, convert to client. */
-  leadPipeline:
-    dev && mocked('leadPipeline')
-      ? createLeadPipelineMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
-      : createLeadPipelineClient(request),
+  leadPipeline: leadPipelineMock ?? createLeadPipelineClient(request),
+  /** Lead follow-up sequences (R55, Leads R2 19): templates, and applying one to a lead. */
+  leadSequences:
+    dev && mocked('leadSequences') && leadPipelineMock
+      ? createLeadSequencesMock(leadPipelineMock, MOCK_ROLE)
+      : createLeadSequencesClient(request),
+  /** Leads R2 16 (R55): bulk import (mapped, checked, then created) and export (scoped CSV). */
+  leadTransfer:
+    dev && mocked('leadTransfer') && leadPipelineMock
+      ? createLeadTransferMock(leadPipelineMock, MOCK_ROLE)
+      : createLeadTransferClient(request),
   /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
   intakeForms:
     dev && mocked('intakeForms')
@@ -591,7 +609,17 @@ export const api = {
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
   /** The signed-in member's mobile number and its verification by text (R60). */
   staffPhone:
-    dev && mocked('staffPhone') ? createStaffPhoneMock() : createStaffPhoneClient(request),
+    dev && mocked('staffPhone')
+      ? createStaffPhoneMock({ role: MOCK_ROLE })
+      : createStaffPhoneClient(request),
+  /**
+   * My Profile's own details (Dashboard Review 2, R2 NEW2): the Owner edits their name and job
+   * title. Mock: NEXT_PUBLIC_API_MOCK=staffProfile (mocks/staff-profile.ts).
+   */
+  staffProfile:
+    dev && mocked('staffProfile')
+      ? createStaffProfileMock({ role: MOCK_ROLE })
+      : createStaffMyProfileClient(request),
   /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
   /** Announcements published to the signed-in client from Communications (portal). */
   myAnnouncements: (firmSlug: string) =>

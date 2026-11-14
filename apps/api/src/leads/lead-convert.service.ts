@@ -19,6 +19,7 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { stopSequences } from './lead-sequence-stop.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { ENV } from '../config/config.module.js';
@@ -132,6 +133,8 @@ export class LeadConvertService {
           reviewedAt: new Date(),
         },
       });
+      // R2 19: the lead's sequences stop; their unfinished steps stay on the lead.
+      await stopSequences(tx, businessId, [id], 'Converted');
       const intake = await tx.intake.findFirst({
         where: { businessId, leadId: id },
         orderBy: { createdAt: 'asc' },
@@ -354,6 +357,8 @@ export class LeadConvertService {
           updatedByUserId: actor.userId,
         },
       });
+      // R2 19: the lead's sequences stop; their unfinished steps stay on the lead.
+      await stopSequences(tx, businessId, [id], 'Converted');
       if (carry.tags) {
         const tags = await tx.leadTag.findMany({
           where: { businessId, leadId: id, tag: { archivedAt: null } },

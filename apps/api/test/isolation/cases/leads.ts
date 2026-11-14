@@ -146,6 +146,76 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** Leads R2 19: a follow-up sequence with one step, and another the control archives. */
+  ...Object.fromEntries(
+    ['leadSequence', 'leadSequenceArchive'].map((key) => [
+      key,
+      {
+        async create({ tx, businessId }: SeedContext) {
+          const row = await tx.leadSequenceTemplate.create({
+            data: { businessId, name: `${key} ${randomUUID().slice(0, 8)}` },
+          });
+          await tx.leadSequenceStep.create({
+            data: {
+              businessId,
+              templateId: row.id,
+              position: 0,
+              offsetDays: 0,
+              actionType: 'CALL',
+            },
+          });
+          return row.id;
+        },
+      },
+    ]),
+  ),
+  /** An open lead to apply `leadSequence` to. */
+  leadSequenceLead: {
+    async create({ tx, businessId, own }) {
+      const row = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'CONTACTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Sequence',
+          email: `iso-seq-${randomUUID().slice(0, 8)}@iso.test`,
+        },
+      });
+      return row.id;
+    },
+  },
+  /** An open lead with a running sequence, `leadRun`. */
+  leadRunLead: {
+    async create({ tx, businessId, own, set }) {
+      const lead = await tx.lead.create({
+        data: {
+          businessId,
+          serviceId: own.service,
+          status: 'CONTACTED',
+          submittedAt: new Date(),
+          firstName: 'Fake',
+          lastName: 'Run',
+          email: `iso-run-${randomUUID().slice(0, 8)}@iso.test`,
+        },
+      });
+      const template = await tx.leadSequenceTemplate.create({
+        data: { businessId, name: `Run ${randomUUID().slice(0, 8)}` },
+      });
+      const run = await tx.leadSequenceRun.create({
+        data: { businessId, leadId: lead.id, templateId: template.id },
+      });
+      set('leadRun', run.id);
+      return lead.id;
+    },
+  },
+  leadRun: {
+    async create({ get }) {
+      await get('leadRunLead');
+      return get('leadRun');
+    },
+  },
   /** The lead's clean file, made with the lead (above). */
   leadUpload: {
     async create({ get }) {
@@ -331,6 +401,36 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/leads/:id/notes': { params: { id: 'lead' } },
   'POST /api/v1/business/leads/:id/notes': { params: { id: 'lead' }, body: { text: 'Fake note' } },
   'GET /api/v1/business/leads/:id/tasks': { params: { id: 'lead' } },
+  // Leads R2 19: templates (Owner, Admin), applied to and stopped on a lead.
+  'PUT /api/v1/business/lead-sequences/:id': {
+    params: { id: 'leadSequence' },
+    body: {
+      name: 'Fake sequence edited',
+      steps: [{ offsetDays: 1, actionType: 'CALL' }],
+    },
+  },
+  'POST /api/v1/business/lead-sequences/:id/archive': {
+    params: { id: 'leadSequenceArchive' },
+  },
+  'POST /api/v1/business/leads/:id/sequences': {
+    params: { id: 'leadSequenceLead' },
+    body: {
+      templateId: null,
+      steps: [
+        {
+          actionType: 'CALL',
+          dueAt: '2030-01-01T09:00:00.000Z',
+          mode: 'REMINDER',
+          assignedUserId: null,
+          note: null,
+        },
+      ],
+    },
+    bodyIds: { templateId: 'leadSequence', 'steps.assignedUserId': 'staffUser' },
+  },
+  'POST /api/v1/business/leads/:id/sequences/:runId/stop': {
+    params: { id: 'leadRunLead', runId: 'leadRun' },
+  },
   // Leads R2 17: Settings > Lead assignment names members, services and rules.
   'PUT /api/v1/business/lead-routing': {
     params: {},
@@ -345,6 +445,22 @@ export const cases: CaseModule['cases'] = {
       'rules.serviceIds': 'leadService',
       'rules.assigneeUserId': 'staffUser',
     },
+  },
+  // Leads R2 16: import checks rows against the firm's own default service (a dry run here);
+  // export of the selected leads: no file store in tests, so the firm's own lead gets 503.
+  'POST /api/v1/business/leads/import': {
+    params: {},
+    body: {
+      rows: [{ firstName: 'Fake', lastName: 'Import', email: 'iso-import@iso.test' }],
+      dryRun: true,
+    },
+    bodyIds: { defaultServiceId: 'leadService' },
+  },
+  'POST /api/v1/business/leads/export': {
+    params: {},
+    body: { scope: 'SELECTED', fields: ['name'] },
+    bodyIds: { ids: 'lead' },
+    expect: 503,
   },
   // Leads R2 15: "Not a duplicate" names two leads; a merge names the lead merged in.
   'POST /api/v1/business/leads/duplicates/dismiss': {
