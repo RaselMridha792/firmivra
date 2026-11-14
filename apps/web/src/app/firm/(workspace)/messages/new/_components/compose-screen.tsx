@@ -34,7 +34,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { fileSize } from '../../../../../../components/message-files';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
@@ -224,6 +224,9 @@ export function ComposeScreen({
     setForm((f) => ({ ...f, ...patch }));
     setDirty(true);
   };
+  // Related To going back to Nothing by itself (a record not this client's) is not the member's
+  // work: Back leaves without asking (Dashboard and Tax Returns Back, TX-F07).
+  const dropRelated = useCallback(() => setForm((f) => ({ ...f, related: '' })), []);
   const chosen = form.clients.size + form.leads.size;
   const ids = {
     clientIds: [...form.clients.keys()].sort(),
@@ -478,7 +481,7 @@ export function ComposeScreen({
           <div className="flex min-w-0 flex-col gap-4">
             <section aria-label="Additional Options" className={card}>
               <h2 className={h2}>3. Additional Options</h2>
-              <RelatedAndOwner form={form} onChange={set} />
+              <RelatedAndOwner form={form} onChange={set} onStale={dropRelated} />
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-heading">
                 <span>
                   Schedule Message <span className="font-normal text-muted">(optional)</span>
@@ -859,9 +862,12 @@ const pick =
 function RelatedAndOwner({
   form,
   onChange,
+  onStale,
 }: {
   form: Form;
   onChange: (patch: Partial<Form>) => void;
+  /** Related To goes back to Nothing by itself; not a change the member made. */
+  onStale: () => void;
 }) {
   const one = form.clients.size === 1 ? [...form.clients.keys()][0] : '';
   const options = useApiQuery([...KEY, 'related', one], async () =>
@@ -876,8 +882,8 @@ function RelatedAndOwner({
     (!one ||
       (options.data !== undefined && !items.some((i) => `${i.type}:${i.id}` === form.related)));
   useEffect(() => {
-    if (stale) onChange({ related: '' });
-  }, [stale, onChange]);
+    if (stale) onStale();
+  }, [stale, onStale]);
   return (
     <div className="flex flex-col gap-3" data-testid="compose-related">
       <label className="flex flex-col gap-1 text-sm font-semibold text-heading">
