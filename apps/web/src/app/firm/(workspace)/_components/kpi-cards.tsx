@@ -1,6 +1,6 @@
 'use client';
 
-import { Skeleton } from '@firmivra/ui';
+import { Button, Skeleton } from '@firmivra/ui';
 import {
   DEFAULT_DASHBOARD_CARDS,
   type DashboardKpi,
@@ -21,6 +21,7 @@ import {
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import { DashboardLink as Link } from './dashboard-link';
+import { errorMessage } from '../../../../lib/errors';
 import { FROM_DASHBOARD } from '../../../../lib/from-dashboard';
 import type { ReactNode } from 'react';
 import { IconTile, type Tone } from './icon-tile';
@@ -208,6 +209,9 @@ const serviceLook = (c: DashboardServiceCard): { icon: Icon; tone: Tone; favour:
 export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary> }) {
   const range = summary.data?.range;
   const against = range ? comparedWith(range.period, daysIn(range)) : '';
+  // Dashboard Review 2 V6: a summary that fails shows its error and Try again, never endless
+  // skeletons (a period change that fails keeps the numbers already shown).
+  const failed = summary.isError && !summary.data;
   // Until the summary comes, the defaults' places (D5) wait as skeletons.
   const services = summary.data?.serviceCards ?? null;
   const serviceCards = services
@@ -235,9 +239,13 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
           data-testid="kpi-card"
           className="flex items-start gap-3 rounded-xl bg-surface p-3 shadow-md"
         >
-          <Skeleton className="size-11" />
+          {failed ? <span aria-hidden className="size-11" /> : <Skeleton className="size-11" />}
           <span className="flex min-w-0 flex-col gap-1">
-            <Skeleton className="h-8 w-16" />
+            {failed ? (
+              <span className="text-2xl font-bold text-heading">—</span>
+            ) : (
+              <Skeleton className="h-8 w-16" />
+            )}
             <span className="text-sm text-muted">{d.label}</span>
           </span>
         </div>
@@ -288,10 +296,26 @@ export function KpiCards({ summary }: { summary: UseQueryResult<DashboardSummary
     );
   });
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {fixed.slice(0, 2)}
-      {serviceCards}
-      {fixed.slice(2)}
-    </div>
+    <>
+      {failed ? (
+        <div
+          role="alert"
+          data-testid="kpi-error"
+          className="flex flex-wrap items-center gap-3 rounded-xl bg-surface p-3 text-sm shadow-md"
+        >
+          <span className="text-danger">
+            The numbers could not be loaded. {errorMessage(summary.error)}
+          </span>
+          <Button variant="secondary" onClick={() => void summary.refetch()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {fixed.slice(0, 2)}
+        {serviceCards}
+        {fixed.slice(2)}
+      </div>
+    </>
   );
 }
