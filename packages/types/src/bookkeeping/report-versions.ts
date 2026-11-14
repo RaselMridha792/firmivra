@@ -36,6 +36,9 @@ export const BookkeepingReportFigures = z.object({
     // Rasel (Nov 10): the summaries, by their period or label.
     'QUARTERLY_REVIEW',
     'YEAR_TO_DATE_SUMMARY',
+    // Review 2 (RP01): the period's refunds and chargebacks, and its processor settlements.
+    'REFUND',
+    'SETTLEMENT',
   ]),
   basis: z.literal('CASH'),
   basisNote: z.string().nullable(),
@@ -46,6 +49,12 @@ export const BookkeepingReportFigures = z.object({
   ),
   totals: z.record(z.string(), Int),
   lineCount: Int,
+  /**
+   * Review 2 (RP03): where the figures come from. LEDGER, the client's Firmivra ledger (synced or
+   * entered transactions); MANUAL, a P&L made from the income and expenses entered for the
+   * period(s). Never both. A version made before Review 2 is the ledger's.
+   */
+  source: z.enum(['LEDGER', 'MANUAL']).default('LEDGER'),
 });
 export type BookkeepingReportFigures = z.infer<typeof BookkeepingReportFigures>;
 
