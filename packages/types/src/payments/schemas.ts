@@ -742,6 +742,11 @@ export const ListPaymentsQuery = z
   .strictObject({
     /** Clients Review 2 (G11): one client's payments (a client out of reach lists none). */
     clientId: z.uuid().optional(),
+    /**
+     * Dashboard Review 2 (C4): the payments on invoices of this service's engagements, as Service
+     * Breakdown adds them up; NONE: invoices of no engagement (its "Other").
+     */
+    serviceId: z.union([z.uuid(), z.literal('NONE')]).optional(),
     from: CalendarDate.optional(),
     to: CalendarDate.optional(),
     search: SearchText.optional(),
