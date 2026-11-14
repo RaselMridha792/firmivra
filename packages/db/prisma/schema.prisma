@@ -551,8 +551,30 @@ enum TaxPlanStatus {
   IN_PROGRESS
   AWAITING_CLIENT
   READY_FOR_REVIEW
+  /// R1 (Nov 14, Review 2 C27): finalized, shown as such in every view.
+  FINALIZED
   IMPLEMENTED
   CLOSED
+}
+
+/// R1 (Nov 14, Review 2 C27, S1): what a tax_plan_events row records.
+enum TaxPlanEventKind {
+  STATUS
+  REOPEN
+  REVISE
+  FINALIZE
+  SEND
+  ARCHIVE
+  RESTORE
+}
+
+/// R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds).
+enum PlanningResourceKind {
+  PDF
+  CHECKLIST
+  GUIDE
+  VIDEO
+  ARTICLE
 }
 
 enum PlanningGoal {
@@ -3387,6 +3409,7 @@ model Task {
   /// Set on every task but a DRAFT (SQL only: tasks_client_unless_draft).
   clientId        String?    @map("client_id") @db.Uuid
   engagementId    String?    @map("engagement_id") @db.Uuid
+  taxPlanId       String?    @map("tax_plan_id") @db.Uuid
   title           String
   details         String?
   kind            TaskKind   @default(GENERAL)
@@ -3432,6 +3455,8 @@ model Task {
 
   client             Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement         Engagement?         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  /// R1 (Nov 14, Review 2 C15, S4): the planning plan this implementation task is for (the same client's).
+  taxPlan            TaxPlan?            @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
   assignedMember     Membership?         @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
   type               TaskType?           @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
   service            Service?            @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
@@ -3449,6 +3474,7 @@ model Task {
   @@unique([businessId, idempotencyKey])
   @@index([businessId, clientId])
   @@index([businessId, engagementId])
+  @@index([businessId, taxPlanId])
   @@index([businessId, assignedUserId, status])
   @@index([businessId, status, dueOn])
   @@index([businessId, dependsOnTaskId])
@@ -4132,6 +4158,7 @@ model Appointment {
   businessId      String            @map("business_id") @db.Uuid
   clientId        String            @map("client_id") @db.Uuid
   engagementId    String?           @map("engagement_id") @db.Uuid
+  taxPlanId       String?           @map("tax_plan_id") @db.Uuid
   staffUserId     String            @map("staff_user_id") @db.Uuid
   typeId          String?           @map("type_id") @db.Uuid
   startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
@@ -4183,6 +4210,8 @@ model Appointment {
 
   client     Client                @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  /// R1 (Nov 14, Review 2 C12, S3): the planning plan this discussion is for (the same client's).
+  taxPlan    TaxPlan?              @relation(fields: [businessId, clientId, taxPlanId], references: [businessId, clientId, id], onDelete: Restrict)
   staff      Membership            @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
   service    Service?              @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
   office     FirmOffice?           @relation(fields: [businessId, officeId], references: [businessId, id], onDelete: Restrict)
@@ -4196,6 +4225,7 @@ model Appointment {
   @@unique([businessId, idempotencyKey])
   // Target of the reminders' same-firm foreign key.
   @@unique([businessId, id])
+  @@index([businessId, taxPlanId])
   @@index([businessId, seriesId])
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
@@ -10628,8 +10658,13 @@ model TaxPlan {
   taxPlanDocuments    TaxPlanDocument[]
   taxSavingsScenarios TaxSavingsScenario[]
   taxOpportunities    TaxOpportunity[]
+  events              TaxPlanEvent[]
+  appointments        Appointment[]
+  tasks               Task[]
 
   @@unique([businessId, id])
+  /// Target of an appointment's or task's same-client plan link (S3, S4).
+  @@unique([businessId, clientId, id])
   @@index([businessId, status])
   @@index([businessId, clientId, planYear])
   @@index([businessId, assignedUserId, status])
@@ -10725,6 +10760,58 @@ model TaxPlanVersion {
 
   @@unique([businessId, planId, version])
   @@map("tax_plan_versions")
+}
+
+/// R1 (Nov 14, Review 2 C27, S1): a plan's history: each status change, reopen and revise (with
+/// its reason), finalize, send, archive and restore, with the version it concerns and who did it.
+/// Insert-only.
+model TaxPlanEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  planId      String           @map("plan_id") @db.Uuid
+  kind        TaxPlanEventKind
+  fromStatus  TaxPlanStatus?   @map("from_status")
+  toStatus    TaxPlanStatus?   @map("to_status")
+  /// The tax_plan_versions version it concerns.
+  version     Int?
+  /// 1 to 1000 characters; required for REOPEN and REVISE.
+  reason      String?
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan TaxPlan @relation(fields: [businessId, planId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, planId, createdAt])
+  @@map("tax_plan_events")
+}
+
+/// R1 (Nov 14, Review 2 C17, S6): the firm's own planning resources: its edited copy of a
+/// built-in one (catalog_key, at most one per firm and key) or its own. Archived, never deleted.
+model TaxPlanningResource {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  /// The built-in resource this edits (catalog.ts key); null for the firm's own.
+  catalogKey      String?              @map("catalog_key")
+  /// 1 to 200 characters.
+  title           String
+  /// 1 to 100 characters.
+  category        String
+  kind            PlanningResourceKind
+  /// Up to 1000 characters: what is sent with it.
+  summary         String?
+  /// Up to 20000 characters.
+  body            String?
+  clientFacing    Boolean              @default(false) @map("client_facing")
+  archivedAt      DateTime?            @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String?              @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?              @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([businessId, id])
+  @@unique([businessId, catalogKey])
+  @@index([businessId, archivedAt])
+  @@map("tax_planning_resources")
 }
 
 /// A document attached to a plan (the upload box), with its type and, optionally, the plan

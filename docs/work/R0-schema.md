@@ -172,6 +172,12 @@ Both merged: D4 in #885 (Oct 19) and MRR history in #899 (Oct 19). Nothing else 
   - New table `firm_application_response_codes`: the applicant's one-time code for an information request. Columns: request, the code's HMAC only, attempts, `expires_at` (at most 10 minutes, by the database clock), `consumed_at` and `created_at`.
   - Sent only for an OPEN request whose link has not expired. Only attempts (+1) and `consumed_at` (once) change. Only the newest code of a still-open request is used.
   - Platform scope writes; admins read. Never deleted. No backfill.
+- Nov 14 (Rasel's approval in R1's window, Tax Planning Review 2; R1 adds this line): `r1_tax_plan_finalized` (the `FINALIZED` value, on its own) and `r1_tax_planning_review2` (R1, branch `rasel/R1-tp-schema`).
+  - S1 `tax_plan_events`: a plan's history (status, reopen and revise with a reason, finalize, send, archive, restore), insert-only.
+  - S2: a CLOSED plan changes only its status (reopening) or `archived_at`.
+  - S3 `appointments.tax_plan_id`, S4 `tasks.tax_plan_id`: the same client's plan (three-column FK; a plan's task has a client).
+  - S5: a CLOSED opportunity reopens to UNDER_REVIEW.
+  - S6 `tax_planning_resources`: the firm's own or edited planning resources (one per catalog key), archived, never deleted. No backfill.
 
 1. **Platform legal documents (new stage D4).** Firmivra's own Terms of Service, Privacy Policy and Data Processing Agreement for firms, versioned and published (a published version never changes), plus who accepted which version: the firm, the user, the time, the IP and the browser. `firm_legal_documents` is each firm's own text for its clients, so it doesn't cover these. Accepting the current version belongs in firm sign-up and activation (R4's flow).
 2. **MRR history (folded into stage D2, Subscriptions extras).** A daily rollup row with the date, MRR in cents, active, trialing, new and churned subscriptions, and MRR by plan. It is written by the platform's daily job. Past MRR can't be rebuilt from `platform_subscription_changes`, because those rows record plans and seats, not the price paid at the time, and plan prices change.

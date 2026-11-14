@@ -399,10 +399,27 @@ export const TaxPlanStatus = z.enum([
   'IN_PROGRESS',
   'AWAITING_CLIENT',
   'READY_FOR_REVIEW',
+  'FINALIZED',
   'IMPLEMENTED',
   'CLOSED',
 ]);
 export type TaxPlanStatus = z.infer<typeof TaxPlanStatus>;
+
+/** R1 (Nov 14, Review 2 C27, S1): what a tax_plan_events row records. */
+export const TaxPlanEventKind = z.enum([
+  'STATUS',
+  'REOPEN',
+  'REVISE',
+  'FINALIZE',
+  'SEND',
+  'ARCHIVE',
+  'RESTORE',
+]);
+export type TaxPlanEventKind = z.infer<typeof TaxPlanEventKind>;
+
+/** R1 (Nov 14, Review 2 C17, S6): a planning resource's kind (the catalog's kinds). */
+export const PlanningResourceKind = z.enum(['PDF', 'CHECKLIST', 'GUIDE', 'VIDEO', 'ARTICLE']);
+export type PlanningResourceKind = z.infer<typeof PlanningResourceKind>;
 
 export const PlanningGoal = z.enum([
   'REDUCE_TAXABLE_INCOME',
