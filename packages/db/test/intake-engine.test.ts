@@ -414,6 +414,30 @@ describe('documents', () => {
     expect(await remove()).toBe(1);
   });
 
+  it("a PENDING engagement's open intake takes a client file (a self-service start, ACCESS-02)", async () => {
+    const intake = await newIntake(ids.pending);
+    const into = () =>
+      upload({ engagementId: ids.pending, intakeId: intake.id, intakeSlot: 'governmentId' });
+    await expect(into()).resolves.toMatchObject({
+      intakeId: intake.id,
+      intakeSlot: 'governmentId',
+    });
+    // Only as an answer to its open intake: not a plain file, nor once the intake is sent.
+    await expect(upload({ engagementId: ids.pending })).rejects.toThrow(/open engagement/);
+    await setIntake(intake.id, 'SUBMITTED');
+    await expect(into()).rejects.toThrow(/intake upload/);
+    // A cancelled or completed engagement's open intake takes none.
+    const ended = await engagement(ids.tax, 'PENDING');
+    const open = await newIntake(ended.id);
+    await firmA().engagement.update({
+      where: { id: ended.id },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    });
+    await expect(
+      upload({ engagementId: ended.id, intakeId: open.id, intakeSlot: 'governmentId' }),
+    ).rejects.toThrow(/open engagement/);
+  });
+
   it('an intake upload: a client file in a slot (a form key) of an open intake of its engagement', async () => {
     const intake = await newIntake();
     const into = (intakeSlot = 'governmentId', intakeId = intake.id) =>
