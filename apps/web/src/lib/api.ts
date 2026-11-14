@@ -364,8 +364,8 @@ export const api = {
       : createLeadSequencesClient(request),
   /** Leads R2 16 (R55): bulk import (mapped, checked, then created) and export (scoped CSV). */
   leadTransfer:
-    dev && mocked('leadTransfer')
-      ? createLeadTransferMock({ role: MOCK_ROLE, empty: mockedEmpty('leadPipeline') })
+    dev && mocked('leadTransfer') && leadPipelineMock
+      ? createLeadTransferMock(leadPipelineMock, MOCK_ROLE)
       : createLeadTransferClient(request),
   /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
   intakeForms:

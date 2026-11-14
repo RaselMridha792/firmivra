@@ -9,12 +9,12 @@ import {
   type LeadImportRowResult,
   LeadPriority,
   LeadSource,
+  type LeadPipelineClient,
   type LeadTransferClient,
   parseInput,
   roleCan,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { createLeadPipelineMock } from './leads-pipeline';
 
 const norm = (v: string) =>
   v
@@ -25,23 +25,22 @@ const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 
 /**
- * `api.leadTransfer` on mock data (Leads R2 16). It reads and adds to the leads mock's own store
- * (the leads mock keeps one store per page load), so imported leads show on the Leads list, and
+ * `api.leadTransfer` on mock data (Leads R2 16). It reads and adds to the shared leads mock
+ * (`api.leadPipeline`), so imported leads show on the Leads list, and
  * checks each row as the API does: the required fields, a known source and priority, a service by
  * name, and a duplicate email or phone of a lead or an earlier row.
  */
 export function createLeadTransferMock(
-  options: { role?: 'OWNER' | 'ADMIN' | 'STAFF'; empty?: boolean } = {},
+  pipeline: LeadPipelineClient,
+  role: 'OWNER' | 'ADMIN' | 'STAFF' = 'OWNER',
 ): LeadTransferClient {
-  const role = options.role ?? 'OWNER';
-  const pipeline = () => createLeadPipelineMock(options);
   return {
     import: async (body) => {
       await mockDelay();
       const input = parseInput(ImportLeadsRequest, body);
       if (!roleCan(role, 'LEADS', 'CREATE'))
         throw fail(403, 'FORBIDDEN', 'You do not have access to this action');
-      const client = pipeline();
+      const client = pipeline;
       const { services } = await client.options();
       const existing = (await client.list({ page: 1, pageSize: 100 })).items;
       const seen = new Set<string>();
@@ -122,7 +121,7 @@ export function createLeadTransferMock(
       const input = parseInput(ExportLeadsRequest, body);
       if (!roleCan(role, 'LEADS', 'EXPORT'))
         throw fail(403, 'FORBIDDEN', 'You do not have access to this action');
-      const listed = await pipeline().list({
+      const listed = await pipeline.list({
         ...(input.scope === 'FILTERED' ? input.filters : {}),
         page: 1,
         pageSize: 100,
