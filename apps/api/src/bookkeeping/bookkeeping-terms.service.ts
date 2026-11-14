@@ -406,6 +406,20 @@ export class BookkeepingTermsService {
   // ---------- Changes ----------
 
   /**
+   * Review 2 (E01b): a package chosen from Services & Pricing is this firm's and active (404
+   * otherwise); its name is kept as the snapshot.
+   */
+  private async catalogPackage(tx: TxClient, businessId: string, body: Fields): Promise<Fields> {
+    if (!body.catalogServiceId) return body;
+    const service = await tx.service.findFirst({
+      where: { businessId, id: body.catalogServiceId, archivedAt: null, status: 'ACTIVE' },
+      select: { name: true },
+    });
+    if (!service) throw errors.notFound();
+    return { ...body, packageName: service.name.slice(0, 120) };
+  }
+
+  /**
    * New Terms: a DRAFT. Left-out fields come from the version in force, else from the client's
    * package and the defaults. One open draft per client (409 TERMS_DRAFT_EXISTS).
    */
@@ -418,6 +432,7 @@ export class BookkeepingTermsService {
     this.assertManager(actor);
     return this.run(businessId, async (tx) => {
       const p = await findProfile(tx, businessId, actor, id);
+      body = await this.catalogPackage(tx, businessId, body);
       const engagementId = p.engagementId;
       // One at a time per client, so two clicks never make two drafts.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bookkeeping_terms:${engagementId}`}))`;
@@ -515,16 +530,7 @@ export class BookkeepingTermsService {
     this.assertManager(actor);
     return this.run(businessId, async (tx) => {
       const { row } = await this.findTerms(tx, businessId, actor, termsId);
-      // Review 2 (E01b): a package from Services & Pricing, this firm's and active; its name is
-      // kept as the snapshot.
-      if (body.catalogServiceId) {
-        const service = await tx.service.findFirst({
-          where: { businessId, id: body.catalogServiceId, archivedAt: null, status: 'ACTIVE' },
-          select: { name: true },
-        });
-        if (!service) throw errors.notFound();
-        body = { ...body, packageName: service.name.slice(0, 120) };
-      }
+      body = await this.catalogPackage(tx, businessId, body);
       const sent = TERMS_KEYS.filter((k) => body[k] !== undefined);
       if (sent.length && row.status !== 'DRAFT')
         throw termsState('Only draft terms are edited: create a new version');

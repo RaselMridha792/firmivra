@@ -261,7 +261,7 @@ describe('internal notes', () => {
     expect(plain).toMatchObject({ noteType: null, related: null, visibility: 'INTERNAL' });
     const task = await asApp(people.ownerA.id, (tx) =>
       tx.task.create({
-        data: { businessId: ids.firmA, title: `Fake task ${run}` },
+        data: { businessId: ids.firmA, clientId: ids.one, title: `Fake task ${run}` },
         select: { id: true },
       }),
     );
