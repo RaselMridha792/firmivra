@@ -28,6 +28,39 @@ test('View All keeps the client and service, Categorize opens Transactions, and 
   await expect(page.getByTestId('transactions-tab')).toBeVisible();
 });
 
+test("a recent document opens in a quick view on the workspace, with Documents' own viewer (N03)", async ({
+  page,
+}) => {
+  await page.goto(`${app}/bookkeeping/clients/${GREEN}`);
+  const url = page.url();
+  const card = page.getByTestId('shared-documents');
+  await card.getByRole('button', { name: 'Upload Document' }).click();
+  await page
+    .getByTestId('upload-document')
+    .locator('input[type=file]')
+    .setInputFiles({
+      name: 'Fake_N03_statement.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n% synthetic test file\n'),
+    });
+  await page.getByRole('button', { name: 'Upload', exact: true }).click();
+  await card.getByRole('button', { name: 'View Fake_N03_statement.pdf' }).click();
+  const quick = page.getByRole('dialog', { name: 'Fake_N03_statement.pdf' });
+  await expect(quick.getByTestId('document-preview')).toBeVisible();
+  expect(page.url()).toBe(url);
+});
+
+test('every workspace tab, Settings too, shows at desktop width with no sideways scroll', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${app}/bookkeeping/clients/${GREEN}`);
+  await expect(page.getByRole('tab', { name: 'Settings' })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
 test('the software card says linked and authorized apart from synced (I01)', async ({ page }) => {
   await page.goto(`${app}/bookkeeping`);
   const card = page.getByTestId('software');
