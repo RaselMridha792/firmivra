@@ -710,6 +710,23 @@ export function createDocumentLibraryMock(options: {
       record(id, 'REVIEW', `Document marked as ${reviewStatus.replace('_', ' ').toLowerCase()}`);
       return libraryDoc(id);
     },
+    setVisibility: async (id, body) => {
+      await mockDelay();
+      const d = await libraryDoc(id);
+      if (d.direction === 'CLIENT_TO_FIRM') {
+        throw new ApiRequestError(409, 'CLIENT_UPLOAD', 'The client uploaded this file');
+      }
+      const direction = body.clientVisible ? 'FIRM_TO_CLIENT' : 'INTERNAL';
+      if (d.direction !== direction) {
+        edit(id, { direction, visibleToClient: body.clientVisible });
+        record(
+          id,
+          'UPDATED',
+          body.clientVisible ? 'Shown to the client' : 'Hidden from the client',
+        );
+      }
+      return libraryDoc(id);
+    },
     archive: async (id) => {
       await mockDelay();
       edit(id, { archivedAt: new Date().toISOString() });

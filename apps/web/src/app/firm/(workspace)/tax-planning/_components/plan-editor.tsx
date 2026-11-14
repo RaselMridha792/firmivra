@@ -1978,6 +1978,72 @@ function StepReview({
   );
 }
 
+const EVENT_LABEL: Record<string, string> = {
+  STATUS: 'Status changed',
+  REOPEN: 'Reopened',
+  REVISE: 'Revised',
+  FINALIZE: 'Finalized',
+  SEND: 'Sent to the client',
+  ARCHIVE: 'Archived',
+  RESTORE: 'Restored',
+};
+
+/**
+ * C27 (Review 2): the reason for Reopen or Revise, kept in the plan's history. A revised plan is
+ * finalized again as a new version; the versions already kept never change.
+ */
+function ReasonDialog({
+  kind,
+  onClose,
+  onSubmit,
+}: {
+  kind: 'REOPEN' | 'REVISE';
+  onClose: () => void;
+  onSubmit: (reason: string) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title={kind === 'REOPEN' ? 'Reopen this plan?' : 'Revise this plan?'}
+      subtitle={
+        kind === 'REOPEN'
+          ? 'It goes back to In Progress and can be changed again.'
+          : 'It goes back to In Progress; finalize it again to keep a new version.'
+      }
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !reason.trim()}
+            onClick={async () => {
+              setBusy(true);
+              await onSubmit(reason.trim());
+              setBusy(false);
+            }}
+          >
+            {kind === 'REOPEN' ? 'Reopen Plan' : 'Revise Plan'}
+          </Button>
+        </>
+      }
+    >
+      <div data-testid="reason-dialog">
+        <Textarea
+          label="Reason *"
+          rows={3}
+          maxLength={1000}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+    </Modal>
+  );
+}
+
 /**
  * C12 (Review 2): the plan's client discussions: appointments made for this plan, with their
  * date, time and time zone, each opening in Appointments; Schedule Client Discussion opens New

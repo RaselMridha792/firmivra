@@ -441,6 +441,50 @@ export class DocumentLibraryService {
   }
 
   /** Archive, Restore, Move to Trash, Restore from Trash. */
+  /**
+   * C2-052: a firm file's client visibility, an explicit opt-in (off by default). Reach as every
+   * library route: Staff only their own clients' files (404 otherwise). The database allows only
+   * INTERNAL and FIRM_TO_CLIENT to swap (documents_rules, Review Two item l). Audited from and to.
+   */
+  async setVisibility(
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    clientVisible: boolean,
+  ): Promise<LibraryDocument> {
+    const businessId = tenant.businessId;
+    return this.inFirm(tenant, async (tx) => {
+      const row = await this.find(tx, tenant, userId, id, true);
+      if (row.direction === 'CLIENT_TO_FIRM') {
+        throw conflict('CLIENT_UPLOAD', 'The client uploaded this file, so they always see it');
+      }
+      if (row.trashedAt) throw conflict('INVALID_STATUS', 'Restore the document from Trash first');
+      const to = clientVisible ? 'FIRM_TO_CLIENT' : 'INTERNAL';
+      if (row.direction === to) return this.one(tx, tenant, row);
+      if (clientVisible && row.folder) {
+        const folder = await tx.documentFolder.findUnique({
+          where: { id: row.folder.id },
+          select: { scope: true },
+        });
+        if (folder?.scope === 'FIRM') {
+          throw conflict('FOLDER_SCOPE', 'Move it out of the firm folder before sharing it');
+        }
+      }
+      if (!clientVisible && row.documentShares.length > 0) {
+        throw conflict('SHARE_ACTIVE', "Revoke the client's share before hiding the file");
+      }
+      await tx.document.update({ where: { id }, data: { direction: to } });
+      await this.audit.logIn(
+        tx,
+        'document.visibility_changed',
+        { type: 'document', id },
+        { clientId: row.clientId, from: row.direction, to },
+        { businessId },
+      );
+      return this.one(tx, tenant, await this.find(tx, tenant, userId, id));
+    });
+  }
+
   async move(
     tenant: TenantContext,
     userId: string,
