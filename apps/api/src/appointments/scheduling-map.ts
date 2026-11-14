@@ -94,12 +94,9 @@ export type StoredKind = 'IN_PERSON' | 'PHONE' | 'VIDEO' | 'OTHER_VIDEO';
 export const methodOf = (kind: StoredKind): MeetingMethod =>
   kind === 'OTHER_VIDEO' ? 'OTHER' : kind;
 
-/**
- * The database's location kind for a method. OTHER is kept as OTHER_VIDEO only with its platform,
- * which the API takes from P1 row 1 on; until then it has none here (400 at `method`).
- */
-export function locationKindOf(method: MeetingMethod): StoredKind | null {
-  return method === 'OTHER' ? null : method;
+/** The database's location kind for a method: OTHER is an Other Video Meeting (OTHER_VIDEO). */
+export function locationKindOf(method: MeetingMethod): StoredKind {
+  return method === 'OTHER' ? 'OTHER_VIDEO' : method;
 }
 
 /**
@@ -109,13 +106,9 @@ export function locationKindOf(method: MeetingMethod): StoredKind | null {
 export const legacyKind = (kind: StoredKind): 'IN_PERSON' | 'PHONE' | 'VIDEO' =>
   kind === 'OTHER_VIDEO' ? 'VIDEO' : kind;
 
-/**
- * The stored kinds of a type's methods as the contract checked them (A1), in order; null when one
- * cannot be kept (OTHER), which the contract already refuses.
- */
-export function locationKindsOf(methods: readonly MeetingMethod[]): StoredKind[] | null {
-  const kinds = methods.map(locationKindOf);
-  return kinds.every((k): k is StoredKind => k !== null) ? kinds : null;
+/** The stored kinds of a type's methods as the contract checked them (A1), in order. */
+export function locationKindsOf(methods: readonly MeetingMethod[]): StoredKind[] {
+  return methods.map(locationKindOf);
 }
 
 /**

@@ -2631,11 +2631,13 @@ describe('appointment type configuration', () => {
       serviceId: ids.serviceA,
       eligibleStaffUserIds: [],
       methods: ['VIDEO', 'IN_PERSON', 'PHONE'],
+      otherVideoPlatform: null,
       officeIds: [],
       bufferBeforeMinutes: 0,
       bufferAfterMinutes: 0,
       minNoticeHours: 0,
       maxWindowDays: 730,
+      maxWindowHours: null,
       requiredIntakeFormId: null,
       requiredDocuments: [],
       defaultReminders: [],
@@ -2786,6 +2788,7 @@ describe('appointment type configuration', () => {
     expectError(await put({ requiredIntakeFormId: randomUUID() }), 404, 'NOT_FOUND');
     expectError(await put({ requiredDocuments: ['W-9'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ methods: ['PHONE', 'PHONE'] }), 400, 'VALIDATION_FAILED');
+    // Review 2 (P1 row 1): an Other Video Meeting needs its platform.
     expectError(await put({ methods: ['OTHER'] }), 400, 'VALIDATION_FAILED');
     expectError(await put({ color: '#123456' }), 400, 'VALIDATION_FAILED');
     expectError(await put({ bufferBeforeMinutes: 121 }), 400, 'VALIDATION_FAILED');
@@ -2809,7 +2812,7 @@ describe('appointment type configuration', () => {
 });
 
 describe('meeting methods (A1)', () => {
-  type Kind = 'IN_PERSON' | 'PHONE' | 'VIDEO';
+  type Kind = 'IN_PERSON' | 'PHONE' | 'VIDEO' | 'OTHER_VIDEO';
   /** A type of firm A with these methods (the database fills in its location kind). */
   const typeWith = (name: string, methods?: Kind[]) =>
     asOwner(ids.firmA, (tx) =>
@@ -2885,7 +2888,7 @@ describe('meeting methods (A1)', () => {
     ]);
   });
 
-  it('refuses a repeat, a fourth, Other or none at the exact field, and keeps what was saved', async () => {
+  it('refuses a repeat, a fifth, Other without its platform or none at the exact field, and keeps what was saved', async () => {
     const t = await typeWith('Refused', ['VIDEO', 'PHONE']);
     const refused = async (methods: unknown, details: { path: string; message: string }[]) => {
       const res = await putConfig(t.id, methods);
@@ -2897,18 +2900,120 @@ describe('meeting methods (A1)', () => {
       [{ path: 'methods.1', message: 'This meeting method is already chosen' }],
     );
     await refused(
-      ['VIDEO', 'PHONE', 'IN_PERSON', 'VIDEO'],
-      [{ path: 'methods.3', message: 'Choose at most 3 meeting methods' }],
+      ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER', 'VIDEO'],
+      [{ path: 'methods.4', message: 'Choose at most 4 meeting methods' }],
     );
     await refused(
       ['PHONE', 'OTHER'],
-      [{ path: 'methods.1', message: 'Choose in person, phone or video' }],
+      [
+        {
+          path: 'otherVideoPlatform',
+          message: 'Name the video platform of the Other Video Meeting, such as Google Meet',
+        },
+      ],
     );
     await refused([], [{ path: 'methods', message: 'Choose at least one meeting method' }]);
     expect(await stored(t.id)).toEqual({
       locationKind: 'VIDEO',
       meetingMethods: ['VIDEO', 'PHONE'],
     });
+  });
+
+  it('keeps an Other Video Meeting with its platform beside the other methods, and books it (Review 2, P1 row 1)', async () => {
+    const t = await typeWith('Other video', ['VIDEO', 'PHONE']);
+    const put = (body: object) =>
+      call('put', `/appointment-types/${t.id}/config`, people.ownerA, body);
+    const four = exact(
+      AppointmentTypeConfig,
+      await put({
+        methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'],
+        otherVideoPlatform: '  Google Meet ',
+      }),
+    );
+    expect(four).toMatchObject({
+      methods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER'],
+      otherVideoPlatform: 'Google Meet',
+    });
+    expect(await stored(t.id)).toEqual({
+      locationKind: 'VIDEO',
+      meetingMethods: ['VIDEO', 'PHONE', 'IN_PERSON', 'OTHER_VIDEO'],
+    });
+    // Read again: the same, the platform kept.
+    expect(
+      exact(
+        AppointmentTypeConfig,
+        await call('get', `/appointment-types/${t.id}/config`, people.staffA),
+      ),
+    ).toMatchObject({ otherVideoPlatform: 'Google Meet' });
+    // Clearing the platform while Other is offered is refused at its field; the rest stays.
+    const cleared = await put({ otherVideoPlatform: null });
+    expectError(cleared, 400, 'VALIDATION_FAILED');
+    expect(detailsOf(cleared)).toEqual([
+      {
+        path: 'otherVideoPlatform',
+        message: 'Name the video platform of the Other Video Meeting, such as Google Meet',
+      },
+    ]);
+
+    // Booked as Other: the type's platform, or the one the form names.
+    await put({ methods: ['OTHER', 'PHONE'], otherVideoPlatform: 'Microsoft Teams' });
+    const n = freshDay();
+    const fromType = await scheduled({
+      typeId: t.id,
+      method: 'OTHER',
+      startsAt: at(n, '09:00'),
+      endsAt: at(n, '09:30'),
+    });
+    expect(fromType).toMatchObject({ method: 'OTHER', otherVideoPlatform: 'Microsoft Teams' });
+    const named = await scheduled({
+      typeId: t.id,
+      method: 'OTHER',
+      otherVideoPlatform: 'Webex',
+      startsAt: at(n, '10:00'),
+      endsAt: at(n, '10:30'),
+    });
+    expect(named).toMatchObject({ method: 'OTHER', otherVideoPlatform: 'Webex' });
+    // Changed to Phone, the platform goes; the database keeps both in step.
+    const phoned = exact(
+      AppointmentRecord,
+      await call('patch', `/appointments/${named.id}/details`, people.ownerA, {
+        version: named.version,
+        method: 'PHONE',
+      }),
+    );
+    expect(phoned).toMatchObject({ method: 'PHONE', otherVideoPlatform: null });
+
+    // Dropping Other from the type drops its platform.
+    expect(exact(AppointmentTypeConfig, await put({ methods: ['PHONE'] }))).toMatchObject({
+      methods: ['PHONE'],
+      otherVideoPlatform: null,
+    });
+  });
+
+  it('keeps a booking window of 2, 6 or 12 hours apart from the minimum notice (Review 2, P1 row 2)', async () => {
+    const t = await typeWith('Window', ['VIDEO']);
+    const put = (body: object) =>
+      call('put', `/appointment-types/${t.id}/config`, people.ownerA, body);
+    await put({ minNoticeHours: 2, maxWindowDays: 3 });
+    for (const hours of [2, 6, 12]) {
+      expect(exact(AppointmentTypeConfig, await put({ maxWindowHours: hours }))).toMatchObject({
+        maxWindowHours: hours,
+        minNoticeHours: 2,
+      });
+      expect(
+        exact(
+          AppointmentTypeConfig,
+          await call('get', `/appointment-types/${t.id}/config`, people.staffA),
+        ).maxWindowHours,
+      ).toBe(hours);
+    }
+    // A day choice clears the hours; the days are kept.
+    expect(
+      exact(AppointmentTypeConfig, await put({ maxWindowDays: 5, maxWindowHours: null })),
+    ).toMatchObject({ maxWindowDays: 5, maxWindowHours: null, minNoticeHours: 2 });
+    for (const hours of [1, 17_521]) {
+      expectError(await put({ maxWindowHours: hours }), 400, 'VALIDATION_FAILED');
+    }
   });
 
   it('schedules only in a method the type offers, kept as the location kind (Owner and Staff)', async () => {
