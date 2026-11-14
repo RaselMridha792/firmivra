@@ -56,7 +56,8 @@ const deadlineSelect = {
   completedBy: member,
   shares: {
     select: { member: { select: { userId: true, user: { select: { name: true } } } } },
-    orderBy: { createdAt: 'asc' },
+    // By name: a deadline's coworkers are added together, so their creation times tie.
+    orderBy: [{ member: { user: { name: 'asc' } } }, { userId: 'asc' }],
   },
   reminders: {
     select: { minutesBefore: true, unit: true, inApp: true, channels: true, sentAt: true },
