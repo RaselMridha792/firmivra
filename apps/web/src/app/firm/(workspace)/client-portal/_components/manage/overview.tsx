@@ -45,7 +45,7 @@ export function ManagementOverview({ clientId }: { clientId: string }) {
     <PageState query={header}>
       {(h) => (
         <div className="flex flex-col gap-6">
-          <div className="grid items-start gap-6 xl:grid-cols-3">
+          <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 @5xl:grid-cols-3">
             <PendingActionsCard clientId={clientId} />
             <VisibilityCard clientId={clientId} canChange={h.can.manageAccess} compact />
             <div className="flex flex-col gap-6">
@@ -53,8 +53,8 @@ export function ManagementOverview({ clientId }: { clientId: string }) {
               <PortalLinkCard link={h.portal.link} />
             </div>
           </div>
-          <div className="grid items-start gap-6 xl:grid-cols-3">
-            <div className="xl:col-span-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 @5xl:grid-cols-3">
+            <div className="min-w-0 @5xl:col-span-2">
               <PortalActivityCard clientId={clientId} limit={5} />
             </div>
             <NotesCard clientId={clientId} title="Client Notes (Internal Only)" />

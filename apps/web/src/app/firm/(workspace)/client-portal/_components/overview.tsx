@@ -166,7 +166,7 @@ function PortalSummaryCard({
       </div>
       <PageState query={summary}>
         {(s) => (
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid gap-3 @lg:grid-cols-2 @4xl:grid-cols-3">
             {TILES.filter((t) => s[t.key] !== null).map((t) => {
               const line = t.line(s);
               return (
