@@ -56,6 +56,7 @@ export function toRow(i: RowSource): AssignedFormRow {
       : null,
     dueOn: day(i.dueOn),
     expiresOn: day(i.expiresAt),
+    expiresAt: iso(i.expiresAt),
   };
 }
 

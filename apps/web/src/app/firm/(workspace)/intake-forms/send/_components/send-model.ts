@@ -1,3 +1,4 @@
+import { type Expiry, expiryBody, expiryError } from '../../_components/expiry';
 import type {
   FormDeliveryChannel,
   QuestionType,
@@ -26,7 +27,7 @@ export interface Member {
 }
 
 export type FieldKey =
-  'recipient' | 'formId' | 'channel' | 'subject' | 'message' | 'dueOn' | 'expiresOn';
+  'recipient' | 'formId' | 'channel' | 'subject' | 'message' | 'dueOn' | 'expiry';
 export type FieldErrors = Partial<Record<FieldKey, string>>;
 
 /** The line under Send Form, with where to fix the problem when there is a place for it. */
@@ -190,7 +191,8 @@ export interface SendChoices {
   subject: string;
   message: string;
   dueOn: string;
-  expiresOn: string;
+  /** EXPIRY-01: Default, a date and time in the firm's time zone, or Never. */
+  expiry: Expiry;
   assignee: Member | undefined;
   reminders: boolean;
   allowSave: boolean;
@@ -208,6 +210,7 @@ export function sendBody(
   c: SendChoices,
   recipient: Recipient,
   idempotencyKey: string,
+  timeZone: string,
 ): SendIntakeFormRequest {
   return {
     idempotencyKey,
@@ -217,7 +220,7 @@ export function sendBody(
     subject: c.subject.trim(),
     message: c.message.trim(),
     dueOn: c.dueOn || null,
-    expiresOn: c.expiresOn || null,
+    ...expiryBody(c.expiry, timeZone),
     assignedUserId: c.assignee?.userId ?? null,
     reminders: reminderBody(c),
     allowSaveAndContinue: c.allowSave,
@@ -226,7 +229,7 @@ export function sendBody(
 }
 
 /** Save as Draft: whatever is filled in so far; nothing is sent. */
-export function draftBody(c: SendChoices): SaveSendDraftRequest {
+export function draftBody(c: SendChoices, timeZone: string): SaveSendDraftRequest {
   const subject = c.subject.trim();
   const message = c.message.trim();
   return {
@@ -236,7 +239,8 @@ export function draftBody(c: SendChoices): SaveSendDraftRequest {
     ...(subject ? { subject } : {}),
     ...(message ? { message } : {}),
     dueOn: c.dueOn || null,
-    expiresOn: c.expiresOn || null,
+    // A date not filled in yet is kept as the default; the time is checked when it is sent.
+    ...(c.expiry.mode === 'AT' && !c.expiry.date ? {} : expiryBody(c.expiry, timeZone)),
     assignedUserId: c.assignee?.userId ?? null,
     reminders: reminderBody(c),
     allowSaveAndContinue: c.allowSave,
@@ -262,6 +266,7 @@ export function validate(
   kind: Recipient['kind'],
   formChosen: boolean,
   day: string,
+  timeZone?: string,
 ): FieldErrors {
   const e: FieldErrors = {};
   if (!c.recipient) e.recipient = kind === 'CLIENT' ? 'Choose a client' : 'Choose a lead';
@@ -271,8 +276,7 @@ export function validate(
   if (!c.subject.trim()) e.subject = 'Enter a subject';
   if (!c.message.trim()) e.message = 'Enter a message';
   if (c.dueOn && c.dueOn < day) e.dueOn = 'Choose today or a later date';
-  if (c.expiresOn && c.expiresOn < day) e.expiresOn = 'Choose today or a later date';
-  else if (c.dueOn && c.expiresOn && c.expiresOn < c.dueOn)
-    e.expiresOn = 'Choose a date on or after the due date';
+  const expiry = expiryError(c.expiry, timeZone, c.dueOn);
+  if (expiry) e.expiry = expiry;
   return e;
 }

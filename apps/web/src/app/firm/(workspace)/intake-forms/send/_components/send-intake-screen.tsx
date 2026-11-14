@@ -1,5 +1,6 @@
 'use client';
 
+import { NO_EXPIRY_CHOICE, useFirmTimeZone } from '../../_components/expiry';
 import { ArrowLeft, CaretRight } from '@phosphor-icons/react';
 import {
   ApiRequestError,
@@ -76,7 +77,9 @@ function fieldErrorsOf(error: unknown): FieldErrors {
   const found: FieldErrors = {};
   if (!(error instanceof ApiRequestError)) return found;
   for (const detail of error.details ?? []) {
-    const field = detail.path.split('.')[0];
+    const first = detail.path.split('.')[0];
+    // EXPIRY-01: the API names expiresAt or expiresOn; the screen has one Expiration field.
+    const field = first === 'expiresAt' || first === 'expiresOn' ? 'expiry' : first;
     if (isFieldKey(field) && !found[field]) found[field] = detail.message;
   }
   return found;
@@ -89,7 +92,7 @@ const FIELD_KEYS: readonly string[] = [
   'subject',
   'message',
   'dueOn',
-  'expiresOn',
+  'expiry',
 ] satisfies FieldKey[];
 const isFieldKey = (key: unknown): key is FieldKey =>
   typeof key === 'string' && FIELD_KEYS.includes(key);
@@ -107,7 +110,7 @@ const start = (formId: string): State => ({
   subject: null,
   message: null,
   dueOn: '',
-  expiresOn: '',
+  expiry: NO_EXPIRY_CHOICE,
   assignee: undefined,
   reminders: true,
   allowSave: true,
@@ -140,6 +143,8 @@ export function SendIntakeScreen({
 }) {
   const { me } = useMe();
   const { firm } = useFirm();
+  // EXPIRY-01: dates and times are the firm's.
+  const timeZone = useFirmTimeZone() ?? 'America/New_York';
   const forms = useApiQuery(FORMS_KEY, () =>
     api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' }),
   );
@@ -240,18 +245,18 @@ export function SendIntakeScreen({
   }
 
   function onSend() {
-    const found = validate(choices, kind, !!form, today());
+    const found = validate(choices, kind, !!form, today(), timeZone);
     const recipient = choices.recipient;
     if (!recipient || Object.keys(found).length > 0) {
       setErrors(found);
       setNotice({ text: 'Check the highlighted fields.', tone: 'error' });
       return;
     }
-    const fingerprint = JSON.stringify(sendBody(choices, recipient, ''));
+    const fingerprint = JSON.stringify(sendBody(choices, recipient, '', timeZone));
     const last = attemptRef.current;
     const key = last?.retry && last.body === fingerprint ? last.key : crypto.randomUUID();
     const body = {
-      ...sendBody(choices, recipient, key),
+      ...sendBody(choices, recipient, key, timeZone),
       ...(boundEngagement ? { engagementId: boundEngagement.id } : {}),
     };
     const parsed = SendIntakeFormRequest.safeParse(body);
@@ -291,7 +296,7 @@ export function SendIntakeScreen({
   function onDraft() {
     setNotice(undefined);
     saveDraft.mutate(
-      { body: draftBody(choices), id: draftId },
+      { body: draftBody(choices, timeZone), id: draftId },
       {
         onSuccess: (draft) => {
           setDraftId(draft.id);
@@ -372,6 +377,7 @@ export function SendIntakeScreen({
             set={set}
             errors={errors}
             onEditSchedule={() => setScheduleOpen(true)}
+            formId={form ? choices.formId : ''}
           />
         </div>
         <div className="flex min-w-0 flex-col lg:col-span-2 xl:col-span-1">

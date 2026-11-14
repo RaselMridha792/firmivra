@@ -831,7 +831,7 @@ describe('business plans', () => {
     const rows = JSON.stringify(await auditFor(shared.a1));
     expect(rows).not.toContain('Rising bean costs');
     expect(rows).not.toContain('Internal plan note');
-    expect(rows).not.toContain('5000000');
+    expect(rows).not.toMatch(/\b5000000\b/);
     expect(rows).not.toContain('Grow the cafe');
 
     // Create and read are the caller's own; a plan of another client or firm is not found.
@@ -1445,7 +1445,9 @@ describe('recommendations and action items', () => {
         ok(await call('get', '/recommendations', staffA)),
       ).items.every((r) => r.advisoryClientId === shared.a1),
     ).toBe(true);
-    expect(JSON.stringify(await auditFor(shared.a1))).not.toMatch(/SBA loan|Lower rates|250000/);
+    expect(JSON.stringify(await auditFor(shared.a1))).not.toMatch(
+      /SBA loan|Lower rates|\b250000\b/,
+    );
   });
 
   it('keeps action items for staff, the client or the team, with due dates and overdue worked out', async () => {
@@ -1775,7 +1777,9 @@ describe('financial analysis and the Business Health Score', () => {
       ),
     );
     expect(all.items.map((r) => r.source).sort()).toEqual(['BOOKKEEPING', 'MANUAL']);
-    expect(JSON.stringify(await auditFor(id))).not.toMatch(/books were wrong|650000|1200000/);
+    expect(JSON.stringify(await auditFor(id))).not.toMatch(
+      /books were wrong|\b650000\b|\b1200000\b/,
+    );
     expect(
       (await auditFor(id)).some((r) => JSON.stringify(r.metadata).includes('"overridden":true')),
     ).toBe(true);

@@ -376,7 +376,10 @@ export const api = {
   /** Intake Forms workspace (R43 contract): dashboard, builder, send, review, templates, settings. */
   intakeForms:
     dev && mocked('intakeForms')
-      ? createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') })
+      ? failable(
+          'intakeForms',
+          createIntakeFormsMock({ role: MOCK_ROLE, empty: mockedEmpty('intakeForms') }),
+        )
       : createIntakeFormsClient(request),
   /** A client's intakes (R11's GET /business/clients/{id}/intakes): the return's Intake Form card. */
   intakes: dev && mocked('intakes') ? createIntakesMock() : createIntakesClient(request),

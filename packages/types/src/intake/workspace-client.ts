@@ -130,8 +130,17 @@ export function createIntakeFormsClient(request: ApiRequest) {
     publishForm: async (id: string): Promise<IntakeFormDetail> =>
       request(IntakeFormDetail, `${form(id)}/publish`, post()),
     /** A draft copy with a new id (Duplicate; "Save as Template" with `asTemplate`). */
-    duplicateForm: async (id: string, asTemplate = false): Promise<IntakeFormDetail> =>
-      request(IntakeFormDetail, `${form(id)}/duplicate`, post({ asTemplate })),
+    /** A draft copy; `formId` copies that version of it (an assigned form's own, USABILITY-03). */
+    duplicateForm: async (
+      id: string,
+      asTemplate = false,
+      formId?: string,
+    ): Promise<IntakeFormDetail> =>
+      request(
+        IntakeFormDetail,
+        `${form(id)}/duplicate`,
+        post({ asTemplate, ...(formId ? { formId } : {}) }),
+      ),
     archiveForm: async (id: string): Promise<IntakeFormDetail> =>
       request(IntakeFormDetail, `${form(id)}/archive`, post()),
     /** The main form's link and website button: its Begin Online page. 404 for any other form. */

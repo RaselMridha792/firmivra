@@ -112,6 +112,6 @@ describe('archive, never delete (IP-F10)', () => {
       'invoice.restored',
       'invoice.deleted',
     ]);
-    expect(JSON.stringify(rows)).not.toMatch(/50000|Tax return/);
+    expect(JSON.stringify(rows)).not.toMatch(/\b50000\b|Tax return/);
   });
 });

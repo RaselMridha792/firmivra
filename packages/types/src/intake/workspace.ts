@@ -101,7 +101,10 @@ export const AssignedFormRow = z.object({
   lastActivityAt: DateTime.nullable(),
   assignedTo: MemberRef.nullable(),
   dueOn: CalendarDate.nullable(),
+  /** The day it expires (UTC); `expiresAt` is the exact time (EXPIRY-01). */
   expiresOn: CalendarDate.nullable(),
+  /** Intake Forms Review Two EXPIRY-01: the exact expiration; null: it does not expire. */
+  expiresAt: DateTime.nullable().default(null),
 });
 export type AssignedFormRow = z.infer<typeof AssignedFormRow>;
 
@@ -380,7 +383,14 @@ export const SendIntakeFormRequest = z.strictObject({
   subject: text(200),
   message: text(500, 'many'),
   dueOn: CalendarDate.nullable().optional(),
+  /**
+   * Intake Forms Review Two EXPIRY-01. `expiresAt`: the exact expiration (later than now; the
+   * screen picks a date and time in the firm's time zone). `expiresOn`: a whole day, which ends at
+   * 11:59 PM in the firm's time zone. Null (either): it never expires. Neither: the form's own
+   * default, else the firm's (Default Form Expiration), to the end of that day. Not both.
+   */
   expiresOn: CalendarDate.nullable().optional(),
+  expiresAt: DateTime.nullable().optional(),
   assignedUserId: z.uuid().nullable().optional(),
   reminders: ReminderSchedule.optional(),
   allowSaveAndContinue: z.boolean().default(true),
@@ -488,6 +498,8 @@ export const AssignedFormRecord = AssignedFormRow.extend({
   /** Communication tab: sends, reminders and follow-ups. */
   communications: z.array(AssignedFormEvent),
   revisionNote: z.string().nullable(),
+  /** USABILITY-03: the form version this one was sent with (Duplicate copies exactly it). */
+  formVersionId: z.uuid().nullable().default(null),
 });
 export type AssignedFormRecord = z.infer<typeof AssignedFormRecord>;
 
@@ -499,7 +511,9 @@ export const UpdateAssignedFormRequest = z
   .strictObject({
     assignedUserId: z.uuid().nullable(),
     dueOn: CalendarDate.nullable(),
+    /** Extend Expiration (EXPIRY-01): an exact time later than now, or a whole day; null: none. */
     expiresOn: CalendarDate.nullable(),
+    expiresAt: DateTime.nullable(),
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Change something first');

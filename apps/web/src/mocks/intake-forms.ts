@@ -73,6 +73,7 @@ const uuid = (block: string, n: number) =>
   `0199c0d0-${block}-7000-8000-${String(n).padStart(12, '0')}`;
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
+const LATER = 'Choose an expiration date and time later than now.';
 const copy = <T>(value: T): T => structuredClone(value);
 const ago = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
 const day = (hours: number) => ago(hours).slice(0, 10);
@@ -318,6 +319,9 @@ function seed(empty: boolean): Store {
           assignedTo: people[who] ?? null,
           dueOn: day(-24 * 7),
           expiresOn: day(-24 * 30),
+          // EXPIRY-01: the exact time; the mock's are 11:59 PM New York on that day.
+          expiresAt: `${day(-24 * 30)}T04:59:59.999Z`,
+          formVersionId: form?.id ?? null,
           submittedAt: submitted && last !== null ? ago(last) : null,
           completedAt: status === 'COMPLETED' && last !== null ? ago(last - 1) : null,
           completedBy: status === 'COMPLETED' ? (people[who] ?? null) : null,
@@ -408,6 +412,7 @@ const toRow = (r: AssignedFormRecord): AssignedFormRow => ({
   assignedTo: r.assignedTo,
   dueOn: r.dueOn,
   expiresOn: r.expiresOn,
+  expiresAt: r.expiresAt,
 });
 
 /** `api.intakeForms` in mock mode. */
@@ -663,7 +668,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           ? { userId: input.assignedUserId, name: 'Assigned member' }
           : me,
         dueOn: input.dueOn ?? null,
-        expiresOn: input.expiresOn ?? null,
+        // EXPIRY-01: a chosen time, else a whole day, else the default of 14 days; null: never.
+        expiresOn: input.expiresAt
+          ? input.expiresAt.slice(0, 10)
+          : input.expiresAt === null
+            ? null
+            : (input.expiresOn ?? day(-24 * 14)),
+        expiresAt:
+          input.expiresAt !== undefined
+            ? input.expiresAt
+            : input.expiresOn === null
+              ? null
+              : `${input.expiresOn ?? day(-24 * 14)}T23:59:59.999Z`,
+        formVersionId: form.id,
         submittedAt: null,
         completedAt: null,
         completedBy: null,
@@ -756,13 +773,21 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         event(r, 'ASSIGNED', 'Assigned staff changed');
       }
       if (input.dueOn !== undefined) r.dueOn = input.dueOn;
-      if (input.expiresOn !== undefined) {
-        r.expiresOn = input.expiresOn;
-        if (
-          r.status === 'EXPIRED' &&
-          input.expiresOn &&
-          input.expiresOn >= new Date().toISOString().slice(0, 10)
-        )
+      if (input.expiresAt !== undefined || input.expiresOn !== undefined) {
+        // EXPIRY-01: later than now, as the API says on the field.
+        const at =
+          input.expiresAt !== undefined
+            ? input.expiresAt
+            : input.expiresOn
+              ? `${input.expiresOn}T23:59:59.999Z`
+              : null;
+        if (at && Date.parse(at) <= Date.now())
+          throw new ApiRequestError(400, 'VALIDATION_FAILED', LATER, undefined, undefined, [
+            { path: 'expiresAt', message: LATER },
+          ]);
+        r.expiresAt = at;
+        r.expiresOn = at ? at.slice(0, 10) : null;
+        if (r.status === 'EXPIRED' && (at === null || Date.parse(at) > Date.now()))
           setStatus(r, 'SENT');
         event(r, 'EXTENDED', 'Expiration extended');
       }
@@ -989,7 +1014,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       s.live.add(f.id);
       return copy(f);
     },
-    duplicateForm: async (id, asTemplate = false) => {
+    duplicateForm: async (id, asTemplate = false, formId?: string) => {
+      void formId;
       await mockDelay();
       managers();
       const f = findForm(id);
