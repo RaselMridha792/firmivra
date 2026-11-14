@@ -204,10 +204,20 @@ export function TemplatesScreen() {
             </p>
           </div>
         </div>
-        <OriginLink href="/templates/new" className={gold}>
-          {/* TP-Y01: it opens an email template; a kind's library creates its own kind. */}
-          <Plus aria-hidden weight="bold" className="size-5" /> Create Email Template
-        </OriginLink>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Leads R2 19: reusable follow-up steps for leads. */}
+          <Link
+            href="/templates/lead-sequences"
+            data-testid="lead-sequences-link"
+            className="inline-flex min-h-11 items-center rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-heading hover:bg-canvas"
+          >
+            Lead follow-up sequences
+          </Link>
+          <OriginLink href="/templates/new" className={gold}>
+            {/* TP-Y01: it opens an email template; a kind's library creates its own kind. */}
+            <Plus aria-hidden weight="bold" className="size-5" /> Create Email Template
+          </OriginLink>
+        </div>
       </header>
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />

@@ -1,6 +1,12 @@
 'use client';
 
-import type { LeadActionType, LeadFollowUp, LeadProfile, LeadTask } from '@firmivra/types';
+import {
+  LEAD_STEP_MODE_LABELS,
+  type LeadActionType,
+  type LeadFollowUp,
+  type LeadProfile,
+  type LeadTask,
+} from '@firmivra/types';
 import { Badge, Button, Select, Textarea } from '@firmivra/ui';
 import { CheckSquare, Fire, PhoneCall } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -10,6 +16,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { LEAD_PIPELINE_KEY } from '../../_components/lead-shared';
 import { CardFrame } from './profile-cards';
+import { SequencesCard } from './sequences-card';
 import { useProfile } from './profile-frame';
 import { stamp, wsKey } from './profile-shared';
 
@@ -106,6 +113,14 @@ function FollowUpSteps({
               </span>{' '}
               <span className="text-muted">{stamp(f.dueAt)}</span>
               {f.notes ? <span className="block text-muted">{f.notes}</span> : null}
+              {/* R2 19: a step a sequence made, its kind and owner (an outreach step is sent by hand). */}
+              {f.sequence ? (
+                <span className="block text-xs text-muted" data-testid="follow-up-sequence">
+                  {f.sequence}
+                  {f.mode ? `: ${LEAD_STEP_MODE_LABELS[f.mode]}` : ''}
+                  {f.assignedTo ? `, ${f.assignedTo.name}` : ''}
+                </span>
+              ) : null}
               {f.doneAt ? (
                 <span className="block text-xs text-success">
                   Done {stamp(f.doneAt)}
@@ -442,7 +457,10 @@ export function TasksTab() {
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
       <FollowUpCard key={profile ? 'loaded' : 'none'} lead={profile} />
-      <OpenTasksCard />
+      <div className="flex flex-col gap-4">
+        <OpenTasksCard />
+        <SequencesCard />
+      </div>
     </div>
   );
 }
