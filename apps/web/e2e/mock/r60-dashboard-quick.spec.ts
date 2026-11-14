@@ -16,11 +16,12 @@ test('the five quick actions open each creation workflow', async ({ page }) => {
   await openDashboard(page);
   const actions = page.getByRole('region', { name: 'Quick actions' });
   for (const [name, href] of [
-    ['Add Client', '/clients?new=1'],
-    ['Send Message', '/messages?new=1'],
-    ['Create Bulk Email', '/communications/new?channel=EMAIL'],
-    ['Create Invoice', '/invoices/new'],
-    ['Upload Now', '/documents/upload'],
+    // Dashboard Review 2 (B01 to B05): each keeps the way back to the dashboard.
+    ['Add Client', '/clients?new=1&back=dashboard'],
+    ['Send Message', '/messages/new?from=%2F'],
+    ['Create Bulk Email', '/communications/new?channel=EMAIL&from=%2F'],
+    ['Create Invoice', '/invoices/new?from=%2F'],
+    ['Upload Now', '/documents/upload?from=%2F'],
   ] as const)
     await expect(actions.getByRole('link', { name })).toHaveAttribute('href', href);
 

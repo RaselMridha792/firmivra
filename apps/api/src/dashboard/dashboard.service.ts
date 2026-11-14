@@ -172,11 +172,17 @@ export class DashboardService {
             (SELECT count(*)::int FROM tax_returns t ${ofClient('t')} WHERE t.business_id = ${businessId}::uuid
               AND t.archived_at IS NULL AND t.workflow_status = 'ACCEPTED' AND ${reachReturn}
               AND ${acceptedIn('p.pl_start', 'p.pl_end')}) AS accepted_pipeline,
-            (SELECT count(*)::int FROM intakes i
-              JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
-              ${ofClient('e')} WHERE i.business_id = ${businessId}::uuid
+            -- Octavia's C5 (Review 2): exactly the forms Intake Forms' Not Finished filter lists,
+            -- a client's or a lead's, in the same reach (intake-workspace reachOf).
+            (SELECT count(*)::int FROM intakes i WHERE i.business_id = ${businessId}::uuid
               AND i.status IN ('SENT', 'IN_PROGRESS', 'SUBMITTED', 'NEEDS_CORRECTION', 'UNDER_REVIEW')
-              AND ${mine}) AS intakes_open,
+              AND (${reachUser}::uuid IS NULL OR i.assigned_user_id = ${reachUser}::uuid
+                OR EXISTS (SELECT 1 FROM engagements e ${ofClient('e')}
+                  WHERE e.business_id = i.business_id AND e.id = i.engagement_id
+                    AND c.assigned_user_id = ${reachUser}::uuid)
+                OR EXISTS (SELECT 1 FROM leads l
+                  WHERE l.business_id = i.business_id AND l.id = i.lead_id
+                    AND l.assigned_user_id = ${reachUser}::uuid))) AS intakes_open,
             (SELECT count(*)::int FROM appointments a ${ofClient('a')} WHERE a.business_id = ${businessId}::uuid
               AND a.status = 'SCHEDULED' AND a.starts_at >= p.day_start AND a.starts_at < p.day_end
               AND (${mine} OR a.staff_user_id = ${staff}::uuid)) AS appointments_today,

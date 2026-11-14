@@ -132,11 +132,20 @@ function AddMenu({ onTemplates, manages }: { onTemplates: () => void; manages: b
  */
 export function TasksScreen({
   fromWorkflow = false,
+  hasOrigin = false,
+  dueSet: initialDueSet = false,
   view,
   savedTemplate,
   clientId,
 }: {
   fromWorkflow?: boolean;
+  /**
+   * Opened with `?from=` (Dashboard Review 2, R2 NEW7): the origin bar shows the way back to the
+   * real origin, so the Home crumb is not shown as if Home were it.
+   */
+  hasOrigin?: boolean;
+  /** Only tasks with a due date (the dashboard's Tasks Due View All, Octavia's T2). */
+  dueSet?: boolean;
   view?: TaskView;
   savedTemplate?: string;
   /** Review 2 (Bookkeeping Tasks tab): open on this client's tasks, every assignee. */
@@ -156,6 +165,7 @@ export function TasksScreen({
   });
   const [applied, setApplied] = useState(draft);
   const [date, setDate] = useState<string>();
+  const [dueSet, setDueSet] = useState(initialDueSet);
   const [sort, setSort] = useState<Pick<TaskOverviewQuery, 'sort' | 'direction'>>({
     sort: 'due',
     direction: 'asc',
@@ -182,6 +192,7 @@ export function TasksScreen({
     ...(kpi === 'overdue' ? { overdue: true } : {}),
     ...(kpi === 'completed' ? { view: 'completed' as const } : {}),
     ...(date ? { dueFrom: date, dueTo: date } : {}),
+    ...(dueSet ? { dueSet: true } : {}),
     ...sort,
     page,
     pageSize: 10,
@@ -242,21 +253,23 @@ export function TasksScreen({
 
   return (
     <div className="flex min-w-0 flex-col gap-5" data-testid="tasks-page">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
-          <Link href="/" aria-label="Home" className="text-link">
-            <ArrowLeft aria-hidden weight="bold" className="size-4" />
-          </Link>
-          <Link href="/" className="text-link">
-            Home
-          </Link>
-          <span aria-hidden className="text-muted">
-            ›
-          </span>
-          <span className="font-semibold text-heading">Tasks</span>
-        </nav>
-        {fromWorkflow ? <BackToWorkflow /> : null}
-      </div>
+      {hasOrigin && !fromWorkflow ? null : (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm">
+            <Link href="/" aria-label="Home" className="text-link">
+              <ArrowLeft aria-hidden weight="bold" className="size-4" />
+            </Link>
+            <Link href="/" className="text-link">
+              Home
+            </Link>
+            <span aria-hidden className="text-muted">
+              ›
+            </span>
+            <span className="font-semibold text-heading">Tasks</span>
+          </nav>
+          {fromWorkflow ? <BackToWorkflow /> : null}
+        </div>
+      )}
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <span className="flex size-20 shrink-0 items-center justify-center rounded-xl bg-navigation text-on-action">
@@ -393,6 +406,7 @@ export function TasksScreen({
                     setSearch('');
                     setKpi(undefined);
                     setDate(undefined);
+                    setDueSet(false);
                     setPage(1);
                   }}
                 >
@@ -400,6 +414,21 @@ export function TasksScreen({
                 </Button>
                 <Button type="submit">Apply</Button>
               </form>
+              {dueSet ? (
+                <p data-testid="due-set-filter" className="text-sm text-text">
+                  Tasks with a due date, soonest first.{' '}
+                  <button
+                    type="button"
+                    className="text-link underline"
+                    onClick={() => {
+                      setDueSet(false);
+                      setPage(1);
+                    }}
+                  >
+                    Show tasks without one too
+                  </button>
+                </p>
+              ) : null}
               {date ? (
                 <p className="text-sm text-text">
                   Due on {date}.{' '}

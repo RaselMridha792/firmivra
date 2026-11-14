@@ -39,7 +39,17 @@ export function RowMenu({
     const away = (event: MouseEvent) =>
       rootRef.current && !rootRef.current.contains(event.target as Node) && setOpen(false);
     document.addEventListener('mousedown', away);
-    const scrolled = () => setOpen(false);
+    // Placed over the page, it closes once its button moves away. A scroll that leaves the
+    // button where it was (the browser settling the page as the menu opens) keeps it open, so it
+    // never closes on the click that opened it (Dashboard A3).
+    const button = rootRef.current?.querySelector<HTMLElement>('button');
+    const openedAt = button?.getBoundingClientRect().top;
+    const scrolled = () => {
+      const top = button?.getBoundingClientRect().top;
+      if (openedAt === undefined || top === undefined || Math.abs(top - openedAt) > 1) {
+        setOpen(false);
+      }
+    };
     if (fixed) window.addEventListener('scroll', scrolled, true);
     return () => {
       document.removeEventListener('mousedown', away);

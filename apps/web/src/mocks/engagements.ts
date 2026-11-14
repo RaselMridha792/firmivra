@@ -6,6 +6,7 @@ import {
   CreateEngagementRequest,
   StopFutureBillingRequest,
   Engagement,
+  type EngagementActivity,
   EngagementId,
   type EngagementsClient,
   type EngagementStatus,
@@ -196,6 +197,22 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
   const { all, history, find, save } = createStore(clients);
   let nextId = 100;
   const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
+  /** G8: what was done to each engagement, as the API reads its audit rows (newest last here). */
+  const events: (EngagementActivity['items'][number] & { engagementId: string })[] = [];
+  const log = (
+    engagementId: string,
+    action: EngagementActivity['items'][number]['action'],
+    extra: { fields?: string[]; stopsOn?: string | null } = {},
+  ) =>
+    events.push({
+      id: `0199b6a9-0000-7000-8000-${String(events.length + 1).padStart(12, '0')}`,
+      engagementId,
+      action,
+      fields: extra.fields ?? [],
+      stopsOn: extra.stopsOn ?? null,
+      by: 'Olivia Owner',
+      at: now(),
+    });
   /** SH4, SH6: a Payroll or Bookkeeping mock client's engagement, as a record. */
   const billingStops = new Map<string, Pick<Engagement, 'stopFutureBilling' | 'billingStopsOn'>>();
   const serviceRecord = (e: ServiceMockEngagement) =>
@@ -244,7 +261,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       assertNotArchived(id);
       checkStage(serviceId, data.stage);
       const billingInterval = data.billingInterval ?? 'ONE_TIME';
-      return save(
+      const made = save(
         fixture(nextId++, {
           ...data,
           clientId: id,
@@ -255,6 +272,8 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
           updatedAt: now(),
         }),
       );
+      log(made.id, 'CREATED');
+      return made;
     },
     update: async (id, body) => {
       await pause();
@@ -264,6 +283,9 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       const row = find(eid);
       assertNotArchived(row.clientId);
       checkStage(row.service.id, data.stage);
+      log(eid, 'UPDATED', {
+        fields: Object.keys(defined({ ...data, assignedUserId })).sort(),
+      });
       return save({
         ...row,
         ...defined(data),
@@ -279,6 +301,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a pending or active engagement can be completed');
       }
+      log(row.id, 'COMPLETED');
       return save({ ...row, status: 'COMPLETED', completedAt: now(), updatedAt: now() });
     },
     cancel: async (id, body) => {
@@ -287,6 +310,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       const { reason } = parseInput(CancelEngagementRequest, body);
       const row = find(eid);
       if (row.status === 'CANCELLED') throw fail(409, 'INVALID_STATUS', 'Already cancelled');
+      log(eid, 'CANCELLED');
       return save({
         ...row,
         status: 'CANCELLED',
@@ -311,6 +335,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         throw fail(409, 'DATE_IN_PAST', 'Billing can stop today or later');
       }
       const next = { stopFutureBilling: b.stop, billingStopsOn: stopsOn };
+      log(key, b.stop ? 'BILLING_STOPPED' : 'BILLING_RESUMED', { stopsOn });
       if (extra) {
         billingStops.set(key, next);
         return serviceRecord(extra);
@@ -331,6 +356,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
           'A cancelled engagement can be reactivated only within 90 days',
         );
       }
+      log(row.id, 'REACTIVATED');
       return save({
         ...row,
         status: 'ACTIVE',
@@ -349,6 +375,29 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       return history()
         .filter((h) => h.engagementId === eid)
         .map(({ engagementId: _e, ...h }) => ({ ...h, changedBy: null }));
+    },
+    activity: async (id) => {
+      await pause();
+      const eid = parseInput(EngagementId, id);
+      const row = find(eid);
+      const mine = events
+        .filter((e) => e.engagementId === eid)
+        .map(({ engagementId: _e, ...e }) => e)
+        .reverse();
+      // The enrollment itself, for a fixture made before the mock started.
+      return mine.some((e) => e.action === 'CREATED')
+        ? mine
+        : [
+            ...mine,
+            {
+              id: `0199b6a9-0000-7000-8000-9${eid.slice(-11)}`,
+              action: 'CREATED' as const,
+              fields: [],
+              stopsOn: null,
+              by: 'Olivia Owner',
+              at: row.createdAt,
+            },
+          ];
     },
   };
 }

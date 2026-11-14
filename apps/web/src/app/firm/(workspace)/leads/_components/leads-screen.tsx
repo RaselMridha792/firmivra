@@ -23,6 +23,7 @@ import {
   ArrowsClockwise,
   Clock,
   ClockCountdown,
+  CopySimple,
   Handshake,
   Megaphone,
   Plus,
@@ -34,6 +35,7 @@ import {
   ChatCircleDots,
   EnvelopeSimple,
 } from '@phosphor-icons/react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
@@ -695,6 +697,15 @@ export function LeadsScreen({
               Add New Tag
             </Button>
           ) : null}
+          {/* R2 15: possible duplicates, compared and merged on purpose (never automatically). */}
+          <Link
+            href="/leads/duplicates"
+            data-testid="review-duplicates"
+            className="inline-flex min-h-11 items-center gap-2 rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-heading hover:bg-canvas"
+          >
+            <CopySimple aria-hidden weight="fill" className="size-4" />
+            Review Duplicates
+          </Link>
           <Button
             variant="secondary"
             onClick={() => setCampaignOpen(true)}

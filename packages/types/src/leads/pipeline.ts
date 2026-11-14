@@ -63,6 +63,8 @@ export const NextActionType = LeadActionType;
 export type NextActionType = z.infer<typeof NextActionType>;
 
 const NamedRef = z.object({ id: z.uuid(), name: z.string() });
+/** A lead named with its number ("LD-10013"). */
+const LeadRef = z.object({ id: z.uuid(), name: z.string(), number: z.string() });
 
 /**
  * A campaign: a Communications email or text campaign (L7). A lead is in it when it is in the
@@ -552,12 +554,72 @@ export const LeadProfile = LeadRow.extend({
    * for the same person: the screen warns and links, nothing is merged (Rasel, Oct 24).
    */
   duplicates: z.object({ leads: z.array(NamedRef), clients: z.array(NamedRef) }),
+  /** R2 15: the leads merged into this one (each kept, archived, opened from here). */
+  mergedFrom: z.array(LeadRef).optional(),
+  /** R2 15: on a merged lead (read only), the lead it was merged into. */
+  mergedInto: LeadRef.nullable().optional(),
   /** L8: every follow-up step, unfinished first by date, then the finished ones, newest first. */
   followUps: z.array(LeadFollowUp),
   archivedAt: DateTime.nullable(),
   version: z.string(),
 });
 export type LeadProfile = z.infer<typeof LeadProfile>;
+
+// ---------- R2 15: duplicates and safe merge ----------
+
+/** Why two leads may be the same person: the same email or phone (any of theirs), or name. */
+export const LeadDuplicateReason = z.enum(['EMAIL', 'PHONE', 'NAME']);
+export type LeadDuplicateReason = z.infer<typeof LeadDuplicateReason>;
+
+/** GET /business/leads/duplicates: one possible pair, newer lead first, with why. */
+export const LeadDuplicatePair = z.object({
+  leads: z.tuple([LeadRow, LeadRow]),
+  reasons: z.array(LeadDuplicateReason).min(1),
+});
+export type LeadDuplicatePair = z.infer<typeof LeadDuplicatePair>;
+export const LeadDuplicateList = z.object({ items: z.array(LeadDuplicatePair).max(100) });
+export type LeadDuplicateList = z.infer<typeof LeadDuplicateList>;
+
+/** POST /business/leads/duplicates/dismiss: "Not a duplicate" (Owner, Admin): the pair leaves. */
+export const DismissLeadDuplicateRequest = z
+  .strictObject({ leadId: z.uuid(), otherLeadId: z.uuid() })
+  .refine((b) => b.leadId !== b.otherLeadId, 'Choose two different leads');
+export type DismissLeadDuplicateRequest = z.input<typeof DismissLeadDuplicateRequest>;
+
+/** Which lead a merged value comes from: the kept one (KEPT) or the one merged into it. */
+export const LeadMergePick = z.enum(['KEPT', 'MERGED']);
+export type LeadMergePick = z.infer<typeof LeadMergePick>;
+/** The values a reviewer can take from either lead (each KEPT unless chosen). */
+export const LEAD_MERGE_FIELDS = [
+  'name',
+  'businessName',
+  'email',
+  'phone',
+  'address',
+  'dateOfBirth',
+  'source',
+  'priority',
+  'owner',
+] as const;
+export type LeadMergeField = (typeof LEAD_MERGE_FIELDS)[number];
+
+/**
+ * POST /business/leads/{id}/merge (Owner, Admin): `mergeLeadId` is merged into this lead, which
+ * keeps the values `take` names from either one. Never automatic. Tags, services and every phone
+ * and email of both stay (the other one's as other contacts). The merged lead is archived and
+ * linked ("Merged into"), its notes, activity, tasks, files and forms kept on it, opened from the
+ * kept lead. 409 MERGE_NOT_ALLOWED for a converted, archived or merged lead; SAVE_CONFLICT when
+ * either changed since `versions`.
+ */
+export const MergeLeadsRequest = z.strictObject({
+  mergeLeadId: z.uuid(),
+  take: z.partialRecord(z.enum(LEAD_MERGE_FIELDS), LeadMergePick).default({}),
+  /** Both leads' `version`, from the profiles the reviewer compared. */
+  versions: z
+    .strictObject({ kept: z.string().min(1).max(100), merged: z.string().min(1).max(100) })
+    .optional(),
+});
+export type MergeLeadsRequest = z.input<typeof MergeLeadsRequest>;
 
 // ---------- Convert Lead to Client (five steps) ----------
 

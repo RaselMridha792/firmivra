@@ -28,6 +28,22 @@ test('View All keeps the client and service, Categorize opens Transactions, and 
   await expect(page.getByTestId('transactions-tab')).toBeVisible();
 });
 
+test("View All opens Documents on the current period's uploads, in a chip that clears (N02)", async ({
+  page,
+}) => {
+  await page.goto(`${app}/bookkeeping/clients/${GREEN}`);
+  await page.getByTestId('shared-documents').getByRole('link', { name: 'View All' }).click();
+  await expect(page).toHaveURL(
+    /\/documents\?.*uploadedFrom=\d{4}-\d{2}-\d{2}&uploadedTo=\d{4}-\d{2}-\d{2}&period=/,
+  );
+  const chip = page.getByTestId('documents-period');
+  await expect(chip).toContainText(/Period: \S+/);
+  await expect(chip).toContainText(/Documents uploaded from .+ to .+/);
+  await chip.getByRole('button', { name: /^Clear the period / }).click();
+  await expect(chip).toHaveCount(0);
+  await expect(page.getByTestId('documents-scope')).toBeVisible();
+});
+
 test("a recent document opens in a quick view on the workspace, with Documents' own viewer (N03)", async ({
   page,
 }) => {

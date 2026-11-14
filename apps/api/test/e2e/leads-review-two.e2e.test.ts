@@ -62,7 +62,7 @@ const storage = new MemoryStorage();
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({ id: randomUUID(), email: `r55r2-${key}-${run}@r55.test` });
-const people = { ownerA: person('owner-a'), ownerB: person('owner-b') };
+const people = { ownerA: person('owner-a'), ownerB: person('owner-b'), staffA: person('staff-a') };
 const ids = { firmA: '', firmB: '', tax: '' };
 let app: INestApplication;
 const tokens = new Map<string, string>();
@@ -131,6 +131,9 @@ beforeAll(async () => {
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     await tx.membership.create({
       data: { businessId: ids.firmA, userId: people.ownerA.id, role: 'OWNER', status: 'ACTIVE' },
+    });
+    await tx.membership.create({
+      data: { businessId: ids.firmA, userId: people.staffA.id, role: 'STAFF', status: 'ACTIVE' },
     });
     ids.tax = (
       await tx.service.create({
@@ -547,6 +550,135 @@ describe('Leads Review Two, L3b', () => {
         (await call('get', `/${lead.id}/documents-and-forms`, people.ownerA)).body,
       ).documents,
     ).toEqual([]);
+  });
+});
+
+describe('Leads Review Two, R2 15', () => {
+  const pairOf = (res: Response, a: string, b: string) =>
+    (res.body as { items: { leads: { id: string }[]; reasons: string[] }[] }).items.find(
+      (p) => [p.leads[0]!.id, p.leads[1]!.id].sort().join() === [a, b].sort().join(),
+    );
+
+  it('lists leads with the same email or phone, never merged; Not a duplicate takes the pair off', async () => {
+    const email = `twin-${run}@example.test`;
+    const one = await newLead({ email, phone: '(404) 555-0177' });
+    const two = await newLead({
+      email: email.toUpperCase(),
+      phone: '+1 404 555 0177',
+      allowDuplicate: true,
+    });
+    const list = await call('get', '/duplicates', people.ownerA);
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    expect(pairOf(list, one.id, two.id)?.reasons).toEqual(['EMAIL', 'PHONE']);
+    // Another firm sees none of them.
+    const other = await call('get', '/duplicates', people.ownerB, undefined, ids.firmB);
+    expect(pairOf(other, one.id, two.id)).toBeUndefined();
+    // Staff can't dismiss; the firm B owner can't name firm A's leads.
+    expectError(
+      await call('post', '/duplicates/dismiss', people.staffA, {
+        leadId: one.id,
+        otherLeadId: two.id,
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    expectError(
+      await call(
+        'post',
+        '/duplicates/dismiss',
+        people.ownerB,
+        { leadId: one.id, otherLeadId: two.id },
+        ids.firmB,
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    for (let i = 0; i < 2; i++) {
+      const res = await call('post', '/duplicates/dismiss', people.ownerA, {
+        leadId: two.id,
+        otherLeadId: one.id,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    }
+    expect(pairOf(await call('get', '/duplicates', people.ownerA), one.id, two.id)).toBeUndefined();
+    // Both leads are as they were.
+    expect(profile(await call('get', `/${two.id}/profile`, people.ownerA)).archivedAt).toBeNull();
+  });
+
+  it('merges on purpose: chosen values, both sets of contacts, tags and services; the other is kept, archived and linked', async () => {
+    const kept = await newLead({ email: `keep-${run}@example.test`, phone: '(404) 555-0181' });
+    const merged = await newLead({
+      firstName: 'Patricia',
+      email: `merge-${run}@example.test`,
+      phone: '(404) 555-0182',
+      otherContacts: [{ kind: 'EMAIL', value: `work-${run}@example.test`, label: 'Work' }],
+    });
+    profile(await call('patch', `/${kept.id}`, people.ownerA, { tags: [`Keep ${run}`] }));
+    const tagged = profile(
+      await call('patch', `/${merged.id}`, people.ownerA, { tags: [`Merge ${run}`] }),
+    );
+    const body = (extra: object = {}) => ({
+      mergeLeadId: merged.id,
+      take: { name: 'MERGED', email: 'MERGED' },
+      ...extra,
+    });
+    expectError(await call('post', `/${kept.id}/merge`, people.staffA, body()), 403, 'FORBIDDEN');
+    expectError(
+      await call('post', `/${kept.id}/merge`, people.ownerB, body(), ids.firmB),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/${kept.id}/merge`, people.ownerA, { mergeLeadId: kept.id }),
+      409,
+      'MERGE_NOT_ALLOWED',
+    );
+    expectError(
+      await call(
+        'post',
+        `/${kept.id}/merge`,
+        people.ownerA,
+        body({ versions: { kept: 'old', merged: tagged.version } }),
+      ),
+      409,
+      'SAVE_CONFLICT',
+    );
+    const res = await call('post', `/${kept.id}/merge`, people.ownerA, body());
+    const after = profile(res);
+    expect(after).toMatchObject({
+      firstName: 'Patricia',
+      email: `merge-${run}@example.test`,
+      phone: '(404) 555-0181',
+    });
+    expect(after.otherContacts.map((c) => c.value).sort()).toEqual(
+      [`keep-${run}@example.test`, `work-${run}@example.test`, '(404) 555-0182'].sort(),
+    );
+    expect([...after.tags].sort()).toEqual([`Keep ${run}`, `Merge ${run}`].sort());
+    expect(after.mergedFrom).toEqual([
+      { id: merged.id, name: expect.any(String), number: merged.number },
+    ]);
+    expect(after.recentActivity.map((a) => a.label)).toContain(`Merged from ${merged.number}`);
+
+    // The merged lead opens, read only, linked to the kept one; it can't be changed or merged again.
+    const old = profile(await call('get', `/${merged.id}/profile`, people.ownerA));
+    expect(old.archivedAt).not.toBeNull();
+    expect(old.mergedInto).toEqual({ id: kept.id, name: expect.any(String), number: kept.number });
+    expectError(
+      await call('patch', `/${merged.id}`, people.ownerA, { priority: 'HOT' }),
+      404,
+      'NOT_FOUND',
+    );
+    expectError(
+      await call('post', `/${kept.id}/merge`, people.ownerA, body()),
+      409,
+      'MERGE_NOT_ALLOWED',
+    );
+    const audit = await asOwnerA((tx) =>
+      tx.auditLog.findMany({ where: { action: 'lead.merged', entityId: kept.id } }),
+    );
+    expect(audit.map((a) => a.metadata)).toEqual([
+      { mergedLeadId: merged.id, taken: ['name', 'email'] },
+    ]);
   });
 });
 
