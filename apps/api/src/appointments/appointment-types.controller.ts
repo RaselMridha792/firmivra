@@ -6,6 +6,7 @@ import {
   AppointmentTypeId,
   type AppointmentTypeList,
   AppointmentTypesQuery,
+  type PublicLink,
 } from '@firmivra/types';
 import { Access, CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
@@ -36,6 +37,18 @@ export class AppointmentTypesController {
     @Query(new ZodValidationPipe(AppointmentTypesQuery)) q: z.output<typeof AppointmentTypesQuery>,
   ): Promise<AppointmentTypeList> {
     return { items: await this.types.list(tenant.businessId, q) };
+  }
+
+  /**
+   * Review 2 (Appointments row 3): the type's public booking link and its button code for the
+   * firm's website. Everyone at the firm reads it, whatever the type's state.
+   */
+  @Get(':id/public-link')
+  publicLink(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<PublicLink> {
+    return this.types.publicLink(tenant.businessId, id);
   }
 
   /** Everyone reads a type's configuration; Owner and Admin change it (R58). */

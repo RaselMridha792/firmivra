@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuthReady } from '../../../../../../components/auth/use-auth-ready';
 import { AUTH_MODE, DEV_USERS, portalAuth, signIn } from '../../../../../../lib/auth';
+import { afterSignIn } from '../../../../../../lib/booking-intent';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
@@ -31,8 +32,11 @@ export function SignInForm() {
     resolver: zodResolver(SignInRequest),
     defaultValues: { email: '', password: '' },
   });
-  // The shell sends a client the firm has not approved yet on to /sign-up/done.
-  const home = () => router.replace(`/${slug}/home`);
+  // The shell sends a client the firm has not approved yet on to /sign-up/done. A booking link's
+  // type (Appointments Review 2, row 3: this page's ?book=, else the one kept in this browser)
+  // opens booking on it instead of home.
+  const home = () =>
+    router.replace(afterSignIn(slug, new URLSearchParams(window.location.search).get('book')));
   const mutation = useApiMutation(async (action: () => Promise<SignInResult | void>) => {
     const result = await action();
     form.resetField('password');

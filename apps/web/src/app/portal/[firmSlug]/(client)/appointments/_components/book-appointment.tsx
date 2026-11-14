@@ -27,25 +27,28 @@ const BOOKING_ERRORS = {
 
 /**
  * "Schedule an Appointment": a modal with the booking steps (a kind of appointment, then a free
- * time, then confirm). `date` starts the day picker on a day picked in the month calendar.
+ * time, then confirm). `date` starts the day picker on a day picked in the month calendar; `typeId`
+ * (a booking link's, Review 2 row 3) starts on that kind, or says it can't be booked online.
  */
 export function ScheduleModal({
   slug,
   open,
   date,
+  typeId,
   onClose,
   onBooked,
 }: {
   slug: string;
   open: boolean;
   date?: string;
+  typeId?: string;
   onClose: () => void;
   /** Booked: the page says so above the list. */
   onBooked: (text: string) => void;
 }) {
   return (
     <Modal open={open} title="Schedule an Appointment" onClose={onClose}>
-      {open ? <BookableTypes slug={slug} date={date} onBooked={onBooked} /> : null}
+      {open ? <BookableTypes slug={slug} date={date} typeId={typeId} onBooked={onBooked} /> : null}
     </Modal>
   );
 }
@@ -53,10 +56,12 @@ export function ScheduleModal({
 function BookableTypes({
   slug,
   date,
+  typeId,
   onBooked,
 }: {
   slug: string;
   date?: string;
+  typeId?: string;
   onBooked: (text: string) => void;
 }) {
   const types = useApiQuery([...myAppointmentsKey(slug), 'types'], () =>
@@ -69,6 +74,7 @@ function BookableTypes({
           slug={slug}
           types={list}
           initialDate={date}
+          initialTypeId={typeId}
           onBooked={onBooked}
           onTypeGone={() => void types.refetch()}
         />
@@ -81,17 +87,26 @@ function Booking({
   slug,
   types,
   initialDate,
+  initialTypeId,
   onBooked,
   onTypeGone,
 }: {
   slug: string;
   types: BookableType[];
   initialDate?: string;
+  /** A booking link's type: booking starts on it, or says it can't be booked online. */
+  initialTypeId?: string;
   onBooked: (text: string) => void;
   onTypeGone: () => void;
 }) {
   const [first] = useState(today);
-  const [type, setType] = useState<BookableType | null>(null);
+  const [type, setType] = useState<BookableType | null>(
+    () => types.find((t) => t.id === initialTypeId) ?? null,
+  );
+  // The link's type is not one this client can book now (archived, or not bookable online).
+  const [linkRefused] = useState(
+    () => initialTypeId !== undefined && !types.some((t) => t.id === initialTypeId),
+  );
   const [date, setDate] = useState(() =>
     initialDate && initialDate > first ? initialDate : first,
   );
@@ -130,6 +145,16 @@ function Booking({
 
   return (
     <div className="flex flex-col gap-4">
+      {linkRefused ? (
+        <p
+          role="alert"
+          data-testid="booking-link-refused"
+          className="rounded-card border border-border bg-canvas p-3 text-sm text-text"
+        >
+          The appointment in your booking link can't be booked online now. Choose another kind of
+          appointment below, or contact us.
+        </p>
+      ) : null}
       <div role="group" aria-label="Kind of appointment" className="grid gap-3 sm:grid-cols-2">
         {types.map((item) => (
           <button
