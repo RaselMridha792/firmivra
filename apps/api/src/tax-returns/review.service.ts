@@ -61,6 +61,8 @@ type Out<S extends z.ZodType> = z.output<S>;
 const toDay = (v: string) => new Date(`${v}T00:00:00Z`);
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 const iso = (d: Date | null) => d?.toISOString() ?? null;
+/** Review 2 (rounding): cents rounded half up to the whole dollar (amounts are never negative). */
+export const toDollar = (cents: number) => Math.floor((cents + 50) / 100) * 100;
 
 /**
  * The Tax Returns workspace, part 2 (R55): Frame 3's filings per jurisdiction and their
@@ -370,6 +372,27 @@ export class TaxReturnReviewService {
     return this.write(tenant, async (tx) => {
       await this.reach(tx, tenant, userId, id, true);
       const f = await this.filing(tx, businessId, id, filingId);
+      // Review 2 (rounding): a firm that rounds to the dollar stores each amount sent rounded
+      // half up; the audit below keeps the figure as entered beside it.
+      const settings = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { taxAmountRounding: true },
+      });
+      const rounding = settings?.taxAmountRounding ?? 'EXACT';
+      const entered = { refundCents: body.refundCents, amountDueCents: body.amountDueCents };
+      if (rounding === 'ROUND_TO_DOLLAR') {
+        body = {
+          ...body,
+          ...(typeof body.refundCents === 'number'
+            ? { refundCents: toDollar(body.refundCents) }
+            : {}),
+          ...(typeof body.amountDueCents === 'number'
+            ? { amountDueCents: toDollar(body.amountDueCents) }
+            : {}),
+        };
+      }
+      const rounded =
+        entered.refundCents !== body.refundCents || entered.amountDueCents !== body.amountDueCents;
       const refund = body.refundCents !== undefined ? body.refundCents : f.refundCents;
       const due = body.amountDueCents !== undefined ? body.amountDueCents : f.amountDueCents;
       const status = body.amountStatus !== undefined ? body.amountStatus : f.amountStatus;
@@ -420,6 +443,17 @@ export class TaxReturnReviewService {
         filingId,
         fields: fields.sort(),
         ...(amount ? { amount } : {}),
+        ...(rounded
+          ? {
+              rounding,
+              entered: {
+                ...(entered.refundCents !== undefined ? { refundCents: entered.refundCents } : {}),
+                ...(entered.amountDueCents !== undefined
+                  ? { amountDueCents: entered.amountDueCents }
+                  : {}),
+              },
+            }
+          : {}),
       });
       return this.filingList(tx, businessId, id);
     });

@@ -4,6 +4,7 @@ import { LegalDocument, LegalVersion } from '../client-auth/schemas.js';
 import { text } from '../clients/text.js';
 import { Ein, EntityType, FirmService } from '../firm-applications/schemas.js';
 import { BusinessStatus } from '../schemas.js';
+import { TaxAmountRounding } from '../db-enums.js';
 import { MonthDay } from '../dashboard/tax-season.js';
 
 // Firm settings (Settings > Profile, Branding, Client portal, Legal) and the first-time setup
@@ -127,6 +128,12 @@ export const FirmSettings = z.object({
    */
   taxSeasonStart: z.string().nullable().default(null),
   taxSeasonEnd: z.string().nullable().default(null),
+  /**
+   * Tax Returns Review 2: how the firm keeps a return's refund and amount due. ROUND_TO_DOLLAR
+   * stores each amount rounded half up to the dollar when it is saved (the audit keeps the figure
+   * as entered); EXACT keeps the cents. Missing (an older answer) reads as EXACT.
+   */
+  taxAmountRounding: TaxAmountRounding.default('EXACT'),
   /** The latest change to any of these settings. */
   updatedAt: z.iso.datetime({ offset: true }),
 });
@@ -213,6 +220,8 @@ export const UpdateFirmSettingsRequest = z
     /** Sent together: both days, or both null (or '') for no tax season. */
     taxSeasonStart: clearable(MonthDay),
     taxSeasonEnd: clearable(MonthDay),
+    /** Tax Returns Review 2: applies to amounts saved from now on; saved ones stay as they are. */
+    taxAmountRounding: TaxAmountRounding,
   })
   .partial()
   .refine(

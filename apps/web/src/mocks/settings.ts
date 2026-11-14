@@ -75,6 +75,7 @@ export function settingsFixture(): FirmSettings {
     description: null,
     taxSeasonStart: null,
     taxSeasonEnd: null,
+    taxAmountRounding: 'EXACT',
     updatedAt: at,
   });
   return settingsCache;

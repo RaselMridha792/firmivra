@@ -29,7 +29,8 @@ const idPipe = new ZodValidationPipe(TaxStatusId);
 
 /**
  * The firm's tax statuses (T04; contract in packages/types/src/tax-statuses). Staff list them;
- * Owner and Admin add, rename, reorder and archive. The firm comes from TenantGuard.
+ * Owner and Admin add, rename, map (Review 2's "Maps to"), reorder and archive. The firm comes
+ * from TenantGuard.
  */
 @Controller('business/tax-statuses')
 @Access('CLIENTS')
@@ -53,7 +54,7 @@ export class TaxStatusesController {
     @Body(new ZodValidationPipe(CreateTaxStatusRequest))
     body: z.output<typeof CreateTaxStatusRequest>,
   ): Promise<TaxStatus> {
-    return this.taxStatuses.create(tenant.businessId, body.name);
+    return this.taxStatuses.create(tenant.businessId, body.name, body.workflowStatus ?? null);
   }
 
   @Put('order')
@@ -74,7 +75,7 @@ export class TaxStatusesController {
     @Body(new ZodValidationPipe(RenameTaxStatusRequest))
     body: z.output<typeof RenameTaxStatusRequest>,
   ): Promise<TaxStatus> {
-    return this.taxStatuses.rename(tenant.businessId, id, body.name);
+    return this.taxStatuses.rename(tenant.businessId, id, body);
   }
 
   @Post(':id/archive')

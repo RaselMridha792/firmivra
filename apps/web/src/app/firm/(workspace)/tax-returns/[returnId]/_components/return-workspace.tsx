@@ -30,6 +30,7 @@ import { IntakeFormCard } from './intake-form-card';
 import {
   AssignDialog,
   DetailsDialog,
+  ExtensionDialog,
   RejectDialog,
   StatusDialog,
   isBackward,
@@ -382,7 +383,7 @@ function InfoCard({
 
 /** Filing deadline, extension, preparer, reviewer, filing status and the prior year's return. */
 function InfoCards({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
-  const [dialog, setDialog] = useState<'assign' | 'details'>();
+  const [dialog, setDialog] = useState<'assign' | 'details' | 'extension'>();
   const docs = useApiQuery([...TR_KEY, 'documents', detail.id], () =>
     api.taxReturnWorkspace.documents(detail.id),
   );
@@ -391,7 +392,10 @@ function InfoCards({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
   );
   const prior = (siblings.data ?? []).find((s) => s.taxYear === detail.taxYear - 1 && !s.quarter);
   const extension = (docs.data ?? []).find((d) => d.kind === 'EXTENSION');
-  const left = detail.dueOn ? daysUntil(detail.dueOn) : null;
+  // Review 2 (File Extension): a recorded extension moves the deadline that counts down.
+  const deadline = detail.extendedDueOn ?? detail.dueOn;
+  const left = deadline ? daysUntil(deadline) : null;
+  const canExtend = !detail.firstFiledAt && !detail.archivedAt;
   const person = (m: TaxReturnDetail['preparer']) =>
     m ? (
       <span className="flex items-center gap-2">
@@ -408,11 +412,12 @@ function InfoCards({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
   return (
     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6" data-testid="info-cards">
       <InfoCard icon={CalendarBlank} title="Filing Deadline">
-        {detail.dueOn ? (
+        {deadline ? (
           <>
             <span className="text-base font-bold whitespace-nowrap text-heading">
-              {dayText(detail.dueOn)}
+              {dayText(deadline)}
             </span>
+            {detail.extendedDueOn ? <span className="text-xs text-muted">Extended</span> : null}
             <span className="whitespace-nowrap">
               <Badge tone={left! < 0 ? 'danger' : left! <= 14 ? 'warning' : 'success'}>
                 {left! < 0 ? `${-left!} days overdue` : `${left} days remaining`}
@@ -426,10 +431,27 @@ function InfoCards({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
         )}
       </InfoCard>
       <InfoCard icon={FileArrowUp} title="Extension">
-        <span className="text-muted">{extension ? 'Form on file' : 'Not Filed'}</span>
-        <Link href={`/tax-returns/${detail.id}?tab=documents`} className={textButton}>
-          {extension ? 'View Form' : 'File Extension'}
-        </Link>
+        <span className="text-muted" data-testid="extension-state">
+          {detail.extensionFiledOn
+            ? `Filed ${dayText(detail.extensionFiledOn)}`
+            : extension
+              ? 'Form on file'
+              : 'Not Filed'}
+        </span>
+        {canExtend ? (
+          <button
+            type="button"
+            className={`${textButton} text-left`}
+            onClick={() => setDialog('extension')}
+          >
+            {detail.extensionFiledOn ? 'Edit Extension' : 'Record Extension'}
+          </button>
+        ) : null}
+        {extension ? (
+          <Link href={`/tax-returns/${detail.id}?tab=documents`} className={textButton}>
+            View Form
+          </Link>
+        ) : null}
       </InfoCard>
       <InfoCard icon={UsersThree} title="Assigned Preparer">
         {person(detail.preparer)}
@@ -486,6 +508,9 @@ function InfoCards({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
       ) : null}
       {dialog === 'details' ? (
         <DetailsDialog row={detail} onClose={() => setDialog(undefined)} onNotice={onNotice} />
+      ) : null}
+      {dialog === 'extension' ? (
+        <ExtensionDialog row={detail} onClose={() => setDialog(undefined)} onNotice={onNotice} />
       ) : null}
     </ul>
   );

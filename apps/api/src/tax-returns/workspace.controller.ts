@@ -60,6 +60,7 @@ import {
   StatusBody,
   SummaryQ,
   CorrectTaxYearBody,
+  ExtensionBody,
   UpdateDetailsBody,
   BusinessIdentityBody,
 } from './workspace.input.js';
@@ -169,6 +170,19 @@ export class TaxReturnWorkspaceController {
     @Body(new ZodValidationPipe(CorrectTaxYearBody)) body: Out<typeof CorrectTaxYearBody>,
   ): Promise<TaxReturnDetail> {
     return this.returns.correctTaxYear(tenant, auth.userId, id, body);
+  }
+
+  /** Review 2 (File Extension): the event only, audited. */
+  @Post(':id/extension')
+  @HttpCode(200)
+  @Access('TAX_RETURNS', 'EDIT')
+  recordExtension(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ExtensionBody)) body: Out<typeof ExtensionBody>,
+  ): Promise<TaxReturnDetail> {
+    return this.returns.recordExtension(tenant, auth.userId, id, body);
   }
 
   /** A business return's own identity, until its first filing (TX-F31, F32). */

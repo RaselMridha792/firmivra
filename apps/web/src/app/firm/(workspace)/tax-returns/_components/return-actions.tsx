@@ -37,6 +37,7 @@ import {
   Trash,
   UserCircle,
   UserSwitch,
+  Wrench,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -60,7 +61,9 @@ import {
   linkText,
   nowLocal,
   quiet,
+  dayText,
   toIso,
+  today,
 } from './tr-shared';
 
 export type Notice = (text: string, tone: 'success' | 'error') => void;
@@ -99,6 +102,7 @@ export const isBackward = (from: TaxReturnWorkflowStatus, to: TaxReturnWorkflowS
   const step = (s: TaxReturnWorkflowStatus) =>
     ({
       IN_PREPARATION: 1,
+      IN_CORRECTION: 1,
       READY_FOR_REVIEW: 2,
       READY_FOR_SIGNATURE: 3,
       READY_TO_FILE: 4,
@@ -158,7 +162,17 @@ export function Dialog({
 }
 
 type DialogName =
-  'details' | 'year' | 'status' | 'assign' | 'amend' | 'carry' | 'activity' | 'archive' | 'delete';
+  | 'details'
+  | 'year'
+  | 'status'
+  | 'correction'
+  | 'extension'
+  | 'assign'
+  | 'amend'
+  | 'carry'
+  | 'activity'
+  | 'archive'
+  | 'delete';
 
 /** The row's three-dots menu (developer guide, section 7) and the dialogs behind it. */
 export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Notice }) {
@@ -193,6 +207,20 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
     // Review 2 (TX-F16): the year, with a reason; never over another return.
     { label: 'Correct Tax Year', icon: CalendarPlus, onSelect: () => setDialog('year') },
     { label: 'Change Status', icon: Swap, onSelect: () => setDialog('status') },
+    // Review 2: a rejected return is corrected (In Correction) before it goes back to review.
+    ...(row.workflowStatus === 'REJECTED'
+      ? [{ label: 'Start Correction', icon: Wrench, onSelect: () => setDialog('correction') }]
+      : []),
+    // Review 2 (File Extension): the event only, before the return is filed.
+    ...(!filedOnce && row.workflowStatus !== 'IN_CORRECTION'
+      ? [
+          {
+            label: 'Record Extension',
+            icon: CalendarPlus,
+            onSelect: () => setDialog('extension'),
+          },
+        ]
+      : []),
     { label: 'Assign / Reassign Staff', icon: UserSwitch, onSelect: () => setDialog('assign') },
   ];
   const client_: ActionMenuItem[] = [
@@ -265,6 +293,8 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       {dialog === 'details' ? <DetailsDialog {...props} /> : null}
       {dialog === 'year' ? <CorrectYearDialog {...props} /> : null}
       {dialog === 'status' ? <StatusDialog {...props} /> : null}
+      {dialog === 'correction' ? <StatusDialog {...props} initial="IN_CORRECTION" /> : null}
+      {dialog === 'extension' ? <ExtensionDialog {...props} /> : null}
       {dialog === 'assign' ? <AssignDialog {...props} /> : null}
       {dialog === 'amend' ? <AmendDialog {...props} /> : null}
       {dialog === 'carry' ? <CarryDialog {...props} /> : null}
@@ -578,13 +608,23 @@ export function RejectDialog({ row, onClose, onNotice }: DialogProps) {
   );
 }
 
-/** Change Status: only the moves the workflow allows now; going back needs a reason. */
-export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
+/**
+ * Change Status: only the moves the workflow allows now; going back needs a reason. With
+ * `initial="IN_CORRECTION"` it is Review 2's Start Correction: from Rejected, with what needs
+ * correcting (required); the client sees In Progress.
+ */
+export function StatusDialog({
+  row,
+  onClose,
+  onNotice,
+  initial,
+}: DialogProps & { initial?: TaxReturnWorkflowStatus }) {
   const act = useAct(onNotice);
   const detail = useApiQuery([...TR_KEY, 'detail', row.id], () =>
     api.taxReturnWorkspace.get(row.id),
   );
-  const [to, setTo] = useState<TaxReturnWorkflowStatus>();
+  const [to, setTo] = useState<TaxReturnWorkflowStatus | undefined>(initial);
+  const correcting = initial === 'IN_CORRECTION';
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -608,9 +648,9 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
   if (rejecting) return <RejectDialog row={row} onClose={onClose} onNotice={onNotice} />;
   return (
     <Dialog
-      title="Change Status"
+      title={correcting ? 'Start Correction' : 'Change Status'}
       subtitle={`${label(row)}: now ${STATUS_LABEL[row.workflowStatus]}`}
-      confirm={to === 'REJECTED' ? 'Continue' : 'Change Status'}
+      confirm={to === 'REJECTED' ? 'Continue' : correcting ? 'Start Correction' : 'Change Status'}
       busy={busy}
       disabled={!to || (back && !reason.trim())}
       onConfirm={() => (to === 'REJECTED' ? setRejecting(true) : void save())}
@@ -623,6 +663,11 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
         </p>
       ) : options.length === 0 && detail.data ? (
         <p className={quiet}>A closed return does not change status.</p>
+      ) : correcting ? (
+        <p className={quiet}>
+          It moves to In Correction; the client sees In Progress. Once corrected, send it to Ready
+          for Review.
+        </p>
       ) : (
         <Select
           label="New status"
@@ -636,7 +681,9 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
       )}
       {back ? (
         <Textarea
-          label="Reason (required to go back a step)"
+          label={
+            correcting ? 'What needs correcting (required)' : 'Reason (required to go back a step)'
+          }
           value={reason}
           maxLength={500}
           onChange={(e) => setReason(e.target.value)}
@@ -655,6 +702,73 @@ export function StatusDialog({ row, onClose, onNotice }: DialogProps) {
           </ul>
         </div>
       ) : null}
+    </Dialog>
+  );
+}
+
+/**
+ * Review 2 (File Extension): Record Extension, the event only (nothing is sent to an agency): the
+ * day it was filed and the new deadline, after the due date. Recording again replaces it.
+ */
+export function ExtensionDialog({ row, onClose, onNotice }: DialogProps) {
+  const act = useAct(onNotice);
+  const detail = useApiQuery([...TR_KEY, 'detail', row.id], () =>
+    api.taxReturnWorkspace.get(row.id),
+  );
+  const due = detail.data?.dueOn ?? row.dueOn;
+  // Six months after the due date, the usual extended deadline, as a starting point.
+  const sixMonths = (d: string) => {
+    const x = new Date(`${d}T00:00:00Z`);
+    x.setUTCMonth(x.getUTCMonth() + 6);
+    return x.toISOString().slice(0, 10);
+  };
+  const [filedOn, setFiledOn] = useState(detail.data?.extensionFiledOn ?? today());
+  const [extendedTo, setExtendedTo] = useState(
+    detail.data?.extendedDueOn ?? (due ? sixMonths(due) : ''),
+  );
+  const [busy, setBusy] = useState(false);
+  const late = !!due && !!extendedTo && extendedTo <= due;
+  const save = async () => {
+    setBusy(true);
+    const done = await act(
+      () =>
+        api.taxReturnWorkspace.recordExtension(row.id, {
+          extensionFiledOn: filedOn,
+          extendedDueOn: extendedTo,
+        }),
+      `Extension recorded: due ${dayText(extendedTo)}.`,
+    );
+    setBusy(false);
+    if (done) onClose();
+  };
+  return (
+    <Dialog
+      title="Record Extension"
+      subtitle={`${label(row)}${due ? `: due ${dayText(due)}` : ''}`}
+      confirm="Record Extension"
+      busy={busy}
+      disabled={!filedOn || !extendedTo || late || filedOn > today()}
+      onConfirm={() => void save()}
+      onClose={onClose}
+      testId="extension-dialog"
+    >
+      <p className={quiet}>
+        Records that the extension was filed and the new deadline. Nothing is sent to an agency.
+      </p>
+      <Input
+        label="Extension filed on"
+        type="date"
+        value={filedOn}
+        max={today()}
+        onChange={(e) => setFiledOn(e.target.value)}
+      />
+      <Input
+        label="New due date"
+        type="date"
+        value={extendedTo}
+        error={late ? 'Choose a day after the due date' : undefined}
+        onChange={(e) => setExtendedTo(e.target.value)}
+      />
     </Dialog>
   );
 }
