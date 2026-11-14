@@ -77,6 +77,7 @@ type ChecklistInput = NonNullable<CreateBody['checklist']>[number];
 type Prerequisite = { id: string; status: StoredTaskStatus } | null;
 
 const CREATE_FIELDS = [
+  'taxPlanId',
   'details',
   'dueOn',
   'engagementId',
@@ -271,12 +272,29 @@ export class TaskWriteService {
     this.checkShape(shape, draft);
     const attachments = body.attachments ?? [];
     if (attachments.length > 0 && !clientId) throw chooseClientFirst();
+    // C15 (Tax Planning Review 2): an implementation task of one of the client's open plans.
+    const taxPlanId = 'taxPlanId' in body ? (body.taxPlanId ?? null) : null;
+    if (taxPlanId) {
+      if (!clientId) throw chooseClientFirst();
+      const plan = await tx.taxPlan.findFirst({
+        where: {
+          businessId,
+          id: taxPlanId,
+          clientId,
+          archivedAt: null,
+          status: { not: 'CLOSED' },
+        },
+        select: { id: true },
+      });
+      if (!plan) throw notFound();
+    }
     const created = await tx.task.create({
       data: {
         businessId,
         clientId,
         ...(draft ? { status: 'DRAFT' as const } : {}),
         engagementId: body.engagementId ?? null,
+        taxPlanId,
         title: body.title,
         details: body.details !== undefined ? body.details : (tpl?.description ?? null),
         dueOn: dueOn ? toDay(dueOn) : null,

@@ -295,6 +295,37 @@ export const TaxPlanDetail = TaxPlanRow.extend({
   /** The client's data is older than a period the firm sets: prompt to review. */
   staleData: z.boolean(),
   disclaimer: z.string(),
+  /**
+   * C12 (Review 2): the plan's client discussions (Appointments linked to this plan), soonest
+   * first, with the firm's time zone; each opens in Appointments.
+   */
+  discussions: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        startsAt: DateTime,
+        endsAt: DateTime,
+        timeZone: z.string().nullable(),
+        status: z.string(),
+        staff: MemberRef.nullable(),
+      }),
+    )
+    .max(50),
+  /**
+   * C15 (Review 2): the plan's implementation tasks (Tasks, linked to this plan), due first; each
+   * opens in Tasks.
+   */
+  tasks: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        title: z.string(),
+        status: z.string(),
+        dueOn: CalendarDate.nullable(),
+        assignedTo: MemberRef.nullable(),
+      }),
+    )
+    .max(100),
   /** False once the plan is Closed (C27): it changes only by Reopen. */
   canEdit: z.boolean(),
   /** C27: may change the plan's status, reopen, revise, archive and restore it. */
