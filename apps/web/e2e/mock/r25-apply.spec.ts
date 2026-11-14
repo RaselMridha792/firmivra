@@ -45,3 +45,13 @@ test('welcome offers sign in, apply and activate', async ({ page }) => {
     '/activate',
   );
 });
+
+test('the firm sign-in page links to the application (Oct 31 test blocker)', async ({ page }) => {
+  await page.goto(app('/sign-in'));
+  await expect(page.getByTestId('apply-link')).toHaveText(
+    'New to Firmivra? Apply for a business account',
+  );
+  await page.getByRole('link', { name: 'Apply for a business account' }).click();
+  await expect(page).toHaveURL(app('/apply'));
+  await expect(page.getByTestId('page-title')).toHaveText('Apply for a Business Account');
+});
