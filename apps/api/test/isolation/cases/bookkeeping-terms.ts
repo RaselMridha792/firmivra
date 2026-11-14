@@ -35,6 +35,8 @@ export const cases: CaseModule['cases'] = {
   [`GET ${BASE}/terms/:termsId`]: { params: { termsId: 'bookkeepingTerms' } },
   [`PATCH ${BASE}/terms/:termsId`]: {
     params: { termsId: 'bookkeepingTerms' },
+    // Review 2 (E01b): the package chosen from Services & Pricing.
+    bodyIds: { catalogServiceId: 'bookkeepingCatalogService' },
     body: { monthlyFeeCents: 29_000 },
   },
   [`POST ${BASE}/terms/:termsId/send`]: { params: { termsId: 'bookkeepingTerms' }, body: {} },
