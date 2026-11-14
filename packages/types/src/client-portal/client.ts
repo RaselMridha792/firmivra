@@ -15,6 +15,7 @@ import {
   ClientPortalAccessResult,
   ClientPortalDocumentsSummary,
   ClientPortalFormsSummary,
+  ClientPortalPreview,
   ClientPortalVisibility,
   UpdateClientPortalVisibilityRequest,
 } from './visibility.js';
@@ -99,6 +100,9 @@ export function createClientPortalClient(request: ApiRequest) {
       }),
     documentsSummary: async (clientId: string): Promise<ClientPortalDocumentsSummary> =>
       request(ClientPortalDocumentsSummary, `${clientPath(clientId)}/documents/summary`),
+    /** Open Client Portal: the read-only staff preview; audited. */
+    preview: async (clientId: string): Promise<ClientPortalPreview> =>
+      request(ClientPortalPreview, `${clientPath(clientId)}/preview`),
     formsSummary: async (clientId: string): Promise<ClientPortalFormsSummary> =>
       request(ClientPortalFormsSummary, `${clientPath(clientId)}/forms/summary`),
   };

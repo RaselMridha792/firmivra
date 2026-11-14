@@ -106,7 +106,7 @@ export function ClientPanel({
 /** Name, status, type, client since and ID, with the header's actions (instructions 3). */
 export function ClientHeader({ header }: { header: ClientPortalHeader }) {
   const router = useRouter();
-  const { client, portal } = header;
+  const { client } = header;
   const stage = STAGES[client.status];
   const since = client.clientSince ? client.clientSince.slice(0, 4) : null;
   return (
@@ -129,7 +129,7 @@ export function ClientHeader({ header }: { header: ClientPortalHeader }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             data-testid="open-client-portal"
-            onClick={() => window.open(portal.link, '_blank', 'noopener,noreferrer')}
+            onClick={() => router.push(`/client-portal/${client.id}/preview`)}
           >
             <ArrowSquareOut aria-hidden className="size-4" /> Open Client Portal
           </Button>

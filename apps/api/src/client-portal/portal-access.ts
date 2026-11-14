@@ -18,6 +18,7 @@ import {
   type ClientPortalAccessResult,
   type ClientPortalDocumentsSummary,
   type ClientPortalFormsSummary,
+  type ClientPortalPreview,
   type ClientPortalVisibility,
   PortalModule,
   UpdateClientPortalVisibilityRequest,
@@ -221,6 +222,42 @@ export class PortalAccessService {
       count: subs.length,
     });
     return { changed: subs.length };
+  }
+
+  /** Open Client Portal's read-only preview: what the client sees, audited; no client session. */
+  async preview(
+    tenant: TenantContext,
+    userId: string,
+    clientId: string,
+  ): Promise<ClientPortalPreview> {
+    const businessId = tenant.businessId;
+    return this.inFirm(tenant, async (tx) => {
+      await this.client(tx, tenant, userId, clientId);
+      const [client, firm, settings, visibility] = await Promise.all([
+        tx.client.findUniqueOrThrow({ where: { id: clientId }, select: { displayName: true } }),
+        tx.business.findUniqueOrThrow({ where: { id: businessId }, select: { name: true } }),
+        tx.businessSettings.findUnique({
+          where: { businessId },
+          select: { portalHeader: true, welcomeMessage: true },
+        }),
+        this.areas(tx, tenant, clientId),
+      ]);
+      await this.audit.logIn(
+        tx,
+        'client_portal.preview_opened',
+        { type: 'client', id: clientId },
+        {},
+        { businessId },
+      );
+      await this.activity(tx, tenant, clientId, userId, 'portal.preview_opened');
+      return {
+        clientName: client.displayName,
+        firmName: firm.name,
+        portalHeader: settings?.portalHeader ?? null,
+        welcomeMessage: settings?.welcomeMessage ?? null,
+        areas: visibility.areas,
+      };
+    });
   }
 
   async documentsSummary(
@@ -442,6 +479,16 @@ export class PortalAccessController {
     @Param('id', new ZodValidationPipe(ClientId)) id: string,
   ) {
     return this.access.resetMfa(tenant, auth.userId, id);
+  }
+
+  @Get(':id/preview')
+  @Roles(...FIRM_STAFF)
+  preview(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(ClientId)) id: string,
+  ) {
+    return this.access.preview(tenant, auth.userId, id);
   }
 
   @Get(':id/documents/summary')
