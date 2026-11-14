@@ -54,6 +54,7 @@ export function AppShell({
   headerStart,
   headerActions,
   accountMenu,
+  clockZone,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -77,6 +78,8 @@ export function AppShell({
   headerActions?: ReactNode;
   /** Account menu entries above Sign out (the firm workspace). */
   accountMenu?: AccountMenuItem[];
+  /** The header clock's time zone: the firm's in its workspace (U2); see Header. */
+  clockZone?: string | null;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -118,6 +121,7 @@ export function AppShell({
       >
         <Header
           clock
+          clockZone={clockZone}
           search={search}
           greeting={greeting}
           bell={bell}
