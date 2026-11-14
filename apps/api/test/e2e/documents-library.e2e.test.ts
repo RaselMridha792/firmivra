@@ -682,3 +682,97 @@ describe('large files', () => {
     expect(storage.objects.get(ticketKey(t))?.equals(file)).toBe(true);
   });
 });
+
+describe('a firm file shown to its client later (C2-052)', () => {
+  it('is an explicit opt-in by the client’s staff, Owner or Admin, audited, and never a client upload', async () => {
+    const internal = ok(await upload({}), FirmDocument);
+    expect(internal.direction).toBe('INTERNAL');
+    const shown = ok(
+      await call('post', `/documents/${internal.id}/visibility`, staffA, { clientVisible: true }),
+      LibraryDocument,
+    );
+    expect(shown).toMatchObject({ direction: 'FIRM_TO_CLIENT', visibleToClient: true });
+    // The same again changes nothing; hiding it again is allowed.
+    ok(
+      await call('post', `/documents/${internal.id}/visibility`, ownerA, { clientVisible: true }),
+      LibraryDocument,
+    );
+    const hidden = ok(
+      await call('post', `/documents/${internal.id}/visibility`, adminA, { clientVisible: false }),
+      LibraryDocument,
+    );
+    expect(hidden).toMatchObject({ direction: 'INTERNAL', visibleToClient: false });
+    const audits = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: firms.a,
+          action: 'document.visibility_changed',
+          entityId: internal.id,
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { clientId: ids.c1, from: 'INTERNAL', to: 'FIRM_TO_CLIENT' },
+      { clientId: ids.c1, from: 'FIRM_TO_CLIENT', to: 'INTERNAL' },
+    ]);
+
+    // Another client's file: Staff not assigned to it can't reach it; firm B never.
+    const theirs = ok(await upload({ clientId: ids.c2, serviceId: ids.e2 }), FirmDocument);
+    expectError(
+      await call('post', `/documents/${theirs.id}/visibility`, staffA, { clientVisible: true }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(
+      (
+        await call(
+          'post',
+          `/documents/${theirs.id}/visibility`,
+          ownerB,
+          { clientVisible: true },
+          'b',
+        )
+      ).status,
+    ).toBe(404);
+
+    // A file in a firm folder stays internal.
+    const firmFile = ok(await upload({ folderId: ids.firmFolder }), FirmDocument);
+    expectError(
+      await call('post', `/documents/${firmFile.id}/visibility`, ownerA, { clientVisible: true }),
+      409,
+      'FOLDER_SCOPE',
+    );
+
+    // A client's own upload is always theirs to see.
+    const tag = randomUUID();
+    const fromClient = await inFirm('a', (tx) =>
+      tx.document.create({
+        data: {
+          businessId: firms.a,
+          clientId: ids.c1!,
+          engagementId: ids.e1!,
+          direction: 'CLIENT_TO_FIRM',
+          fileName: 'from-client.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: tag.replace(/-/g, '').padEnd(64, '0'),
+          s3Key: `tenant/${firms.a}/e2e/${tag}.pdf`,
+        },
+        select: { id: true },
+      }),
+    );
+    expectError(
+      await call('post', `/documents/${fromClient.id}/visibility`, ownerA, {
+        clientVisible: false,
+      }),
+      409,
+      'CLIENT_UPLOAD',
+    );
+    expect(
+      (await call('post', `/documents/${internal.id}/visibility`, ownerA, { visible: true }))
+        .status,
+    ).toBe(400);
+  });
+});
