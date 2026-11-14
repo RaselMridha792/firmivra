@@ -2784,6 +2784,26 @@ async function main() {
       where: { id: SEED_CALENDAR_IDS.appointment },
       select: { status: true },
     });
+    // R55 (Appointments A3): LVP's waitlist is on (staff approve each move), and the seeded
+    // appointment's client waits for an earlier time.
+    const waiting = await tx.appointmentWaitlistEntry.count({
+      where: { id: SEED_CALENDAR_IDS.appointmentWaitlist },
+    });
+    if (waiting === 0 && appointment?.status === 'SCHEDULED') {
+      await tx.appointmentSettings.upsert({
+        where: { businessId: businesses.lvp },
+        update: { waitlistEnabled: true, waitlistMode: 'STAFF_APPROVAL' },
+        create: { businessId: businesses.lvp, waitlistEnabled: true },
+      });
+      await tx.appointmentWaitlistEntry.create({
+        data: {
+          id: SEED_CALENDAR_IDS.appointmentWaitlist,
+          businessId: businesses.lvp,
+          appointmentId: SEED_CALENDAR_IDS.appointment,
+          clientId: SEED_CLIENT_IDS.lvp,
+        },
+      });
+    }
     if (seeded === 0 && bakery && appointment?.status === 'SCHEDULED') {
       await tx.appointmentAttendee.create({
         data: {
