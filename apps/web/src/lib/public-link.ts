@@ -44,7 +44,7 @@ export function publicLinkText(kind: PublicItemKind, state: PublicLinkState | nu
   return {
     title: item.link,
     copyLinkLabel: `Copy ${item.link}`,
-    copyEmbedLabel: 'Copy Embed Code',
+    copyEmbedLabel: 'Copy Button Code',
     notice: state ? noticeFor(kind, state) : undefined,
     emptyText: item.empty,
   };

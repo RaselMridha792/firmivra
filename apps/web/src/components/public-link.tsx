@@ -5,7 +5,7 @@ import { PublicLinkBlock } from '@firmivra/ui';
 import { publicLinkText } from '../lib/public-link';
 
 /**
- * The shared "Copy link / Copy embed code" block for one public item: an intake form, an
+ * The shared "Copy link / Copy button code" block for one public item: an intake form, an
  * appointment type or a service package. Pass what the item's `GET …/{id}/public-link` answered
  * (`PublicLink`, `packages/types/src/public-links`), or nothing while it loads or when the item
  * has no public page yet; the block then keeps its frame with a quiet line.

@@ -21,9 +21,12 @@ import {
   ResumeBeginDraftRequest,
   SaveIntakeStepRequest,
   StartBeginDraftRequest,
+  StartShareDraftRequest,
+  IntakeShareToken,
   SubmitIntakeRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { publicAgreementsMock } from './agreements';
 import {
   answersOrFail,
   checkFixture,
@@ -96,6 +99,19 @@ const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const rateLimited = () => fail(429, 'RATE_LIMITED', 'Too many requests');
+
+/**
+ * INTAKE-ACCESS-02: the mock's share links (mocks/intake-forms.ts makes them): 32 hex characters
+ * and "mockshare00", each a shared Quarterly Taxes form. Any other token is 410 LINK_INVALID.
+ */
+const SHARED_FORM: IntakeFormKey = 'QUARTERLY_TAX';
+const isMockShare = (token: string) => /^[0-9a-f]{32}mockshare00$/.test(token);
+const linkInvalid = () =>
+  fail(
+    410,
+    'LINK_INVALID',
+    'This link is not valid or has expired. Ask your firm to send a new one.',
+  );
 const now = () => new Date().toISOString();
 const inDays = (days: number, from = Date.now()) => new Date(from + days * DAY).toISOString();
 /** The tax year the mock firm prepares: the current one, as the mockups show it. */
@@ -289,7 +305,7 @@ export function createBeginOnlineMock(
     renew(d);
   };
 
-  return {
+  const self: BeginOnlineClient = {
     forms: async () => {
       await mockDelay();
       firm();
@@ -311,6 +327,35 @@ export function createBeginOnlineMock(
         taxYear: taxYear(),
         maxFileSizeMb: MOCK_INTAKE_FILE_SIZE_MB,
       });
+    },
+    agreements: async (form) => {
+      await mockDelay();
+      const key = parseInput(IntakeFormKey, form);
+      firm();
+      mine(key);
+      return publicAgreementsMock(firmSlug).block({ form: key });
+    },
+    shareForm: async (token) => {
+      await mockDelay();
+      firm();
+      if (!isMockShare(parseInput(IntakeShareToken, token))) throw linkInvalid();
+      const definition = mockForm(SHARED_FORM);
+      return structuredClone({
+        form: SHARED_FORM,
+        version: definition.version,
+        title: definition.title,
+        definition,
+        taxYear: taxYear(),
+        maxFileSizeMb: MOCK_INTAKE_FILE_SIZE_MB,
+      });
+    },
+    startShare: async (token, body) => {
+      const input = parseInput(StartShareDraftRequest, body);
+      if (!isMockShare(parseInput(IntakeShareToken, token))) throw linkInvalid();
+      if (input.website?.trim())
+        throw fail(400, 'VALIDATION_FAILED', 'Check the highlighted answers');
+      const { website: _honeypot, ...contact } = input;
+      return self.start(SHARED_FORM, contact);
     },
     start: async (form, body) => {
       await mockDelay();
@@ -432,4 +477,5 @@ export function createBeginOnlineMock(
       return { received: true, form: key, submittedAt: d.updatedAt };
     },
   };
+  return self;
 }

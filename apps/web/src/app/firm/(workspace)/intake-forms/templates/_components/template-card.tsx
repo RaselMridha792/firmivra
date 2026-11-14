@@ -13,7 +13,6 @@ import {
 } from '@phosphor-icons/react';
 import type { IntakeFormListItem } from '@firmivra/types';
 import { Avatar, Badge, Button, Card, Skeleton } from '@firmivra/ui';
-import { isMainForm } from '../../_components/form-link-dialog';
 import { CategoryChip, CategoryTile, shortDate, shortName } from './template-look';
 import { TemplateMenu } from './template-menu';
 
@@ -85,9 +84,7 @@ export function TemplateCard({
               onSelect: () => onUse(template),
               disabled: draft,
             },
-            ...(isMainForm(template)
-              ? [{ label: 'Form Link', icon: LinkSimple, onSelect: () => onLink(template) }]
-              : []),
+            { label: 'Share & Publish', icon: LinkSimple, onSelect: () => onLink(template) },
             {
               label: 'Archive',
               icon: Archive,

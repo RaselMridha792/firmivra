@@ -28,7 +28,11 @@ export const PublicLink = z.object({
   itemId: z.uuid(),
   /** `{PORTAL_BASE_URL}/{firmSlug}/{segment}/{itemId}` (`publicItemUrl`). */
   url: z.url(),
-  /** An iframe of the same page for the firm's website (`publicEmbedCode`). */
+  /**
+   * A button for the firm's website that opens the link (`publicEmbedCode`). An inline iframe
+   * can't be shown on another site until framing is allowed for it (CloudFront's security headers
+   * send X-Frame-Options SAMEORIGIN), so no code that can't work is offered.
+   */
   embedCode: z.string(),
   state: PublicLinkState,
 });
@@ -56,14 +60,16 @@ export function publicItemUrl(
 const attribute = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** The height the embedded page is drawn at; the firm can change it in the pasted code. */
-export const PUBLIC_EMBED_HEIGHT = 760;
-
 /**
- * The embed code for a public page: an iframe of `url` in its embed layout (`?embed=1`, no
- * portal header), full width, titled for screen readers with the item's name.
+ * The website code for a public page: a self-contained button (a link styled inline, so it needs
+ * nothing from the firm's site) that opens `url` in a new tab, labelled with the item's name. It
+ * works on any site builder that takes HTML (WordPress, Wix, GoDaddy, Shopify, plain HTML). An
+ * inline iframe comes back once framing is enabled for the firm's site (an infra change).
  */
 export function publicEmbedCode(url: string, title: string): string {
-  const src = `${url}${url.includes('?') ? '&' : '?'}embed=1`;
-  return `<iframe src="${attribute(src)}" title="${attribute(title)}" width="100%" height="${PUBLIC_EMBED_HEIGHT}" style="border:0;max-width:100%" loading="lazy"></iframe>`;
+  const style =
+    'display:inline-block;padding:12px 20px;border-radius:8px;background:#1f3a5f;color:#ffffff;' +
+    'font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:600;line-height:1.2;' +
+    'text-decoration:none';
+  return `<a href="${attribute(url)}" target="_blank" rel="noopener" style="${style}">${attribute(title)}</a>`;
 }
