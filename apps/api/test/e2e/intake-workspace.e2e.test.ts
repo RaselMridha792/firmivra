@@ -182,6 +182,7 @@ beforeAll(async () => {
     };
     const mine = await client('mine', 'Mina Mine (fake)', staffA.id);
     const theirs = await client('theirs', 'Theo Theirs (fake)', otherStaffA.id);
+    ids.theirsClient = theirs.client;
     const loose = await client('loose', 'Lou Loose (fake)');
     const intake = async (key: string, over: object) =>
       (ids[key] = (
@@ -298,6 +299,9 @@ describe('the forms sent', () => {
       [ids.sent, ids.leadForm, ids.progress, ids.submitted].sort(),
     );
     expect((await list('search=Theo')).total).toBe(2);
+    // One client's forms (the Client Portal module's Intake Forms tab).
+    expect((await list(`clientId=${ids.theirsClient}`)).total).toBe(2);
+    expect((await list(`clientId=${randomUUID()}`)).total).toBe(0);
     expect((await list('search=Lead')).items.map((i) => i.id)).toEqual([ids.leadForm]);
     expect((await list(`assignedUserId=${otherStaffA.id}`)).items.map((i) => i.id)).toEqual([
       ids.progress,

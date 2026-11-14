@@ -37,9 +37,9 @@ test('a new person sets a password, then starts authenticator setup', async ({ p
   await expect(mismatch).toHaveCount(0);
 
   await password.fill('short');
-  await expect(rule('12 characters')).toContainText('not yet');
+  await expect(rule('15 characters')).toContainText('not yet');
   await submit.click();
-  await expect(password).toHaveAccessibleDescription('At least 12 characters');
+  await expect(password).toHaveAccessibleDescription('At least 15 characters');
 
   // The link still works, so neither submit above reached activate.
   await password.fill(PASSWORD);

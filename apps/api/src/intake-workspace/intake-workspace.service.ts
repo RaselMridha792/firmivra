@@ -130,6 +130,8 @@ export class IntakeWorkspaceService {
         if (q.assignedUserId) and.push({ assignedUserId: q.assignedUserId });
         if (q.formId) and.push({ form: { templateId: q.formId } });
         if (q.serviceId) and.push({ form: { serviceId: q.serviceId } });
+        // In the firm's scope: another firm's client id matches nothing.
+        if (q.clientId) and.push({ engagement: { clientId: q.clientId } });
         if (q.from) and.push({ sentAt: { gte: new Date(`${q.from}T00:00:00Z`) } });
         if (q.to)
           and.push({ sentAt: { lt: new Date(Date.parse(`${q.to}T00:00:00Z`) + 86_400_000) } });

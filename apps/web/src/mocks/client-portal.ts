@@ -326,6 +326,17 @@ export function createClientPortalMock(): ClientPortalClient {
       await mockDelay();
       return { changed: activeLogins(clientId) };
     },
+    preview: async (clientId) => {
+      await mockDelay();
+      const { found } = record(clientId);
+      return {
+        clientName: found.displayName,
+        firmName: 'LVP Accounting & Taxes (fake)',
+        portalHeader: 'Your Success Is Our Business',
+        welcomeMessage: 'Welcome to your secure client portal.',
+        areas: areas(found.id).areas,
+      };
+    },
     documentsSummary: async (clientId) => {
       await mockDelay();
       const has = record(clientId).found.portalLogins.length > 0;

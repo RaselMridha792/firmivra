@@ -494,11 +494,12 @@ export type SaveAdminSecuritySettingsRequest = z.input<typeof SaveAdminSecurityS
 export const ADMIN_SECURITY_DEFAULTS: AdminSecuritySettings = {
   mfa: { scope: 'ADMINS' },
   methods: { authenticatorApp: true, sms: false, email: false, hardwareKey: false },
+  // SEC-2: the platform's policy, 15 characters with no forced mix.
   password: {
-    minLength: 12,
-    uppercase: true,
-    lowercase: true,
-    numbers: true,
+    minLength: 15,
+    uppercase: false,
+    lowercase: false,
+    numbers: false,
     special: false,
     expirationDays: 0,
     preventReuseCount: 5,

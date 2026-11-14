@@ -26,18 +26,18 @@ function failedRules(password: string): string[] {
 }
 
 describe('Password', () => {
-  it('accepts a password that meets the Cognito policy (no symbol needed)', () => {
+  it('accepts 15 characters or more with no forced mix (SEC-2)', () => {
     expect(Password.safeParse('CorrectHorse9battery').success).toBe(true);
-    expect(Password.safeParse('Abcdefghijk1').success).toBe(true);
+    expect(Password.safeParse('correct horse battery').success).toBe(true);
+    expect(Password.safeParse('abcdefghijklmno').success).toBe(true);
+    expect(Password.safeParse('x'.repeat(64)).success).toBe(true);
   });
 
   it.each([
-    ['Abcdefghij1', ['length']],
-    ['ABCDEFGHIJK1', ['lower']],
-    ['abcdefghijk1', ['upper']],
-    ['Abcdefghijkl', ['number']],
-    [' Abcdefghijk1', ['edges']],
-    ['Abcdefghijk1 ', ['edges']],
+    ['Abcdefghijk12', ['length']],
+    ['abcdefghijklmn', ['length']],
+    [' Abcdefghijklmn1', ['edges']],
+    ['Abcdefghijklmn1 ', ['edges']],
   ])('rejects %j: %j', (password, rules) => {
     expect(failedRules(password)).toEqual(rules);
     const result = Password.safeParse(password);

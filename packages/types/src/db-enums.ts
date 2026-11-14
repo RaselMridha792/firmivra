@@ -83,7 +83,14 @@ export type SignupOperationKind = z.infer<typeof SignupOperationKind>;
 export const SignupOperationStatus = z.enum(['COMMITTED', 'PENDING', 'SUCCEEDED', 'FAILED']);
 export type SignupOperationStatus = z.infer<typeof SignupOperationStatus>;
 
-/** R56's B15 (Oct 25): a business client's EIN status. */
+/** R56's B15 (Oct 25): a business client's EIN status. Review 2 (N04): who may see a client note. CLIENT waits for Octavia's C02 decision. */
+export const NoteVisibility = z.enum(['INTERNAL', 'CLIENT']);
+export type NoteVisibility = z.infer<typeof NoteVisibility>;
+
+/** Review 2 (RP03): where a client's P&L comes from, chosen by staff; the two are never blended. */
+export const BookkeepingPnlSource = z.enum(['ACCOUNTING_SOFTWARE', 'MANUAL']);
+export type BookkeepingPnlSource = z.infer<typeof BookkeepingPnlSource>;
+
 export const EinStatus = z.enum(['HAS_EIN', 'NOT_APPLICABLE', 'TO_BE_APPLIED_FOR']);
 export type EinStatus = z.infer<typeof EinStatus>;
 
@@ -373,6 +380,8 @@ export const BookkeepingReportType = z.enum([
   'BOOKKEEPING_STATUS',
   'MISSING_DOCUMENTS',
   'CUSTOM',
+  'REFUND',
+  'SETTLEMENT',
 ]);
 export type BookkeepingReportType = z.infer<typeof BookkeepingReportType>;
 

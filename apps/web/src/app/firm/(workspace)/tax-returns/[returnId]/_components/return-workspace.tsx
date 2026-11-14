@@ -833,7 +833,8 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
       </Link>
       <div className="flex flex-wrap items-center gap-3">
         {/* TX-F03 (SH1): every way out keeps Back to this return. */}
-        <OriginLink href={`/clients/${detail.client.id}/documents`} className={button}>
+        {/* TX-F04: the firm-side Client Portal for this client, with the way back here. */}
+        <OriginLink href={`/client-portal/${detail.client.id}`} className={button}>
           <UsersThree aria-hidden weight="fill" className="size-5" /> Client Portal
         </OriginLink>
         {/* TX-F05 (SH5): a message to this client about this return, written here. */}
