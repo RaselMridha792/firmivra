@@ -77,6 +77,8 @@ function listQuery(filters: ClientFilters, search: string, manager: boolean) {
       : {}),
     ...(filters.serviceId && filters.completedFrom ? { completedFrom: filters.completedFrom } : {}),
     ...(filters.serviceId && filters.completedTo ? { completedTo: filters.completedTo } : {}),
+    // Review 2 (K1): a past period's dashboard card, the books as they stood at its end.
+    ...(filters.asOf ? { asOf: filters.asOf } : {}),
     // Octavia's E2 additions. A range whose start is after its end is left out.
     ...(filters.addedFrom ? { addedFrom: filters.addedFrom } : {}),
     ...span('deadline', filters.deadlineFrom, filters.deadlineTo),
@@ -280,6 +282,19 @@ export function ClientsScreen({
           />
         </div>
         <div className="flex min-w-0 flex-col gap-4 rounded-b-xl bg-surface p-3 shadow-md">
+          {filters.asOf ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="as-of-filter">
+              <span className="text-muted">On the books at the end of</span>
+              <span className="font-semibold text-heading">{filters.asOf}</span>
+              <Button
+                variant="ghost"
+                aria-label="Show the clients on the books today"
+                onClick={() => change({ asOf: '' })}
+              >
+                Show today
+              </Button>
+            </div>
+          ) : null}
           {filters.serviceId &&
           (filters.engagementStatus || filters.completedFrom || filters.completedTo) ? (
             <div

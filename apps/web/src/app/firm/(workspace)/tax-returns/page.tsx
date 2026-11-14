@@ -13,6 +13,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `?status=` a workflow status or IN_PROGRESS (the five in-progress ones), and
  * `&acceptedFrom=&acceptedTo=`: the dashboard's Returns In Progress and Accepted Returns (Octavia's
  * K4 and K5); `&serviceId=` the returns of one tax service (D4, a dashboard service card);
+ * `&asOf=` a past period's card: the returns as they stood at the end of that day (Review 2, K4);
  * `&back=dashboard` adds Back to Dashboard (K2).
  */
 export default async function TaxReturnsPage({
@@ -23,6 +24,7 @@ export default async function TaxReturnsPage({
     acceptedFrom?: Param;
     acceptedTo?: Param;
     serviceId?: Param;
+    asOf?: Param;
     back?: Param;
   }>;
 }) {
@@ -38,6 +40,7 @@ export default async function TaxReturnsPage({
       initialStatus={status}
       accepted={{ from: day(q.acceptedFrom), to: day(q.acceptedTo) }}
       serviceId={typeof q.serviceId === 'string' && UUID.test(q.serviceId) ? q.serviceId : ''}
+      asOf={day(q.asOf)}
       fromDashboard={openedFromDashboard(q.back)}
     />
   );
