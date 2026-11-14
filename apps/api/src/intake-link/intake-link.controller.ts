@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -15,9 +16,14 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import {
+  ConfirmUploadRequest,
+  CreateIntakeUploadRequest,
   type IntakeAgreementBlock,
   IntakeKey,
+  type IntakeUpload,
   type LinkIntake,
+  type OkResponse,
+  type UploadTicket,
   OpenIntakeLinkRequest,
   type SavedIntakeStep,
   SaveIntakeStepRequest,
@@ -38,6 +44,7 @@ import { IntakesModule } from '../intake/intakes.controller.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { IntakeLinkCookies } from './intake-link-cookies.js';
 import { IntakeLinkService } from './intake-link.service.js';
+import { LINK_UPLOAD_PROVIDERS, LinkUploadsService } from './link-uploads.service.js';
 
 /** An opening viewer's network (networkOf: /24 or /48), as Begin Online's resume link counts. */
 const byNetwork = (req: Record<string, unknown>) =>
@@ -48,6 +55,7 @@ export const INTAKE_LINK_THROTTLE = {
   open: { default: { limit: 10, ttl: 60_000, getTracker: byNetwork } },
   save: { default: { limit: 30, ttl: 60_000 } },
   submit: { default: { limit: 5, ttl: 60_000 } },
+  upload: { default: { limit: 30, ttl: 60_000 } },
 };
 
 /**
@@ -60,6 +68,7 @@ export const INTAKE_LINK_THROTTLE = {
 export class IntakeLinkController {
   constructor(
     private readonly links: IntakeLinkService,
+    private readonly uploads: LinkUploadsService,
     @Inject(INTAKE_SIGNING) private readonly signing: IntakeSigner,
   ) {}
 
@@ -121,6 +130,45 @@ export class IntakeLinkController {
       userAgent: context?.userAgent ?? null,
     });
   }
+
+  /** `createUpload(body)`: a ticket for an upload field of the link's open form (Leads item n). */
+  @Post('uploads')
+  @Public()
+  @HttpCode(200)
+  @Throttle(INTAKE_LINK_THROTTLE.upload)
+  createUpload(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(CreateIntakeUploadRequest))
+    body: z.output<typeof CreateIntakeUploadRequest>,
+    @Req() req: Request,
+  ): Promise<UploadTicket> {
+    return this.uploads.ticket(slug, req, body);
+  }
+
+  /** `confirmUpload(body)` */
+  @Post('uploads/confirm')
+  @Public()
+  @HttpCode(200)
+  @Throttle(INTAKE_LINK_THROTTLE.upload)
+  confirmUpload(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+    @Req() req: Request,
+  ): Promise<IntakeUpload> {
+    return this.uploads.confirm(slug, req, body.uploadToken);
+  }
+
+  /** `removeUpload(uploadId)`: only a file of this browser's link intake, while it is open. */
+  @Delete('uploads/:uploadId')
+  @Public()
+  @Throttle(INTAKE_LINK_THROTTLE.upload)
+  removeUpload(
+    @Param('firmSlug') slug: string,
+    @Param('uploadId') id: string,
+    @Req() req: Request,
+  ): Promise<OkResponse> {
+    return this.uploads.remove(slug, req, id);
+  }
 }
 
 @Module({
@@ -134,6 +182,8 @@ export class IntakeLinkController {
   controllers: [IntakeLinkController],
   providers: [
     IntakeLinkService,
+    LinkUploadsService,
+    ...LINK_UPLOAD_PROVIDERS,
     {
       provide: IntakeLinkCookies,
       inject: [ENV],
