@@ -53,6 +53,13 @@ export const Engagement = z.object({
    */
   stopFutureBilling: z.boolean(),
   billingStopsOn: CalendarDate.nullable(),
+  /**
+   * Clients Review 2 (G8): the service is paused (on hold), any service, with the firm's reason
+   * and who paused it; all null while it runs. Separate from the status and from billing.
+   */
+  pausedAt: DateTime.nullable(),
+  pausedReason: z.string().nullable(),
+  pausedBy: MemberRef.nullable(),
   assignedTo: MemberRef.nullable(),
   completedAt: DateTime.nullable(),
   /** The client asked to cancel (portal), with their reason. */
@@ -115,6 +122,16 @@ export const UpdateEngagementRequest = z
   .refine(periodInOrder, PERIOD_ORDER);
 export type UpdateEngagementRequest = z.input<typeof UpdateEngagementRequest>;
 
+/**
+ * POST /business/engagements/{id}/pause (Clients Review 2, G8): an ACTIVE or PENDING service
+ * goes on hold with the firm's reason. 409 ALREADY_PAUSED, INVALID_STATUS, CLIENT_ARCHIVED.
+ * POST /business/engagements/{id}/resume takes no body (409 NOT_PAUSED).
+ */
+export const PauseEngagementRequest = z.strictObject({
+  reason: text(200, 'many', 'Say why the service is paused'),
+});
+export type PauseEngagementRequest = z.input<typeof PauseEngagementRequest>;
+
 /** POST /business/engagements/{id}/cancel. */
 export const CancelEngagementRequest = z.strictObject({ reason: text(500, 'many') });
 export type CancelEngagementRequest = z.input<typeof CancelEngagementRequest>;
@@ -151,6 +168,8 @@ export type EngagementHistory = z.infer<typeof EngagementHistory>;
 export const EngagementActivityAction = z.enum([
   'CREATED',
   'UPDATED',
+  'PAUSED',
+  'RESUMED',
   'BILLING_STOPPED',
   'BILLING_RESUMED',
   'COMPLETED',

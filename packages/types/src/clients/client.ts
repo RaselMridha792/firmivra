@@ -5,6 +5,12 @@ import { ClientTimelinePage, ClientTimelineQuery } from './timeline.js';
 import { ClientOffice, SetClientOfficeRequest } from './office.js';
 import { ClientServiceList } from './services.js';
 import {
+  AddClientLinkRequest,
+  ClientLink,
+  ClientLinkList,
+  UpdateClientLinkRequest,
+} from './links.js';
+import {
   BulkClientsRequest,
   BulkClientsResponse,
   ClientExportLink,
@@ -80,6 +86,28 @@ export function createClientsClient(request: ApiRequest) {
     /** E4: the client's services, with the module record that opens each (when permitted). */
     services: async (id: string): Promise<ClientServiceList['items']> =>
       (await request(ClientServiceList, `${clientPath(id)}/services`)).items,
+    /** Clients Review 2 (G9): the profiles linked to this client, from either side. */
+    links: async (id: string): Promise<ClientLink[]> =>
+      (await request(ClientLinkList, `${clientPath(id)}/links`)).items,
+    /** 409 ALREADY_LINKED, CLIENT_ARCHIVED; 400 SELF_LINK; 404 a client out of reach. */
+    addLink: async (id: string, body: AddClientLinkRequest): Promise<ClientLink> =>
+      request(ClientLink, `${clientPath(id)}/links`, {
+        method: 'POST',
+        body: parseInput(AddClientLinkRequest, body),
+      }),
+    updateLink: async (
+      id: string,
+      linkId: string,
+      body: UpdateClientLinkRequest,
+    ): Promise<ClientLink> =>
+      request(ClientLink, `${clientPath(id)}/links/${parseInput(ClientId, linkId)}`, {
+        method: 'PATCH',
+        body: parseInput(UpdateClientLinkRequest, body),
+      }),
+    removeLink: async (id: string, linkId: string): Promise<OkResponse> =>
+      request(OkResponse, `${clientPath(id)}/links/${parseInput(ClientId, linkId)}`, {
+        method: 'DELETE',
+      }),
     /** PRT-1: the client's local office and the locations it may be changed to. */
     office: async (id: string): Promise<ClientOffice> =>
       request(ClientOffice, `${clientPath(id)}/office`),

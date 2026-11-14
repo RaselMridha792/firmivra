@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Query } fr
 import type { z } from 'zod';
 import {
   CancelEngagementRequest,
+  PauseEngagementRequest,
   StopFutureBillingRequest,
   ClientId,
   CreateEngagementRequest,
@@ -111,6 +112,29 @@ export class EngagementsController {
     body: z.output<typeof CancelEngagementRequest>,
   ): Promise<Engagement> {
     return this.engagements.cancel(tenant.businessId, actorOf(auth, tenant), id, body.reason);
+  }
+
+  /** Clients Review 2 (G8): any service on hold with the firm's reason. */
+  @Post(':id/pause')
+  @HttpCode(200)
+  pause(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(PauseEngagementRequest))
+    body: z.output<typeof PauseEngagementRequest>,
+  ): Promise<Engagement> {
+    return this.engagements.pause(tenant.businessId, actorOf(auth, tenant), id, body.reason);
+  }
+
+  @Post(':id/resume')
+  @HttpCode(200)
+  resume(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<Engagement> {
+    return this.engagements.resume(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   /** SH10: Owner and Admin (the service checks; Staff get 403). */

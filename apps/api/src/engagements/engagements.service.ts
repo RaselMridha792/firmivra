@@ -23,10 +23,15 @@ import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClient } from '../workspaces/common.js';
 
+/** G8: a service off hold (pause and resume, and when it completes or is cancelled). */
+const UNPAUSED = { pausedAt: null, pausedReason: null, pausedByUserId: null } as const;
+
 /** G8: the audit actions a service's history shows, by the contract's names. */
 const ACTIVITY: Record<string, EngagementActivity['items'][number]['action']> = {
   'engagement.created': 'CREATED',
   'engagement.updated': 'UPDATED',
+  'engagement.paused': 'PAUSED',
+  'engagement.resumed': 'RESUMED',
   'engagement.billing_stopped': 'BILLING_STOPPED',
   'engagement.billing_resumed': 'BILLING_RESUMED',
   'engagement.completed': 'COMPLETED',
@@ -80,6 +85,9 @@ const select = {
   nextBillingOn: true,
   stopFutureBilling: true,
   billingStopsOn: true,
+  pausedAt: true,
+  pausedReason: true,
+  pausedBy: { select: { userId: true, user: { select: { name: true } } } },
   assignedUserId: true,
   completedAt: true,
   cancelRequestedAt: true,
@@ -110,6 +118,9 @@ function toEngagement(row: Row): Engagement {
     nextBillingOn: day(row.nextBillingOn),
     stopFutureBilling: row.stopFutureBilling,
     billingStopsOn: day(row.billingStopsOn),
+    pausedAt: row.pausedAt?.toISOString() ?? null,
+    pausedReason: row.pausedReason,
+    pausedBy: row.pausedBy ? { userId: row.pausedBy.userId, name: row.pausedBy.user.name } : null,
     assignedTo: row.assignedMember
       ? { userId: row.assignedMember.userId, name: row.assignedMember.user.name }
       : null,
@@ -381,7 +392,8 @@ export class EngagementsService {
       if (current.status !== 'PENDING' && current.status !== 'ACTIVE') {
         throw invalidStatus('Only a pending or active engagement can be completed');
       }
-      return { status: 'COMPLETED', completedAt: new Date() };
+      // A finished service is no longer on hold.
+      return { status: 'COMPLETED', completedAt: new Date(), ...UNPAUSED };
     });
   }
 
@@ -394,8 +406,58 @@ export class EngagementsService {
   ): Promise<Engagement> {
     return this.changeStatus(businessId, actor, id, 'engagement.cancelled', (current) => {
       if (current.status === 'CANCELLED') throw invalidStatus('Already cancelled');
-      return { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: reason };
+      return {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancellationReason: reason,
+        ...UNPAUSED,
+      };
     });
+  }
+
+  /**
+   * Clients Review 2 (G8): an ACTIVE or PENDING service on hold, with the firm's reason (audited
+   * without it) and who paused it. Not for an archived client's service.
+   */
+  async pause(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    reason: string,
+  ): Promise<Engagement> {
+    return this.changeStatus(
+      businessId,
+      actor,
+      id,
+      'engagement.paused',
+      (current) => {
+        if (current.status !== 'PENDING' && current.status !== 'ACTIVE') {
+          throw invalidStatus('Only a pending or active service can be paused');
+        }
+        if (current.pausedAt) {
+          throw new ConflictException({ code: 'ALREADY_PAUSED', message: 'Already paused' });
+        }
+        return { pausedAt: new Date(), pausedReason: reason, pausedByUserId: actor.userId };
+      },
+      true,
+    );
+  }
+
+  /** The paused service runs again. */
+  async resume(businessId: string, actor: ClientsActor, id: string): Promise<Engagement> {
+    return this.changeStatus(
+      businessId,
+      actor,
+      id,
+      'engagement.resumed',
+      (current) => {
+        if (!current.pausedAt) {
+          throw new ConflictException({ code: 'NOT_PAUSED', message: 'The service is not paused' });
+        }
+        return UNPAUSED;
+      },
+      true,
+    );
   }
 
   /**

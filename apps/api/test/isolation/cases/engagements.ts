@@ -50,6 +50,11 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/engagements/:id': { params: { id: 'engagement' } },
   'GET /api/v1/business/engagements/:id/history': { params: { id: 'engagement' } },
   'GET /api/v1/business/engagements/:id/activity': { params: { id: 'engagement' } },
+  'POST /api/v1/business/engagements/:id/pause': {
+    params: { id: 'engagement' },
+    body: { reason: 'Fake: client travelling' },
+  },
+  'POST /api/v1/business/engagements/:id/resume': { params: { id: 'engagement' } },
   'PATCH /api/v1/business/engagements/:id': {
     params: { id: 'engagement' },
     bodyIds: { assignedUserId: 'staffUser' },
