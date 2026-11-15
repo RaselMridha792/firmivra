@@ -34,3 +34,23 @@ test('explains an appointment that is not found', async ({ page }) => {
     timeout: 60_000,
   });
 });
+
+test('W7 (Review 2, verified working): Cancel on Edit leaves the appointment as it was', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(`http://app.localhost:${port}/calendar/${NINA}`);
+  const notes = page.getByTestId('detail-notes');
+  await expect(notes).toContainText('Client instructions', { timeout: 60_000 });
+  const before = (await notes.textContent()) ?? '';
+  // In-app, so the mock keeps any change: open Edit, change a field, then Cancel.
+  await page.getByRole('link', { name: /^Edit/ }).first().click();
+  const instructions = page.getByLabel('Client Instructions (visible to client)');
+  await expect(instructions).toBeVisible({ timeout: 60_000 });
+  await instructions.fill('Changed, then cancelled (fake).');
+  await page.getByRole('link', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(new RegExp(`/calendar/${NINA}$`), { timeout: 30_000 });
+  await expect(notes).toContainText('Client instructions', { timeout: 60_000 });
+  await expect(notes).toHaveText(before, { timeout: 30_000 });
+  await expect(notes).not.toContainText('Changed, then cancelled (fake).');
+});
