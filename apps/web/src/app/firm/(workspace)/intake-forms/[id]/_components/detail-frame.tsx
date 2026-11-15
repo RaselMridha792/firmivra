@@ -232,7 +232,7 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
           aria-label="Client"
           data-testid="client-card"
           // INTAKE-DESIGN-01: compact, every detail kept; two rows at a laptop's width, not five.
-          className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-surface px-4 py-3 shadow-md sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-[1.6fr_1.2fr_1fr_1fr_1fr_1fr_1.2fr_1fr_1.1fr] xl:items-center"
+          className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-surface px-4 py-3 shadow-md sm:grid-cols-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))] xl:grid-cols-[1.6fr_1.2fr_1fr_1fr_1fr_1fr_1.2fr_1fr_1.1fr] xl:items-center"
         >
           <div className="col-span-2 flex items-center gap-3 sm:col-span-1">
             <Avatar name={r?.recipient.name ?? 'Client'} size="lg" />
@@ -240,10 +240,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               <span className="text-xs font-semibold text-heading">
                 {r?.recipient.kind === 'LEAD' ? 'Lead' : 'Client'}
               </span>
-              <span className="truncate text-base font-bold text-heading">
+              <span className="text-base leading-snug font-bold break-words text-heading">
                 {r?.recipient.name ?? '—'}
               </span>
-              <span className="truncate text-sm text-link">{r?.recipient.email ?? '—'}</span>
+              <span className="text-sm break-all text-link">{r?.recipient.email ?? '—'}</span>
             </div>
           </div>
           <Fact label="Form Name">{r?.form.name ?? '—'}</Fact>
