@@ -637,6 +637,11 @@ export class TaxReturnReviewService {
       if (f.filingMethod !== 'PAPER')
         throw invalid('Only a paper filing is filed on paper', 'filingId');
       await this.notBlockedByIssues(tx, businessId, id);
+      // F26d: the audit keeps what was recorded, and what it replaced.
+      const before = await tx.taxReturnFiling.findUniqueOrThrow({
+        where: { id: filingId },
+        select: { jurisdiction: true, status: true, paperFiledOn: true, mailTrackingNumber: true },
+      });
       await tx.taxReturnFiling.update({
         where: { id: filingId },
         data: {
@@ -645,10 +650,19 @@ export class TaxReturnReviewService {
           mailTrackingNumber: body.mailTrackingNumber,
         },
       });
+      const replaced = before.status === 'PAPER_FILED' || before.paperFiledOn !== null;
       await this.log(tx, tenant, id, 'transmission', {
         filingId,
         action: 'paper_filed',
-        tracked: true,
+        jurisdiction: before.jurisdiction,
+        paperFiledOn: body.paperFiledOn,
+        mailTrackingNumber: body.mailTrackingNumber ?? null,
+        replaced: replaced
+          ? {
+              paperFiledOn: before.paperFiledOn?.toISOString().slice(0, 10) ?? null,
+              mailTrackingNumber: before.mailTrackingNumber,
+            }
+          : null,
       });
       return this.filingList(tx, businessId, id);
     });

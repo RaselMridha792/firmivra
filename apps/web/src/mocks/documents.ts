@@ -33,7 +33,7 @@ import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './c
 import { engagementFixtures } from './engagements';
 import { mockUploadTicket } from './upload-ticket';
 import { serviceEngagement, serviceMockClient } from './service-engagements';
-import { taxReturnMockOf } from './tax-return-workspace';
+import { taxReturnMockOf, taxReturnMockRef } from './tax-return-workspace';
 
 /**
  * Mock data for `api.documents` (firm) and `api.myDocuments(slug)` (portal), R5. Synthetic data
@@ -171,6 +171,9 @@ export function documentFixtures(): Readonly<Fixtures> {
   const requests = [
     request(1, {
       title: 'W-2 from your employer',
+      // F10b: made from the client's 2025 return.
+      taxYear: 2025,
+      taxReturn: { id: '0199c1e1-0000-7000-8000-000000000001', label: '2025 1040 Return' },
       status: 'SUBMITTED',
       documents: [{ id: docId(1), fileName: 'W-2_2025.pdf', createdAt: at(11) }],
     }),
@@ -582,6 +585,9 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
         dueOn: b.dueOn ?? null,
         status: 'REQUESTED',
         statusNote: null,
+        ...(b.taxReturnId
+          ? (taxReturnMockRef(b.taxReturnId) ?? { taxYear: null, taxReturn: null })
+          : { taxYear: null, taxReturn: null }),
         documents: [],
         requestedBy: mockStaff,
         createdAt: now(),
@@ -741,8 +747,8 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       await mockDelay();
       return myRequests()
         .sort((a, b) => Number(isOpen(b)) - Number(isOpen(a)))
-        .map(({ id, service, category, title, instructions, dueOn, status, statusNote }) =>
-          structuredClone({
+        .map(
+          ({
             id,
             service,
             category,
@@ -751,8 +757,22 @@ export function createMyDocumentsMock(): MyDocumentsClient {
             dueOn,
             status,
             statusNote,
-            packet: null,
-          }),
+            taxYear,
+            taxReturn,
+          }) =>
+            structuredClone({
+              id,
+              service,
+              category,
+              title,
+              instructions,
+              dueOn,
+              status,
+              statusNote,
+              taxYear: taxYear ?? null,
+              taxReturn: taxReturn ?? null,
+              packet: null,
+            }),
         );
     },
     // One synthetic request packet with the firm's message (R56): the list and its page.

@@ -564,6 +564,32 @@ describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)",
     expect(rows.ret.businessEinEnc).not.toBeNull();
     expect(JSON.stringify(corrected)).not.toContain('000006789');
     expect(rows.profile).toEqual({ businessName: 'Bayside Bakery LLC (fake)', einLast4: null });
+    // F32a: the audit keeps each changed field's old and new value, the EIN as its last 4 only,
+    // and Activity shows the correction.
+    const identityAudit = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: {
+          businessId: firms.a,
+          action: 'tax_return.business_identity_corrected',
+          entityId: created.id,
+        },
+        select: { metadata: true },
+      }),
+    );
+    expect(identityAudit.metadata).toEqual({
+      fields: ['addressLine2', 'ein', 'name'],
+      changes: {
+        addressLine2: { from: null, to: 'Suite 4' },
+        ein: { from: null, to: '6789' },
+        name: { from: 'Bayside Bakery LLC (fake)', to: 'Bayside Bakery Holdings (fake)' },
+      },
+    });
+    expect(JSON.stringify(identityAudit.metadata)).not.toContain('000006789');
+    const identityActivity = ok(
+      await call('get', `/tax-returns/${created.id}/activity`, ownerA),
+      TaxReturnActivityList,
+    );
+    expect(identityActivity.items.map((i) => i.label)).toContain('Business identity corrected');
 
     // Filed (R10's way: status FILED with its date): the copy is the filed return's for good.
     const filedId = (

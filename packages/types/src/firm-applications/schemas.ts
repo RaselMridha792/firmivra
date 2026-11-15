@@ -823,3 +823,133 @@ export const FirmApplicationErrorCode = z.enum([
   'OWNER_NAME_TOO_LONG',
 ]);
 export type FirmApplicationErrorCode = z.infer<typeof FirmApplicationErrorCode>;
+
+// ---------- The applicant's response (SA-APP-F04, Y02, Y05, Y06) ----------
+
+/** Files on one response: PDF, JPG or PNG, 10 MB each, at most 10 (Y06; the database agrees). */
+export const APPLICATION_RESPONSE_LIMITS = {
+  maxFiles: 10,
+  maxBytes: 10 * 1024 * 1024,
+  maxTextLength: 5000,
+} as const;
+export const ApplicationResponseContentType = z.enum([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+]);
+export type ApplicationResponseContentType = z.infer<typeof ApplicationResponseContentType>;
+
+/** The answer page's error codes and their words (the API sends the same messages). */
+export const APPLICATION_RESPONSE_ERRORS = {
+  LINK_EXPIRED:
+    'This link no longer works. It may have expired, been answered, or been replaced by a newer request.',
+  SESSION_EXPIRED: 'Your session ended. Open the link from the email again.',
+  CODE_INVALID: 'That code is not right or has expired. Check it, or ask for a new code.',
+  CODE_LOCKED: 'Too many tries. Ask for a new code.',
+  UPLOAD_EXPIRED: 'The upload took too long. Attach the file again.',
+  UPLOAD_MISMATCH: 'The file did not upload correctly. Attach it again.',
+  FILE_PASSWORD_PROTECTED: 'Remove the password from the file, then attach it again.',
+  FILE_HAS_MACROS: 'This file cannot be attached.',
+} as const;
+
+/** The emailed link's token (after "#token="), never stored: the API keeps its SHA-256 only. */
+const ResponseLinkToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'This link is not valid');
+/** What the code check gives back: the applicant's 30-minute pass for this one request. */
+const ResponseSession = z.string().min(1).max(4096);
+
+/**
+ * POST /firm-applications/respond/open (public). The request the link answers. A link that is
+ * unknown, answered, replaced by a newer request or past its 14 days is 410 LINK_EXPIRED, the same
+ * for each, so a guess learns nothing.
+ */
+export const OpenApplicationResponseRequest = z.strictObject({ token: ResponseLinkToken });
+export type OpenApplicationResponseRequest = z.input<typeof OpenApplicationResponseRequest>;
+export const ApplicationResponseRequestView = z.object({
+  legalName: z.string(),
+  /** What the reviewer asked for. */
+  reason: z.string(),
+  requestedAt: DateTime,
+  expiresAt: DateTime,
+  /** The application's contact email, masked ("ca***@example.test"): where the code goes. */
+  codeSentTo: z.string(),
+});
+export type ApplicationResponseRequestView = z.infer<typeof ApplicationResponseRequestView>;
+
+/**
+ * POST /firm-applications/respond/code (public): a 6-digit code to the contact email, valid 10
+ * minutes; a new one replaces the earlier. Always `{ sent: true }`; one code each 45 seconds and
+ * 10 a day per request (above that nothing is sent). 410 LINK_EXPIRED.
+ */
+export const SendApplicationResponseCodeRequest = z.strictObject({ token: ResponseLinkToken });
+export type SendApplicationResponseCodeRequest = z.input<typeof SendApplicationResponseCodeRequest>;
+export const SendApplicationResponseCodeResponse = z.object({ sent: z.literal(true) });
+export type SendApplicationResponseCodeResponse = z.infer<
+  typeof SendApplicationResponseCodeResponse
+>;
+
+/**
+ * POST /firm-applications/respond/verify (public): the newest code, used once, before it expires.
+ * 400 CODE_INVALID (wrong, expired or used; ask for a new one), 429 CODE_LOCKED after 5 tries,
+ * 410 LINK_EXPIRED.
+ */
+export const VerifyApplicationResponseCodeRequest = z.strictObject({
+  token: ResponseLinkToken,
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+export type VerifyApplicationResponseCodeRequest = z.input<
+  typeof VerifyApplicationResponseCodeRequest
+>;
+export const ApplicationResponseSession = z.object({
+  session: ResponseSession,
+  expiresAt: DateTime,
+});
+export type ApplicationResponseSession = z.infer<typeof ApplicationResponseSession>;
+
+/**
+ * POST /firm-applications/respond/uploads (public, with the session): where to PUT one file. Then
+ * PUT it and send its `uploadToken` with the response. 410 SESSION_EXPIRED (verify again) or
+ * LINK_EXPIRED.
+ */
+export const CreateApplicationResponseUploadRequest = z.strictObject({
+  session: ResponseSession,
+  fileName: text(255, 'one', 'The file needs a name'),
+  contentType: ApplicationResponseContentType,
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(APPLICATION_RESPONSE_LIMITS.maxBytes, 'Each file can be at most 10 MB'),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type CreateApplicationResponseUploadRequest = z.input<
+  typeof CreateApplicationResponseUploadRequest
+>;
+
+/**
+ * POST /firm-applications/respond (public, with the session): the answer, on the same application.
+ * Written text, files, or both. The request closes, the application goes back to In Review (Y02)
+ * and the reviewer (or every Super Admin when none is assigned) gets a notification (Y05). 410
+ * SESSION_EXPIRED, LINK_EXPIRED or UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH or FILE_UNREADABLE.
+ */
+export const SubmitApplicationResponseRequest = z
+  .strictObject({
+    session: ResponseSession,
+    text: z
+      .string()
+      .trim()
+      .max(APPLICATION_RESPONSE_LIMITS.maxTextLength, 'Write at most 5000 characters')
+      .optional()
+      .transform((v) => v || undefined),
+    uploadTokens: z
+      .array(z.string().min(1).max(8192))
+      .max(APPLICATION_RESPONSE_LIMITS.maxFiles, 'Attach at most 10 files')
+      .optional()
+      .default([]),
+  })
+  .refine((b) => !!b.text || b.uploadTokens.length > 0, {
+    message: 'Write an answer or attach a file',
+    path: ['text'],
+  });
+export type SubmitApplicationResponseRequest = z.input<typeof SubmitApplicationResponseRequest>;
+export const SubmitApplicationResponseResponse = z.object({ submittedAt: DateTime });
+export type SubmitApplicationResponseResponse = z.infer<typeof SubmitApplicationResponseResponse>;

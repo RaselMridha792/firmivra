@@ -731,6 +731,18 @@ export function SignaturesPanel({
   const [manage, setManage] = useState(false);
   const [link, setLink] = useState<TaxAuthorization>();
   const [wet, setWet] = useState<TaxAuthorization>();
+  // F03db: a request made from here is the return's signature line from the start; View / Send
+  // names the line when only one is still to be signed.
+  const sendHref = (a?: TaxAuthorization) => {
+    const q = new URLSearchParams({ clientId: detail.client.id });
+    if (detail.engagement) q.set('engagementId', detail.engagement.id);
+    if (a) {
+      q.set('taxReturnId', detail.id);
+      q.set('authorizationId', a.id);
+    }
+    return `/firm-sign/new?${q.toString()}`;
+  };
+  const open = (q.data ?? []).filter((a) => a.status !== 'SIGNED' && a.status !== 'COMPLETED');
   return (
     <Panel
       id="signatures"
@@ -740,7 +752,7 @@ export function SignaturesPanel({
       action={
         <span className="flex gap-2">
           <OriginLink
-            href={`/firm-sign/new?clientId=${detail.client.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
+            href={sendHref(open.length === 1 ? open[0] : undefined)}
             className={smallButton}
           >
             View / Send
@@ -777,6 +789,9 @@ export function SignaturesPanel({
                   </span>
                   {a.status !== 'SIGNED' && a.status !== 'COMPLETED' ? (
                     <span className="flex flex-wrap gap-x-3">
+                      <OriginLink href={sendHref(a)} className={textButton}>
+                        Send for signature
+                      </OriginLink>
                       <button type="button" className={textButton} onClick={() => setLink(a)}>
                         Link Firm Sign request
                       </button>
