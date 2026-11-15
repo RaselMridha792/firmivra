@@ -497,6 +497,9 @@ function makeSeries(
     taskId: null,
     skipReason: null,
     generatedAt: null,
+    task: null,
+    failureCode: null,
+    attempts: 0,
   }));
   return { detail, occurrences };
 }
@@ -787,6 +790,9 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       taskId: null,
       skipReason: null,
       generatedAt: null,
+      task: null,
+      failureCode: null,
+      attempts: 0,
     }));
     x.occurrences = [...made, ...fresh];
     d.upcoming = fresh.slice(0, 6).map((o) => ({ scheduledOn: o.scheduledOn, dueOn: o.dueOn }));

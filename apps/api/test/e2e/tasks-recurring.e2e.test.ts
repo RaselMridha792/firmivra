@@ -1088,6 +1088,26 @@ describe('editing and controlling a series', () => {
       'OCCURRENCE_CLOSED',
     );
     const made = (await occurrences(s.id, '&state=GENERATED')).items[0]!;
+    // T-C03: a made occurrence carries its task and where it is now; a failed one says why.
+    expect(made.task).toMatchObject({ id: made.taskId, status: 'OPEN' });
+    ok(await call('post', `/tasks/${made.taskId}/complete`, people.ownerA, {}));
+    const done = (await occurrences(s.id, '&state=GENERATED')).items.find((o) => o.id === made.id);
+    expect(done?.task?.status).toBe('DONE');
+    const [late] = (await occurrences(s.id, '&state=SCHEDULED')).items.slice(-1);
+    await inFirm('a', (tx) =>
+      tx.taskOccurrence.update({
+        where: { id: late!.id },
+        data: { state: 'FAILED', failureCode: 'PrismaClientKnownRequestError', attempts: 5 },
+      }),
+    );
+    expect((await occurrences(s.id, '&state=FAILED')).items).toEqual([
+      expect.objectContaining({
+        id: late!.id,
+        task: null,
+        failureCode: 'PrismaClientKnownRequestError',
+        attempts: 5,
+      }),
+    ]);
     expectError(
       await call('post', `/task-series/${s.id}/occurrences/${made.id}/skip`, people.ownerA, {}),
       409,

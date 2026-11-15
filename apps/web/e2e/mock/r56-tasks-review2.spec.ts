@@ -272,3 +272,20 @@ test('T-D02: Completed (This Month) and Total Tasks list what they count, also f
   const total = await count('all');
   await expect(table.getByTestId('task-link')).toHaveCount(Math.min(total, 10));
 });
+
+test('T-C03: the series lists upcoming and skipped occurrences with the reason, one state at a time', async ({
+  page,
+}) => {
+  await page.goto(`${base}?view=recurring`);
+  await page.locator('a[href^="/tasks/recurring/0"]').first().click({ timeout: 60_000 });
+  const occurrences = page.getByTestId('series-occurrences');
+  const rows = page.getByTestId('occurrence-rows').getByRole('row');
+  await expect(rows.first()).toContainText('Upcoming', { timeout: 60_000 });
+  await rows.first().getByRole('button', { name: /^Skip/ }).click();
+  await occurrences.getByLabel('Occurrence status').selectOption('SKIPPED');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Skipped');
+  await expect(rows.first().getByTestId('occurrence-note')).toHaveText('Skipped.');
+  await occurrences.getByLabel('Occurrence status').selectOption('SCHEDULED');
+  await expect(rows.first()).toContainText('Upcoming');
+});

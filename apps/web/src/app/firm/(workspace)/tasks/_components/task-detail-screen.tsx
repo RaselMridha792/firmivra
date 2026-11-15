@@ -327,7 +327,21 @@ export function TaskDetailScreen({
                         ],
                       ]
                     : []),
-                  ...(t.series ? [['Series', t.series.title]] : []),
+                  // T-C03: the series it was made by opens its overview.
+                  ...(t.series
+                    ? [
+                        [
+                          'Series',
+                          <OriginLink
+                            key="series"
+                            href={`/tasks/recurring/${t.series.id}`}
+                            className={linkText}
+                          >
+                            {t.series.title}
+                          </OriginLink>,
+                        ],
+                      ]
+                    : []),
                 ] as [string, ReactNode][]
               ).map(([k, v]) => (
                 <div key={k} className="contents">

@@ -869,6 +869,12 @@ export const TaskOccurrence = z.object({
   taskId: z.uuid().nullable(),
   skipReason: z.string().nullable(),
   generatedAt: DateTime.nullable(),
+  /** T-C03: the task made, and where it is now (Open, Done or Cancelled). */
+  task: z.object({ id: z.uuid(), title: z.string(), status: TaskStatus }).nullable().default(null),
+  /** T-C03: why making the task failed (the error's name), with FAILED or while retried. */
+  failureCode: z.string().nullable().default(null),
+  /** Tries so far; FAILED after the fifth. */
+  attempts: z.number().int().default(0),
 });
 export type TaskOccurrence = z.infer<typeof TaskOccurrence>;
 

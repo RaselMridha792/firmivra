@@ -1,6 +1,7 @@
 'use client';
 
-import { Badge, Button, Modal, Toast } from '@firmivra/ui';
+import type { TaskOccurrence } from '@firmivra/types';
+import { Badge, Button, Modal, Select, Toast } from '@firmivra/ui';
 import { ArrowLeft, Pause, Play, Stop } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
@@ -17,6 +18,36 @@ const TONE = {
   ENDED: 'neutral',
   ARCHIVED: 'neutral',
 } as const;
+/**
+ * T-C03: an occurrence's status in words: Upcoming, Skipped, Failed, or for a made one where its
+ * task is now (Open, Completed, Cancelled).
+ */
+function occurrenceLabel(o: TaskOccurrence): string {
+  if (o.state === 'GENERATED')
+    return o.task?.status === 'DONE'
+      ? 'Completed'
+      : o.task?.status === 'CANCELLED'
+        ? 'Cancelled'
+        : 'Open';
+  if (o.state === 'SCHEDULED') return 'Upcoming';
+  return o.state === 'SKIPPED' ? 'Skipped' : 'Failed';
+}
+
+/** Why it was skipped or failed, and the tries while a failing one is retried. */
+function occurrenceNote(o: TaskOccurrence): string | null {
+  if (o.state === 'SKIPPED')
+    return o.skipReason === 'REPLACED'
+      ? 'Skipped: the repeat rule changed.'
+      : o.skipReason
+        ? `Skipped: ${o.skipReason}`
+        : 'Skipped.';
+  if (o.failureCode && (o.state === 'FAILED' || o.state === 'SCHEDULED'))
+    return `${o.state === 'FAILED' ? 'Could not make the task' : 'Retrying'} after ${o.attempts} ${
+      o.attempts === 1 ? 'try' : 'tries'
+    } (${o.failureCode}).`;
+  return null;
+}
+
 const OCC = {
   SCHEDULED: 'info',
   GENERATED: 'success',
@@ -37,8 +68,10 @@ const btn =
 /** /tasks/recurring/[id]: one series, its settings, its occurrences, and pause, resume, stop, skip. */
 export function SeriesDetailScreen({ id }: { id: string }) {
   const series = useApiQuery([...TASKS_KEY, 'series', id], () => api.taskWork.series(id));
-  const occ = useApiQuery([...TASKS_KEY, 'series', id, 'occurrences'], () =>
-    api.taskWork.occurrences(id, { pageSize: 50 }),
+  // T-C03: upcoming, made, skipped or failed occurrences, one state at a time or all.
+  const [state, setState] = useState<TaskOccurrence['state'] | ''>('');
+  const occ = useApiQuery([...TASKS_KEY, 'series', id, 'occurrences', state], () =>
+    api.taskWork.occurrences(id, { pageSize: 50, ...(state ? { state } : {}) }),
   );
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [skipAll, setSkipAll] = useState(false);
@@ -199,6 +232,21 @@ export function SeriesDetailScreen({ id }: { id: string }) {
         </Card>
         <div className="lg:col-span-2">
           <Card title="Occurrences" testId="series-occurrences">
+            <div className="mb-3 flex justify-end">
+              <Select
+                label="Occurrence status"
+                hideLabel
+                value={state}
+                onChange={(e) => setState(e.target.value as TaskOccurrence['state'] | '')}
+                options={[
+                  { value: '', label: 'All occurrences' },
+                  { value: 'SCHEDULED', label: 'Upcoming' },
+                  { value: 'GENERATED', label: 'Made' },
+                  { value: 'SKIPPED', label: 'Skipped' },
+                  { value: 'FAILED', label: 'Failed' },
+                ]}
+              />
+            </div>
             {rows.length === 0 ? (
               <p className={quiet}>
                 {occ.isPending
@@ -223,9 +271,12 @@ export function SeriesDetailScreen({ id }: { id: string }) {
                       <tr key={o.id} className="border-t border-divider">
                         <td className="px-3 py-2 text-heading">{dayText(o.dueOn)}</td>
                         <td className="px-3 py-2">
-                          <Badge tone={OCC[o.state]}>
-                            {o.state.charAt(0) + o.state.slice(1).toLowerCase()}
-                          </Badge>
+                          <Badge tone={OCC[o.state]}>{occurrenceLabel(o)}</Badge>
+                          {occurrenceNote(o) ? (
+                            <p className="mt-1 text-xs text-muted" data-testid="occurrence-note">
+                              {occurrenceNote(o)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2 text-right">
                           {o.state === 'GENERATED' && o.taskId ? (
