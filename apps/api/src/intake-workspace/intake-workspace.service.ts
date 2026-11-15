@@ -129,7 +129,11 @@ export class IntakeWorkspaceService {
           reachOf(tenant, userId),
         ];
         if (q.assignedUserId) and.push({ assignedUserId: q.assignedUserId });
-        if (q.formId) and.push({ form: { templateId: q.formId } });
+        // The row's form id: its template, or the form itself when it has none (toRow).
+        if (q.formId)
+          and.push({
+            form: { OR: [{ templateId: q.formId }, { templateId: null, id: q.formId }] },
+          });
         if (q.serviceId) and.push({ form: { serviceId: q.serviceId } });
         // In the firm's scope: another firm's client id matches nothing.
         if (q.clientId) and.push({ engagement: { clientId: q.clientId } });

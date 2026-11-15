@@ -401,13 +401,24 @@ function storeFor(options: Options): Store {
   return s;
 }
 
+// As the API's TAB_STATUSES: "all" is every sent form that is not archived.
 const TAB_STATUS: Record<string, readonly IntakeStatus[]> = {
+  all: [
+    'SENT',
+    'IN_PROGRESS',
+    'SUBMITTED',
+    'NEEDS_CORRECTION',
+    'UNDER_REVIEW',
+    'COMPLETED',
+    'EXPIRED',
+  ],
   sent: ['SENT'],
   in_progress: ['IN_PROGRESS', 'NEEDS_CORRECTION'],
   submitted: ['SUBMITTED', 'UNDER_REVIEW'],
   completed: ['COMPLETED'],
   expired: ['EXPIRED'],
   open: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION', 'SUBMITTED', 'UNDER_REVIEW'],
+  archived: ['ARCHIVED'],
 };
 
 const toRow = (r: AssignedFormRecord): AssignedFormRow => ({
@@ -599,7 +610,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       const search = q.search?.toLowerCase() ?? '';
       const rows = s.assigned
         .filter(sees)
-        .filter((r) => q.tab === 'all' || (TAB_STATUS[q.tab] ?? []).includes(r.status))
+        .filter((r) => (TAB_STATUS[q.tab] ?? []).includes(r.status))
         .filter(
           (r) =>
             !search ||
@@ -613,6 +624,7 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
         )
         .filter((r) => !q.assignedUserId || r.assignedTo?.userId === q.assignedUserId)
         .filter((r) => !q.formId || r.form.id === q.formId)
+        .filter((r) => !q.serviceId || r.service?.id === q.serviceId)
         .filter(
           (r) => !q.clientId || (r.recipient.kind === 'CLIENT' && r.recipient.id === q.clientId),
         )
