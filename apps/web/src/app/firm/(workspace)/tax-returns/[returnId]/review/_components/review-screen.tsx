@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { newTaskHref } from '../../../../tasks/_components/new-task-href';
 import { NewThreadDialog } from '../../../../clients/[id]/messages/_components/thread-dialogs';
 import {
   DetailsDialog,
@@ -393,9 +394,12 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
         </button>
         {/* Review 2 (TX-F03): New Task opens on this client and this return, and Back comes here. */}
         <OriginLink
-          href={`/tasks/new?clientId=${detail.client.id}${
-            detail.engagement ? `&engagementId=${detail.engagement.id}` : ''
-          }`}
+          href={newTaskHref({
+            clientId: detail.client.id,
+            ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
+            // F03c: the return's year, as the workspace's Create Task does.
+            period: `Tax year ${detail.taxYear}`,
+          })}
           className={button}
         >
           <CheckSquare aria-hidden weight="fill" className="size-5" /> Create Task
