@@ -116,6 +116,19 @@ export const TAX_RETURN_IN_PROGRESS_STATUSES = [
   'IN_CORRECTION',
 ] as const satisfies readonly z.infer<typeof TaxReturnWorkflowStatus>[];
 
+/**
+ * The Tax Returns KPI cards' workflow statuses (the summary counts them; a card filters the list
+ * to them). Shared so Settings > Tax statuses explains exactly what each lists (Review 2, TX-F36).
+ */
+export const TAX_RETURN_KPI_STATUSES = {
+  inPreparation: ['IN_PREPARATION'],
+  waitingOnClient: ['WAITING_ON_CLIENT'],
+  readyForReviewOrFile: ['READY_FOR_REVIEW', 'READY_FOR_SIGNATURE', 'READY_TO_FILE'],
+  transmitted: ['TRANSMITTED'],
+  accepted: ['ACCEPTED'],
+  rejected: ['REJECTED'],
+} as const satisfies Record<string, readonly z.infer<typeof TaxReturnWorkflowStatus>[]>;
+
 /** GET /business/tax-returns. Search: client name, business name, SSN/EIN last 4, form, id. */
 export const TaxReturnsQuery = z.strictObject({
   tab: TaxReturnTab.optional().default('all'),

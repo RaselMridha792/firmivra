@@ -7,6 +7,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { BackToWorkflow } from '../../workflow/_components/back-to-workflow';
 import { AddStatusForm } from './add-status-form';
 import { AmountRounding } from './amount-rounding';
+import { WhereReturnsAppear } from './where-returns-appear';
 import { TAX_STATUSES } from './shared';
 import { StatusList } from './status-list';
 
@@ -46,7 +47,13 @@ export function TaxStatusesScreen({ fromWorkflow = false }: { fromWorkflow?: boo
       </RequireRole>
 
       <PageState query={statuses} empty="No tax statuses yet">
-        {(rows) => <StatusList rows={rows} />}
+        {(rows) => (
+          <>
+            <StatusList rows={rows} />
+            {/* Review 2 (TX-F36): which statuses each tab and preset lists. */}
+            <WhereReturnsAppear rows={rows} />
+          </>
+        )}
       </PageState>
 
       {/* Review 2: how the firm keeps a return's amounts (Owner and Admin). */}
