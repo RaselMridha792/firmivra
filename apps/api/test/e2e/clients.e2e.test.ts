@@ -462,6 +462,14 @@ describe('a phone another client has (Clients Review 2, C2-038)', () => {
     expect(details.count).toBe(1);
     expect(details.matches).toEqual([expect.objectContaining({ id: first.id, archived: false })]);
     expect(details.matches[0]?.clientNumber).toMatch(/^CL-\d+$/);
+    // §5: what tells two clients apart, and why it was matched.
+    expect(details.matches[0]).toMatchObject({
+      accountType: 'INDIVIDUAL',
+      contact: '+12025550188',
+      assignedTo: null,
+      status: 'NEW',
+      reason: 'PHONE',
+    });
     const confirmed = await create({
       displayName: `Phone Second ${run}`,
       phone: '(202) 555-0188',

@@ -551,6 +551,15 @@ export const DuplicatePhoneDetails = z.object({
       name: z.string(),
       clientNumber: z.string(),
       archived: z.boolean(),
+      /** Clients Review 2 §5: what tells two clients apart, beside the name and Client ID. */
+      accountType: ClientAccountType,
+      /** The match's email, else its phone; null when it has neither. */
+      contact: z.string().nullable(),
+      /** The assigned staff member's name; null when unassigned. */
+      assignedTo: z.string().nullable(),
+      status: ClientStatus,
+      /** Why it may be the same client: the same phone, or a probable name match. */
+      reason: z.enum(['PHONE', 'NAME']),
     }),
   ),
 });

@@ -446,6 +446,18 @@ export function createClientsMock(
       throw fail(409, 'DUPLICATE_EMAIL', 'Another client has this email');
     }
   };
+  /** Clients Review 2 §5, as the API: what a possible duplicate shows of each match. */
+  const duplicateMatch = (r: ClientRecord, reason: 'PHONE' | 'NAME') => ({
+    id: r.id,
+    name: r.displayName,
+    clientNumber: r.clientNumber,
+    archived: !!r.archivedAt,
+    accountType: r.accountType,
+    contact: r.email ?? r.phone,
+    assignedTo: r.assignedTo?.name ?? null,
+    status: workOf(r.id).status,
+    reason,
+  });
   /** As the API (Clients Review 2): the same phone digits as another client pauses the save. */
   const uniquePhone = (
     phone: string | null | undefined,
@@ -465,12 +477,7 @@ export function createClientsMock(
       undefined,
       {
         count: same.length,
-        matches: same.map((r) => ({
-          id: r.id,
-          name: r.displayName,
-          clientNumber: `CL-${10000 + Number(r.id.slice(-12))}`,
-          archived: !!r.archivedAt,
-        })),
+        matches: same.map((r) => duplicateMatch(r, 'PHONE')),
       },
     );
   };

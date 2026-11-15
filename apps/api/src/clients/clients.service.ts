@@ -162,6 +162,33 @@ type RecordRow = Prisma.ClientGetPayload<{ select: typeof recordSelect }>;
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
 
+/** Clients Review 2 §5: what a possible duplicate shows of each match the caller may see. */
+const duplicateSelect = {
+  id: true,
+  displayName: true,
+  clientNumber: true,
+  archivedAt: true,
+  assignedUserId: true,
+  accountType: true,
+  email: true,
+  phone: true,
+  status: true,
+  assignedMember: { select: { user: { select: { name: true } } } },
+} satisfies Prisma.ClientSelect;
+type DuplicateRow = Prisma.ClientGetPayload<{ select: typeof duplicateSelect }>;
+
+const duplicateMatch = (r: DuplicateRow, reason: 'PHONE' | 'NAME') => ({
+  id: r.id,
+  name: r.displayName,
+  clientNumber: `CL-${r.clientNumber}`,
+  archived: r.archivedAt !== null,
+  accountType: r.accountType,
+  contact: r.email ?? r.phone,
+  assignedTo: r.assignedMember?.user.name ?? null,
+  status: r.status,
+  reason,
+});
+
 function toListItem(row: ListRow): ClientListItem {
   return {
     id: row.id,
@@ -1258,13 +1285,7 @@ export class ClientsService {
       where: { businessId, phone, ...(exceptId ? { id: { not: exceptId } } : {}) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 20,
-      select: {
-        id: true,
-        displayName: true,
-        clientNumber: true,
-        archivedAt: true,
-        assignedUserId: true,
-      },
+      select: duplicateSelect,
     });
     if (rows.length === 0) return;
     const visible =
@@ -1274,12 +1295,7 @@ export class ClientsService {
       message: 'Another client has this phone number',
       details: {
         count: rows.length,
-        matches: visible.slice(0, 5).map((r) => ({
-          id: r.id,
-          name: r.displayName,
-          clientNumber: `CL-${r.clientNumber}`,
-          archived: r.archivedAt !== null,
-        })),
+        matches: visible.slice(0, 5).map((r) => duplicateMatch(r, 'PHONE')),
       },
     });
   }

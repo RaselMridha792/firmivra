@@ -3,6 +3,10 @@
 import { ApiRequestError, DuplicatePhoneDetails } from '@firmivra/types';
 import { Badge, Button, Modal } from '@firmivra/ui';
 import { ArrowSquareOut } from '@phosphor-icons/react';
+import { ACCOUNT_TYPES } from './client-parts';
+import { STAGES } from './list-parts';
+
+const REASON = { PHONE: 'Same phone number', NAME: 'Similar name' } as const;
 
 /** The matches of a 409 DUPLICATE_PHONE, or null for any other error. */
 export function duplicateOf(error: unknown): DuplicatePhoneDetails | null {
@@ -59,6 +63,16 @@ export function DuplicatePhoneDialog({
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-heading">{m.name}</span>
                 <span className="block text-xs text-muted">{m.clientNumber}</span>
+                {/* Clients Review 2 §5: what tells two clients apart, and why it was matched. */}
+                <span className="block text-xs text-muted" data-testid="duplicate-facts">
+                  {[
+                    ACCOUNT_TYPES[m.accountType],
+                    m.contact ?? 'No email or phone',
+                    m.assignedTo ? `Assigned to ${m.assignedTo}` : 'Unassigned',
+                    STAGES[m.status].label,
+                    REASON[m.reason],
+                  ].join(' · ')}
+                </span>
               </span>
               {m.archived ? <Badge tone="neutral">Archived</Badge> : null}
               <a

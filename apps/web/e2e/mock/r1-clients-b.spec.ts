@@ -61,3 +61,36 @@ test('§3/§6: Send Intake Form and Schedule Appointment open with the client ch
     timeout: 60_000,
   });
 });
+
+/** Fills Add New Client with a valid new client, then sends it. */
+async function addClient(page: import('@playwright/test').Page, name: string, phone: string) {
+  await page.goto(app('/clients?new=1'));
+  const dialog = page.getByRole('dialog', { name: 'Add New Client' });
+  await expect(dialog).toBeVisible({ timeout: 60_000 });
+  await dialog.getByLabel('Full name *').fill(name);
+  const local = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.|\.$/g, '');
+  await dialog.getByLabel('Email *').fill(`${local}@example.test`);
+  await dialog.getByLabel('Phone *').fill(phone);
+  await dialog.getByLabel('Street address *').fill('1 Fake Way');
+  await dialog.getByLabel('City *').fill('Atlanta');
+  await dialog.getByLabel('State *').selectOption('GA');
+  await dialog.getByLabel('ZIP code *').fill('30301');
+  await dialog.getByRole('button', { name: 'Add Client' }).click();
+  return dialog;
+}
+
+test('§5: each possible duplicate shows its type, email or phone, staff, status and why', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await addClient(page, 'Jamie Lookalike (fake)', '(404) 555-0123');
+  const duplicate = page.getByRole('dialog', { name: 'Possible duplicate client' });
+  const facts = duplicate.getByTestId('duplicate-facts').first();
+  await expect(facts).toContainText('Individual');
+  await expect(facts).toContainText('Same phone number');
+  await expect(facts).toContainText(/Assigned to |Unassigned/);
+  await expect(duplicate.getByTestId('duplicate-matches')).toContainText('CL-10001');
+});
