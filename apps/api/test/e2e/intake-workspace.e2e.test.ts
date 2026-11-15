@@ -12,6 +12,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   AssignedFormPage,
   beginOnlinePageUrl,
+  effectiveRetentionYears,
   IntakeDashboardSummary,
   IntakeFormDetail,
   IntakeFormLibrarySummary,
@@ -493,18 +494,14 @@ describe('the settings', () => {
     const tooBig = { security: { maxFileSizeMb: INTAKE_MAX_FILE_SIZE_MB + 1 } };
     expect((await next(tooBig)).status).toBe(400);
     expect((await next({ clientExperience: { redirectAfterCompletion: true } })).status).toBe(400);
-    expect(
-      (
-        await next({
-          notifications: { firstReminderAfterMinutes: 12960, finalReminderAfterMinutes: 5760 },
-        })
-      ).status,
-    ).toBe(400);
+    // 10c: a final reminder before the first is taken now (it counts back from the expiry); one
+    // under 5 minutes is not.
+    expect((await next({ notifications: { finalReminderAfterMinutes: 4 } })).status).toBe(400);
     expect((await next({ general: { defaultOwnerUserId: randomUUID() } })).status).toBe(400);
     expect((await next({})).status).toBe(200);
   });
 
-  it('No reminders saves as off, and reads as none; the final reminder follows the first (I8, I9)', async () => {
+  it('No reminders saves as off, and reads as none; the final reminder counts from the expiry (I8, I9, 10c)', async () => {
     const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
     const put = (version: string, notifications: object) =>
       call('put', '/intake-settings', ownerA, { version, notifications });
@@ -572,20 +569,38 @@ describe('the settings', () => {
       firstReminderAfterMinutes: 5,
       finalReminderAfterMinutes: 10,
     });
-    // A final reminder at the first's time, no final reminder while they are on, and times out of
-    // range are refused at their fields.
+    // Review Two 10c: the final reminder counts back from the expiry, so 5 minutes is taken in both
+    // lists, and a final reminder at or before the first's time is too.
+    const fives = IntakeSettings.parse(
+      ok(await put(back.version, { firstReminderAfterMinutes: 5, finalReminderAfterMinutes: 5 })),
+    );
+    expect(fives.notifications).toMatchObject({
+      firstReminderAfterMinutes: 5,
+      finalReminderAfterMinutes: 5,
+    });
+    const month = IntakeSettings.parse(
+      ok(
+        await put(fives.version, {
+          firstReminderAfterMinutes: 43200,
+          finalReminderAfterMinutes: 1440,
+        }),
+      ),
+    );
+    expect(month.notifications).toMatchObject({
+      firstReminderAfterMinutes: 43200,
+      finalReminderAfterMinutes: 1440,
+    });
+    // The old day columns keep their own rule (the final day after the first).
+    expect(await row()).toMatchObject({ firstReminderDays: 30, finalReminderDays: 31 });
+    // No final reminder while they are on, and times out of range, are refused at their fields.
     for (const [body, path] of [
-      [
-        { firstReminderAfterMinutes: 4320, finalReminderAfterMinutes: 4320 },
-        'notifications.finalReminderAfterMinutes',
-      ],
       [{ finalReminderAfterMinutes: null }, 'notifications.finalReminderAfterMinutes'],
       [{ firstReminderAfterMinutes: 4 }, 'notifications.firstReminderAfterMinutes'],
       [{ finalReminderAfterMinutes: 86401 }, 'notifications.finalReminderAfterMinutes'],
       [{ expirationAlertMinutes: 29 }, 'notifications.expirationAlertMinutes'],
       [{ expirationAlertMinutes: 10081 }, 'notifications.expirationAlertMinutes'],
     ] as const) {
-      const res = await put(back.version, body);
+      const res = await put(month.version, body);
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain(path);
     }
@@ -692,17 +707,135 @@ describe('the settings', () => {
       call('put', '/intake-settings', ownerA, { version, security: { dataRetentionYears } });
     const seven = IntakeSettings.parse(ok(await put(at.version, 7)));
     expect(seven.security.dataRetentionYears).toBe(7);
-    for (const years of [0, 101, 1.5, '7']) {
+    // 14b: a change is 1 to 30 years, as each category.
+    for (const years of [0, 31, 100, 1.5, '7']) {
       const res = await put(seven.version, years);
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
     }
-    const hundred = IntakeSettings.parse(ok(await put(seven.version, 100)));
-    expect(hundred.security.dataRetentionYears).toBe(100);
-    const cleared = IntakeSettings.parse(ok(await put(hundred.version, null)));
+    const thirty = IntakeSettings.parse(ok(await put(seven.version, 30)));
+    expect(thirty.security.dataRetentionYears).toBe(30);
+    // A value saved under I12 (1 to 100 then) reads as it is and is never rewritten on read; a
+    // write is 1 to 30, so it can't be sent back or applied to the categories, only changed.
+    await inFirm('a', (tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: firms.a },
+        data: { dataRetentionYears: 50 },
+      }),
+    );
+    const old = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(old.security.dataRetentionYears).toBe(50);
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA))).security
+        .dataRetentionYears,
+    ).toBe(50);
+    for (const security of [{ dataRetentionYears: 50 }, { applyRetentionToAll: true }]) {
+      const res = await call('put', '/intake-settings', ownerA, { version: old.version, security });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
+    }
+    // Saving anything else, in Security or elsewhere, leaves it as it is (no 400).
+    const other = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: old.version,
+          security: { consentRequired: false, retention: { systemEmails: 4 } },
+          branding: { useFirmBranding: false },
+        }),
+      ),
+    );
+    expect(other.security).toMatchObject({ dataRetentionYears: 50, consentRequired: false });
+    const back = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: other.version,
+          security: { consentRequired: true, retention: { systemEmails: null } },
+          branding: { useFirmBranding: true },
+        }),
+      ),
+    );
+    expect(back.security.dataRetentionYears).toBe(50);
+    const cleared = IntakeSettings.parse(ok(await put(back.version, null)));
     expect(cleared.security.dataRetentionYears).toBeNull();
     expect(await counts()).toEqual(before);
     IntakeSettings.parse(ok(await put(cleared.version, 7)));
+  });
+
+  it('14b: keeps six category minimums, each on its own or applied to all, and deletes nothing for them', async () => {
+    const counts = () =>
+      inFirm('a', async (tx) => ({
+        intakes: await tx.intake.count({ where: { businessId: firms.a } }),
+        submissions: await tx.intakeSubmission.count({ where: { businessId: firms.a } }),
+        documents: await tx.document.count({ where: { businessId: firms.a } }),
+      }));
+    const before = await counts();
+    const put = (version: string, security: object) =>
+      call('put', '/intake-settings', ownerA, { version, security });
+    const at = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    // Apply to all: every category takes the years.
+    const all = IntakeSettings.parse(
+      ok(await put(at.version, { dataRetentionYears: 7, applyRetentionToAll: true })),
+    );
+    expect(all.security.dataRetentionYears).toBe(7);
+    expect(Object.values(all.security.retention)).toEqual([7, 7, 7, 7, 7, 7]);
+    // Each can still change on its own; cleared, Apply to all holds for it.
+    const own = IntakeSettings.parse(
+      ok(
+        await put(all.version, {
+          retention: { taxReturnDocuments: 10, portalMessages: null, clientDocuments: 3 },
+        }),
+      ),
+    );
+    expect(own.security.retention).toEqual({
+      clientDocuments: 3,
+      firmDocuments: 7,
+      intakeSubmissions: 7,
+      portalMessages: null,
+      systemEmails: 7,
+      taxReturnDocuments: 10,
+    });
+    expect(effectiveRetentionYears(own.security, 'portalMessages')).toBe(7);
+    expect(effectiveRetentionYears(own.security, 'taxReturnDocuments')).toBe(10);
+    // Saved as columns, and they survive a reload.
+    const reread = IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA)));
+    expect(reread.security.retention).toEqual(own.security.retention);
+    // Out of range, not whole, an unknown category, and Apply to all with no years: refused.
+    for (const [security, path] of [
+      [{ retention: { systemEmails: 31 } }, 'security.retention.systemEmails'],
+      [{ retention: { systemEmails: 0 } }, 'security.retention.systemEmails'],
+      [{ retention: { systemEmails: 2.5 } }, 'security.retention.systemEmails'],
+      [{ retention: { invoices: 5 } }, 'security.retention'],
+      [{ dataRetentionYears: null, applyRetentionToAll: true }, 'security.dataRetentionYears'],
+    ] as const) {
+      const res = await put(own.version, security);
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain(path);
+    }
+    // Staff can't change them.
+    expectError(
+      await call('put', '/intake-settings', staffA, {
+        version: own.version,
+        security: { retention: { systemEmails: 2 } },
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    // A minimum removes nothing, and the change is audited by section only (no values).
+    expect(await counts()).toEqual(before);
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { businessId: firms.a, action: 'intake_settings.updated' },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.metadata).toMatchObject({ sections: ['security'] });
+    expect(JSON.stringify(audit.metadata)).not.toContain('retention');
+    // Firm B's settings are its own.
+    const b = IntakeSettings.parse(
+      ok(await call('get', '/intake-settings', ownerB, undefined, 'b')),
+    );
+    expect(b.security.retention.taxReturnDocuments).toBeNull();
   });
 
   it('lists the recent changes without their values, and resets to the defaults', async () => {
@@ -724,6 +857,7 @@ describe('the settings', () => {
       additionalEmails: [],
     });
     expect(back.security.dataRetentionYears).toBeNull();
+    expect(Object.values(back.security.retention)).toEqual([null, null, null, null, null, null]);
     expect(back.clientExperience.thankYouMessage).toBeNull();
     expect(
       IntakeSettingsChangeList.parse(ok(await call('get', '/intake-settings/changes', ownerA)))

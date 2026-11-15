@@ -456,7 +456,8 @@ export class DocumentFoldersService {
       requestExpiryDays: s.requestExpiryDays,
       documentExpiryReminderDays: s.documentExpiryReminderDays,
       shareExpiryDays: s.shareExpiryDays,
-      uploadMaxBytes: s.uploadMaxBytes ?? UPLOAD_LIMITS.maxBytes,
+      // DOCUMENTS-LIMIT-01: the old upload_max_bytes is no longer read or written.
+      maxFileSizeMb: s.maxFileSizeMb,
       uploadTypes: (s.uploadTypes.length ? s.uploadTypes : PLATFORM_TYPES) as UploadContentType[],
       defaultReviewer: memberRef(names, s.defaultReviewerUserId),
       updatedAt: s.updatedAt.toISOString(),
@@ -497,7 +498,7 @@ export class DocumentFoldersService {
             ? { documentExpiryReminderDays: body.documentExpiryReminderDays }
             : {}),
           ...(body.shareExpiryDays !== undefined ? { shareExpiryDays: body.shareExpiryDays } : {}),
-          ...(body.uploadMaxBytes !== undefined ? { uploadMaxBytes: body.uploadMaxBytes } : {}),
+          ...(body.maxFileSizeMb !== undefined ? { maxFileSizeMb: body.maxFileSizeMb } : {}),
           // All the platform's types is stored as none chosen.
           ...(types ? { uploadTypes: types.length === PLATFORM_TYPES.length ? [] : types } : {}),
           ...(body.defaultReviewerUserId !== undefined

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  DOCUMENT_FILE_SIZE_CHOICES,
   type DocumentCategory,
   type DocumentFolder,
   type DocumentSettings,
@@ -185,7 +186,7 @@ function SettingsForm({
     'requestExpiryDays',
     'documentExpiryReminderDays',
     'shareExpiryDays',
-    'uploadMaxBytes',
+    'maxFileSizeMb',
   ] as const)
     if (value[key] !== settings[key]) changes[key] = value[key];
   if ([...value.uploadTypes].sort().join() !== [...settings.uploadTypes].sort().join())
@@ -328,18 +329,27 @@ export function FileTab(props: {
             const chosen = v.uploadTypes.length ? v.uploadTypes : all;
             return (
               <div className="grid gap-5 md:grid-cols-2">
-                <Input
-                  label={`Largest file (MB, at most ${max})`}
-                  type="number"
-                  min={1}
-                  max={max}
-                  value={Math.round(v.uploadMaxBytes / MB)}
-                  disabled={!props.canEdit}
-                  onChange={(e) => {
-                    const n = Math.min(max, Math.max(1, Math.round(Number(e.target.value) || 1)));
-                    put({ uploadMaxBytes: n * MB });
-                  }}
-                />
+                {/* DOCUMENTS-LIMIT-01: the regular documents' own limit; intake forms keep theirs. */}
+                <div className="flex flex-col gap-1">
+                  <Select
+                    label="Largest file"
+                    value={String(v.maxFileSizeMb)}
+                    disabled={!props.canEdit}
+                    onChange={(e) => put({ maxFileSizeMb: Number(e.target.value) })}
+                    options={DOCUMENT_FILE_SIZE_CHOICES.map((mb) => ({
+                      value: String(mb),
+                      label: `${mb} MB`,
+                    }))}
+                  />
+                  <p className="text-xs text-muted" data-testid="file-size-scope">
+                    For documents clients and staff upload, in Documents and the client portal.
+                    Intake forms have their own limit in{' '}
+                    <Link href="/intake-forms/settings" className="text-link hover:underline">
+                      Intake Form Settings
+                    </Link>
+                    .
+                  </p>
+                </div>
                 <fieldset className="flex flex-col gap-1">
                   <legend className="mb-1 text-sm font-semibold text-heading">
                     Allowed file types

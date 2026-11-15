@@ -35,6 +35,7 @@ import {
   sourceOf,
   toMyDocument,
 } from './document-records.js';
+import { checkDocumentFileSize } from './document-file-size.js';
 import { UploadsService } from './uploads.service.js';
 
 type ListQuery = z.output<typeof ListMyDocumentsQuery>;
@@ -282,6 +283,7 @@ export class MyDocumentsService {
         ...body,
         clientArchived: client.archived,
       });
+      await checkDocumentFileSize(tx, caller.businessId, body.sizeBytes);
       return { clientId: login.clientId, target };
     });
     return this.uploads.ticket({

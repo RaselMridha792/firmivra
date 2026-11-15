@@ -1,7 +1,14 @@
 'use client';
 
 import { Bell, GearSix, Lightning, Palette, ShieldCheck, User, X } from '@phosphor-icons/react';
-import { Email, intakeAlertWords, intakeDurationWords, type PortalInfo } from '@firmivra/types';
+import {
+  Email,
+  effectiveRetentionYears,
+  INTAKE_RETENTION_CATEGORIES,
+  intakeAlertWords,
+  intakeDurationWords,
+  type PortalInfo,
+} from '@firmivra/types';
 import { Button, Checkbox, Input, Modal, normalizeHex } from '@firmivra/ui';
 import Image from 'next/image';
 import { useId, useState } from 'react';
@@ -22,7 +29,7 @@ import {
   type FieldErrors,
   type FileType,
   FINAL_REMINDER_MINUTES,
-  nextReminder,
+  legacyRetentionNote,
   REMINDER_MINUTES,
   fileSizeOptions,
   type Group,
@@ -48,9 +55,14 @@ export interface Member {
 
 const dayOptions = (values: number[]) =>
   values.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? 'day' : 'days'}` }));
-/** A reminder's choices in minutes, said from when they count (Octavia's I8: "after sending"). */
+/** The first reminder's choices in minutes, said from when they count (Octavia's I8). */
 const afterSending = (values: number[]) =>
   values.map((n) => ({ value: String(n), label: `${intakeDurationWords(n)} after sending` }));
+/** The final reminder's: it counts back from the expiry (Review Two 10c). */
+const beforeExpiry = (values: number[]) =>
+  values.map((n) => ({ value: String(n), label: `${intakeDurationWords(n)} before expiry` }));
+/** A new final reminder's time when reminders are turned on: 7 days before expiry. */
+const FINAL_DEFAULT = 10080;
 
 /** The firm's active members, plus the saved owner if the list does not have them. */
 function ownerOptions(members: Member[], current: Member | null) {
@@ -360,12 +372,7 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
             options={[
               // Off for both reminders: there is no first reminder without a final one.
               { value: '', label: 'No reminders' },
-              ...afterSending(
-                withCurrent(
-                  REMINDER_MINUTES.filter((m) => nextReminder(m) !== null),
-                  first,
-                ),
-              ),
+              ...afterSending(withCurrent(REMINDER_MINUTES, first)),
             ]}
             disabled={readOnly}
             error={errors['notifications.firstReminderAfterMinutes']}
@@ -377,13 +384,10 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
                 });
                 return;
               }
-              // The final reminder follows the first: it moves to the next time after it if needed.
-              const minutes = Number(v);
-              const final = n.finalReminderAfterMinutes;
+              // 10c: the final reminder keeps its own time (it counts back from the expiry).
               set('notifications', {
-                firstReminderAfterMinutes: minutes,
-                finalReminderAfterMinutes:
-                  final !== null && final > minutes ? final : nextReminder(minutes),
+                firstReminderAfterMinutes: Number(v),
+                finalReminderAfterMinutes: n.finalReminderAfterMinutes ?? FINAL_DEFAULT,
               });
             }}
           />
@@ -394,17 +398,16 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
             options={
               first === null
                 ? [{ value: '', label: 'No reminders' }]
-                : afterSending(
-                    withCurrent(
-                      FINAL_REMINDER_MINUTES.filter((m) => m > first),
-                      n.finalReminderAfterMinutes,
-                    ),
-                  )
+                : beforeExpiry(withCurrent(FINAL_REMINDER_MINUTES, n.finalReminderAfterMinutes))
             }
             disabled={readOnly || first === null}
             error={errors['notifications.finalReminderAfterMinutes']}
             onChange={(v) => set('notifications', { finalReminderAfterMinutes: Number(v) })}
           />
+          <p className="text-xs text-muted" data-testid="reminder-rule">
+            The first reminder counts from when the form is sent, the final one back from when it
+            expires. A form with no expiration gets the first reminder only.
+          </p>
           <SelectRow
             label="Expiration alert"
             width={w}
@@ -568,7 +571,9 @@ function FileTypesRow({
   );
 }
 
-export function SecurityCard(props: CardProps & { savedFileSizeMb: number | null }) {
+export function SecurityCard(
+  props: CardProps & { savedFileSizeMb: number | null; savedRetentionYears: number | null },
+) {
   return (
     <SettingsCard
       section="security"
@@ -590,7 +595,8 @@ export function SecurityFields({
   errors,
   readOnly,
   savedFileSizeMb,
-}: FieldsProps & { savedFileSizeMb: number | null }) {
+  savedRetentionYears,
+}: FieldsProps & { savedFileSizeMb: number | null; savedRetentionYears: number | null }) {
   const s = draft?.security;
   return (
     <>
@@ -623,11 +629,12 @@ export function SecurityFields({
             disabled={readOnly}
             onChange={(on) => set('security', { consentRequired: on })}
           />
-          <RetentionRow
-            years={s.dataRetentionYears}
+          <RetentionFields
+            security={s}
+            saved={savedRetentionYears}
             readOnly={readOnly}
-            error={errors['security.dataRetentionYears']}
-            onChange={(dataRetentionYears) => set('security', { dataRetentionYears })}
+            errors={errors}
+            onChange={(patch) => set('security', patch)}
           />
         </>
       ) : null}
@@ -635,37 +642,105 @@ export function SecurityFields({
   );
 }
 
+const yearsText = (n: number | null) =>
+  n === null ? 'Not set' : `${n} ${n === 1 ? 'year' : 'years'}`;
+const yearsValue = (v: string) => (v.trim() === '' ? null : Number(v));
+
 /**
- * Data retention period (Octavia's I12): a custom number of years, or none. Saving it deletes
- * nothing; what it covers, when it starts and what happens at the end are still to be decided.
+ * Minimum retention (Review Two 14b): the six categories, each in whole years (1 to 30) or not set
+ * on its own, and Apply to all, which fills all six and holds for any left empty. Each minimum
+ * counts from when the record's job or task is completed. Nothing is deleted or archived.
  */
-function RetentionRow({
-  years,
+function RetentionFields({
+  security,
+  saved,
   readOnly,
-  error,
+  errors,
   onChange,
 }: {
-  years: number | null;
+  security: Draft['security'];
+  /** Apply to all as saved: one over 30 was saved under I12 (1 to 100 then). */
+  saved: number | null;
   readOnly: boolean;
-  error?: string;
-  onChange: (years: number | null) => void;
+  errors: FieldErrors;
+  onChange: (patch: Partial<Draft['security']>) => void;
 }) {
+  const all = security.dataRetentionYears;
+  const canApply = all !== null && Number.isInteger(all) && all >= 1 && all <= 30;
+  // Read as it is, never rewritten: it can only be changed to 1 to 30 or cleared.
+  const legacy = legacyRetentionNote(saved, all);
   return (
-    <div className="flex flex-col gap-1 py-1" data-testid="data-retention">
-      <InputRow
-        label="Data retention period (years)"
-        labelWidth="w-40"
-        type="number"
-        placeholder="Not set"
-        value={years === null ? '' : String(years)}
-        disabled={readOnly}
-        error={error}
-        onChange={(v) => onChange(v.trim() === '' ? null : Number(v))}
-      />
-      <p className="text-xs text-muted">
-        Saving a period deletes nothing. What it covers, when it starts and what happens at the end
-        are still being decided.
-      </p>
+    <div className="flex flex-col gap-3 py-1" data-testid="data-retention">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-semibold text-heading">Minimum retention</h3>
+        <p className="text-xs text-muted">
+          How long each kind of record is kept at least, in years (1 to 30). Each minimum counts
+          from when the record’s job or task is completed. When it ends, the information stays:
+          nothing is deleted or archived. A record with no job or task is kept and not counted yet.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="min-w-0">
+          <InputRow
+            label="Apply to all (years)"
+            labelWidth="w-40"
+            type="number"
+            placeholder="Not set"
+            value={all === null ? '' : String(all)}
+            disabled={readOnly}
+            error={errors['security.dataRetentionYears']}
+            onChange={(v) => onChange({ dataRetentionYears: yearsValue(v) })}
+          />
+          {legacy ? (
+            <p className="mt-1 text-xs text-text" data-testid="retention-legacy">
+              {legacy}.
+            </p>
+          ) : null}
+        </div>
+        <Button
+          variant="secondary"
+          className="self-end"
+          disabled={readOnly || !canApply}
+          onClick={() =>
+            onChange({
+              retention: Object.fromEntries(
+                INTAKE_RETENTION_CATEGORIES.map((c) => [c.key, all]),
+              ) as Draft['security']['retention'],
+            })
+          }
+        >
+          Apply to all six
+        </Button>
+      </div>
+      <ul className="flex flex-col divide-y divide-divider" aria-label="Retention by category">
+        {INTAKE_RETENTION_CATEGORIES.map((c) => {
+          const own = security.retention[c.key];
+          const effective = effectiveRetentionYears(security, c.key);
+          return (
+            <li key={c.key} className="flex flex-col gap-1 py-2" data-testid={`retention-${c.key}`}>
+              <InputRow
+                label={c.label}
+                labelWidth="w-40"
+                type="number"
+                placeholder={all === null ? 'Not set' : `${all} (all)`}
+                value={own === null ? '' : String(own)}
+                disabled={readOnly}
+                error={errors[`security.retention.${c.key}`]}
+                onChange={(v) =>
+                  onChange({ retention: { ...security.retention, [c.key]: yearsValue(v) } })
+                }
+              />
+              <p className="text-xs text-muted">
+                {c.covers} Starts: {c.starts.charAt(0).toLowerCase() + c.starts.slice(1)}{' '}
+                <span className="font-semibold text-text">
+                  In effect: {yearsText(effective)}
+                  {own === null && effective !== null ? ' (Apply to all)' : ''}.
+                </span>
+              </p>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
