@@ -73,3 +73,37 @@ test('the Last Activity From, To, Clear and Done controls each have a name', asy
     page.getByRole('button', { name: 'Last activity: Nov 1, 2026 – Nov 8, 2026', exact: true }),
   ).toBeFocused();
 });
+
+// Clients Review 2 (N8-10): her retest of the same panel: Escape and a click on the Clients
+// heading left it open, the accessibility tree showed two unnamed dates and an unnamed button,
+// and Done closed it with no filter. Here the panel's accessibility tree names every control,
+// Escape and the heading click close it, and Done closes it with no filter applied.
+test('N8-10: the Last Activity panel names every control and closes on Escape, a heading click and Done', async ({
+  page,
+}) => {
+  await openClients(page);
+  const names = page.getByTestId('client-link').filter({ visible: true });
+  await expect(names).toHaveCount(8);
+
+  await trigger(page).click();
+  await expect(panel(page)).toMatchAriaSnapshot(`
+    - dialog "Last activity":
+      - group "Last activity":
+        - 'textbox "Last activity: From, start date"'
+        - 'textbox "Last activity: To, end date"'
+      - button "Clear last activity" [disabled]
+      - 'button "Done: close last activity"'
+  `);
+  await page.keyboard.press('Escape');
+  await expect(panel(page)).toBeHidden();
+
+  await trigger(page).click();
+  await page.getByTestId('page-title').click();
+  await expect(panel(page)).toBeHidden();
+
+  await trigger(page).click();
+  await panel(page).getByRole('button', { name: 'Done: close last activity' }).click();
+  await expect(panel(page)).toBeHidden();
+  await expect(trigger(page)).toBeFocused();
+  await expect(names).toHaveCount(8);
+});
