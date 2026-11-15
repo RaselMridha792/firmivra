@@ -20,6 +20,7 @@ import {
   type ClientNotesClient,
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
+  filesOnlyBody,
   CreateMyMessageThreadRequest,
   InternalNote,
   InternalNoteId,
@@ -141,6 +142,11 @@ interface SavedEmailPreference {
 }
 interface Store {
   settings?: MessageSettings;
+  /**
+   * M27: when the mock's client reads each firm message sent in this session (ten seconds after
+   * it arrives), so the firm's conversation can be seen updating on its own. Mock only.
+   */
+  clientReads?: Map<string, number>;
   preferences?: Map<string, SavedEmailPreference>;
   threads: ThreadRow[];
   messages: Message[];
@@ -571,6 +577,8 @@ function relatedFor(clientId: string): OutboundRelated[] {
     { type: 'appointment', id: MOCK_RELATED_APPOINTMENT, label: 'Appointment, Nov 12, 2026' },
     { type: 'document_request', id: id('0199b6c1', 1), label: '2025 bank statements' },
     { type: 'invoice', id: id('0199b6c2', 1), label: 'Invoice INV-1001' },
+    // M25: one of Jamie's documents they can see.
+    { type: 'document', id: id('0199b6c3', 1), label: 'Engagement_Letter_2025.pdf' },
     { type: 'engagement', id: BOOKKEEPING_ENGAGEMENT, label: '2025 Bookkeeping' },
   ];
 }
@@ -1186,10 +1194,21 @@ export function createMessagesMock(
     if (!t) throw notFound();
     return t;
   };
-  const detail = (t: ThreadRow): MessageThreadDetail => ({
-    ...firmThread(t),
-    messages: inThread(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
-  });
+  const detail = (t: ThreadRow): MessageThreadDetail => {
+    // M27: the mock client has read what reached them by now.
+    const reads = (s().clientReads ??= new Map());
+    for (const m of inThread(t.id)) {
+      const at = reads.get(m.id);
+      if (at !== undefined && at <= Date.now()) {
+        m.readAt ??= new Date(at).toISOString();
+        reads.delete(m.id);
+      }
+    }
+    return {
+      ...firmThread(t),
+      messages: inThread(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
+    };
+  };
   const list = (rows: ThreadRow[], query: ListMessageThreadsQuery) => {
     const q = parseInput(ListMessageThreadsQuery, query);
     const kept = rows
@@ -1347,7 +1366,15 @@ export function createMessagesMock(
           status: d.scanStatus === 'CLEAN' ? 'READY' : 'CHECKING',
         });
       }
-      return addMessage(t, staff(me), b.body, files);
+      // As the API (M22): files with no text say what was sent.
+      const sent = addMessage(
+        t,
+        staff(me),
+        b.body ?? filesOnlyBody(files.map((f) => f.fileName)),
+        files,
+      );
+      (s().clientReads ??= new Map()).set(sent.id, Date.now() + 10_000);
+      return sent;
     },
     update: async (threadId, body) => {
       await mockDelay();

@@ -9,6 +9,7 @@ import {
 import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
 import {
   type ClientMessagePreference,
+  filesOnlyBody,
   MESSAGE_SETTINGS_DEFAULTS,
   type MessageDelivery,
   type MessageEmailChoices,
@@ -628,12 +629,14 @@ export class MessagesService {
     businessId: string,
     actor: ClientsActor,
     id: string,
-    body: string,
+    body: string | undefined,
     documentIds: readonly string[] = [],
     delivery?: z.output<typeof MessageDelivery>,
   ): Promise<Message> {
     const sent = await this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
+      // M22: files with no text: the message says what was sent (the schema needs one of them).
+      const text = body ?? (await this.filesLine(tx, businessId, t.clientId, documentIds));
       // A client's thread always has its client (a lead's is another route).
       const choices = t.clientId
         ? await this.emailChoices(tx, businessId, t.clientId, actor.userId, delivery)
@@ -648,7 +651,7 @@ export class MessagesService {
           threadId: t.id,
           senderUserId: actor.userId,
           direction: 'FIRM_TO_CLIENT',
-          body,
+          body: text,
           ...choices,
         },
         select: { id: true },
@@ -683,6 +686,26 @@ export class MessagesService {
       sent.email,
     );
     return sent.message;
+  }
+
+  /**
+   * M22: "Sent 2 files: a.pdf and b.pdf" for a message of files only. A file that isn't the
+   * client's is left out here; attaching it is refused in the same transaction (404).
+   */
+  private async filesLine(
+    tx: TxClient,
+    businessId: string,
+    clientId: string | null,
+    documentIds: readonly string[],
+  ): Promise<string> {
+    const ids = [...new Set(documentIds.map((d) => d.toLowerCase()))];
+    const docs = clientId
+      ? await tx.document.findMany({
+          where: { businessId, clientId, id: { in: ids } },
+          select: { fileName: true },
+        })
+      : [];
+    return filesOnlyBody(docs.length ? docs.map((d) => d.fileName) : ids.map(() => 'a file'));
   }
 
   /**
