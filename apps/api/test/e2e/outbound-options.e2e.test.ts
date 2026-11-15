@@ -3,7 +3,7 @@
 // it opens takes the record (so it shows under its view in Messages) and the owner. The owner is an
 // active member who reaches everyone chosen. Another client's or another firm's record or member is
 // 404. The notify service is replaced: nothing leaves. Synthetic data only.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -45,6 +45,9 @@ const ids = {
   task: '',
   otherRequest: '',
   requestB: '',
+  invoice: '',
+  shared: '',
+  internal: '',
 };
 
 let app: INestApplication;
@@ -167,6 +170,32 @@ beforeAll(async () => {
     ids.task = (
       await tx.task.create({ data: { ...A, clientId: ids.one, title: 'Review the organizer' } })
     ).id;
+    // M25: the client's invoice and documents (one shared with them, one internal).
+    ids.invoice = (
+      await tx.invoice.create({
+        data: { ...A, clientId: ids.one, number: `M25-${run}`, dueOn: new Date('2027-01-08') },
+      })
+    ).id;
+    const doc = async (direction: 'FIRM_TO_CLIENT' | 'INTERNAL', fileName: string) => {
+      const tag = randomUUID();
+      return (
+        await tx.document.create({
+          data: {
+            ...A,
+            clientId: ids.one,
+            engagementId: ids.engagement,
+            direction,
+            fileName,
+            contentType: 'application/pdf',
+            sizeBytes: 100,
+            sha256: createHash('sha256').update(tag).digest('hex'),
+            s3Key: `tenant/${ids.firmA}/documents/${tag}`,
+          },
+        })
+      ).id;
+    };
+    ids.shared = await doc('FIRM_TO_CLIENT', 'Engagement letter (fake).pdf');
+    ids.internal = await doc('INTERNAL', 'Preparer notes (fake).pdf');
     const twoService = await tx.engagement.create({
       data: { ...A, clientId: ids.two, serviceId: service.id, title: 'Two' },
     });
@@ -239,9 +268,24 @@ describe('MSG-F13: Related To', () => {
         { type: 'document_request', id: ids.request, label: 'Bank statements' },
         { type: 'task', id: ids.task, label: 'Review the organizer' },
         { type: 'engagement', id: ids.engagement, label: '2025 Bookkeeping' },
+        // M25: the client's invoice and the documents they can see.
+        { type: 'invoice', id: ids.invoice, label: `Invoice M25-${run}` },
+        { type: 'document', id: ids.shared, label: 'Engagement letter (fake).pdf' },
       ]),
     );
     expect(list.items.map((i) => i.id)).not.toContain(ids.otherRequest);
+    expect(list.items.map((i) => i.id)).not.toContain(ids.internal);
+    // An internal document is never what a message is about.
+    expect(
+      (
+        await call('post', '/outbound-messages', people.ownerA, {
+          channel: 'PORTAL',
+          body: `Internal ${run}`,
+          clientIds: [ids.one],
+          related: { type: 'document', id: ids.internal },
+        })
+      ).status,
+    ).toBe(404);
     const path = `/outbound-messages/related-options?clientId=${ids.two}`;
     expect((await call('get', path, people.staffA)).status).toBe(404);
     expect((await call('get', path, people.ownerB, undefined, ids.firmB)).status).toBe(404);

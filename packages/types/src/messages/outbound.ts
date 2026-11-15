@@ -54,6 +54,8 @@ export const OUTBOUND_RELATED_TYPES = [
   'invoice',
   'tax_return',
   'document_request',
+  /** M25: one of the client's documents they can see (never an internal one). */
+  'document',
   'task',
   'engagement',
 ] as const;
@@ -64,6 +66,7 @@ export const OUTBOUND_RELATED_LABELS: Record<OutboundRelatedType, string> = {
   invoice: 'Invoice or payment',
   tax_return: 'Tax return',
   document_request: 'Document request',
+  document: 'Document',
   task: 'Task',
   engagement: 'Service',
 };
