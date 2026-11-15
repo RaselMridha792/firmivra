@@ -63,6 +63,8 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
   // Parsed, so a fixture that breaks the contract fails as soon as the mock loads.
   ClientRecord.parse({
     id: clientId(n),
+    // Clients Review 2 §3, as the API: CL- and the firm's number (here 10000 + n).
+    clientNumber: `CL-${10000 + n}`,
     accountType: 'INDIVIDUAL',
     email: null,
     phone: null,

@@ -78,6 +78,8 @@ const last4 = z
 /** One row of the clients list (no profile, SSN, EIN or date of birth). */
 export const ClientListItem = z.object({
   id: z.uuid(),
+  /** Clients Review 2 §3: the Client ID people see and search by, "CL-10024" (never changes). */
+  clientNumber: z.string(),
   accountType: ClientAccountType,
   displayName: z.string(),
   email: z.string().nullable(),

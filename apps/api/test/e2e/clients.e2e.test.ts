@@ -288,6 +288,10 @@ describe('list: search, filters and paging', () => {
     expect(await ids(`cl${number}`)).toContain(c.id);
     expect(await ids(String(number))).toContain(c.id);
     expect(await ids(c.id)).toEqual([c.id]);
+    // §3: the record and the list carry the Client ID people see, as the search takes it.
+    expect(c.clientNumber).toBe(`CL-${number}`);
+    const row = (await list(`?status=all&search=CL-${number}`)).items.find((i) => i.id === c.id);
+    expect(row?.clientNumber).toBe(`CL-${number}`);
     for (const shown of ['(202) 555-0173', '202-555-0173', '+1 (202) 555-0173', '2025550173']) {
       expect(await ids(shown), shown).toEqual([c.id]);
     }

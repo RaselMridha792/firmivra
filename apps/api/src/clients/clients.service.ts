@@ -136,6 +136,7 @@ export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
 
 const listSelect = {
   id: true,
+  clientNumber: true,
   accountType: true,
   displayName: true,
   email: true,
@@ -164,6 +165,7 @@ const iso = (d: Date | null) => d?.toISOString() ?? null;
 function toListItem(row: ListRow): ClientListItem {
   return {
     id: row.id,
+    clientNumber: `CL-${row.clientNumber}`,
     accountType: row.accountType,
     displayName: row.displayName,
     email: row.email,

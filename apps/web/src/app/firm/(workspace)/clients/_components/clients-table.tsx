@@ -44,6 +44,10 @@ function NameCell({ client }: { client: ClientListRow }) {
         >
           {client.displayName}
         </Link>
+        {/* Clients Review 2 §3: the Client ID people search by. */}
+        <span className="truncate text-xs leading-tight text-muted" data-testid="client-id">
+          Client ID {client.clientNumber}
+        </span>
         {client.email ? (
           <span className="truncate text-xs leading-tight text-muted" title={client.email}>
             {client.email}

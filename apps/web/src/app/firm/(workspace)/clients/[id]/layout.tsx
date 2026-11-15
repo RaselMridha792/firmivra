@@ -98,6 +98,10 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                   >
                     {client.displayName}
                   </h1>
+                  {/* Clients Review 2 §3: the Client ID people search by. */}
+                  <p className="mt-0.5 text-sm text-muted" data-testid="client-id">
+                    Client ID {client.clientNumber}
+                  </p>
                   <p className="mt-1 text-sm wrap-anywhere text-muted">
                     {client.email}
                     {client.email && client.phone ? ' · ' : null}
