@@ -62,10 +62,21 @@ test('Send Message is written here; Create Appointment and Client Portal keep Ba
 }) => {
   await openReturn(page);
   const bar = page.getByTestId('action-bar');
-  await expect(bar.getByRole('link', { name: 'Create Appointment' })).toHaveAttribute(
-    'href',
-    /^\/calendar\/new\?clientId=[0-9a-f-]+&taxReturnId=[0-9a-f-]+&engagementId=[0-9a-f-]+&from=%2Ftax-returns%2F/,
-  );
+  // Review 2 (TX-F06): Create Appointment opens the shared form in a side panel, on this
+  // client and linked to this return; Cancel closes it and the return stays.
+  await bar.getByRole('button', { name: 'Create Appointment' }).click();
+  const panel = page.getByRole('dialog', { name: 'Create Appointment' });
+  // The panel names the client and the return; the link itself is checked against the
+  // scheduling mock's own client return in r60-tax-returns-appointment.
+  await expect(panel.getByText(/, \d{4} .*Return$/)).toBeVisible({ timeout: 90_000 });
+  await expect(panel.getByLabel('Link to Tax Return')).toBeVisible({ timeout: 90_000 });
+  await expect(panel.getByRole('heading', { name: 'Schedule Appointment' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Save as Draft' })).toHaveCount(0);
+  await page.mouse.move(5, 5);
+  await page.screenshot({ path: 'e2e/screenshots/r60-tax-returns-shared/schedule-panel.png' });
+  await panel.getByRole('button', { name: 'Cancel' }).click();
+  await expect(panel).toBeHidden();
+  await expect(page).toHaveURL(/\/tax-returns\/[0-9a-f-]+/);
   // TX-F04: the firm-side Client Portal for this client, with the way back.
   await expect(bar.getByRole('link', { name: 'Client Portal' })).toHaveAttribute(
     'href',
