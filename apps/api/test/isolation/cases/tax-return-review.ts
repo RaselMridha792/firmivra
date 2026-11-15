@@ -213,7 +213,12 @@ export const cases: CaseModule['cases'] = {
   'PATCH /api/v1/business/tax-returns/:id/issues/:issueId': {
     params: { id: 'taxReturn', issueId: 'taxIssue' },
     bodyIds: { responsibleUserId: 'adminUser' },
-    body: { resolved: true, responsibleUserId: '00000000-0000-4000-8000-000000000000' },
+    // Review 2 (TX-F21): resolving needs a reason.
+    body: {
+      resolved: true,
+      reason: 'Fake: checked',
+      responsibleUserId: '00000000-0000-4000-8000-000000000000',
+    },
   },
   'GET /api/v1/business/tax-returns/:id/authorizations': { params: ret },
   'PUT /api/v1/business/tax-returns/:id/authorizations': {

@@ -662,8 +662,22 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         a.status === 'PENDING' &&
         (role !== 'STAFF' || (a.assignedTo ?? r.reviewer)?.userId === me.userId),
     }));
-  // TX-F19: who raised it or the reviewer; a Manual Warning or Info also its responsible person;
-  // Owner and Admin as the override.
+  // Review 2 (TX-F21): the return's preparer or reviewer; Owner and Admin as the override.
+  // An Error resolved or lowered past Ready for Review goes back there, with the reason.
+  const backToReview = (r: Stored, reason: string) => {
+    if (r.workflowStatus !== 'READY_FOR_SIGNATURE' && r.workflowStatus !== 'READY_TO_FILE') return;
+    r.workflowStatus = 'READY_FOR_REVIEW';
+    r.statusReason = `Re-review after an error changed: ${reason}`.slice(0, 500);
+    r.history.unshift({
+      at: nowIso(),
+      workflowStatus: 'READY_FOR_REVIEW',
+      preparer: r.preparer,
+      reviewer: r.reviewer,
+      reason: r.statusReason,
+      by: me,
+    });
+  };
+  const CHECK_RANK: Record<string, number> = { VALID: 0, INFO: 1, WARNING: 2, ERROR: 3 };
   const ORDER = ['ERROR', 'MANUAL_WARNING', 'INFO'];
   const issuesOf = (r: Stored) =>
     copy(r.issues ?? [])
@@ -676,10 +690,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       .map((i) => ({
         ...i,
         canResolve:
-          role !== 'STAFF' ||
-          i.raisedBy?.userId === me.userId ||
-          r.reviewer?.userId === me.userId ||
-          (i.severity !== 'ERROR' && i.responsible?.userId === me.userId),
+          role !== 'STAFF' || r.preparer?.userId === me.userId || r.reviewer?.userId === me.userId,
       }));
   const find = (id: string) => {
     const r = rows.find((x) => x.id === id);
@@ -1494,6 +1505,16 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (b.note !== undefined) item.note = b.note ?? null;
       if (b.sortOrder !== undefined) item.sortOrder = b.sortOrder;
       if (b.result !== undefined && b.result !== item.result) {
+        if (item.section === 'VALIDATION') {
+          if (!b.reason) throw fail(400, 'VALIDATION_FAILED', 'Say why the result changes');
+          const lower = (CHECK_RANK[b.result] ?? 0) < (CHECK_RANK[item.result] ?? 0);
+          const own =
+            role !== 'STAFF' ||
+            r.preparer?.userId === me.userId ||
+            r.reviewer?.userId === me.userId;
+          if (lower && !own) throw fail(403, 'FORBIDDEN', 'Only the preparer or reviewer');
+          if (item.result === 'ERROR') backToReview(r, b.reason);
+        }
         item.result = b.result;
         item.acknowledgedAt = null;
         item.acknowledgedBy = null;
@@ -1625,8 +1646,9 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (!i) throw notFound();
       if (b.resolved !== undefined && b.resolved !== !!i.resolvedAt) {
         if (!issuesOf(r).find((x) => x.id === issueId)!.canResolve) {
-          throw fail(403, 'FORBIDDEN', 'Only who raised it or the reviewer can resolve this');
+          throw fail(403, 'FORBIDDEN', "Only the return's preparer or reviewer can resolve this");
         }
+        if (b.resolved && i.severity === 'ERROR') backToReview(r, b.reason ?? '');
         i.resolvedAt = b.resolved ? nowIso() : null;
         i.resolvedBy = b.resolved ? me : null;
         touch(

@@ -34,7 +34,6 @@ test('Overview: the cards, the summary and the right column', async ({ page }) =
     'card-dependents',
     'card-income',
     'card-deductions',
-    'card-bank',
     'card-ready',
     'rail-summary',
     'rail-documents',
@@ -50,7 +49,8 @@ test('Overview: the cards, the summary and the right column', async ({ page }) =
 
 test('Overview of a form only sent keeps every frame', async ({ page }) => {
   await page.goto(form(4));
-  await expect(page.getByTestId('card-personal')).toBeVisible();
+  // Nothing answered yet: the form's own sections wait in one card (18d).
+  await expect(page.getByTestId('card-unanswered')).toContainText('Personal & Filing Information');
   await expect(page.getByTestId('card-ready')).toContainText('Waiting for the client');
   await expect(page.getByRole('button', { name: 'Mark Reviewed' })).toBeDisabled();
 });
