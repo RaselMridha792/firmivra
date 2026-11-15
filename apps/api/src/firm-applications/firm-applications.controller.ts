@@ -25,10 +25,12 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { Public, Roles } from '../auth/decorators.js';
+import { poolSecrets } from '../auth/sealed.js';
 import { IDENTITY_PROVIDER } from '../auth/identity/identity-provider.js';
 import { SignInModule } from '../auth/sign-in.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE } from '../notify/notify.types.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
@@ -38,6 +40,12 @@ import {
   S3DocumentStorage,
 } from '../storage/document-storage.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { ApplyRespondController } from './apply-respond.controller.js';
+import {
+  ApplyRespondService,
+  ResponsePasses,
+  ResponseUploadTokens,
+} from './apply-respond.service.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
 import { FirmKeyJob } from './firm-key-job.js';
@@ -249,6 +257,7 @@ export class AdminDashboardController {
   imports: [SignInModule],
   controllers: [
     FirmApplicationsController,
+    ApplyRespondController,
     AdminFirmApplicationsController,
     AdminFirmsController,
     AdminDashboardController,
@@ -272,6 +281,18 @@ export class AdminDashboardController {
       inject: [DOCUMENTS_CONFIG],
       useFactory: (config: DocumentsConfig) =>
         new S3DocumentStorage(createS3Client(config), config.bucket),
+    },
+    // SA-APP-F04: the applicant's answer, its code check pass and its upload tokens.
+    ApplyRespondService,
+    {
+      provide: ResponsePasses,
+      inject: [ENV],
+      useFactory: (env: Env) => new ResponsePasses(poolSecrets(env)),
+    },
+    {
+      provide: ResponseUploadTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new ResponseUploadTokens(poolSecrets(env)),
     },
   ],
 })

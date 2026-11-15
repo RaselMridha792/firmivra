@@ -45,6 +45,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link: 'https://app.example.test/apply/respond#token=sample-token',
     expiresAt: new Date('2026-11-24T15:00:00Z'),
   },
+  'firm-application.response-code': { name: 'Jordan Sample', code: '123456' },
   'firm-application.approved': {
     name: 'Jordan Sample',
     legalName: 'Sample Tax Partners LLC',
