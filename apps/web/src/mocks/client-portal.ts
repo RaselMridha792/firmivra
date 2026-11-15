@@ -82,20 +82,34 @@ export function createClientPortalMock(): ClientPortalClient {
         type: string,
         at: string,
         actor: ClientPortalActivityItem['actor'],
+        entity: ClientPortalActivityItem['entity'] = null,
       ): ClientPortalActivityItem => ({
         id: `0199d100-0000-7000-8000-${String(n).padStart(12, '0')}`,
         at,
         type,
         actor,
-        entity: null,
+        entity,
         ip: `198.51.100.${n}`,
       });
       list = record(clientId).found.portalLogins.length
         ? [
             row(1, 'document.uploaded', ago(0, 2), { kind: 'CLIENT', name: client }),
             row(2, 'message.sent', ago(1, 5), { kind: 'CLIENT', name: client }),
-            row(3, 'appointment.booked', ago(2), { kind: 'CLIENT', name: client }),
-            row(4, 'invoice.viewed', ago(4), { kind: 'CLIENT', name: client }),
+            // Instructions 24: it opens its appointment (the scheduling mock's first).
+            row(
+              3,
+              'appointment.booked',
+              ago(2),
+              { kind: 'CLIENT', name: client },
+              { type: 'appointment', id: '0199c0b0-0a10-7000-8000-000000000001' },
+            ),
+            row(
+              4,
+              'invoice.viewed',
+              ago(4),
+              { kind: 'CLIENT', name: client },
+              { type: 'invoice', id: '0199d200-0000-7000-8000-000000000004' },
+            ),
             row(5, 'intake.submitted', ago(5), { kind: 'CLIENT', name: client }),
             row(6, 'portal.signed_in', ago(6), { kind: 'CLIENT', name: client }),
           ]
@@ -203,12 +217,18 @@ export function createClientPortalMock(): ClientPortalClient {
         dueOn: null,
         at: null,
         overdue: false,
+        reminder: null,
         ...extra,
       });
       return {
         items: [
           item('DOCUMENTS_REQUESTED', 2, 'W-2 forms (fake)', 1, { dueOn: '2026-11-20' }),
-          item('INTAKE_INCOMPLETE', 1, 'Business Information Form', 2),
+          // Overdue (instructions 17): Send Reminder reminds this form.
+          item('INTAKE_INCOMPLETE', 1, 'Business Information Form', 2, {
+            dueOn: '2026-01-15',
+            overdue: true,
+            reminder: { kind: 'INTAKE', id: '0199c0d0-0a00-7000-8000-000000000002' },
+          }),
           item('SIGNATURE_REQUIRED', 1, 'Form 8879 (e-File Authorization)', 3),
           item('INVOICE_OUTSTANDING', 1, 'INV-1001', 4, {
             amountCents: 29000,

@@ -49,6 +49,9 @@ export function taxReturnFixtures(): readonly TaxReturn[] {
       taxYear: 2025,
       status: 'IN_PROGRESS',
       engagementId: '0199b6a2-0000-7000-8000-000000000001',
+      // Its assigned staff (Client Portal instructions 4).
+      preparer: { userId: '0199c0a0-0b00-7000-8000-000000000002', name: 'Priya Ramos' },
+      reviewer: { userId: '0199c0a0-0b00-7000-8000-000000000001', name: 'Morgan Avery' },
     }),
     fixture(2, {
       taxYear: 2025,

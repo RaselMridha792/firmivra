@@ -172,8 +172,8 @@ Rows the review found working. They stay here with their tests so a later change
 - **Reminder delivery, section 9** (assigned to R56): recipient, channel, send time and delivery status on the notice history.
 - **V8:** a large-firm fixture and an agreed target.
 
-**Open, not yet decided**
-- **U2:** when the firm's time zone cannot be read, the header clock falls back to the browser's.
+**Decided: fallback shown (Nov 15)**
+- **U2:** when the firm's time zone cannot be read, the header clock keeps the browser's zone and says so: "Using your device's time zone". R1 adds the note in its Dashboard PR.
 
 **Test gaps** (R60 adds the checks after the product items, Nov 15)
 - **U2:** "today" and the periods for a firm zone other than New York.

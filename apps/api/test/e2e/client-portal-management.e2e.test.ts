@@ -386,6 +386,63 @@ describe('the Client Portal module', () => {
     expect(items.find((i) => i.kind === 'APPOINTMENT_UPCOMING')?.at).not.toBeNull();
   });
 
+  it("names Send Reminder's target on an overdue request, form or signature, and none on time (instructions 17)", async () => {
+    const pending = async () =>
+      PendingClientActions.parse((await call(owner, `/clients/${clients.x}/pending-actions`)).body)
+        .items;
+    const before = await pending();
+    // The overdue request is in no packet (its reminder route is the packet's): nothing to send.
+    // The form is not due yet. A kind with no reminder route never has one.
+    expect(before.map((i) => [i.kind, i.reminder])).toEqual(before.map((i) => [i.kind, null]));
+
+    // An overdue request of a packet, and the form falls overdue.
+    const packetId = await inFirm('a', async (tx) => {
+      const request = await tx.documentRequest.findUniqueOrThrow({
+        where: { id: ids.request },
+        select: { businessId: true, clientId: true, engagementId: true },
+      });
+      const packet = await tx.documentRequestPacket.create({
+        data: { ...request, title: 'Fake 2025 documents', requestedByUserId: owner.id },
+      });
+      await tx.documentRequest.create({
+        data: {
+          ...request,
+          packetId: packet.id,
+          title: 'Fake 1099',
+          dueOn: new Date(Date.now() - 5 * DAY),
+          requestedByUserId: owner.id,
+        },
+      });
+      await tx.intake.update({
+        where: { id: ids.intakeWaiting },
+        data: { dueOn: new Date(Date.now() - 3 * DAY) },
+      });
+      return packet.id;
+    });
+    try {
+      const after = await pending();
+      expect(after.find((i) => i.kind === 'DOCUMENTS_REQUESTED')).toMatchObject({
+        count: 2,
+        title: 'Fake 1099',
+        overdue: true,
+        reminder: { kind: 'REQUEST_PACKET', id: packetId },
+      });
+      expect(after.find((i) => i.kind === 'INTAKE_INCOMPLETE')).toMatchObject({
+        overdue: true,
+        reminder: { kind: 'INTAKE', id: ids.intakeWaiting },
+      });
+      // A submitted form waits on the firm: never a reminder.
+      expect(after.find((i) => i.kind === 'INTAKE_SUBMITTED')?.reminder).toBeNull();
+    } finally {
+      await inFirm('a', (tx) =>
+        tx.intake.update({
+          where: { id: ids.intakeWaiting },
+          data: { dueOn: new Date(Date.now() + 10 * DAY) },
+        }),
+      );
+    }
+  });
+
   it('pages the activity newest first, filters it, and shows the IP to Owner and Admin only', async () => {
     const res = await call(owner, `/clients/${clients.x}/activity`);
     expect(res.status, JSON.stringify(res.body)).toBe(200);

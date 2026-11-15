@@ -131,6 +131,17 @@ export const PendingClientActionKind = z.enum([
 ]);
 export type PendingClientActionKind = z.infer<typeof PendingClientActionKind>;
 
+/**
+ * Client Portal instructions 17 (Overdue Item): what Send Reminder reminds, the kind's first item
+ * when it is overdue: a document request (its packet), an intake form or a signature request, each
+ * through its own reminder route.
+ */
+export const PendingActionReminder = z.object({
+  kind: z.enum(['REQUEST_PACKET', 'INTAKE', 'SIGNATURE']),
+  id: z.uuid(),
+});
+export type PendingActionReminder = z.infer<typeof PendingActionReminder>;
+
 /** One kind of item waiting on the client (or, for a submitted form, on the firm). */
 export const PendingClientAction = z.object({
   kind: PendingClientActionKind,
@@ -147,6 +158,8 @@ export const PendingClientAction = z.object({
   at: DateTime.nullable(),
   /** Some item of the kind is past its due date. */
   overdue: z.boolean(),
+  /** Send Reminder on an overdue row; null when there is nothing to remind (or no route). */
+  reminder: PendingActionReminder.nullable().default(null),
 });
 export type PendingClientAction = z.infer<typeof PendingClientAction>;
 

@@ -535,7 +535,11 @@ export function createClientsMock(
       const matches = rows
         .filter(visible)
         .filter((r) => (q.status === 'all' ? true : (q.status === 'archived') === !!r.archivedAt))
-        .filter((r) => !q.assignedUserId || r.assignedTo?.userId === q.assignedUserId)
+        .filter((r) =>
+          q.assignedUserId === 'UNASSIGNED'
+            ? !r.assignedTo
+            : !q.assignedUserId || r.assignedTo?.userId === q.assignedUserId,
+        )
         .filter(
           (r) =>
             !term || [r.displayName, r.email, r.phone].some((v) => v?.toLowerCase().includes(term)),

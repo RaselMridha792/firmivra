@@ -3831,7 +3831,14 @@ model DocumentRequest {
   required  Boolean @default(true)
   sortOrder Int     @default(0) @map("sort_order")
 
+  /// Tax Returns Review 2 (F10): a request made from a tax return names its tax year and that
+  /// return (the same client's); a file that answers it takes the year and is linked to the
+  /// return. Both null for a request made anywhere else.
+  taxYear     Int?    @map("tax_year")
+  taxReturnId String? @map("tax_return_id") @db.Uuid
+
   engagement Engagement             @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  taxReturn  TaxReturn?             @relation(fields: [businessId, clientId, taxReturnId], references: [businessId, clientId, id], onDelete: Restrict)
   category   DocumentCategory?      @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   packet     DocumentRequestPacket? @relation(fields: [businessId, engagementId, packetId], references: [businessId, engagementId, id], onDelete: Restrict)
   documents  Document[]
@@ -5099,19 +5106,21 @@ model TaxReturn {
   businessState          String?                 @map("business_state")
   businessPostalCode     String?                 @map("business_postal_code")
 
-  preparer       Membership?                @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
-  reviewer       Membership?                @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
-  finalValidator Membership?                @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  updatedBy      Membership?                @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
-  amends         TaxReturn?                 @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
-  amendedBy      TaxReturn[]                @relation("TaxReturnAmends")
-  history        TaxReturnHistory[]
-  filings        TaxReturnFiling[]
-  approvals      TaxReturnApproval[]
-  checklist      TaxReturnChecklistItem[]
-  authorizations TaxReturnAuthorization[]
-  documents      TaxReturnDocument[]
-  issues         TaxReturnValidationIssue[]
+  preparer         Membership?                @relation("TaxReturnPreparer", fields: [businessId, preparerUserId], references: [businessId, userId], onDelete: Restrict)
+  reviewer         Membership?                @relation("TaxReturnReviewer", fields: [businessId, reviewerUserId], references: [businessId, userId], onDelete: Restrict)
+  finalValidator   Membership?                @relation("TaxReturnValidator", fields: [businessId, finalValidatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  updatedBy        Membership?                @relation("TaxReturnUpdatedBy", fields: [businessId, updatedByUserId], references: [businessId, userId], onDelete: Restrict)
+  amends           TaxReturn?                 @relation("TaxReturnAmends", fields: [businessId, clientId, amendsReturnId], references: [businessId, clientId, id], onDelete: Restrict)
+  amendedBy        TaxReturn[]                @relation("TaxReturnAmends")
+  history          TaxReturnHistory[]
+  filings          TaxReturnFiling[]
+  approvals        TaxReturnApproval[]
+  checklist        TaxReturnChecklistItem[]
+  authorizations   TaxReturnAuthorization[]
+  documents        TaxReturnDocument[]
+  /// Tax Returns Review 2 (F10): the document requests made from this return.
+  documentRequests DocumentRequest[]
+  issues           TaxReturnValidationIssue[]
 
   client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
