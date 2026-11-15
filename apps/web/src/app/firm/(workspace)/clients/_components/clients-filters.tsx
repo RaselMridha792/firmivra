@@ -481,6 +481,8 @@ export function ClientsFilterRow({
               onChange={(event) => onChange({ assignedUserId: event.target.value })}
               options={[
                 { value: '', label: 'All Staff Members' },
+                // FC-04: the clients nobody is assigned to (with New, the new ones to pick up).
+                { value: 'UNASSIGNED', label: 'Unassigned' },
                 ...members.map((m) => ({ value: m.userId, label: m.name })),
               ]}
             />
