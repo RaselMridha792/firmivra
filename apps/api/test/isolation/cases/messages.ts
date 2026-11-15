@@ -159,7 +159,7 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/message-preference': { params: { id: 'client' } },
   'PUT /api/v1/business/clients/:id/message-preference': {
     params: { id: 'client' },
-    body: { emailNotice: true, emailIncludesBody: null, emailIncludesDocuments: null },
+    body: { emailIncludesBody: true, emailIncludesDocuments: null },
   },
   'POST /api/v1/business/clients/:id/message-threads': {
     params: { id: 'client' },

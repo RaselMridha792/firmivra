@@ -1289,7 +1289,8 @@ export class MessagesService {
     });
     const d = MESSAGE_SETTINGS_DEFAULTS;
     return {
-      emailNotice: s?.clientEmailNotice ?? d.clientEmailNotice,
+      // TR-4 (her Review Two): always sent.
+      emailNotice: true,
       emailIncludesBody: s?.clientEmailIncludesBody ?? d.clientEmailIncludesBody,
       emailIncludesDocuments: s?.clientEmailIncludesDocuments ?? d.clientEmailIncludesDocuments,
     };
@@ -1315,7 +1316,7 @@ export class MessagesService {
     const firm = await this.firmEmailChoices(tx, businessId);
     const saved = await tx.clientMessagePreference.findUnique({
       where: { businessId_clientId: { businessId, clientId } },
-      select: { emailNotice: true, emailIncludesBody: true, emailIncludesDocuments: true },
+      select: { emailIncludesBody: true, emailIncludesDocuments: true },
     });
     const { saveForClient, ...send } = delivery ?? {};
     const resolved = resolveEmailChoices(firm, saved, send);
@@ -1323,14 +1324,29 @@ export class MessagesService {
     if (saveForClient) {
       await tx.clientMessagePreference.upsert({
         where: { businessId_clientId: { businessId, clientId } },
-        create: { businessId, clientId, ...resolved, updatedByUserId: userId },
-        update: { ...resolved, updatedByUserId: userId },
+        create: {
+          businessId,
+          clientId,
+          emailIncludesBody: resolved.emailIncludesBody,
+          emailIncludesDocuments: resolved.emailIncludesDocuments,
+          updatedByUserId: userId,
+        },
+        update: {
+          emailNotice: null,
+          emailIncludesBody: resolved.emailIncludesBody,
+          emailIncludesDocuments: resolved.emailIncludesDocuments,
+          updatedByUserId: userId,
+        },
       });
       await this.audit.logIn(
         tx,
         'client.message_preference_saved',
         { type: 'client', id: clientId },
-        { ...resolved, from: 'composer' },
+        {
+          emailIncludesBody: resolved.emailIncludesBody,
+          emailIncludesDocuments: resolved.emailIncludesDocuments,
+          from: 'composer',
+        },
       );
     }
     return resolved;
@@ -1346,7 +1362,6 @@ export class MessagesService {
     const saved = await tx.clientMessagePreference.findUnique({
       where: { businessId_clientId: { businessId, clientId } },
       select: {
-        emailNotice: true,
         emailIncludesBody: true,
         emailIncludesDocuments: true,
         updatedAt: true,
@@ -1361,7 +1376,6 @@ export class MessagesService {
       firm,
       saved: saved
         ? {
-            emailNotice: saved.emailNotice,
             emailIncludesBody: saved.emailIncludesBody,
             emailIncludesDocuments: saved.emailIncludesDocuments,
             updatedAt: saved.updatedAt.toISOString(),
@@ -1407,17 +1421,14 @@ export class MessagesService {
     return this.inFirm(businessId, async (tx) => {
       await this.reachClient(tx, businessId, actor, clientId);
       const where = { businessId_clientId: { businessId, clientId } };
-      if (
-        body.emailNotice === null &&
-        body.emailIncludesBody === null &&
-        body.emailIncludesDocuments === null
-      ) {
+      if (body.emailIncludesBody === null && body.emailIncludesDocuments === null) {
         await tx.clientMessagePreference.deleteMany({ where: { businessId, clientId } });
       } else {
+        // TR-4: the email is always sent; an older "no email" choice is cleared with this save.
         await tx.clientMessagePreference.upsert({
           where,
           create: { businessId, clientId, ...body, updatedByUserId: actor.userId },
-          update: { ...body, updatedByUserId: actor.userId },
+          update: { ...body, emailNotice: null, updatedByUserId: actor.userId },
         });
       }
       await this.audit.logIn(

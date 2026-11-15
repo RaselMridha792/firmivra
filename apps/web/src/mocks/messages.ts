@@ -81,6 +81,7 @@ import { invoiceFixtures } from './invoices';
 import { BOOKKEEPING_ENGAGEMENT, taskFixtures } from './tasks';
 import { addTimelineEntry } from './client-timeline';
 import { serviceMockClient } from './service-engagements';
+import { taxReturnMockClient } from './tax-return-workspace';
 import { teamFixtures } from './team';
 
 /**
@@ -134,7 +135,6 @@ interface LeadThreadRow {
 }
 /** Review 2 (Messaging): a client's saved email choices, as the API keeps them. */
 interface SavedEmailPreference {
-  emailNotice: boolean | null;
   emailIncludesBody: boolean | null;
   emailIncludesDocuments: boolean | null;
   updatedAt: string;
@@ -1127,7 +1127,8 @@ const prefs = () => (s().preferences ??= new Map<string, SavedEmailPreference>()
 const firmEmail = () => {
   const s = settingsOf();
   return {
-    emailNotice: s.clientEmailNotice,
+    // TR-4: always sent.
+    emailNotice: true,
     emailIncludesBody: s.clientEmailIncludesBody,
     emailIncludesDocuments: s.clientEmailIncludesDocuments,
   };
@@ -1146,8 +1147,16 @@ const deliver = (clientId: string, delivery: MessageDelivery | undefined) => {
   if (!delivery) return;
   const { saveForClient, ...send } = delivery;
   if (!saveForClient) return;
-  const resolved = resolveEmailChoices(firmEmail(), prefs().get(clientId) ?? null, send);
-  prefs().set(clientId, { ...resolved, updatedAt: new Date().toISOString() });
+  const { emailIncludesBody, emailIncludesDocuments } = resolveEmailChoices(
+    firmEmail(),
+    prefs().get(clientId) ?? null,
+    send,
+  );
+  prefs().set(clientId, {
+    emailIncludesBody,
+    emailIncludesDocuments,
+    updatedAt: new Date().toISOString(),
+  });
 };
 
 /** An in-memory `api.messages`. */
@@ -1162,7 +1171,10 @@ export function createMessagesMock(
   const me = role === 'STAFF' ? mockStaff : mockMe;
   // A service mock's client (Bookkeeping, Payroll, a tax return) is the firm's too (SH5, TX-F05).
   const reaches = (clientId: string) =>
-    clientId in CLIENTS || ARCHIVED.includes(clientId) || serviceMockClient(clientId)
+    clientId in CLIENTS ||
+    ARCHIVED.includes(clientId) ||
+    serviceMockClient(clientId) ||
+    taxReturnMockClient(clientId)
       ? role !== 'STAFF' || STAFF_CLIENTS.includes(clientId)
       : false;
   const visible = () => s().threads.filter((t) => reaches(t.clientId));
@@ -1265,12 +1277,7 @@ export function createMessagesMock(
       const cid = parseInput(ClientId, clientId);
       const b = parseInput(SetClientMessagePreferenceRequest, body);
       if (!reaches(cid)) throw notFound();
-      if (
-        b.emailNotice === null &&
-        b.emailIncludesBody === null &&
-        b.emailIncludesDocuments === null
-      )
-        prefs().delete(cid);
+      if (b.emailIncludesBody === null && b.emailIncludesDocuments === null) prefs().delete(cid);
       else prefs().set(cid, { ...b, updatedAt: new Date().toISOString() });
       return preferenceOf(cid);
     },
@@ -1471,14 +1478,11 @@ export function createMessagesMock(
       if (version !== undefined && version !== current.updatedAt)
         throw fail(409, 'STALE_VERSION', 'Someone saved these settings since you opened them.');
       const set = Object.fromEntries(Object.entries(change).filter(([, v]) => v !== undefined));
-      // As the API: the email's text and documents go only in an email that is sent.
-      if ((set['clientEmailNotice'] ?? current.clientEmailNotice) === false) {
-        set['clientEmailIncludesBody'] = false;
-        set['clientEmailIncludesDocuments'] = false;
-      }
       s().settings = {
         ...current,
         ...set,
+        // As the API (TR-4): the email is always on.
+        clientEmailNotice: true,
         defaultAssignee: assignee ? { ...assignee } : null,
         updatedAt: now(),
         updatedBy: { ...me },

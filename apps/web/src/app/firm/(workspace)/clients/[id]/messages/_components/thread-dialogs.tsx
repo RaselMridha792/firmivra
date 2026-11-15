@@ -1,6 +1,6 @@
 'use client';
 
-import { MESSAGE_ERRORS } from '@firmivra/types';
+import { type CreateMessageThreadRequest, MESSAGE_ERRORS } from '@firmivra/types';
 import { Button, Checkbox, Input, Modal } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -136,6 +136,7 @@ export function NewThreadDialog({
   clientId,
   onClose,
   engagementId,
+  related,
   initialSubject = '',
   onSent,
 }: {
@@ -143,6 +144,8 @@ export function NewThreadDialog({
   onClose: () => void;
   /** TX-F05: the service record the conversation is about (a tax return's engagement). */
   engagementId?: string;
+  /** TR-4: the record the conversation is about (MSG-F13's Related To), e.g. a tax return. */
+  related?: CreateMessageThreadRequest['related'];
   initialSubject?: string;
   /** Called once the message is sent, before the dialog closes. */
   onSent?: () => void;
@@ -160,6 +163,7 @@ export function NewThreadDialog({
         body,
         addToTimeline,
         ...(engagementId ? { engagementId } : {}),
+        ...(related ? { related } : {}),
         ...(choices.delivery ? { delivery: choices.delivery } : {}),
       }),
     refresh,
