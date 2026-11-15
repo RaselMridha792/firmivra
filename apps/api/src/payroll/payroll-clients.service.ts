@@ -27,6 +27,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { activateNewClient } from '../clients/client-activation.js';
 import { DATABASE } from '../database/database.module.js';
 import { checkAssignee, isUniqueViolation, lockClient, memberNames } from '../workspaces/common.js';
 import {
@@ -868,6 +869,16 @@ export class PayrollClientsService {
         throw errors.clientState('Resume the service before changing its status');
       await tx.payrollClient.update({ where: { id }, data: { status: body.status } });
       await this.change(tx, businessId, actor, id, 'status', pc.status, body.status, body.reason);
+      // Clients Review Two N8-17: payroll Processing is the work starting; a New client: Active.
+      if (body.status === 'PROCESSING' && pc.status !== 'PROCESSING')
+        await activateNewClient(
+          tx,
+          this.audit,
+          businessId,
+          pc.clientId,
+          actor.userId,
+          'payroll_processing',
+        );
       await this.audit.logIn(
         tx,
         'payroll.client.status_changed',

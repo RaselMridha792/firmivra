@@ -139,7 +139,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-07 Client ID search (UUID and CL- number) | Done | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-08 Pagination and return | Scoped pass; nothing to build | — | — |
 | N8-09 Profile tab scrollbar (V-001) | Done, test gap | #1381, #1415 (R55) | None (see V-001) |
-| N8-09 Sign-ups Invite, Resend and Revoke | Not built yet (R56): with the existing invitation APIs | — | — |
+| N8-09 Sign-ups Invite, Resend and Revoke | Done: Sign-ups > Invitations lists every client once with its invitation state (newest first, state filter, search, pages; Staff see their own clients) and Invite, Resend and Revoke per row through the existing invitation APIs | this PR (R56) | e2e `portal-invitations` "shows each client once with its state, newest invitation first", "filters by state and pages; Staff see only their own clients", "another firm sees none of them; bad input is 400; the view is audited with counts only"; mock `r56-sign-ups-invitations` |
 | N8-10 Last Activity dismissal and names | Done, test gap | #1415 (R55) | `r23-clients` (the From label only; see section 4) |
 | N8-11 Text preference and SMS | Preference: scoped pass. SMS: retest once SMS is set up on dev; nothing to build in Clients | — | — |
 | N8-12 Overview summary cards | After Nov 17 (decided). Active Services (#1378) and Billing (#1434) are on Overview | — | — |
@@ -226,7 +226,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 - N8-17: Accept on a submitted intake, work-start triggers from New to Active, and a manual override
 
 **R56**
-- N8-09: Sign-ups Invite, Resend and Revoke with the existing invitation APIs
+- N8-09: Sign-ups Invite, Resend and Revoke with the existing invitation APIs (this PR)
 
 **After Nov 17 (decided)**
 - N8-18: appointment outcomes and notes

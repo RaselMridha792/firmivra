@@ -15,6 +15,10 @@ import {
   PORTAL_INVITATIONS_PER_DAY,
   type PortalInvitation,
   type PortalInvitationBlock,
+  type PortalInvitationListState,
+  type PortalInvitationPage,
+  type PortalInvitationRow,
+  type PortalInvitationsQuery,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -85,6 +89,56 @@ const expiryOf = (row: AuditRow): Date => {
     ? new Date(m.expiresAt)
     : new Date(row.createdAt.getTime() + TTL_SECONDS * 1000);
 };
+
+/** The login statuses that link a client to the portal (an invitation can no longer be sent). */
+const LINKED = ['INVITED', 'PENDING_APPROVAL', 'ACTIVE'] as const;
+
+/** The newest invitation sent in a trail, with whether it was delivered, opened or revoked. */
+function latestOf(trail: AuditRow[]) {
+  const sent = trail.find((r) => r.action === INVITATION_ACTIONS.sent);
+  const id = sent && idOf(sent);
+  if (!sent || !id) return undefined;
+  const of = (action: string) => trail.find((r) => r.action === action && idOf(r) === id);
+  return {
+    id,
+    sentAt: sent.createdAt,
+    actorUserId: sent.actorUserId,
+    expiresAt: expiryOf(sent),
+    delivered: !of(INVITATION_ACTIONS.failed),
+    revokedAt: of(INVITATION_ACTIONS.revoked)?.createdAt ?? null,
+    openedAt: of(INVITATION_ACTIONS.opened)?.createdAt ?? null,
+  };
+}
+type Latest = NonNullable<ReturnType<typeof latestOf>>;
+
+/** The invitation's state, as the client's Portal Access card shows it. */
+function stateOf(latest: Latest, linked: boolean, waiting: boolean): PortalInvitation['state'] {
+  if (linked || waiting) return 'ACCEPTED';
+  if (!latest.delivered) return 'NOT_SENT';
+  if (latest.revokedAt) return 'REVOKED';
+  return latest.expiresAt.getTime() <= Date.now() ? 'EXPIRED' : 'OPEN';
+}
+
+/** Why an invitation cannot be sent now, or null. */
+function blockOf(c: {
+  archived: boolean;
+  email: string | null;
+  linked: boolean;
+  waiting: boolean;
+  sentToday: number;
+}): PortalInvitationBlock | null {
+  if (c.archived) return 'ARCHIVED';
+  if (!c.email) return 'NO_EMAIL';
+  if (c.linked) return 'HAS_LOGIN';
+  if (c.waiting) return 'SIGN_UP_WAITING';
+  return c.sentToday >= PORTAL_INVITATIONS_PER_DAY ? 'DAILY_LIMIT' : null;
+}
+
+/** Invitations sent to one client in the last 24 hours (the daily limit). */
+const sentInADay = (trail: AuditRow[]) =>
+  trail.filter(
+    (r) => r.action === INVITATION_ACTIONS.sent && r.createdAt.getTime() > Date.now() - DAY_MS,
+  ).length;
 
 /** `r•••@example.com`: enough for the recipient to know which address to use. */
 export function maskEmail(email: string): string {
@@ -225,7 +279,7 @@ export class PortalInvitationsService {
       if (!client || client.archivedAt || client.email?.toLowerCase() !== seal.email) {
         throw invalid();
       }
-      const invitation = this.latest(await this.trail(tx, client.id));
+      const invitation = latestOf(await this.trail(tx, client.id));
       if (
         !invitation ||
         invitation.id !== seal.invitationId ||
@@ -308,24 +362,15 @@ export class PortalInvitationsService {
         })
       : 0;
     const trail = await this.trail(tx, client.id);
-    const linked = client.accounts.some((a) =>
-      ['INVITED', 'PENDING_APPROVAL', 'ACTIVE'].includes(a.status),
-    );
-    const latest = this.latest(trail);
-    const sentToday = trail.filter(
-      (r) => r.action === INVITATION_ACTIONS.sent && r.createdAt.getTime() > Date.now() - DAY_MS,
-    ).length;
-    const blocked: PortalInvitationBlock | null = client.archivedAt
-      ? 'ARCHIVED'
-      : !email
-        ? 'NO_EMAIL'
-        : linked
-          ? 'HAS_LOGIN'
-          : waiting
-            ? 'SIGN_UP_WAITING'
-            : sentToday >= PORTAL_INVITATIONS_PER_DAY
-              ? 'DAILY_LIMIT'
-              : null;
+    const linked = client.accounts.some((a) => (LINKED as readonly string[]).includes(a.status));
+    const latest = latestOf(trail);
+    const blocked = blockOf({
+      archived: !!client.archivedAt,
+      email,
+      linked,
+      waiting: waiting > 0,
+      sentToday: sentInADay(trail),
+    });
     let invitation: PortalInvitation | null = null;
     if (latest) {
       const sentBy = latest.actorUserId
@@ -341,16 +386,7 @@ export class PortalInvitationsService {
         expiresAt: latest.expiresAt.toISOString(),
         delivered: latest.delivered,
         revokedAt: latest.revokedAt?.toISOString() ?? null,
-        state:
-          linked || waiting
-            ? 'ACCEPTED'
-            : !latest.delivered
-              ? 'NOT_SENT'
-              : latest.revokedAt
-                ? 'REVOKED'
-                : latest.expiresAt.getTime() <= Date.now()
-                  ? 'EXPIRED'
-                  : 'OPEN',
+        state: stateOf(latest, linked, waiting > 0),
       };
     }
     return {
@@ -375,7 +411,7 @@ export class PortalInvitationsService {
         entityType: 'client',
         entityId: clientId,
         action: {
-          in: [INVITATION_ACTIONS.sent, INVITATION_ACTIONS.failed, INVITATION_ACTIONS.revoked],
+          in: Object.values(INVITATION_ACTIONS),
         },
         createdAt: { gt: new Date(Date.now() - (PORTAL_INVITATION_DAYS + 1) * DAY_MS) },
       },
@@ -385,19 +421,163 @@ export class PortalInvitationsService {
     });
   }
 
-  /** The newest invitation sent, with whether it was delivered and when it was revoked. */
-  private latest(trail: AuditRow[]) {
-    const sent = trail.find((r) => r.action === INVITATION_ACTIONS.sent);
-    const id = sent && idOf(sent);
-    if (!sent || !id) return undefined;
-    const of = (action: string) => trail.find((r) => r.action === action && idOf(r) === id);
-    return {
-      id,
-      sentAt: sent.createdAt,
-      actorUserId: sent.actorUserId,
-      expiresAt: expiryOf(sent),
-      delivered: !of(INVITATION_ACTIONS.failed),
-      revokedAt: of(INVITATION_ACTIONS.revoked)?.createdAt ?? null,
-    };
+  // ---------- Sign-ups > Invitations (Clients Review Two, N8-09) ----------
+
+  /**
+   * The firm's clients with no portal login, and every client invited in the last eight days
+   * (a link lasts seven), each with its invitation's state as its Portal Access card shows it.
+   * Staff see the clients assigned to them only, filtered in the query. Newest invitation first,
+   * then the clients never invited by name. The view's audit row holds counts only.
+   */
+  async list(
+    businessId: string,
+    actor: InvitationActor,
+    q: z.output<typeof PortalInvitationsQuery>,
+  ): Promise<PortalInvitationPage> {
+    const page = await this.inFirm(businessId, async (tx) => {
+      const since = new Date(Date.now() - (PORTAL_INVITATION_DAYS + 1) * DAY_MS);
+      const records = await tx.auditLog.findMany({
+        where: {
+          businessId,
+          entityType: 'client',
+          action: { in: Object.values(INVITATION_ACTIONS) },
+          createdAt: { gt: since },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 5000,
+        select: {
+          entityId: true,
+          action: true,
+          metadata: true,
+          actorUserId: true,
+          createdAt: true,
+        },
+      });
+      const trails = new Map<string, AuditRow[]>();
+      for (const r of records) {
+        if (!r.entityId) continue;
+        const list = trails.get(r.entityId) ?? [];
+        list.push(r);
+        trails.set(r.entityId, list);
+      }
+      const term = q.search?.trim();
+      const number = term ? /^(?:CL-?)?(\d{1,9})$/i.exec(term)?.[1] : undefined;
+      const clients = await tx.client.findMany({
+        where: {
+          businessId,
+          ...(actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {}),
+          OR: [
+            { accounts: { none: { status: { in: [...LINKED] } } } },
+            { id: { in: [...trails.keys()] } },
+          ],
+          ...(term
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { displayName: { contains: term, mode: 'insensitive' as const } },
+                      { email: { contains: term, mode: 'insensitive' as const } },
+                      ...(number ? [{ clientNumber: Number(number) }] : []),
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
+        take: 5000,
+        select: {
+          id: true,
+          displayName: true,
+          clientNumber: true,
+          email: true,
+          archivedAt: true,
+          accounts: { select: { status: true } },
+        },
+      });
+      const emails = clients.flatMap((c) => (c.email ? [c.email.toLowerCase()] : []));
+      const waiting = new Set(
+        (
+          await tx.clientAccount.findMany({
+            where: {
+              email: { in: emails },
+              clientId: null,
+              status: 'PENDING_APPROVAL',
+              emailVerifiedAt: { not: null },
+            },
+            select: { email: true },
+          })
+        ).map((a) => a.email.toLowerCase()),
+      );
+      const senders = [...new Set(records.flatMap((r) => (r.actorUserId ? [r.actorUserId] : [])))];
+      const names = new Map(
+        (
+          await tx.membership.findMany({
+            where: { businessId, userId: { in: senders } },
+            select: { userId: true, user: { select: { name: true } } },
+          })
+        ).map((m) => [m.userId, m.user.name]),
+      );
+      const rows = clients.map((c): PortalInvitationRow & { sortAt: number } => {
+        const trail = trails.get(c.id) ?? [];
+        const email = c.email?.toLowerCase() ?? null;
+        const linked = c.accounts.some((a) => (LINKED as readonly string[]).includes(a.status));
+        const isWaiting = !!email && waiting.has(email);
+        const latest = latestOf(trail);
+        const blocked = blockOf({
+          archived: !!c.archivedAt,
+          email,
+          linked,
+          waiting: isWaiting,
+          sentToday: sentInADay(trail),
+        });
+        const invited = latest ? stateOf(latest, linked, isWaiting) : null;
+        const state: PortalInvitationListState =
+          invited === 'ACCEPTED'
+            ? 'ACCEPTED'
+            : invited === 'OPEN'
+              ? latest?.openedAt
+                ? 'OPENED'
+                : 'OPEN'
+              : blocked
+                ? 'BLOCKED'
+                : (invited ?? 'NOT_INVITED');
+        return {
+          clientId: c.id,
+          clientName: c.displayName,
+          clientNumber: `CL-${c.clientNumber}`,
+          email: c.email,
+          state,
+          invitation: latest
+            ? {
+                sentAt: latest.sentAt.toISOString(),
+                sentBy: latest.actorUserId ? (names.get(latest.actorUserId) ?? null) : null,
+                expiresAt: latest.expiresAt.toISOString(),
+                openedAt: latest.openedAt?.toISOString() ?? null,
+                revokedAt: latest.revokedAt?.toISOString() ?? null,
+              }
+            : null,
+          blocked,
+          sortAt: latest?.sentAt.getTime() ?? 0,
+        };
+      });
+      const shown = rows
+        .filter((r) => !q.state || r.state === q.state)
+        // Newest invitation first; the never invited after, by name (their order from the query).
+        .sort((a, b) => b.sortAt - a.sortAt);
+      const start = (q.page - 1) * q.limit;
+      return {
+        items: shown.slice(start, start + q.limit).map(({ sortAt: _sortAt, ...row }) => row),
+        total: shown.length,
+        page: q.page,
+        limit: q.limit,
+      };
+    });
+    await this.audit.log(
+      'client.portal_invitations_viewed',
+      { type: 'client' },
+      { state: q.state ?? null, total: page.total },
+    );
+    return page;
   }
 }

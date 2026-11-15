@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { z } from 'zod';
 import {
@@ -6,6 +6,8 @@ import {
   type ClientPortalAccess,
   type OpenedPortalInvitation,
   OpenPortalInvitationRequest,
+  type PortalInvitationPage,
+  PortalInvitationsQuery,
   SendPortalInvitationRequest,
 } from '@firmivra/types';
 import {
@@ -81,6 +83,28 @@ export class PortalInvitationsController {
   }
 }
 
+/**
+ * Sign-ups > Invitations (Clients Review Two, N8-09): every client's invitation state in one list.
+ * The same roles as a client's portal access: Owner and Admin see every client, Staff their
+ * assigned ones (filtered in the query). Invite, Resend and Revoke use the routes above.
+ */
+@Controller('business/portal-invitations')
+@Access('CLIENTS')
+export class PortalInvitationListController {
+  constructor(private readonly invitations: PortalInvitationsService) {}
+
+  @Get()
+  @Roles(...FIRM_STAFF)
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(PortalInvitationsQuery))
+    q: z.output<typeof PortalInvitationsQuery>,
+  ): Promise<PortalInvitationPage> {
+    return this.invitations.list(tenant.businessId, actorOf(auth, tenant), q);
+  }
+}
+
 /** The signed-out invitation page on the firm's portal; the firm comes from the slug. */
 @Controller('portal/:firmSlug/invitation')
 export class PortalInvitationOpenController {
@@ -101,7 +125,11 @@ export class PortalInvitationOpenController {
 
 @Module({
   imports: [PortalInfoModule],
-  controllers: [PortalInvitationsController, PortalInvitationOpenController],
+  controllers: [
+    PortalInvitationsController,
+    PortalInvitationListController,
+    PortalInvitationOpenController,
+  ],
   providers: [
     PortalInvitationsService,
     {

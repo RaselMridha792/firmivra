@@ -31,6 +31,12 @@ export const TABS: { status: SignUpListStatus; label: string; noun: string }[] =
   { status: 'DECLINED', label: 'Declined', noun: 'declined' },
 ];
 
+/** The tab row: the request tabs, then Invitations (Clients Review Two, N8-09; no count). */
+export const TAB_ROW: { status: SignUpListStatus | 'INVITATIONS'; label: string }[] = [
+  ...TABS,
+  { status: 'INVITATIONS', label: 'Invitations' },
+];
+
 /** "Oct 24, 2026", in the browser's zone. */
 export const dayText = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

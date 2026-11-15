@@ -658,12 +658,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       const form = findForm(input.formId);
       if (form.status !== 'PUBLISHED')
         throw fail(409, 'FORM_NOT_PUBLISHED', 'Publish this form before sending it');
-      if (input.subject.toLowerCase().includes('noservice'))
-        throw fail(
-          409,
-          'NO_ENGAGEMENT',
-          "This client has no active service for this form's service",
-        );
+      // Clients Review Two N8-23 as the API: no active service is needed (the API links the form
+      // to a pending request for the service), so a send is never refused for that.
       const open = s.assigned.find(
         (r) =>
           r.recipient.id === rc.id &&
@@ -846,6 +842,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       r.completedAt = new Date().toISOString();
       r.completedBy = me;
       event(r, 'COMPLETED', 'Marked as completed');
+      return toView(r);
+    },
+    // Clients Review Two N8-17 as the API: completed, and the client New → Active (no client list
+    // in this mock, so only the form changes here).
+    accept: async (id) => {
+      await mockDelay();
+      const r = find(id);
+      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(r.status))
+        throw fail(409, 'INVALID_STATUS', 'Only a submitted form can be accepted');
+      setStatus(r, 'COMPLETED');
+      r.completedAt = new Date().toISOString();
+      r.completedBy = me;
+      event(r, 'COMPLETED', 'Accepted');
       return toView(r);
     },
     requestRevision: async (id, body) => {
