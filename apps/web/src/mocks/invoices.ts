@@ -949,20 +949,77 @@ export function createInvoicesMock(
       const b = parseInput(UpdateInvoiceRequest, body);
       const r = find(key);
       const engagementId = engagementOf(r.clientId, b.engagementId);
-      // IP-F08: a scheduled invoice is edited like a draft and stays scheduled.
-      if (r.status !== 'DRAFT' && r.status !== 'SCHEDULED') throw notDraft();
+      // Invoices Review 2 I-N06 as the API: a draft, a scheduled invoice (it stays scheduled), or
+      // a sent one with nothing paid, on the same number; a scheduled or sent one with a reason.
+      if (r.status === 'PAID' || r.status === 'CANCELED')
+        throw fail(409, 'INVOICE_CLOSED', 'This invoice is paid or canceled');
       if (r.archivedAt) throw fail(409, 'INVOICE_ARCHIVED', 'Restore this invoice first');
+      if (isArchived(r)) throw archived();
+      const sent = r.status === 'OPEN';
+      if (r.status !== 'DRAFT' && !b.reason) {
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'reason', message: 'Say why the invoice changes' }],
+        );
+      }
       if (r.status === 'SCHEDULED' && (!b.scheduledFor || b.scheduledFor <= today()))
         throw fail(409, 'SCHEDULE_PASSED', 'Choose a send day after today');
-      if (isArchived(r)) throw archived();
+      if (sent) {
+        if (b.scheduledFor)
+          throw fail(409, 'NOT_CORRECTABLE', 'An invoice already sent has no send day to change');
+        // A payment Stripe is still settling (the API's PAYMENT_IN_PROGRESS).
+        if (r.payments.some((p) => p.status === 'PENDING'))
+          throw fail(409, 'PAYMENT_IN_PROGRESS', 'A payment is going through on this invoice');
+        // Money on it (a payment that went through, refunded or not, or a live check or cash).
+        if (
+          r.payments.some((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED') ||
+          r.offline.some((o) => !o.voidedAt)
+        )
+          throw fail(409, 'HAS_PAYMENTS', 'This invoice has a payment on it');
+      }
+      const before = figures(r).totalCents;
+      const was = { ...r };
       const change: Partial<Row> = {
         ...s.draft(b),
         ...extras(r.clientId, r, b),
-        recurring: waitingSchedule(r.recurring ?? null, b.recurring, b.scheduledFor ?? null),
+        ...(sent
+          ? {}
+          : {
+              recurring: waitingSchedule(r.recurring ?? null, b.recurring, b.scheduledFor ?? null),
+            }),
         engagementId,
         updatedAt: now(),
       };
       Object.assign(r, change);
+      const after = figures(r).totalCents;
+      if (sent && after <= 0) {
+        Object.assign(r, was);
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'lines', message: 'A sent invoice must leave something to pay' }],
+        );
+      }
+      if (r.status !== 'DRAFT') {
+        const usd = (c: number) =>
+          new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(c / 100);
+        const total = before === after ? '' : ` (total ${usd(before)} to ${usd(after)})`;
+        const item = {
+          id: crypto.randomUUID(),
+          type: 'ACTIVITY_LOGGED' as const,
+          body: `Invoice edited${total}: ${b.reason ?? ''}`,
+          actor: { userId: mockMe.userId, name: mockMe.name },
+          createdAt: now(),
+        };
+        histories.set(key, [item, ...(histories.get(key) ?? [])]);
+      }
       return toInvoice(r, today());
     },
     resend: async (id) => {

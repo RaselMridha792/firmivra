@@ -73,6 +73,36 @@ import {
   toListItem,
 } from './invoice-view.js';
 
+/** I-N06: an amount in the history's words, "$1,250.00". */
+const usd = (cents: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+/** I-N06: what a correction changed, in amounts, ids and dates only (for the audit). */
+function changesOf(before: InvoiceRow, after: InvoiceRow) {
+  const pairs: [string, unknown, unknown][] = [
+    ['totalCents', before.totalCents, after.totalCents],
+    ['subtotalCents', before.subtotalCents, after.subtotalCents],
+    ['discountCents', before.discountCents, after.discountCents],
+    ['taxCents', before.taxCents, after.taxCents],
+    ['taxRateId', before.taxRateId, after.taxRateId],
+    ['engagementId', before.engagement?.id ?? null, after.engagement?.id ?? null],
+    ['dueOn', day(before.dueOn), day(after.dueOn)],
+    ['lines', before.lines.length, after.lines.length],
+  ];
+  return Object.fromEntries(
+    pairs.filter(([, from, to]) => from !== to).map(([key, from, to]) => [key, { from, to }]),
+  );
+}
+
+/** I-N06: the history line of a correction: the total before and after, and the reason. */
+function editedText(before: InvoiceRow, after: InvoiceRow, reason: string): string {
+  const total =
+    before.totalCents === after.totalCents
+      ? ''
+      : ` (total ${usd(before.totalCents)} to ${usd(after.totalCents)})`;
+  return `Invoice edited${total}: ${reason}`;
+}
+
 type ListQuery = z.output<typeof ListInvoicesQuery>;
 type CreateBody = z.output<typeof CreateInvoiceRequest>;
 type DraftBody = z.output<typeof UpdateInvoiceRequest>;
@@ -162,25 +192,6 @@ export class InvoicesService {
     await lockInvoice(tx, businessId, id);
     const current = await this.load(tx, businessId, actor, id);
     if (current.status !== 'DRAFT') throw notDraft();
-    if (current.archivedAt) throw invoiceArchived();
-    return current;
-  }
-
-  /** IP-F08: what the editor may change: a draft, or a scheduled invoice not yet sent. */
-  private async loadEditable(
-    tx: TxClient,
-    businessId: string,
-    actor: ClientsActor,
-    id: string,
-    engagementId?: string | null,
-  ): Promise<InvoiceRow> {
-    const editable = (s: string) => s === 'DRAFT' || s === 'SCHEDULED';
-    const first = await this.load(tx, businessId, actor, id);
-    await this.checkEngagement(tx, businessId, first.clientId, engagementId);
-    if (!editable(first.status)) throw notDraft();
-    await lockInvoice(tx, businessId, id);
-    const current = await this.load(tx, businessId, actor, id);
-    if (!editable(current.status)) throw notDraft();
     if (current.archivedAt) throw invoiceArchived();
     return current;
   }
@@ -676,35 +687,149 @@ export class InvoicesService {
     return made ? null : { invoiceId, opened };
   }
 
+  /**
+   * PUT: a draft, a scheduled invoice (it stays scheduled), or (Invoices Review 2 I-N06) a sent one
+   * with nothing paid, on the same number. A scheduled or sent one needs a reason, kept in the
+   * audit with the changed amounts and ids and in its history. A sent one: its open Pay Now
+   * checkouts are ended at Stripe first (so the client pays the new amount; a completed one is 409
+   * PAYMENT_IN_PROGRESS), it must leave something to pay, and its update goes to the client unless
+   * `sendUpdate` is false. One at a time per invoice, as Pay Now and cancel are.
+   */
   async update(
     businessId: string,
     actor: ClientsActor,
     id: string,
     body: DraftBody,
   ): Promise<Invoice> {
-    return this.inFirm(businessId, async (tx) => {
-      const current = await this.loadEditable(tx, businessId, actor, id, body.engagementId);
-      if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
-        throw archived();
+    // A draft or scheduled invoice is written as before; a sent one may end its open checkouts at
+    // Stripe while it holds the row, so it runs one at a time with a checkout's time limit.
+    const status = await this.inFirm(
+      businessId,
+      async (tx) => (await this.load(tx, businessId, actor, id)).status,
+    );
+    const { invoice, sendUpdate } =
+      status === 'OPEN'
+        ? await oneAtATime(businessId, id, () =>
+            this.database.withScope(
+              { kind: 'business', businessId },
+              (tx) => this.updateIn(tx, businessId, actor, id, body),
+              CHECKOUT_LIMITS,
+            ),
+          )
+        : await this.inFirm(businessId, (tx) => this.updateIn(tx, businessId, actor, id, body));
+    // After commit, through the usual invoice email (its own checks and audit).
+    if (sendUpdate) return this.resend(businessId, actor, id);
+    return invoice;
+  }
+
+  private async updateIn(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: DraftBody,
+  ): Promise<{ invoice: Invoice; sendUpdate: boolean }> {
+    const closed = (s: string) => s === 'PAID' || s === 'CANCELED';
+    const first = await this.load(tx, businessId, actor, id);
+    await this.checkEngagement(tx, businessId, first.clientId, body.engagementId);
+    if (closed(first.status)) throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
+    await lockInvoice(tx, businessId, id);
+    const current = await this.load(tx, businessId, actor, id);
+    if (closed(current.status)) throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
+    if (current.archivedAt) throw invoiceArchived();
+    if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
+      throw archived();
+    }
+    const sent = current.status === 'OPEN';
+    // I-N06: a scheduled or sent invoice changes only with a reason.
+    if (current.status !== 'DRAFT' && !body.reason) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'The request is not valid',
+        details: [{ path: 'reason', message: 'Say why the invoice changes' }],
+      });
+    }
+    const { today } = await firmToday(tx, businessId);
+    // IP-F08: a scheduled invoice stays scheduled, so its send day stays after today.
+    if (current.status === 'SCHEDULED') {
+      if (!body.scheduledFor || body.scheduledFor <= today) {
+        throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
       }
-      // IP-F08: a scheduled invoice stays scheduled, so its send day stays after today.
-      if (current.status === 'SCHEDULED') {
-        const { today } = await firmToday(tx, businessId);
-        if (!body.scheduledFor || body.scheduledFor <= today) {
-          throw conflict('SCHEDULE_PASSED', 'Choose a send day after today');
-        }
+    }
+    if (sent) {
+      if (body.scheduledFor) {
+        throw conflict('NOT_CORRECTABLE', 'An invoice already sent has no send day to change');
       }
-      await this.writeDraft(tx, businessId, id, body, actor.userId);
-      await this.writeRecurrence(tx, businessId, actor, id, body);
-      const row = await this.load(tx, businessId, actor, id);
-      await this.audit.logIn(
-        tx,
-        'invoice.updated',
-        { type: 'invoice', id },
-        { clientId: row.clientId, totalCents: row.totalCents, lines: row.lines.length },
-      );
-      return await invoiceOf(tx, businessId, row, (await firmToday(tx, businessId)).today);
-    });
+      if (processing(current)) throw paymentInProgress();
+      if (holdsMoney(current) || current.payments.some((p) => p.status === 'REFUNDED')) {
+        throw conflict(
+          'HAS_PAYMENTS',
+          'This invoice has a payment on it, so it can no longer be edited',
+        );
+      }
+      if (body.dueOn !== day(current.dueOn) && body.dueOn < today) {
+        throw conflict('DUE_DATE_PASSED', 'Choose today or a later due date');
+      }
+      // A Pay Now page the client opened carries the old amount: end it at Stripe first (a
+      // completed one is 409 PAYMENT_IN_PROGRESS, Stripe unreachable 503), as cancel does.
+      if (current.payments.some((p) => p.status === 'PENDING')) {
+        if (!this.stripe) throw providerUnavailable();
+        const stripe = this.stripe;
+        await withStripeHold(async () => {
+          for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+            await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+          }
+        });
+      }
+    }
+    await this.writeDraft(tx, businessId, id, body, actor.userId);
+    // The Recurring settings belong to a draft's or a scheduled invoice's schedule.
+    if (!sent) await this.writeRecurrence(tx, businessId, actor, id, body);
+    const row = await this.load(tx, businessId, actor, id);
+    // I-N06: a correction leaves something to pay (lines pass through zero while they change, so
+    // this is checked here, not by the database).
+    if (sent && row.totalCents <= 0) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'The request is not valid',
+        details: [{ path: 'lines', message: 'A sent invoice must leave something to pay' }],
+      });
+    }
+    await this.audit.logIn(
+      tx,
+      'invoice.updated',
+      { type: 'invoice', id },
+      {
+        clientId: row.clientId,
+        totalCents: row.totalCents,
+        lines: row.lines.length,
+        ...(current.status === 'DRAFT'
+          ? {}
+          : {
+              status: current.status,
+              reason: body.reason,
+              changed: changesOf(current, row),
+              ...(sent ? { sendUpdate: body.sendUpdate !== false } : {}),
+            }),
+      },
+    );
+    if (current.status !== 'DRAFT') {
+      // In its history: what changed in money, and the reason (no names).
+      await tx.invoiceEvent.create({
+        data: {
+          businessId,
+          invoiceId: id,
+          type: 'ACTIVITY_LOGGED',
+          actorKind: 'STAFF',
+          actorUserId: actor.userId,
+          body: editedText(current, row, body.reason ?? ''),
+        },
+      });
+    }
+    return {
+      invoice: await invoiceOf(tx, businessId, row, today),
+      sendUpdate: sent && body.sendUpdate !== false,
+    };
   }
 
   /**

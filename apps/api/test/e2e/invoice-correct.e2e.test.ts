@@ -75,6 +75,8 @@ describe('a scheduled invoice (IP-F08)', () => {
           lines: [{ description: 'Fake bookkeeping, corrected', unitAmountCents: 25_000 }],
           dueOn: nyDay(25),
           scheduledFor: nyDay(8),
+          // I-N06: a scheduled invoice changes with a reason.
+          reason: 'Corrected rate (fake)',
         }),
       ).body,
     );
@@ -84,6 +86,7 @@ describe('a scheduled invoice (IP-F08)', () => {
         lines,
         dueOn: nyDay(25),
         scheduledFor: nyDay(0),
+        reason: 'Corrected rate (fake)',
       }),
       409,
       'SCHEDULE_PASSED',
