@@ -5,6 +5,7 @@ import { RequireRole } from '../../../../../../components/require-role';
 import { SettingsHeader } from '../../_components/settings-parts';
 import { EquipmentCard } from './equipment-card';
 import { RoomsCard } from './rooms-card';
+import { WaitlistCard } from './waitlist-card';
 
 /**
  * Settings > Appointment Settings (Appointments Review 2): Owner and Admin only (the API answers
@@ -17,7 +18,7 @@ export function AppointmentSettingsScreen() {
       <SettingsHeader
         icon={CalendarCheck}
         title="Appointment Settings"
-        subtitle="The rooms and equipment your team books with appointments."
+        subtitle="The rooms and equipment your team books with appointments, and the waitlist for earlier times."
       />
       <RequireRole
         roles={['OWNER', 'ADMIN']}
@@ -30,6 +31,7 @@ export function AppointmentSettingsScreen() {
         <div className="grid min-w-0 grid-cols-1 items-start gap-6 2xl:grid-cols-2">
           <RoomsCard />
           <EquipmentCard />
+          <WaitlistCard />
         </div>
       </RequireRole>
     </div>
