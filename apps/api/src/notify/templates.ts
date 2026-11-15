@@ -647,6 +647,27 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'intake.reminder': (d, b, o) => {
+    const firm = b.name;
+    const due = field(d, 'dueOn');
+    const expires = field(d, 'expiresAt');
+    return {
+      channel: 'email',
+      subject: `Reminder: ${capped(oneLine(required(d, 'formTitle')), 180)}`,
+      blocks: [
+        hello(d),
+        text(
+          `${firm} is still waiting for ${required(d, 'formTitle')}. Open it in your client portal to fill it in and submit it.`,
+        ),
+        ...(typeof due === 'string' ? [text(`Please complete it by ${calendarDate(due)}.`)] : []),
+        button('Open my form', link(d, 'link', o)),
+        ...(expires instanceof Date
+          ? [small(`The form can be filled in until ${dateTime(d, 'expiresAt', b.timeZone)}.`)]
+          : []),
+      ],
+    };
+  },
+
   'client.portal-invite': (d, b, o) => {
     const firm = b.name;
     return {
