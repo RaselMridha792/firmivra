@@ -318,7 +318,19 @@ export const myRequestSelect = {
   engagement: { select: { id: true, title: true } },
   category: { select: { id: true, name: true } },
   packet: { select: { id: true, number: true, title: true } },
+  // F10b: a request made from a tax return names its year and that return.
+  taxYear: true,
+  taxReturn: { select: { id: true, taxYear: true, formType: true } },
 } satisfies Prisma.DocumentRequestSelect;
+
+/** F10b: "2025 1040 Return": the return a request was made from, as both sides see it. */
+const returnOf = (row: Pick<RequestRow, 'taxReturn'>) =>
+  row.taxReturn
+    ? {
+        id: row.taxReturn.id,
+        label: `${row.taxReturn.taxYear} ${row.taxReturn.formType ?? 'Tax'} Return`,
+      }
+    : null;
 
 /**
  * Files per request in the firm's view: the newest 20 (FirmDocumentRequest.documents sets no
@@ -348,6 +360,8 @@ export function toFirmRequest(row: RequestRow, people: People): FirmDocumentRequ
     dueOn: day(row.dueOn),
     status: row.status,
     statusNote: row.statusNote,
+    taxYear: row.taxYear,
+    taxReturn: returnOf(row),
     documents: row.documents.map((d) => ({
       id: d.id,
       fileName: d.fileName,
@@ -370,6 +384,8 @@ export function toMyRequest(row: Omit<RequestRow, 'documents'>): MyDocumentReque
     dueOn: day(row.dueOn),
     status: row.status,
     statusNote: row.statusNote,
+    taxYear: row.taxYear,
+    taxReturn: returnOf(row),
     packet: row.packet
       ? {
           id: row.packet.id,

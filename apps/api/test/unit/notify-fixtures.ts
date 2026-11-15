@@ -45,6 +45,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link: 'https://app.example.test/apply/respond#token=sample-token',
     expiresAt: new Date('2026-11-24T15:00:00Z'),
   },
+  'firm-application.response-code': { name: 'Jordan Sample', code: '123456' },
   'firm-application.approved': {
     name: 'Jordan Sample',
     legalName: 'Sample Tax Partners LLC',
@@ -141,6 +142,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     formTitle: 'Personal Tax Intake Form',
     link: 'https://app.example.test/intake-forms',
   },
+  'intake.received': { formTitle: 'Personal Tax Intake Form' },
   'intake.lead-link': {
     formTitle: 'Personal Tax Intake Form',
     link: 'https://portal.example.test/sample/form#token=synthetic-token',

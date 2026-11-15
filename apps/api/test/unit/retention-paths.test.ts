@@ -76,6 +76,8 @@ describe('no path removes a record of the six retention categories (14b)', () =>
       'begin-online/draft-submit.service.ts': 'lead uploads in hidden slots at submit',
       'begin-online/draft-uploads.service.ts': 'a lead draft’s own upload, removed by the visitor',
       'communications/communications-extras.service.ts': 'an attachment of a draft communication',
+      'firm-applications/apply-respond.service.ts':
+        'an applicant’s response upload refused at send, before any firm exists (none of the six)',
       'esign/lifecycle/lifecycle.service.ts': 'copies made for a replacement that failed',
       'esign/requests/documents.service.ts': 'a file of an e-sign draft',
       'esign/requests/requests.service.ts': 'the files of a discarded e-sign draft',

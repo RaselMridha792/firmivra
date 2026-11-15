@@ -386,6 +386,12 @@ export const FirmDocumentRequest = z.object({
   /** Shown to both: the client's reason (NOT_AVAILABLE) or the firm's (REJECTED). */
   statusNote: z.string().nullable(),
   /**
+   * F10b (Tax Returns Review 2): a request made from a tax return, its tax year and that return
+   * ("2025 1040 Return"); null for one made anywhere else. The API always sends them.
+   */
+  taxYear: z.number().int().nullable().optional(),
+  taxReturn: z.object({ id: z.uuid(), label: z.string() }).nullable().optional(),
+  /**
    * The files uploaded for it, newest first: at most the newest 20 (the client's document list
    * has them all).
    */
@@ -560,6 +566,12 @@ export const MyDocumentRequest = z.object({
   dueOn: CalendarDate.nullable(),
   status: RequestStatus,
   statusNote: z.string().nullable(),
+  /**
+   * F10b (Tax Returns Review 2): a request made from a tax return, its tax year and that return
+   * ("2025 1040 Return"); null for one made anywhere else. The API always sends them.
+   */
+  taxYear: z.number().int().nullable().optional(),
+  taxReturn: z.object({ id: z.uuid(), label: z.string() }).nullable().optional(),
   /**
    * The request packet this item is part of ("DR-0024"); null for a request made on its own.
    * The API always sends it; optional for older readers.

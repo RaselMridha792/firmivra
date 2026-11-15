@@ -355,7 +355,6 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
           <ToggleRow
             label="Send confirmation email to client"
             width="w-20"
-            notActive
             checked={n.sendClientConfirmation}
             disabled={readOnly}
             onChange={(on) => set('notifications', { sendClientConfirmation: on })}

@@ -1560,6 +1560,17 @@ describe('Tax Returns Review 2 (TR-2): a request made from a tax return', () => 
     expectError(await ask({ taxReturnId: ours, taxYear: 2023 }), 400, 'VALIDATION_FAILED');
     const r = await newRequest({ taxReturnId: ours });
     expect(await requestRow(r.id)).toMatchObject({ taxReturnId: ours, taxYear: 2024 });
+    // F10b: the firm and the portal see the year and the return.
+    expect([r.taxYear, r.taxReturn]).toEqual([2024, { id: ours, label: '2024 Tax Return' }]);
+    const portalView = (
+      (await call('get', '/me/document-requests', people.primary)).body as {
+        items: { id: string; taxYear?: number | null; taxReturn?: unknown }[];
+      }
+    ).items.find((i) => i.id === r.id);
+    expect(portalView).toMatchObject({
+      taxYear: 2024,
+      taxReturn: { id: ours, label: '2024 Tax Return' },
+    });
     const created = (await auditOf(r.id)).find((a) => a.action === 'document_request.created');
     expect(created?.metadata).toMatchObject({ taxReturnId: ours });
     // The client's file takes the return's 2024, not the service's 2025 or the year it named.

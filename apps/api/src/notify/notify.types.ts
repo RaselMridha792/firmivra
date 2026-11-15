@@ -63,6 +63,13 @@ export interface NotifyTemplates {
    */
   'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
   /**
+   * Intake Forms Review Two row 21/23: Intake Form Settings > Send confirmation email to client.
+   * The person who submitted a form (a client in the portal, or a lead through the emailed link)
+   * gets a plain "we received your form": the form's title and the firm's name, never an answer.
+   * The firm turned it on, so it is always sent (ACCOUNT), as a lead's own confirmation.
+   */
+  'intake.received': IgnoredFirmName & { formTitle: string };
+  /**
    * A form the firm sent a lead (Intake Forms Review Two, ACCESS-01): the secure link
    * (`{PORTAL_BASE_URL}/{slug}/form#token=...`) and when it stops working. `subject` and `message`
    * are what the member typed on Send Intake Form; they go out, and nowhere else. A lead has no
@@ -153,6 +160,8 @@ export interface NotifyTemplates {
     link: string;
     expiresAt: Date;
   };
+  /** SA-APP-Y06: the 6-digit code the applicant types before answering (10 minutes). */
+  'firm-application.response-code': { name: string; code: string };
   /** Approved: the owner's activation link (R2 invite), 7 days. */
   'firm-application.approved': { name: string; legalName: string; link: string; expiresAt: Date };
   /** Declined, with the reason the Super Admin wrote for the applicant. */
@@ -313,6 +322,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'client.signup-declined': 'email',
   'firm-application.received': 'email',
   'firm-application.info-requested': 'email',
+  'firm-application.response-code': 'email',
   'firm-application.approved': 'email',
   'firm-application.declined': 'email',
   'document.requested': 'email',
@@ -338,6 +348,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.confirmation': 'email',
   'lead.received': 'email',
   'intake.submitted-notice': 'email',
+  'intake.received': 'email',
   'intake.lead-link': 'email',
   'intake.sent': 'email',
   'intake.reminder': 'email',
@@ -367,6 +378,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'client.signup-declined': 'firm',
   'firm-application.received': 'platform',
   'firm-application.info-requested': 'platform',
+  'firm-application.response-code': 'platform',
   'firm-application.approved': 'platform',
   'firm-application.declined': 'platform',
   'document.requested': 'firm',
@@ -392,6 +404,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
   'intake.submitted-notice': 'firm',
+  'intake.received': 'firm',
   'intake.lead-link': 'firm',
   'intake.sent': 'firm',
   'intake.reminder': 'firm',
@@ -418,6 +431,7 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'client.signup-declined',
   'firm-application.received',
   'firm-application.info-requested',
+  'firm-application.response-code',
   'firm-application.approved',
   'firm-application.declined',
   // Firm Sign: the code, a request to sign and its expiry warning are part of a transaction the
@@ -456,6 +470,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'client.signup-declined': 'ACCOUNT',
   'firm-application.received': 'ACCOUNT',
   'firm-application.info-requested': 'ACCOUNT',
+  'firm-application.response-code': 'ACCOUNT',
   'firm-application.approved': 'ACCOUNT',
   'firm-application.declined': 'ACCOUNT',
   'document.requested': 'DOCUMENTS',
@@ -482,6 +497,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
   'intake.submitted-notice': 'INTAKE',
+  'intake.received': 'ACCOUNT',
   'intake.lead-link': 'ACCOUNT',
   // Always sent (the member chose Email), so in ACCOUNT, as the lead's link.
   'intake.sent': 'ACCOUNT',

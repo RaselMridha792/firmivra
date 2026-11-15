@@ -1,6 +1,16 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
+import { UploadPutTicket } from '../documents/schemas.js';
 import {
   AdminDashboard,
+  ApplicationResponseRequestView,
+  ApplicationResponseSession,
+  CreateApplicationResponseUploadRequest,
+  OpenApplicationResponseRequest,
+  SendApplicationResponseCodeRequest,
+  SendApplicationResponseCodeResponse,
+  SubmitApplicationResponseRequest,
+  SubmitApplicationResponseResponse,
+  VerifyApplicationResponseCodeRequest,
   AdminSystemStatus,
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
@@ -41,6 +51,46 @@ export function createFirmApplicationsClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(SubmitFirmApplicationRequest, body),
       }),
+
+    /**
+     * The applicant's answer to a request for information (SA-APP-F04), public: open the emailed
+     * link, get a 6-digit code at the contact email, verify it, upload files, then send the answer.
+     */
+    respond: {
+      open: async (body: OpenApplicationResponseRequest): Promise<ApplicationResponseRequestView> =>
+        request(ApplicationResponseRequestView, '/firm-applications/respond/open', {
+          method: 'POST',
+          body: parseInput(OpenApplicationResponseRequest, body),
+        }),
+      sendCode: async (
+        body: SendApplicationResponseCodeRequest,
+      ): Promise<SendApplicationResponseCodeResponse> =>
+        request(SendApplicationResponseCodeResponse, '/firm-applications/respond/code', {
+          method: 'POST',
+          body: parseInput(SendApplicationResponseCodeRequest, body),
+        }),
+      verifyCode: async (
+        body: VerifyApplicationResponseCodeRequest,
+      ): Promise<ApplicationResponseSession> =>
+        request(ApplicationResponseSession, '/firm-applications/respond/verify', {
+          method: 'POST',
+          body: parseInput(VerifyApplicationResponseCodeRequest, body),
+        }),
+      createUpload: async (
+        body: CreateApplicationResponseUploadRequest,
+      ): Promise<UploadPutTicket> =>
+        request(UploadPutTicket, '/firm-applications/respond/uploads', {
+          method: 'POST',
+          body: parseInput(CreateApplicationResponseUploadRequest, body),
+        }),
+      submit: async (
+        body: SubmitApplicationResponseRequest,
+      ): Promise<SubmitApplicationResponseResponse> =>
+        request(SubmitApplicationResponseResponse, '/firm-applications/respond', {
+          method: 'POST',
+          body: parseInput(SubmitApplicationResponseRequest, body),
+        }),
+    },
 
     /** One page, newest first unless `order: 'oldest'`. */
     list: async (query: ListFirmApplicationsQuery = {}): Promise<ListFirmApplicationsResponse> =>

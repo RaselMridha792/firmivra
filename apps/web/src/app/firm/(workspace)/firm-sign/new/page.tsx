@@ -11,18 +11,24 @@ export default async function NewSignatureRequestPage({
     templateId?: string;
     documentId?: string;
     engagementId?: string;
+    taxReturnId?: string;
+    authorizationId?: string;
   }>;
 }) {
   // Send for Signature on a client record opens this page with the client chosen, Use template
   // with the template chosen.
   // A tax return's Signatures (Review 2, TX-F03) also names its service (the engagement).
-  const { clientId, templateId, documentId, engagementId } = await searchParams;
+  // F03db: and the return's signature line, which the new request is linked to.
+  const { clientId, templateId, documentId, engagementId, taxReturnId, authorizationId } =
+    await searchParams;
   return (
     <NewRequest
       clientId={typeof clientId === 'string' ? clientId : undefined}
       templateId={typeof templateId === 'string' ? templateId : undefined}
       documentId={typeof documentId === 'string' ? documentId : undefined}
       engagementId={typeof engagementId === 'string' ? engagementId : undefined}
+      taxReturnId={typeof taxReturnId === 'string' ? taxReturnId : undefined}
+      authorizationId={typeof authorizationId === 'string' ? authorizationId : undefined}
     />
   );
 }

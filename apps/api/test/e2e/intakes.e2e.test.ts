@@ -257,6 +257,8 @@ const signAsOne = async (tx: TxClient, input: IntakeSignInput): Promise<SignedBy
 const signed: string[] = [];
 /** Intake Form Settings > Notify additional emails (I7): the notices, recorded, not sent. */
 const notices: NotifyMessage[] = [];
+/** Send confirmation email to client: the confirmations, recorded, not sent. */
+const confirmations: NotifyMessage[] = [];
 let hold: { entered: () => void; until: Promise<void> } | null = null;
 /**
  * How many of the next submit attempts get a save landing between their check and their lock:
@@ -425,6 +427,10 @@ beforeAll(async () => {
   const notify = nest.get<NotifyService>(NOTIFY_SERVICE);
   const realSend = notify.send.bind(notify);
   notify.send = async (message) => {
+    if (message.template === 'intake.received') {
+      confirmations.push(message as NotifyMessage);
+      return;
+    }
     if (message.template !== 'intake.submitted-notice') return realSend(message);
     notices.push(message as NotifyMessage);
   };
@@ -1431,15 +1437,18 @@ describe('portal: submit', () => {
     await inFirm((tx) =>
       tx.intakeSettings.upsert({
         where: { businessId: ids.firmA },
-        // Row 23: and Notify assigned staff member off.
+        // Row 23: and Notify assigned staff member off; and Send confirmation email to client
+        // off (the lead link's e2e has it on).
         create: {
           businessId: ids.firmA,
           notifyAdditionalEmails: ['office@r11.test', 'partner@r11.test'],
           notifyAssignedStaff: false,
+          sendClientConfirmation: false,
         },
         update: {
           notifyAdditionalEmails: ['office@r11.test', 'partner@r11.test'],
           notifyAssignedStaff: false,
+          sendClientConfirmation: false,
         },
       }),
     );
@@ -1475,6 +1484,8 @@ describe('portal: submit', () => {
     expect(landSaves).toBe(0);
     // Once, to each listed address: the form's title and the workspace link, nothing else.
     expect(notices.map((n) => n.to).sort()).toEqual(['office@r11.test', 'partner@r11.test']);
+    // The firm turned the client confirmation off: none went out.
+    expect(confirmations).toEqual([]);
     for (const n of notices) {
       expect(n.businessId).toBe(ids.firmA);
       expect(Object.keys(n.data).sort()).toEqual(['formTitle', 'link']);
@@ -1495,7 +1506,7 @@ describe('portal: submit', () => {
     await inFirm((tx) =>
       tx.intakeSettings.update({
         where: { businessId: ids.firmA },
-        data: { notifyAssignedStaff: true },
+        data: { notifyAssignedStaff: true, sendClientConfirmation: true },
       }),
     );
     const stored = await inFirm(async (tx) => ({

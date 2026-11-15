@@ -65,3 +65,51 @@ export async function sendSubmittedNotice(
     );
   }
 }
+
+/**
+ * Intake Forms Review Two (her line 421, "confirmation notification where enabled"): Intake Form
+ * Settings > Send confirmation email to client (on until the firm turns it off). After the submit
+ * committed, the person who sent the form gets a plain "we received your form" (the form's title
+ * and the firm's name, never an answer) at `to`: the client's portal login email, or the lead's.
+ * A failed send is logged with the intake's id only and never undoes the submit.
+ */
+export async function sendClientConfirmation(
+  deps: SubmittedNoticeDeps,
+  businessId: string,
+  intakeId: string,
+  to: string | null,
+): Promise<void> {
+  if (!to) return;
+  try {
+    const { on, title } = await deps.database.withScope(
+      { kind: 'business', businessId },
+      async (tx) => {
+        const [settings, intake] = await Promise.all([
+          tx.intakeSettings.findUnique({
+            where: { businessId },
+            select: { sendClientConfirmation: true },
+          }),
+          tx.intake.findFirst({
+            where: { businessId, id: intakeId },
+            select: { form: { select: { title: true } } },
+          }),
+        ]);
+        return {
+          on: settings?.sendClientConfirmation ?? true,
+          title: intake?.form?.title ?? 'your intake form',
+        };
+      },
+    );
+    if (!on) return;
+    await deps.notify.send({
+      template: 'intake.received',
+      to,
+      businessId,
+      data: { formTitle: title },
+    });
+  } catch (error) {
+    deps.logger.warn(
+      `Intake ${intakeId}: client confirmation not sent (${(error as Error)?.name ?? 'Error'})`,
+    );
+  }
+}

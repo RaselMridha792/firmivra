@@ -31,7 +31,10 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
-import { sendSubmittedNotice } from '../intake-workspace/submitted-notice.js';
+import {
+  sendClientConfirmation,
+  sendSubmittedNotice,
+} from '../intake-workspace/submitted-notice.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
@@ -747,11 +750,19 @@ export class IntakesService {
     );
     await this.tell(businessId, 'intake.submitted', id, login.userId, excludes);
     // Intake Form Settings > Notify additional emails (I7): the form's title only, no answers.
-    await sendSubmittedNotice(
-      { database: this.database, notify: this.notify, env: this.env, logger: this.logger },
-      businessId,
-      id,
-    );
+    const deps = {
+      database: this.database,
+      notify: this.notify,
+      env: this.env,
+      logger: this.logger,
+    };
+    await sendSubmittedNotice(deps, businessId, id);
+    // Send confirmation email to client: to the login that sent it, when the firm has it on.
+    const account = await this.database.forBusiness(businessId).clientAccount.findFirst({
+      where: { businessId, id: login.clientAccountId },
+      select: { email: true },
+    });
+    await sendClientConfirmation(deps, businessId, id, account?.email ?? null);
     return intake;
   }
 
