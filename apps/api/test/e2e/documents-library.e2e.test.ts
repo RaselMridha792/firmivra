@@ -818,3 +818,67 @@ describe('a firm file shown to its client later (C2-052)', () => {
     ).toBe(400);
   });
 });
+
+describe('N8-17: a document review started activates a New client; an upload alone never does', () => {
+  it('moves a New client to Active on Start Review, leaves one past New as it is', async () => {
+    const serviceId = (
+      await inFirm('a', (tx) =>
+        tx.engagement.findFirstOrThrow({ where: { id: ids.e1 }, select: { serviceId: true } }),
+      )
+    ).serviceId;
+    const fresh = (status: 'NEW' | 'ON_HOLD', name: string) =>
+      inFirm('a', async (tx) => {
+        const c = await tx.client.create({
+          data: { businessId: firms.a, displayName: `${name} (fake)`, status },
+          select: { id: true },
+        });
+        const e = await tx.engagement.create({
+          data: { businessId: firms.a, clientId: c.id, serviceId, title: `${name} 2025` },
+          select: { id: true },
+        });
+        return { clientId: c.id, engagementId: e.id };
+      });
+    const statusOf = async (id: string) =>
+      (
+        await inFirm('a', (tx) =>
+          tx.client.findFirstOrThrow({ where: { id }, select: { status: true } }),
+        )
+      ).status;
+    const one = await fresh('NEW', 'Nell New');
+    const doc = ok(
+      await upload({ clientId: one.clientId, serviceId: one.engagementId }),
+      FirmDocument,
+    );
+    // The upload alone: still New.
+    expect(await statusOf(one.clientId)).toBe('NEW');
+    ok(
+      await call('post', `/documents/${doc.id}/review`, ownerA, { action: 'START' }),
+      LibraryDocument,
+    );
+    expect(await statusOf(one.clientId)).toBe('ACTIVE');
+    const audit = await inFirm('a', (tx) =>
+      tx.auditLog.findFirst({
+        where: { entityId: one.clientId, action: 'client.updated' },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit?.metadata).toEqual({
+      fields: ['status'],
+      from: 'NEW',
+      to: 'ACTIVE',
+      via: 'document_review_started',
+    });
+    // A client past New stays as it is.
+    const held = await fresh('ON_HOLD', 'Hal Held');
+    const heldDoc = ok(
+      await upload({ clientId: held.clientId, serviceId: held.engagementId }),
+      FirmDocument,
+    );
+    ok(
+      await call('post', `/documents/${heldDoc.id}/review`, ownerA, { action: 'START' }),
+      LibraryDocument,
+    );
+    expect(await statusOf(held.clientId)).toBe('ON_HOLD');
+  });
+});

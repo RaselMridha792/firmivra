@@ -91,6 +91,12 @@ export function createIntakeFormsClient(request: ApiRequest) {
     /** A reminder now; not for a submitted or completed form (409 INVALID_STATUS). */
     remind: async (id: string): Promise<AssignedFormRecord> =>
       request(AssignedFormRecord, `${intake(id)}/remind`, post()),
+    /**
+     * Clients Review Two N8-17: Accept (SUBMITTED or UNDER_REVIEW to COMPLETED, as Mark Reviewed),
+     * and the form's client New → Active (a client past New stays as it is).
+     */
+    accept: async (id: string): Promise<IntakeView> =>
+      request(IntakeView, `${intake(id)}/accept`, post({})),
     /** Mark Reviewed: R11's complete (SUBMITTED or UNDER_REVIEW to COMPLETED). */
     markReviewed: async (id: string): Promise<IntakeView> =>
       request(IntakeView, `${intake(id)}/complete`, post({})),

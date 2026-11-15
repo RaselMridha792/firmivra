@@ -48,6 +48,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { NewThreadDialog } from '../../clients/[id]/messages/_components/thread-dialogs';
 import {
   ACTIVITY_ICON,
   BLOCKER_LABEL,
@@ -171,6 +172,7 @@ type DialogName =
   | 'amend'
   | 'carry'
   | 'activity'
+  | 'message'
   | 'archive'
   | 'delete';
 
@@ -234,14 +236,9 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       icon: FileArrowUp,
       onSelect: out(`/documents/requests/new?clientId=${row.client.id}`),
     },
-    // New Message for this client, about this return (MSG-F13's Related To).
-    {
-      label: 'Send Message',
-      icon: ChatCircleDots,
-      onSelect: out(
-        `/messages/new?clientId=${row.client.id}&subject=${encodeURIComponent(about)}&related=tax_return:${row.id}`,
-      ),
-    },
+    // New Message for this client, about this return (MSG-F13's Related To), written here so
+    // Cancel stays on Tax Returns (TR-4).
+    { label: 'Send Message', icon: ChatCircleDots, onSelect: () => setDialog('message') },
     // The shared Schedule form on this client (SH6).
     {
       label: 'Schedule Appointment',
@@ -299,6 +296,15 @@ export function ReturnMenu({ row, onNotice }: { row: TaxReturnRow; onNotice: Not
       {dialog === 'amend' ? <AmendDialog {...props} /> : null}
       {dialog === 'carry' ? <CarryDialog {...props} /> : null}
       {dialog === 'activity' ? <ActivityDrawer {...props} /> : null}
+      {dialog === 'message' ? (
+        <NewThreadDialog
+          clientId={row.client.id}
+          related={{ type: 'tax_return', id: row.id }}
+          initialSubject={about}
+          onClose={() => setDialog(undefined)}
+          onSent={() => onNotice('Message sent to the client.', 'success')}
+        />
+      ) : null}
       {dialog === 'archive' ? <ArchiveDialog {...props} /> : null}
       {dialog === 'delete' ? <DeleteDialog {...props} /> : null}
     </>

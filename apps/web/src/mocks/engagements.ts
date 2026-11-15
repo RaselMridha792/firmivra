@@ -331,6 +331,16 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         updatedAt: now(),
       });
     },
+    // Clients Review Two N8-17 as the API: Start Service, a pending service begins.
+    activate: async (id) => {
+      await pause();
+      const eid = parseInput(EngagementId, id);
+      const row = find(eid);
+      assertNotArchived(row.clientId);
+      if (row.status !== 'PENDING')
+        throw fail(409, 'INVALID_STATUS', 'Only a pending service can be started');
+      return save({ ...row, status: 'ACTIVE', updatedAt: now() });
+    },
     // G8: any service on hold with the firm's reason, and back (as the API).
     pause: async (id, body) => {
       await pause();

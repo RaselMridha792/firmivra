@@ -92,6 +92,7 @@ export const MessageSettings = z.object({
    * on (the screen warns); documents only as sign-in links into the portal. A client's saved
    * preference and each send can differ. Missing (an older answer) reads as the defaults.
    */
+  /** Always true: the client always gets an email that a message is waiting (TR-4). */
   clientEmailNotice: z.boolean().default(true),
   clientEmailIncludesBody: z.boolean().default(false),
   clientEmailIncludesDocuments: z.boolean().default(false),
@@ -133,21 +134,10 @@ export const UpdateMessageSettingsRequest = z
     quietHoursEnd: TimeOfDay.nullable().optional(),
     bulkConfirmThreshold: z.number().int().min(1).max(100_000).optional(),
     bulkRequiresManager: z.boolean().optional(),
-    /** Turning the email off turns its text and documents off too. */
-    clientEmailNotice: z.boolean().optional(),
     clientEmailIncludesBody: z.boolean().optional(),
     clientEmailIncludesDocuments: z.boolean().optional(),
   })
   .refine((b) => Object.keys(b).some((k) => k !== 'version'), 'Change at least one setting')
-  .refine(
-    (b) =>
-      b.clientEmailNotice !== false ||
-      (b.clientEmailIncludesBody !== true && b.clientEmailIncludesDocuments !== true),
-    {
-      message: 'The message text and documents go only in an email that is sent',
-      path: ['clientEmailNotice'],
-    },
-  )
   .refine(
     (b) =>
       (b.quietHoursStart === undefined) === (b.quietHoursEnd === undefined) &&

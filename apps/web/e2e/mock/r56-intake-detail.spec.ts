@@ -91,6 +91,19 @@ test('Mark Reviewed completes the form', async ({ page }) => {
   await expect(page.getByTestId('client-card')).toContainText('Completed');
 });
 
+test('Accept completes a submitted form and says a New client is now Active (N8-17)', async ({
+  page,
+}) => {
+  // A form only sent cannot be accepted (the API answers 409 INVALID_STATUS).
+  await page.goto(form(4));
+  await expect(page.getByRole('button', { name: 'Accept' })).toBeDisabled();
+  await page.goto(form(3));
+  await page.getByRole('button', { name: 'Accept' }).click();
+  await expect(page.getByText('Accepted. A New client is now Active.')).toBeVisible();
+  await expect(page.getByTestId('client-card')).toContainText('Completed');
+  await expect(page.getByRole('button', { name: 'Accept' })).toBeDisabled();
+});
+
 test('Request Revision asks for a note and sends the form back', async ({ page }) => {
   await page.goto(form(8));
   await page.getByRole('button', { name: 'Request Revision' }).click();

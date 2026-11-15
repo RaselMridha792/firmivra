@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
   MESSAGE_SETTINGS_DEFAULTS,
@@ -80,7 +74,6 @@ const FIELDS = [
   'quietHoursEnd',
   'bulkConfirmThreshold',
   'bulkRequiresManager',
-  'clientEmailNotice',
   'clientEmailIncludesBody',
   'clientEmailIncludesDocuments',
 ] as const;
@@ -129,7 +122,8 @@ export class MessageSettingsService {
       quietHoursEnd: hhmm(row?.quietHoursEnd ?? null),
       bulkConfirmThreshold: row?.bulkConfirmThreshold ?? d.bulkConfirmThreshold,
       bulkRequiresManager: row?.bulkRequiresManager ?? d.bulkRequiresManager,
-      clientEmailNotice: row?.clientEmailNotice ?? d.clientEmailNotice,
+      // TR-4 (her Review Two): the new-message email is always sent.
+      clientEmailNotice: true,
       clientEmailIncludesBody: row?.clientEmailIncludesBody ?? d.clientEmailIncludesBody,
       clientEmailIncludesDocuments:
         row?.clientEmailIncludesDocuments ?? d.clientEmailIncludesDocuments,
@@ -151,7 +145,6 @@ export class MessageSettingsService {
 
   async update(businessId: string, userId: string, body: Body): Promise<MessageSettings> {
     const { version, ...change } = body;
-    const d = MESSAGE_SETTINGS_DEFAULTS;
     const touched = FIELDS.filter((f) => change[f] !== undefined);
     const result = await this.inFirm(businessId, async (tx) => {
       // One save at a time per firm, the first one included (no row to lock yet).
@@ -165,7 +158,7 @@ export class MessageSettingsService {
       }
       const current = await tx.messageSettings.findUnique({
         where: { businessId },
-        select: { updatedAt: true, clientEmailNotice: true },
+        select: { updatedAt: true },
       });
       if (version !== undefined && (current?.updatedAt.toISOString() ?? null) !== version) {
         throw new ConflictException({
@@ -173,22 +166,11 @@ export class MessageSettingsService {
           message: 'Someone saved these settings since you opened them. Reload to see them.',
         });
       }
-      // Review 2 (Messaging): the email's text and documents go only in an email that is sent.
-      // Turning the email off turns them off; turning one on while it is off is refused.
-      const notice = change.clientEmailNotice ?? current?.clientEmailNotice ?? d.clientEmailNotice;
-      if (!notice) {
-        if (change.clientEmailIncludesBody || change.clientEmailIncludesDocuments) {
-          throw new BadRequestException({
-            code: 'VALIDATION_FAILED',
-            message: 'The message text and documents go only in an email that is sent',
-            path: ['clientEmailNotice'],
-          });
-        }
-        change.clientEmailIncludesBody = false;
-        change.clientEmailIncludesDocuments = false;
-      }
       const data = {
         ...change,
+        // TR-4: the email is always on; a firm saved with it off is turned back on, so the
+        // email's text and documents can be chosen again.
+        clientEmailNotice: true,
         quietHoursStart: toTime(change.quietHoursStart),
         quietHoursEnd: toTime(change.quietHoursEnd),
         updatedByUserId: userId,

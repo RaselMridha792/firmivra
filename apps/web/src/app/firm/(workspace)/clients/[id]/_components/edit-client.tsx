@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type ClientLink,
   type ClientRecord,
   clientFormIssues,
   ContactMethod,
@@ -13,11 +14,12 @@ import { useState } from 'react';
 import { type FieldPath, useForm } from 'react-hook-form';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
-import { useApiMutation } from '../../../../../../lib/query';
+import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
 import { CLIENT_ERRORS, CLIENTS, formatPhone } from '../../_components/client-parts';
 import { DuplicatePhoneDialog, duplicateOf } from '../../_components/duplicate-phone';
 import { zipStateWarning } from '../../_components/zip-state';
+import { useClientRecord } from './use-client-record';
 
 const CONTACT_FIELDS = ['displayName', 'email', 'phone'] as const;
 const NAME_FIELDS = ['firstName', 'middleName', 'lastName', 'preferredName'] as const;
@@ -311,6 +313,19 @@ export function EditClient({
           {business ? (
             <fieldset className="grid gap-4 sm:grid-cols-2" data-testid="responsible-party-fields">
               <legend className="mb-2 text-sm font-semibold text-text">Responsible party</legend>
+              <LinkedPartyFill
+                clientId={client.id}
+                onFill={(found) => {
+                  // Only what is still blank: what the firm typed stays.
+                  const blank = PARTY_FIELDS.filter((k) => !form.getValues(k).trim());
+                  for (const k of blank)
+                    form.setValue(k, found[k], {
+                      shouldDirty: true,
+                      shouldValidate: form.formState.isSubmitted,
+                    });
+                  return blank.length;
+                }}
+              />
               <div className="sm:col-span-2">
                 <Input label="Full name *" autoComplete="off" {...field('rpName')} />
               </div>
@@ -384,5 +399,74 @@ export function EditClient({
         </form>
       </Modal>
     </>
+  );
+}
+
+/** The linked person a Business's responsible party comes from: its Responsible party, else Owner. */
+function partyLink(links: ClientLink[] | undefined): ClientLink | undefined {
+  const people = (links ?? []).filter(
+    (l) => l.side === 'LINKED' && l.other.accountType === 'INDIVIDUAL' && !l.other.archived,
+  );
+  return (
+    people.find((l) => l.role === 'RESPONSIBLE_PARTY') ?? people.find((l) => l.role === 'OWNER')
+  );
+}
+
+/**
+ * Clients Review 2 (G9): a Business linked to its responsible party's (or owner's) personal
+ * profile fills the Responsible party from that profile, so the firm types only what is missing.
+ * Nothing shows without such a link, or when this person can't open that profile.
+ */
+function LinkedPartyFill({
+  clientId,
+  onFill,
+}: {
+  clientId: string;
+  /** Fills the blank fields; returns how many it filled. */
+  onFill: (found: Record<(typeof PARTY_FIELDS)[number], string>) => number;
+}) {
+  // The same query as Linked Profiles on Overview.
+  const links = useApiQuery(['clients', clientId, 'links'], () => api.clients.links(clientId));
+  const link = partyLink(links.data);
+  return link ? <PersonFill personId={link.other.id} onFill={onFill} /> : null;
+}
+
+function PersonFill({
+  personId,
+  onFill,
+}: {
+  personId: string;
+  onFill: (found: Record<(typeof PARTY_FIELDS)[number], string>) => number;
+}) {
+  const person = useClientRecord(personId);
+  const [notice, setNotice] = useState('');
+  if (!person.data) return null;
+  const p = person.data;
+  const name =
+    [p.profile.firstName, p.profile.lastName].filter((x) => x?.trim()).join(' ') || p.displayName;
+  return (
+    <div className="flex flex-col items-start gap-1 sm:col-span-2" data-testid="party-fill">
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => {
+          const filled = onFill({
+            rpName: name,
+            rpEmail: p.email ?? '',
+            rpPhone: formatPhone(p.phone) ?? '',
+          });
+          setNotice(
+            filled
+              ? `Filled from ${p.displayName}'s profile. Check the details before you save.`
+              : 'Every field is already filled; nothing was changed.',
+          );
+        }}
+      >
+        Fill from {p.displayName}
+      </Button>
+      <p className="text-xs text-muted" role="status">
+        {notice || `Linked profile: fills only the blank fields below from ${p.displayName}.`}
+      </p>
+    </div>
   );
 }

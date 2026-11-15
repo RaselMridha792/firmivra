@@ -3,7 +3,8 @@ import { expect, test } from '@playwright/test';
 // R60, Tax Returns with the shared pieces (Octavia's Oct 26 review): TX-F03 (SH1) every way out
 // keeps Back to the return; TX-F05 (SH5) Send Message is written here; TX-F06 (SH6) Create
 // Appointment opens the shared form on this client and return; TX-F08 to F10 (SH3) Upload and
-// Request open here; TX-F13 to F15 (SH4) the shared task list and Create Task on this return.
+// Request open here (TR-2: a request names this return); TX-F13 to F15 (SH4) the shared task
+// list and Create Task on this return.
 // Mock mode as the Owner; nothing is sent anywhere.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
@@ -42,6 +43,15 @@ test('Upload and Request open here; tasks and Create Task stay on this return', 
     .getByRole('dialog', { name: 'Request Documents' })
     .getByRole('button', { name: 'Cancel' })
     .click();
+  // TR-2: a request sent from here names this return (the mock, as the API, refuses a return
+  // that isn't this client's) and stays on the return.
+  await docs.getByRole('button', { name: 'Request Documents' }).click();
+  const request = page.getByRole('dialog', { name: 'Request Documents' });
+  await request.getByLabel('Document needed').fill('W-2 (fake)');
+  await request.getByRole('button', { name: 'Send Request' }).click();
+  await expect(page.getByText(/Requested "W-2 \(fake\)" from /)).toBeVisible();
+  await expect(request).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`${here}`));
 
   // SH4: the shared task list, and Create Task on this client, return and year, with Back here.
   const tasks = page.getByTestId('upcoming-tasks');
