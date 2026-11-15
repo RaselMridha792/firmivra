@@ -5,6 +5,7 @@ import {
   CancelMyAppointmentRequest,
   type MyAppointment,
   type MySlot,
+  type MyWaitlist,
 } from '@firmivra/types';
 import { Badge, Button, Card, Input } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,6 +18,7 @@ import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { FreeTimes } from './free-times';
+import { useMyWaitlist, WaitlistRow } from './waitlist-row';
 import {
   APPOINTMENT_ERRORS,
   dateTile,
@@ -84,6 +86,8 @@ export function UpcomingAppointments({
   onRequestDone: () => void;
   onViewAll: () => void;
 }) {
+  // Appointments A3: the client's waitlist entries, for each row's earlier-time offer.
+  const waitlist = useMyWaitlist(slug);
   return (
     <Card variant="elevated" className="flex h-full flex-col">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -119,6 +123,7 @@ export function UpcomingAppointments({
                   key={item.id}
                   slug={slug}
                   item={item}
+                  waitlist={waitlist}
                   ask={item.id === request?.id ? request : null}
                   onFinish={item.id === request?.id ? onRequestDone : undefined}
                   onNotice={onNotice}
@@ -229,6 +234,7 @@ function Place({ item, join }: { item: MyAppointment; join: boolean }) {
 function Upcoming({
   slug,
   item,
+  waitlist,
   ask,
   onFinish,
   onNotice,
@@ -236,6 +242,7 @@ function Upcoming({
 }: {
   slug: string;
   item: MyAppointment;
+  waitlist: UseQueryResult<MyWaitlist>;
   /** Quick Actions asked for this row's Reschedule or Cancel: open it and bring it into view. */
   ask: ActionRequest | null;
   /** Quick Actions' panel on this row closed, finished or failed. */
@@ -297,6 +304,7 @@ function Upcoming({
           onStale={stale}
         />
       ) : null}
+      <WaitlistRow slug={slug} item={item} waitlist={waitlist} onNotice={onNotice} />
       {!item.changeableUntil ? (
         <p className="text-xs text-muted">
           {/* Appointments A1: another client's group appointment, read only. */}
