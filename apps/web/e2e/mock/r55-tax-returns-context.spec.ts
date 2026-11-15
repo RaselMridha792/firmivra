@@ -76,3 +76,43 @@ test('Full Review Signatures: View / Send opens Firm Sign on the client and the 
   await expect(page).toHaveURL(review);
   await expect(page.getByTestId('signatures')).toBeVisible();
 });
+
+// Tax Returns Review 2 (F11): Send an Intake Form from a return is for its client and its return.
+test('Send an Intake Form from a return presets its client, carries the return and comes Back to it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The season before last: no intake yet (every client has last season's and the one before).
+  await page.goto(app(`/tax-returns?year=${String(Number(season) - 2)}`));
+  await page
+    .getByRole('row')
+    .filter({ hasText: 'Robin Demo' })
+    .getByTestId('return-link')
+    .click({ timeout: 60_000 });
+  await page.getByRole('tab', { name: 'Intake & Documents' }).click({ timeout: 60_000 });
+  await expect(page).toHaveURL(/\?tab=documents$/);
+  const returnUrl = page.url();
+  const returnId = new URL(returnUrl).pathname.split('/')[2]!;
+  const send = page.getByTestId('intake-form').getByRole('link', { name: 'Send an Intake Form' });
+  const href = new URL((await send.getAttribute('href'))!, app('/'));
+  expect(href.pathname).toBe('/intake-forms/send');
+  expect(href.searchParams.get('clientId')).toMatch(/^[0-9a-f-]{36}$/);
+  // The return's own service (its engagement), so the form is bound to this return.
+  expect(href.searchParams.get('engagementId')).toMatch(/^[0-9a-f-]{36}$/);
+  expect(href.searchParams.get('from')).toBe(`/tax-returns/${returnId}`);
+
+  await send.click();
+  await expect(page).toHaveURL(
+    /\/intake-forms\/send\?clientId=[0-9a-f-]+&engagementId=[0-9a-f-]+&from=/,
+    { timeout: 60_000 },
+  );
+  await expect(page.getByTestId('send-recipient')).toContainText('Robin Demo', {
+    timeout: 60_000,
+  });
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(returnUrl);
+  await expect(page.getByRole('tab', { name: 'Intake & Documents' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
