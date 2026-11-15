@@ -9,7 +9,7 @@ import {
   paymentTermLabel,
   UpdatePaymentPreferencesRequest,
 } from '@firmivra/types';
-import { Button, Card, Modal, Toggle } from '@firmivra/ui';
+import { Badge, Button, Card, Modal, Toggle } from '@firmivra/ui';
 import { X } from '@phosphor-icons/react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -52,17 +52,32 @@ function Switch({
   hint,
   checked,
   onChange,
+  notActive,
 }: {
   label: string;
   hint: string;
   checked: boolean;
   onChange: (on: boolean) => void;
+  /** Saved, but not acted on yet: says so beside the label (as Intake's settings). */
+  notActive?: string;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-t border-divider pt-3">
       <div>
-        <p className="text-sm font-medium text-heading">{label}</p>
+        <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-heading">
+          {label}
+          {notActive ? (
+            <Badge tone="neutral">
+              Not active yet<span className="sr-only">: {notActive}</span>
+            </Badge>
+          ) : null}
+        </p>
         <p className="text-xs text-muted">{hint}</p>
+        {notActive ? (
+          <p className="text-xs text-muted" data-testid="tip-not-active">
+            Not active yet: {notActive}
+          </p>
+        ) : null}
       </div>
       <span className="flex items-center gap-2 text-sm text-text">
         <Toggle label={label} checked={checked} onChange={onChange} />
@@ -466,6 +481,8 @@ function PreferencesForm({
         <Switch
           label="Tipping"
           hint="Lets an invoice offer the client a tip."
+          // I-N05: saved, but Pay Now does not charge a tip yet (after Nov 17).
+          notActive="clients can't add a tip at Pay Now yet"
           checked={f.tippingEnabled}
           onChange={(on) => set('taxesAndFees', { tippingEnabled: on })}
         />

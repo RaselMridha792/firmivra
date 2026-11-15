@@ -120,3 +120,12 @@ test('I-N10: the Payment Method filter lists the invoices paid that way (a voide
   await method.selectOption({ label: 'Cash' });
   await expect(page.locator('main').getByRole('link', { name: 'INV-2026-0095' })).toHaveCount(0);
 });
+
+test('I-N05: the Tipping setting says tips are not active yet at Pay Now', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/settings/payments'));
+  await expect(page.getByTestId('tip-not-active').first()).toHaveText(
+    "Not active yet: clients can't add a tip at Pay Now yet",
+    { timeout: 60_000 },
+  );
+});
