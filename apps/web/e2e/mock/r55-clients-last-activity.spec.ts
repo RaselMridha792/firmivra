@@ -45,3 +45,31 @@ test('the Last Activity panel closes on Escape and on a click outside, and focus
   await expect(panel(page)).toBeHidden();
   await expect(trigger(page)).toHaveAttribute('aria-expanded', 'false');
 });
+
+// Clients Review 2 (C2-019): the From and To dates and Done had no names a screen reader could
+// read. Each is found here by its role and its exact name.
+test('the Last Activity From, To, Clear and Done controls each have a name', async ({ page }) => {
+  await openClients(page);
+  await trigger(page).click();
+  const from = panel(page).getByRole('textbox', {
+    name: 'Last activity: From, start date',
+    exact: true,
+  });
+  const to = panel(page).getByRole('textbox', { name: 'Last activity: To, end date', exact: true });
+  const clear = panel(page).getByRole('button', { name: 'Clear last activity', exact: true });
+  const done = panel(page).getByRole('button', { name: 'Done: close last activity', exact: true });
+  await expect(from).toBeVisible();
+  await expect(to).toBeVisible();
+  await expect(clear).toBeDisabled();
+  await expect(done).toBeVisible();
+
+  // The button's name says the range in force once one is chosen.
+  await from.fill('2026-11-01');
+  await to.fill('2026-11-08');
+  await expect(clear).toBeEnabled();
+  await done.click();
+  await expect(panel(page)).toBeHidden();
+  await expect(
+    page.getByRole('button', { name: 'Last activity: Nov 1, 2026 – Nov 8, 2026', exact: true }),
+  ).toBeFocused();
+});
