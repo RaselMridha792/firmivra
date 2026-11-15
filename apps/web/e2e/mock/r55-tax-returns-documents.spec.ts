@@ -65,3 +65,29 @@ test('Upload Documents on a return works in place, prefilled, and links the uplo
   const choices = page.getByTestId('link-doc-dialog').getByLabel('Document').locator('option');
   await expect(choices.filter({ hasText: name })).toHaveText([`${name} (${season})`]);
 });
+
+// Tax Returns Review 2 (F09a): a file uploaded from the return opens from the return's Documents.
+test('a file uploaded from the return is linked to it and opens from the return’s Documents', async ({
+  page,
+}) => {
+  // The page's clock, so the new file's malware check (a few seconds) and the list's refresh
+  // can be moved on instead of waited for.
+  await page.clock.install();
+  await openDocuments(page);
+  const name = 'Fake_Draft_Return_F09.pdf';
+  await uploadHere(page, name);
+  const docs = page.getByTestId('return-documents');
+  const open = docs.getByRole('button', { name, exact: true });
+  // Still being checked, as the client's document is: it cannot be opened yet.
+  await expect(docs.getByRole('listitem').filter({ hasText: name })).toContainText('Scanning');
+  await expect(open).toBeDisabled();
+
+  await page.clock.fastForward('00:40');
+  // The Preparation tab lists the return's drafts again, read afresh.
+  await page.getByRole('tab', { name: 'Preparation' }).click();
+  const draft = page.getByTestId('return-documents').getByRole('button', { name, exact: true });
+  await expect(draft).toBeEnabled({ timeout: 30_000 });
+  await draft.click();
+  // The link is the client's own file's: the documents mock gives one only for a clean file.
+  await expect(page.getByText('Download ready.')).toBeVisible();
+});
