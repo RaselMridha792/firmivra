@@ -146,8 +146,10 @@ describe('create and update a draft', () => {
     await t.inScope(t.ids.firmA, (tx) =>
       tx.invoice.update({ where: { id: sent.id }, data: { status: 'OPEN', issuedAt: new Date() } }),
     );
+    // I-N06: a sent invoice with nothing paid is edited too, but only with a reason
+    // (invoice-edit.e2e.test.ts has the rest).
     const put = await t.firm('put', `/${sent.id}`, t.people.ownerA, body);
-    expect([put.status, codeOf(put)]).toEqual([409, 'NOT_DRAFT']);
+    expect([put.status, codeOf(put)]).toEqual([400, 'VALIDATION_FAILED']);
     // 404 comes before 409: a service of another client on a sent invoice.
     const wrong = await t.firm('put', `/${sent.id}`, t.people.ownerA, {
       ...body,

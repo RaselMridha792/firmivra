@@ -119,6 +119,13 @@ export const paidCents = (i: InvoiceListItem) =>
       : 0;
 
 /**
+ * Invoices Review 2 I-N06: Edit is offered on a draft, a scheduled invoice, and a sent one with
+ * nothing paid (no payment, check or refund on it); the API decides the rest.
+ */
+export const canEditInvoice = (i: InvoiceListItem) =>
+  i.status === 'DRAFT' || i.status === 'SCHEDULED' || (i.status === 'OPEN' && paidCents(i) === 0);
+
+/**
  * IP-F06: the firm's due rules (`dueState`, on the firm's calendar) first when the day is near:
  * Overdue, Due Today, Due Tomorrow; then Partially Paid, Due Soon (7 to 2 days), else Sent.
  */

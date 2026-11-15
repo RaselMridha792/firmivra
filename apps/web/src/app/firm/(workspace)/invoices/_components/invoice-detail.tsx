@@ -32,6 +32,7 @@ import {
   INV_KEY,
   money,
   OFFLINE_METHOD,
+  canEditInvoice,
   outlined,
   paidCents,
   primary,
@@ -120,10 +121,13 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                   >
                     <PaperPlaneTilt aria-hidden weight="fill" className="size-5" /> Send Invoice
                   </button>
-                  <Link href={`/invoices/${i.id}/edit`} className={outlined}>
-                    <PencilSimple aria-hidden weight="fill" className="size-5 text-action" /> Edit
-                  </Link>
                 </>
+              ) : null}
+              {/* I-N06: a draft, a scheduled invoice, or a sent one with nothing paid. */}
+              {canEditInvoice(i) ? (
+                <Link href={`/invoices/${i.id}/edit`} className={outlined}>
+                  <PencilSimple aria-hidden weight="fill" className="size-5 text-action" /> Edit
+                </Link>
               ) : null}
               {i.status === 'OPEN' ? (
                 <Link href={`/invoices/record-payment?invoice=${i.id}`} className={primary}>

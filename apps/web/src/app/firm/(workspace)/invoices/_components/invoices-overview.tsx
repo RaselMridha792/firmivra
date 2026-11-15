@@ -100,6 +100,7 @@ import {
   type InvoiceView,
   viewOf,
   ViewPill,
+  canEditInvoice,
 } from './inv-shared';
 import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 
@@ -880,7 +881,8 @@ function InvoiceTable({
             onSelect: () => void pdf(i, true),
           },
           { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i, false) },
-          ...(canChange && draft
+          // I-N06: a scheduled one, or a sent one with nothing paid, too.
+          ...(canChange && canEditInvoice(i)
             ? [
                 {
                   label: 'Edit Invoice',
