@@ -339,6 +339,8 @@ export function DetailsDialog({ row, onClose, onNotice }: DialogProps) {
   );
   const [paidOn, setPaidOn] = useState(row.estimate?.paidOn ?? '');
   const [busy, setBusy] = useState(false);
+  // Review 2 (TR-8): Correct Tax Year opens from here as well as from the row menu.
+  const [correcting, setCorrecting] = useState(false);
   const status = filingStatus ?? d?.filingStatus ?? '';
   const quarterly = row.quarter !== null;
   const cents = amount.trim() === '' ? null : Math.round(Number(amount) * 100);
@@ -367,6 +369,7 @@ export function DetailsDialog({ row, onClose, onNotice }: DialogProps) {
     setBusy(false);
     if (done) onClose();
   };
+  if (correcting) return <CorrectYearDialog row={row} onClose={onClose} onNotice={onNotice} />;
   return (
     <Dialog
       title="Edit Return Details"
@@ -378,6 +381,21 @@ export function DetailsDialog({ row, onClose, onNotice }: DialogProps) {
       onClose={onClose}
       testId="details-dialog"
     >
+      <p
+        className="flex flex-wrap items-center gap-2 text-sm text-text"
+        data-testid="details-tax-year"
+      >
+        <span>
+          Tax year <span className="font-semibold text-heading">{row.taxYear}</span>
+        </span>
+        <button
+          type="button"
+          className="font-semibold text-link hover:underline"
+          onClick={() => setCorrecting(true)}
+        >
+          Correct Tax Year
+        </button>
+      </p>
       <Input
         label="Return type (form)"
         value={formType}
@@ -722,7 +740,8 @@ export function ExtensionDialog({ row, onClose, onNotice }: DialogProps) {
     x.setUTCMonth(x.getUTCMonth() + 6);
     return x.toISOString().slice(0, 10);
   };
-  const [filedOn, setFiledOn] = useState(detail.data?.extensionFiledOn ?? today());
+  // Review 2 (TR-1): the day it was really filed, entered, never assumed.
+  const [filedOn, setFiledOn] = useState(detail.data?.extensionFiledOn ?? '');
   const [extendedTo, setExtendedTo] = useState(
     detail.data?.extendedDueOn ?? (due ? sixMonths(due) : ''),
   );
@@ -736,7 +755,7 @@ export function ExtensionDialog({ row, onClose, onNotice }: DialogProps) {
           extensionFiledOn: filedOn,
           extendedDueOn: extendedTo,
         }),
-      `Extension recorded: due ${dayText(extendedTo)}.`,
+      `Extension recorded, due ${dayText(extendedTo)}. A record only: nothing was sent to an agency.`,
     );
     setBusy(false);
     if (done) onClose();
@@ -756,8 +775,9 @@ export function ExtensionDialog({ row, onClose, onNotice }: DialogProps) {
         Records that the extension was filed and the new deadline. Nothing is sent to an agency.
       </p>
       <Input
-        label="Extension filed on"
+        label="Extension filed on *"
         type="date"
+        required
         value={filedOn}
         max={today()}
         onChange={(e) => setFiledOn(e.target.value)}

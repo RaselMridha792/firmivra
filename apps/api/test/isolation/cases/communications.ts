@@ -109,8 +109,7 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: { templateId: 'communicationTemplate' },
     body: { channel: 'EMAIL', templateId: PLACEHOLDER },
-    // No email provider is connected in the world.
-    expect: 409,
+    // Leads row 14: Firmivra Mail is every firm's email channel, so the draft starts.
   },
   [`GET ${BASE}/:id/audience`]: { params: { id: 'communication' } },
   [`PUT ${BASE}/:id/audience`]: {
@@ -137,8 +136,9 @@ export const cases: CaseModule['cases'] = {
     body: { communicationId: PLACEHOLDER, serviceId: PLACEHOLDER },
   },
   [`GET ${BASE}/:id/review`]: { params: { id: 'communication' } },
-  // No email provider is connected in the world: sending, scheduling and copying are refused
-  // the same way for P's own people (409), and refused as not found for anyone else.
+  // The world's campaign is not ready to go (Firmivra Mail is there since Leads row 14, the
+  // campaign has no audience): sending and scheduling are refused the same way for P's own people
+  // (409), and refused as not found for anyone else.
   [`POST ${BASE}/:id/send`]: {
     params: { id: 'communication' },
     body: () => ({ idempotencyKey: randomUUID(), etag: ETAG }),
@@ -166,7 +166,8 @@ export const cases: CaseModule['cases'] = {
   [`POST ${BASE}/:id/resume`]: { params: { id: 'communication' }, expect: 409 },
   [`POST ${BASE}/:id/archive`]: { params: { id: 'communication' } },
   [`POST ${BASE}/:id/restore`]: { params: { id: 'communication' } },
-  [`POST ${BASE}/:id/duplicate`]: { params: { id: 'communication' }, expect: 409 },
+  // Leads row 14: copied as a draft through Firmivra Mail.
+  [`POST ${BASE}/:id/duplicate`]: { params: { id: 'communication' } },
   [`POST ${BASE}/:id/use-template`]: {
     params: { id: 'communication' },
     bodyIds: { templateId: 'communicationTemplate' },

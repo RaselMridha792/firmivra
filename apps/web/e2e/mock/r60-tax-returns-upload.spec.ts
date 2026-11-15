@@ -29,8 +29,12 @@ test('a return with its service uploads in place and can link the file as one of
   const dialog = page.getByTestId('upload-document');
   await expect(dialog).toContainText('Tax Returns');
   const link = dialog.getByLabel(/^Link to the \d{4} return as$/);
+  // Review 2 (TR-3): started from the return, the file is the return's by default (Draft),
+  // and can still be kept as a plain client document.
+  await expect(link).not.toHaveValue('');
+  await expect(link.locator('option:checked')).toHaveText(/Draft/);
+  await link.selectOption('');
   await expect(link).toHaveValue('');
-  await expect(link.locator('option', { hasText: 'Draft' })).toHaveCount(1);
   await page.mouse.move(5, 5);
   await page.screenshot({ path: 'e2e/screenshots/r60-tax-returns-upload/upload.png' });
 });

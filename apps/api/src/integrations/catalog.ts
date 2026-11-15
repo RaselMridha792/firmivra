@@ -336,6 +336,21 @@ export const PROVIDERS: readonly IntegrationProvider[] = [
     ],
   }),
   build({
+    // Leads Review Two, row 14: the built-in email channel for campaigns. A firm's connection is
+    // made with its first email campaign (communications.service ensureFirmivraMail).
+    provider: 'firmivra_mail',
+    name: 'Firmivra Mail',
+    category: 'COMMUNICATION',
+    summary: 'Built-in email for campaigns',
+    description:
+      'Campaign emails sent by Firmivra in your firm’s name, with no outside account to connect. On a test site they go only to your firm’s own team addresses.',
+    popularity: 80,
+    authMethod: 'NONE',
+    directions: ['EXPORT'],
+    entities: [entity('email', 'Emails', 'Campaign emails', ['EXPORT'])],
+    live: true,
+  }),
+  build({
     provider: 'website_forms',
     name: 'Website & Lead Forms',
     category: 'MARKETING',

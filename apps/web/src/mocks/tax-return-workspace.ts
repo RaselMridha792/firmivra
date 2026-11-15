@@ -223,7 +223,7 @@ const canMoveTo = (from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatus[] =>
       : from === 'CLOSED'
         ? []
         : from === 'REJECTED'
-          ? ALL.filter((s) => s !== from && s !== 'READY_FOR_REVIEW')
+          ? ['IN_CORRECTION']
           : ALL.filter((s) => s !== from && s !== 'IN_CORRECTION');
 const isBackward = (from: TaxReturnWorkflowStatus, to: TaxReturnWorkflowStatus) =>
   STEP[from] !== undefined && STEP[to] !== undefined && STEP[to]! < STEP[from]!;
@@ -1400,6 +1400,10 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       const b = parseInput(RecordTaxFilingAttemptRequest, body);
       const r = find(id);
       const f = filingOf(r, filingId);
+      // As the API (Review 2, TX-F22): corrected and reviewed before it is sent again.
+      if (r.workflowStatus === 'REJECTED' || r.workflowStatus === 'IN_CORRECTION') {
+        throw fail(409, 'STATUS_BLOCKED', 'Correct the return and take it through review first');
+      }
       if (openErrors(r)) throw issuesBlock();
       if (f.attempts[0] && f.attempts[0].ackStatus !== 'REJECTED') {
         throw fail(409, 'ATTEMPT_PENDING', 'Wait for the last transmission');
@@ -1538,7 +1542,12 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
     removeChecklistItem: async (id, itemId) => {
       await mockDelay();
       const r = find(id);
-      if (!r.checklist.some((x) => x.id === itemId)) throw notFound();
+      const item = r.checklist.find((x) => x.id === itemId);
+      if (!item) throw notFound();
+      // As the API (Review 2, TX-F21): a validation line is resolved, never removed.
+      if (item.section === 'VALIDATION') {
+        throw fail(409, 'VALIDATION_LINE', 'Resolve it instead: a validation line stays');
+      }
       r.checklist = r.checklist.filter((x) => x.id !== itemId);
       touch(r, 'CHECKLIST', 'Checklist item removed');
       return copy(r.checklist);
