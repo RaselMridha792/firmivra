@@ -13,8 +13,11 @@ import {
   type ReportRowLink,
   TaskPriority,
   TaskStatus,
+  TaxPlanStatus,
   TaxReturnStatus,
 } from '@firmivra/types';
+import { categoryOf, planInclude } from '../tax-planning/plan-read.service.js';
+import { planTotals } from '../tax-planning/tax-planning.common.js';
 import { LIVE_TASK, liveClient } from '../tasks/task-common.js';
 import { memberNames } from '../workspaces/common.js';
 
@@ -560,6 +563,68 @@ const taxReturns: SourceDef = {
   },
 };
 
+// ---------- Tax planning ----------
+
+/**
+ * Tax Planning Review 2 C18: the firm's planning plans in central Reports (the Tax Planning service
+ * area), with the same projected savings as the plan shows (an estimate, its strategies' limits
+ * applied). Ranged by the plan's last change; archived plans are left out.
+ */
+const taxPlans: SourceDef = {
+  key: 'tax_plans',
+  category: 'TAX',
+  label: 'Tax planning plans',
+  description:
+    'Planning plans by status, year and staff, with their projected (estimated) savings.',
+  dateField: 'updatedOn',
+  defaultColumns: ['client', 'plan', 'planYear', 'status', 'assignedTo', 'projectedSavings'],
+  supportsComparison: false,
+  supportsTaxToggle: false,
+  restricted: false,
+  breakdownBy: 'status',
+  fields: [
+    field('client', 'Client', 'TEXT', { locked: true }),
+    field('plan', 'Plan', 'TEXT', { groupable: false }),
+    field('planYear', 'Plan Year', 'NUMBER', { aggregatable: false, groupable: true }),
+    field('status', 'Status', 'STATUS', { options: TaxPlanStatus.options }),
+    field('assignedTo', 'Assigned To', 'TEXT'),
+    field('targetOn', 'Target Completion', 'DATE', { groupable: false }),
+    field('projectedSavings', 'Projected Savings (estimated)', 'MONEY'),
+    field('strategies', 'Strategies', 'NUMBER'),
+    field('createdOn', 'Created', 'DATE', { groupable: false }),
+    field('updatedOn', 'Last Changed', 'DATE', { groupable: false }),
+  ],
+  async load(c) {
+    const rows = await c.tx.taxPlan.findMany({
+      where: {
+        businessId: c.businessId,
+        archivedAt: null,
+        updatedAt: windowOf(c.from, c.to),
+        ...(c.reachOnly ? { client: { assignedUserId: c.actor.userId } } : {}),
+      },
+      take: MAX_ROWS + 1,
+      include: planInclude,
+    });
+    return rows.map((p) => ({
+      id: p.id,
+      cells: {
+        client: p.client.displayName,
+        plan: p.name,
+        planYear: p.planYear,
+        status: p.status,
+        assignedTo: p.assignedMember?.user.name ?? null,
+        targetOn: p.targetCompletionOn?.toISOString().slice(0, 10) ?? null,
+        projectedSavings: planTotals(p.strategies.map((s) => ({ ...s, category: categoryOf(s) })))
+          .cents,
+        strategies: p.strategies.length,
+        createdOn: localDay(p.createdAt, c.timezone),
+        updatedOn: localDay(p.updatedAt, c.timezone),
+      },
+      links: [link('CLIENT', p.clientId)],
+    }));
+  },
+};
+
 // ---------- Tasks (team productivity) ----------
 
 const tasks: SourceDef = {
@@ -730,6 +795,7 @@ export const SOURCES: readonly SourceDef[] = [
   payments,
   leads,
   taxReturns,
+  taxPlans,
   tasks,
   team,
 ];

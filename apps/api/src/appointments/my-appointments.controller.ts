@@ -44,6 +44,17 @@ export class MyAppointmentsController {
     return { items: await this.mine.list(me.businessId, me.clientAccountId, q) };
   }
 
+  /** Review 2 (row 8): the client confirms an appointment the firm booked. */
+  @Post(':id/confirm')
+  @HttpCode(200)
+  confirm(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MyAppointment> {
+    const me = portalLogin(tenant);
+    return this.mine.confirm(me.businessId, me.clientAccountId, id);
+  }
+
   @Get('types')
   async types(@CurrentTenant() tenant: TenantContext): Promise<BookableTypeList> {
     return { items: await this.mine.types(portalLogin(tenant).businessId) };

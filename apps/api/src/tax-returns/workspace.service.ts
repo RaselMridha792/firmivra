@@ -930,7 +930,9 @@ export class TaxReturnWorkspaceService {
           data: {
             ...(filedOn ? { filedOn } : {}),
             workflowStatus: to,
-            ...(body.reason ? { statusReason: body.reason } : {}),
+            // The reason of this move only: a change without one clears the last, so the history
+            // row (which copies it) never repeats an earlier move's reason (Review 2 audit note).
+            statusReason: body.reason || null,
             updatedByUserId: userId,
           },
         });

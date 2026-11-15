@@ -13,7 +13,8 @@ test('Dashboard: range, four KPIs, category cards, quick reports and the three l
   await expect(page.getByRole('heading', { name: 'Reports', level: 1 })).toBeVisible();
   await expect(page.getByTestId('reports-kpis').getByRole('listitem')).toHaveCount(4);
   await expect(page.getByTestId('category-cards').locator(':scope > li')).toHaveCount(9);
-  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(12);
+  // 12, and Tax Planning's two (C18: Projected Savings by Plan, Planning Plans by Status).
+  await expect(page.getByTestId('quick-reports').getByRole('link')).toHaveCount(14);
   await expect(page.getByTestId('recent')).toContainText('Revenue Summary');
   await expect(page.getByTestId('scheduled')).toContainText('Weekly Revenue Report');
   await expect(page.getByTestId('insights')).toContainText('Insights');

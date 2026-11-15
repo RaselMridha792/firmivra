@@ -1847,6 +1847,7 @@ function StepReview({
           planId={plan.id}
           version={viewing}
           history={versions.data ?? []}
+          approvals={plan.workflow.approvals}
           onClose={() => setViewing(undefined)}
         />
       ) : null}
@@ -2071,10 +2072,17 @@ function PlanTasks({
  * fresh its figures were, the strategies and figures, and what happened to the plan's versions
  * after it (finalized, generated, sent).
  */
+const VERSION_EVENT: Record<string, string> = {
+  FINALIZED: 'Finalized',
+  SENT: 'Sent for the client’s review',
+  DELIVERED: 'Delivered to the client',
+};
+
 function VersionView({
   planId,
   version,
   history,
+  approvals,
   onClose,
 }: {
   planId: string;
@@ -2085,6 +2093,8 @@ function VersionView({
     createdAt: string;
     createdBy: { name: string } | null;
   }[];
+  /** C25 (Review 2): the client's approvals, each of one exact version. */
+  approvals: TaxPlanDetail['workflow']['approvals'];
   onClose: () => void;
 }) {
   const v = useApiQuery([...TP_KEY, 'version', planId, version], () =>
@@ -2164,22 +2174,41 @@ function VersionView({
               </ul>
             </div>
           ) : null}
-          <div>
+          {/*
+            C25 (Review 2): this version's own send and approval history: when it was finalized,
+            sent for the client's review or delivered, by whom, and the client's approval of
+            exactly this version (a later version's approval is not this one's).
+          */}
+          <div data-testid="version-history">
             <h3 className="mb-1 font-semibold text-heading">Send and approval history</h3>
             <ul>
               {history
-                .filter((h) => h.version >= version)
-                .sort((a, b) => a.version - b.version)
+                .filter((h) => h.version === version)
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
                 .map((h) => (
-                  <li key={h.version} className="text-muted">
-                    Version {h.version} {h.event.toLowerCase()} by{' '}
+                  <li key={`${h.event}${h.createdAt}`} className="text-muted">
+                    {VERSION_EVENT[h.event] ?? h.event.toLowerCase()} by{' '}
                     {h.createdBy?.name ?? 'Former staff'}, {dateTimeText(h.createdAt)}
                   </li>
                 ))}
+              {approvals
+                .filter((a) => a.version === version)
+                .map((a) => (
+                  <li key={a.id} className="text-heading" data-testid="version-approval">
+                    Approved by the client on {dayText(a.approvedOn)} (
+                    {a.method === 'PORTAL' ? 'in the portal' : 'documented manual approval'})
+                    {a.note ? `: ${a.note}` : ''}. Recorded by {a.recordedBy?.name ?? 'the client'},{' '}
+                    {dateTimeText(a.createdAt)}.
+                  </li>
+                ))}
             </ul>
-            <p className="mt-1 text-xs text-muted">
-              Client approval is recorded with each version once the approval step is in place.
-            </p>
+            {!approvals.some((a) => a.version === version) ? (
+              <p className="mt-1 text-xs text-muted">
+                {history.some((h) => h.version === version && h.event === 'SENT')
+                  ? 'The client has not approved this version.'
+                  : 'This version was not sent for the client’s review, so it has no approval.'}
+              </p>
+            ) : null}
           </div>
           <Disclaimer text={d.disclaimer} />
         </div>

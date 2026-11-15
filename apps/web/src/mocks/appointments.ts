@@ -904,6 +904,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
     const last = Date.parse(a.startsAt) - cutoffOf(a) * 60 * MINUTE;
     return last > Date.now() ? new Date(last).toISOString() : null;
   };
+  /** The appointments this client confirmed (row 8), for this page. */
+  const confirmed = new Set<string>();
   const view = (a: Appointment): MyAppointment => ({
     id: a.id,
     type: a.type,
@@ -915,6 +917,12 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
     locationDetails: a.locationDetails,
     changeableUntil: until(a),
     instructions: null,
+    // Review 2 (row 8): the firm booked it and the client has not confirmed it yet.
+    needsConfirmation:
+      a.status === 'SCHEDULED' &&
+      !a.bookedByClient &&
+      !confirmed.has(a.id) &&
+      Date.parse(a.startsAt) > Date.now(),
   });
   const mine = (appointmentId: string) => {
     const a = db().appointments.find((x) => x.id === appointmentId && x.client.id === client.id);
@@ -1050,6 +1058,14 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
         rescheduleCount: a.rescheduleCount + (moved ? 1 : 0),
       });
       record(s, a, 'RESCHEDULED', clientBy, before, null);
+      return copy(view(a));
+    },
+    confirm: async (appointmentId) => {
+      await mockDelay();
+      const a = mine(appointmentId);
+      if (a.status !== 'SCHEDULED') throw errors.closed();
+      if (Date.parse(a.startsAt) <= Date.now()) throw errors.windowClosed();
+      confirmed.add(a.id);
       return copy(view(a));
     },
     cancel: async (appointmentId, body = {}) => {

@@ -450,7 +450,12 @@ describe('the dashboard', () => {
     const staffSources = ReportDataSourceList.parse(
       ok(await call('get', '/reports/sources', people.staffA)),
     );
-    expect(staffSources.items.map((s) => s.key)).toEqual(['clients', 'leads', 'tax_returns']);
+    expect(staffSources.items.map((s) => s.key)).toEqual([
+      'clients',
+      'leads',
+      'tax_returns',
+      'tax_plans',
+    ]);
     // Sensitive fields (an email, a phone) are offered only to those who may see them.
     expect(
       sources.items.find((s) => s.key === 'clients')?.fields.some((f) => f.key === 'email'),
@@ -2107,5 +2112,67 @@ describe('payments recorded by hand (IP-F22, Octavia Oct 27)', () => {
     const after = await quick('revenue_summary');
     expect(after.table.total).toBe(1);
     expect(after.kpis.find((k) => k.key === 'amount')?.value).toBe(5_000);
+  });
+});
+
+describe('Tax Planning in central Reports (Tax Planning Review 2 C18)', () => {
+  it("runs the firm's planning plans with their projected savings; Staff see their clients' only; the library filters by the service area", async () => {
+    const names = { mine: mark('Plan mine'), other: mark('Plan other') };
+    await inFirm('a', async (tx) => {
+      const mine = await tx.taxPlan.create({
+        data: { businessId: firms.a, clientId: clients.c1, name: names.mine, planYear: 2027 },
+        select: { id: true },
+      });
+      await tx.taxPlanStrategy.create({
+        data: {
+          businessId: firms.a,
+          planId: mine.id,
+          customName: 'Fake strategy',
+          customCategory: 'DEDUCTIONS',
+          displayName: 'Fake strategy',
+          estimatedSavingsCents: 400_000,
+        },
+      });
+      await tx.taxPlan.create({
+        data: { businessId: firms.a, clientId: clients.c2, name: names.other, planYear: 2027 },
+      });
+    });
+    const year = { date: { rule: 'ROLLING', preset: 'this_year' } };
+    const planNames = (r: { table: { rows: { cells: Record<string, unknown> }[] } }) =>
+      r.table.rows.map((row) => row.cells['plan']);
+    const owner = await quick('tax_plan_savings', year);
+    expect(planNames(owner)).toEqual(expect.arrayContaining([names.mine, names.other]));
+    expect(owner.table.rows.find((r) => r.cells['plan'] === names.mine)?.cells).toMatchObject({
+      planYear: 2027,
+      status: 'DRAFT',
+      projectedSavings: 400_000,
+    });
+    expect(
+      owner.table.rows.find((r) => r.cells['plan'] === names.other)?.cells['projectedSavings'],
+    ).toBeNull();
+    // Staff reach only the clients assigned to them.
+    const staff = await quick('tax_plan_savings', year, people.staffA);
+    expect(planNames(staff)).toContain(names.mine);
+    expect(planNames(staff)).not.toContain(names.other);
+    // Recent Reports filters by the service area's data source.
+    const planning = RecentReportPage.parse(
+      ok(await call('get', '/reports/recent?dataSource=tax_plans', people.ownerA)),
+    );
+    expect(planning.items.map((r) => r.runId)).toContain(owner.runId);
+    const returns = RecentReportPage.parse(
+      ok(await call('get', '/reports/recent?dataSource=tax_returns', people.ownerA)),
+    );
+    expect(returns.items.map((r) => r.runId)).not.toContain(owner.runId);
+    // Another firm's report never holds firm A's plans.
+    const other = ReportResult.parse(
+      ok(
+        await runReport(
+          { target: { kind: 'SYSTEM', key: 'tax_plan_savings' }, ...year },
+          people.ownerB,
+          'b',
+        ),
+      ),
+    );
+    expect(planNames(other)).not.toContain(names.mine);
   });
 });
