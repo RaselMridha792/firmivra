@@ -15,6 +15,12 @@ export {
 export * from './scheduling.js';
 export { createSchedulingClient, type SchedulingClient } from './scheduling-client.js';
 export * from './waitlist.js';
+export {
+  createAppointmentWaitlistClient,
+  createMyWaitlistClient,
+  type AppointmentWaitlistClient,
+  type MyWaitlistClient,
+} from './waitlist-client.js';
 export * from './resources.js';
 export {
   createAppointmentResourcesClient,
