@@ -541,17 +541,20 @@ export class TaxOverviewService {
     const byKey = new Map(rows.map((r) => [r.catalogKey as string, r]));
     return RESOURCES.map((def) => {
       const row = byKey.get(def.key);
+      // C17: a staff reference stays staff-only, whatever a firm saved before.
+      const staffOnly = !def.clientFacing;
       return row
         ? {
             ...def,
             title: row.title,
             category: row.category,
             kind: row.kind,
-            clientFacing: row.clientFacing,
+            clientFacing: !staffOnly && row.clientFacing,
             summary: row.summary ?? def.summary,
             edited: true,
+            staffOnly,
           }
-        : { ...def, edited: false };
+        : { ...def, edited: false, staffOnly };
     });
   }
 
@@ -584,7 +587,11 @@ export class TaxOverviewService {
   ): Promise<PlanningResource> {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.manageStrategies) throw tpErrors.forbidden();
-      if (!resourceOf(key)) throw notFound();
+      const def = resourceOf(key);
+      if (!def) throw notFound();
+      // C17 (Review 2): a staff reference is never sent to a client.
+      if (!def.clientFacing && body.clientFacing)
+        throw tpErrors.invalid('clientFacing', 'A staff reference stays for staff only');
       const data = {
         title: body.title,
         category: body.category,

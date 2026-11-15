@@ -12,6 +12,18 @@ import {
   type TaxPlanningErrorCode,
 } from '@firmivra/types';
 import type { TenantContext } from '../common/request-context.js';
+
+/**
+ * C27 (Review 2): the statuses in which a plan's content is frozen (what the client sees and
+ * approves): it changes only through Revise, or Start Revision for Needs Review.
+ */
+export const CONTENT_FROZEN: readonly string[] = [
+  'FINALIZED',
+  'AWAITING_CLIENT',
+  'READY_FOR_REVIEW',
+  'CLIENT_APPROVED',
+  'IMPLEMENTED',
+];
 import type { PlanFigure } from './tax-tables.js';
 
 export const DISCLAIMER = TAX_PLANNING_DISCLAIMER;
