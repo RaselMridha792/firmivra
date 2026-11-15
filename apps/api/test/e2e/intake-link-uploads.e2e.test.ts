@@ -420,11 +420,13 @@ describe("a lead's files through the secure link (Leads item n)", () => {
       await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
       'Lee Lead',
     );
-    const missing = await v.post('/submit', { answers: {}, signature });
+    const missing = await v.post('/submit', { answers: {}, signature, consent: true });
     expectError(missing, 400, 'VALIDATION_FAILED');
     expect(JSON.stringify(missing.body)).toContain(SLOT);
     const saved = await upload(v);
-    const done = LinkIntake.parse(ok(await v.post('/submit', { answers: {}, signature })));
+    const done = LinkIntake.parse(
+      ok(await v.post('/submit', { answers: {}, signature, consent: true })),
+    );
     expect(done).toMatchObject({ status: 'SUBMITTED', canEdit: false });
     expect(done.uploads.map((u) => u.id)).toEqual([saved.id]);
     expectError(await v.post('/uploads', file(pdf())), 409, 'INTAKE_LOCKED');

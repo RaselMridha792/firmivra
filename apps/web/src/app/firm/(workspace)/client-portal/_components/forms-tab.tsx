@@ -123,9 +123,13 @@ export function PortalForms({ clientId }: { clientId: string }) {
   const submitted = new Map((intakes.data ?? []).map((i) => [i.id, i.submittedAt]));
   const outstanding = (forms.data?.items ?? []).filter((f) => OUTSTANDING.includes(f.status));
   const remind = useApiMutation(
+    // 19b: each reminder's true result; one that reached no one is counted apart.
     async (ids: string[]) => {
-      for (const id of ids) await api.intakeForms.remind(id);
-      return ids.length;
+      let missed = 0;
+      for (const id of ids) {
+        if ((await api.intakeForms.remind(id)).delivery?.status === 'FAILED') missed += 1;
+      }
+      return { n: ids.length, missed };
     },
     { invalidate: ['client-portal'] },
   );
@@ -133,11 +137,13 @@ export function PortalForms({ clientId }: { clientId: string }) {
     remind.mutate(
       outstanding.map((f) => f.id),
       {
-        onSuccess: (n) =>
+        onSuccess: ({ n, missed }) =>
           setNotice(
-            n
-              ? `Reminder sent for ${n} form${n === 1 ? '' : 's'}.`
-              : 'No form is waiting on the client.',
+            !n
+              ? 'No form is waiting on the client.'
+              : missed
+                ? `Reminder sent for ${n - missed} of ${n} form${n === 1 ? '' : 's'}; ${missed} could not be delivered (open the form to see why).`
+                : `Reminder sent for ${n} form${n === 1 ? '' : 's'}.`,
           ),
       },
     );

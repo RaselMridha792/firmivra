@@ -517,6 +517,11 @@ const UploadTarget = z.object({
 export const UploadTargets = z.object({
   tax: z.array(UploadTarget),
   business: z.array(UploadTarget),
+  /**
+   * DOCUMENTS-LIMIT-01: the firm's largest regular document, in MB (Documents > Settings, 5 to
+   * 100), so the screen checks a file before it goes; the upload ticket refuses a larger one.
+   */
+  maxFileSizeMb: z.number().int().min(1).max(100),
 });
 export type UploadTargets = z.infer<typeof UploadTargets>;
 

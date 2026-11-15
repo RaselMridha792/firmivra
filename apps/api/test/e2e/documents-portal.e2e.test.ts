@@ -498,6 +498,11 @@ describe('portal uploads (household rules, q12)', () => {
     expect((await limit(5)).status).toBe(200);
     const sized = (sizeBytes: number) => ({ ...facts(pdf()), sizeBytes, serviceId: ids.e1 });
     try {
+      // The portal's upload screen gets the firm's limit to check a file before it goes.
+      expect(
+        exact(UploadTargets, await call('get', '/me/documents/upload-targets', people.primary))
+          .maxFileSizeMb,
+      ).toBe(5);
       const portal = await call('post', '/me/documents/uploads', people.primary, sized(5 * MB + 1));
       expectError(portal, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(portal.body)).toContain('Files can be at most 5 MB');
@@ -857,7 +862,7 @@ describe('portal lists, views and downloads', () => {
     ]);
     expect(
       exact(UploadTargets, await call('get', '/me/documents/upload-targets', people.stop)),
-    ).toEqual({ tax: [], business: [] });
+    ).toEqual({ tax: [], business: [], maxFileSizeMb: 100 });
     expectError(
       await call('post', '/me/documents/uploads', people.authorized, {
         ...facts(pdf()),

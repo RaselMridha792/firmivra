@@ -1,6 +1,6 @@
 'use client';
 
-import { DOCUMENT_ERRORS, UPLOAD_LIMITS } from '@firmivra/types';
+import { DOCUMENT_ERRORS } from '@firmivra/types';
 import { Button, Modal, PageHeader, Stepper } from '@firmivra/ui';
 import { ArrowLeft, ArrowRight, CaretRight, CheckCircle } from '@phosphor-icons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,6 +11,7 @@ import { useFirm } from '../../../../../../components/firm-context';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
+import { useFirmDocumentMaxBytes } from '../../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../../lib/upload';
 import { DocumentInfo, UploadForPicker } from './document-info';
 import { LeadUpload } from './lead-upload';
@@ -43,6 +44,8 @@ export function UploadDocumentScreen() {
 
   const [step, setStep] = useState<StepId>('files');
   const [files, setFiles] = useState<QueuedFile[]>([]);
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   // Opened from a lead's Documents & Forms (`?leadId=`, Leads R2 4): Upload For is that lead.
   const presetLead = params.get('leadId');
   const [shared, setShared] = useState<SharedInfo>(() =>
@@ -152,7 +155,7 @@ export function UploadDocumentScreen() {
       patchFile(item.key, { state: 'UPLOADING', percent: 0, error: null });
       try {
         await uploadFile(item.file, {
-          maxBytes: UPLOAD_LIMITS.maxBytes,
+          maxBytes,
           start: (facts) =>
             api.documentLibrary.createUpload({
               clientId,

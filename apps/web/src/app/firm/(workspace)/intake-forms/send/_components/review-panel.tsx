@@ -18,6 +18,7 @@ import { Button, Checkbox, tintTones } from '@firmivra/ui';
 import Link from 'next/link';
 import { type ReactNode, useId } from 'react';
 import { Panel } from './panel';
+import { reminderSkips, useReminderPlan } from './schedule-modal';
 import {
   CHANNEL_LABELS,
   deliverySummary,
@@ -207,6 +208,7 @@ export function ReviewPanel({
                 >
                   (View)
                 </button>
+                <ReminderSkips formId={c.formId} expiry={c.expiry} />
               </>
             ) : (
               'Off'
@@ -276,6 +278,22 @@ export function ReviewPanel({
         </>
       )}
     </Panel>
+  );
+}
+
+/** Review Two 10c: a reminder this send would skip says so before sending. */
+function ReminderSkips({ formId, expiry }: { formId: string; expiry: Expiry }) {
+  const preview = useReminderPlan({ formId, expiry });
+  const lines = preview ? reminderSkips(preview.plan) : [];
+  if (lines.length === 0) return null;
+  return (
+    <span data-testid="reminder-skips" className="mt-1 block text-xs font-normal text-warning">
+      {lines.map((line) => (
+        <span key={line} className="block">
+          {line}
+        </span>
+      ))}
+    </span>
   );
 }
 

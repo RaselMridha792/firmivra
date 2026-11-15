@@ -571,6 +571,38 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     r.status = status;
     r.progress.readyForReview = status === 'SUBMITTED' || status === 'UNDER_REVIEW';
   };
+  /**
+   * Resend or Remind (19b as the API): only an open form (409 INVALID_STATUS otherwise), and the
+   * true result. Owen Hartley stands for a client with no portal sign-in: nothing reaches him,
+   * and History says so.
+   */
+  const nudge = async (id: string, kind: 'resend' | 'remind'): Promise<AssignedFormRecord> => {
+    await mockDelay();
+    const r = find(id);
+    if (!['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status))
+      throw fail(409, 'INVALID_STATUS', 'Only open forms can be resent or reminded');
+    const missed = r.recipient.name === 'Owen Hartley';
+    const which = kind === 'resend' ? 'Resend' : 'Reminder';
+    event(
+      r,
+      kind === 'resend' ? 'RESENT' : 'REMINDER',
+      missed
+        ? `${which} not delivered: the client has no portal sign-in`
+        : kind === 'resend'
+          ? 'Form resent'
+          : 'Reminder sent',
+    );
+    return {
+      ...copy(r),
+      delivery: missed
+        ? {
+            status: 'FAILED',
+            reason:
+              'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.',
+          }
+        : { status: 'SENT', reason: null },
+    };
+  };
 
   return {
     summary: async () => {
@@ -830,21 +862,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       }
       return copy(r);
     },
-    resend: async (id) => {
-      await mockDelay();
-      const r = find(id);
-      if (r.status === 'COMPLETED') throw fail(409, 'INVALID_STATUS', 'This form is completed');
-      event(r, 'RESENT', 'Form resent');
-      return copy(r);
-    },
-    remind: async (id) => {
-      await mockDelay();
-      const r = find(id);
-      if (!['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status))
-        throw fail(409, 'INVALID_STATUS', 'Only open forms get reminders');
-      event(r, 'REMINDER', 'Reminder sent');
-      return copy(r);
-    },
+    // 19b as the API: only an open form, and the answer says what really happened.
+    resend: async (id) => nudge(id, 'resend'),
+    remind: async (id) => nudge(id, 'remind'),
     markReviewed: async (id) => {
       await mockDelay();
       const r = find(id);
@@ -975,11 +995,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       if (input.serviceId && !service) {
         throw fail(404, 'NOT_FOUND', 'Not found');
       }
+      // Review Two 17c as the API (intake-builder.service.ts serviceFor): with no service named,
+      // the firm's service of the category; none (an Other form has none) is a 400.
+      const filed =
+        service ??
+        (input.category === 'OTHER'
+          ? undefined
+          : s.forms.find((form) => form.category === input.category && form.service));
+      if (!filed) throw fail(400, 'VALIDATION_FAILED', 'Choose the service this form is for');
       const f: IntakeFormDetail = {
         id: uuid('0f00', s.next++),
         name: input.name,
-        category: service?.category ?? input.category,
-        service: service?.service ?? null,
+        category: filed.category,
+        service: filed.service ?? null,
         description: input.description ?? null,
         isTemplate: input.isTemplate,
         custom: true,

@@ -16,6 +16,7 @@ import { useParams } from 'next/navigation';
 import { createContext, type ReactNode, use, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
+import { nudgeNotice } from '../../../../../../lib/intake-delivery';
 import { expiryText, useFirmTimeZone } from '../../_components/expiry';
 import { openPdf } from '../../_components/export-pdf';
 import {
@@ -160,7 +161,11 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               className={outline}
               onClick={() =>
                 remind.mutate(undefined, {
-                  onSuccess: () => notify('Follow-up sent.'),
+                  // 19b: the true result (sent, retrying, or not delivered and why).
+                  onSuccess: (record) => {
+                    const done = nudgeNotice(record, 'Follow-up sent.');
+                    notify(done.message, done.tone);
+                  },
                   onError: failed,
                 })
               }

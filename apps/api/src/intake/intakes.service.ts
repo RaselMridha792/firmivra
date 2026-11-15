@@ -37,6 +37,12 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
 import { activateNewClient } from '../clients/client-activation.js';
 import { intakeFileSizeMb } from './intake-file-size.js';
+import {
+  consentEvidence,
+  consentRequiredError,
+  intakeCompletion,
+  intakeConsentRequired,
+} from './intake-completion.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers } from './intake-numbers.js';
 import type { IntakeSigner } from './intake-signing.js';
@@ -347,6 +353,8 @@ export class IntakesService {
           : null,
       canEdit: open,
       canSubmit: open,
+      consentRequired: await intakeConsentRequired(tx, businessId),
+      completion: await intakeCompletion(tx, businessId, row.form.definition),
     });
   }
 
@@ -618,7 +626,11 @@ export class IntakesService {
     who: PortalClient,
     id: string,
     login: { userId: string; clientAccountId: string },
-    body: { answers?: IntakeAnswersInput; signature: z.output<typeof IntakeSignatureInput> },
+    body: {
+      answers?: IntakeAnswersInput;
+      signature: z.output<typeof IntakeSignatureInput>;
+      consent?: true;
+    },
     signer: IntakeSigner,
     source: { ip: string | null; userAgent: string | null },
   ): Promise<MyIntake> {
@@ -634,6 +646,13 @@ export class IntakesService {
       const definition = readDefinition(first.form, first.engagement!.service.kind);
       const review = definition.steps.at(-1)!;
       await this.saveStep(businessId, who, id, review.key, body.answers);
+    }
+    // Review Two row 21: the firm's consent checkbox, when it asks for one (answers stay saved).
+    if (
+      !body.consent &&
+      (await this.inFirm(businessId, (tx) => intakeConsentRequired(tx, businessId)))
+    ) {
+      throw consentRequiredError();
     }
     for (let attempt = 1; ; attempt++) {
       try {
@@ -652,7 +671,7 @@ export class IntakesService {
     who: PortalClient,
     id: string,
     login: { userId: string; clientAccountId: string },
-    body: { signature: z.output<typeof IntakeSignatureInput> },
+    body: { signature: z.output<typeof IntakeSignatureInput>; consent?: true },
     signer: IntakeSigner,
     source: { ip: string | null; userAgent: string | null },
   ): Promise<MyIntake> {
@@ -712,7 +731,7 @@ export class IntakesService {
     await this.audit.log(
       'intake.submitted',
       { type: 'intake', id },
-      { version: draft.version, detached: hidden.length },
+      { version: draft.version, detached: hidden.length, ...consentEvidence(body.consent) },
     );
     await this.tell(businessId, 'intake.submitted', id, login.userId);
     // Intake Form Settings > Notify additional emails (I7): the form's title only, no answers.

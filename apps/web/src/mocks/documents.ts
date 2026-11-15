@@ -6,6 +6,7 @@ import {
   CreateMyUploadRequest,
   type DocumentCategory,
   DOCUMENT_ERRORS,
+  documentFileSizeProblem,
   DocumentId,
   DocumentRequestId,
   MyRequestPacketId,
@@ -205,6 +206,30 @@ export function documentFixtures(): Readonly<Fixtures> {
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
+
+/**
+ * DOCUMENTS-LIMIT-01 as the API: the firm's largest regular document (Documents > Settings, 100 MB
+ * until changed there; the document-library mock sets it), returned to the portal's screens and
+ * enforced at every document upload ticket (400 VALIDATION_FAILED at sizeBytes).
+ */
+let documentLimitMb = 100;
+export const mockDocumentLimitMb = () => documentLimitMb;
+export function setMockDocumentLimitMb(mb: number): void {
+  documentLimitMb = mb;
+}
+const checkDocumentSize = (sizeBytes: number) => {
+  const problem = documentFileSizeProblem(sizeBytes, documentLimitMb);
+  if (problem) {
+    throw new ApiRequestError(
+      400,
+      'VALIDATION_FAILED',
+      'The request is not valid',
+      undefined,
+      undefined,
+      [{ path: 'sizeBytes', message: problem }],
+    );
+  }
+};
 /**
  * What the API finds inside a stored Excel or Word file, read here from its name only: "password"
  * is a file saved with a password, "macro" one with macros. Either way nothing is saved.
@@ -265,6 +290,7 @@ function portalPacket(): MyRequestPacket {
     taxYear: 2025,
     expiresAt: null,
     allowMultipleFiles: true,
+    maxFileSizeMb: 100,
     items: [
       item(1, 'W-2 Forms (All Employers)', true, 'All W-2 forms for tax year 2025.'),
       item(2, '1099 Forms (All Applicable)', true, null),
@@ -493,6 +519,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
       await mockDelay();
       const b = parseInput(CreateFirmUploadRequest, body);
       s.target(reachable(clientId), b);
+      checkDocumentSize(b.sizeBytes);
       return s.ticket(clientId, b);
     },
     confirmUpload: async (body) => {
@@ -668,12 +695,14 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       return {
         tax: open.filter(isTax).map(target),
         business: open.filter((e) => !isTax(e)).map(target),
+        maxFileSizeMb: documentLimitMb,
       };
     },
     createUpload: async (body) => {
       await mockDelay();
       const b = parseInput(CreateMyUploadRequest, body);
       s.target(me, b);
+      checkDocumentSize(b.sizeBytes);
       return s.ticket(me, b);
     },
     confirmUpload: async (body) => {
@@ -736,7 +765,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
       await mockDelay();
       parseInput(MyRequestPacketId, id);
       if (id !== PORTAL_PACKET_ID) throw notFound();
-      return portalPacket();
+      return { ...portalPacket(), maxFileSizeMb: documentLimitMb };
     },
     submitPacket: async (id) => {
       await mockDelay();

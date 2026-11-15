@@ -401,7 +401,12 @@ export function SendIntakeScreen({
           />
         </div>
       </div>
-      <ScheduleModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} />
+      <ScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        formId={choices.formId}
+        expiry={choices.expiry}
+      />
     </div>
   );
 }

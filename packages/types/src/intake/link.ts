@@ -9,6 +9,7 @@ import { IntakeAnswers } from './answers.js';
 import { IntakeFormDefinition, IntakeFormKey, IntakeKey } from './definition.js';
 import {
   CreateIntakeUploadRequest,
+  IntakeCompletion,
   IntakeFileSizeMb,
   IntakeUpload,
   IntakeUploadId,
@@ -63,6 +64,10 @@ export const LinkIntake = z
     signature: z.object({ printedName: z.string(), signedAt: DateTime }).nullable(),
     /** True while the form is open (SENT, IN_PROGRESS, NEEDS_CORRECTION). */
     canEdit: z.boolean(),
+    /** Review Two row 21: the review step shows the firm's consent checkbox (send `consent`). */
+    consentRequired: z.boolean(),
+    /** Review Two row 21: the message and redirect once it is sent. */
+    completion: IntakeCompletion,
   })
   .superRefine(refuseFullNumbers);
 export type LinkIntake = z.infer<typeof LinkIntake>;

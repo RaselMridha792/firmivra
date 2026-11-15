@@ -8,6 +8,7 @@ import {
 } from '@firmivra/types';
 import { CloudArrowUp, X } from '@phosphor-icons/react';
 import { useId, useState, type DragEvent } from 'react';
+import { useFirmDocumentMaxBytes } from '../../../../../../lib/document-limit';
 import { FileIcon } from '../../_components/file-icon';
 import { sizeText, type QueuedFile } from './upload-state';
 
@@ -35,7 +36,9 @@ export function FilePicker({
   const inputId = useId();
   const [over, setOver] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const maxMb = UPLOAD_LIMITS.maxBytes / (1024 * 1024);
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
+  const maxMb = Math.floor(maxBytes / (1024 * 1024));
 
   function take(list: FileList | null) {
     const picked = [...(list ?? [])];
@@ -47,7 +50,7 @@ export function FilePicker({
       return;
     }
     const refused = picked.filter(
-      (f) => !uploadContentTypeFor(f.name, f.type) || f.size > UPLOAD_LIMITS.maxBytes || !f.size,
+      (f) => !uploadContentTypeFor(f.name, f.type) || f.size > maxBytes || !f.size,
     );
     setProblem(
       refused.length

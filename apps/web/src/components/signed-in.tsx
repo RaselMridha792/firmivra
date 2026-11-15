@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { signInWithReturn } from '../lib/booking-intent';
 import { mocked } from '../lib/mock';
 import { claimCache, refreshSession, releaseCache, setSession } from '../lib/session';
 
@@ -105,8 +106,14 @@ export function SignedIn({
         (e: unknown) => {
           if (!active) return;
           if (is401(e)) {
+            const { pathname, search } = window.location;
             router.replace(
-              signedOutHome && window.location.pathname === '/' ? signedOutHome : signInPath,
+              signedOutHome && pathname === '/'
+                ? signedOutHome
+                : site === 'portal' && firmSlug
+                  ? // INTAKE-ACCESS-01: signing in lands back on the page opened (an intake email).
+                    signInWithReturn(signInPath, firmSlug, `${pathname}${search}`)
+                  : signInPath,
             );
           } else
             setState({ status: 'error', code: e instanceof ApiRequestError ? e.code : 'ERROR' });
