@@ -358,6 +358,21 @@ describe('Schedule Appointment with other attendees', () => {
     expect(JSON.stringify(audit)).not.toContain('fake');
   });
 
+  it('only the client is asked to confirm a booking the firm made; an attendee is never asked', async () => {
+    const before = outbox.length;
+    await scheduled({ status: 'PENDING', attendeeClientIds: [ids.guest] });
+    const asks = outbox
+      .slice(before)
+      .filter((m) => m.template === 'appointment.booked')
+      .map((m) => [m.to, (m.data as { confirmAsk?: boolean }).confirmAsk]);
+    expect(asks.sort()).toEqual(
+      [
+        [people.guest.email, false],
+        [people.primary.email, true],
+      ].sort(),
+    );
+  });
+
   it("refuses another firm's client, one the Staff member does not see, an archived one and more than 20", async () => {
     const count = () =>
       asOwner(ids.firmA, (tx) => tx.appointment.count({ where: { businessId: ids.firmA } }));
