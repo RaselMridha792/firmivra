@@ -66,3 +66,27 @@ test('Tax statuses: Maps to per label with a help note, and the amount rounding'
   await expect(page.getByTestId('amount-rounding').getByText('Saved.')).toBeVisible();
   await expect(rounding).toHaveValue('ROUND_TO_DOLLAR');
 });
+
+test('Tax statuses: Where returns appear names each tab and preset, its statuses and the labels', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/tax-statuses'));
+  const where = page.getByTestId('where-returns-appear');
+  await expect(where).toBeVisible({ timeout: 60_000 });
+  await expect(where.getByTestId('tab-explained')).toHaveCount(6);
+  await expect(
+    where.getByTestId('tab-explained').filter({ hasText: 'Quarterly Taxes' }),
+  ).toContainText('Lists returns in: every workflow status');
+  const presets = where.getByTestId('preset-explained');
+  await expect(
+    presets.filter({ hasText: 'In Progress (filter and dashboard card)' }),
+  ).toContainText(
+    'In Preparation, Waiting on Client, Ready for Review, Ready for Signature, Ready to File, In Correction',
+  );
+  await expect(presets.filter({ hasText: 'In Preparation card' })).toContainText(
+    'Your labels: Documents received, In preparation',
+  );
+  await expect(presets.filter({ hasText: 'Ready for Review/File card' })).toContainText(
+    'Lists returns in: Ready for Review, Ready for Signature, Ready to File',
+  );
+});
