@@ -751,6 +751,13 @@ export function createTemplatesMock({
             'ACTIVATE_NOT_ALLOWED',
             'Only an Owner or an Admin can make a template active',
           );
+        // As the API (C22): Deactivate is an Owner's or Admin's.
+        if (r.d.status === 'ACTIVE' && status === 'DRAFT' && role === 'STAFF')
+          throw fail(
+            403,
+            'DEACTIVATE_NOT_ALLOWED',
+            'Only an Owner or an Admin can deactivate a template',
+          );
         const auto = input.includeInAutomations ?? r.d.includeInAutomations;
         checkRules(kind, status, subject, auto);
         if (input.sharedWithUserIds) {

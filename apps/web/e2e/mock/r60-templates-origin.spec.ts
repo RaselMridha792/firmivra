@@ -126,3 +126,19 @@ test('C24: My Templates rows have Use, which opens the template with Back to the
     await expect(usable.first()).toHaveAttribute('href', /from=%2Ftemplates/);
   }
 });
+
+test('C22: an active template has Deactivate, asked first, and goes back to draft', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await page.getByRole('tab', { name: /^My Templates/ }).click();
+  const results = page.getByTestId('home-results');
+  const active = results.getByRole('row').filter({ hasText: 'Active' }).first();
+  const name = (await active.getByTestId('template-link').textContent({ timeout: 60_000 }))?.trim();
+  await active.getByRole('button', { name: /actions/i }).click();
+  await page.getByRole('menuitem', { name: 'Deactivate' }).click();
+  const ask = page.getByRole('dialog', { name: 'Deactivate this template?' });
+  await expect(ask.getByTestId('deactivate-note')).toContainText('goes back to draft');
+  await ask.getByRole('button', { name: 'Deactivate' }).click();
+  await expect(page.getByText(`${name} is a draft again.`)).toBeVisible();
+});
