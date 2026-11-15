@@ -14,6 +14,7 @@ import {
 import {
   ArrowCounterClockwise,
   Archive,
+  CalendarPlus,
   ChatCircle,
   DotsThreeVertical,
   EnvelopeSimple,
@@ -23,6 +24,7 @@ import {
   Signature,
   User,
 } from '@phosphor-icons/react';
+import { useOriginNavigate } from '../../../../../components/origin-link';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -196,13 +198,30 @@ function RowActions({
   onAction: (client: ClientListRow, action: RowAction) => void;
 }) {
   const router = useRouter();
+  const navigate = useOriginNavigate();
   const base = `/clients/${client.id}`;
+  // Clients Review 2 §3/§6: the row's own actions open with this client chosen (Back returns).
+  const live = !client.archivedAt;
   const sections: ActionMenuSection[] = [
     {
       items: [
         { label: 'View profile', icon: Eye, onSelect: () => router.push(base) },
         { label: 'Invoices', icon: Receipt, onSelect: () => router.push(`${base}/invoices`) },
         { label: 'Signatures', icon: Signature, onSelect: () => router.push(`${base}/signatures`) },
+        ...(live
+          ? [
+              {
+                label: 'Send Intake Form',
+                icon: FileText,
+                onSelect: () => navigate(`/intake-forms/send?clientId=${client.id}`),
+              },
+              {
+                label: 'Schedule Appointment',
+                icon: CalendarPlus,
+                onSelect: () => navigate(`/calendar/new?clientId=${client.id}`),
+              },
+            ]
+          : []),
       ],
     },
     ...(manager

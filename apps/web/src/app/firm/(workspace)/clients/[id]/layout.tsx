@@ -118,6 +118,15 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
+                {/* Clients Review 2 §3/§6: book this client (the form opens with them chosen). */}
+                {client.archivedAt ? null : (
+                  <OriginLink
+                    href={`/calendar/new?clientId=${client.id}`}
+                    className="inline-flex min-h-10 items-center rounded-control border border-border px-4 text-sm font-semibold text-heading hover:bg-subtle"
+                  >
+                    Schedule Appointment
+                  </OriginLink>
+                )}
                 {client.archivedAt ? null : (
                   <EditClient client={client} initiallyOpen={search.get('edit') === '1'} />
                 )}
