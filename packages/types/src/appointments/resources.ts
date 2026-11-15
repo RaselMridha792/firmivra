@@ -5,8 +5,9 @@ import { NamedItem } from './scheduling.js';
 // Appointments Review 2 (A2), Settings > Appointment Settings: the firm's rooms and equipment.
 // Owner and Admin manage them (Staff 403); everyone at the firm books them with an appointment
 // (Schedule Appointment's Room and Equipment). A room is one office's; an item of equipment is one
-// physical item, of one office or of any office (officeId null). Archived ones are listed for
-// Restore, and a booked one keeps its appointments. Two live appointments never hold one room or
+// physical item, of one office or of any office (officeId null). Archiving keeps every appointment
+// that holds it and stops new bookings: an item can be restored, a room's archive is final (the
+// database keeps it, R37), so its name stays its own. Two live appointments never hold one room or
 // one item at once: the conflict check names it (409 SCHEDULING_CONFLICT) and the database refuses
 // it whatever the check saw. Audit rows hold ids only.
 
@@ -22,7 +23,7 @@ export const FirmRoom = z.object({
   id: z.uuid(),
   name: z.string(),
   office: NamedItem,
-  /** Set when archived: no new bookings; its appointments keep it. */
+  /** Set when archived, for good: no new bookings; its appointments keep it. */
   archivedAt: DateTime.nullable(),
   /** Live appointments from now on that hold it. */
   upcoming: z.number().int(),
@@ -54,7 +55,7 @@ export type AppointmentResources = z.infer<typeof AppointmentResources>;
 
 /**
  * POST /business/appointment-resources/rooms. A name is unique within its office, archived rooms
- * included (409 DUPLICATE_NAME: restore that one instead).
+ * included, ignoring case (409 DUPLICATE_NAME).
  */
 export const CreateRoomRequest = z.strictObject({ officeId: z.uuid(), name: ResourceName });
 export type CreateRoomRequest = z.input<typeof CreateRoomRequest>;

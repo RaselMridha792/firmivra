@@ -30,11 +30,9 @@ export function createAppointmentResourcesClient(request: ApiRequest) {
       request(FirmRoom, `${RESOURCES}/rooms`, post(parseInput(CreateRoomRequest, body))),
     renameRoom: async (id: string, body: UpdateRoomRequest): Promise<FirmRoom> =>
       request(FirmRoom, room(id), patch(parseInput(UpdateRoomRequest, body))),
-    /** No new bookings; its appointments keep it. */
+    /** For good: no new bookings; its appointments keep it. */
     archiveRoom: async (id: string): Promise<FirmRoom> =>
       request(FirmRoom, `${room(id)}/archive`, post()),
-    restoreRoom: async (id: string): Promise<FirmRoom> =>
-      request(FirmRoom, `${room(id)}/restore`, post()),
     addEquipment: async (body: CreateEquipmentRequest): Promise<FirmEquipment> =>
       request(
         FirmEquipment,

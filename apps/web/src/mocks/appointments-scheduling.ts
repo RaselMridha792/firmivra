@@ -32,6 +32,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { appointmentIntakes } from './appointment-intakes';
+import { liveEquipment, liveRooms, resourceStore } from './appointment-resources';
 
 /**
  * Mock data for `api.scheduling` (R42 contract, the Appointments workspace). Synthetic people
@@ -200,6 +201,9 @@ function seed(empty: boolean): Store {
             method === 'VIDEO' ? 'Join from a quiet place; the link works in any browser.' : null,
           instructionsIn: { email: true, portal: true, sms: false },
           confirmationMessage: null,
+          // Review 2 (A2): the first in-person appointment holds the Projector.
+          equipment:
+            method === 'IN_PERSON' && i === 0 ? [{ id: uuid('0f30', 1), name: 'Projector' }] : [],
           related: {
             taxReturn: t === 1 ? { id: uuid('1a00', i), name: '2025 Form 1040' } : null,
             bookkeepingEngagement: null,
@@ -403,9 +407,25 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
     startsAt: string;
     endsAt: string;
     excludeAppointmentId?: string;
+    equipmentIds?: readonly string[];
   }): ConflictResult {
     const found: ConflictResult['conflicts'] = [];
     const date = localDate(Date.parse(input.startsAt));
+    // Review 2 (A2): an item another live appointment holds then; never overridden.
+    for (const r of s.records) {
+      if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
+        continue;
+      if (!overlaps(r, input)) continue;
+      for (const e of r.equipment.filter((x) => input.equipmentIds?.includes(x.id))) {
+        found.push({
+          kind: 'EQUIPMENT',
+          staff: null,
+          startsAt: r.startsAt,
+          endsAt: r.endsAt,
+          message: `${e.name} is already booked at this time`,
+        });
+      }
+    }
     for (const staff of staffByIds(input.staffUserIds)) {
       for (const r of s.records) {
         if (r.id === input.excludeAppointmentId || r.status === 'CANCELED' || r.status === 'DRAFT')
@@ -449,9 +469,29 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       ok: found.length === 0,
       conflicts: found,
       alternatives,
-      canOverride: role !== 'STAFF',
+      canOverride: role !== 'STAFF' && !found.some((c) => c.kind === 'EQUIPMENT'),
     };
   }
+  /** 409 SCHEDULING_CONFLICT with the check's answer in its details, as the API sends it. */
+  const conflictError = (check: ConflictResult) =>
+    new ApiRequestError(
+      409,
+      'SCHEDULING_CONFLICT',
+      check.conflicts[0]?.message ?? 'This time is taken',
+      undefined,
+      undefined,
+      undefined,
+      check,
+    );
+  /** Review 2 (A2): the items to book, by name; an unknown or archived one is 404. */
+  const equipmentOf = (ids: readonly string[], held: AppointmentRecord['equipment'] = []) =>
+    ids.map((id) => {
+      const kept = held.find((e) => e.id === id);
+      if (kept) return kept;
+      const item = resourceStore().equipment.find((e) => e.id === id && !e.archivedAt);
+      if (!item) throw fail(404, 'NOT_FOUND', 'Not found');
+      return { id: item.id, name: item.name };
+    });
 
   const contactOf = (c: ContactInput): AppointmentContact => {
     if (c.kind === 'CONTACT') {
@@ -592,10 +632,9 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           { id: uuid('0f10', 1), name: 'Main Office' },
           { id: uuid('0f10', 2), name: 'Riverside Office' },
         ],
-        rooms: [
-          { id: uuid('0f20', 1), name: 'Conference Room 1', officeId: uuid('0f10', 1) },
-          { id: uuid('0f20', 2), name: 'Conference Room 2', officeId: uuid('0f10', 1) },
-        ],
+        // Review 2 (A2): Settings > Appointment Settings' live rooms and items.
+        rooms: liveRooms(),
+        equipment: liveEquipment(),
         smsEnabled: true,
         portalEnabled: true,
         // A spec switches Zoom off for the tab with sessionStorage 'firmivra-mock:video' = 'off'.
@@ -635,13 +674,15 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const input = parseInput(ScheduleAppointmentRequest, body);
       const again = s.idempotent.get(input.idempotencyKey);
       if (again) return copy(find(again));
+      const equipment = equipmentOf(input.equipmentIds ?? []);
       const check = conflicts({
         staffUserIds: input.staffUserIds,
         startsAt: input.startsAt,
         endsAt: input.endsAt,
+        equipmentIds: input.equipmentIds ?? [],
       });
       if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
-        throw fail(409, 'SCHEDULING_CONFLICT', check.conflicts[0]?.message ?? 'This time is taken');
+        throw conflictError(check);
       }
       if (input.generateVideoLink && input.method !== 'VIDEO')
         throw fail(400, 'VALIDATION_FAILED', 'Video links are for Zoom / Video');
@@ -698,6 +739,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           sms: input.instructionsInSms ?? false,
         },
         confirmationMessage: input.confirmationMessage ?? null,
+        equipment,
         related: {
           // Review 2 (TX-F06): Link to Tax Return, as the API keeps it.
           taxReturn: input.related?.taxReturnId
@@ -741,19 +783,20 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       const endsAt = input.endsAt ?? r.endsAt;
       const staffIds = input.staffUserIds ?? r.staff.map((x) => x.userId);
       const moved = startsAt !== r.startsAt || endsAt !== r.endsAt;
-      if (moved || input.staffUserIds) {
+      const equipment = input.equipmentIds
+        ? equipmentOf(input.equipmentIds, r.equipment)
+        : r.equipment;
+      const added = equipment.some((e) => !r.equipment.some((x) => x.id === e.id));
+      if (moved || input.staffUserIds || added) {
         const check = conflicts({
           staffUserIds: staffIds,
           startsAt,
           endsAt,
           excludeAppointmentId: id,
+          equipmentIds: equipment.map((e) => e.id),
         });
         if (!check.ok && !(input.overrideConflicts && check.canOverride)) {
-          throw fail(
-            409,
-            'SCHEDULING_CONFLICT',
-            check.conflicts[0]?.message ?? 'This time is taken',
-          );
+          throw conflictError(check);
         }
       }
       const before = { startsAt: r.startsAt, endsAt: r.endsAt, staff: r.staff[0] ?? me };
@@ -789,6 +832,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           : {}),
         ...(input.reminders ? { reminders: input.reminders } : {}),
         ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
+        equipment,
       });
       if (moved) {
         r.status = 'RESCHEDULED';

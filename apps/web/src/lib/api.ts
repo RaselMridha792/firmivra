@@ -76,6 +76,7 @@ import {
   createRequest,
   createRolesClient,
   createSchedulingClient,
+  createAppointmentResourcesClient,
   createServicesPricingClient,
   createSettingsClient,
   createSettingsOverviewClient,
@@ -182,6 +183,7 @@ import {
   createUsersMock,
 } from '../mocks/settings-admin';
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
+import { createAppointmentResourcesMock } from '../mocks/appointment-resources';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createMySecurityMock } from '../mocks/my-security';
 import { createMfaPolicyMock } from '../mocks/mfa-policy';
@@ -422,6 +424,11 @@ export const api = {
     dev && mocked('scheduling')
       ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
       : createSchedulingClient(request),
+  /** Appointments Review 2 (A2): Settings > Appointment Settings' rooms and equipment. */
+  appointmentResources:
+    dev && mocked('appointmentResources')
+      ? createAppointmentResourcesMock({ role: MOCK_ROLE })
+      : createAppointmentResourcesClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')

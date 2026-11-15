@@ -81,7 +81,8 @@ const itemTaken = () => errors.duplicate('An item of equipment with this name al
  * controller). A room's name is unique within its office, archived rooms included (the database's
  * unique index is exact; this check ignores case); an item's name is unique among the firm's live
  * items ignoring case (the database's own rule). Archiving keeps every appointment that holds it;
- * only new bookings stop. Audit rows hold ids and field names only.
+ * only new bookings stop. A room's archive is final (the database's rule since R37); an item can
+ * be restored. Audit rows hold ids and field names only.
  */
 @Injectable()
 export class AppointmentResourcesService {
@@ -188,28 +189,22 @@ export class AppointmentResourcesService {
     return toRoom(row, upcoming);
   }
 
-  /** Archive or Restore; repeating it changes nothing and writes no audit row. */
-  async setRoomArchived(businessId: string, id: string, archive: boolean): Promise<FirmRoom> {
+  /** Archive, for good; repeating it changes nothing and writes no audit row. */
+  async archiveRoom(businessId: string, id: string): Promise<FirmRoom> {
     const { row, changed, upcoming } = await this.inFirm(businessId, async (tx) => {
       const current = await this.room(tx, businessId, id);
       const count = (await this.roomsUpcoming(tx, businessId, id)).get(id) ?? 0;
-      if ((current.archivedAt !== null) === archive) {
-        return { row: current, changed: false, upcoming: count };
-      }
+      if (current.archivedAt) return { row: current, changed: false, upcoming: count };
       const updated = await tx.firmRoom.update({
         where: { id },
-        data: { archivedAt: archive ? new Date() : null },
+        data: { archivedAt: new Date() },
         select: roomSelect,
       });
       return { row: updated, changed: true, upcoming: count };
     });
     if (changed) {
-      await this.audit.log(
-        archive ? 'appointment_room.archived' : 'appointment_room.restored',
-        { type: 'firm_room', id },
-        // How many upcoming appointments keep the archived room.
-        archive ? { upcoming } : undefined,
-      );
+      // How many upcoming appointments keep the archived room.
+      await this.audit.log('appointment_room.archived', { type: 'firm_room', id }, { upcoming });
     }
     return toRoom(row, upcoming);
   }

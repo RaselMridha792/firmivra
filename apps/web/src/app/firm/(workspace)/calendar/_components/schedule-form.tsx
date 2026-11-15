@@ -43,6 +43,7 @@ import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointme
 import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
 import { addedType } from './new-type';
+import { equipmentChoices, equipmentClashes } from './equipment';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
@@ -181,6 +182,8 @@ interface Form {
   method: MeetingMethod;
   officeId: string;
   roomId: string;
+  /** Review 2 (A2): the equipment it books. */
+  equipmentIds: string[];
   details: string;
   /** Review 2 (P1 row 1): an Other Video Meeting's platform; blank uses the type's. */
   otherVideoPlatform: string;
@@ -225,6 +228,7 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
     method: 'IN_PERSON',
     officeId: o.offices?.[0]?.id ?? '',
     roomId: '',
+    equipmentIds: [],
     details: '',
     otherVideoPlatform: '',
     generateVideoLink: false,
@@ -266,6 +270,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
     method: r.method,
     officeId: r.place.office?.id ?? '',
     roomId: r.place.room?.id ?? '',
+    equipmentIds: r.equipment.map((e) => e.id),
     details: r.place.details ?? '',
     otherVideoPlatform: r.otherVideoPlatform ?? '',
     videoUrl: r.videoUrl ?? '',
@@ -311,6 +316,9 @@ function fromDraft(d: Record<string, unknown>, base: Form): Form {
     method: (str('method') as MeetingMethod | undefined) ?? base.method,
     officeId: str('officeId') ?? base.officeId,
     roomId: str('roomId') ?? base.roomId,
+    equipmentIds: Array.isArray(d['equipmentIds'])
+      ? (d['equipmentIds'] as string[])
+      : base.equipmentIds,
     details: str('details') ?? base.details,
     otherVideoPlatform: str('otherVideoPlatform') ?? base.otherVideoPlatform,
     videoUrl: str('videoUrl') ?? base.videoUrl,
@@ -962,6 +970,9 @@ function FormBody({
   const endsAt = toInstant(form.date, form.allDay ? '23:59' : form.end, form.timezone);
   const minutes = minutesOf(form.end) - minutesOf(form.start);
   const rooms = (o.rooms ?? []).filter((r) => !form.officeId || r.officeId === form.officeId);
+  // Review 2 (A2): the items this place can book; an item that no longer suits it is left out.
+  const items = equipmentChoices(o.equipment, record?.equipment ?? [], form.method, form.officeId);
+  const equipmentIds = form.equipmentIds.filter((id) => items.some((i) => i.value === id));
 
   const contactInput = () =>
     form.newContact
@@ -992,6 +1003,7 @@ function FormBody({
     method: form.method,
     officeId: form.method === 'IN_PERSON' ? form.officeId || null : null,
     roomId: form.method === 'IN_PERSON' ? form.roomId || null : null,
+    equipmentIds,
     details: form.details.trim() || null,
     // Blank: the appointment type's platform (the API refuses OTHER with neither).
     otherVideoPlatform:
@@ -1082,7 +1094,9 @@ function FormBody({
   );
   const busy = schedule.isPending || update.isPending || draft.isPending;
   const failure = schedule.error ?? update.error ?? draft.error;
-  const conflict = errorCode(schedule.error) === 'SCHEDULING_CONFLICT';
+  // Review 2 (A2): an item another appointment holds then, named; it can't be booked anyway.
+  const heldItems = equipmentClashes(failure);
+  const conflict = errorCode(schedule.error) === 'SCHEDULING_CONFLICT' && heldItems.length === 0;
 
   const submit = () => {
     if (!check()) return;
@@ -1139,6 +1153,7 @@ function FormBody({
   const staffNames = o.staff.filter((s) => form.staffUserIds.includes(s.userId)).map((s) => s.name);
   const office = o.offices?.find((x) => x.id === form.officeId)?.name;
   const room = o.rooms?.find((x) => x.id === form.roomId)?.name;
+  const equipmentNames = items.filter((i) => equipmentIds.includes(i.value)).map((i) => i.label);
   const dateLabel = new Date(`${form.date}T12:00:00Z`).toLocaleDateString('en-US', {
     timeZone: 'UTC',
     weekday: 'short',
@@ -1514,6 +1529,20 @@ function FormBody({
               ]}
               value={form.roomId}
               onChange={(e) => set('roomId', e.target.value)}
+            />
+          </div>
+          {/* Review 2 (A2): the equipment it books, up to five; an item goes to one appointment at
+              a time. */}
+          <div data-testid="equipment-pick">
+            <MultiPick
+              chips="tags"
+              label="Equipment (optional)"
+              placeholder="Choose equipment"
+              emptyText="No equipment for this place. Owners and admins add it in Settings > Appointment Settings."
+              options={items}
+              value={equipmentIds}
+              error={errors.equipmentIds}
+              onChange={(v) => set('equipmentIds', v)}
             />
           </div>
           <div className="flex min-w-0 flex-col gap-1" data-testid="video-link">
@@ -1994,9 +2023,11 @@ function FormBody({
         {failure ? (
           <div role="alert" data-testid="schedule-error" className="flex flex-col gap-2">
             <Callout icon={Info} tone="amber" surface="warning" size="compact">
-              {conflict
-                ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
-                : errorMessage(failure, SCHEDULE_ERRORS)}
+              {heldItems.length > 0
+                ? `${heldItems.join(' ')} Choose another time, or leave the item out.`
+                : conflict
+                  ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
+                  : errorMessage(failure, SCHEDULE_ERRORS)}
             </Callout>
             {conflict ? (
               <Input
@@ -2100,6 +2131,9 @@ function FormBody({
                     METHOD_LABELS[form.method]
                   ),
                 ],
+                ...(equipmentNames.length > 0
+                  ? [['Equipment', equipmentNames.join(', ')] as [string, ReactNode]]
+                  : []),
                 ['Staff', staffNames.join(', ') || '—'],
                 [
                   'Status',

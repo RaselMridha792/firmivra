@@ -59,16 +59,7 @@ export class AppointmentResourcesController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', roomPipe) id: string,
   ): Promise<FirmRoom> {
-    return this.resources.setRoomArchived(tenant.businessId, id, true);
-  }
-
-  @Post('rooms/:id/restore')
-  @HttpCode(200)
-  restoreRoom(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id', roomPipe) id: string,
-  ): Promise<FirmRoom> {
-    return this.resources.setRoomArchived(tenant.businessId, id, false);
+    return this.resources.archiveRoom(tenant.businessId, id);
   }
 
   @Post('equipment')
