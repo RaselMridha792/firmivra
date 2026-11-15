@@ -1,6 +1,6 @@
 # Tax Returns: Review 2 QA map
 
-This file maps every row of Octavia's Tax Returns Review 2 (Nov 11, 2026) to the PR that built it and the test that covers it. There are no GAPs left (Nov 15). That means the 36 Review One items F01 to F36 and the seven approved additions. Her checklist and checkpoint are kept privately, outside the repo. Rows are named by their IDs and headings only; her text is not copied here, except where a row's own wording decides its status.
+This file maps every row of Octavia's Tax Returns Review 2 (Nov 11, 2026), the 36 Review One items F01 to F36 and the seven approved additions, to the PR that built it and the test that covers it. There are no GAPs left (Nov 15). Her checklist and checkpoint are kept privately, outside the repo. Rows are named by their IDs and headings only; her text is not copied here, except where a row's own wording decides its status.
 
 Her review status is in the second column: Verified, Partial, Correction or Pending. Verified rows still name her remaining retests. Those are her checks to repeat (roles, narrow screens, populated fixtures), not open code work.
 
