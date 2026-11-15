@@ -84,11 +84,14 @@ function AddEquipment({ offices }: { offices: NamedItem[] }) {
         <Select
           label="Office"
           data-testid="new-item-office"
-          hint="An office's item goes only to in-person appointments there."
           options={officeOptions(offices)}
           {...form.register('officeId', { setValueAs: officeValue })}
         />
       </div>
+      <p className="-mt-1 text-sm text-muted">
+        An office&apos;s item goes only to in-person appointments there; an item for any office goes
+        with every appointment.
+      </p>
       <Textarea
         label="Description (optional)"
         data-testid="new-item-description"
@@ -169,7 +172,7 @@ function ItemRow({
           {item.office?.name ?? ANY_OFFICE} · {upcomingLabel(item.upcoming)}
         </span>
         {item.description ? (
-          <span className="text-sm break-words text-text">{item.description}</span>
+          <span className="text-sm wrap-break-word text-text">{item.description}</span>
         ) : null}
       </div>
       <span className="flex flex-wrap gap-2">

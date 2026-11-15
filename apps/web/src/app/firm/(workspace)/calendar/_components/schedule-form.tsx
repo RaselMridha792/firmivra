@@ -2024,7 +2024,7 @@ function FormBody({
           <div role="alert" data-testid="schedule-error" className="flex flex-col gap-2">
             <Callout icon={Info} tone="amber" surface="warning" size="compact">
               {heldItems.length > 0
-                ? `${heldItems.join(' ')} Choose another time, or leave the item out.`
+                ? `${heldItems.join('. ')}. Choose another time, or leave the item out.`
                 : conflict
                   ? `${SCHEDULE_ERRORS.SCHEDULING_CONFLICT} Choose another time in the Staff Availability panel, or book anyway with a reason.`
                   : errorMessage(failure, SCHEDULE_ERRORS)}
