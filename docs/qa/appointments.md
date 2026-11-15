@@ -60,7 +60,7 @@ Text messages for appointments are not sent yet (no text template), so a Text re
 | P3: Cancel | Done | #1501 | The client is told, as the Cancel dialog says: a bell item and an email to their primary login, with the reason staff gave. e2e `appointments` "tells the client's primary login about a booking, a new time and a cancel (Review 2 P3)" and "cancelled, completed and no-show are final (409 APPOINTMENT_CLOSED)". Mock `r56-appointments-review` "Review 2 (P3): Cancel says the client is told, and that they see the reason". |
 | P4: Complete | Evidence | (R12) | Same e2e: final once done. Nothing is sent. Dev: Complete a past Test Firm B appointment; the status is Completed and nothing is emailed. |
 | P5: No-show | Evidence | (R12) | As P4: final, and nothing is sent. |
-| P6: Recurring | Verified (Octavia) | | Kept; the summary now also shows the repeat and its count (B4). |
+| P6: Recurring | Verified (Octavia) | (earlier), #1509 | e2e `scheduling` "repeats weekly and makes one appointment per occurrence in a series". Mock `r56-appointments-review` "Review 2 (B4, B5): the summary shows the repeat and its count …". |
 | P7: Reminder delivery | Evidence | #1462 (history) | e2e `notify-jobs` "appointment reminders: a due appointment once (bell on both sides, the email copy)" and "a rescheduled appointment gets a reminder for its new time". A reminder, sent by hand or automatically, shows in the appointment's notice history (B8). Text is pending, as the notices table says. |
 | P8: Confirmation behavior | Done | #1507 | As row 8. |
 | P9: Intake completion | Evidence | (earlier, A9) | As row 9. |
@@ -92,19 +92,19 @@ Text messages for appointments are not sent yet (no text template), so a Text re
 
 ## Verified working (Octavia, Nov 8)
 
-| Row | Status |
-| --- | --- |
-| W1: List filters and search | Kept |
-| W2: Calendar display and detail navigation | Kept |
-| W3: Form prefill and retention | Kept |
-| W4: All Day form and saved persistence | Kept |
-| W5: Normal scheduling save and reload | Kept |
-| W6: Internal note persistence | Kept |
-| W7: Cancel edit discards changes | Kept |
-| W8: Saved record in calendar and Upcoming | Kept |
-| W9: Today date scope and detail link | Kept |
-| W10: Availability conflicts and timezones | Kept |
-| W11: Required fields and time range | Kept |
+| Row | Status | Test |
+| --- | --- | --- |
+| W1: List filters and search | Kept | Mock `tumit-calendar-list` "lists, searches and filters appointments"; `r56-appointments-review` "Review 2 (B3): Back from an appointment returns to the same list filters and calendar view" |
+| W2: Calendar display and detail navigation | Kept | Mock `tumit-calendar` "shows the week, Upcoming Appointments and the right column" and "a day from the small month shows its week …"; `tumit-calendar-detail` "shows the appointment and confirms it …" |
+| W3: Form prefill and retention | Kept | Mock `tumit-calendar-new` "opens on the date and hour picked on the calendar"; `r56-appointments-review` "Review 2 (B2): the unsaved form is kept through Edit My Availability and Back" |
+| W4: All Day form and saved persistence | Kept | Mock `r56-appointments-review` "Review 2 (B6): Today labels an all-day appointment All Day" (an all-day appointment scheduled, then shown) |
+| W5: Normal scheduling save and reload | Kept | Mock `tumit-calendar-new` "checks the form, shows the staff day and schedules an appointment"; `tumit-calendar-edit` "fills the form from the appointment and saves a change" |
+| W6: Internal note persistence | Kept | Mock `tumit-calendar-detail` "… adds a note …"; e2e `scheduling` notes "works after the meeting too, and refuses empty, long and unknown input" |
+| W7: Cancel edit discards changes | Kept | Mock `tumit-calendar-edit` "W7 (Review 2, verified working): Cancel on Edit leaves the appointment as it was" (new with this map) |
+| W8: Saved record in calendar and Upcoming | Kept | Mock `tumit-calendar` "shows the week, Upcoming Appointments and the right column" |
+| W9: Today date scope and detail link | Kept | Mock `tumit-calendar-today` "shows today" |
+| W10: Availability conflicts and timezones | Kept | Mock `tumit-calendar-new` "… shows the staff day …"; `r56-appointments-review` "A2: weekly hours and time off save together …"; e2e `scheduling` "refuses a time the staff member, client or room already has with 409 SCHEDULING_CONFLICT" and "Review 2 (B10): …" |
+| W11: Required fields and time range | Kept | Mock `tumit-calendar-new` "checks the form …"; `r56-appointments-review` "A2: a wrong range is marked on its field and focused, and nothing is sent" |
 
 ## GAP list
 
