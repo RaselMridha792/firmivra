@@ -1239,6 +1239,77 @@ describe('campaigns', () => {
     expect(copy.name).toBe(`${d.name} (copy)`);
   });
 
+  it('C32, C23: Sent History filters by the day sent and status, sorts, and totals its recipients', async () => {
+    const tag = mark('C32');
+    const sentOn = async (
+      name: string,
+      day: string,
+      recipients: number,
+      channel: 'EMAIL' | 'SMS',
+      body = 'A fake message.',
+      to?: string,
+    ) =>
+      inFirm('a', async (tx) => {
+        const c = await tx.communication.create({
+          data: {
+            businessId: firms.a,
+            channel,
+            name: `${tag} ${name}`,
+            subject: channel === 'EMAIL' ? 'Fake subject' : null,
+            body,
+            status: 'SENDING',
+            createdByUserId: ownerA.id,
+            startedAt: new Date(`${day}T10:00:00Z`),
+            selectedCount: recipients,
+            autoExcludedCount: 0,
+            manualExcludedCount: 0,
+            finalCount: recipients,
+          },
+        });
+        // Recipients are added while it is sending (the database's rule).
+        if (to)
+          await tx.communicationRecipient.create({
+            data: {
+              businessId: firms.a,
+              communicationId: c.id,
+              clientId: to,
+              status: 'DELIVERED',
+              addressMask: '***-***-0000',
+            },
+          });
+        await tx.communication.update({
+          where: { id: c.id },
+          data: { status: 'SENT', sentAt: new Date(`${day}T10:05:00Z`) },
+        });
+        return c.id;
+      });
+    const early = await sentOn('Early', '2026-01-05', 3, 'EMAIL');
+    const word = `bodyword${run}`;
+    const late = await sentOn('Late', '2026-02-10', 7, 'EMAIL', `Your ${word} is ready.`);
+    const text = await sentOn('Text', '2026-02-11', 2, 'SMS', 'A fake text.', clients.c2);
+    const find = async (q: string) =>
+      CommunicationPage.parse(
+        ok(await call('get', `/?tab=sent&search=${encodeURIComponent(tag)}&${q}`, ownerA)),
+      );
+    // The day it was sent (not the day it was made); the recipients of everything found.
+    const feb = await find('from=2026-02-01&to=2026-02-28');
+    expect(feb.items.map((r) => r.id).sort()).toEqual([late, text].sort());
+    expect([feb.total, feb.recipients]).toEqual([2, 9]);
+    const emails = await find('from=2026-01-01&channel=EMAIL&status=SENT');
+    expect([emails.total, emails.recipients]).toEqual([2, 10]);
+    // Most recipients first.
+    const top = await find('sort=performance');
+    expect(top.items.map((r) => r.id)).toEqual([late, early, text]);
+    expect((await find('status=FAILED')).total).toBe(0);
+    // C28: the search also looks in the message and at who it went to.
+    const search = async (term: string) =>
+      CommunicationPage.parse(
+        ok(await call('get', `/?tab=sent&search=${encodeURIComponent(term)}`, ownerA)),
+      ).items.map((r) => r.id);
+    expect(await search(word)).toEqual([late]);
+    expect(await search(`c2-${run}@client`)).toContain(text);
+  });
+
   it('shows Staff only their own, and firm B nothing', async () => {
     const mine = await draft({}, staffA);
     const theirs = await draft({}, ownerA);

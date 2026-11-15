@@ -33,6 +33,13 @@ export const MyAnnouncementList = z.object({ items: z.array(MyAnnouncement) });
 export type MyAnnouncementList = z.infer<typeof MyAnnouncementList>;
 
 /**
+ * POST /portal/{firmSlug}/me/announcements/{id}/opened (C26): the client opened it; its Results
+ * count the open. 404 for one that isn't theirs or live.
+ */
+export const AnnouncementOpened = z.object({ ok: z.literal(true) });
+export type AnnouncementOpened = z.infer<typeof AnnouncementOpened>;
+
+/**
  * `api.myAnnouncements(slug)` (apps/web/src/lib/api.ts): the announcements published to the
  * signed-in client from Communications, while inside their window and not expired.
  */
@@ -40,6 +47,12 @@ export function createMyAnnouncementsClient(request: ApiRequest, firmSlug: strin
   return {
     list: async (): Promise<MyAnnouncementList> =>
       request(MyAnnouncementList, `/portal/${encodeURIComponent(firmSlug)}/me/announcements`),
+    opened: async (id: string): Promise<AnnouncementOpened> =>
+      request(
+        AnnouncementOpened,
+        `/portal/${encodeURIComponent(firmSlug)}/me/announcements/${encodeURIComponent(id)}/opened`,
+        { method: 'POST', body: {} },
+      ),
   };
 }
 export type MyAnnouncementsClient = ReturnType<typeof createMyAnnouncementsClient>;
