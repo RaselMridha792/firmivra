@@ -167,6 +167,20 @@ export interface NotifyTemplates {
   'appointment.cancelled': Omit<AppointmentData, 'message' | 'instructions'> & {
     reason: string | null;
   };
+  /**
+   * Appointments A3 (R55): an earlier time opened for the client's appointment on the waitlist.
+   * The times only: never notes, instructions, staff or place.
+   */
+  'appointment.waitlist-offer': IgnoredFirmName & {
+    name: string;
+    offeredStartsAt: Date;
+    /** The appointment's own time, which stands unless the client takes the earlier one. */
+    startsAt: Date;
+    /** The offer is held for the client until then. */
+    expiresAt: Date;
+    timeZone: string;
+    link: string;
+  };
 
   // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
   /** To a member: a project deadline (their own or shared with them) is coming up. */
@@ -288,6 +302,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.changed': 'email',
   'appointment.reminder': 'email',
   'appointment.cancelled': 'email',
+  'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
@@ -340,6 +355,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.changed': 'firm',
   'appointment.reminder': 'firm',
   'appointment.cancelled': 'firm',
+  'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
   'invoice.sent': 'firm',
   'payment.received': 'firm',
@@ -426,6 +442,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.changed': 'APPOINTMENTS',
   'appointment.reminder': 'APPOINTMENTS',
   'appointment.cancelled': 'APPOINTMENTS',
+  'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',

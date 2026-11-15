@@ -154,6 +154,16 @@ const TEXT: Record<NotificationEvent, Writer> = {
   'appointment.changed': appointment('Appointment changed'),
   'appointment.reminder': appointment('Appointment reminder'),
   'appointment.cancelled': appointment('Appointment cancelled'),
+  // Appointments A3 (R55): the offered time is in the portal and the email.
+  'appointment.waitlist-offer': (p) => {
+    const when = dateTime(text(p, 'startsAt'), text(p, 'timeZone'));
+    return {
+      title: 'Earlier time available',
+      body: when
+        ? `An earlier time opened for your appointment on ${when}. Open Appointments to take it.`
+        : 'An earlier time opened for your appointment. Open Appointments to take it.',
+    };
+  },
   'invoice.sent': (p) => ({
     title: 'New invoice',
     body: text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'You have a new invoice.',

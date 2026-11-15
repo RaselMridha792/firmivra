@@ -298,6 +298,8 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'appointment.changed',
   'appointment.reminder',
   'appointment.cancelled',
+  // Appointments A3 (R55).
+  'appointment.waitlist-offer',
   'project-deadline.reminder',
   'invoice.sent',
   'payment.received',
@@ -330,6 +332,20 @@ async function stillLive(
 ): Promise<boolean> {
   // Appointments Review 2 (P3): a cancellation stands while the appointment is still cancelled
   // and its time has not come.
+  // Appointments A3 (R55): an offer stands while it is still open and the appointment scheduled.
+  if (event === 'appointment.waitlist-offer') {
+    const offer = await db.appointmentWaitlistEntry.findFirst({
+      where: {
+        businessId,
+        appointmentId: id,
+        status: 'OFFERED',
+        offerExpiresAt: { gt: new Date() },
+        appointment: { status: 'SCHEDULED' },
+      },
+      select: { id: true },
+    });
+    return offer !== null;
+  }
   if (event === 'appointment.cancelled') {
     const a = await db.appointment.findFirst({
       where: { businessId, id },
@@ -931,46 +947,69 @@ export class Notifier {
               timeZone: str('timeZone'),
               link,
             }
-          : template === 'appointment.cancelled'
+          : template === 'appointment.waitlist-offer'
             ? {
                 name: recipient.name,
-                title: str('title'),
-                startsAt: new Date(str('startsAt')),
-                timeZone: str('timeZone'),
                 link,
-                // Read when the email is sent, never kept in the outbox.
-                reason: await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                  tx.appointment
-                    .findFirst({
-                      where: { businessId, id: target.id },
-                      select: { cancelReason: true },
-                    })
-                    .then((a) => a?.cancelReason ?? null),
-                ),
+                // The open offer, read when the email is sent: its times only.
+                ...(await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+                  const e = await tx.appointmentWaitlistEntry.findFirst({
+                    where: { businessId, appointmentId: target.id, status: 'OFFERED' },
+                    select: {
+                      offeredStartsAt: true,
+                      offerExpiresAt: true,
+                      appointment: { select: { startsAt: true } },
+                    },
+                  });
+                  if (!e?.offeredStartsAt || !e.offerExpiresAt) throw new Error('offer ended');
+                  return {
+                    offeredStartsAt: e.offeredStartsAt,
+                    startsAt: e.appointment.startsAt,
+                    expiresAt: e.offerExpiresAt,
+                    timeZone: await firmTimeZone(tx, businessId),
+                  };
+                })),
               }
-            : template === 'document.requested'
-              ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-              : template === 'intake.sent'
-                ? {
-                    name: recipient.name,
-                    link,
-                    ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                      intakeWords(tx, businessId, target.id),
-                    )),
-                  }
-                : template === 'invoice.sent' || template === 'payment.received'
-                  ? { name: recipient.name, invoiceNumber: str('number'), link }
-                  : {
+            : template === 'appointment.cancelled'
+              ? {
+                  name: recipient.name,
+                  title: str('title'),
+                  startsAt: new Date(str('startsAt')),
+                  timeZone: str('timeZone'),
+                  link,
+                  // Read when the email is sent, never kept in the outbox.
+                  reason: await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                    tx.appointment
+                      .findFirst({
+                        where: { businessId, id: target.id },
+                        select: { cancelReason: true },
+                      })
+                      .then((a) => a?.cancelReason ?? null),
+                  ),
+                }
+              : template === 'document.requested'
+                ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
+                : template === 'intake.sent'
+                  ? {
                       name: recipient.name,
-                      title: str('title'),
-                      startsAt: new Date(str('startsAt')),
-                      timeZone: str('timeZone'),
                       link,
-                      // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
                       ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                        noticeWords(tx, businessId, target.id, template),
+                        intakeWords(tx, businessId, target.id),
                       )),
-                    };
+                    }
+                  : template === 'invoice.sent' || template === 'payment.received'
+                    ? { name: recipient.name, invoiceNumber: str('number'), link }
+                    : {
+                        name: recipient.name,
+                        title: str('title'),
+                        startsAt: new Date(str('startsAt')),
+                        timeZone: str('timeZone'),
+                        link,
+                        // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                        ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                          noticeWords(tx, businessId, target.id, template),
+                        )),
+                      };
       await this.sender.send({
         template,
         to: recipient.email!,

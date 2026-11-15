@@ -74,6 +74,14 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     link,
     reason: 'The office is closed that day.',
   },
+  'appointment.waitlist-offer': {
+    name: 'Robin Example',
+    offeredStartsAt: new Date('2026-10-18T14:30:00Z'),
+    startsAt: new Date('2026-10-20T14:30:00Z'),
+    expiresAt: new Date('2026-10-17T02:30:00Z'),
+    timeZone: 'America/Chicago',
+    link,
+  },
   'project-deadline.reminder': {
     name: 'Sam Staff',
     title: 'Finish the 2027 planning projections',
