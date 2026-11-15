@@ -80,9 +80,18 @@ test('Return to Preparer raises an Error issue, which blocks filing until it is 
   await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 30_000 });
   await page.screenshot({ path: `${shots}/review-screen.png`, fullPage: true });
 
-  // Resolved: the blocker goes, the issue stays, marked with who resolved it.
+  // Resolved: the blocker goes, the issue stays, marked with who resolved it. Review 2
+  // (TX-F21): how (Fixed or Valid) and why, with the rule shown on the panel.
   const panel = page.getByTestId('validation-issues');
+  await expect(panel.getByTestId('resolve-rule')).toContainText('needs a reason');
   await panel.getByRole('button', { name: 'Resolve' }).click();
+  const resolve = page.getByRole('dialog', { name: 'Resolve Issue' });
+  const confirmResolve = resolve.getByRole('button', { name: 'Resolve' });
+  await expect(confirmResolve).toBeDisabled();
+  await resolve.getByLabel('Valid: checked, it needs no change').check();
+  await resolve.getByLabel("Reason (kept in the return's history)").fill('W-2 matches (fake)');
+  await confirmResolve.click();
+  await expect(resolve).toBeHidden();
   await expect(panel.getByTestId('issue').first()).toContainText('Resolved by');
   await expect(panel.getByTestId('issues-blocking')).toHaveCount(0);
   await expect(next).not.toContainText('Resolve the open validation errors');
@@ -140,4 +149,22 @@ test('a Manual Warning does not block; Return to Preparer names it, and it is re
   await page.getByRole('tab', { name: 'Activity' }).click();
   await expect(page.getByText('Validation issue raised')).toBeVisible();
   await expect(page.getByText('Validation issue reassigned')).toBeVisible();
+});
+
+test('Review 2 (TX-F21): a validation line changes its result only with a reason', async ({
+  page,
+}) => {
+  await openForReview(page);
+  await page.getByRole('link', { name: 'Open Review, E-File & Filing Status' }).click();
+  const validation = page.getByTestId('validation');
+  await expect(validation.getByTestId('resolve-rule')).toBeVisible({ timeout: 60_000 });
+  await validation.getByLabel('Result for EIC eligibility verified').selectOption('VALID');
+  const change = page.getByRole('dialog', { name: 'Change the Result' });
+  await expect(change).toContainText('EIC eligibility verified: Warning to Valid');
+  const confirm = change.getByRole('button', { name: 'Change Result' });
+  await expect(confirm).toBeDisabled();
+  await change.getByLabel("Reason (kept in the return's history)").fill('Checked the EIC (fake)');
+  await confirm.click();
+  await expect(change).toBeHidden();
+  await expect(page.getByText('Validation item updated.')).toBeVisible();
 });

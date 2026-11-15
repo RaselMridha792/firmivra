@@ -321,9 +321,9 @@ describe('TX-F19: validation issues on Return to Preparer', () => {
       raisedBy: { userId: adminA.id },
       canResolve: true,
     });
-    // An Error is resolved by who raised it or the reviewer; the preparer fixes, not clears, it.
+    // Review 2 (TX-F21): the return's preparer (here) or reviewer resolves either.
     const forStaff = await issuesOf(id, staffA);
-    expect(forStaff.map((i) => i.canResolve)).toEqual([false, true]);
+    expect(forStaff.map((i) => i.canResolve)).toEqual([true, true]);
     // A member who does not reach the return's client sees none of it.
     expectError(await call('get', `/tax-returns/${id}/issues`, staffA2), 404, 'NOT_FOUND');
 
@@ -332,7 +332,10 @@ describe('TX-F19: validation issues on Return to Preparer', () => {
     expect(named.sort()).toEqual([list[0]!.id, warning].sort());
     // A resolved issue is not named again.
     ok(
-      await call('patch', `/tax-returns/${id}/issues/${warning}`, staffA, { resolved: true }),
+      await call('patch', `/tax-returns/${id}/issues/${warning}`, staffA, {
+        resolved: true,
+        reason: 'Fake: corrected',
+      }),
       TaxValidationIssueList,
     );
     const step2 = ok(
@@ -432,21 +435,28 @@ describe('TX-F20: severity', () => {
       'STATUS_BLOCKED',
     );
 
-    // The person responsible fixes the Error but does not clear it.
+    // Review 2 (TX-F21): resolving needs a reason.
     expectError(
       await call('patch', `/tax-returns/${id}/issues/${error}`, staffA, { resolved: true }),
-      403,
-      'FORBIDDEN',
+      400,
+      'VALIDATION_FAILED',
     );
-    // The Owner may, as the override, which is recorded.
+    // The Owner (neither preparer nor reviewer) may, as the override: recorded with the reason
+    // and how it was resolved (Valid: checked, it needs no change).
     ok(
-      await call('patch', `/tax-returns/${id}/issues/${error}`, ownerA, { resolved: true }),
+      await call('patch', `/tax-returns/${id}/issues/${error}`, ownerA, {
+        resolved: true,
+        reason: 'Fake: checked, no change needed',
+        resolution: 'VALID',
+      }),
       TaxValidationIssueList,
     );
     const [resolved] = await audits('tax_return.issue', id);
     expect(resolved!.metadata).toMatchObject({
       issueId: error,
       action: 'resolved',
+      resolution: 'VALID',
+      reason: 'Fake: checked, no change needed',
       override: true,
     });
     // Who raised it reopens it and hands it to someone else.
@@ -465,7 +475,10 @@ describe('TX-F20: severity', () => {
     );
     // Resolved by the reviewer: the open Manual Warning and Info do not block.
     const after = ok(
-      await call('patch', `/tax-returns/${id}/issues/${error}`, adminA, { resolved: true }),
+      await call('patch', `/tax-returns/${id}/issues/${error}`, adminA, {
+        resolved: true,
+        reason: 'Fake: fixed',
+      }),
       TaxValidationIssueList,
     ).items;
     expect(after.filter((i) => !i.resolvedAt).map((i) => i.severity)).toEqual([
@@ -494,7 +507,10 @@ describe('TX-F20: severity', () => {
       TaxChecklist,
     ).items.find((i) => i.section === 'VALIDATION' && i.label === 'Schema check (fake)')!.id;
     ok(
-      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, { result: 'ERROR' }),
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, {
+        result: 'ERROR',
+        reason: 'Fake: the schema fails again',
+      }),
       TaxChecklist,
     );
     const paper = await call('post', `/tax-returns/${id}/filings/${ca}/paper-filed`, staffA, {
@@ -504,7 +520,10 @@ describe('TX-F20: severity', () => {
     expectError(paper, 409, 'STATUS_BLOCKED');
     expect(blockedBy(paper)).toContain('VALIDATION_ERRORS');
     ok(
-      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, { result: 'VALID' }),
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, {
+        result: 'VALID',
+        reason: 'Fake: checked again',
+      }),
       TaxChecklist,
     );
     ok(
@@ -514,6 +533,69 @@ describe('TX-F20: severity', () => {
       }),
       TaxReturnFilingList,
     );
+  });
+});
+
+describe('Review 2 (TX-F21): the resolve rule', () => {
+  it('an Error lowered past Ready for Review goes back for the reviewer, with the reason', async () => {
+    const id = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2019,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+      }),
+      TaxReturnDetail,
+      201,
+    ).id;
+    const lines = ok(
+      await call('post', `/tax-returns/${id}/checklist`, adminA, {
+        section: 'VALIDATION',
+        label: 'Dependents check (fake)',
+        result: 'VALID',
+      }),
+      TaxChecklist,
+    ).items;
+    const line = lines.find((l) => l.label === 'Dependents check (fake)')!.id;
+    for (const workflowStatus of ['READY_FOR_REVIEW', 'READY_FOR_SIGNATURE'] as const) {
+      ok(
+        await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus }),
+        TaxReturnDetail,
+      );
+    }
+    // A result changes with a reason only.
+    expectError(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, { result: 'ERROR' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    ok(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, adminA, {
+        result: 'ERROR',
+        reason: 'Fake: a dependent is listed twice',
+      }),
+      TaxChecklist,
+    );
+    // The preparer lowers it: the return goes back to Ready for Review, the reason kept.
+    ok(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, staffA, {
+        result: 'VALID',
+        reason: 'Fake: checked, listed once',
+      }),
+      TaxChecklist,
+    );
+    const back = ok(await call('get', `/tax-returns/${id}`, adminA), TaxReturnDetail);
+    expect(back.workflowStatus).toBe('READY_FOR_REVIEW');
+    expect(back.statusReason).toContain('Fake: checked, listed once');
+    const [changed] = await audits('tax_return.checklist_changed', id);
+    expect(changed!.metadata).toMatchObject({
+      from: 'ERROR',
+      to: 'VALID',
+      reason: 'Fake: checked, listed once',
+      reReview: true,
+    });
   });
 });
 
@@ -530,7 +612,7 @@ describe('another firm', () => {
         'patch',
         `/tax-returns/${ids.r}/issues/${issue!.id}`,
         ownerB,
-        { resolved: true },
+        { resolved: true, reason: 'Fake' },
         'b',
       ),
       404,
