@@ -105,7 +105,16 @@ export interface NotifyTemplates {
   /** The firm invites an existing client to its portal: a sealed link that expires. */
   'client.portal-invitation': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
   /** A new message in a thread. Never the message text: the reader opens the link. */
-  'message.received': IgnoredFirmName & { name: string; link: string };
+  /** Review 2 (Messaging): `body` only when the message was sent with its text; `documents`
+   * only as a count (the files stay behind the portal sign-in). */
+  'message.received': IgnoredFirmName & {
+    name: string;
+    link: string;
+    /** Both or neither: the message was sent with its text. */
+    includesBody?: true;
+    body?: string;
+    documents?: number;
+  };
   /**
    * Send Email from the Leads page: the member's own subject and text to a lead (no account, so
    * no preferences). `body` is the text the member typed: it goes out, and nowhere else. `html`

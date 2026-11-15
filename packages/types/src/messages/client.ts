@@ -2,6 +2,7 @@ import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { clientPath, portalMe } from '../clients/client.js';
 import { OkResponse } from '../schemas.js';
 import { ConfirmUploadRequest, DownloadLink, UploadTicket } from '../documents/schemas.js';
+import { ClientMessagePreference, SetClientMessagePreferenceRequest } from './email-choices.js';
 import {
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
@@ -113,6 +114,17 @@ export function createMessagesClient(request: ApiRequest) {
       request(Message, `${thread(id)}/messages`, {
         method: 'POST',
         body: parseInput(SendFirmMessageRequest, body),
+      }),
+    /** Tax Returns Review 2 (Messaging): the client's new-message email choices. */
+    preference: async (clientId: string): Promise<ClientMessagePreference> =>
+      request(ClientMessagePreference, `${clientPath(clientId)}/message-preference`),
+    setPreference: async (
+      clientId: string,
+      body: SetClientMessagePreferenceRequest,
+    ): Promise<ClientMessagePreference> =>
+      request(ClientMessagePreference, `${clientPath(clientId)}/message-preference`, {
+        method: 'PUT',
+        body: parseInput(SetClientMessagePreferenceRequest, body),
       }),
     /** Close or reopen the client's replies. */
     update: async (id: string, body: UpdateMessageThreadRequest): Promise<MessageThread> =>

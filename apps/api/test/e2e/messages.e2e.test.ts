@@ -83,7 +83,7 @@ async function tokenFor(email: string): Promise<string> {
 }
 
 async function firm(
-  method: 'get' | 'post' | 'patch' | 'delete',
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete',
   path: string,
   who: { email: string },
   body?: object,
@@ -701,5 +701,127 @@ describe('notices', () => {
     expect(res.status).toBe(409);
     expect(codeOf(res)).toBe('REPLIES_CLOSED');
     expect(mail()).toEqual([]);
+  });
+});
+
+describe('Review 2 (Messaging): the new-message email to the client', () => {
+  const secret = randomUUID();
+  const mail = () => outbox.splice(0).filter((m) => m.template === 'message.received');
+  const pref = async (who = people.ownerA) =>
+    expectOk(await firm('get', `/clients/${ids.one}/message-preference`, who)).body as {
+      firm: Record<string, boolean>;
+      saved: Record<string, unknown> | null;
+      effective: Record<string, boolean>;
+      bodyAllowed: boolean;
+    };
+  const settings = (body: object) => firm('patch', '/message-settings', people.ownerA, body);
+
+  it('takes the send, else the client preference, else the firm default; text only when chosen', async () => {
+    const start = await pref();
+    expect(start).toMatchObject({
+      firm: { emailNotice: true, emailIncludesBody: false, emailIncludesDocuments: false },
+      saved: null,
+      bodyAllowed: true,
+    });
+    // The extras need the email.
+    expect(
+      (await settings({ clientEmailNotice: false, clientEmailIncludesBody: true })).status,
+    ).toBe(400);
+    expectOk(await settings({ clientEmailIncludesDocuments: true }));
+    expect((await pref()).firm.emailIncludesDocuments).toBe(true);
+    try {
+      // The firm default: the notice, never the text.
+      mail();
+      await startThread({ subject: 'Default', body: `Plain ${secret}` });
+      const plain = mail();
+      expect(plain).toHaveLength(1);
+      expect(JSON.stringify(plain)).not.toContain(secret);
+      // This send chooses the text: it is in the email.
+      await startThread({
+        subject: 'With text',
+        body: `Text ${secret}`,
+        delivery: { emailIncludesBody: true },
+      });
+      expect(mail()[0]?.data).toMatchObject({ body: `Text ${secret}` });
+      // No text or documents in an email that is not sent.
+      expect(
+        (
+          await firm('post', `/clients/${ids.one}/message-threads`, people.ownerA, {
+            subject: 'Bad',
+            body: 'Bad',
+            delivery: { emailNotice: false, emailIncludesBody: true },
+          })
+        ).status,
+      ).toBe(400);
+      // Save for this client: no email, kept as the client's preference.
+      await startThread({
+        subject: 'Saved',
+        body: 'Saved',
+        delivery: { emailNotice: false, saveForClient: true },
+      });
+      expect(mail()).toEqual([]);
+      const saved = await pref(people.staffA);
+      expect(saved.saved).toMatchObject({
+        emailNotice: false,
+        updatedBy: { userId: people.ownerA.id },
+      });
+      expect(saved.effective.emailNotice).toBe(false);
+      await startThread({ subject: 'Follows the client', body: 'No email' });
+      expect(mail()).toEqual([]);
+      // A send still overrides the saved preference.
+      await startThread({ subject: 'Override', body: 'Email', delivery: { emailNotice: true } });
+      expect(mail()).toHaveLength(1);
+      // Clearing the preference goes back to the firm's defaults; audited both times.
+      const cleared = expectOk(
+        await firm('put', `/clients/${ids.one}/message-preference`, people.ownerA, {
+          emailNotice: null,
+          emailIncludesBody: null,
+          emailIncludesDocuments: null,
+        }),
+      ).body as { saved: unknown; effective: Record<string, boolean> };
+      expect([cleared.saved, cleared.effective.emailNotice]).toEqual([null, true]);
+      const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+      try {
+        const audits = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+          tx.auditLog.findMany({
+            where: { action: 'client.message_preference_saved', entityId: ids.one },
+            select: { metadata: true },
+          }),
+        );
+        expect(audits.map((a) => (a.metadata as { from: string }).from).sort()).toEqual([
+          'composer',
+          'preference',
+        ]);
+      } finally {
+        await owner.$disconnect();
+      }
+    } finally {
+      expectOk(await settings({ clientEmailIncludesDocuments: false }));
+    }
+  });
+
+  it('another firm reaches neither the preference nor the client', async () => {
+    expect(
+      (
+        await firm(
+          'get',
+          `/clients/${ids.one}/message-preference`,
+          people.ownerB,
+          undefined,
+          ids.firmB,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await firm(
+          'put',
+          `/clients/${ids.one}/message-preference`,
+          people.ownerB,
+          { emailNotice: false, emailIncludesBody: null, emailIncludesDocuments: null },
+          ids.firmB,
+        )
+      ).status,
+    ).toBe(404);
   });
 });

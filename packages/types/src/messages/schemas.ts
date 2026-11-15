@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { MessageDirection, NoteVisibility } from '../db-enums.js';
 import { MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
+import { MessageDelivery } from './email-choices.js';
 
 // Messages and notes (R20). Contract for the firm's Messages pages (Nahid, F10) and the portal's
 // Messages and Notes tab (R17, N09). docs/api/messages.yaml explains every route.
@@ -173,6 +174,8 @@ export const CreateMessageThreadRequest = z.strictObject({
   related: z.strictObject({ type: RelatedRecord.shape.type, id: z.uuid() }).optional(),
   /** Default true. */
   repliesEnabled: z.boolean().optional(),
+  /** Tax Returns Review 2 (Messaging): this send's email choices (see MessageDelivery). */
+  delivery: MessageDelivery.optional(),
 });
 export type CreateMessageThreadRequest = z.input<typeof CreateMessageThreadRequest>;
 
@@ -197,6 +200,8 @@ export const SendFirmMessageRequest = z.strictObject({
       message: 'Attach each file once',
     })
     .optional(),
+  /** Tax Returns Review 2 (Messaging): this send's email choices (see MessageDelivery). */
+  delivery: MessageDelivery.optional(),
 });
 export type SendFirmMessageRequest = z.input<typeof SendFirmMessageRequest>;
 
