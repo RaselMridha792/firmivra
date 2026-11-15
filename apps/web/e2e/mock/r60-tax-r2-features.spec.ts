@@ -32,9 +32,16 @@ test('Record Extension records the filing day and the new deadline, shown on the
   await first.getByRole('button', { name: /^Actions for/ }).click({ timeout: 60_000 });
   await page.getByRole('menuitem', { name: 'Record Extension', exact: true }).click();
   const dialog = page.getByTestId('extension-dialog');
+  // Review 2 (TR-1): the filing day starts empty and is required.
+  const record = page.getByRole('dialog').getByRole('button', { name: 'Record Extension' });
+  await expect(dialog.getByLabel('Extension filed on *')).toHaveValue('');
   await dialog.getByLabel('New due date').fill('2099-10-15');
-  await page.getByRole('dialog').getByRole('button', { name: 'Record Extension' }).click();
-  await expect(page.getByText(/^Extension recorded: due /)).toBeVisible();
+  await expect(record).toBeDisabled();
+  await dialog.getByLabel('Extension filed on *').fill('2026-04-10');
+  await record.click();
+  await expect(
+    page.getByText(/^Extension recorded, due .*nothing was sent to an agency\.$/),
+  ).toBeVisible();
   // In-app, so the mock keeps the change.
   await first.getByRole('button', { name: /^Actions for/ }).click();
   await page.getByRole('menuitem', { name: 'Open / View Return' }).click();
@@ -89,6 +96,37 @@ test('Tax statuses: Where returns appear names each tab and preset, its statuses
   await expect(presets.filter({ hasText: 'Ready for Review/File card' })).toContainText(
     'Lists returns in: Ready for Review, Ready for Signature, Ready to File',
   );
+});
+
+test('Full Review: File Extension records it there; Return Details corrects the tax year (TR-1, TR-8)', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-returns?status=IN_PREPARATION'));
+  const first = page.getByRole('row').nth(1);
+  await first.getByRole('button', { name: /^Actions for/ }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Open / View Return' }).click();
+  await page.getByRole('tab', { name: 'Review' }).click({ timeout: 60_000 });
+  await page.getByRole('link', { name: 'Open Review, E-File & Filing Status' }).click({
+    timeout: 60_000,
+  });
+  const extension = page.getByTestId('review-extension');
+  await expect(extension).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'File Extension' }).click();
+  const dialog = page.getByTestId('extension-dialog');
+  await dialog.getByLabel('Extension filed on *').fill('2026-04-10');
+  await dialog.getByLabel('New due date').fill('2099-10-15');
+  await page.getByRole('dialog').getByRole('button', { name: 'Record Extension' }).click();
+  await expect(extension).toHaveText(/^Filed /, { timeout: 30_000 });
+  await expect(page.getByTestId('review-deadline')).toContainText('2099');
+  // TR-8: the Return Details editor has Correct Tax Year.
+  await page
+    .getByTestId('return-details')
+    .getByRole('button', { name: 'Edit', exact: true })
+    .click();
+  const details = page.getByTestId('details-dialog');
+  await expect(details.getByTestId('details-tax-year')).toBeVisible();
+  await details.getByRole('button', { name: 'Correct Tax Year' }).click();
+  await expect(page.getByTestId('correct-year-dialog')).toBeVisible();
 });
 
 test('Print / Export List downloads the list as a file, with no pop-up to block (Review 2)', async ({
