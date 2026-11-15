@@ -125,3 +125,58 @@ test('V-003: the Documents filters show their whole values, with no overlap or c
     expect(measured.outside, `at ${size.width}`).toBe(0);
   }
 });
+
+// Clients Review 2 (V-004): seven columns were squeezed into the centre panel: headers overlapped,
+// values collided and the file name link measured 0 px wide. Every header and value stays inside
+// its own cell, the name has room, and the table scrolls sideways inside its region, never the page.
+test('V-004: the Documents table keeps each header and value in its cell and scrolls inside its region', async ({
+  page,
+}) => {
+  for (const size of [HER, WIDE]) {
+    await openJamie(page, size);
+    const table = page.getByTestId('documents-table').locator('table');
+    await expect(table).toBeVisible();
+    const measured = await table.evaluate((t) => {
+      const spills: string[] = [];
+      for (const cell of t.querySelectorAll('th, td')) {
+        const c = cell.getBoundingClientRect();
+        // Every element in the cell, and every run of text, inside the cell's box.
+        const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          if (!n.textContent?.trim()) continue;
+          // A truncated name is clipped (with "…") by its own link, which stays in the cell.
+          const clip = n.parentElement?.closest('[data-testid="document-name"]');
+          const range = document.createRange();
+          range.selectNodeContents(clip ?? n);
+          const r = clip ? clip.getBoundingClientRect() : range.getBoundingClientRect();
+          if (r.width === 0) continue;
+          if (r.left < c.left - 0.5 || r.right > c.right + 0.5)
+            spills.push(`"${n.textContent.trim().slice(0, 30)}" leaves its cell`);
+        }
+      }
+      const region = t.parentElement!;
+      const doc = document.documentElement;
+      return {
+        spills: [...new Set(spills)],
+        regionScrollsSideways: getComputedStyle(region).overflowX === 'auto',
+        regionInsideItsColumn:
+          region.getBoundingClientRect().right <=
+          t.closest('[data-testid="documents-table"]')!.getBoundingClientRect().right + 0.5,
+        pageScrollsSideways: doc.scrollWidth > doc.clientWidth,
+        // Each name drawn (she measured the link at 0 px) and whole: these names fit their column.
+        names: [...t.querySelectorAll<HTMLElement>('[data-testid="document-name"]')].map((a) => ({
+          name: a.textContent,
+          drawn: a.getBoundingClientRect().width > 0,
+          cutOff: a.scrollWidth > a.clientWidth,
+        })),
+      };
+    });
+    expect(measured.spills, `at ${size.width}`).toEqual([]);
+    expect(measured.regionScrollsSideways, `at ${size.width}`).toBe(true);
+    expect(measured.regionInsideItsColumn, `at ${size.width}`).toBe(true);
+    expect(measured.pageScrollsSideways, `at ${size.width}`).toBe(false);
+    for (const n of measured.names) {
+      expect(n, `at ${size.width}`).toEqual({ name: n.name, drawn: true, cutOff: false });
+    }
+  }
+});
