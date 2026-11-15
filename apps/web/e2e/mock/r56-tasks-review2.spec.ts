@@ -57,3 +57,24 @@ test('T-C05: Save & Create Another saves, then opens a clean form that says what
   await expect(page.getByLabel('Checklist item 1')).toHaveCount(0);
   await expect(page.locator('#tf-due')).toHaveValue('');
 });
+
+test('T-C08: the Actions column stays on screen while the task table scrolls sideways', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1165, height: 900 });
+  await page.goto(base);
+  const table = page.getByTestId('task-table');
+  const menu = table.getByRole('button', { name: /^Actions for / }).first();
+  await expect(menu).toBeVisible({ timeout: 60_000 });
+  const scroller = table.locator('.overflow-x-auto').first();
+  const wide = await scroller.evaluate((el) => el.scrollWidth > el.clientWidth);
+  expect(wide).toBe(true);
+  for (const left of [0, 10_000]) {
+    await scroller.evaluate((el, x) => (el.scrollLeft = x), left);
+    const area = (await scroller.boundingBox())!;
+    const b = (await menu.boundingBox())!;
+    expect(b.x + b.width).toBeLessThanOrEqual(area.x + area.width + 0.5);
+    expect(b.x).toBeGreaterThanOrEqual(area.x);
+  }
+  await expect(menu.locator('xpath=ancestor::td[1]')).toHaveCSS('position', 'sticky');
+});

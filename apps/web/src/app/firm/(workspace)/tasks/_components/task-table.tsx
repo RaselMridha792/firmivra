@@ -430,6 +430,8 @@ export function TaskTable({
             rowKey={(t) => t.id}
             caption={caption}
             dense
+            // T-C08: Actions stay on screen while the columns scroll sideways.
+            stickyActions
             // One line per task in 12 px, as task/source/task.jpg draws the table (R1 firm audit).
             tableClassName="[&_th]:!text-xs [&_td]:!text-xs [&_td]:whitespace-nowrap"
             noun="tasks"
