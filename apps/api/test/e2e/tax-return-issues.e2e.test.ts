@@ -599,6 +599,34 @@ describe('Review 2 (TX-F21): the resolve rule', () => {
   });
 });
 
+describe('Review 2 (TX-F21): a validation line is never deleted', () => {
+  it('refuses DELETE on a validation line (409) and still removes a preparation line', async () => {
+    const lines = async (body: object) =>
+      ok(await call('post', `/tax-returns/${ids.r2}/checklist`, adminA, body), TaxChecklist).items;
+    const validation = (
+      await lines({
+        section: 'VALIDATION',
+        label: 'Fake: SSN format',
+        result: 'VALID',
+      })
+    ).find((l) => l.label === 'Fake: SSN format')!;
+    const prep = (await lines({ section: 'PREPARATION', label: 'Fake: collect the W-2' })).find(
+      (l) => l.label === 'Fake: collect the W-2',
+    )!;
+    expectError(
+      await call('delete', `/tax-returns/${ids.r2}/checklist/${validation.id}`, ownerA),
+      409,
+      'VALIDATION_LINE',
+    );
+    const after = ok(
+      await call('delete', `/tax-returns/${ids.r2}/checklist/${prep.id}`, ownerA),
+      TaxChecklist,
+    ).items;
+    expect(after.some((l) => l.id === validation.id)).toBe(true);
+    expect(after.some((l) => l.id === prep.id)).toBe(false);
+  });
+});
+
 describe('another firm', () => {
   it('reaches none of it', async () => {
     const [issue] = await issuesOf(ids.r!, ownerA);

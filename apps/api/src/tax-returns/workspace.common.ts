@@ -48,7 +48,8 @@ export function canMoveTo(from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatu
   if (from === 'CLOSED') return [];
   // Review 2: a rejected return goes to In Correction before review (never straight to it), and
   // In Correction follows only a rejection.
-  if (from === 'REJECTED') return ALL.filter((s) => s !== from && s !== 'READY_FOR_REVIEW');
+  // Review 2 (TX-F22): from Rejected, only In Correction (the preparer's correction comes first).
+  if (from === 'REJECTED') return ['IN_CORRECTION'];
   return ALL.filter((s) => s !== from && s !== 'IN_CORRECTION');
 }
 

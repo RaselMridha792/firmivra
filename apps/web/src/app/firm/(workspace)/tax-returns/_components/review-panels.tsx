@@ -1041,10 +1041,10 @@ export function EfilePanel({ detail, onNotice }: { detail: TaxReturnDetail; onNo
   const [paper, setPaper] = useState<TaxReturnFiling>();
   const [manage, setManage] = useState(false);
   const filings = (q.data ?? []).filter((f) => f.required || f.attempts.length);
+  // Review 2 (TX-F22): a rejected return is corrected and reviewed before it is sent again, so
+  // Rejected and In Correction offer no transmission.
   const ready =
-    detail.workflowStatus === 'READY_TO_FILE' ||
-    detail.workflowStatus === 'REJECTED' ||
-    detail.workflowStatus === 'TRANSMITTED';
+    detail.workflowStatus === 'READY_TO_FILE' || detail.workflowStatus === 'TRANSMITTED';
   const sent = filings.some((f) => f.status !== 'NOT_FILED');
   const transmitted = ['TRANSMITTED', 'ACCEPTED', 'REJECTED', 'CLOSED'].includes(
     detail.workflowStatus,
