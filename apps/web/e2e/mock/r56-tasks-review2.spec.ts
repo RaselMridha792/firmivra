@@ -253,3 +253,22 @@ test('T-C04: each Task Type in the dropdown has Edit and Delete; Delete asks, an
   await page.getByLabel('Task type').click();
   await expect(list.getByRole('option', { name: 'Compliance', exact: true })).toHaveCount(0);
 });
+
+test('T-D02: Completed (This Month) and Total Tasks list what they count, also from My Tasks', async ({
+  page,
+}) => {
+  await page.goto(base);
+  const table = page.getByTestId('task-table');
+  await expect(table.getByTestId('task-link').first()).toBeVisible({ timeout: 60_000 });
+  const count = async (id: string) =>
+    Number(((await page.getByTestId(`kpi-${id}`).innerText()).match(/\d+/) ?? ['0'])[0]);
+  const completed = await count('completed');
+  expect(completed).toBeGreaterThan(0);
+  await page.getByTestId('kpi-completed').click();
+  await expect(page.getByTestId('kpi-completed')).toHaveAttribute('aria-pressed', 'true');
+  await expect(table.getByTestId('task-link')).toHaveCount(Math.min(completed, 10));
+  await page.getByTestId('kpi-all').click();
+  await expect(page.getByTestId('kpi-all')).toHaveAttribute('aria-pressed', 'true');
+  const total = await count('all');
+  await expect(table.getByTestId('task-link')).toHaveCount(Math.min(total, 10));
+});

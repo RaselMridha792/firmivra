@@ -968,6 +968,14 @@ describe('overview, summary and calendar', () => {
     // All: not cancelled, not archived; open first, by date, no date last.
     expect(await titles('')).toEqual(['late', 'soon', 'undated', 'finished']);
     expect(await titles('view=completed')).toEqual(['finished']);
+    // T-D02: completed on these days (the Completed (This Month) card sends its month).
+    expect(await titles('view=completed&completedFrom=2000-01-01&completedTo=2099-12-31')).toEqual([
+      'finished',
+    ]);
+    expect(await titles('view=completed&completedFrom=2099-01-01')).toEqual([]);
+    expect(await titles('view=completed&completedTo=2000-01-01')).toEqual([]);
+    // Total Tasks lists what it counts: open and done, never cancelled or archived.
+    expect(await titles('view=all')).toEqual(['late', 'soon', 'undated', 'finished']);
     expect(await titles('view=archived')).toEqual(['filed']);
     expect(await titles('status=CANCELLED')).toEqual([]);
     expect(await titles('priority=HIGH')).toEqual(['late']);

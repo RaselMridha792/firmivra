@@ -844,6 +844,17 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         .filter((t) => q.dueSet !== true || t.dueOn !== null)
         .filter((t) => !q.dueFrom || (t.dueOn !== null && t.dueOn >= q.dueFrom))
         .filter((t) => !q.dueTo || (t.dueOn !== null && t.dueOn <= q.dueTo))
+        // T-D02, as the API: completed on these days (the mock's days are UTC).
+        .filter(
+          (t) =>
+            !q.completedFrom ||
+            (t.completedAt !== null && t.completedAt.slice(0, 10) >= q.completedFrom),
+        )
+        .filter(
+          (t) =>
+            !q.completedTo ||
+            (t.completedAt !== null && t.completedAt.slice(0, 10) <= q.completedTo),
+        )
         .filter(
           (t) =>
             !search ||

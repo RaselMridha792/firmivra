@@ -312,6 +312,12 @@ export const TaskOverviewQuery = z.strictObject({
   dueSet: QueryBool.optional(),
   dueFrom: CalendarDate.optional(),
   dueTo: CalendarDate.optional(),
+  /**
+   * T-D02: completed on these days of the firm's calendar, both ends included (the Completed
+   * (This Month) card sends the month's first day and today).
+   */
+  completedFrom: CalendarDate.optional(),
+  completedTo: CalendarDate.optional(),
   search: SearchText.optional(),
   sort: TaskSort.optional().default('due'),
   direction: z.enum(['asc', 'desc']).optional().default('asc'),
