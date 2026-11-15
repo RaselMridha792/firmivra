@@ -908,8 +908,8 @@ describe('project deadline reminders', () => {
 
 describe('task reminders (Tasks T-D12)', () => {
   const TIME = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
-  const t: Record<string, string> = {};
-  const r: Record<string, string> = {};
+  const t = { open: '', done: '' };
+  const r = { day: '', custom: '', done: '' };
   const at = (iso: string) => ({ ...only, now: new Date(iso) });
   const fired = (id: string) =>
     inFirm(ids.firm, (tx) =>
@@ -946,7 +946,16 @@ describe('task reminders (Tasks T-D12)', () => {
       await tx.taskAssignee.create({
         data: { businessId: ids.firm, taskId: t.open, userId: people.other.id },
       });
-      const reminder = (taskId: string, data: object) =>
+      const reminder = (
+        taskId: string,
+        data: {
+          daysBefore: number;
+          timeOfDay?: Date;
+          minutesBefore?: number;
+          unit?: 'MINUTES';
+          channels?: 'EMAIL'[];
+        },
+      ) =>
         tx.taskReminder
           .create({ data: { businessId: ids.firm, taskId, ...data } })
           .then((x) => x.id);
@@ -984,8 +993,8 @@ describe('task reminders (Tasks T-D12)', () => {
         ['task.reminder', people.staff.email],
       ].sort(),
     );
-    expect(await fired(r.day!)).toBe('2026-12-10');
-    expect(await fired(r.done!)).toBeNull();
+    expect(await fired(r.day)).toBe('2026-12-10');
+    expect(await fired(r.done)).toBeNull();
     // Once: the next run sends nothing more.
     expect(await jobs.run('task-reminders', at('2026-12-09T15:06:00Z'))).toEqual({
       skipped: false,
@@ -1003,13 +1012,13 @@ describe('task reminders (Tasks T-D12)', () => {
 
   it('a new due date re-arms the reminders', async () => {
     await inFirm(ids.firm, (tx) =>
-      tx.task.update({ where: { id: t.open! }, data: { dueOn: new Date('2026-12-15T00:00:00Z') } }),
+      tx.task.update({ where: { id: t.open }, data: { dueOn: new Date('2026-12-15T00:00:00Z') } }),
     );
     expect(await jobs.run('task-reminders', at('2026-12-14T15:05:00Z'))).toEqual({
       skipped: false,
       sent: 1,
     });
-    expect(await fired(r.day!)).toBe('2026-12-15');
+    expect(await fired(r.day)).toBe('2026-12-15');
     expect(await bell(people.staff, t.open)).toHaveLength(3);
   });
 });
