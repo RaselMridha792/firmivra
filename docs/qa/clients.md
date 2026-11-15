@@ -164,7 +164,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-31 Share Access recipients | Scoped pass; nothing to build | — | — |
 | N8-32 Service labels match the catalog | Scoped pass; nothing to build | — | — |
 | N8-33 Draft services in Clients | Done: only active services are Clients tabs and Service choices; draft and inactive services stay in the catalog | #PR_NUM | `clients-work.e2e` "counts the firm's cards and tabs; archived clients are in none of them" (a draft and an inactive service are not in `byService`); mock `r55-clients-draft-services` |
-| N8-34 Sign-ups list checks | Scoped pass; the empty-state copy is FC-02 (R55) | — | — |
+| N8-34 Sign-ups list checks | Scoped pass; the empty-state copy: Done in FC-02 | #PR_NUM | web unit `sign-up-parts.test` |
 | N8-35 Signature history and filters | Scoped pass; nothing to build | — | — |
 | N8-36 Tasks tab with New Task for the client | Done, test gap | #1378 | `r60-clients-tabs` opens the Tasks tab; its Create Task link with the client is not checked |
 | N8-37 Request a Document at the top | Done: Request a Document and the open requests come first | #1547 | Mock `r60-clients-e8-e10` (the client's Documents) |
@@ -172,7 +172,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-39 Portal notification filter | Scoped pass; clearing needs a known-unread notice (her retest) | — | — |
 | N8-40 Message audit names the client | Scoped pass; nothing to build | — | — |
 | FC-01 Profile Invoices: balance due and Open Invoice | Done: the client's Invoices tab shows Total, Balance due and the detailed status (Partially Paid, Overdue, Due Soon, Sent) together, and Open Invoice opens that invoice with Back to the client | #PR_NUM | mock `r55-client-invoices-balance` "the Invoices tab shows total, balance due and status, and Open Invoice opens it" and "the cards show total and balance due at phone width" |
-| FC-02 Sign-ups empty state by approval mode | Not built yet (R55) | — | — |
+| FC-02 Sign-ups empty state by approval mode | Done: the Waiting tab's empty help names the firm's mode; Manual Review: verified requests wait for review; Automatic Approval: no email or phone match is approved at once, a possible match waits | #PR_NUM | web unit `sign-up-parts.test` "Manual Review: every verified request waits for review", "Automatic Approval: no match is approved at once; a possible match waits" |
 | FC-03 Documents staff guidance | Done, test gap | #1381 (R55) | `r34-documents` checks the no-client note is shown, not its words |
 | FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
 | §23 Messages: wider Subject, collapsible Internal Notes | Not built yet (R55) | — | — |

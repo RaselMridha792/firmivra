@@ -4,6 +4,7 @@ import {
   ApiRequestError,
   type ClientSignUp,
   type ClientSignUpList,
+  type ClientSignupMode,
   type ClientSignUpsQuery,
   type SignUpListStatus,
 } from '@firmivra/types';
@@ -21,7 +22,7 @@ import { ApprovalCard } from './approval-card';
 import { ClientViewPreview } from './client-view-preview';
 import { FiltersMenu } from './filters-menu';
 import { type Notice, RequestActivity, RequestPanel } from './request-panel';
-import { dayText, SIGN_UP_ERRORS, SIGN_UPS, TABS } from './sign-up-parts';
+import { dayText, SIGN_UP_ERRORS, SIGN_UPS, TABS, waitingHelp } from './sign-up-parts';
 import {
   SIGN_UP_PAGE_SIZE,
   type SignUpsPlace,
@@ -253,6 +254,7 @@ export function SignUpsScreen({
           <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
             <RequestsTable
               status={place.status}
+              mode={settings.data?.mode}
               sort={place.sort}
               onSort={() => change({ sort: place.sort === 'newest' ? 'oldest' : 'newest' })}
               list={list}
@@ -370,8 +372,11 @@ function RequestsTable({
   selected,
   onOpen,
   onClear,
+  mode,
 }: {
   status: SignUpListStatus;
+  /** FC-02: the firm's approval mode, for the Waiting tab's empty-state help. */
+  mode: ClientSignupMode | undefined;
   sort: SignUpsPlace['sort'];
   onSort: () => void;
   list: UseQueryResult<ClientSignUpList>;
@@ -433,7 +438,7 @@ function RequestsTable({
             <p className="font-semibold text-heading">No {noun} requests</p>
             <p className="text-sm text-muted">
               {status === 'PENDING_APPROVAL'
-                ? 'When someone signs up on your client portal and verifies their email and phone, their request waits here.'
+                ? waitingHelp(mode)
                 : status === 'APPROVED'
                   ? 'Requests your firm approves are listed here with their Client ID.'
                   : 'Requests your firm declines are listed here.'}
