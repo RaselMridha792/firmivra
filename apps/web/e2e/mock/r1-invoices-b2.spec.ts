@@ -21,10 +21,15 @@ test('I-N07: Overdue and Canceled, Due Today and Partially Paid, Scheduled and S
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(app('/invoices'));
   const main = page.locator('main');
-  await expect(badge(main, 'Overdue')).toBeVisible({ timeout: 60_000 });
-  await expect(badge(main, 'Overdue')).toHaveClass(/bg-danger-soft/);
-  await expect(badge(main, 'Canceled')).not.toHaveClass(/bg-danger-soft/);
-  await expect(badge(main, 'Canceled').locator('svg')).toHaveCount(1);
-  await expect(badge(main, 'Scheduled').locator('svg')).toHaveCount(1);
-  await expect(badge(main, 'Sent').locator('svg')).toHaveCount(1);
+  const table = main.getByRole('table');
+  await expect(badge(table, 'Scheduled')).toBeVisible({ timeout: 60_000 });
+  await expect(badge(table, 'Scheduled').locator('svg')).toHaveCount(1);
+  await expect(badge(table, 'Sent').locator('svg')).toHaveCount(1);
+  // The status filter shows the others.
+  const status = main.getByLabel('Status', { exact: true });
+  await status.selectOption({ label: 'Overdue' });
+  await expect(badge(table, 'Overdue')).toHaveClass(/bg-danger-soft/);
+  await status.selectOption({ label: 'Canceled' });
+  await expect(badge(table, 'Canceled')).not.toHaveClass(/bg-danger-soft/);
+  await expect(badge(table, 'Canceled').locator('svg')).toHaveCount(1);
 });
