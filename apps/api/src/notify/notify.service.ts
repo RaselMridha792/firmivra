@@ -209,6 +209,28 @@ export const AWS_CLIENT = {
   requestHandler: { connectionTimeout: 3_000, requestTimeout: 5_000, throwOnRequestTimeout: true },
 } as const;
 
+/**
+ * The email transport for the settings: SES, or Mailpit over SMTP; null with EMAIL_MODE=log. Also
+ * the campaign mailer's (Leads row 14: Firmivra Mail), so both go out the same way.
+ */
+export function createEmailTransport(
+  email: Exclude<NotifyConfig['email'], { mode: 'log' }>,
+): EmailTransport {
+  return email.mode === 'ses'
+    ? new SesEmailTransport(new SESv2Client(AWS_CLIENT))
+    : new SmtpEmailTransport(
+        createTransport({
+          host: email.host,
+          port: email.port,
+          secure: false,
+          ignoreTLS: true,
+          connectionTimeout: 5_000,
+          greetingTimeout: 5_000,
+          socketTimeout: 10_000,
+        }),
+      );
+}
+
 /** The service for the settings: SES or Mailpit, SNS or the log. */
 export function createNotifyService(
   config: NotifyConfig,
@@ -225,21 +247,7 @@ export function createNotifyService(
       ? null
       : {
           from: email.from,
-          transport: track(
-            email.mode === 'ses'
-              ? new SesEmailTransport(new SESv2Client(AWS_CLIENT))
-              : new SmtpEmailTransport(
-                  createTransport({
-                    host: email.host,
-                    port: email.port,
-                    secure: false,
-                    ignoreTLS: true,
-                    connectionTimeout: 5_000,
-                    greetingTimeout: 5_000,
-                    socketTimeout: 10_000,
-                  }),
-                ),
-          ),
+          transport: track(createEmailTransport(email)),
         };
   if (sms.mode === 'log' && sms.unregistered) {
     logger.warn('SMS_MODE=sns without SMS_ORIGINATION_NUMBER: texts go to the log, not sent');

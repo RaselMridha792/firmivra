@@ -69,6 +69,11 @@ export const ChannelReadiness = z.object({
   route: ChannelBlockRoute.nullable(),
   /** Verified sender identities the caller may use. */
   senderCount: z.number().int(),
+  /**
+   * Leads row 14: where the channel's messages go while it holds ("On this test site, emails go
+   * only to your firm's own team addresses"); null when nothing is held.
+   */
+  note: z.string().nullable().default(null),
 });
 export type ChannelReadiness = z.infer<typeof ChannelReadiness>;
 
@@ -574,6 +579,8 @@ export const CommunicationResults = z.object({
   ),
   canExport: z.boolean(),
   canResendFailed: z.boolean(),
+  /** Leads row 14: where the campaign's emails go while its channel holds; null otherwise. */
+  note: z.string().nullable().default(null),
 });
 export type CommunicationResults = z.infer<typeof CommunicationResults>;
 

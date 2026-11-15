@@ -303,6 +303,9 @@ function ComposerForm({
   // CM-F08: images in an email's or an announcement's content (the firm's email images).
   const images = useContentImages('communications');
   const mine = (senders.data ?? []).filter((s) => s.channel === channel);
+  // Leads row 14: where the channel's messages go while it holds (Firmivra Mail on a test site).
+  const overview = useApiQuery([...COMM_KEY, 'overview'], () => api.communications.overview());
+  const holdNote = overview.data?.channels.find((c) => c.channel === channel)?.note ?? null;
   const dirty = JSON.stringify(form) !== JSON.stringify(formOf(d));
   // CM-F09: the API refuses a window that ends before it starts; say so on Show Until at once.
   const windowProblem =
@@ -674,6 +677,15 @@ function ComposerForm({
                 />
               ) : null}
             </div>
+          ) : null}
+          {holdNote ? (
+            <p
+              role="note"
+              data-testid="hold-note"
+              className="rounded-lg bg-info-soft p-3 text-sm text-text"
+            >
+              {holdNote}
+            </p>
           ) : null}
 
           {channel !== 'SMS' ? (

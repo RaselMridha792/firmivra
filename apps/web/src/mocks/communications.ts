@@ -383,15 +383,45 @@ export function createCommunicationsMock({
     reason: `Connect ${what}`,
     route: 'INTEGRATIONS' as const,
     senderCount: 0,
+    note: null,
   });
+  /**
+   * Leads row 14: `?mockState=email-held` is Firmivra Mail on a test site (emails go only to the
+   * firm's own team), as the API says it in the builder and the results.
+   */
+  const heldNote = () =>
+    off() === 'email-held'
+      ? 'On this test site, emails go only to your firm’s own team addresses.'
+      : null;
   const readiness = () => [
     off() === 'email-off'
       ? notConnected('EMAIL', 'an email provider to send emails')
-      : { channel: 'EMAIL' as const, ready: true, reason: null, route: null, senderCount: 1 },
+      : {
+          channel: 'EMAIL' as const,
+          ready: true,
+          reason: null,
+          route: null,
+          senderCount: 1,
+          note: heldNote(),
+        },
     off() === 'sms-off'
       ? notConnected('SMS', 'an SMS provider to send text messages')
-      : { channel: 'SMS' as const, ready: true, reason: null, route: null, senderCount: 1 },
-    { channel: 'ANNOUNCEMENT' as const, ready: true, reason: null, route: null, senderCount: 0 },
+      : {
+          channel: 'SMS' as const,
+          ready: true,
+          reason: null,
+          route: null,
+          senderCount: 1,
+          note: null,
+        },
+    {
+      channel: 'ANNOUNCEMENT' as const,
+      ready: true,
+      reason: null,
+      route: null,
+      senderCount: 0,
+      note: null,
+    },
   ];
 
   const members = (s: Seg) => s.members.map((m) => byId.get(m.id)).filter((c): c is Contact => !!c);
@@ -1617,6 +1647,7 @@ export function createCommunicationsMock({
             : [],
           canExport: role !== 'STAFF',
           canResendFailed: role !== 'STAFF' && failed.length > 0,
+          note: r.d.channel === 'EMAIL' ? heldNote() : null,
         };
       }),
     recipients: (communicationId, q = {}) =>

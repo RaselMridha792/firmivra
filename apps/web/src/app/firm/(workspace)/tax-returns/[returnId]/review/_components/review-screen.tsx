@@ -20,6 +20,7 @@ import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import {
   DetailsDialog,
+  ExtensionDialog,
   RejectDialog,
   StatusDialog,
   isBackward,
@@ -133,7 +134,7 @@ export function ReviewScreen({ returnId }: { returnId: string }) {
       {message ? (
         <Toast message={message.text} tone={message.tone} onDismiss={() => setMessage(undefined)} />
       ) : null}
-      <ReviewHeader detail={r} title={title} />
+      <ReviewHeader detail={r} title={title} onNotice={notice} />
       <nav aria-label="Return sections" className="overflow-x-auto border-b border-divider">
         <ul className="flex min-w-max justify-between gap-6">
           {TAB_LINKS.map(([label, tab]) => (
@@ -179,7 +180,18 @@ export function ReviewScreen({ returnId }: { returnId: string }) {
   );
 }
 
-function ReviewHeader({ detail, title }: { detail: TaxReturnDetail; title: string }) {
+function ReviewHeader({
+  detail,
+  title,
+  onNotice,
+}: {
+  detail: TaxReturnDetail;
+  title: string;
+  onNotice: Notice;
+}) {
+  // Review 2 (TR-1): File Extension records the extension here (the event only).
+  const [extending, setExtending] = useState(false);
+  const canExtend = !detail.firstFiledAt && !detail.archivedAt;
   const docs = useApiQuery([...TR_KEY, 'documents', detail.id], () =>
     api.taxReturnWorkspace.documents(detail.id),
   );
@@ -230,16 +242,43 @@ function ReviewHeader({ detail, title }: { detail: TaxReturnDetail; title: strin
         </li>
         <li className={box}>
           <span className="font-medium text-heading">Filing Deadline</span>
-          <span className="text-lg text-heading">
-            {detail.dueOn ? dayText(detail.dueOn) : 'Not set'}
+          <span className="text-lg text-heading" data-testid="review-deadline">
+            {detail.extendedDueOn
+              ? dayText(detail.extendedDueOn)
+              : detail.dueOn
+                ? dayText(detail.dueOn)
+                : 'Not set'}
           </span>
+          {detail.extendedDueOn && detail.dueOn ? (
+            <span className="text-xs text-muted">Extended; originally {dayText(detail.dueOn)}</span>
+          ) : null}
         </li>
         <li className={box}>
           <span className="font-medium text-heading">Extension</span>
-          <span className="text-muted">{extension ? 'Form on file' : 'Not Filed'}</span>
-          <Link href={`/tax-returns/${detail.id}?tab=documents`} className={textButton}>
-            {extension ? 'View Form' : 'File Extension'}
-          </Link>
+          <span className="text-muted" data-testid="review-extension">
+            {detail.extensionFiledOn
+              ? `Filed ${dayText(detail.extensionFiledOn)}`
+              : extension
+                ? 'Form on file'
+                : 'Not Filed'}
+          </span>
+          {canExtend ? (
+            <button
+              type="button"
+              className={`${textButton} text-left`}
+              onClick={() => setExtending(true)}
+            >
+              {detail.extensionFiledOn ? 'Edit Extension' : 'File Extension'}
+            </button>
+          ) : null}
+          {extension ? (
+            <Link href={`/tax-returns/${detail.id}?tab=documents`} className={textButton}>
+              View Form
+            </Link>
+          ) : null}
+          {extending ? (
+            <ExtensionDialog row={detail} onClose={() => setExtending(false)} onNotice={onNotice} />
+          ) : null}
         </li>
         <li className={box}>
           <span className="font-medium text-heading">Return Progress</span>
