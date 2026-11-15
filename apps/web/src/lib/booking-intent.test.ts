@@ -6,6 +6,8 @@ import {
   clearBooking,
   keepBooking,
   pendingBooking,
+  returnPathOf,
+  signInWithReturn,
   typeIdOf,
 } from './booking-intent';
 
@@ -90,5 +92,34 @@ describe('booking intent (Appointments Review 2, row 3)', () => {
     // The link they just followed wins over an older kept type.
     expect(afterSignIn('lvp', OTHER)).toBe(`/lvp/appointments?book=${OTHER}`);
     expect(afterSignIn('lvp', 'javascript:alert(1)')).toBe(`/lvp/appointments?book=${TYPE}`);
+  });
+
+  it('INTAKE-ACCESS-01: sign-in lands back on the portal page opened (an intake email), only inside the firm', () => {
+    const form = '/lvp/intake/0199b6a8-0000-7000-8000-000000000004';
+    expect(signInWithReturn('/lvp/sign-in', 'lvp', form)).toBe(
+      `/lvp/sign-in?next=${encodeURIComponent(form)}`,
+    );
+    expect(afterSignIn('lvp', null, form)).toBe(form);
+    expect(afterSignIn('lvp', null, `${form}?step=review`)).toBe(`${form}?step=review`);
+    // A booking link's type still wins; a kept one does not beat the page just opened.
+    expect(afterSignIn('lvp', TYPE, form)).toBe(bookingPath('lvp', TYPE));
+    keepBooking('lvp', OTHER);
+    expect(afterSignIn('lvp', null, form)).toBe(form);
+    // Never another site, another firm, or the sign-in pages.
+    for (const bad of [
+      'https://evil.test/lvp/home',
+      '//evil.test/lvp/home',
+      '/\\evil.test/lvp/home',
+      '/lvp/..\\..\\evil',
+      '/other/intake/1',
+      '/lvp/sign-in',
+      '/lvp/sign-up/done',
+      'lvp/home',
+      'javascript:alert(1)',
+    ]) {
+      expect(returnPathOf('lvp', bad), bad).toBeNull();
+    }
+    expect(signInWithReturn('/lvp/sign-in', 'lvp', '/lvp/sign-in')).toBe('/lvp/sign-in');
+    expect(afterSignIn('lvp', null, '//evil.test/x')).toBe(`/lvp/appointments?book=${OTHER}`);
   });
 });

@@ -70,7 +70,11 @@ export type FlowIntake = Pick<
   | 'savedSteps'
   | 'signature'
   | 'canEdit'
-> & { correction: { note: string } | null };
+> & {
+  correction: { note: string } | null;
+  /** The form's status where the source has one (a signed-in client's form). */
+  status?: MyIntake['status'];
+};
 
 /**
  * Where the form reads and writes: the signed-in client's intake (`api.myIntakes`) or a lead's
@@ -159,7 +163,7 @@ export function IntakeForm({
       source={source}
     />
   ) : (
-    <ReadOnlyIntake intake={intake} back={source.back} />
+    <ReadOnlyIntake intake={intake} back={source.back} slug={slug} />
   );
 }
 
@@ -184,7 +188,15 @@ const day = (iso: string) =>
   });
 
 /** A submitted form, or one this login may only read: its answers and files, no editing. */
-function ReadOnlyIntake({ intake, back }: { intake: FlowIntake; back?: ReactNode }) {
+function ReadOnlyIntake({
+  intake,
+  back,
+  slug,
+}: {
+  intake: FlowIntake;
+  back?: ReactNode;
+  slug: string;
+}) {
   const fill = useFill(intake.taxYear);
   const { definition } = intake;
   const values = useMemo(() => screenValues(definition, intake.answers), [definition, intake]);
@@ -200,9 +212,23 @@ function ReadOnlyIntake({ intake, back }: { intake: FlowIntake; back?: ReactNode
         data-testid="intake-read-only"
       >
         <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
-        {intake.signature
-          ? `Submitted and signed by ${intake.signature.printedName} on ${day(intake.signature.signedAt)}. Your firm has it; they will tell you if anything needs changing.`
-          : 'You can read this form, but only the person it was sent to can fill it in.'}
+        {intake.signature ? (
+          `Submitted and signed by ${intake.signature.printedName} on ${day(intake.signature.signedAt)}. Your firm has it; they will tell you if anything needs changing.`
+        ) : intake.status === 'EXPIRED' || intake.status === 'ARCHIVED' ? (
+          // INTAKE-ACCESS-01: an expired or closed form says so, and what to do next.
+          <span>
+            {intake.status === 'EXPIRED'
+              ? 'This form has expired, so it can no longer be filled in.'
+              : 'Your firm has closed this form, so it can no longer be filled in.'}{' '}
+            If you still need to send it,{' '}
+            <Link href={`/${slug}/messages`} className="text-link underline">
+              message your firm
+            </Link>{' '}
+            and ask them to send it again.
+          </span>
+        ) : (
+          'You can read this form, but only the person it was sent to can fill it in.'
+        )}
       </p>
       <IntakeReview
         definition={definition}

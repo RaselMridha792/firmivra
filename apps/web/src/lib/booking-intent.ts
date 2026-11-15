@@ -55,11 +55,45 @@ export const bookingPath = (slug: string, typeId: string) =>
   `/${slug}/appointments?book=${encodeURIComponent(typeId)}`;
 
 /**
- * Where a client goes after signing in: booking on the type from the link (the sign-in page's
- * `?book=`, else the kept one), or home. The portal shell still sends a client the firm has not
- * approved yet to the waiting page, and the kept type waits with them.
+ * Intake Forms Review Two INTAKE-ACCESS-01: the portal page a signed-out client opened (an intake
+ * email's link, a portal notice), carried on the sign-in link as `?next=` so signing in lands back
+ * on it. Only a page inside this firm's portal counts: never another site or firm, and never the
+ * sign-in pages themselves. Null for anything else.
  */
-export function afterSignIn(slug: string, fromLink?: string | null): string {
-  const typeId = typeIdOf(fromLink) ?? pendingBooking(slug);
-  return typeId ? bookingPath(slug, typeId) : `/${slug}/home`;
+export function returnPathOf(slug: string, value: string | null | undefined): string | null {
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\'))
+    return null;
+  let url: URL;
+  try {
+    url = new URL(value, 'https://portal.invalid');
+  } catch {
+    return null;
+  }
+  if (url.origin !== 'https://portal.invalid') return null;
+  const base = `/${slug.toLowerCase()}/`;
+  if (!url.pathname.toLowerCase().startsWith(base)) return null;
+  const page = url.pathname.slice(base.length).toLowerCase();
+  if (/^(sign-in|sign-up|forgot-password|reset-password)(\/|$)/.test(page)) return null;
+  return `${url.pathname}${url.search}`;
+}
+
+/** The sign-in page, with `?next=` back to the portal page the client was on when there is one. */
+export function signInWithReturn(signInPath: string, slug: string, here: string): string {
+  const next = returnPathOf(slug, here);
+  return next ? `${signInPath}?next=${encodeURIComponent(next)}` : signInPath;
+}
+
+/**
+ * Where a client goes after signing in: booking on the type from the link (the sign-in page's
+ * `?book=`), else the page they opened before signing in (`?next=`, INTAKE-ACCESS-01: an intake
+ * email's form), else booking on the kept type, else home. The portal shell still sends a client
+ * the firm has not approved yet to the waiting page, and the kept type waits with them.
+ */
+export function afterSignIn(slug: string, fromLink?: string | null, next?: string | null): string {
+  const linked = typeIdOf(fromLink);
+  if (linked) return bookingPath(slug, linked);
+  const back = returnPathOf(slug, next);
+  if (back) return back;
+  const kept = pendingBooking(slug);
+  return kept ? bookingPath(slug, kept) : `/${slug}/home`;
 }
