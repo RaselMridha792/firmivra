@@ -8,10 +8,24 @@ const base = `http://app.localhost:${port}/communications`;
 
 const start = async (page: Page, channel: 'EMAIL' | 'ANNOUNCEMENT') => {
   await page.goto(`${base}/new?channel=${channel}`);
-  // Nothing is made until Start (Octavia's Q3).
-  await page.getByRole('button', { name: /^Start / }).click();
+  // Nothing is made until Save Draft (Octavia's Q3), which makes the draft and opens it.
+  await page
+    .getByTestId('composer-form')
+    .getByRole('textbox', { name: /Message/ })
+    .fill('A fake draft.', { timeout: 60_000 });
+  await page.getByRole('button', { name: 'Save Draft' }).first().click();
   await page.waitForURL(/\/edit$/);
+  // The save finishes before the test types, so it never resets what the test enters next.
+  await expect(page.getByTestId('save-state')).toContainText('Last saved');
   await expect(page.getByTestId('composer')).toBeVisible();
+};
+
+/** Opens the newest draft again from the list's Resume Draft, in the same tab (no reload). */
+const reopen = async (page: Page) => {
+  await page.getByRole('button', { name: 'New Communication' }).click();
+  await page.getByRole('menuitem', { name: 'Resume Draft' }).click();
+  await page.getByTestId('draft-picker').getByRole('link').first().click();
+  await page.waitForURL(/\/edit$/);
 };
 
 test('CM-F05: an announcement chooses its clients below the window; only portal users count', async ({
@@ -90,11 +104,11 @@ test('CM-F06, F07: Back with unsaved changes asks; Keep Editing, Discard and Sav
   await expect(name).toHaveValue('Spring newsletter (draft)');
 
   // Discard leaves without the change; what was saved before stays. (The mock keeps its data in
-  // the tab, so the way back is the browser's Back, not a reload.)
+  // the tab, so the draft is opened again from Resume Draft, not by a reload.)
   await back.click();
   await ask.getByRole('button', { name: 'Discard' }).click();
   await expect(page).toHaveURL(base);
-  await page.goBack();
+  await reopen(page);
   await expect(name).toHaveValue(original);
 
   // Save Draft keeps it, then leaves.
@@ -102,7 +116,7 @@ test('CM-F06, F07: Back with unsaved changes asks; Keep Editing, Discard and Sav
   await page.getByRole('link', { name: 'Cancel' }).click();
   await ask.getByRole('button', { name: 'Save Draft' }).click();
   await expect(page).toHaveURL(base);
-  await page.goBack();
+  await reopen(page);
   await expect(name).toHaveValue('Spring newsletter (kept)');
   await expect(state).toContainText('Last saved');
 
