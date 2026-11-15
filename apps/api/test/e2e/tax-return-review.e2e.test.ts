@@ -1330,6 +1330,39 @@ describe('export and another firm', () => {
     expect(csv.split('\r\n')[0]).toContain('"SSN/EIN"');
   });
 
+  // Tax Returns Review 2 (CR-5a): an export needs its own permission and leaves an audit row.
+  it('audits each export with who made it and how many rows, and a refused one leaves none', async () => {
+    const exports = () =>
+      inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: firms.a, action: 'tax_returns.exported' },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { actorUserId: true, metadata: true, entityType: true },
+        }),
+      );
+    const before = await exports();
+    expectError(await call('post', '/tax-returns/export', staffA, {}), 403, 'FORBIDDEN');
+    expect(await exports()).toHaveLength(before.length);
+    const link = ok(
+      await call('post', '/tax-returns/export', adminA, { taxYear: 2025 }),
+      TaxReturnExportLink,
+    );
+    const after = await exports();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)).toEqual({
+      actorUserId: adminA.id,
+      entityType: 'tax_return',
+      metadata: { rows: link.rowCount },
+    });
+    // The row says what was exported, never what was in it.
+    expect(JSON.stringify(after)).not.toContain('Cora One');
+    // Another firm's audit has none of it.
+    const theirs = await inFirm('b', (tx) =>
+      tx.auditLog.count({ where: { businessId: firms.b, action: 'tax_returns.exported' } }),
+    );
+    expect(theirs).toBe(0);
+  });
+
   it('reaches none of it', async () => {
     for (const [method, path, body] of [
       ['get', `/tax-returns/${ids.r}/filings`, undefined],
