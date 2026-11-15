@@ -689,11 +689,25 @@ export const CreateInvoiceRequest = z
 export type CreateInvoiceRequest = z.input<typeof CreateInvoiceRequest>;
 
 /**
- * PUT /business/invoices/{id} (Owner and Admin): the whole draft again, lines included; what is
- * sent replaces it. Only a DRAFT (409 NOT_DRAFT) of a client not archived (409 CLIENT_ARCHIVED);
- * the client never changes.
+ * PUT /business/invoices/{id} (Owner and Admin): the whole invoice again, lines included; what is
+ * sent replaces it, on the same number. A DRAFT; a SCHEDULED one (it stays scheduled); and
+ * (Invoices Review 2 I-N06) a sent one with nothing paid: no payment, refund or check on it (409
+ * HAS_PAYMENTS; 409 PAYMENT_IN_PROGRESS while one settles), its open Pay Now links ended first so
+ * the client pays the new amount; it has no send day. Paid or canceled: 409 INVOICE_CLOSED. A
+ * client archived: 409 CLIENT_ARCHIVED; the client never changes.
  */
-export const UpdateInvoiceRequest = z.strictObject(DraftFields).superRefine(draftRules);
+export const UpdateInvoiceRequest = z
+  .strictObject({
+    ...DraftFields,
+    /**
+     * I-N06: why a scheduled or sent invoice changes (required for them, 400 at `reason`; a draft
+     * needs none). Kept in the audit with the changed amounts and ids, and in its history.
+     */
+    reason: z.string().trim().min(1, 'Say why the invoice changes').max(500).optional(),
+    /** I-N06: a sent invoice's update goes to the client too (the usual invoice email); default on. */
+    sendUpdate: z.boolean().optional(),
+  })
+  .superRefine(draftRules);
 
 /**
  * POST /business/invoices/{id}/correct (IP-F08, Octavia Oct 27): the dates of an invoice already

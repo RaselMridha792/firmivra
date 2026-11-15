@@ -326,6 +326,20 @@ describe('Begin Online and leads', () => {
   });
 });
 
+describe('intake.received', () => {
+  it('thanks the sender with the form and the firm, and carries no answer', () => {
+    const got = email('intake.received');
+    expect(got.subject).toMatch(/ received your form$/);
+    expect(got.text).toContain('Personal Tax Intake Form');
+    expect(got.text).toContain('This email has none of your answers.');
+    const probed = email('intake.received', {
+      ...SAMPLE_DATA['intake.received'],
+      answers: 'Secret probe answer',
+    } as never);
+    expect(probed).toEqual(got);
+  });
+});
+
 describe('intake.submitted-notice', () => {
   it('names the form and the firm, links to the workspace, and carries nothing a client wrote', () => {
     const notice = email('intake.submitted-notice');

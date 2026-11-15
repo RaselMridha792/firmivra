@@ -45,6 +45,7 @@ import {
   primary,
   quiet,
   toCents,
+  canEditInvoice,
 } from './inv-shared';
 import { InvoiceAttachments } from './invoice-attachments';
 import { RecurringCard, recurringBody, recurringDraftOf, upcomingDays } from './recurring-card';
@@ -102,10 +103,12 @@ export function InvoiceEditor({ invoiceId }: { invoiceId?: string }) {
     );
   }
   if (from && !source.data) return <p className={quiet}>Loading the invoice…</p>;
-  if (invoiceId && source.data && source.data.status !== 'DRAFT') {
+  // I-N06: a draft, a scheduled invoice, or a sent one with nothing paid is edited here.
+  if (invoiceId && source.data && !canEditInvoice(source.data)) {
     return (
       <p role="alert" className={quiet}>
-        {source.data.number} has been sent, so it can no longer be changed.{' '}
+        {source.data.number} has a payment on it, or is paid or canceled, so it can no longer be
+        changed.{' '}
         <Link href={`/invoices/${invoiceId}`} className="text-link">
           View the invoice
         </Link>
@@ -126,6 +129,12 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
     api.invoices.list({ limit: 1 }),
   );
   const editing = invoiceId ? source : null;
+  // I-N06: a scheduled invoice, or a sent one with nothing paid, changes on the same number with
+  // a reason; a sent one's update goes to the client unless the box is cleared.
+  const correcting = !!editing && editing.status !== 'DRAFT';
+  const sentOne = editing?.status === 'OPEN';
+  const [reason, setReason] = useState('');
+  const [sendUpdate, setSendUpdate] = useState(true);
   const [clientId, setClientId] = useState(source?.client.id ?? '');
   const [engagementId, setEngagementId] = useState(editing?.service?.id ?? '');
   const [scheduledFor, setScheduledFor] = useState(editing?.scheduledFor ?? '');
@@ -279,6 +288,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       if (Number.isNaN(l.unitAmountCents)) next[`rate${i}`] = 'Enter an amount like 125.50';
       if (!(l.quantity > 0)) next[`qty${i}`] = 'Enter a quantity greater than zero';
     });
+    if (correcting && !reason.trim()) next['reason'] = 'Say why the invoice changes';
     if (!shownDue) next['dueOn'] = 'Choose a due date';
     else if (!invoiceId && shownDue < localToday()) next['dueOn'] = 'Choose today or a future date';
     else if (scheduledFor && shownDue < scheduledFor) {
@@ -311,6 +321,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       emailClient,
       allowTip: tipOffered && allowTip,
       requirePaymentBeforeDue: beforeDueOffered && payBeforeDue,
+      ...(correcting ? { reason: reason.trim(), ...(sentOne ? { sendUpdate } : {}) } : {}),
     };
     const check = invoiceId
       ? UpdateInvoiceRequest.safeParse(body)
@@ -334,7 +345,7 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       const saved = invoiceId
         ? await api.invoices.update(invoiceId, body)
         : await api.invoices.create({ clientId, ...body });
-      if (andSend) await api.invoices.send(saved.id);
+      if (andSend && !correcting) await api.invoices.send(saved.id);
       await qc.invalidateQueries({ queryKey: [...INV_KEY] });
       router.push(`/invoices/${saved.id}`);
     } catch (e) {
@@ -432,6 +443,8 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 value={scheduledFor}
                 min={localToday()}
                 error={errors['scheduledFor']}
+                // I-N06: a sent invoice has gone; it has no send day to change.
+                disabled={sentOne}
                 onChange={(e) => chooseSendOn(e.target.value)}
               />
               <Select
@@ -773,16 +786,48 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 {failure}
               </p>
             ) : null}
+            {correcting ? (
+              <div className="mt-4 grid gap-3" data-testid="invoice-correction">
+                <Textarea
+                  label="Reason for the change *"
+                  value={reason}
+                  maxLength={500}
+                  rows={3}
+                  error={errors['reason']}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                {sentOne ? (
+                  <Checkbox
+                    label="Send the updated invoice to the client"
+                    checked={sendUpdate}
+                    onChange={(e) => setSendUpdate(e.target.checked)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-col gap-2">
-              <button
-                type="button"
-                className={`${primary} w-full`}
-                disabled={busy}
-                onClick={() => void save(true)}
-              >
-                <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />
-                {scheduledFor && scheduledFor > localToday() ? 'Schedule Invoice' : 'Send Invoice'}
-              </button>
+              {correcting ? (
+                <button
+                  type="button"
+                  className={`${primary} w-full`}
+                  disabled={busy}
+                  onClick={() => void save(false)}
+                >
+                  <FloppyDisk aria-hidden weight="fill" className="size-5" /> Save Changes
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={`${primary} w-full`}
+                  disabled={busy}
+                  onClick={() => void save(true)}
+                >
+                  <PaperPlaneTilt aria-hidden weight="fill" className="size-5" />
+                  {scheduledFor && scheduledFor > localToday()
+                    ? 'Schedule Invoice'
+                    : 'Send Invoice'}
+                </button>
+              )}
               <button
                 type="button"
                 className={`${outlined} w-full`}
@@ -790,14 +835,16 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               >
                 Preview Invoice
               </button>
-              <button
-                type="button"
-                className={`${outlined} w-full`}
-                disabled={busy}
-                onClick={() => void save(false)}
-              >
-                <FloppyDisk aria-hidden weight="fill" className="size-5 text-action" /> Save Draft
-              </button>
+              {correcting ? null : (
+                <button
+                  type="button"
+                  className={`${outlined} w-full`}
+                  disabled={busy}
+                  onClick={() => void save(false)}
+                >
+                  <FloppyDisk aria-hidden weight="fill" className="size-5 text-action" /> Save Draft
+                </button>
+              )}
               <Link
                 href={invoiceId ? `/invoices/${invoiceId}` : '/invoices'}
                 className={`${linkBtn} justify-center py-2`}
