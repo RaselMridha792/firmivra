@@ -42,6 +42,7 @@ import {
   createDepartmentsClient,
   createMessagesClient,
   createMyAppointmentsClient,
+  createMyWaitlistClient,
   createPublicBookingClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,
@@ -121,6 +122,7 @@ import {
   myIntakeAgreementsMock,
   publicAgreementsMock,
 } from '../mocks/agreements';
+import { myWaitlistMock } from '../mocks/appointment-waitlist';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createLocationsMock } from '../mocks/locations';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
@@ -427,6 +429,11 @@ export const api = {
     dev && mocked('myAppointments')
       ? myAppointmentsMock(firmSlug)
       : createMyAppointmentsClient(request, firmSlug),
+  /** Appointments A3 (R55): the signed-in client's waitlist for earlier times. */
+  myWaitlist: (firmSlug: string) =>
+    dev && mocked('myWaitlist')
+      ? myWaitlistMock(firmSlug)
+      : createMyWaitlistClient(request, firmSlug),
   /** Review 2 (Appointments row 3): a type behind its public booking link, before sign-in. */
   publicBooking: (firmSlug: string) =>
     dev && mocked('publicBooking')
