@@ -150,7 +150,7 @@ async function tokenFor(who: Person): Promise<string> {
 
 /** A portal call (`/me...` on the firm's portal) or a firm call (`/business...`). */
 async function call(
-  method: 'get' | 'post',
+  method: 'get' | 'post' | 'patch',
   path: string,
   who: Person,
   body?: object,
@@ -489,6 +489,32 @@ describe('portal uploads (household rules, q12)', () => {
     expectError(await start({ categoryId: ids.old }), 409, 'CATEGORY_ARCHIVED');
     expectError(await start({ serviceId: ids.e3p }, people.stop), 409, 'NO_OPEN_SERVICE');
     expectError(await start({ businessId: firms.b.id }), 400, 'VALIDATION_FAILED');
+  });
+
+  it('DOCUMENTS-LIMIT-01: refuses a file over the firm’s largest document, in the portal and on the client’s page', async () => {
+    const MB = 1024 * 1024;
+    const limit = (maxFileSizeMb: number) =>
+      call('patch', '/document-settings', people.ownerA, { maxFileSizeMb });
+    expect((await limit(5)).status).toBe(200);
+    const sized = (sizeBytes: number) => ({ ...facts(pdf()), sizeBytes, serviceId: ids.e1 });
+    try {
+      const portal = await call('post', '/me/documents/uploads', people.primary, sized(5 * MB + 1));
+      expectError(portal, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(portal.body)).toContain('Files can be at most 5 MB');
+      expect(
+        (await call('post', '/me/documents/uploads', people.primary, sized(5 * MB))).status,
+      ).toBe(200);
+      const firm = await call(
+        'post',
+        `/clients/${ids.c1}/documents/uploads`,
+        people.ownerA,
+        sized(5 * MB + 1),
+      );
+      expectError(firm, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(firm.body)).toContain('Files can be at most 5 MB');
+    } finally {
+      await limit(100);
+    }
   });
 
   it('answers a request in the confirm: SUBMITTED, audited, and no second file for it', async () => {

@@ -26,6 +26,7 @@ import {
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
 import { UploadsService } from '../storage/uploads.service.js';
+import { checkDocumentFileSize } from '../storage/document-file-size.js';
 import { memberNames } from '../workspaces/common.js';
 import {
   actorOf,
@@ -269,6 +270,7 @@ export class DocumentLibraryService {
         }
       }
       if (body.reviewerUserId) await requireActiveMember(tx, businessId, body.reviewerUserId);
+      await checkDocumentFileSize(tx, businessId, body.sizeBytes);
       if (body.replacesId) {
         const old = await tx.document.findFirst({
           where: { businessId, id: body.replacesId, trashedAt: null },

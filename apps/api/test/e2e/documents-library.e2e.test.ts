@@ -21,7 +21,6 @@ import {
   LibraryDocument,
   LibraryPage,
   LibrarySummary,
-  UPLOAD_LIMITS,
   UploadTicket,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -342,7 +341,7 @@ describe('folders, types and settings', () => {
 
   it('reads and saves the settings', async () => {
     const s = ok(await call('get', '/document-settings', staffA), DocumentSettings);
-    expect(s).toMatchObject({ uploadMaxBytes: UPLOAD_LIMITS.maxBytes, defaultReviewer: null });
+    expect(s).toMatchObject({ maxFileSizeMb: 100, defaultReviewer: null });
     expect(s.uploadTypes).toHaveLength(5);
     const saved = ok(
       await call('patch', '/document-settings', ownerA, {
@@ -367,6 +366,49 @@ describe('folders, types and settings', () => {
       403,
       'FORBIDDEN',
     );
+  });
+
+  it('DOCUMENTS-LIMIT-01: keeps the largest document at 5 to 100 MB and refuses a bigger file at the ticket', async () => {
+    const MB = 1024 * 1024;
+    const saved = ok(
+      await call('patch', '/document-settings', ownerA, { maxFileSizeMb: 20 }),
+      DocumentSettings,
+    );
+    expect(saved.maxFileSizeMb).toBe(20);
+    expect(
+      ok(await call('get', '/document-settings', staffA), DocumentSettings).maxFileSizeMb,
+    ).toBe(20);
+    for (const maxFileSizeMb of [25, 0, 101, 2]) {
+      const res = await call('patch', '/document-settings', ownerA, { maxFileSizeMb });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain('maxFileSizeMb');
+    }
+    expectError(
+      await call('patch', '/document-settings', staffA, { maxFileSizeMb: 50 }),
+      403,
+      'FORBIDDEN',
+    );
+    const ticket = (sizeBytes: number) =>
+      call('post', '/documents/uploads', ownerA, {
+        clientId: ids.c1,
+        serviceId: ids.e1,
+        fileName: 'fake-big.pdf',
+        contentType: 'application/pdf',
+        sizeBytes,
+        sha256: sha256(Buffer.from('fake')),
+      });
+    const over = await ticket(20 * MB + 1);
+    expectError(over, 400, 'VALIDATION_FAILED');
+    expect(JSON.stringify(over.body)).toContain('Files can be at most 20 MB');
+    expect(JSON.stringify(over.body)).toContain('sizeBytes');
+    expect((await ticket(20 * MB)).status).toBe(201);
+    // Another firm keeps its own limit.
+    expect(
+      ok(await call('get', '/document-settings', ownerB, undefined, 'b'), DocumentSettings)
+        .maxFileSizeMb,
+    ).toBe(100);
+    ok(await call('patch', '/document-settings', ownerA, { maxFileSizeMb: 100 }), DocumentSettings);
+    expect((await ticket(20 * MB + 1)).status).toBe(201);
   });
 });
 

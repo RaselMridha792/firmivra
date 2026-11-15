@@ -10,6 +10,7 @@ import {
   Email,
   INTAKE_FILE_SIZE_CHOICES,
   intakeDurationWords,
+  type IntakeRetentionCategory,
   type IntakeSettings,
   type IntakeSettingsChange,
   type OkResponse,
@@ -47,6 +48,32 @@ export function reminderDays(firstMinutes: number, finalMinutes: number) {
     Math.max(firstReminderDays + 1, Math.ceil(finalMinutes / 1440)),
   );
   return { firstReminderDays, finalReminderDays };
+}
+
+/** Review Two 14b: the six categories and their columns. */
+const RETENTION_COLUMNS = {
+  clientDocuments: 'retentionYearsClientDocuments',
+  firmDocuments: 'retentionYearsFirmDocuments',
+  intakeSubmissions: 'retentionYearsIntakeSubmissions',
+  portalMessages: 'retentionYearsPortalMessages',
+  systemEmails: 'retentionYearsSystemEmails',
+  taxReturnDocuments: 'retentionYearsTaxReturnDocuments',
+} as const satisfies Record<
+  IntakeRetentionCategory,
+  keyof Prisma.IntakeSettingsUncheckedUpdateInput
+>;
+const RETENTION_KEYS = Object.keys(RETENTION_COLUMNS) as IntakeRetentionCategory[];
+
+/** The columns of the categories given (null clears one). */
+function retentionData(
+  years: Partial<Record<IntakeRetentionCategory, number | null>>,
+): Prisma.IntakeSettingsUncheckedUpdateInput {
+  return Object.fromEntries(
+    RETENTION_KEYS.filter((k) => years[k] !== undefined).map((k) => [
+      RETENTION_COLUMNS[k],
+      years[k],
+    ]),
+  );
 }
 
 const isFileSizeChoice = (mb: number) =>
@@ -150,6 +177,14 @@ export class IntakeSettingsService {
         maxFileSizeMb: r.maxFileSizeMb,
         consentRequired: r.consentRequired,
         dataRetentionYears: r.dataRetentionYears,
+        retention: {
+          clientDocuments: r.retentionYearsClientDocuments,
+          firmDocuments: r.retentionYearsFirmDocuments,
+          intakeSubmissions: r.retentionYearsIntakeSubmissions,
+          portalMessages: r.retentionYearsPortalMessages,
+          systemEmails: r.retentionYearsSystemEmails,
+          taxReturnDocuments: r.retentionYearsTaxReturnDocuments,
+        },
       },
       updatedAt: iso(r.updatedAt),
       version: r.updatedAt.toISOString(),
@@ -254,14 +289,10 @@ export class IntakeSettingsService {
         (data.firstReminderMinutes as number | undefined) ?? current.firstReminderMinutes;
       const final =
         (data.finalReminderMinutes as number | undefined) ?? current.finalReminderMinutes;
-      // As the database: the final reminder comes strictly after the first.
-      if (final <= first)
-        throw invalid(
-          'notifications.finalReminderAfterMinutes',
-          'The final reminder comes after the first',
-        );
-      // The day columns stay (with their own rules) until a later migration drops them: they
-      // follow the minutes, rounded up to whole days, the final still after the first.
+      // Review Two 10c: the final reminder counts back from the expiry, so it no longer has to
+      // come after the first (5 minutes is offered in both). The day columns stay (with their own
+      // rules) until a later migration drops them: they follow the minutes, rounded up to whole
+      // days, the final day still after the first as their check wants.
       Object.assign(data, reminderDays(first, final));
       if (a) {
         if (a.autoCreateClient !== undefined) data.autoCreateClient = a.autoCreateClient;
@@ -300,8 +331,23 @@ export class IntakeSettingsService {
           data.maxFileSizeMb = s.maxFileSizeMb;
         }
         if (s.consentRequired !== undefined) data.consentRequired = s.consentRequired;
-        // Octavia's I12: saved and shown only; nothing is deleted because of it.
+        // Review Two 14b: minimums only. Nothing is deleted or archived because of them.
+        // 14b: 1 to 30 (the contract); a value saved under I12 (up to 100) is read as it is.
         if (s.dataRetentionYears !== undefined) data.dataRetentionYears = s.dataRetentionYears;
+        if (s.applyRetentionToAll) {
+          const years =
+            s.dataRetentionYears !== undefined ? s.dataRetentionYears : current.dataRetentionYears;
+          if (years === null)
+            throw invalid('security.dataRetentionYears', 'Enter the years to apply to all six');
+          // A saved I12 value over 30 can't go to the categories (1 to 30 each).
+          if (years > 30) throw invalid('security.dataRetentionYears', 'Enter 1 to 30 years');
+          Object.assign(
+            data,
+            retentionData(Object.fromEntries(RETENTION_KEYS.map((k) => [k, years]))),
+          );
+        }
+        // Categories sent in the same request change after Apply to all.
+        if (s.retention) Object.assign(data, retentionData(s.retention));
       }
       const sections = (
         [
@@ -369,6 +415,7 @@ export class IntakeSettingsService {
           maxFileSizeMb: INTAKE_DEFAULT_FILE_SIZE_MB,
           consentRequired: true,
           dataRetentionYears: null,
+          ...retentionData(Object.fromEntries(RETENTION_KEYS.map((k) => [k, null]))),
         },
         include: { defaultOwner: MEMBER, followUpOwner: MEMBER },
       });
@@ -441,7 +488,7 @@ export class IntakeSettingsService {
     }));
     if (!member?.user.email) throw forbidden();
     const timing = settings.remindersEnabled
-      ? `Your firm sends the first reminder ${intakeDurationWords(settings.firstReminderMinutes)} after a form is sent, and the final one ${intakeDurationWords(settings.finalReminderMinutes)} after it is sent, until the form is submitted.`
+      ? `Your firm sends the first reminder ${intakeDurationWords(settings.firstReminderMinutes)} after a form is sent, and the final one ${intakeDurationWords(settings.finalReminderMinutes)} before it expires (a form with no expiration gets the first only), until the form is submitted.`
       : 'Reminders are off for new forms, so clients get none until they are turned on.';
     try {
       await this.notify.send({
