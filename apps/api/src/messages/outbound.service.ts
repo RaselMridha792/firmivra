@@ -712,12 +712,21 @@ export class OutboundMessagesService {
 
   async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<OutboundMessageList> {
     return this.inFirm(businessId, async (tx) => {
+      if (q.clientId) {
+        const client = await tx.client.findFirst({
+          where: { AND: [{ businessId, id: q.clientId }, this.clientReach(actor)] },
+          select: { id: true },
+        });
+        if (!client) throw notFound();
+      }
       const rows = await tx.outboundMessage.findMany({
         where: {
           businessId,
           kind: 'DIRECT',
           status: q.status ? q.status : { in: ['DRAFT', 'SCHEDULED'] },
           ...(actor.role === 'STAFF' ? { createdByUserId: actor.userId } : {}),
+          // M24: the drafts and scheduled messages that go to this client.
+          ...(q.clientId ? { recipients: { some: { businessId, clientId: q.clientId } } } : {}),
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         take: 50,
