@@ -144,7 +144,7 @@ function Kpi({
       </span>
       <div className="flex min-w-0 flex-col items-start gap-0.5">
         <div className="text-2xl font-bold text-heading">{value}</div>
-        <h2 className="text-sm text-heading">{label}</h2>
+        <h2 className="text-sm wrap-anywhere text-heading">{label}</h2>
         {delta ? (
           <span
             className={`inline-flex items-center gap-0.5 rounded px-1 text-xs font-semibold ${positive ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}
@@ -171,54 +171,57 @@ export function SummaryCards() {
     summary.isPending ? <Skeleton className="h-7 w-10" /> : (v ?? '—');
   const note = s ? 'vs last month' : summary.isError ? 'Not loaded' : '';
   return (
-    <div
-      data-testid="appointment-kpis"
-      className="grid grid-cols-2 gap-3 md:grid-cols-3 min-[1440px]:grid-cols-5"
-    >
-      <Kpi
-        label="Total Appointments"
-        icon={CalendarCheck}
-        tone="blue"
-        value={n(s?.total.value)}
-        note={note}
-        delta={s && change(s.total)}
-        good="up"
-      />
-      <Kpi
-        label="Upcoming"
-        icon={UserPlus}
-        tone="amber"
-        value={n(s?.upcoming)}
-        note={summary.isError ? note : '(Next 7 Days)'}
-      />
-      <Kpi
-        label="Completed"
-        icon={CheckCircle}
-        tone="green"
-        value={n(s?.completed.value)}
-        note={note}
-        delta={s && change(s.completed)}
-        good="up"
-      />
-      <Kpi
-        label="No-Shows"
-        icon={Clock}
-        tone="red"
-        value={n(s?.noShows.value)}
-        note={note}
-        delta={s && change(s.noShows)}
-        good="down"
-      />
-      <Kpi
-        label="Canceled"
-        icon={X}
-        weight="bold"
-        tone="red"
-        value={n(s?.canceled.value)}
-        note={note}
-        delta={s && change(s.canceled)}
-        good="down"
-      />
+    // Layout check (Nov 15): sized by the space beside the side menu, not the window.
+    <div className="@container min-w-0">
+      <div
+        data-testid="appointment-kpis"
+        className="grid grid-cols-[minmax(0,1fr)] gap-3 @md:grid-cols-[repeat(2,minmax(0,1fr))] @2xl:grid-cols-[repeat(3,minmax(0,1fr))] @5xl:grid-cols-[repeat(5,minmax(0,1fr))]"
+      >
+        <Kpi
+          label="Total Appointments"
+          icon={CalendarCheck}
+          tone="blue"
+          value={n(s?.total.value)}
+          note={note}
+          delta={s && change(s.total)}
+          good="up"
+        />
+        <Kpi
+          label="Upcoming"
+          icon={UserPlus}
+          tone="amber"
+          value={n(s?.upcoming)}
+          note={summary.isError ? note : '(Next 7 Days)'}
+        />
+        <Kpi
+          label="Completed"
+          icon={CheckCircle}
+          tone="green"
+          value={n(s?.completed.value)}
+          note={note}
+          delta={s && change(s.completed)}
+          good="up"
+        />
+        <Kpi
+          label="No-Shows"
+          icon={Clock}
+          tone="red"
+          value={n(s?.noShows.value)}
+          note={note}
+          delta={s && change(s.noShows)}
+          good="down"
+        />
+        <Kpi
+          label="Canceled"
+          icon={X}
+          weight="bold"
+          tone="red"
+          value={n(s?.canceled.value)}
+          note={note}
+          delta={s && change(s.canceled)}
+          good="down"
+        />
+      </div>
     </div>
   );
 }

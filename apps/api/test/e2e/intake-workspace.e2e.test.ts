@@ -25,6 +25,7 @@ import {
   PublicLink,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { RetentionGuard, type RetentionRef } from '../../src/retention/retention-guard.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
@@ -836,6 +837,168 @@ describe('the settings', () => {
       ok(await call('get', '/intake-settings', ownerB, undefined, 'b')),
     );
     expect(b.security.retention.taxReturnDocuments).toBeNull();
+  });
+
+  it('14b: the guard keeps a record until its job was completed plus the minimum, and for good while it is not', async () => {
+    const DAY = 86_400_000;
+    const counts = () =>
+      inFirm('a', async (tx) => ({
+        intakes: await tx.intake.count({ where: { businessId: firms.a } }),
+        documents: await tx.document.count({ where: { businessId: firms.a } }),
+        engagements: await tx.engagement.count({ where: { businessId: firms.a } }),
+      }));
+    const before = await counts();
+    // Apply to all 7 years; tax return documents 10 on their own.
+    await inFirm('a', (tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: firms.a },
+        data: {
+          dataRetentionYears: 7,
+          retentionYearsClientDocuments: null,
+          retentionYearsFirmDocuments: null,
+          retentionYearsIntakeSubmissions: null,
+          retentionYearsPortalMessages: null,
+          retentionYearsSystemEmails: null,
+          retentionYearsTaxReturnDocuments: 10,
+        },
+      }),
+    );
+    const longAgo = new Date('2012-03-01T15:00:00Z');
+    const lately = new Date(Date.now() - DAY);
+    const jobs = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Ret Ention (fake)',
+          email: `ret-${run}@client.test`,
+        },
+        select: { id: true },
+      });
+      const job = (status: 'ACTIVE' | 'COMPLETED', completedAt: Date | null) =>
+        tx.engagement
+          .create({
+            data: {
+              businessId: firms.a,
+              clientId: c.id,
+              serviceId: ids.service!,
+              title: `Retention ${status}`,
+              status,
+              completedAt,
+            },
+            select: { id: true },
+          })
+          .then((e) => e.id);
+      const task = (status: 'OPEN' | 'DONE', completedAt: Date | null) =>
+        tx.task
+          .create({
+            data: {
+              businessId: firms.a,
+              clientId: c.id,
+              title: `Retention task ${status}`,
+              status,
+              completedAt,
+              createdByUserId: ownerA.id,
+            },
+            select: { id: true },
+          })
+          .then((t) => t.id);
+      return {
+        old: await job('COMPLETED', longAgo),
+        recent: await job('COMPLETED', lately),
+        open: await job('ACTIVE', null),
+        oldTask: await task('DONE', longAgo),
+        openTask: await task('OPEN', null),
+      };
+    });
+    const theirs = await inFirm('b', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.b, kind: 'ANNUAL_TAX', name: `Ret B ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.b,
+          displayName: 'Bee Ret (fake)',
+          email: `retb-${run}@client.test`,
+        },
+        select: { id: true },
+      });
+      return (
+        await tx.engagement.create({
+          data: {
+            businessId: firms.b,
+            clientId: c.id,
+            serviceId: service.id,
+            title: 'B',
+            status: 'COMPLETED',
+            completedAt: longAgo,
+          },
+          select: { id: true },
+        })
+      ).id;
+    });
+    type Category = Parameters<typeof RetentionGuard.hold>[2];
+    const hold = (category: Category, ref: RetentionRef) =>
+      inFirm('a', (tx) => RetentionGuard.hold(tx, firms.a, category, ref));
+    const removable = (category: Category, ref: RetentionRef) =>
+      inFirm('a', (tx) => RetentionGuard.assertRemovable(tx, firms.a, category, ref));
+    const kept = (message: string) =>
+      expect.objectContaining({ response: { code: 'RETENTION_MINIMUM', message } });
+
+    // Completed long ago: its minimum is over (2019; 2022 for tax return documents).
+    expect(await hold('clientDocuments', { engagementId: jobs.old })).toEqual({
+      kind: 'UNTIL',
+      until: '2019-03-01',
+    });
+    expect(await hold('taxReturnDocuments', { engagementId: jobs.old })).toEqual({
+      kind: 'UNTIL',
+      until: '2022-03-01',
+    });
+    for (const category of [
+      'clientDocuments',
+      'firmDocuments',
+      'intakeSubmissions',
+      'portalMessages',
+      'systemEmails',
+      'taxReturnDocuments',
+    ] as const)
+      await expect(removable(category, { engagementId: jobs.old })).resolves.toBeUndefined();
+    await expect(removable('portalMessages', { taskId: jobs.oldTask })).resolves.toBeUndefined();
+
+    // Completed yesterday: kept until that day plus 7 years, said in words.
+    const until = new Date(lately);
+    until.setUTCFullYear(until.getUTCFullYear() + 7);
+    const words = until.toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    await expect(removable('firmDocuments', { engagementId: jobs.recent })).rejects.toEqual(
+      kept(`Kept until ${words} under your retention policy`),
+    );
+    // Not completed, no job or task, a completed task of an open job, another firm's job: kept.
+    const open = kept('Kept: its job isn’t completed yet');
+    await expect(removable('intakeSubmissions', { engagementId: jobs.open })).rejects.toEqual(open);
+    await expect(removable('systemEmails', {})).rejects.toEqual(open);
+    await expect(removable('portalMessages', { taskId: jobs.openTask })).rejects.toEqual(open);
+    await expect(
+      removable('portalMessages', { engagementId: jobs.open, taskId: jobs.oldTask }),
+    ).rejects.toEqual(open);
+    await expect(removable('clientDocuments', { engagementId: theirs })).rejects.toEqual(open);
+
+    // No minimum set: nothing holds a record.
+    await inFirm('a', (tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: firms.a },
+        data: { dataRetentionYears: null, retentionYearsTaxReturnDocuments: null },
+      }),
+    );
+    expect(await hold('clientDocuments', { engagementId: jobs.open })).toEqual({ kind: 'NONE' });
+    await expect(removable('clientDocuments', {})).resolves.toBeUndefined();
+
+    // The guard only answers: nothing was removed (the jobs and tasks made here aside).
+    expect(await counts()).toEqual({ ...before, engagements: before.engagements + 3 });
   });
 
   it('lists the recent changes without their values, and resets to the defaults', async () => {

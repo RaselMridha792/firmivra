@@ -80,7 +80,19 @@ export async function checkLayout(
     ready,
     shots,
     widths = [1280, 1366, 1440],
-  }: { name: string; path: string; ready?: string; shots: string; widths?: number[] },
+    url = app,
+    menu = true,
+  }: {
+    name: string;
+    path: string;
+    ready?: string;
+    shots: string;
+    widths?: number[];
+    /** Another site (the client portal): its own address. */
+    url?: (path: string) => string;
+    /** False for a screen without the side menu: each width once, then 390. */
+    menu?: boolean;
+  },
 ) {
   const [firstWidth = 1280, ...otherWidths] = widths;
   await page.setViewportSize({ width: firstWidth, height: 900 });
@@ -91,7 +103,7 @@ export async function checkLayout(
       // No storage: the menu starts expanded anyway.
     }
   });
-  await page.goto(app(path));
+  await page.goto(url(path));
   const shown = ready ? page.getByTestId(ready) : page.locator('main h1');
   await expect(shown.first()).toBeVisible({ timeout: 90_000 });
   // Lists and cards load after the heading.
@@ -102,6 +114,11 @@ export async function checkLayout(
   for (const width of otherWidths) {
     await page.setViewportSize({ width, height: 900 });
     await check(page, `${name} at ${width}, sidebar expanded`);
+  }
+  if (!menu) {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await check(page, `${name} at 390`);
+    return;
   }
   // The menu's own toggle shows at desktop widths: collapse it there.
   await page.setViewportSize({ width: Math.max(...widths, 1280), height: 900 });
