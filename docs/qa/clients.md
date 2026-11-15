@@ -134,7 +134,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-02 Existing intake assignment: detail and start | Done in Intake Forms | #1407, #1425, #1471, #1479 | `intake-forms.md` INTAKE-ACCESS-01 (mock `r55-portal-assigned-intake`) |
 | N8-03 Portal document source filters | Scoped pass; nothing to build | — | — |
 | N8-04 Portal message delivery and read state | Scoped pass; nothing to build | — | — |
-| N8-05 Client Activity and Last Activity | Last Activity column: Done (#1362, #1429). Activity tab: Not built yet (R55): the profile composer offers Add to Client Timeline, and Activity shows it | #1362, #1429 | `clients-work.e2e` "counts the client's own recorded changes, never a view…" (the column only) |
+| N8-05 Client Activity and Last Activity | Done: the client's Messages tab New Message has Add to Client Timeline (on by default); the entry shows on Activity with its link, never the message, and an Activity entry counts as Last Activity | #1362, #1429, #PR_NUM | `messages.e2e` "puts the subject, sender and link on the Activity, never the message; off adds nothing"; mock `r55-client-message-timeline`; `clients-work.e2e` "counts the client's own recorded changes, never a view…" (the column) |
 | N8-06 Digits-only phone search | Done: any phone format finds the client, so no hint is needed | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-07 Client ID search (UUID and CL- number) | Done | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-08 Pagination and return | Scoped pass; nothing to build | — | — |

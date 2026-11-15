@@ -361,7 +361,13 @@ const work = (): Record<number, Work> => {
   };
   return workTable;
 };
-const workOf = (id: string): Work => structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+const workOf = (id: string): Work => {
+  const w = structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+  // Clients Review 2 (N8-05): an Activity timeline entry is the client's Last Activity too.
+  const newest = timelineOf(id)[0]?.occurredAt;
+  if (newest && (!w.lastActivityAt || newest > w.lastActivityAt)) w.lastActivityAt = newest;
+  return w;
+};
 
 /**
  * An in-memory `api.clients`. `role: 'STAFF'` is Sam Staff: only clients 1 and 2 (assigned to
