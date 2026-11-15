@@ -734,7 +734,28 @@ describe('the settings', () => {
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
     }
-    const cleared = IntakeSettings.parse(ok(await put(old.version, null)));
+    // Saving anything else, in Security or elsewhere, leaves it as it is (no 400).
+    const other = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: old.version,
+          security: { consentRequired: false, retention: { systemEmails: 4 } },
+          branding: { useFirmBranding: false },
+        }),
+      ),
+    );
+    expect(other.security).toMatchObject({ dataRetentionYears: 50, consentRequired: false });
+    const back = IntakeSettings.parse(
+      ok(
+        await call('put', '/intake-settings', ownerA, {
+          version: other.version,
+          security: { consentRequired: true, retention: { systemEmails: null } },
+          branding: { useFirmBranding: true },
+        }),
+      ),
+    );
+    expect(back.security.dataRetentionYears).toBe(50);
+    const cleared = IntakeSettings.parse(ok(await put(back.version, null)));
     expect(cleared.security.dataRetentionYears).toBeNull();
     expect(await counts()).toEqual(before);
     IntakeSettings.parse(ok(await put(cleared.version, 7)));

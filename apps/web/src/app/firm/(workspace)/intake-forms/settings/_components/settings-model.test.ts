@@ -1,6 +1,7 @@
 import { INTAKE_FILE_SIZE_CHOICES } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
-import { fileSizeOptions, legacyRetentionNote } from './settings-model';
+import { IntakeSettings, UpdateIntakeSettingsRequest } from '@firmivra/types';
+import { changesOf, fileSizeOptions, legacyRetentionNote, toDraft } from './settings-model';
 
 describe('fileSizeOptions (Max file size per file, I10)', () => {
   it('offers 2, 5, 10, 50 and 100 MB when the saved size is one of them', () => {
@@ -28,5 +29,70 @@ describe('legacyRetentionNote (Apply to all saved under I12, Review Two 14b)', (
     expect(legacyRetentionNote(null, null)).toBeNull();
     expect(legacyRetentionNote(50, 12)).toBeNull();
     expect(legacyRetentionNote(50, null)).toBeNull();
+  });
+});
+
+describe('a save with a saved Apply to all over 30 (Review Two 14b)', () => {
+  const saved = IntakeSettings.parse({
+    general: {
+      defaultExpirationDays: 14,
+      allowSaveAndResume: true,
+      requireSignature: true,
+      autoSubmissionId: true,
+      defaultOwner: null,
+    },
+    clientExperience: {
+      showProgressBar: true,
+      mobileFriendly: true,
+      thankYouMessage: null,
+      redirectAfterCompletion: false,
+      redirectUrl: null,
+    },
+    notifications: {
+      sendClientConfirmation: true,
+      notifyAssignedStaff: true,
+      firstReminderAfterMinutes: 4320,
+      finalReminderAfterMinutes: 10080,
+      expirationAlertMinutes: 1440,
+      additionalEmails: [],
+    },
+    automation: {
+      autoCreateClient: false,
+      autoCreateFollowUpTask: false,
+      routeByServiceType: false,
+      defaultFollowUpOwner: null,
+    },
+    branding: { useFirmBranding: true },
+    security: {
+      encryptedUploads: true,
+      acceptedFileTypes: ['PDF'],
+      maxFileSizeMb: 10,
+      consentRequired: true,
+      dataRetentionYears: 50,
+      retention: {
+        clientDocuments: null,
+        firmDocuments: null,
+        intakeSubmissions: null,
+        portalMessages: null,
+        systemEmails: null,
+        taxReturnDocuments: null,
+      },
+    },
+    updatedAt: null,
+    version: 'v1',
+  });
+
+  it('sends only what changed, so the saved 50 never goes back and the save is valid', () => {
+    const before = toDraft(saved);
+    const next = toDraft(saved);
+    next.security.consentRequired = false;
+    next.security.retention = { ...next.security.retention, systemEmails: 4 };
+    next.branding.useFirmBranding = false;
+    const body = changesOf(next, before);
+    expect(body.security).toEqual({
+      consentRequired: false,
+      retention: { ...before.security.retention, systemEmails: 4 },
+    });
+    expect(UpdateIntakeSettingsRequest.safeParse({ version: 'v1', ...body }).success).toBe(true);
   });
 });
