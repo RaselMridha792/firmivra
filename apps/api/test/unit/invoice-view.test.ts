@@ -16,6 +16,7 @@ const payment = (p: Partial<Payment> & Pick<Payment, 'status'>): Payment => ({
   failureCode: null,
   paidAt: p.status === 'SUCCEEDED' || p.status === 'REFUNDED' ? new Date() : null,
   refundReservedCents: 0,
+  methodType: 'card',
   createdAt: new Date(),
   _count: { events: 1 },
   refunds: [],
