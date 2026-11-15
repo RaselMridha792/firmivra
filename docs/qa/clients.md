@@ -167,18 +167,18 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-34 Sign-ups list checks | Scoped pass; the empty-state copy is FC-02 (R55) | — | — |
 | N8-35 Signature history and filters | Scoped pass; nothing to build | — | — |
 | N8-36 Tasks tab with New Task for the client | Done, test gap | #1378 | `r60-clients-tabs` opens the Tasks tab; its Create Task link with the client is not checked |
-| N8-37 Request a Document at the top | In progress (R60, PR follows): Request a Document and the open requests come first | — | — |
+| N8-37 Request a Document at the top | Done: Request a Document and the open requests come first | #1547 | Mock `r60-clients-e8-e10` (the client's Documents) |
 | N8-38 Task details readable | Scoped pass; nothing to build | — | — |
 | N8-39 Portal notification filter | Scoped pass; clearing needs a known-unread notice (her retest) | — | — |
 | N8-40 Message audit names the client | Scoped pass; nothing to build | — | — |
 | FC-01 Profile Invoices: balance due and Open Invoice | Not built yet (R55): balance due and a link to each invoice | — | — |
 | FC-02 Sign-ups empty state by approval mode | Not built yet (R55) | — | — |
 | FC-03 Documents staff guidance | Done, test gap | #1381 (R55) | `r34-documents` checks the no-client note is shown, not its words |
-| FC-04 Unassigned in Assigned Staff | In progress (R60, PR follows): Unassigned in the staff filter, combinable with New; e2e `clients` "FC-04: …" | — | — |
+| FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
 | §23 Messages: wider Subject, collapsible Internal Notes | Not built yet (R55) | — | — |
 | §23 V-007 for side menus | Main sidebar: Done (#1396). The Internal Notes rail is the R60 row above | #1396 | `r60-sidebar-collapse` |
 | §23 Mobile-friendly Clients | Her mobile check was not run; nothing new to build. 375 px checks: `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` | — | — |
-| §23 Platform heading and action-row consistency | Not built yet; not assigned (for the lead) | — | — |
+| §23 Platform heading and action-row consistency | After Nov 17 (decided): a platform-wide pass | — | — |
 | §23 Business Overview and Edit visual check | Scoped pass; nothing to build | — | — |
 
 ## GAP status
@@ -202,7 +202,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 
 ## Open items by owner (Nov 15, 2026)
 
-**R60, product (in progress, PR follows)**
+**R60, product: done in #1547**
 - N8-37: Request a Document above the documents list
 - FC-04: Unassigned in Assigned Staff, combinable with New
 
@@ -234,9 +234,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 - Edit validation: the API's required email, phone and address
 - Duplicate safeguards: the matched ids in the audit
 - ZIP: the city and the server check
-
-**Not assigned**
-- §23: platform heading and action-row consistency
+- §23: platform heading and action-row consistency (a platform-wide pass)
 
 **Her retests (no code)**
 - N8-11 SMS once set up on dev; N8-16 portal bytes; N8-19 a completed appointment fixture; N8-39 a known-unread notice
