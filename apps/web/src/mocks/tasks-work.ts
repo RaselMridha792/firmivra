@@ -1106,10 +1106,16 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     },
     setProgress: async (id, body) => {
       await mockDelay();
-      const { progress } = parseInput(SetTaskProgressRequest, body);
+      const { progress, blockedReason } = parseInput(SetTaskProgressRequest, body);
       const t = find(id);
       if (t.status !== 'OPEN') throw fail(409, 'TASK_CLOSED', 'Reopen the task first');
+      // As the API (TX-F13): Blocked says why, unless it already did or waits on a prerequisite.
+      const reason = progress === 'BLOCKED' ? blockedReason?.trim() || undefined : undefined;
+      if (progress === 'BLOCKED' && !reason && !t.blockedReason && !t.dependsOn) {
+        throw fail(400, 'VALIDATION_FAILED', 'Say why it is blocked, or choose a prerequisite');
+      }
       t.progress = progress;
+      if (reason) t.blockedReason = reason;
       return copy(touch(t));
     },
     duplicate: async (id, body = {}) => {
