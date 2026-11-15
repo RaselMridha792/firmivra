@@ -3,7 +3,6 @@
 import {
   DOCUMENT_ERRORS,
   megabytes,
-  UPLOAD_LIMITS,
   type FirmDocument,
   type FirmDocumentList,
   type FirmDocumentRequest,
@@ -41,6 +40,7 @@ import { advisoryEngagements } from './advisory-engagements';
 import { PortalAccessCard } from './portal-invitation';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import { ErrorLine } from './ba-dialogs';
 import { FilterSelect, SearchBox, useAct } from './ba-list-kit';
@@ -398,6 +398,8 @@ function UploadDocumentDialog({
   const [categoryId, setCategoryId] = useState('');
   const [share, setShare] = useState(false);
   const [file, setFile] = useState<File>();
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   const [percent, setPercent] = useState<number>();
   const [error, setError] = useState<string>();
   const send = async () => {
@@ -413,7 +415,7 @@ function UploadDocumentDialog({
             ...facts,
           }),
         finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
-        maxBytes: UPLOAD_LIMITS.maxBytes,
+        maxBytes: maxBytes,
         onProgress: setPercent,
       });
       await qc.invalidateQueries({ queryKey: [...BA_KEY] });
@@ -480,16 +482,14 @@ function UploadDocumentDialog({
           label="File"
           onFiles={(files) => setFile(files[0])}
           onReject={() =>
-            setError(
-              `Use a PDF, JPG, PNG, Excel or Word file up to ${megabytes(UPLOAD_LIMITS.maxBytes)}.`,
-            )
+            setError(`Use a PDF, JPG, PNG, Excel or Word file up to ${megabytes(maxBytes)}.`)
           }
-          maxBytes={UPLOAD_LIMITS.maxBytes}
+          maxBytes={maxBytes}
           multiple={false}
           hints={[
             file
               ? `Chosen: ${file.name}`
-              : `PDF, JPG, PNG, Excel or Word, up to ${megabytes(UPLOAD_LIMITS.maxBytes)}`,
+              : `PDF, JPG, PNG, Excel or Word, up to ${megabytes(maxBytes)}`,
           ]}
         />
         <Checkbox

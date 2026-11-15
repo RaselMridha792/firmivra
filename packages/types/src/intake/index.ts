@@ -16,4 +16,5 @@ export { BUSINESS_DEVELOPMENT_FORM } from './forms/business-development.js';
 export * from './intakes.js';
 export * from './workspace.js';
 export * from './retention.js';
+export * from './reminder-plan.js';
 export { createIntakeFormsClient, type IntakeFormsClient } from './workspace-client.js';

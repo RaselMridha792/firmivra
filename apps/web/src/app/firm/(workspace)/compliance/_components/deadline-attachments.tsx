@@ -1,10 +1,11 @@
 'use client';
 
-import { DOCUMENT_ERRORS, UPLOAD_LIMITS, type Engagement } from '@firmivra/types';
+import { DOCUMENT_ERRORS, type Engagement } from '@firmivra/types';
 import { CheckCircle, CloudArrowUp, Warning } from '@phosphor-icons/react';
 import { useId, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import { Label, Selectbox } from './compliance-shared';
 
@@ -41,6 +42,8 @@ export function DeadlineAttachments({
     open[0]?.id ||
     '';
   const [uploads, setUploads] = useState<Upload[]>([]);
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   const patch = (key: string, next: Partial<Upload>) =>
     setUploads((list) => list.map((u) => (u.key === key ? { ...u, ...next } : u)));
 
@@ -53,7 +56,7 @@ export function DeadlineAttachments({
       ]);
       try {
         const doc = await uploadFile(file, {
-          maxBytes: UPLOAD_LIMITS.maxBytes,
+          maxBytes: maxBytes,
           start: (facts) => api.documents.createUpload(clientId, { serviceId, ...facts }),
           finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
         });
@@ -93,9 +96,8 @@ export function DeadlineAttachments({
             <CloudArrowUp aria-hidden weight="regular" className="size-8 text-action" />
             <span className="font-medium text-heading">Choose files to attach</span>
             <span>
-              PDF, JPG, PNG, Excel (.xlsx) or Word (.docx), up to{' '}
-              {Math.round(UPLOAD_LIMITS.maxBytes / 1_048_576)} MB each. They are saved to the
-              client&apos;s documents and added to this deadline.
+              PDF, JPG, PNG, Excel (.xlsx) or Word (.docx), up to {Math.floor(maxBytes / 1_048_576)}{' '}
+              MB each. They are saved to the client&apos;s documents and added to this deadline.
             </span>
           </label>
           <input

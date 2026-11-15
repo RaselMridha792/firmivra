@@ -20,6 +20,7 @@ import {
   refusal,
   toMyDocument,
 } from './document-records.js';
+import { documentFileSizeMb } from './document-file-size.js';
 import { visible } from './my-documents.service.js';
 
 /** An item counts as answered in these (contract: MyRequestPacketProgress). */
@@ -243,6 +244,7 @@ export class MyPacketsService {
       taxYear: p.engagement.taxYear,
       expiresAt: p.expiresAt?.toISOString() ?? null,
       allowMultipleFiles: p.allowMultipleFiles,
+      maxFileSizeMb: await documentFileSizeMb(tx, login.businessId),
       items,
       canSubmit: open && login.household && requiredDone,
       activity: activityOf(p, files),

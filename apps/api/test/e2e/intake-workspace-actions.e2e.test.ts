@@ -886,6 +886,41 @@ describe('one form', () => {
     expectError(await call('post', `/intakes/${ids.sent}/remind`, otherStaffA), 404, 'NOT_FOUND');
   });
 
+  it('19b: a Remind or Resend answers its true result, and History keeps it', async () => {
+    // To the portal: the notice is written.
+    const sent = AssignedFormRecord.parse(
+      ok(await call('post', `/intakes/${ids.sent}/remind`, ownerA)),
+    );
+    expect(sent.delivery).toEqual({ status: 'SENT', reason: null });
+    expect(sent.history.at(-1)?.label).toBe('Reminder sent');
+    // By email to a client with no portal login: nothing reached them, and both say why.
+    for (const [path, label] of [
+      ['remind', 'Reminder not delivered: the client has no portal sign-in'],
+      ['resend', 'Resend not delivered: the client has no portal sign-in'],
+    ] as const) {
+      const missed = AssignedFormRecord.parse(
+        ok(await call('post', `/intakes/${ids.emailed}/${path}`, ownerA)),
+      );
+      expect(missed.delivery).toEqual({
+        status: 'FAILED',
+        reason: expect.stringContaining('no client portal login') as string,
+      });
+      expect(missed.history.map((e) => e.label)).toContain(label);
+    }
+    const kept = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { entityId: ids.emailed!, action: 'intake.reminded' },
+        select: { metadata: true },
+      }),
+    );
+    expect(kept.metadata).toEqual({ delivered: false, status: 'FAILED', code: 'NO_PORTAL_LOGIN' });
+    // A record read later has no delivery: it belongs to the answer only.
+    const later = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${ids.emailed}/record`, ownerA)),
+    );
+    expect(later.delivery).toBeUndefined();
+  });
+
   it('exports the answers as a PDF behind a short link', async () => {
     const link = FormFileLink.parse(ok(await call('get', `/intakes/${ids.submitted}/pdf`, adminA)));
     expect(link.url).toMatch(/^memory:tenant\/[0-9a-f-]+\/reports\/intake-/);
@@ -1224,7 +1259,7 @@ describe('another firm', () => {
 describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert, Expired)', () => {
   const MIN = 60_000;
   /** A client of firm A with an active portal login, an engagement and the form sent by Email. */
-  const sentForm = async (key: string) => {
+  const sentForm = async (key: string, days = 20) => {
     const userId = randomUUID();
     const email = `${key}-${run}@client.test`;
     await asOwner({ kind: 'platform' }, (tx) =>
@@ -1253,7 +1288,7 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
       return c.id;
     });
     // 20 days: the first reminder (3 days in) and the final (7 days before) fall apart.
-    const expiresAt = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    const expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
     const res = SendIntakeFormResult.parse(
       ok(
         await call(
@@ -1365,6 +1400,57 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     expect(
       (await audits(f.id)).find((a) => a.action === 'intake.reminder_skipped')?.metadata,
     ).toEqual({ kind: 'FIRST', reason: 'PORTAL_LOCKED' });
+  });
+
+  it('10c order: a first that would come after the final is skipped from the send, in History, and never sent', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    // 9 days: the final (7 days before) comes on day 2, the first (3 days in) on day 3.
+    const f = await sentForm('order', 9);
+    const skipped = async () =>
+      (await audits(f.id))
+        .filter((a) => a.action === 'intake.reminder_skipped')
+        .map((a) => a.metadata);
+    expect(await skipped()).toEqual([{ kind: 'FIRST', reason: 'AFTER_FINAL' }]);
+    const at = (ms: number) => ({ now: new Date(ms), businessIds: [firms.a] });
+    // Day 2: the final goes, and only the final is marked.
+    await jobs.run('intake-reminders', at(f.expiresAt - 10080 * MIN + MIN));
+    expect(reminders(f.email)).toHaveLength(1);
+    expect(await row(f.id)).toMatchObject({ firstReminderSentAt: null });
+    expect((await row(f.id)).finalReminderSentAt).not.toBeNull();
+    // Day 3 and later: the first never goes.
+    await jobs.run('intake-reminders', at(Date.now() + 4320 * MIN + MIN));
+    expect(reminders(f.email)).toHaveLength(1);
+    expect((await row(f.id)).firstReminderSentAt).toBeNull();
+    expect(await skipped()).toHaveLength(1);
+    const record = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${f.id}/record`, ownerA)),
+    );
+    expect(record.history.map((e) => e.label)).toEqual(
+      expect.arrayContaining([
+        'First reminder skipped: it would come after the final reminder',
+        'Final reminder sent',
+      ]),
+    );
+    expect(record.history.map((e) => e.label)).not.toContain('First reminder sent');
+  });
+
+  it('10c order: when the final goes before a first that was due (the job was behind), the first is skipped, never marked sent', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const f = await sentForm('behind');
+    // The job's first run is after both times: one reminder, the final.
+    await jobs.run('intake-reminders', {
+      now: new Date(f.expiresAt - 10080 * MIN + MIN),
+      businessIds: [firms.a],
+    });
+    expect(reminders(f.email)).toHaveLength(1);
+    expect(await row(f.id)).toMatchObject({ firstReminderSentAt: null });
+    const actions = (await audits(f.id)).map((a) => [a.action, a.metadata]);
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        ['intake.final_reminder_sent', expect.anything()],
+        ['intake.reminder_skipped', { kind: 'FIRST', reason: 'AFTER_FINAL' }],
+      ]),
+    );
   });
 
   it('Extend Expiration to a later time gives the final reminder and the alert their own time again', async () => {

@@ -5,6 +5,15 @@ import { documentFileSizeProblem } from '@firmivra/types';
 /** A firm with no Documents settings row yet: the table's default (document_settings DEFAULT 100). */
 const DEFAULT_MB = 100;
 
+/** DOCUMENTS-LIMIT-01: the firm's largest regular document, in MB, for the screens to check. */
+export async function documentFileSizeMb(tx: TxClient, businessId: string): Promise<number> {
+  const row = await tx.documentSettings.findUnique({
+    where: { businessId },
+    select: { maxFileSizeMb: true },
+  });
+  return row?.maxFileSizeMb ?? DEFAULT_MB;
+}
+
 /**
  * DOCUMENTS-LIMIT-01 (Intake Forms Review Two): refuses a regular document over the firm's limit
  * (Documents > Settings > File Settings, 5 to 100 MB) at the upload ticket, before anything goes
@@ -18,11 +27,7 @@ export async function checkDocumentFileSize(
   businessId: string,
   sizeBytes: number,
 ): Promise<void> {
-  const row = await tx.documentSettings.findUnique({
-    where: { businessId },
-    select: { maxFileSizeMb: true },
-  });
-  const problem = documentFileSizeProblem(sizeBytes, row?.maxFileSizeMb ?? DEFAULT_MB);
+  const problem = documentFileSizeProblem(sizeBytes, await documentFileSizeMb(tx, businessId));
   if (problem) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',

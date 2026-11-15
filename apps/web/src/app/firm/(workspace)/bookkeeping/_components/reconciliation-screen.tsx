@@ -3,7 +3,6 @@
 import {
   type BookkeepingReconciliation,
   type BookkeepingReconciliationItem,
-  UPLOAD_LIMITS,
 } from '@firmivra/types';
 import {
   Button,
@@ -23,6 +22,7 @@ import { api } from '../../../../../lib/api';
 import { approveBlocked } from './recon-rules';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import { useAct, type Notice } from './bookkeeping-actions';
 import {
@@ -570,6 +570,8 @@ function StatementDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const w = ws.data;
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   return (
     <Modal
       open
@@ -596,7 +598,7 @@ function StatementDialog({
                       ...facts,
                     }),
                   finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
-                  maxBytes: UPLOAD_LIMITS.maxBytes,
+                  maxBytes: maxBytes,
                 });
                 const ok = await act(
                   () => api.bookkeeping.saveReconciliation(r.id, { statementDocumentId: doc.id }),
@@ -624,7 +626,7 @@ function StatementDialog({
         <FileDropzone
           label="Statement"
           multiple={false}
-          maxBytes={UPLOAD_LIMITS.maxBytes}
+          maxBytes={maxBytes}
           onFiles={(files) => setFile(files[0])}
           onReject={() => setError('Use a PDF or image file within the size limit.')}
           hints={[file ? `Chosen: ${file.name}` : 'The bank or card statement, as a PDF or a scan']}

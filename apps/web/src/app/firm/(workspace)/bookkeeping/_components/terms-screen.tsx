@@ -6,7 +6,6 @@ import {
   BookkeepingBillingFrequency,
   BookkeepingPaymentTerms,
   DOCUMENT_ERRORS,
-  UPLOAD_LIMITS,
 } from '@firmivra/types';
 import {
   Badge,
@@ -48,6 +47,7 @@ import { useFirm } from '../../../../../components/firm-context';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
+import { useFirmDocumentMaxBytes } from '../../../../../lib/document-limit';
 import { uploadFile } from '../../../../../lib/upload';
 import {
   BK_KEY,
@@ -827,6 +827,8 @@ function UploadSigned({
   const [file, setFile] = useState<File>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   return (
     <Modal
       open
@@ -853,7 +855,7 @@ function UploadSigned({
                       ...facts,
                     }),
                   finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
-                  maxBytes: UPLOAD_LIMITS.maxBytes,
+                  maxBytes: maxBytes,
                 });
                 const ok = await act(
                   () =>
@@ -885,7 +887,7 @@ function UploadSigned({
         <FileDropzone
           label="Signed agreement"
           multiple={false}
-          maxBytes={UPLOAD_LIMITS.maxBytes}
+          maxBytes={maxBytes}
           onFiles={(files) => setFile(files[0])}
           onReject={() => setError('Use a PDF or image file within the size limit.')}
           hints={[file ? `Chosen: ${file.name}` : 'The signed PDF or a scan of it']}

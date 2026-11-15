@@ -32,6 +32,12 @@ import { ticketKeys } from '../begin-online/upload-tickets.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { requireFirmWideAgreement } from '../intake/intake-agreement.js';
 import { intakeFileSizeMb } from '../intake/intake-file-size.js';
+import {
+  consentEvidence,
+  consentRequiredError,
+  intakeCompletion,
+  intakeConsentRequired,
+} from '../intake/intake-completion.js';
 import { readDefinition } from '../intake/intake-forms.js';
 import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import type { IntakeSigner } from '../intake/intake-signing.js';
@@ -207,6 +213,8 @@ export class IntakeLinkService {
           ? { printedName: signed.signerName, signedAt: iso(signed.signedAt) }
           : null,
       canEdit: OPEN_STATUSES.includes(row.status),
+      consentRequired: await intakeConsentRequired(tx, businessId),
+      completion: await intakeCompletion(tx, businessId, row.form.definition),
     });
   }
 
@@ -309,7 +317,11 @@ export class IntakeLinkService {
   async submit(
     slug: string,
     req: Request,
-    body: { answers?: IntakeAnswersInput; signature: z.output<typeof IntakeSignatureInput> },
+    body: {
+      answers?: IntakeAnswersInput;
+      signature: z.output<typeof IntakeSignatureInput>;
+      consent?: true;
+    },
     signer: IntakeSigner,
     source: { ip: string | null; userAgent: string | null },
   ): Promise<LinkIntake> {
@@ -319,6 +331,10 @@ export class IntakeLinkService {
     if (body.answers) {
       const definition = readDefinition(first.form, first.form.service.kind);
       await this.saveOn(firm, first, definition.steps.at(-1)!.key, body.answers);
+    }
+    // Review Two row 21: the firm's consent checkbox, when it asks for one (answers stay saved).
+    if (!body.consent && (await this.inFirm(firm.id, (tx) => intakeConsentRequired(tx, firm.id)))) {
+      throw consentRequiredError();
     }
     for (let attempt = 1; ; attempt++) {
       try {
@@ -335,7 +351,7 @@ export class IntakeLinkService {
   private async submitOnce(
     firm: Firm,
     claim: LinkClaim,
-    body: { signature: z.output<typeof IntakeSignatureInput> },
+    body: { signature: z.output<typeof IntakeSignatureInput>; consent?: true },
     signer: IntakeSigner,
     source: { ip: string | null; userAgent: string | null },
   ): Promise<LinkIntake> {
@@ -405,7 +421,12 @@ export class IntakeLinkService {
         tx,
         'intake.submitted',
         { type: 'intake', id },
-        { version: draft.version, via: 'link', detached: hiddenIds.length },
+        {
+          version: draft.version,
+          via: 'link',
+          detached: hiddenIds.length,
+          ...consentEvidence(body.consent),
+        },
         { businessId },
       );
       const view = await this.view(

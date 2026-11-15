@@ -7,13 +7,14 @@ import Image from 'next/image';
 import { type FormEvent, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
+import { documentMaxBytes } from '../../../../../../../lib/document-limit';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../lib/upload';
 import { usePortal } from '../../../../layout';
 import lvpLogo from '../../../_components/lvp-logo.png';
 
-type Kind = keyof UploadTargets;
+type Kind = 'tax' | 'business';
 /** What a request's "Upload" button opens the form with. */
 export interface Preset {
   serviceId: string;
@@ -70,6 +71,7 @@ export function UploadDialog({
                   key={`${chosen}-${preset?.requestId ?? ''}`}
                   slug={slug}
                   targets={t[chosen]}
+                  maxBytes={documentMaxBytes(t.maxFileSizeMb)}
                   preset={preset}
                   onBack={preset ? close : () => setKind(null)}
                   onUploaded={(name) => {
@@ -196,12 +198,15 @@ function Reasons({
 function UploadForm({
   slug,
   targets,
+  maxBytes,
   preset,
   onBack,
   onUploaded,
 }: {
   slug: string;
   targets: UploadTargets[Kind];
+  /** DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB. */
+  maxBytes: number;
   preset?: Preset;
   onBack: () => void;
   onUploaded: (fileName: string) => void;
@@ -227,7 +232,7 @@ function UploadForm({
             ...facts,
           }),
         finish: (uploadToken) => api.myDocuments(slug).confirmUpload({ uploadToken }),
-        maxBytes: UPLOAD_LIMITS.maxBytes,
+        maxBytes,
         onProgress: setPercent,
       }),
     { invalidate: ['my-documents', slug] },
@@ -277,7 +282,7 @@ function UploadForm({
             className="rounded-control border border-border p-2 text-base"
           />
           <span className="text-xs font-normal text-muted">
-            {UPLOAD_LIMITS.typeNames}, up to {megabytes(UPLOAD_LIMITS.maxBytes)}.
+            {UPLOAD_LIMITS.typeNames}, up to {megabytes(maxBytes)}.
           </span>
         </label>
         {upload.isPending ? (

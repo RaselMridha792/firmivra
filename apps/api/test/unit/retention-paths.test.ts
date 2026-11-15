@@ -43,6 +43,18 @@ describe('no path removes a record of the six retention categories (14b)', () =>
     ).toEqual([]);
   });
 
+  it('never runs the ops-only removals, and nothing removes or archives on a document type’s years', () => {
+    // withdraw_document() and app_delete_business_data() run as the migrate role only (both are
+    // REVOKEd from PUBLIC; the second is the demo unseed's): no route or job of the API calls them.
+    expect(where(/withdraw_document|app_delete_business_data/)).toEqual([]);
+    // A document type's "Keep documents" years set retention_until at upload (uploads.service):
+    // a floor the database only moves later. The documents_delete policy would let a firm-scope
+    // delete through after it, but nothing reads it to remove or archive (and no document delete
+    // exists at all, above).
+    expect(where(/retentionUntil\s*:\s*\{/)).toEqual([]);
+    expect(where(/retention_until\s*<|retentionUntil\s*</i)).toEqual([]);
+  });
+
   it('removes a tax return’s document links only where the document itself stays', () => {
     // Unlinking a document from a return (the document stays with its client and service).
     expect(where(/\.taxReturnDocument\.(delete|deleteMany)\(/)).toEqual([
