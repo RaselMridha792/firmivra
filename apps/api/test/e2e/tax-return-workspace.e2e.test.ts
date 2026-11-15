@@ -2,7 +2,7 @@
 // workspace.ts): the overview (tabs, filters, search, KPI cards), Create New Return, a return's
 // workspace (Next Steps, Change Status with the database's rules), Edit Details, history,
 // activity, archive, amend and carry forward. Staff reach their own clients; firm B sees nothing.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -13,6 +13,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import {
   TaxReturnActivityList,
   TaxReturnDetail,
+  TaxReturnDocumentList,
   TaxReturnHistoryList,
   TaxReturnPage,
   TaxReturnSummary,
@@ -651,5 +652,109 @@ describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)",
         .businessIdentity?.name,
     ).toBe('Harbor Kiln Renamed (fake)');
     expect(await corrections()).toEqual([{ actorUserId: adminA.id }]);
+  });
+});
+
+// Tax Returns Review 2 (F35a): archiving only puts a return away; Restore brings all of it back.
+describe('archive and restore (Review 2)', () => {
+  it('restores the return with its details and its linked document, and audits both steps', async () => {
+    const documentId = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind: 'ANNUAL_TAX', name: `Tax ${run}`, status: 'ACTIVE' },
+      });
+      const e = await tx.engagement.create({
+        data: { businessId: firms.a, clientId: ids.c1!, serviceId: service.id, title: 'Tax 2020' },
+      });
+      const tag = randomUUID();
+      return (
+        await tx.document.create({
+          data: {
+            businessId: firms.a,
+            clientId: ids.c1!,
+            engagementId: e.id,
+            direction: 'FIRM_TO_CLIENT',
+            fileName: '2020-draft-return.pdf',
+            contentType: 'application/pdf',
+            sizeBytes: 100,
+            sha256: createHash('sha256').update(tag).digest('hex'),
+            s3Key: `tenant/${firms.a}/e2e/${tag}.pdf`,
+          },
+        })
+      ).id;
+    });
+    const created = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2020,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        filingStatus: 'MARRIED_FILING_JOINTLY',
+        states: ['NY'],
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+        dueOn: '2021-05-17',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const id = created.id;
+    ok(
+      await call('post', `/tax-returns/${id}/documents`, ownerA, {
+        documentId,
+        kind: 'DRAFT_RETURN',
+      }),
+      TaxReturnDocumentList,
+    );
+    const before = ok(await call('get', `/tax-returns/${id}`, ownerA), TaxReturnDetail);
+    const docsBefore = ok(
+      await call('get', `/tax-returns/${id}/documents`, ownerA),
+      TaxReturnDocumentList,
+    ).items;
+    expect(docsBefore.map((d) => [d.document.id, d.kind])).toEqual([[documentId, 'DRAFT_RETURN']]);
+
+    expect(
+      ok(await call('post', `/tax-returns/${id}/archive`, ownerA), TaxReturnDetail).archivedAt,
+    ).toBeTruthy();
+    const restored = ok(await call('post', `/tax-returns/${id}/restore`, adminA), TaxReturnDetail);
+    // Every field as it was before the archive, but the archive stamp and the last change.
+    const { archivedAt: _was, updatedAt: _changed, ...kept } = before;
+    const { archivedAt: now, updatedAt: _restoredAt, ...back } = restored;
+    expect(now).toBeNull();
+    expect(back).toEqual(kept);
+    expect(back).toMatchObject({
+      filingStatus: 'MARRIED_FILING_JOINTLY',
+      preparer: { userId: staffA.id },
+      reviewer: { userId: adminA.id },
+      dueOn: '2021-05-17',
+      workflowStatus: 'IN_PREPARATION',
+    });
+    expect(
+      ok(await call('get', `/tax-returns/${id}/documents`, ownerA), TaxReturnDocumentList).items,
+    ).toEqual(docsBefore);
+
+    // Both steps are in the audit log, by who did them, and in the return's Activity.
+    const rows = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: firms.a,
+          entityId: id,
+          action: { in: ['tax_return.archived', 'tax_return.restored'] },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { action: true, actorUserId: true },
+      }),
+    );
+    expect(rows).toEqual([
+      { action: 'tax_return.archived', actorUserId: ownerA.id },
+      { action: 'tax_return.restored', actorUserId: adminA.id },
+    ]);
+    const activity = ok(
+      await call('get', `/tax-returns/${id}/activity`, ownerA),
+      TaxReturnActivityList,
+    ).items;
+    expect(activity.slice(0, 2).map((a) => [a.kind, a.by])).toEqual([
+      ['RESTORED', 'Fake adminA'],
+      ['ARCHIVED', 'Fake ownerA'],
+    ]);
   });
 });
