@@ -528,9 +528,10 @@ export type FormFileLink = z.infer<typeof FormFileLink>;
 // ---------- Intake Form Settings (Frame 5) ----------
 
 /**
- * The first and final reminder choices, in minutes after the form is sent (Octavia's I8): 5, 10,
- * 15 and 30 minutes; 1, 2, 3, 6 and 12 hours; 1, 2, 3, 5, 7, 10, 14, 21 and 30 days. The final
- * reminder comes after the first. A saved time that is not one of these is shown as it is.
+ * The first and final reminder choices (Octavia's I8): 5, 10, 15 and 30 minutes; 1, 2, 3, 6 and 12
+ * hours; 1, 2, 3, 5, 7, 10, 14, 21 and 30 days. The first counts from when the form is sent, the
+ * final back from when it expires (Review Two 10c), so both lists offer 5 minutes and neither
+ * depends on the other. A saved time that is not one of these is shown as it is.
  */
 export const INTAKE_REMINDER_MINUTES = [
   5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 4320, 7200, 10080, 14400, 20160, 30240, 43200,
@@ -559,6 +560,74 @@ export function intakeDurationWords(minutes: number): string {
   return unit(minutes, 'minute');
 }
 
+/**
+ * The six retention categories of Review Two 14b, in her order: what each covers and when its
+ * minimum starts, as the settings screen says them. A record with no job or task has no start yet
+ * (an open decision): it is kept and counted by no minimum.
+ */
+export const INTAKE_RETENTION_CATEGORIES = [
+  {
+    key: 'clientDocuments',
+    label: 'Client-sent documents',
+    covers: 'Files a client uploads: in the portal, for a request or with an intake form.',
+    starts: 'When the service (job) the file belongs to is completed.',
+  },
+  {
+    key: 'firmDocuments',
+    label: 'Company-sent documents',
+    covers: 'Files your firm shares with a client.',
+    starts: 'When the service (job) the file belongs to is completed.',
+  },
+  {
+    key: 'intakeSubmissions',
+    label: 'Submitted intake forms',
+    covers: 'A submitted form’s answers, signature and uploads.',
+    starts: 'When the service (job) the form was sent for is completed.',
+  },
+  {
+    key: 'portalMessages',
+    label: 'Portal messages',
+    covers: 'Messages between your firm and a client in the portal.',
+    starts: 'When the service (job) or task the conversation is about is completed.',
+  },
+  {
+    key: 'systemEmails',
+    label: 'System-sent emails',
+    covers: 'Emails Firmivra sends for your firm: reminders, notices and links.',
+    starts: 'When the job or task the email was about is completed.',
+  },
+  {
+    key: 'taxReturnDocuments',
+    label: 'Tax return documents',
+    covers: 'The documents of a tax return.',
+    starts: 'When the tax return’s service (job) is completed.',
+  },
+] as const;
+export type IntakeRetentionCategory = (typeof INTAKE_RETENTION_CATEGORIES)[number]['key'];
+
+/** 14b: whole years, 1 to 30 (the database's range). */
+const RetentionYearsInput = z
+  .number()
+  .int('Enter whole years')
+  .min(1, 'Enter 1 to 30 years')
+  .max(30, 'Enter 1 to 30 years');
+
+export const IntakeRetentionYears = z.object({
+  clientDocuments: z.number().int().nullable(),
+  firmDocuments: z.number().int().nullable(),
+  intakeSubmissions: z.number().int().nullable(),
+  portalMessages: z.number().int().nullable(),
+  systemEmails: z.number().int().nullable(),
+  taxReturnDocuments: z.number().int().nullable(),
+});
+export type IntakeRetentionYears = z.infer<typeof IntakeRetentionYears>;
+
+/** A category's effective minimum: its own years, else Apply to all's, else none (null). */
+export const effectiveRetentionYears = (
+  security: { dataRetentionYears: number | null; retention: IntakeRetentionYears },
+  key: IntakeRetentionCategory,
+): number | null => security.retention[key] ?? security.dataRetentionYears;
+
 export const IntakeSettings = z.object({
   general: z.object({
     defaultExpirationDays: z.number().int().nullable(),
@@ -578,8 +647,10 @@ export const IntakeSettings = z.object({
     sendClientConfirmation: z.boolean(),
     notifyAssignedStaff: z.boolean(),
     /**
-     * Minutes after sending (INTAKE_REMINDER_MINUTES). Null for both: no reminders (each new
-     * send's default is off). There is no first reminder without a final one.
+     * INTAKE_REMINDER_MINUTES. The first: minutes after the form is sent. The final: minutes
+     * before it expires (Review Two 10c; the field keeps its name), so a form with no expiration
+     * gets the first reminder only. Null for both: no reminders (each new send's default is off).
+     * There is no first reminder without a final one.
      */
     firstReminderAfterMinutes: z.number().int().nullable(),
     finalReminderAfterMinutes: z.number().int().nullable(),
@@ -616,10 +687,17 @@ export const IntakeSettings = z.object({
     maxFileSizeMb: z.number().int(),
     consentRequired: z.boolean(),
     /**
-     * Data retention period (Octavia's I12), in whole years; null is not set. Saving it deletes
-     * nothing: no job reads it until the start event, what it covers and the end are defined.
+     * Review Two 14b, Apply to all: the minimum years of every category not set on its own; null
+     * is not set. A change is 1 to 30, but a value saved under I12's single period (up to 100)
+     * reads as it is and is never rewritten on read: show it, with how to change it.
      */
     dataRetentionYears: z.number().int().nullable(),
+    /**
+     * Review Two 14b: each category's own minimum, in whole years (1 to 30); null is not set on
+     * its own, so Apply to all holds. The clock starts when the record's job or task is completed;
+     * nothing is deleted or archived when a minimum ends.
+     */
+    retention: IntakeRetentionYears,
   }),
   updatedAt: DateTime.nullable(),
   version: z.string(),
@@ -655,7 +733,7 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
       notifyAssignedStaff: z.boolean(),
       /** 5 minutes to 30 days; null turns reminders off (the final then goes null too). */
       firstReminderAfterMinutes: z.number().int().min(5).max(43200).nullable(),
-      /** After the first, at most 60 days (400 VALIDATION_FAILED otherwise). */
+      /** Before the form expires (10c): 5 minutes to 60 days, whatever the first is. */
       finalReminderAfterMinutes: z.number().int().min(5).max(86400).nullable(),
       /** 30 minutes to 7 days before expiry; null is No alert. */
       expirationAlertMinutes: z.number().int().min(30).max(10080).nullable(),
@@ -689,13 +767,28 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
        */
       maxFileSizeMb: z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB),
       consentRequired: z.boolean(),
-      /** 1 to 100 whole years, or null for not set. */
-      dataRetentionYears: z
-        .number()
-        .int('Enter whole years')
-        .min(1, 'Enter 1 to 100 years')
-        .max(100, 'Enter 1 to 100 years')
-        .nullable(),
+      /**
+       * Apply to all's years: 1 to 30 (14b, as each category), or null for not set. A value saved
+       * under I12 (up to 100) still reads as it is; it can only be changed to 1 to 30 or cleared.
+       */
+      dataRetentionYears: RetentionYearsInput.nullable(),
+      /** The categories sent change; null clears one (Apply to all then holds for it). */
+      retention: z
+        .strictObject({
+          clientDocuments: RetentionYearsInput.nullable(),
+          firmDocuments: RetentionYearsInput.nullable(),
+          intakeSubmissions: RetentionYearsInput.nullable(),
+          portalMessages: RetentionYearsInput.nullable(),
+          systemEmails: RetentionYearsInput.nullable(),
+          taxReturnDocuments: RetentionYearsInput.nullable(),
+        })
+        .partial(),
+      /**
+       * Apply to all six: every category takes Apply to all's years (this request's
+       * dataRetentionYears, else the saved one; 400 at `security.dataRetentionYears` when neither
+       * is set). Each can still be changed on its own afterwards.
+       */
+      applyRetentionToAll: z.boolean(),
     })
     .partial()
     .optional(),
