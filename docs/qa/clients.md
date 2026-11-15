@@ -111,7 +111,7 @@ These rows ask for test coverage, not features.
 | V-006 Request KPI baselines | **Test gap:** R60 adds the check after the product items (Nov 15) | #1381 (R55) | None: no test opens Document Requests' cards |
 | V-007 Main sidebar collapse | Done | #1396 | `r60-sidebar-collapse` |
 | V-008 Full filename disclosure (hover) | **Test gap:** R60 adds the check after the product items (Nov 15) | #1429: the full file name on hover in Documents | None: `r60-clients-gaps` has no hover check |
-| V-009 Approved column alignment | **Test gap:** R60 adds the check after the product items (Nov 15) | #1381 (R55) | None: no test measures the panels |
+| V-009 Approved column alignment | Done: Folders, the table and the right rail take the stat cards' columns (3 at her 1165 px, the rail three across under the table; 5 at 2xl, the rail under the last card), so the edges line up | #1381 (R55), this PR (R56) | mock `r56-documents-columns` (both widths, edges within 1 px) |
 | Visual acceptance limits | Report note; nothing to build | — | — |
 
 ## Additional Documents workflow tests (section 10)
