@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ClientPortalRole } from '../db-enums.js';
 import { ClientAccountStatus } from '../schemas.js';
+import { SearchText } from '../clients/text.js';
 
 const DateTime = z.iso.datetime({ offset: true });
 
@@ -94,3 +95,67 @@ export const OpenedPortalInvitation = z.object({
   expiresAt: DateTime,
 });
 export type OpenedPortalInvitation = z.infer<typeof OpenedPortalInvitation>;
+
+// ---------- Sign-ups > Invitations (Clients Review Two, N8-09) ----------
+
+/**
+ * A row's state in Sign-ups > Invitations:
+ * - `NOT_INVITED`: no invitation in the last eight days (Invite);
+ * - `OPEN`: sent and waiting (Resend, Revoke); `OPENED`: the client opened its link;
+ * - `EXPIRED`, `REVOKED`, `NOT_SENT` (the email failed): Resend;
+ * - `ACCEPTED`: a login is linked or a sign-up with the email waits;
+ * - `BLOCKED`: nothing can be sent now, `blocked` says why.
+ */
+export const PortalInvitationListState = z.enum([
+  'NOT_INVITED',
+  'OPEN',
+  'OPENED',
+  'EXPIRED',
+  'REVOKED',
+  'NOT_SENT',
+  'ACCEPTED',
+  'BLOCKED',
+]);
+export type PortalInvitationListState = z.infer<typeof PortalInvitationListState>;
+
+/** GET /business/portal-invitations: newest invitation first, then the clients never invited. */
+export const PortalInvitationsQuery = z.strictObject({
+  /** The client's name, number or email. */
+  search: SearchText.optional(),
+  state: PortalInvitationListState.optional(),
+  page: z.coerce.number().int().min(1).max(1000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type PortalInvitationsQuery = z.input<typeof PortalInvitationsQuery>;
+
+/**
+ * One client in Sign-ups > Invitations: a client with no portal login, or one with an invitation
+ * in the last eight days. The email is the client's on file, as their Portal Access card shows it.
+ */
+export const PortalInvitationRow = z.object({
+  clientId: z.uuid(),
+  clientName: z.string(),
+  clientNumber: z.string(),
+  email: z.string().nullable(),
+  state: PortalInvitationListState,
+  invitation: z
+    .object({
+      sentAt: DateTime,
+      sentBy: z.string().nullable(),
+      expiresAt: DateTime,
+      openedAt: DateTime.nullable(),
+      revokedAt: DateTime.nullable(),
+    })
+    .nullable(),
+  /** Why nothing can be sent now; null when Invite or Resend may go. */
+  blocked: PortalInvitationBlock.nullable(),
+});
+export type PortalInvitationRow = z.infer<typeof PortalInvitationRow>;
+
+export const PortalInvitationPage = z.object({
+  items: z.array(PortalInvitationRow).max(100),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().min(1),
+  limit: z.number().int().min(1),
+});
+export type PortalInvitationPage = z.infer<typeof PortalInvitationPage>;
