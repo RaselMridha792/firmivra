@@ -1301,6 +1301,18 @@ export function createMessagesMock(
       s().threads.push(t);
       addMessage(t, staff(me), b.body);
       deliver(cid, b.delivery);
+      // Clients Review 2 (N8-05): the client's Activity, as the API (never the message).
+      if (b.addToTimeline) {
+        addTimelineEntry(cid, {
+          id: id('0199b6e7', next()),
+          kind: 'MESSAGE',
+          title: b.subject.trim(),
+          summary: `Sent through the client portal by ${me.name}`,
+          occurredAt: now(),
+          href: `/messages?thread=${t.id}`,
+          createdBy: { userId: me.userId, name: me.name },
+        });
+      }
       return detail(t);
     },
     send: async (threadId, body) => {
