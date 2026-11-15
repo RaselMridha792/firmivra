@@ -238,6 +238,16 @@ export class SchedulingReadService {
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         select: { id: true, name: true, officeId: true },
       });
+      // Review 2 (A2): live items, any office's or an active office's own.
+      const equipment = await tx.firmEquipment.findMany({
+        where: {
+          businessId,
+          archivedAt: null,
+          OR: [{ officeId: null }, { office: { archivedAt: null, status: 'ACTIVE' } }],
+        },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        select: { id: true, name: true, officeId: true },
+      });
       const messages = await tx.messageSettings.findUnique({
         where: { businessId },
         select: { smsEnabled: true, portalEnabled: true },
@@ -272,6 +282,7 @@ export class SchedulingReadService {
         staff,
         offices,
         rooms,
+        equipment,
         // No row means the column defaults (SMS off, portal on).
         smsEnabled: messages?.smsEnabled ?? false,
         portalEnabled: messages?.portalEnabled ?? true,

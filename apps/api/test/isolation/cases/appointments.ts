@@ -160,6 +160,8 @@ const scheduleIds = {
   serviceId: 'service',
   officeId: 'firmOffice',
   roomId: 'firmRoom',
+  // Review 2 (A2): an item for any office (cases/appointment-resources.ts).
+  equipmentIds: 'firmEquipment',
   staffUserIds: 'staffUser',
   // A1: the other clients of a group appointment.
   attendeeClientIds: 'attendeeClient',
@@ -187,6 +189,7 @@ export const cases: CaseModule['cases'] = {
       staffUserIds: 'staffUser',
       'contact.id': 'client',
       roomId: 'firmRoom',
+      equipmentIds: 'firmEquipment',
       excludeAppointmentId: 'appointment',
       // Review 2 (B11): the type being booked, for its buffers.
       typeId: 'appointmentType',
