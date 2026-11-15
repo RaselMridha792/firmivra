@@ -83,3 +83,23 @@ test('No sideways scroll at 375 px with Attach open', async ({ page }) => {
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
   ).toBeTruthy();
 });
+
+test('M22: a reply of files with no text sends, and says what was sent as a system line', async ({
+  page,
+}) => {
+  await openJamie(page);
+  const send = page.getByRole('button', { name: 'Send message' });
+  // Neither text nor files: nothing to send.
+  await expect(send).toBeDisabled();
+  await page.getByRole('button', { name: 'Attach files' }).click();
+  const docs = page.getByTestId('attach-dialog').getByRole('region', { name: 'Client documents' });
+  await docs.getByRole('checkbox', { name: /Engagement_Letter_2025\.pdf/ }).check();
+  await page.getByRole('button', { name: 'Attach (1)' }).click();
+  await expect(send).toBeEnabled();
+  await send.click();
+  const line = page
+    .getByTestId('conversation')
+    .getByTestId('files-only-line')
+    .filter({ hasText: 'Sent 1 file: Engagement_Letter_2025.pdf' });
+  await expect(line).toBeVisible();
+});

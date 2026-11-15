@@ -7,6 +7,8 @@ export const RETURNS_VIEW = {
   formType: '',
   clientType: '',
   assigned: '',
+  /** A workflow status or IN_PROGRESS (the page validates it as `initialStatus`). */
+  status: '',
   q: '',
   archived: '',
   page: '1',

@@ -326,6 +326,29 @@ describe('files on the firm reply (MSG-F12)', () => {
     expect(primary.messages[0]?.attachments).toEqual([]);
   });
 
+  it('M22: files with no text say what was sent; neither text nor files is 400', async () => {
+    const post = async (body: object) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/business/message-threads/${ids.thread}/messages`)
+        .set('x-business-id', ids.firm)
+        .set('authorization', `Bearer ${await tokenFor(people.staff.email)}`)
+        .send(body);
+    const one = Message.parse(expectOk(await post({ documentIds: [docs.shared!] }), 201).body);
+    expect(one.body).toBe('Sent 1 file: Engagement letter.pdf');
+    const three = Message.parse(
+      expectOk(await post({ documentIds: [docs.household!, docs.shared!, docs.authorized!] }), 201)
+        .body,
+    );
+    expect(three.body).toBe('Sent 3 files: Engagement letter.pdf, Receipt.png and 1 more');
+    const before = await messageCount();
+    for (const empty of [{}, { body: '' }, { body: '   ' }, { documentIds: [] }]) {
+      const res = await post(empty);
+      expect(res.status, JSON.stringify(empty)).toBe(400);
+      expect(codeOf(res)).toBe('VALIDATION_FAILED');
+    }
+    expect(await messageCount()).toBe(before);
+  });
+
   it('refuses an internal, blocked, disallowed or oversized file, and sends nothing', async () => {
     const before = await messageCount();
     const refused = async (documentIds: string[], status: number, code: string) => {

@@ -1,11 +1,12 @@
 'use client';
 
-import type {
-  LeadMessageChannel,
-  LeadMessageThread,
-  LeadThreadContact,
-  MessageThread,
-  OutboundRecipientStatus,
+import {
+  filesOnlyBody,
+  type LeadMessageChannel,
+  type LeadMessageThread,
+  type LeadThreadContact,
+  type MessageThread,
+  type OutboundRecipientStatus,
 } from '@firmivra/types';
 import {
   Avatar,
@@ -69,6 +70,9 @@ const day = (iso: string) => {
   const d = new Date(iso);
   return d.toDateString() === new Date().toDateString() ? hm.format(d) : when.format(d);
 };
+/** M27: how often the open conversation and the inbox look for changes (only while visible). */
+const CONVERSATION_REFRESH_MS = 15_000;
+const INBOX_REFRESH_MS = 30_000;
 const card = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
 const gold =
@@ -147,6 +151,8 @@ export function MessagesScreen({
     queryFn: () => api.messages.inbox({ ...search, limit: 100 }),
     placeholderData: keepPreviousData,
     retry: shouldRetry,
+    // M27: new messages and unread counts arrive without a refresh.
+    refetchInterval: INBOX_REFRESH_MS,
   });
   const archive = useQuery({
     queryKey: [...KEY, 'inbox', 'archived', term],
@@ -531,6 +537,44 @@ function FilterButton({
   );
 }
 
+/**
+ * M18 (Messaging Review 2): find words in one conversation. Only the messages that match stay
+ * (their text or a file's name), with how many; clearing the box shows them all again.
+ */
+function useConversationSearch<
+  T extends { body: string; attachments?: readonly { fileName: string }[] },
+>(items: readonly T[]) {
+  const [q, setQ] = useState('');
+  const term = q.trim().toLowerCase();
+  const shown = term
+    ? items.filter(
+        (m) =>
+          m.body.toLowerCase().includes(term) ||
+          (m.attachments ?? []).some((a) => a.fileName.toLowerCase().includes(term)),
+      )
+    : items;
+  const box = (
+    <div className="flex flex-col gap-1" data-testid="conversation-search">
+      <Input
+        label="Search this conversation"
+        hideLabel
+        type="search"
+        placeholder="Search this conversation…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {term ? (
+        <p className="text-xs text-muted" role="status" data-testid="conversation-search-count">
+          {shown.length === 0
+            ? `No message here has “${q.trim()}”.`
+            : `${shown.length} of ${items.length} ${items.length === 1 ? 'message' : 'messages'}`}
+        </p>
+      ) : null}
+    </div>
+  );
+  return { box, shown };
+}
+
 function Conversation({
   thread,
   onChanged,
@@ -540,7 +584,13 @@ function Conversation({
   onChanged: () => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
-  const detail = useApiQuery([...KEY, 'thread', thread.id], () => api.messages.get(thread.id));
+  // M27 (Messaging Review 2): the open conversation keeps itself current (new replies, and
+  // Delivered turning Read when the client opens it) without a manual refresh.
+  const detail = useQuery({
+    queryKey: [...KEY, 'thread', thread.id],
+    queryFn: () => api.messages.get(thread.id),
+    refetchInterval: CONVERSATION_REFRESH_MS,
+  });
   const [body, setBody] = useState('');
   // M26: a template or emoji goes in at the cursor; typed text is never replaced.
   const caret = useCaret();
@@ -548,6 +598,7 @@ function Conversation({
   const [busy, setBusy] = useState(false);
   const choices = useEmailChoices(thread.client.id);
   const d = detail.data;
+  const find = useConversationSearch(d?.messages ?? []);
   // Only a client's message can be marked unread for the firm.
   const fromClient = d?.messages.some((m) => m.direction === 'CLIENT_TO_FIRM') ?? false;
   const run = (call: () => Promise<unknown>) =>
@@ -555,11 +606,12 @@ function Conversation({
       .then(onChanged)
       .catch((e: unknown) => onNotice(errorMessage(e), 'error'));
   const send = async () => {
-    if (!body.trim()) return;
+    // M22: files may go without text (the message then says what was sent).
+    if (!body.trim() && files.length === 0) return;
     setBusy(true);
     try {
       await api.messages.send(thread.id, {
-        body: body.trim(),
+        ...(body.trim() ? { body: body.trim() } : {}),
         ...(files.length ? { documentIds: files.map((f) => f.documentId) } : {}),
         ...(choices.delivery ? { delivery: choices.delivery } : {}),
       });
@@ -624,16 +676,25 @@ function Conversation({
         </p>
       ) : null}
       {detail.isPending ? <p className={quiet}>Loading…</p> : null}
+      {find.box}
       <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
-        {(d?.messages ?? []).map((m) => {
+        {find.shown.map((m) => {
           const mine = m.sender.kind === 'STAFF';
           return (
             <li key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-              <p
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${mine ? 'bg-info-soft text-heading' : 'bg-canvas text-text'}`}
-              >
-                {m.body}
-              </p>
+              {/* M22: files sent with no text read as a system line. */}
+              {m.attachments.length > 0 &&
+              m.body === filesOnlyBody(m.attachments.map((f) => f.fileName)) ? (
+                <p className="text-xs text-muted italic" data-testid="files-only-line">
+                  {m.body}
+                </p>
+              ) : (
+                <p
+                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${mine ? 'bg-info-soft text-heading' : 'bg-canvas text-text'}`}
+                >
+                  {m.body}
+                </p>
+              )}
               {/* MSG-F12: the message's files, opened through Documents once checked. */}
               <MessageFiles
                 files={m.attachments}
@@ -700,7 +761,7 @@ function Conversation({
         <button
           type="submit"
           aria-label="Send message"
-          disabled={busy || !body.trim()}
+          disabled={busy || (!body.trim() && files.length === 0)}
           className="flex size-12 shrink-0 items-center justify-center rounded-control bg-gold text-on-action disabled:opacity-50"
         >
           <PaperPlaneRight aria-hidden weight="fill" className="size-5" />
@@ -731,6 +792,7 @@ function LeadConversation({
   const detail = useApiQuery([...KEY, 'lead-thread', thread.id], () =>
     api.messages.leads.get(thread.id),
   );
+  const leadFind = useConversationSearch(detail.data?.messages ?? []);
   const setChannel = onChannel;
   const [body, setBody] = useState('');
   // M26: a template or emoji goes in at the cursor; typed text is never replaced.
@@ -780,8 +842,9 @@ function LeadConversation({
         </p>
       ) : null}
       {detail.isPending ? <p className={quiet}>Loading…</p> : null}
+      {leadFind.box}
       <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
-        {(detail.data?.messages ?? []).map((m) => (
+        {leadFind.shown.map((m) => (
           <li key={m.id} className="flex flex-col items-end">
             <p className="max-w-[85%] rounded-xl bg-info-soft px-3 py-2 text-sm whitespace-pre-wrap text-heading">
               {m.body}

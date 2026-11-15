@@ -283,6 +283,33 @@ describe('the return follows its filings', () => {
     await expect(step(r.id, 'CLOSED')).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 
+  // Tax Returns Review 2 (F26c): from Transmitted, where Closed is otherwise allowed, the only
+  // thing holding the return open is the required paper filing that has no mailing record yet.
+  it('is not closed while a required paper filing has no mailing record, and closes once it has', async () => {
+    const r = await newReturn();
+    const federal = await newFiling(r.id);
+    const paper = await newFiling(r.id, { jurisdiction: 'GA', filingMethod: 'PAPER' });
+    await step(r.id, 'READY_TO_FILE');
+    const sent = await newAttempt(federal.id);
+    await answer(sent.id, { ackStatus: 'ACCEPTED', acknowledgedAt: minutes(-1) });
+    await expect(step(r.id, 'TRANSMITTED', { filedOn: new Date() })).resolves.toMatchObject({
+      status: 'FILED',
+    });
+    expect([await filingStatus(federal.id), await filingStatus(paper.id)]).toEqual([
+      'ACCEPTED',
+      'NOT_FILED',
+    ]);
+    await expect(step(r.id, 'CLOSED')).rejects.toThrow(/every required jurisdiction/);
+    expect((await A().taxReturn.findUniqueOrThrow({ where: { id: r.id } })).workflowStatus).toBe(
+      'TRANSMITTED',
+    );
+    await A().taxReturnFiling.update({
+      where: { id: paper.id },
+      data: { status: 'PAPER_FILED', paperFiledOn: new Date() },
+    });
+    await expect(step(r.id, 'CLOSED')).resolves.toMatchObject({ status: 'COMPLETED' });
+  });
+
   it('a return without filings behaves as before', async () => {
     const r = await newReturn();
     await expect(step(r.id, 'TRANSMITTED', { filedOn: new Date() })).resolves.toBeTruthy();
