@@ -353,9 +353,8 @@ export class ClientsService {
             ? {
                 OR: [
                   {
-                    engagements: {
-                      some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-                    },
+                    // N8-23: as the tab's count, a requested (pending) service is not enrolled.
+                    engagements: { some: { serviceId: q.serviceId, status: 'ACTIVE' } },
                   },
                   // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
                   {
