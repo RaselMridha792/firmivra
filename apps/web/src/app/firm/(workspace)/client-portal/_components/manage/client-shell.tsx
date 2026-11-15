@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClientPortalHeader, ClientPortalStatus } from '@firmivra/types';
-import { Avatar, Badge, Button, Card } from '@firmivra/ui';
+import { Avatar, Badge, Button, Card, Modal } from '@firmivra/ui';
 import type { Icon } from '@phosphor-icons/react';
 import {
   ArrowLeft,
@@ -16,10 +16,11 @@ import {
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { type MouseEvent, type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { hasUnsavedChanges } from '../../../../../../lib/unsaved';
 import { activityOf, dayText, timeText } from '../activity-labels';
 import { ClientSwitcher } from '../client-portal-screen';
 import { headerKey } from '../keys';
@@ -57,6 +58,15 @@ export const useClientHeader = (clientId: string) =>
  */
 export function ClientShell({ clientId, children }: { clientId: string; children: ReactNode }) {
   const router = useRouter();
+  // Instructions 13 and 27 (Unsaved Work): leaving this client with an unsaved edit asks first.
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const go = (href: string) => (hasUnsavedChanges() ? setLeaving(href) : router.push(href));
+  /** A link's click while an edit is unsaved: ask instead of going. */
+  const guard = (href: string) => (event: MouseEvent) => {
+    if (!hasUnsavedChanges()) return;
+    event.preventDefault();
+    setLeaving(href);
+  };
   const pathname = usePathname();
   const base = `/client-portal/${clientId}`;
   const suffix = pathname.startsWith(base) ? pathname.slice(base.length) : '';
@@ -71,13 +81,21 @@ export function ClientShell({ clientId, children }: { clientId: string; children
       <nav aria-label="Breadcrumb" className="text-sm text-muted">
         <ol className="flex flex-wrap items-center gap-1.5">
           <li>
-            <Link href="/client-portal" className="text-action hover:underline">
+            <Link
+              href="/client-portal"
+              className="text-action hover:underline"
+              onClick={guard('/client-portal')}
+            >
               Client Portal
             </Link>
           </li>
           <CaretRight aria-hidden className="size-3" />
           <li>
-            <Link href="/client-portal" className="text-action hover:underline">
+            <Link
+              href="/client-portal"
+              className="text-action hover:underline"
+              onClick={guard('/client-portal')}
+            >
               Clients
             </Link>
           </li>
@@ -86,6 +104,7 @@ export function ClientShell({ clientId, children }: { clientId: string; children
             <Link
               href={`/client-portal?client=${clientId}`}
               className="text-action hover:underline"
+              onClick={guard(`/client-portal?client=${clientId}`)}
             >
               {header.data?.client.name ?? 'Client'}
             </Link>
@@ -101,14 +120,14 @@ export function ClientShell({ clientId, children }: { clientId: string; children
         </ol>
       </nav>
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push('/client-portal')}>
+        <Button variant="outline" onClick={() => go('/client-portal')}>
           <ArrowLeft aria-hidden className="size-4" /> Back to All Clients
         </Button>
         <div className="w-full max-w-sm">
           <ClientSwitcher
             activeId={clientId}
             onSelect={(id) =>
-              router.push(keep(`/client-portal/${id}${previewing ? '/preview' : current.path}`))
+              go(keep(`/client-portal/${id}${previewing ? '/preview' : current.path}`))
             }
           />
         </div>
@@ -129,6 +148,7 @@ export function ClientShell({ clientId, children }: { clientId: string; children
               <li key={t.label}>
                 <Link
                   href={keep(`${base}${t.path}`)}
+                  onClick={guard(keep(`${base}${t.path}`))}
                   aria-current={on ? 'page' : undefined}
                   className={`block rounded-lg px-4 py-2 text-sm font-medium ${on ? 'bg-action text-on-action' : 'text-text hover:bg-canvas'}`}
                 >
@@ -141,6 +161,30 @@ export function ClientShell({ clientId, children }: { clientId: string; children
       </nav>
       {/* Keyed by the client: nothing of the previous client stays after a switch. */}
       <div key={clientId}>{children}</div>
+      <Modal
+        open={leaving !== null}
+        title="Leave without saving?"
+        subtitle="Your changes on this page are not saved yet."
+        onClose={() => setLeaving(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setLeaving(null)}>
+              Stay on This Page
+            </Button>
+            <Button
+              onClick={() => {
+                const href = leaving;
+                setLeaving(null);
+                if (href) router.push(href);
+              }}
+            >
+              Leave Without Saving
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text">Anything you entered here and did not save is lost.</p>
+      </Modal>
     </div>
   );
 }

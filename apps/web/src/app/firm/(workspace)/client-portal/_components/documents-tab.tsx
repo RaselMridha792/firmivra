@@ -26,7 +26,10 @@ import {
   FileArrowUp,
   Files,
   Hourglass,
+  LinkSimple,
+  PencilSimple,
   ShareNetwork,
+  Tag,
   Trash,
   Tray,
 } from '@phosphor-icons/react';
@@ -38,6 +41,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { dayText, timeText } from './activity-labels';
+import { LinkRecordDialog, ReclassifyDialog, RenameInline } from './document-row-dialogs';
 
 type View = 'all' | 'client' | 'firm' | 'review' | 'requested';
 const PAGE_SIZES = [10, 25, 50];
@@ -267,7 +271,7 @@ export function PortalDocuments({ clientId }: { clientId: string }) {
             >
               {(d) => (
                 <>
-                  <DocumentsTable rows={d.items} />
+                  <DocumentsTable rows={d.items} clientId={clientId} />
                   <div className="mt-4">
                     <Pagination
                       page={page}
@@ -339,7 +343,9 @@ function Kpi({
   );
 }
 
-function DocumentsTable({ rows }: { rows: LibraryDocument[] }) {
+function DocumentsTable({ rows, clientId }: { rows: LibraryDocument[]; clientId: string }) {
+  // Instructions 19 (Rename Metadata): one row's name is edited in place at a time.
+  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <div className="overflow-x-auto">
       <table
@@ -365,13 +371,21 @@ function DocumentsTable({ rows }: { rows: LibraryDocument[] }) {
             const status = statusOf(d);
             return (
               <tr key={d.id} className="border-t border-divider">
-                <td className="max-w-64 py-2 pr-3">
-                  <span className="flex items-center gap-2">
-                    <FileText aria-hidden className="size-5 shrink-0 text-danger" />
-                    <span className="truncate text-text" title={d.fileName}>
-                      {d.fileName}
+                <td className={`py-2 pr-3 ${renaming === d.id ? 'min-w-72' : 'max-w-64'}`}>
+                  {renaming === d.id ? (
+                    <RenameInline doc={d} onDone={() => setRenaming(null)} />
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <FileText aria-hidden className="size-5 shrink-0 text-danger" />
+                      <span
+                        className="truncate text-text"
+                        title={d.fileName}
+                        data-testid="portal-document-name"
+                      >
+                        {d.fileName}
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </td>
                 <td className="py-2 pr-3 text-text">{kindOf(d)}</td>
                 <td className="py-2 pr-3 text-text">{d.category?.name ?? '—'}</td>
@@ -390,7 +404,7 @@ function DocumentsTable({ rows }: { rows: LibraryDocument[] }) {
                   </Badge>
                 </td>
                 <td className="py-2">
-                  <RowActions doc={d} />
+                  <RowActions doc={d} clientId={clientId} onRename={() => setRenaming(d.id)} />
                 </td>
               </tr>
             );
@@ -402,8 +416,17 @@ function DocumentsTable({ rows }: { rows: LibraryDocument[] }) {
 }
 
 /** The three-dot menu (instructions 19): canonical actions, each audited by Documents. */
-function RowActions({ doc }: { doc: LibraryDocument }) {
+function RowActions({
+  doc,
+  clientId,
+  onRename,
+}: {
+  doc: LibraryDocument;
+  clientId: string;
+  onRename: () => void;
+}) {
   const router = useRouter();
+  const [dialog, setDialog] = useState<'link' | 'reclassify' | null>(null);
   const { role } = useFirm();
   const manager = role === 'OWNER' || role === 'ADMIN';
   const act = useApiMutation(
@@ -460,6 +483,9 @@ function RowActions({ doc }: { doc: LibraryDocument }) {
                 icon: ShareNetwork,
                 onSelect: () => router.push(`/documents/${doc.id}/share`),
               },
+              { label: 'Link to Record', icon: LinkSimple, onSelect: () => setDialog('link') },
+              { label: 'Reclassify', icon: Tag, onSelect: () => setDialog('reclassify') },
+              { label: 'Rename', icon: PencilSimple, onSelect: onRename },
               { label: 'Archive', icon: Archive, onSelect: () => act.mutate('archive') },
               ...(manager
                 ? [
@@ -479,6 +505,11 @@ function RowActions({ doc }: { doc: LibraryDocument }) {
         <span role="alert" className="text-xs text-danger">
           {errorMessage(act.error)}
         </span>
+      ) : null}
+      {dialog === 'link' ? (
+        <LinkRecordDialog doc={doc} clientId={clientId} onClose={() => setDialog(null)} />
+      ) : dialog === 'reclassify' ? (
+        <ReclassifyDialog doc={doc} onClose={() => setDialog(null)} />
       ) : null}
     </div>
   );
