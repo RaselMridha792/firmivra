@@ -16,7 +16,7 @@ Short names: LP `leads-pipeline.e2e`, LPT `leads-pipeline-tabs.e2e`, LR2 `leads-
 | 4 | PASS | #1030, #687 | `r55-lead-overview.spec`: the name and More > View open that lead's Overview |
 | 5 | PASS | #586, #769, #1428 | LP: returns the profile after an edit; `r55-lead-contacts.spec` |
 | 6 | PASS | #772, #687 | LPT: adds and lists notes; `r56-lead-tabs.spec` (Activity) |
-| 7 | Not built yet (assigned to R55): Call logs the real outcome | #586, #772 | LPT: logs a call. Today Call opens the phone and logs "Called the lead" with no outcome. The telephony integration: After Nov 17 (decided). |
+| 7 | Done without telephony: Call (profile and list row) opens the phone, then asks how the call went (Connected, Left voicemail, No answer, Busy, Wrong number, optional note); Log Call records "Call: <outcome>. <note>", Not Now records nothing. The telephony integration: After Nov 17 (decided). | #586, #772, #PR_NUM | mock `r55-lead-call-outcome` "Call asks for the outcome; Log Call records it, Not Now records nothing"; LPT: logs a call |
 | 8 | PASS | #1042, #1044, #1049 | LE: sends the cleaned HTML; `r55-lead-email.spec` |
 | 9 | Email: PASS on dev; SMS: pending carrier registration | #1032 | `r55-lead-sms.spec`; LP: sends through NotifyService. Texts reach phones once the toll-free number is registered (dev logs them, #1412). |
 | 10 | PASS | #769, #586 | LP: assigns, changes the stage and adds tags; LP: Staff see only their leads |

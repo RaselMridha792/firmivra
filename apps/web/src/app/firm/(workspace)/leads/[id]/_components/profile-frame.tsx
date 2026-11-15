@@ -30,12 +30,12 @@ import { api } from '../../../../../../lib/api';
 import { LAST_LEADS_LIST } from '../../../../../../lib/leads-place';
 import { listReturnHref, markReturning } from '../../../../../../lib/list-return';
 import { errorMessage } from '../../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useApiQuery } from '../../../../../../lib/query';
+import { CallOutcomeDialog } from '../../_components/call-outcome-dialog';
 import { LeadAppointmentDialog } from '../../_components/lead-appointment-dialog';
 import { LeadEditDialog } from '../../_components/lead-edit-dialog';
 import { LeadMessageDialog, recipientOf } from '../../_components/lead-message-dialog';
 import {
-  LEAD_PIPELINE_KEY,
   PRIORITY_LABELS,
   SOURCE_LABELS,
   STAGE_LABELS,
@@ -92,10 +92,8 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
   const [saved, setSaved] = useState<string>();
   const query = useApiQuery(profileKey(id), () => api.leadPipeline.profile(id));
   const lead = query.data;
-  const logCall = useApiMutation(
-    () => api.leadPipeline.logActivity(id, { kind: 'CALL', summary: 'Called the lead' }),
-    { invalidate: LEAD_PIPELINE_KEY },
-  );
+  // Leads Review 2 (7): Call opens the phone, then asks for the outcome before anything is logged.
+  const [calling, setCalling] = useState(false);
   const name = lead ? fullName(lead.firstName, lead.lastName, 'Lead') : 'Lead';
   const base = `/leads/${id}`;
   /** Converted and Not Qualified leads are not converted (again); as the list's row menu. */
@@ -207,11 +205,7 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
               aria-label="Lead actions"
             >
               {lead?.phone ? (
-                <a
-                  href={`tel:${lead.phone}`}
-                  onClick={() => logCall.mutate(undefined)}
-                  className={outline}
-                >
+                <a href={`tel:${lead.phone}`} onClick={() => setCalling(true)} className={outline}>
                   <PhoneCall aria-hidden weight="fill" className="size-4" /> Call
                 </a>
               ) : (
@@ -343,6 +337,13 @@ export function ProfileFrame({ tab, children }: { tab: LeadTab; children: ReactN
           recipients={[recipientOf(lead)]}
           channel={dialog === 'email' ? 'EMAIL' : 'SMS'}
           onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {calling && lead?.phone ? (
+        <CallOutcomeDialog
+          lead={{ id, name, phone: lead.phone }}
+          onClose={() => setCalling(false)}
+          onLogged={(summary) => setSaved(`Logged: ${summary}`)}
         />
       ) : null}
       {dialog === 'appointment' && lead ? (
