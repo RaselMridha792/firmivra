@@ -11,12 +11,7 @@ import {
   FolderColor,
   ScanStatus,
 } from '../db-enums.js';
-import {
-  UPLOAD_FILE_FACTS,
-  UPLOAD_LIMITS,
-  UploadContentType,
-  uploadNameFitsType,
-} from './schemas.js';
+import { UPLOAD_FILE_FACTS, UploadContentType, uploadNameFitsType } from './schemas.js';
 
 // The firm-wide Documents module (R55 contract, for R56's screens): the library (main page,
 // Frames 1 Upload, 2 Details and Review, 5 Share), the requests dashboard and Create Request
@@ -722,14 +717,31 @@ export type UpdateRequestTemplateRequest = z.input<typeof UpdateRequestTemplateR
 
 // ---------- Settings (Frame 6) ----------
 
+/**
+ * DOCUMENTS-LIMIT-01 (Intake Forms Review Two): the largest regular document a firm takes, in MB.
+ * Regular Documents only (staff uploads, the client portal's Documents and requests); intake forms
+ * keep their own limit in Intake Form Settings. 100 is the platform's own limit.
+ */
+export const DOCUMENT_FILE_SIZE_CHOICES = [5, 10, 20, 30, 50, 100] as const;
+
+/** "Files can be at most 20 MB": a regular document over the firm's limit (null when it fits). */
+export function documentFileSizeProblem(sizeBytes: number, maxFileSizeMb: number): string | null {
+  return sizeBytes > maxFileSizeMb * 1024 * 1024
+    ? `Files can be at most ${maxFileSizeMb} MB`
+    : null;
+}
+
 /** GET /business/document-settings. One row per firm, made on the first read. */
 export const DocumentSettings = z.object({
   requestReminderDaysBefore: z.number().int().nullable(),
   requestExpiryDays: z.number().int().nullable(),
   documentExpiryReminderDays: z.number().int().nullable(),
   shareExpiryDays: z.number().int().nullable(),
-  /** At most 100 MB (the platform's limit, UPLOAD_LIMITS.maxBytes). */
-  uploadMaxBytes: z.number().int(),
+  /**
+   * The largest regular document, in MB (DOCUMENT_FILE_SIZE_CHOICES; 100 by default). An upload
+   * ticket over it is 400 VALIDATION_FAILED at `sizeBytes` ("Files can be at most 20 MB").
+   */
+  maxFileSizeMb: z.number().int(),
   /** A subset of the platform's types; all of them when none was chosen. */
   uploadTypes: z.array(UploadContentType),
   defaultReviewer: MemberRef.nullable(),
@@ -744,7 +756,12 @@ export const UpdateDocumentSettingsRequest = z
     requestExpiryDays: z.number().int().min(1).max(365).nullable(),
     documentExpiryReminderDays: z.number().int().min(1).max(365).nullable(),
     shareExpiryDays: z.number().int().min(1).max(365).nullable(),
-    uploadMaxBytes: z.number().int().min(1).max(UPLOAD_LIMITS.maxBytes),
+    maxFileSizeMb: z
+      .number()
+      .int()
+      .refine((mb) => (DOCUMENT_FILE_SIZE_CHOICES as readonly number[]).includes(mb), {
+        message: 'Choose 5, 10, 20, 30, 50 or 100 MB',
+      }),
     uploadTypes: z.array(UploadContentType).max(10),
     defaultReviewerUserId: z.uuid().nullable(),
   })

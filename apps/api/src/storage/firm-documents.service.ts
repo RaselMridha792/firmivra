@@ -25,6 +25,7 @@ import {
   reachableClient,
   toFirmDocument,
 } from './document-records.js';
+import { checkDocumentFileSize } from './document-file-size.js';
 import { UploadsService } from './uploads.service.js';
 
 type ListQuery = z.output<typeof ListFirmDocumentsQuery>;
@@ -136,6 +137,7 @@ export class FirmDocumentsService {
     await this.inFirm(businessId, async (tx) => {
       const { archived } = await lockReachableClient(tx, businessId, actor, clientId);
       await findTarget(tx, businessId, clientId, { ...body, clientArchived: archived });
+      await checkDocumentFileSize(tx, businessId, body.sizeBytes);
     });
     return this.uploads.ticket({
       pool: 'STAFF',
