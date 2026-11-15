@@ -355,6 +355,7 @@ export function NotificationsFields({ draft, set, errors, readOnly }: FieldsProp
           <ToggleRow
             label="Send confirmation email to client"
             width="w-20"
+            notActive
             checked={n.sendClientConfirmation}
             disabled={readOnly}
             onChange={(on) => set('notifications', { sendClientConfirmation: on })}
@@ -470,6 +471,7 @@ export function AutomationFields({
           <ToggleRow
             label="Auto-create client record"
             width="w-20"
+            notActive
             checked={a.autoCreateClient}
             disabled={readOnly}
             onChange={(on) => set('automation', { autoCreateClient: on })}
@@ -477,6 +479,7 @@ export function AutomationFields({
           <ToggleRow
             label="Auto-create follow-up task"
             width="w-20"
+            notActive
             checked={a.autoCreateFollowUpTask}
             disabled={readOnly}
             onChange={(on) => set('automation', { autoCreateFollowUpTask: on })}
@@ -484,6 +487,7 @@ export function AutomationFields({
           <ToggleRow
             label="Route by service type"
             width="w-20"
+            notActive
             checked={a.routeByServiceType}
             disabled={readOnly}
             onChange={(on) => set('automation', { routeByServiceType: on })}
@@ -491,6 +495,7 @@ export function AutomationFields({
           <SelectRow
             label="Default follow-up owner"
             width="w-32"
+            notActive
             value={a.defaultFollowUpOwnerUserId ?? ''}
             options={ownerOptions(members, savedOwner)}
             disabled={readOnly}

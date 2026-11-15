@@ -25,7 +25,7 @@ import { PortalInfoService } from '../client-auth/portal-info.controller.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { checkIntakeFileSize } from '../intake/intake-file-size.js';
+import { checkIntakeFileSize, checkIntakeFileType } from '../intake/intake-file-size.js';
 import { readDefinition } from '../intake/intake-forms.js';
 import { requireOpen } from '../intake/intake-step.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
@@ -131,7 +131,10 @@ export class LinkUploadsService {
     const field = intakeFields(definition).find((f) => f.key === body.slot);
     if (field?.type !== 'upload') throw notAnUpload();
     // The firm's own limit, before storage is asked for anything; confirm checks the sealed size.
-    await this.inFirm(businessId, (tx) => checkIntakeFileSize(tx, businessId, body.sizeBytes));
+    await this.inFirm(businessId, async (tx) => {
+      await checkIntakeFileSize(tx, businessId, body.sizeBytes);
+      await checkIntakeFileType(tx, businessId, body.contentType);
+    });
     const leadId = row.leadId!;
     const ticket: LinkUploadClaim = {
       pool: 'CLIENT',

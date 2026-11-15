@@ -1,7 +1,7 @@
 'use client';
 
 import { type Icon, NotePencil } from '@phosphor-icons/react';
-import { Card, Input, Select, Skeleton, Toggle } from '@firmivra/ui';
+import { Badge, Card, Input, Select, Skeleton, Toggle } from '@firmivra/ui';
 import Link from 'next/link';
 import { type ReactNode, useId } from 'react';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
@@ -167,6 +167,29 @@ function Row({
   );
 }
 
+/**
+ * Review Two row 23 (P2-6): a setting that saves but that Firmivra does not act on yet, said so
+ * beside its control rather than left to look like it works.
+ */
+function NotActiveYet() {
+  return (
+    <Badge tone="neutral" title="Saved, but Firmivra does not act on this setting yet">
+      Not active yet
+    </Badge>
+  );
+}
+
+/** The row's label, with "Not active yet" beside it when the setting does nothing yet. */
+const labelled = (label: string, notActive?: boolean): ReactNode =>
+  notActive ? (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {label}
+      <NotActiveYet />
+    </span>
+  ) : (
+    label
+  );
+
 /** A switch with "On"/"Off" beside it; `fixed` shows a setting that cannot be switched off. */
 export function ToggleRow({
   label,
@@ -176,6 +199,7 @@ export function ToggleRow({
   fixed,
   width,
   labelClass,
+  notActive,
 }: {
   label: string;
   checked: boolean;
@@ -185,11 +209,13 @@ export function ToggleRow({
   fixed?: string;
   width: string;
   labelClass?: string;
+  /** Saved, but not acted on yet (row 23): shows "Not active yet". */
+  notActive?: boolean;
 }) {
   const hintId = useId();
   return (
     <Row
-      label={label}
+      label={labelled(label, notActive)}
       width={width}
       labelClass={labelClass}
       control={
@@ -238,6 +264,7 @@ export function SelectRow({
   error,
   disabled,
   width,
+  notActive,
 }: {
   label: string;
   value: string;
@@ -246,13 +273,15 @@ export function SelectRow({
   error?: string;
   disabled?: boolean;
   width: string;
+  /** Saved, but not acted on yet (row 23): shows "Not active yet". */
+  notActive?: boolean;
 }) {
   const id = useId();
   return (
     <Row
       labelId={`${id}-label`}
       htmlFor={id}
-      label={label}
+      label={labelled(label, notActive)}
       width={width}
       top={!!error}
       control={
