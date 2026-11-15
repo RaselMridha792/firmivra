@@ -6,6 +6,8 @@ import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
 import { AppointmentDraftsController } from './appointment-drafts.controller.js';
 import { AppointmentDraftsService } from './appointment-drafts.service.js';
+import { AppointmentResourcesController } from './appointment-resources.controller.js';
+import { AppointmentResourcesService } from './appointment-resources.service.js';
 import { AppointmentTypesController } from './appointment-types.controller.js';
 import { AppointmentTypesService } from './appointment-types.service.js';
 import { AppointmentsController } from './appointments.controller.js';
@@ -38,6 +40,7 @@ import { AppointmentWaitlistService } from './waitlist.service.js';
     BlockedTimesController,
     AppointmentsController,
     AppointmentDraftsController,
+    AppointmentResourcesController,
     MyAppointmentsController,
     PublicBookingController,
     // Appointments A3 (R55): the waitlist for an earlier time.
@@ -46,6 +49,7 @@ import { AppointmentWaitlistService } from './waitlist.service.js';
   ],
   providers: [
     AppointmentDraftsService,
+    AppointmentResourcesService,
     AppointmentTypesService,
     AvailabilityService,
     AppointmentsService,

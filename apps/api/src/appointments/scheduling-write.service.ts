@@ -11,7 +11,7 @@ import { AppointmentNotices } from './appointment-notices.js';
 import { endsInCalendar } from './appointments.service.js';
 import { usableTimeZone } from './calendar.js';
 import { activeMember, type FirmActor, firmTimeZone } from './calendar-data.js';
-import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
+import { lockAppointment, lockEquipment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import {
   type Candidate,
   conflictSpan,
@@ -24,7 +24,7 @@ import {
   type SchedulingRow,
   toRecord,
 } from './scheduling-data.js';
-import { errors, isSlotConflict, isUniqueViolation } from './errors.js';
+import { errors, isEquipmentConflict, isSlotConflict, isUniqueViolation } from './errors.js';
 import {
   detailsAfterStaffChange,
   linkOf,
@@ -78,6 +78,15 @@ function platformFor(
   return platform;
 }
 
+/**
+ * One request's last conflict check, kept to run again when the database refuses an item of
+ * equipment a change outside these locks took meanwhile (Review 2, A2).
+ */
+interface Checked {
+  actor: FirmActor;
+  input?: { staff: MemberRef[]; candidate: Candidate };
+}
+
 const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
   startsAt: a.startsAt,
   endsAt: a.endsAt,
@@ -89,7 +98,8 @@ const placed = (a: { startsAt: Date; endsAt: Date; staffUserId: string }) => ({
  * packages/types/src/appointments/scheduling.ts). The same appointment records and history as
  * R12's calendar. Owner and Admin change every appointment; Staff only the ones they see in full
  * (404 otherwise) and book only for clients assigned to them. The conflict check runs first: hard
- * conflicts (a staff member, client or room already booked, blocked time) are always 409
+ * conflicts (a staff member, client, room or item of equipment already booked, blocked time) are
+ * always 409
  * SCHEDULING_CONFLICT; working hours and buffers can be overridden with a reason by Owner and
  * Admin (audited). The database refuses double booking whatever the check saw (409 SLOT_TAKEN).
  * The method is one of the type's meeting methods (A1) when booking and when the method or type
@@ -111,14 +121,50 @@ export class SchedulingWriteService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
-  /** A calendar change in one transaction, tried again while a calendar lock is busy. */
-  private async write<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+  /**
+   * A calendar change in one transaction, tried again while a calendar lock is busy. An item of
+   * equipment the database refused runs the request's check again, so the 409 names it.
+   */
+  private async write<T>(
+    businessId: string,
+    fn: (tx: TxClient) => Promise<T>,
+    checked?: Checked,
+  ): Promise<T> {
     try {
       return await retryWhenBusy(() => this.inFirm(businessId, fn));
     } catch (e) {
+      if (checked?.input && isEquipmentConflict(e)) {
+        throw await this.recheck(businessId, checked.actor, checked.input);
+      }
       if (isSlotConflict(e)) throw errors.slotTaken();
       throw e;
     }
+  }
+
+  /** The conflict check again, after the database refused the change: 409 with what it finds. */
+  private async recheck(
+    businessId: string,
+    actor: FirmActor,
+    input: { staff: MemberRef[]; candidate: Candidate },
+  ): Promise<Error> {
+    const result = await this.inFirm(businessId, async (tx) => {
+      const data = await loadConflictData(
+        tx,
+        businessId,
+        await firmTimeZone(tx, businessId),
+        input.staff,
+        conflictSpan(input.candidate),
+        input.candidate.clientId,
+        input.candidate.roomId,
+        input.candidate.attendeeClientIds,
+        input.candidate.equipmentIds,
+      );
+      return toResult(data, input.candidate, actor).result;
+    });
+    // A hard conflict now: nothing to override.
+    return result.ok
+      ? errors.slotTaken()
+      : errors.schedulingConflict({ ...result, canOverride: false });
   }
 
   /** The record as the screens show it, read inside the caller's transaction. */
@@ -157,8 +203,13 @@ export class SchedulingWriteService {
     const replay = await this.replay(businessId, actor, body.idempotencyKey);
     if (replay) return replay;
     let created: { record: AppointmentRecord; firstId: string };
+    const checked: Checked = { actor };
     try {
-      created = await this.write(businessId, (tx) => this.createIn(tx, businessId, actor, body));
+      created = await this.write(
+        businessId,
+        (tx) => this.createIn(tx, businessId, actor, body, checked),
+        checked,
+      );
     } catch (e) {
       // Two requests with one key at once: the loser reads the winner's appointment.
       if (isUniqueViolation(e)) {
@@ -193,6 +244,7 @@ export class SchedulingWriteService {
     businessId: string,
     actor: FirmActor,
     body: Schedule,
+    checked: Checked,
   ): Promise<{ record: AppointmentRecord; firstId: string }> {
     // Review 2 (Save as Draft): the member's own draft goes with the booking (404 otherwise).
     if (body.draftId) {
@@ -250,9 +302,17 @@ export class SchedulingWriteService {
     for (const o of expansion.occurrences) endsInCalendar(o.end);
     const color = body.color ? this.colorOf(body.color) : null;
     const place = await this.placeFor(tx, businessId, kind, body.officeId, body.roomId);
+    const equipment = await this.equipmentFor(
+      tx,
+      businessId,
+      kind,
+      place.officeId,
+      body.equipmentIds ?? [],
+    );
     const reminders = await this.remindersFor(tx, businessId, body.reminders, client.phone);
 
     await lockForBooking(tx, businessId, staff.userId, client.id, attendees);
+    await lockEquipment(tx, businessId, equipment);
     const location = await this.locationOf(tx, businessId, kind, staff.userId, {
       details: body.details,
       videoUrl: body.videoUrl,
@@ -267,10 +327,12 @@ export class SchedulingWriteService {
         clientId: client.id,
         attendeeClientIds: attendees,
         roomId: place.roomId,
+        equipmentIds: equipment,
         bufferBeforeMinutes: type.bufferBeforeMinutes,
         bufferAfterMinutes: type.bufferAfterMinutes,
       },
       override: body.overrideConflicts?.reason,
+      checked,
     });
 
     const repeats = expansion.occurrences.length > 1;
@@ -374,6 +436,16 @@ export class SchedulingWriteService {
         select: { id: true, clientId: true, startsAt: true, endsAt: true, staffUserId: true },
       });
       if (index === 0) firstId = row.id;
+      // Review 2 (A2): the trigger copies the appointment's time onto each hold.
+      if (equipment.length > 0) {
+        await tx.appointmentEquipment.createMany({
+          data: equipment.map((equipmentId) => ({
+            businessId,
+            appointmentId: row.id,
+            equipmentId,
+          })),
+        });
+      }
       if (reminders.length > 0) {
         await tx.appointmentReminder.createMany({
           data: reminders.map((r) => ({
@@ -407,321 +479,385 @@ export class SchedulingWriteService {
     id: string,
     body: Details,
   ): Promise<AppointmentRecord> {
-    const outcome = await this.write(businessId, async (tx) => {
-      const current = await this.openForChange(tx, businessId, actor, id);
-      if (
-        body.contact &&
-        !(body.contact.kind === 'CLIENT' && body.contact.id === current.clientId)
-      ) {
-        throw errors.unsupported(
-          'The client of an appointment cannot change. Cancel it and schedule a new one.',
-        );
-      }
-      this.requireSupported(body.related, body.recurrence);
-
-      const data: Prisma.AppointmentUncheckedUpdateInput = {};
-      const fields = new Set<string>();
-      const set = <K extends keyof Prisma.AppointmentUncheckedUpdateInput>(
-        field: string,
-        key: K,
-        value: Prisma.AppointmentUncheckedUpdateInput[K],
-        same: boolean,
-      ) => {
-        if (same) return;
-        data[key] = value;
-        fields.add(field);
-      };
-
-      // Review 2 (TX-F06): Link to Tax Return set, changed or taken off.
-      if (body.related?.taxReturnId !== undefined) {
-        const engagementId = body.related.taxReturnId
-          ? await this.returnEngagement(tx, businessId, current.clientId, body.related.taxReturnId)
-          : null;
-        set('taxReturn', 'engagementId', engagementId, engagementId === current.engagementId);
-      }
-
-      let staffUserId = current.staffUserId;
-      if (body.staffUserIds !== undefined) {
-        if (body.staffUserIds.length > 1) {
-          throw errors.unsupported('An appointment has one staff member for now. Choose one.');
-        }
-        const wanted = body.staffUserIds[0];
-        if (!wanted) throw errors.unsupported('Choose a staff member');
-        if (wanted !== current.staffUserId.toLowerCase()) {
-          await activeMember(tx, businessId, wanted);
-          // TX-F18: an appointment of a tax return's engagement, as Reschedule.
-          const authority = await returnReassignAuthority(
-            tx,
-            this.grants,
-            businessId,
-            actor,
-            current.engagementId,
+    const checked: Checked = { actor };
+    const outcome = await this.write(
+      businessId,
+      async (tx) => {
+        const current = await this.openForChange(tx, businessId, actor, id);
+        if (
+          body.contact &&
+          !(body.contact.kind === 'CLIENT' && body.contact.id === current.clientId)
+        ) {
+          throw errors.unsupported(
+            'The client of an appointment cannot change. Cancel it and schedule a new one.',
           );
-          if (authority === 'override')
-            await this.audit.logIn(
-              tx,
-              'appointment.reassigned_override',
-              { type: 'appointment', id: current.id },
-              { staffUserId: wanted },
-            );
         }
-        staffUserId = wanted;
-      }
-      const staff = await activeMember(tx, businessId, staffUserId);
+        this.requireSupported(body.related, body.recurrence);
 
-      let buffers = {
-        before: current.bufferBeforeMinutes,
-        after: current.bufferAfterMinutes,
-      };
-      // The type's meeting methods, when the type or the method changes (A1).
-      let offered: StoredKind[] | null = null;
-      // Review 2 (P1 row 1): the platform of the type the appointment is (or becomes) of.
-      let typePlatform: string | null = null;
-      const typeChanged = body.typeId !== undefined && body.typeId !== current.typeId;
-      if (typeChanged) {
-        const type = await tx.appointmentType.findFirst({
-          where: { businessId, id: body.typeId },
-          select: {
-            id: true,
-            archivedAt: true,
-            bufferBeforeMinutes: true,
-            bufferAfterMinutes: true,
-            locationKind: true,
-            meetingMethods: true,
-            otherVideoPlatform: true,
-          },
-        });
-        if (!type) throw errors.notFound();
-        if (type.archivedAt) throw errors.typeArchived();
-        offered = typeMethods(type);
-        typePlatform = type.otherVideoPlatform;
-        buffers = { before: type.bufferBeforeMinutes, after: type.bufferAfterMinutes };
-        set('type', 'typeId', type.id, false);
-        set('buffers', 'bufferBeforeMinutes', buffers.before, false);
-        set('buffers', 'bufferAfterMinutes', buffers.after, false);
-      }
-      if (body.serviceId !== undefined) {
-        if (body.serviceId) await this.requireService(tx, businessId, body.serviceId);
-        set('service', 'serviceId', body.serviceId, body.serviceId === current.serviceId);
-      }
-
-      const start = body.startsAt ? Date.parse(body.startsAt) : current.startsAt.getTime();
-      const end = body.endsAt ? Date.parse(body.endsAt) : current.endsAt.getTime();
-      const allDay = body.allDay ?? current.allDay;
-      if (end <= start) throw errors.unsupported('End time must be after the start');
-      this.requireLength({ start, end }, allDay);
-      endsInCalendar(end);
-      const timeChanged = start !== current.startsAt.getTime() || end !== current.endsAt.getTime();
-      if (timeChanged) {
-        set('time', 'startsAt', new Date(start), false);
-        set('time', 'endsAt', new Date(end), false);
-      }
-      set('allDay', 'allDay', allDay, allDay === current.allDay);
-      if (body.timezone !== undefined) {
-        const zone = await this.zoneFor(tx, businessId, body.timezone);
-        set('timezone', 'timeZone', zone, zone === current.timeZone);
-      }
-
-      const kind = body.method ? kindOf(body.method) : current.locationKind;
-      const kindChanged = kind !== current.locationKind;
-      if (kindChanged && !typeChanged && current.typeId) {
-        const type = await tx.appointmentType.findFirst({
-          where: { businessId, id: current.typeId },
-          select: { locationKind: true, meetingMethods: true, otherVideoPlatform: true },
-        });
-        offered = type ? typeMethods(type) : null;
-        typePlatform = type?.otherVideoPlatform ?? null;
-      }
-      if (offered && !offered.includes(kind)) throw errors.methodNotOffered('method');
-      set('method', 'locationKind', kind, !kindChanged);
-      const platform = platformFor(
-        kind,
-        body.otherVideoPlatform,
-        kindChanged ? typePlatform : current.otherVideoPlatform,
-      );
-      set('method', 'otherVideoPlatform', platform, platform === current.otherVideoPlatform);
-
-      // The office and room only belong to an in-person appointment (the database checks it).
-      let roomId = current.roomId;
-      if (body.officeId !== undefined || body.roomId !== undefined || kind !== 'IN_PERSON') {
-        const wantedOffice =
-          kind !== 'IN_PERSON'
-            ? null
-            : body.officeId === undefined
-              ? current.officeId
-              : body.officeId;
-        const wantedRoom =
-          kind !== 'IN_PERSON'
-            ? null
-            : body.roomId === undefined
-              ? body.officeId === undefined
-                ? current.roomId
-                : null
-              : body.roomId;
-        const place = await this.placeFor(
-          tx,
-          businessId,
-          kind,
-          wantedOffice,
-          wantedRoom,
-          timeChanged ? null : current.officeId,
-        );
-        roomId = place.roomId;
-        set('place', 'officeId', place.officeId, place.officeId === current.officeId);
-        set('place', 'roomId', roomId, roomId === current.roomId);
-      } else if (timeChanged && current.officeId) {
-        // Moved to another time at its own office: an inactive location takes no new times.
-        const office = await tx.firmOffice.findFirst({
-          where: { businessId, id: current.officeId },
-          select: { status: true },
-        });
-        if (office?.status === 'INACTIVE') throw inactiveOffice();
-      }
-
-      const location = await this.locationAfter(tx, businessId, current, kind, staff.userId, body);
-      set('location', 'locationDetails', location, location === current.locationDetails);
-
-      if (body.status !== undefined) {
-        const confirmed = body.status === 'CONFIRMED';
-        set(
-          'status',
-          'confirmedAt',
-          confirmed ? (current.confirmedAt ?? new Date()) : null,
-          confirmed === (current.confirmedAt !== null),
-        );
-      }
-      if (body.color !== undefined) {
-        const color = body.color ? this.colorOf(body.color) : null;
-        set('color', 'color', color, color === current.color);
-      }
-      if (body.internalNotes !== undefined) {
-        set(
-          'internalNotes',
-          'internalNotes',
-          body.internalNotes,
-          body.internalNotes === current.internalNotes,
-        );
-      }
-      if (body.clientInstructions !== undefined) {
-        set(
-          'clientInstructions',
-          'clientInstructions',
-          body.clientInstructions,
-          body.clientInstructions === current.clientInstructions,
-        );
-      }
-      // Review 2 (B9): each channel on its own; (B7) the confirmation's own words.
-      for (const [key, value] of [
-        ['instructionsInEmail', body.instructionsInEmail],
-        ['instructionsInPortal', body.instructionsInPortal],
-        ['instructionsInSms', body.instructionsInSms],
-      ] as const) {
-        if (value !== undefined) set('instructionsIn', key, value, value === current[key]);
-      }
-      if (body.confirmationMessage !== undefined) {
-        set(
-          'confirmationMessage',
-          'confirmationMessage',
-          body.confirmationMessage,
-          body.confirmationMessage === current.confirmationMessage,
-        );
-      }
-      if (staffUserId !== current.staffUserId) set('staff', 'staffUserId', staffUserId, false);
-
-      const remindersChanged =
-        body.reminders !== undefined &&
-        (await this.replaceReminders(tx, businessId, current, body.reminders));
-      if (remindersChanged) fields.add('reminders');
-      // A1: the other attendees as the form names them now. Only the new ones are checked as the
-      // client is (one a Staff member does not see may stay on, as it was).
-      const before = current.attendees.map((a) => a.clientId.toLowerCase());
-      let attendees = before;
-      let added: string[] = [];
-      let removed: string[] = [];
-      if (body.attendeeClientIds !== undefined) {
-        const own = current.clientId.toLowerCase();
-        attendees = [...new Set(body.attendeeClientIds.map((c) => c.toLowerCase()))].filter(
-          (c) => c !== own,
-        );
-        added = await attendeeClients(
-          tx,
-          businessId,
-          actor,
-          current.clientId,
-          attendees.filter((c) => !before.includes(c)),
-        );
-        removed = before.filter((c) => !attendees.includes(c));
-        if (added.length > 0 || removed.length > 0) fields.add('attendees');
-      }
-      // After the lookups above, so an id of another firm is 404 before a stale version is 409.
-      if (body.version !== versionOf(current.updatedAt)) throw errors.saveConflict();
-      if (fields.size === 0)
-        return {
-          record: await this.recordIn(tx, businessId, actor, id),
-          notify: [] as string[],
-          added: [] as string[],
+        const data: Prisma.AppointmentUncheckedUpdateInput = {};
+        const fields = new Set<string>();
+        const set = <K extends keyof Prisma.AppointmentUncheckedUpdateInput>(
+          field: string,
+          key: K,
+          value: Prisma.AppointmentUncheckedUpdateInput[K],
+          same: boolean,
+        ) => {
+          if (same) return;
+          data[key] = value;
+          fields.add(field);
         };
 
-      const moved = timeChanged || staffUserId !== current.staffUserId;
-      const roomOrPlaceMoved = roomId !== current.roomId;
-      if (moved || roomOrPlaceMoved || kindChanged || fields.has('buffers') || added.length > 0) {
-        await lockForBooking(tx, businessId, staffUserId, current.clientId, attendees);
-        await this.checkConflicts(tx, businessId, actor, {
-          staff: [staff],
-          candidate: {
-            staffUserIds: [staff.userId],
-            occurrences: [{ start, end }],
-            allDay,
-            clientId: current.clientId,
-            attendeeClientIds: attendees,
-            roomId,
-            bufferBeforeMinutes: buffers.before,
-            bufferAfterMinutes: buffers.after,
-            exceptId: current.id,
-          },
-          override: body.overrideConflicts?.reason,
+        // Review 2 (TX-F06): Link to Tax Return set, changed or taken off.
+        if (body.related?.taxReturnId !== undefined) {
+          const engagementId = body.related.taxReturnId
+            ? await this.returnEngagement(
+                tx,
+                businessId,
+                current.clientId,
+                body.related.taxReturnId,
+              )
+            : null;
+          set('taxReturn', 'engagementId', engagementId, engagementId === current.engagementId);
+        }
+
+        let staffUserId = current.staffUserId;
+        if (body.staffUserIds !== undefined) {
+          if (body.staffUserIds.length > 1) {
+            throw errors.unsupported('An appointment has one staff member for now. Choose one.');
+          }
+          const wanted = body.staffUserIds[0];
+          if (!wanted) throw errors.unsupported('Choose a staff member');
+          if (wanted !== current.staffUserId.toLowerCase()) {
+            await activeMember(tx, businessId, wanted);
+            // TX-F18: an appointment of a tax return's engagement, as Reschedule.
+            const authority = await returnReassignAuthority(
+              tx,
+              this.grants,
+              businessId,
+              actor,
+              current.engagementId,
+            );
+            if (authority === 'override')
+              await this.audit.logIn(
+                tx,
+                'appointment.reassigned_override',
+                { type: 'appointment', id: current.id },
+                { staffUserId: wanted },
+              );
+          }
+          staffUserId = wanted;
+        }
+        const staff = await activeMember(tx, businessId, staffUserId);
+
+        let buffers = {
+          before: current.bufferBeforeMinutes,
+          after: current.bufferAfterMinutes,
+        };
+        // The type's meeting methods, when the type or the method changes (A1).
+        let offered: StoredKind[] | null = null;
+        // Review 2 (P1 row 1): the platform of the type the appointment is (or becomes) of.
+        let typePlatform: string | null = null;
+        const typeChanged = body.typeId !== undefined && body.typeId !== current.typeId;
+        if (typeChanged) {
+          const type = await tx.appointmentType.findFirst({
+            where: { businessId, id: body.typeId },
+            select: {
+              id: true,
+              archivedAt: true,
+              bufferBeforeMinutes: true,
+              bufferAfterMinutes: true,
+              locationKind: true,
+              meetingMethods: true,
+              otherVideoPlatform: true,
+            },
+          });
+          if (!type) throw errors.notFound();
+          if (type.archivedAt) throw errors.typeArchived();
+          offered = typeMethods(type);
+          typePlatform = type.otherVideoPlatform;
+          buffers = { before: type.bufferBeforeMinutes, after: type.bufferAfterMinutes };
+          set('type', 'typeId', type.id, false);
+          set('buffers', 'bufferBeforeMinutes', buffers.before, false);
+          set('buffers', 'bufferAfterMinutes', buffers.after, false);
+        }
+        if (body.serviceId !== undefined) {
+          if (body.serviceId) await this.requireService(tx, businessId, body.serviceId);
+          set('service', 'serviceId', body.serviceId, body.serviceId === current.serviceId);
+        }
+
+        const start = body.startsAt ? Date.parse(body.startsAt) : current.startsAt.getTime();
+        const end = body.endsAt ? Date.parse(body.endsAt) : current.endsAt.getTime();
+        const allDay = body.allDay ?? current.allDay;
+        if (end <= start) throw errors.unsupported('End time must be after the start');
+        this.requireLength({ start, end }, allDay);
+        endsInCalendar(end);
+        const timeChanged =
+          start !== current.startsAt.getTime() || end !== current.endsAt.getTime();
+        if (timeChanged) {
+          set('time', 'startsAt', new Date(start), false);
+          set('time', 'endsAt', new Date(end), false);
+        }
+        set('allDay', 'allDay', allDay, allDay === current.allDay);
+        if (body.timezone !== undefined) {
+          const zone = await this.zoneFor(tx, businessId, body.timezone);
+          set('timezone', 'timeZone', zone, zone === current.timeZone);
+        }
+
+        const kind = body.method ? kindOf(body.method) : current.locationKind;
+        const kindChanged = kind !== current.locationKind;
+        if (kindChanged && !typeChanged && current.typeId) {
+          const type = await tx.appointmentType.findFirst({
+            where: { businessId, id: current.typeId },
+            select: { locationKind: true, meetingMethods: true, otherVideoPlatform: true },
+          });
+          offered = type ? typeMethods(type) : null;
+          typePlatform = type?.otherVideoPlatform ?? null;
+        }
+        if (offered && !offered.includes(kind)) throw errors.methodNotOffered('method');
+        set('method', 'locationKind', kind, !kindChanged);
+        const platform = platformFor(
+          kind,
+          body.otherVideoPlatform,
+          kindChanged ? typePlatform : current.otherVideoPlatform,
+        );
+        set('method', 'otherVideoPlatform', platform, platform === current.otherVideoPlatform);
+
+        // The office and room only belong to an in-person appointment (the database checks it).
+        let roomId = current.roomId;
+        let officeId = current.officeId;
+        if (body.officeId !== undefined || body.roomId !== undefined || kind !== 'IN_PERSON') {
+          const wantedOffice =
+            kind !== 'IN_PERSON'
+              ? null
+              : body.officeId === undefined
+                ? current.officeId
+                : body.officeId;
+          const wantedRoom =
+            kind !== 'IN_PERSON'
+              ? null
+              : body.roomId === undefined
+                ? body.officeId === undefined
+                  ? current.roomId
+                  : null
+                : body.roomId;
+          const place = await this.placeFor(
+            tx,
+            businessId,
+            kind,
+            wantedOffice,
+            wantedRoom,
+            timeChanged ? null : current.officeId,
+            current.roomId,
+          );
+          roomId = place.roomId;
+          officeId = place.officeId;
+          set('place', 'officeId', place.officeId, place.officeId === current.officeId);
+          set('place', 'roomId', roomId, roomId === current.roomId);
+        } else if (timeChanged && current.officeId) {
+          // Moved to another time at its own office: an inactive location takes no new times.
+          const office = await tx.firmOffice.findFirst({
+            where: { businessId, id: current.officeId },
+            select: { status: true },
+          });
+          if (office?.status === 'INACTIVE') throw inactiveOffice();
+        }
+
+        // Review 2 (A2): the equipment, kept unless sent, and checked again when the place changes.
+        const held = current.equipment.map((e) => e.equipment.id.toLowerCase());
+        const equipment =
+          body.equipmentIds !== undefined || officeId !== current.officeId || kindChanged
+            ? await this.equipmentFor(
+                tx,
+                businessId,
+                kind,
+                officeId,
+                body.equipmentIds ?? held,
+                held,
+              )
+            : held;
+        const itemsAdded = equipment.filter((e) => !held.includes(e));
+        const itemsReleased = held.filter((e) => !equipment.includes(e));
+        if (itemsAdded.length > 0 || itemsReleased.length > 0) fields.add('equipment');
+
+        const location = await this.locationAfter(
+          tx,
+          businessId,
+          current,
+          kind,
+          staff.userId,
+          body,
+        );
+        set('location', 'locationDetails', location, location === current.locationDetails);
+
+        if (body.status !== undefined) {
+          const confirmed = body.status === 'CONFIRMED';
+          set(
+            'status',
+            'confirmedAt',
+            confirmed ? (current.confirmedAt ?? new Date()) : null,
+            confirmed === (current.confirmedAt !== null),
+          );
+        }
+        if (body.color !== undefined) {
+          const color = body.color ? this.colorOf(body.color) : null;
+          set('color', 'color', color, color === current.color);
+        }
+        if (body.internalNotes !== undefined) {
+          set(
+            'internalNotes',
+            'internalNotes',
+            body.internalNotes,
+            body.internalNotes === current.internalNotes,
+          );
+        }
+        if (body.clientInstructions !== undefined) {
+          set(
+            'clientInstructions',
+            'clientInstructions',
+            body.clientInstructions,
+            body.clientInstructions === current.clientInstructions,
+          );
+        }
+        // Review 2 (B9): each channel on its own; (B7) the confirmation's own words.
+        for (const [key, value] of [
+          ['instructionsInEmail', body.instructionsInEmail],
+          ['instructionsInPortal', body.instructionsInPortal],
+          ['instructionsInSms', body.instructionsInSms],
+        ] as const) {
+          if (value !== undefined) set('instructionsIn', key, value, value === current[key]);
+        }
+        if (body.confirmationMessage !== undefined) {
+          set(
+            'confirmationMessage',
+            'confirmationMessage',
+            body.confirmationMessage,
+            body.confirmationMessage === current.confirmationMessage,
+          );
+        }
+        if (staffUserId !== current.staffUserId) set('staff', 'staffUserId', staffUserId, false);
+
+        const remindersChanged =
+          body.reminders !== undefined &&
+          (await this.replaceReminders(tx, businessId, current, body.reminders));
+        if (remindersChanged) fields.add('reminders');
+        // A1: the other attendees as the form names them now. Only the new ones are checked as the
+        // client is (one a Staff member does not see may stay on, as it was).
+        const before = current.attendees.map((a) => a.clientId.toLowerCase());
+        let attendees = before;
+        let added: string[] = [];
+        let removed: string[] = [];
+        if (body.attendeeClientIds !== undefined) {
+          const own = current.clientId.toLowerCase();
+          attendees = [...new Set(body.attendeeClientIds.map((c) => c.toLowerCase()))].filter(
+            (c) => c !== own,
+          );
+          added = await attendeeClients(
+            tx,
+            businessId,
+            actor,
+            current.clientId,
+            attendees.filter((c) => !before.includes(c)),
+          );
+          removed = before.filter((c) => !attendees.includes(c));
+          if (added.length > 0 || removed.length > 0) fields.add('attendees');
+        }
+        // After the lookups above, so an id of another firm is 404 before a stale version is 409.
+        if (body.version !== versionOf(current.updatedAt)) throw errors.saveConflict();
+        if (fields.size === 0)
+          return {
+            record: await this.recordIn(tx, businessId, actor, id),
+            notify: [] as string[],
+            added: [] as string[],
+          };
+
+        const moved = timeChanged || staffUserId !== current.staffUserId;
+        const roomOrPlaceMoved = roomId !== current.roomId;
+        if (
+          moved ||
+          roomOrPlaceMoved ||
+          kindChanged ||
+          fields.has('buffers') ||
+          added.length > 0 ||
+          itemsAdded.length > 0
+        ) {
+          await lockForBooking(tx, businessId, staffUserId, current.clientId, attendees);
+          await lockEquipment(tx, businessId, equipment);
+          await this.checkConflicts(tx, businessId, actor, {
+            staff: [staff],
+            candidate: {
+              staffUserIds: [staff.userId],
+              occurrences: [{ start, end }],
+              allDay,
+              clientId: current.clientId,
+              attendeeClientIds: attendees,
+              roomId,
+              equipmentIds: equipment,
+              bufferBeforeMinutes: buffers.before,
+              bufferAfterMinutes: buffers.after,
+              exceptId: current.id,
+            },
+            override: body.overrideConflicts?.reason,
+            checked,
+          });
+        }
+        // Released first, so an item let go never blocks the new time; added after, at it.
+        if (itemsReleased.length > 0) {
+          await tx.appointmentEquipment.deleteMany({
+            where: { businessId, appointmentId: current.id, equipmentId: { in: itemsReleased } },
+          });
+        }
+        const updated = await tx.appointment.update({
+          where: { id: current.id },
+          data: { ...data, updatedAt: new Date() },
+          select: { id: true, clientId: true, startsAt: true, endsAt: true, staffUserId: true },
         });
-      }
-      const updated = await tx.appointment.update({
-        where: { id: current.id },
-        data: { ...data, updatedAt: new Date() },
-        select: { id: true, clientId: true, startsAt: true, endsAt: true, staffUserId: true },
-      });
-      if (moved) {
-        await this.history.record(tx, 'RESCHEDULED', updated, {
-          by: 'STAFF',
-          from: placed(current),
-          to: placed(updated),
-        });
-      }
-      if (removed.length > 0) {
-        await tx.appointmentAttendee.deleteMany({
-          where: { businessId, appointmentId: current.id, clientId: { in: removed } },
-        });
+        if (itemsAdded.length > 0) {
+          await tx.appointmentEquipment.createMany({
+            data: itemsAdded.map((equipmentId) => ({
+              businessId,
+              appointmentId: current.id,
+              equipmentId,
+            })),
+          });
+        }
+        if (moved) {
+          await this.history.record(tx, 'RESCHEDULED', updated, {
+            by: 'STAFF',
+            from: placed(current),
+            to: placed(updated),
+          });
+        }
+        if (removed.length > 0) {
+          await tx.appointmentAttendee.deleteMany({
+            where: { businessId, appointmentId: current.id, clientId: { in: removed } },
+          });
+          await this.audit.logIn(
+            tx,
+            'appointment.attendees_removed',
+            { type: 'appointment', id: current.id },
+            { clientId: current.clientId, attendeeClientIds: removed },
+          );
+        }
+        await this.addAttendees(tx, businessId, actor, updated, added);
         await this.audit.logIn(
           tx,
-          'appointment.attendees_removed',
+          'appointment.details_updated',
           { type: 'appointment', id: current.id },
-          { clientId: current.clientId, attendeeClientIds: removed },
+          { clientId: current.clientId, fields: [...fields].sort() },
         );
-      }
-      await this.addAttendees(tx, businessId, actor, updated, added);
-      await this.audit.logIn(
-        tx,
-        'appointment.details_updated',
-        { type: 'appointment', id: current.id },
-        { clientId: current.clientId, fields: [...fields].sort() },
-      );
-      // The client hears about a new time, staff member, place or link; not about notes or colour.
-      const notify = moved || fields.has('place') || fields.has('location') || fields.has('method');
-      // A1: a new attendee hears of the booking; the client and the others of the change.
-      const kept = [current.clientId, ...attendees.filter((c) => !added.includes(c))];
-      return {
-        record: await this.recordIn(tx, businessId, actor, id),
-        notify: notify ? kept : [],
-        added,
-      };
-    });
+        // The client hears about a new time, staff member, place or link; not about notes or colour.
+        const notify =
+          moved || fields.has('place') || fields.has('location') || fields.has('method');
+        // A1: a new attendee hears of the booking; the client and the others of the change.
+        const kept = [current.clientId, ...attendees.filter((c) => !added.includes(c))];
+        return {
+          record: await this.recordIn(tx, businessId, actor, id),
+          notify: notify ? kept : [],
+          added,
+        };
+      },
+      checked,
+    );
     if (outcome.notify.length > 0) {
       await this.notices.send('appointment.changed', businessId, id, { clientIds: outcome.notify });
     }
@@ -898,6 +1034,7 @@ export class SchedulingWriteService {
     officeId: string | null | undefined,
     roomId: string | null | undefined,
     keepOfficeId: string | null = null,
+    keepRoomId: string | null = null,
   ): Promise<{ officeId: string | null; roomId: string | null }> {
     if (!officeId && !roomId) return { officeId: null, roomId: null };
     if (kind !== 'IN_PERSON') {
@@ -911,13 +1048,49 @@ export class SchedulingWriteService {
     if (!office) throw errors.notFound();
     if (office.status !== 'ACTIVE' && office.id !== keepOfficeId) throw inactiveOffice();
     if (roomId) {
+      // An archived room keeps an appointment that already holds it (A2: Archive).
       const room = await tx.firmRoom.findFirst({
-        where: { businessId, officeId, id: roomId, archivedAt: null },
-        select: { id: true },
+        where: { businessId, officeId, id: roomId },
+        select: { id: true, archivedAt: true },
       });
-      if (!room) throw errors.notFound();
+      if (!room || (room.archivedAt && room.id !== keepRoomId)) throw errors.notFound();
     }
     return { officeId, roomId: roomId ?? null };
+  }
+
+  /**
+   * Review 2 (A2): the equipment to book, lower-case ids: live items of this firm (one the
+   * appointment already holds may be archived since; else 404), an office's own only for an
+   * in-person appointment at that office (400 at `equipmentIds`).
+   */
+  private async equipmentFor(
+    tx: TxClient,
+    businessId: string,
+    kind: StoredKind,
+    officeId: string | null,
+    ids: readonly string[],
+    held: readonly string[] = [],
+  ): Promise<string[]> {
+    const wanted = [...new Set(ids.map((i) => i.toLowerCase()))];
+    if (wanted.length === 0) return [];
+    const rows = await tx.firmEquipment.findMany({
+      where: { businessId, id: { in: wanted } },
+      select: { id: true, name: true, officeId: true, archivedAt: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id.toLowerCase(), r]));
+    for (const id of wanted) {
+      const item = byId.get(id);
+      if (!item || (item.archivedAt && !held.includes(id))) throw errors.notFound();
+      const atItsOffice =
+        kind === 'IN_PERSON' && officeId?.toLowerCase() === item.officeId?.toLowerCase();
+      if (item.officeId && !atItsOffice) {
+        throw errors.invalidField(
+          'equipmentIds',
+          `${item.name} belongs to one office. Choose it for an in-person appointment there.`,
+        );
+      }
+    }
+    return wanted;
   }
 
   private async hasVideoIntegration(tx: TxClient, businessId: string): Promise<boolean> {
@@ -1094,8 +1267,14 @@ export class SchedulingWriteService {
     tx: TxClient,
     businessId: string,
     actor: FirmActor,
-    input: { staff: MemberRef[]; candidate: Candidate; override: string | undefined },
+    input: {
+      staff: MemberRef[];
+      candidate: Candidate;
+      override: string | undefined;
+      checked?: Checked;
+    },
   ): Promise<void> {
+    if (input.checked) input.checked.input = { staff: input.staff, candidate: input.candidate };
     const timeZone = await firmTimeZone(tx, businessId);
     const data = await loadConflictData(
       tx,
@@ -1106,6 +1285,7 @@ export class SchedulingWriteService {
       input.candidate.clientId,
       input.candidate.roomId,
       input.candidate.attendeeClientIds,
+      input.candidate.equipmentIds,
     );
     const { result, found } = toResult(data, input.candidate, actor);
     if (result.ok) return;

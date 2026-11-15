@@ -26,7 +26,7 @@ const MAX_DRAFT_BYTES = 65_536;
  * Save as Draft (Appointments Review 2; Rasel's approval through the lead, Nov 14): the Schedule
  * Appointment form kept before it is booked. Each member reads, saves and deletes only their own
  * drafts (anyone else's is 404, as another firm's). A draft keeps the form as it is, but every
- * record it names (client, lead, type, service, staff, office, room) must be this firm's and in the
+ * record it names (client, lead, type, service, staff, office, room, equipment) must be this firm's and in the
  * member's reach (404 otherwise), and what a booking cannot keep (related items) is refused as at
  * scheduling. Scheduling a draft deletes it in the booking's transaction
  * (SchedulingWriteService). Audit rows hold ids only.
@@ -230,6 +230,12 @@ export class AppointmentDraftsService {
       await exists(tx.firmOffice.findFirst({ where: { businessId, id: body.officeId }, ...pick }));
     if (body.roomId)
       await exists(tx.firmRoom.findFirst({ where: { businessId, id: body.roomId }, ...pick }));
+    // Review 2 (A2): every item a draft names is this firm's.
+    const items = [...new Set((body.equipmentIds ?? []).map((i) => i.toLowerCase()))];
+    if (items.length > 0) {
+      const found = await tx.firmEquipment.count({ where: { businessId, id: { in: items } } });
+      if (found !== items.length) throw errors.notFound();
+    }
     for (const userId of body.staffUserIds ?? []) await activeMember(tx, businessId, userId);
     // A1: the other attendees, each a client the member may book (as the contact).
     const own = contact?.kind === 'CLIENT' ? contact.id : null;
