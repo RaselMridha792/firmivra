@@ -1,4 +1,6 @@
-import { type MyAnnouncementsClient, MyAnnouncementList } from '@firmivra/types';
+import { ApiRequestError, type MyAnnouncementsClient, MyAnnouncementList } from '@firmivra/types';
+
+const LIVE = ['01a14ebc-7954-75a4-be30-0ba529ae3a02', '01a14ebc-7954-75a4-be30-0ba529ae3a01'];
 
 /**
  * `api.myAnnouncements(slug)` in mock mode: two live announcements published to the sample
@@ -29,5 +31,10 @@ export function myAnnouncementsMock(): MyAnnouncementsClient {
           },
         ],
       }),
+    // As the API (C26): only one of the client's live announcements can be opened.
+    opened: async (id: string) => {
+      if (!LIVE.includes(id)) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      return { ok: true as const };
+    },
   };
 }
