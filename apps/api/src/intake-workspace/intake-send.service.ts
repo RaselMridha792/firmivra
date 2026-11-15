@@ -415,7 +415,8 @@ export class IntakeSendService {
       );
       // A lead's secure link: the token for the email only, its hash kept on the intake.
       const link = to.leadId ? newLeadLink(dates.expiresAt) : null;
-      const reminders = body.reminders?.enabled ?? settings?.remindersEnabled ?? true;
+      // Review Two 22 (P2-5): the firm's No reminders holds; a send can only turn them off.
+      const reminders = (settings?.remindersEnabled ?? true) && (body.reminders?.enabled ?? true);
       const data = {
         ...dates,
         ...(link?.data ?? {}),

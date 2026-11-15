@@ -21,7 +21,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { UploadsService } from '../storage/uploads.service.js';
 import { refusal } from '../storage/document-records.js';
-import { checkIntakeFileSize } from './intake-file-size.js';
+import { checkIntakeFileSize, checkIntakeFileType } from './intake-file-size.js';
 import { readDefinition } from './intake-forms.js';
 import { requireChangeable, toIntakeUpload, uploadSelect } from './intakes.service.js';
 
@@ -75,6 +75,7 @@ export class IntakeUploadsService {
     const target = await this.inFirm(who.businessId, async (tx) => {
       const slot = await this.checkSlot(tx, who, intakeId, body.slot);
       await checkIntakeFileSize(tx, who.businessId, body.sizeBytes);
+      await checkIntakeFileType(tx, who.businessId, body.contentType);
       return slot;
     });
     return this.uploads.ticket({
