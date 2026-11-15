@@ -1,7 +1,13 @@
 import { INTAKE_FILE_SIZE_CHOICES } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
 import { IntakeSettings, UpdateIntakeSettingsRequest } from '@firmivra/types';
-import { changesOf, fileSizeOptions, legacyRetentionNote, toDraft } from './settings-model';
+import {
+  changesOf,
+  fileSizeOptions,
+  legacyRetentionNote,
+  retentionKeptLine,
+  toDraft,
+} from './settings-model';
 
 describe('fileSizeOptions (Max file size per file, I10)', () => {
   it('offers 2, 5, 10, 50 and 100 MB when the saved size is one of them', () => {
@@ -94,5 +100,19 @@ describe('a save with a saved Apply to all over 30 (Review Two 14b)', () => {
       retention: { ...before.security.retention, systemEmails: 4 },
     });
     expect(UpdateIntakeSettingsRequest.safeParse({ version: 'v1', ...body }).success).toBe(true);
+  });
+});
+
+describe('retentionKeptLine (the Security panel, Review Two 14b)', () => {
+  it('says how long after the job a record is kept, with the date for a job completed today', () => {
+    expect(retentionKeptLine(7, new Date('2026-11-15T10:00:00Z'))).toBe(
+      'Kept until 7 years after its job is completed (a job completed today: until Nov 15, 2033). While its job isn’t completed, or if it has none, it is kept.',
+    );
+    expect(retentionKeptLine(1, new Date('2024-02-29T10:00:00Z'))).toContain(
+      '1 year after its job is completed (a job completed today: until Mar 1, 2025)',
+    );
+  });
+  it('says nothing holds a category with no minimum', () => {
+    expect(retentionKeptLine(null)).toBe('No minimum: nothing holds these records.');
   });
 });

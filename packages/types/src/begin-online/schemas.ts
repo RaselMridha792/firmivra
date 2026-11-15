@@ -217,12 +217,33 @@ export const StartBeginDraftRequest = z.strictObject({
 });
 export type StartBeginDraftRequest = z.input<typeof StartBeginDraftRequest>;
 
+/** One of a link's utm_ values: plain text (letters, digits, spaces and . _ - + / % : & ( )). */
+const UtmValue = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[\p{L}\p{N} ._\-+/%:&()]+$/u, 'Use plain text');
+
+/**
+ * Leads Review Two, row 24: the campaign of the shared link a visitor came by (its utm_source,
+ * utm_medium and utm_campaign), kept as the lead's source detail.
+ */
+export const ShareCampaign = z.strictObject({
+  source: UtmValue.optional(),
+  medium: UtmValue.optional(),
+  campaign: UtmValue.optional(),
+});
+export type ShareCampaign = z.input<typeof ShareCampaign>;
+
 /**
  * POST /portal/{slug}/begin/share/{token}/draft (INTAKE-ACCESS-02): the start card of a shared
  * form. `website` is a field people never see (a honeypot): a value there is refused.
+ * `utm`: the link's campaign (Leads row 24).
  */
 export const StartShareDraftRequest = StartBeginDraftRequest.extend({
   website: z.string().max(200).optional(),
+  utm: ShareCampaign.optional(),
 });
 export type StartShareDraftRequest = z.input<typeof StartShareDraftRequest>;
 

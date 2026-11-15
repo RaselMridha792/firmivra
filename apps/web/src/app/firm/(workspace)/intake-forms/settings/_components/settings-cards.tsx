@@ -30,6 +30,7 @@ import {
   type FileType,
   FINAL_REMINDER_MINUTES,
   legacyRetentionNote,
+  retentionKeptLine,
   REMINDER_MINUTES,
   fileSizeOptions,
   type Group,
@@ -675,8 +676,9 @@ function RetentionFields({
         <h3 className="text-sm font-semibold text-heading">Minimum retention</h3>
         <p className="text-xs text-muted">
           How long each kind of record is kept at least, in years (1 to 30). Each minimum counts
-          from when the record’s job or task is completed. When it ends, the information stays:
-          nothing is deleted or archived. A record with no job or task is kept and not counted yet.
+          from when the record’s job or task is completed. A record whose job or task isn’t
+          completed, or that has none, is kept. When a minimum ends, the information stays: nothing
+          is deleted or archived.
         </p>
       </div>
       <div className="flex flex-col gap-2">
@@ -736,6 +738,9 @@ function RetentionFields({
                   In effect: {yearsText(effective)}
                   {own === null && effective !== null ? ' (Apply to all)' : ''}.
                 </span>
+              </p>
+              <p className="text-xs text-text" data-testid={`retention-kept-${c.key}`}>
+                {retentionKeptLine(effective)}
               </p>
             </li>
           );
