@@ -72,6 +72,12 @@ const PAGE = 10;
  * search, filters and sort live in the address (RP-F03, F12), so a report opened from here comes
  * back to the same place, by the page's Back and by the browser's.
  */
+/** C18 (Tax Planning Review 2): service areas inside a category, by their reports' data source. */
+const SERVICE_AREAS = [
+  { value: 'TAX:tax_plans', label: 'Tax Planning' },
+  { value: 'TAX:tax_returns', label: 'Tax Returns' },
+];
+
 export function ReportsLibrary() {
   const params = useSearchParams();
   const pathname = usePathname();
@@ -81,6 +87,8 @@ export function ReportsLibrary() {
   const page = Math.max(1, Number(params.get('page')) || 1);
   const search = params.get('q') ?? '';
   const category = params.get('category') ?? '';
+  // C18 (Tax Planning Review 2): one service area inside a category (Tax Planning, Tax Returns).
+  const source = params.get('source') ?? '';
   const sort =
     SORTS[tab].find((s) => s.value === params.get('sort'))?.value ?? SORTS[tab][0]?.value;
   const show = params.get('show') ?? '';
@@ -124,25 +132,29 @@ export function ReportsLibrary() {
     if (await act(() => api.reports.restoreSaved(r.id), 'Restored.')) setArchivedNow(undefined);
   };
   const [sortField, direction] = (sort ?? '').split(':') as [string, 'asc' | 'desc'];
-  const recent = useApiQuery([...RP_KEY, 'lib-recent', page, query, category, sort, show], () =>
-    api.reports.recent({
-      page,
-      pageSize: PAGE,
-      ...(query ? { search: query } : {}),
-      ...(category ? { category: category as never } : {}),
-      ...(show ? { kind: show as never } : {}),
-      sort: sortField as never,
-      direction,
-    }),
+  const recent = useApiQuery(
+    [...RP_KEY, 'lib-recent', page, query, category, source, sort, show],
+    () =>
+      api.reports.recent({
+        page,
+        pageSize: PAGE,
+        ...(query ? { search: query } : {}),
+        ...(category ? { category: category as never } : {}),
+        ...(source ? { dataSource: source } : {}),
+        ...(show ? { kind: show as never } : {}),
+        sort: sortField as never,
+        direction,
+      }),
   );
   const saved = useApiQuery(
-    [...RP_KEY, 'lib-saved', page, query, category, sort, show, archived, updated],
+    [...RP_KEY, 'lib-saved', page, query, category, source, sort, show, archived, updated],
     () =>
       api.reports.saved({
         page,
         pageSize: PAGE,
         ...(query ? { search: query } : {}),
         ...(category ? { category: category as never } : {}),
+        ...(source ? { dataSource: source } : {}),
         tab: (show || 'all') as never,
         includeArchived: archived,
         ...(updated ? { updatedWithinDays: Number(updated) } : {}),
@@ -363,11 +375,16 @@ export function ReportsLibrary() {
           {tab === 'scheduled' ? null : (
             <Select
               label="Category"
-              value={category}
-              onChange={(e) => set({ category: e.target.value })}
+              value={source ? `${category}:${source}` : category}
+              onChange={(e) => {
+                const [cat = '', src = ''] = e.target.value.split(':');
+                set({ category: cat, source: src || null });
+              }}
               options={[
                 { value: '', label: 'All Categories' },
                 ...Object.entries(CATEGORY_META).map(([value, m]) => ({ value, label: m.label })),
+                // C18: the sidebar's service areas that share the Tax category.
+                ...SERVICE_AREAS,
               ]}
             />
           )}

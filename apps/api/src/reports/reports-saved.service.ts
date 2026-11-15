@@ -68,6 +68,7 @@ export class ReportsSavedService {
       const and: Prisma.ReportDefinitionWhereInput[] = [{ businessId }, this.reports.visible(ctx)];
       if (!q.includeArchived) and.push({ archivedAt: null });
       if (q.category) and.push({ category: q.category });
+      if (q.dataSource) and.push({ dataSource: q.dataSource });
       if (q.tab === 'mine') and.push({ ownerUserId: userId });
       if (q.tab === 'shared') and.push({ ownerUserId: { not: userId } });
       if (q.tab === 'favorites') and.push({ favorites: { some: { userId } } });

@@ -213,6 +213,29 @@ export const SYSTEM_REPORTS: readonly SystemDef[] = [
     dataSource: 'tax_returns',
     definition: { ...base, columns: [], groupBy: 'status', showTotals: true, showPercentage: true },
   },
+  // C18 (Tax Planning Review 2): the Tax Planning service area's own quick reports.
+  {
+    key: 'tax_plan_savings',
+    name: 'Projected Savings by Plan',
+    description: 'Each planning plan with its status and projected (estimated) savings.',
+    category: 'TAX',
+    dataSource: 'tax_plans',
+    definition: {
+      ...base,
+      columns: ['client', 'plan', 'planYear', 'status', 'assignedTo', 'projectedSavings'],
+      sortBy: 'projectedSavings',
+      sortDescending: true,
+      showTotals: true,
+    },
+  },
+  {
+    key: 'tax_plans_by_status',
+    name: 'Planning Plans by Status',
+    description: 'Planning plans by status, with their projected savings.',
+    category: 'TAX',
+    dataSource: 'tax_plans',
+    definition: { ...base, columns: [], groupBy: 'status', showTotals: true, showPercentage: true },
+  },
   {
     key: 'lead_sources',
     name: 'Lead Sources',

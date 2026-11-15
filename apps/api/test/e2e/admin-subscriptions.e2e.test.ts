@@ -35,7 +35,9 @@ const fx = inject('fixtures');
 const BASE = '/api/v1/admin/subscriptions';
 const run = randomUUID().slice(0, 8);
 const RUN = run.toUpperCase();
-const today = new Date().toISOString().slice(0, 10);
+// The platform's billing day is the UTC day (GET /meta says so). Read when used, never once at
+// load: a shard that starts before midnight UTC and checks after it must use the API's new day.
+const today = () => new Date().toISOString().slice(0, 10);
 const asDate = (day: string) => new Date(`${day}T00:00:00.000Z`);
 
 const FIRMS = [
@@ -150,7 +152,7 @@ async function payOpen(firmId: string) {
           amountCents: i.totalCents - i.paidCents - i.creditedCents,
           method: 'CHECK',
           status: 'COMPLETED',
-          paidOn: asDate(today),
+          paidOn: asDate(today()),
           idempotencyKey: randomUUID(),
           recordedByUserId: fx.users.admin.id,
         },
@@ -208,10 +210,10 @@ beforeAll(async () => {
     });
     // The daily firm rollup counts four staff logins for this firm.
     await tx.platformFirmMetricsDaily.create({
-      data: { day: asDate(today), businessId: firms.inuse.id, totalUsers: 4 },
+      data: { day: asDate(today()), businessId: firms.inuse.id, totalUsers: 4 },
     });
     // The MRR rollup's row for 30 days ago (the KPI row's "previous").
-    const comparedWith = asDate(subscriptionAddDays(today, -30));
+    const comparedWith = asDate(subscriptionAddDays(today(), -30));
     await tx.platformMrrDaily.upsert({
       where: { day: comparedWith },
       create: {
@@ -300,7 +302,7 @@ describe('who may call', () => {
 describe('reference data', () => {
   it('GET /meta: today (UTC), the 14-day trial and the plans in display order', async () => {
     const meta = SubscriptionMeta.parse(ok(await call('get', '/meta')));
-    expect(meta.today).toBe(today);
+    expect(meta.today).toBe(today());
     expect(meta.trialDays).toBe(14);
     const mine = meta.plans.filter((p) => p.code.endsWith(`_${RUN}`));
     expect(mine.map((p) => p.code)).toEqual([
@@ -341,13 +343,13 @@ describe('Add Subscription and Start Trial', () => {
     expect(res.invoice).toBeNull();
     expect(res.subscription).toMatchObject({
       status: 'TRIAL',
-      trialEndsOn: subscriptionAddDays(today, 14),
+      trialEndsOn: subscriptionAddDays(today(), 14),
       nextBillingOn: null,
       priceCents: 10_000,
       seatsAllowed: 2,
     });
     const record = await detail(res.subscription.id);
-    expect(record.trial).toMatchObject({ endsOn: subscriptionAddDays(today, 14), daysLeft: 14 });
+    expect(record.trial).toMatchObject({ endsOn: subscriptionAddDays(today(), 14), daysLeft: 14 });
     expect(record.events.map((e) => e.action)).toEqual(['CREATED']);
     expect(record.events[0]).toMatchObject({ source: 'CHANGE', toStatus: 'TRIAL', toSeats: 2 });
     expect(await schedulesOf(res.subscription.id)).toEqual([]);
@@ -355,7 +357,7 @@ describe('Add Subscription and Start Trial', () => {
 
   it('POST / PAID: Active today, its schedule made and the first period invoiced', async () => {
     const res = await subscribe('paid');
-    const next = subscriptionAddMonths(today, 1);
+    const next = subscriptionAddMonths(today(), 1);
     expect(res.subscription).toMatchObject({
       status: 'ACTIVE',
       priceCents: 12_000,
@@ -380,7 +382,7 @@ describe('Add Subscription and Start Trial', () => {
       sendError: 'EMAIL_NOT_SET_UP',
     });
     expect(record.amountDueCents).toBe(12_000);
-    expect(record).toMatchObject({ currentPeriodStart: today, paidThroughOn: next });
+    expect(record).toMatchObject({ currentPeriodStart: today(), paidThroughOn: next });
   });
 
   it('POST / refusals: one per firm, approved firms, billable firms, seats, locations, plans', async () => {
@@ -419,7 +421,7 @@ describe('plan, cycle, seats and locations', () => {
     const before = await detail(id);
     const meta = SubscriptionMeta.parse(ok(await call('get', '/meta')));
     const pro = meta.plans.find((p) => p.id === plans.pro)!;
-    const preview = previewSubscriptionChange(before, pro, { billingCycle: 'MONTHLY' }, today);
+    const preview = previewSubscriptionChange(before, pro, { billingCycle: 'MONTHLY' }, today());
     expect(preview.amountCents).toBe(30_000 - 12_000);
     const res = result(await post(id, 'plan', { planId: plans.pro, billingCycle: 'MONTHLY' }));
     expect(res.invoice).toMatchObject({ totalCents: preview.amountCents });
@@ -447,7 +449,7 @@ describe('plan, cycle, seats and locations', () => {
       billingCycle: 'ANNUAL',
       priceCents: 360_000,
       monthlyCents: 30_000,
-      nextBillingOn: subscriptionAddMonths(today, 12),
+      nextBillingOn: subscriptionAddMonths(today(), 12),
     });
     expect(res.invoice).toMatchObject({ totalCents: 360_000 - 30_000 });
     const [schedule] = await schedulesOf(id);
@@ -529,12 +531,12 @@ describe('the trial', () => {
     const res = result(
       await post(id, 'extend-trial', { days: 7, reason: 'Fake: still onboarding' }),
     );
-    expect(res.subscription.trialEndsOn).toBe(subscriptionAddDays(today, 21));
+    expect(res.subscription.trialEndsOn).toBe(subscriptionAddDays(today(), 21));
     const event = (await detail(id)).events[0]!;
     expect(event).toMatchObject({
       action: 'TRIAL_EXTENDED',
-      fromDay: subscriptionAddDays(today, 14),
-      toDay: subscriptionAddDays(today, 21),
+      fromDay: subscriptionAddDays(today(), 14),
+      toDay: subscriptionAddDays(today(), 21),
       reason: 'Fake: still onboarding',
     });
     const row = (await auditsOf(id)).find((a) => a.action === 'subscription.trial_extended')!;
@@ -557,11 +559,11 @@ describe('the trial', () => {
       status: 'ACTIVE',
       plan: { id: plans.pro },
       seatsAllowed: 3,
-      nextBillingOn: subscriptionAddMonths(today, 1),
+      nextBillingOn: subscriptionAddMonths(today(), 1),
     });
     expect(res.invoice).toMatchObject({ totalCents: 30_000 });
     const record = await detail(subs.convert!);
-    expect(record.trial).toMatchObject({ convertedOn: today, daysLeft: 0 });
+    expect(record.trial).toMatchObject({ convertedOn: today(), daysLeft: 0 });
     expect(record.events[0]).toMatchObject({
       action: 'STATUS_CHANGED',
       fromStatus: 'TRIAL',
@@ -596,7 +598,7 @@ describe('Auto-Renew, suspension and reactivation', () => {
         notes: 'Fake: client wrote in',
       }),
     );
-    const end = subscriptionAddMonths(today, 1);
+    const end = subscriptionAddMonths(today(), 1);
     expect(off.subscription).toMatchObject({
       status: 'NON_RENEWING',
       autoRenew: false,
@@ -639,7 +641,7 @@ describe('Auto-Renew, suspension and reactivation', () => {
     result(
       await post(id, 'auto-renew/off', { confirmed: true, source: 'PHONE', notes: 'Fake: no' }),
     );
-    expect((await detail(id)).accessEndsOn).toBe(subscriptionAddDays(today, 21));
+    expect((await detail(id)).accessEndsOn).toBe(subscriptionAddDays(today(), 21));
     result(await post(id, 'auto-renew/on', { autoRenewOn: true, reason: 'Fake: yes after all' }));
     expect((await detail(id)).events[0]).toMatchObject({
       source: 'AUDIT',
@@ -665,7 +667,7 @@ describe('Auto-Renew, suspension and reactivation', () => {
     const back = result(await post(id, 'reactivate', { reason: 'Fake: cleared' }));
     expect(back.subscription).toMatchObject({
       status: 'ACTIVE',
-      nextBillingOn: subscriptionAddMonths(today, 1),
+      nextBillingOn: subscriptionAddMonths(today(), 1),
     });
     expect(back.invoice).toBeNull();
     expect((await schedulesOf(id))[0]!.status).toBe('ACTIVE');
@@ -714,7 +716,7 @@ describe('Auto-Renew, suspension and reactivation', () => {
     expect(closed.subscription).toMatchObject({
       status: 'CANCELLED',
       autoRenew: false,
-      accessEndsOn: today,
+      accessEndsOn: today(),
       nextBillingOn: null,
       monthlyCents: 12_000,
     });
@@ -799,19 +801,19 @@ describe('billing terms', () => {
     const id = subs.date!;
     refused(
       await post(subs.trial!, 'billing-date', {
-        date: subscriptionAddDays(today, 5),
+        date: subscriptionAddDays(today(), 5),
         reason: 'Fake',
       }),
       409,
       'NO_BILLING_DATE',
     );
     refused(
-      await post(id, 'billing-date', { date: today, reason: 'Fake' }),
+      await post(id, 'billing-date', { date: today(), reason: 'Fake' }),
       422,
       'BILLING_DATE_OUT_OF_RANGE',
     );
     refused(
-      await post(id, 'billing-date', { date: subscriptionAddMonths(today, 2), reason: 'Fake' }),
+      await post(id, 'billing-date', { date: subscriptionAddMonths(today(), 2), reason: 'Fake' }),
       422,
       'BILLING_DATE_OUT_OF_RANGE',
     );
@@ -821,7 +823,7 @@ describe('billing terms', () => {
       422,
       'NO_CHANGE',
     );
-    const earlier = subscriptionAddDays(today, 10);
+    const earlier = subscriptionAddDays(today(), 10);
     const credit = subscriptionBillingDateCents(before, earlier);
     expect(credit).toBeLessThan(0);
     const moved = result(await post(id, 'billing-date', { date: earlier, reason: 'Fake: align' }));
@@ -830,7 +832,7 @@ describe('billing terms', () => {
     const after = await detail(id);
     expect(after.currentPeriodEnd).toBe(earlier);
     expect(after.currentPeriodStart).toBe(subscriptionAddMonths(earlier, -1));
-    const later = subscriptionAddDays(today, 20);
+    const later = subscriptionAddDays(today(), 20);
     const charge = subscriptionBillingDateCents(after, later);
     expect(charge).toBeGreaterThan(0);
     const back = result(await post(id, 'billing-date', { date: later, reason: 'Fake: again' }));
@@ -886,9 +888,9 @@ describe('notes, the table, the KPI row and the export', () => {
     expect(soon.items.map((r) => r.id)).toContain(subs.date);
     for (const r of soon.items) {
       expect(r.autoRenew).toBe(true);
-      expect(r.nextBillingOn! <= subscriptionAddDays(today, 30)).toBe(true);
+      expect(r.nextBillingOn! <= subscriptionAddDays(today(), 30)).toBe(true);
     }
-    refused(await call('get', `?from=${today}`), 400, 'VALIDATION_FAILED');
+    refused(await call('get', `?from=${today()}`), 400, 'VALIDATION_FAILED');
   });
 
   it('GET /summary: the cards now and on the rollup’s day 30 days ago; churn from the history', async () => {
@@ -900,7 +902,7 @@ describe('notes, the table, the KPI row and the export', () => {
           subscriptionId: subs.renew!,
           kind: 'STATUS_CHANGED',
           toStatus: 'ACTIVE',
-          effectiveAt: asDate(subscriptionAddDays(today, -3)),
+          effectiveAt: asDate(subscriptionAddDays(today(), -3)),
         },
       }),
     );
@@ -912,14 +914,14 @@ describe('notes, the table, the KPI row and the export', () => {
       }),
     );
     const s = SubscriptionSummary.parse(
-      ok(await call('get', `/summary?from=${today}&to=${today}`)),
+      ok(await call('get', `/summary?from=${today()}&to=${today()}`)),
     );
     expect(s).toMatchObject({
-      from: today,
-      to: today,
-      previousFrom: subscriptionAddDays(today, -1),
-      previousTo: subscriptionAddDays(today, -1),
-      comparedWith: subscriptionAddDays(today, -30),
+      from: today(),
+      to: today(),
+      previousFrom: subscriptionAddDays(today(), -1),
+      previousTo: subscriptionAddDays(today(), -1),
+      comparedWith: subscriptionAddDays(today(), -30),
       active: { previous: 7 },
       trial: { previous: 3 },
       mrrCents: { previous: 123_400 },
@@ -932,7 +934,7 @@ describe('notes, the table, the KPI row and the export', () => {
     expect(s.churn.churned).toBeGreaterThanOrEqual(1);
     expect(s.churn.rateBp).toBe(Math.round((s.churn.churned * 10_000) / s.churn.base));
     const month = SubscriptionSummary.parse(ok(await call('get', '/summary')));
-    expect(month.from).toBe(`${today.slice(0, 7)}-01`);
+    expect(month.from).toBe(`${today().slice(0, 7)}-01`);
   });
 
   it('GET /export: a CSV of the ids given, formula-safe, with an EXPORTED event on each', async () => {
