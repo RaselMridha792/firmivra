@@ -173,8 +173,9 @@ function Row({
  */
 function NotActiveYet() {
   return (
-    <Badge tone="neutral" title="Saved, but Firmivra does not act on this setting yet">
+    <Badge tone="neutral">
       Not active yet
+      <span className="sr-only">: saved, but Firmivra does not act on this setting yet</span>
     </Badge>
   );
 }
