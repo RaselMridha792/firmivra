@@ -15,6 +15,7 @@ import { LeadProfile, LeadSequenceTemplate, previewSequence } from '@firmivra/ty
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -22,6 +23,8 @@ const person = (key: string) => ({ id: randomUUID(), email: `r55sq-${key}-${run}
 const people = { ownerA: person('owner-a'), staffA: person('staff-a'), ownerB: person('owner-b') };
 const ids = { firmA: '', firmB: '', tax: '' };
 let app: INestApplication;
+/** Every email or text the API hands to NotifyService (R2 19 checks: a sequence sends none). */
+const outbox: NotifyMessage[] = [];
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -131,7 +134,15 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -279,5 +290,63 @@ describe('Leads R2 19: follow-up sequences', () => {
       409,
       'LEAD_CLOSED',
     );
+  });
+
+  it('R2 19 checks: applying a sequence with an outreach step sends nothing; converting stops it and keeps its steps', async () => {
+    const lead = await newLead({ phone: '(555) 019-7700' });
+    const steps = previewSequence(welcome, {
+      startOn: '2030-06-01',
+      leadOwnerId: people.staffA.id,
+      applierId: people.ownerA.id,
+    });
+    expect(steps.map((s) => [s.actionType, s.mode])).toEqual([
+      ['CALL', 'REMINDER'],
+      ['EMAIL', 'OUTREACH'],
+    ]);
+    outbox.length = 0;
+    const applied = LeadProfile.parse(
+      ok(
+        await call('post', `/leads/${lead.id}/sequences`, people.ownerA, {
+          templateId: welcome.id,
+          steps,
+        }),
+      ),
+    );
+    expect(applied.followUps.filter((f) => f.sequence === welcome.name)).toHaveLength(2);
+    // Nothing went out: no email or text handed over, none queued for the lead, none logged on it.
+    expect(outbox).toEqual([]);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const queued = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.outboundMessageRecipient.count({ where: { businessId: ids.firmA, leadId: lead.id } }),
+    );
+    await owner.$disconnect();
+    expect(queued).toBe(0);
+    const kinds = applied.recentActivity.map((a) => a.kind);
+    expect(kinds).not.toContain('EMAIL_SENT');
+    expect(kinds).not.toContain('SMS_SENT');
+
+    ok(
+      await call('post', `/leads/${lead.id}/convert-to-client`, people.ownerA, {
+        idempotencyKey: randomUUID(),
+        accountType: 'INDIVIDUAL',
+        fullName: 'Sam Sequence',
+        email: lead.email,
+        phone: '+15550197700',
+        serviceIds: [ids.tax],
+        primaryStaffUserId: people.staffA.id,
+      }),
+    );
+    const converted = LeadProfile.parse(
+      ok(await call('get', `/leads/${lead.id}/profile`, people.ownerA)),
+    );
+    expect(converted.stage).toBe('CONVERTED');
+    expect(converted.sequences?.[0]).toMatchObject({
+      templateId: welcome.id,
+      stopReason: 'Converted',
+    });
+    expect(converted.sequences?.[0]?.stoppedAt).not.toBeNull();
+    expect(converted.followUps.filter((f) => f.sequence === welcome.name)).toHaveLength(2);
+    // The conversion's own invitation only: still no message from the sequence.
+    expect(outbox.map((m) => m.template)).toEqual(['client.portal-invite']);
   });
 });
