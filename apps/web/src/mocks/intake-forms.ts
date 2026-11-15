@@ -954,11 +954,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       if (input.serviceId && !service) {
         throw fail(404, 'NOT_FOUND', 'Not found');
       }
+      // Review Two 17c as the API (intake-builder.service.ts serviceFor): with no service named,
+      // the firm's service of the category; none (an Other form has none) is a 400.
+      const filed =
+        service ??
+        (input.category === 'OTHER'
+          ? undefined
+          : s.forms.find((form) => form.category === input.category && form.service));
+      if (!filed) throw fail(400, 'VALIDATION_FAILED', 'Choose the service this form is for');
       const f: IntakeFormDetail = {
         id: uuid('0f00', s.next++),
         name: input.name,
-        category: service?.category ?? input.category,
-        service: service?.service ?? null,
+        category: filed.category,
+        service: filed.service ?? null,
         description: input.description ?? null,
         isTemplate: input.isTemplate,
         custom: true,
