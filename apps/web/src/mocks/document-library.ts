@@ -37,6 +37,7 @@ import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
 import { mockDocumentLimitMb, setMockDocumentLimitMb } from './documents';
 import { SAMPLE_PDF_URL } from './esign-common';
+import { teamFixtures } from './team';
 
 // Synthetic folders and the upload step of the firm's document library (R55 contract,
 // `api.documentLibrary`) for mock mode. Uploads go through the documents mock (`api.documents`),
@@ -849,12 +850,17 @@ export function createDocumentLibraryMock(options: {
       const r = input.recipient;
       if (r.kind === 'CLIENT' && d.direction === 'INTERNAL')
         throw new ApiRequestError(409, 'INTERNAL_DOCUMENT', 'Internal document');
+      // As the API: any active member of the firm, the people Share Access lists (the team mock's
+      // active members) as well as this mock's own (Clients Review 2, C2-049).
       const who =
         r.kind === 'CLIENT'
           ? loginsOf(d.client.id).find((l) => l.id === r.clientAccountId)
-          : MEMBERS.map((m) => ({ id: m.userId, name: m.name, email: null })).find(
-              (m) => m.id === r.userId,
-            );
+          : [
+              ...MEMBERS.map((m) => ({ id: m.userId, name: m.name, email: null })),
+              ...teamFixtures()
+                .filter((m) => m.status === 'ACTIVE')
+                .map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email })),
+            ].find((m) => m.id === r.userId);
       if (!who) throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
       if (list.some((g) => g.recipient.kind === r.kind && g.recipient.id === who.id))
         throw new ApiRequestError(409, 'SHARE_EXISTS', 'Already shared');
