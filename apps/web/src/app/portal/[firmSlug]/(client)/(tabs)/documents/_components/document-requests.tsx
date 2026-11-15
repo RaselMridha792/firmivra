@@ -133,7 +133,13 @@ function RequestRow({
         <p className="flex-1 font-semibold text-heading">{r.title}</p>
         <Badge tone={tone}>{label}</Badge>
       </div>
-      <p className="text-sm text-muted">{r.service.title}</p>
+      <p className="text-sm text-muted">
+        {r.service.title}
+        {/* F10b: a request made from a tax return names its year. */}
+        {r.taxYear ? (
+          <span data-testid="request-tax-year">{` · Tax year ${r.taxYear}`}</span>
+        ) : null}
+      </p>
       {/* Review 2 (Payroll F02): the due date on its own line, as a date. */}
       {r.dueOn ? (
         <p className="text-sm font-medium text-heading" data-testid="request-due">

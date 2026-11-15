@@ -164,7 +164,12 @@ export const cases: CaseModule['cases'] = {
       templateId: 'invoiceTemplate',
       documentIds: 'document',
     },
-    body: { lines: [{ description: 'Fake service', unitAmountCents: 5_000 }], dueOn: day(20) },
+    // I-N06: a reason (needed once it is scheduled or sent; a draft takes it too).
+    body: {
+      lines: [{ description: 'Fake service', unitAmountCents: 5_000 }],
+      dueOn: day(20),
+      reason: 'Fake correction',
+    },
   },
   // Found, but a draft with no lines has nothing to pay.
   'POST /api/v1/business/invoices/:id/send': { params: { id: 'invoice' }, expect: 409 },
