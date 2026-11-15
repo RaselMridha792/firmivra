@@ -86,6 +86,8 @@ const intake = {
   signature: null,
   canEdit: true,
   canSubmit: true,
+  consentRequired: true,
+  completion: { message: null, redirectUrl: null },
 };
 
 describe('api.myIntakes(firmSlug)', () => {
