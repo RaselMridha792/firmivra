@@ -43,6 +43,7 @@ import {
   createMessagesClient,
   createMyAppointmentsClient,
   createMyWaitlistClient,
+  createAppointmentWaitlistClient,
   createPublicBookingClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,
@@ -77,6 +78,7 @@ import {
   createRequest,
   createRolesClient,
   createSchedulingClient,
+  createAppointmentResourcesClient,
   createServicesPricingClient,
   createSettingsClient,
   createSettingsOverviewClient,
@@ -122,7 +124,7 @@ import {
   myIntakeAgreementsMock,
   publicAgreementsMock,
 } from '../mocks/agreements';
-import { myWaitlistMock } from '../mocks/appointment-waitlist';
+import { createAppointmentWaitlistMock, myWaitlistMock } from '../mocks/appointment-waitlist';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createLocationsMock } from '../mocks/locations';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
@@ -184,6 +186,7 @@ import {
   createUsersMock,
 } from '../mocks/settings-admin';
 import { createSchedulingMock } from '../mocks/appointments-scheduling';
+import { createAppointmentResourcesMock } from '../mocks/appointment-resources';
 import { createDepartmentsMock, createRolesMock, createStaffMock } from '../mocks/staff-management';
 import { createMySecurityMock } from '../mocks/my-security';
 import { createMfaPolicyMock } from '../mocks/mfa-policy';
@@ -424,6 +427,16 @@ export const api = {
     dev && mocked('scheduling')
       ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
       : createSchedulingClient(request),
+  /** Appointments A3 (R55): the firm's waitlist requests, and its switch and mode. */
+  appointmentWaitlist:
+    dev && mocked('appointmentWaitlist')
+      ? createAppointmentWaitlistMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      : createAppointmentWaitlistClient(request),
+  /** Appointments Review 2 (A2): Settings > Appointment Settings' rooms and equipment. */
+  appointmentResources:
+    dev && mocked('appointmentResources')
+      ? createAppointmentResourcesMock({ role: MOCK_ROLE })
+      : createAppointmentResourcesClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')

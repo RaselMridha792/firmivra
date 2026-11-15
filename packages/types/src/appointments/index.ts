@@ -21,3 +21,8 @@ export {
   type AppointmentWaitlistClient,
   type MyWaitlistClient,
 } from './waitlist-client.js';
+export * from './resources.js';
+export {
+  createAppointmentResourcesClient,
+  type AppointmentResourcesClient,
+} from './resources-client.js';

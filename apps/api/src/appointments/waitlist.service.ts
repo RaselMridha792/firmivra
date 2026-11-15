@@ -472,6 +472,14 @@ export class AppointmentWaitlistService {
       );
       return this.entryIn(tx, businessId, id);
     });
+    // Staff decide on the appointment's page: a bell item for those who see the client.
+    const result = await this.notifier.notify({
+      businessId,
+      event: 'appointment.waitlist-requested',
+      recordId: appointmentId,
+      eventKey: `appointment.waitlist-requested:${id}:${row.requestedAt?.toISOString() ?? ''}`,
+    });
+    if (result.failed) this.logger.warn(`waitlist request ${id}: notice not written`);
     return toMine(row);
   }
 

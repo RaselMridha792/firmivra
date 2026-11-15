@@ -15,6 +15,8 @@ const menu: [label: string, href: string][] = [
   ['Client portal', '/settings/portal'],
   ['Terms & Privacy', '/settings/legal'],
   ['Availability', '/settings/availability'],
+  // Appointments Review 2 (A2): rooms and equipment (Owner and Admin).
+  ['Appointment Settings', '/settings/appointments'],
   ['Users & roles', '/settings/users'],
   ['Billing', '/settings/billing'],
   ['Payments', '/settings/payments'],
