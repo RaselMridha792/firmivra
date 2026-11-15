@@ -44,6 +44,7 @@ import {
   AdvisoryVersionList,
   AdvisoryVersionNumber,
   AdvisoryWorkstream,
+  AdvisoryWorkstreamEngagement,
   AdvisoryWorkstreamId,
   CreateAdvisoryActionItemRequest,
   CreateAdvisoryClientRequest,
@@ -140,6 +141,19 @@ export function createAdvisoryClient(request: ApiRequest) {
         AdvisoryWorkstream,
         `${advisoryClient(id)}/workstreams/${parseInput(AdvisoryWorkstreamId, workstreamId)}`,
         { method: 'PATCH', body: parseInput(UpdateAdvisoryWorkstreamRequest, body) },
+      ),
+    /**
+     * A-12, A-13: the engagement a service's files and requests go to, started if missing.
+     * 409 SERVICE_NOT_STARTED (not under way), SERVICE_PENDING (waiting for review).
+     */
+    workstreamEngagement: async (
+      id: string,
+      workstreamId: string,
+    ): Promise<AdvisoryWorkstreamEngagement> =>
+      request(
+        AdvisoryWorkstreamEngagement,
+        `${advisoryClient(id)}/workstreams/${parseInput(AdvisoryWorkstreamId, workstreamId)}/engagement`,
+        post(),
       ),
     /** The client's audited advisory activity. */
     activity: async (

@@ -42,6 +42,7 @@ import {
   consentRequiredError,
   intakeCompletion,
   intakeConsentRequired,
+  submittedNoticeExcludes,
 } from './intake-completion.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers } from './intake-numbers.js';
@@ -243,9 +244,16 @@ export class IntakesService {
     event: NotificationEvent,
     intakeId: string,
     actorUserId: string,
+    excludeUserIds?: string[],
   ): Promise<void> {
     try {
-      await this.notifier.notify({ businessId, event, recordId: intakeId, actorUserId });
+      await this.notifier.notify({
+        businessId,
+        event,
+        recordId: intakeId,
+        actorUserId,
+        ...(excludeUserIds ? { excludeUserIds } : {}),
+      });
     } catch (error) {
       this.logger.warn(`${event} for intake ${intakeId} not written (${errorName(error)})`);
     }
@@ -733,7 +741,11 @@ export class IntakesService {
       { type: 'intake', id },
       { version: draft.version, detached: hidden.length, ...consentEvidence(body.consent) },
     );
-    await this.tell(businessId, 'intake.submitted', id, login.userId);
+    // Row 23: Notify assigned staff member off leaves the assigned staff out of the notice.
+    const excludes = await this.inFirm(businessId, (tx) =>
+      submittedNoticeExcludes(tx, businessId, id),
+    );
+    await this.tell(businessId, 'intake.submitted', id, login.userId, excludes);
     // Intake Form Settings > Notify additional emails (I7): the form's title only, no answers.
     await sendSubmittedNotice(
       { database: this.database, notify: this.notify, env: this.env, logger: this.logger },

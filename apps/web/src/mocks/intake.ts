@@ -359,6 +359,9 @@ function checkRoom(definition: IntakeFormDefinition, files: readonly MockSlotFil
  * again (files confirmed since step 1 count, as the API checks inside the confirm transaction),
  * refuses what the API would refuse (by the file's name only) and stores the file.
  */
+/** Row 23: the mock firm's accepted file types for intake forms (the settings' default). */
+const MOCK_INTAKE_FILE_TYPES: readonly string[] = ['application/pdf', 'image/jpeg', 'image/png'];
+
 export function createMockSlotUploads(maxFileSizeMb: number = MOCK_INTAKE_FILE_SIZE_MB) {
   const pending = new Map<string, CreateIntakeUploadRequest & { owner: string }>();
   let next = 100;
@@ -379,6 +382,18 @@ export function createMockSlotUploads(maxFileSizeMb: number = MOCK_INTAKE_FILE_S
           undefined,
           undefined,
           [{ path: 'sizeBytes', message: tooLarge }],
+        );
+      }
+      // Row 23 as the API: the firm's accepted types for intake forms (PDF, JPG and PNG, the
+      // settings' default).
+      if (!MOCK_INTAKE_FILE_TYPES.includes(body.contentType)) {
+        throw new ApiRequestError(
+          400,
+          'VALIDATION_FAILED',
+          'The request is not valid',
+          undefined,
+          undefined,
+          [{ path: 'contentType', message: 'Your firm takes PDF, JPG or PNG files here' }],
         );
       }
       const token = `mock-slot-upload-${String(next++)}`;

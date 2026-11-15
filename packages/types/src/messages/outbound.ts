@@ -250,6 +250,11 @@ export type CancelOutboundRequest = z.input<typeof CancelOutboundRequest>;
 /** GET /business/outbound-messages: drafts and scheduled messages (Staff: their own). */
 export const ListOutboundQuery = z.strictObject({
   status: z.enum(['DRAFT', 'SCHEDULED']).optional(),
+  /**
+   * M24 (Messaging Review 2): only those to this client, shown under the client's conversation
+   * (404 for a client the member doesn't reach).
+   */
+  clientId: z.uuid().optional(),
 });
 export type ListOutboundQuery = z.input<typeof ListOutboundQuery>;
 export const OutboundMessageList = z.object({ items: z.array(OutboundMessage) });

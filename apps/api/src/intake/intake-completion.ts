@@ -50,3 +50,32 @@ export const consentRequiredError = () =>
 /** What the submit's audit keeps of the consent (no schema change: the audit log holds it). */
 export const consentEvidence = (consent: true | undefined) =>
   consent ? { consent: true, consentAt: new Date().toISOString() } : {};
+
+/**
+ * Review Two row 23 (P2-6): Intake Form Settings > Notify assigned staff member. On (the default):
+ * the submitted notice reaches the client's assigned member and every Owner and Admin, as for any
+ * client news. Off: the form's assignee and the client's assigned member are left out of it (the
+ * Owners and Admins still hear). The members to leave out, or undefined.
+ */
+export async function submittedNoticeExcludes(
+  tx: TxClient,
+  businessId: string,
+  intakeId: string,
+): Promise<string[] | undefined> {
+  const settings = await tx.intakeSettings.findUnique({
+    where: { businessId },
+    select: { notifyAssignedStaff: true },
+  });
+  if (settings?.notifyAssignedStaff ?? true) return undefined;
+  const row = await tx.intake.findFirst({
+    where: { businessId, id: intakeId },
+    select: {
+      assignedUserId: true,
+      engagement: { select: { client: { select: { assignedUserId: true } } } },
+    },
+  });
+  const ids = [row?.assignedUserId, row?.engagement?.client.assignedUserId].filter(
+    (id): id is string => !!id,
+  );
+  return ids.length ? [...new Set(ids)] : undefined;
+}

@@ -3,7 +3,7 @@
 import { type Expiry, ExpiryField } from '../../_components/expiry';
 import { CalendarBlank, XSquare } from '@phosphor-icons/react';
 import { Input, Toggle } from '@firmivra/ui';
-import { type ReactNode, useId } from 'react';
+import { type ReactNode, useEffect, useId } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorCode } from '../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -136,6 +136,7 @@ function Setting({
   label,
   text,
   action,
+  disabled,
 }: {
   title: string;
   checked: boolean;
@@ -143,12 +144,13 @@ function Setting({
   label: string;
   text: string;
   action?: ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm font-bold text-heading">{title}</p>
       <div className="flex items-center gap-3">
-        <Toggle checked={checked} onChange={onChange} label={label} />
+        <Toggle checked={checked} onChange={onChange} label={label} disabled={disabled} />
         <span className="min-w-0 flex-1 text-sm text-text">{text}</span>
         {action ? <span className="shrink-0">{action}</span> : null}
       </div>
@@ -185,6 +187,12 @@ export function MessagePanel({
     formId ? api.intakeForms.form(formId) : Promise.resolve(null),
   );
   const formDays = chosenForm.data ? chosenForm.data.settings.expiresAfterDays : undefined;
+  // Review Two 22: the firm's No reminders holds; this switch only turns them off for one form.
+  const firm = useApiQuery(['intake-forms', 'send', 'settings'], () => api.intakeForms.settings());
+  const firmOff = firm.data?.notifications.firstReminderAfterMinutes === null;
+  useEffect(() => {
+    if (firmOff && values.reminders) set({ reminders: false });
+  }, [firmOff, values.reminders, set]);
   const subjectId = useId();
   const subjectLabelId = useId();
   const messageId = useId();
@@ -254,13 +262,18 @@ export function MessagePanel({
       <Setting
         title="Send Reminders"
         label="Send reminders"
-        checked={values.reminders}
+        checked={values.reminders && !firmOff}
         onChange={(reminders) => set({ reminders })}
-        text="Yes, send reminder notifications"
+        disabled={firmOff}
+        text={
+          firmOff
+            ? 'Your firm sends no reminders (Intake Form Settings)'
+            : 'Yes, send reminder notifications'
+        }
         action={
           <button
             type="button"
-            disabled={!values.reminders}
+            disabled={!values.reminders || firmOff}
             onClick={onEditSchedule}
             className="text-sm font-medium text-link underline disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
           >

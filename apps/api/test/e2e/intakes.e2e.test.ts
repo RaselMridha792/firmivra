@@ -1356,6 +1356,36 @@ describe('portal: submit', () => {
     }
   });
 
+  it('row 23: an upload takes only the firm’s accepted file types (PDF, JPG and PNG until it sets them)', async () => {
+    const { intakeId } = sent;
+    const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const word = {
+      slot: 'incomeDocuments',
+      fileName: 'notes-fake.docx',
+      contentType: DOCX,
+      sizeBytes: 1024,
+      sha256: 'c'.repeat(64),
+    };
+    const refused = await portal('post', `/${intakeId}/uploads`, people.one, word);
+    expect(refused.status).toBe(400);
+    expect(codeOf(refused)).toBe('VALIDATION_FAILED');
+    expect(JSON.stringify(refused.body)).toContain('Your firm takes PDF, JPG or PNG files here');
+    const types = (acceptedFileTypes: string[]) =>
+      inFirm((tx) =>
+        tx.intakeSettings.upsert({
+          where: { businessId: ids.firmA },
+          create: { businessId: ids.firmA, acceptedFileTypes },
+          update: { acceptedFileTypes },
+        }),
+      );
+    await types(['application/pdf', 'image/jpeg', 'image/png', DOCX]);
+    try {
+      UploadTicket.parse(ok(await portal('post', `/${intakeId}/uploads`, people.one, word)).body);
+    } finally {
+      await types(['application/pdf', 'image/jpeg', 'image/png']);
+    }
+  });
+
   it('a save between the check and the lock starts the submit again; three in a row are 409 INTAKE_CHANGED', async () => {
     const { intakeId } = sent;
     signed.length = 0;
@@ -1401,11 +1431,16 @@ describe('portal: submit', () => {
     await inFirm((tx) =>
       tx.intakeSettings.upsert({
         where: { businessId: ids.firmA },
+        // Row 23: and Notify assigned staff member off.
         create: {
           businessId: ids.firmA,
           notifyAdditionalEmails: ['office@r11.test', 'partner@r11.test'],
+          notifyAssignedStaff: false,
         },
-        update: { notifyAdditionalEmails: ['office@r11.test', 'partner@r11.test'] },
+        update: {
+          notifyAdditionalEmails: ['office@r11.test', 'partner@r11.test'],
+          notifyAssignedStaff: false,
+        },
       }),
     );
     notices.length = 0;
@@ -1447,6 +1482,22 @@ describe('portal: submit', () => {
       expect(JSON.stringify(n.data)).not.toMatch(/One|Sample|3456/);
     }
     expect(codeOf(await confirming)).toBe('INTAKE_LOCKED');
+    // Row 23: the client's assigned staff member hears nothing of the submit; the Owner does.
+    const told = await inFirm((tx) =>
+      tx.notification.findMany({
+        where: { businessId: ids.firmA, entityId: intake.id },
+        select: { recipientUserId: true },
+      }),
+    );
+    const to = told.map((n) => n.recipientUserId);
+    expect(to).toContain(people.owner.id);
+    expect(to).not.toContain(people.staff.id);
+    await inFirm((tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: ids.firmA },
+        data: { notifyAssignedStaff: true },
+      }),
+    );
     const stored = await inFirm(async (tx) => ({
       spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
       version: await tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: intake.id } }),
