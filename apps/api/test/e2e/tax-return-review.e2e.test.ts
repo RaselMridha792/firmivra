@@ -21,6 +21,7 @@ import {
   TaxReturnExportLink,
   TaxAmountHistory,
   TaxReturnFilingList,
+  TaxReturnHistoryList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -926,6 +927,235 @@ describe('TX-F16: Correct Tax Year (Review 2)', () => {
       TaxReturnDetail,
     );
     expect([filed.taxYear, filed.filedTaxYear]).toEqual([2020, 2021]);
+  });
+});
+
+describe('Review 2: Start Correction, Record Extension and amount rounding', () => {
+  it('corrects a rejected return before review, with a reason; the client sees In Progress', async () => {
+    const id = (
+      await inFirm('a', (tx) =>
+        tx.taxReturn.create({
+          data: {
+            businessId: firms.a,
+            clientId: ids.c1!,
+            taxYear: 2019,
+            filingType: 'INDIVIDUAL',
+            formType: '1040',
+            status: 'REJECTED',
+            filedOn: new Date('2020-04-10T00:00:00Z'),
+          },
+        }),
+      )
+    ).id;
+    const rejected = ok(await call('get', `/tax-returns/${id}`, staffA), TaxReturnDetail);
+    expect(rejected.canMoveTo).toContain('IN_CORRECTION');
+    expect(rejected.canMoveTo).not.toContain('READY_FOR_REVIEW');
+    expectError(
+      await call('post', `/tax-returns/${id}/status`, staffA, {
+        workflowStatus: 'READY_FOR_REVIEW',
+      }),
+      409,
+      'STATUS_BLOCKED',
+    );
+    expectError(
+      await call('post', `/tax-returns/${id}/status`, staffA, { workflowStatus: 'IN_CORRECTION' }),
+      400,
+      'REASON_REQUIRED',
+    );
+    const correcting = ok(
+      await call('post', `/tax-returns/${id}/status`, staffA, {
+        workflowStatus: 'IN_CORRECTION',
+        reason: 'Fake: the prior-year AGI',
+      }),
+      TaxReturnDetail,
+    );
+    expect([correcting.workflowStatus, correcting.status, correcting.statusReason]).toEqual([
+      'IN_CORRECTION',
+      'IN_PROGRESS',
+      'Fake: the prior-year AGI',
+    ]);
+    expect(correcting.canMoveTo).toContain('READY_FOR_REVIEW');
+    const review = ok(
+      await call('post', `/tax-returns/${id}/status`, staffA, {
+        workflowStatus: 'READY_FOR_REVIEW',
+      }),
+      TaxReturnDetail,
+    );
+    expect(review.workflowStatus).toBe('READY_FOR_REVIEW');
+    // Review 2 audit note: a move without a reason never repeats the one before it.
+    expect(review.statusReason).toBeNull();
+    const history = ok(
+      await call('get', `/tax-returns/${id}/history`, staffA),
+      TaxReturnHistoryList,
+    );
+    expect(history.items.slice(0, 2).map((h) => [h.workflowStatus, h.reason])).toEqual([
+      ['READY_FOR_REVIEW', null],
+      ['IN_CORRECTION', 'Fake: the prior-year AGI'],
+    ]);
+  });
+
+  it('records an extension (the event only) after the due date, never on a filed return', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2017,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        dueOn: '2018-04-17',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    expect([fresh.extensionFiledOn, fresh.extendedDueOn]).toEqual([null, null]);
+    const path = `/tax-returns/${fresh.id}/extension`;
+    expectError(
+      await call('post', path, staffA, {
+        extensionFiledOn: '2018-04-10',
+        extendedDueOn: '2018-04-17',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', path, staffA, {
+        extensionFiledOn: '2999-04-10',
+        extendedDueOn: '2999-10-15',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expectError(
+      await call('post', path, staffA, { extensionFiledOn: '2018-04-10' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const ext = ok(
+      await call('post', path, staffA, {
+        extensionFiledOn: '2018-04-10',
+        extendedDueOn: '2018-10-15',
+      }),
+      TaxReturnDetail,
+    );
+    expect([ext.extensionFiledOn, ext.extendedDueOn, ext.dueOn]).toEqual([
+      '2018-04-10',
+      '2018-10-15',
+      '2018-04-17',
+    ]);
+    const [row] = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'tax_return.extension_recorded', entityId: fresh.id },
+        select: { metadata: true, actorUserId: true },
+      }),
+    );
+    expect(row).toMatchObject({
+      actorUserId: staffA.id,
+      metadata: {
+        extensionFiledOn: '2018-04-10',
+        extendedDueOn: '2018-10-15',
+        dueOn: '2018-04-17',
+        replaced: false,
+      },
+    });
+    // The due date never moves past the extended deadline: 400, never a 500.
+    expectError(
+      await call('patch', `/tax-returns/${fresh.id}/details`, ownerA, { dueOn: '2018-11-01' }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    const filedId = (
+      await inFirm('a', (tx) =>
+        tx.taxReturn.create({
+          data: {
+            businessId: firms.a,
+            clientId: ids.c1!,
+            taxYear: 2016,
+            filingType: 'INDIVIDUAL',
+            formType: '1040',
+            status: 'FILED',
+            filedOn: new Date('2017-04-10T00:00:00Z'),
+          },
+        }),
+      )
+    ).id;
+    expectError(
+      await call('post', `/tax-returns/${filedId}/extension`, ownerA, {
+        extensionFiledOn: '2017-04-10',
+        extendedDueOn: '2017-10-16',
+      }),
+      409,
+      'RETURN_FILED',
+    );
+    // Another firm reaches none of it.
+    expectError(
+      await call(
+        'post',
+        path,
+        ownerB,
+        { extensionFiledOn: '2018-04-10', extendedDueOn: '2018-10-15' },
+        'b',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+  });
+
+  it('rounds amounts to the dollar for a firm that chose it; the audit keeps the figure entered', async () => {
+    expect((await call('patch', '/settings', staffA, { taxAmountRounding: 'EXACT' })).status).toBe(
+      403,
+    );
+    const set = await call('patch', '/settings', ownerA, { taxAmountRounding: 'ROUND_TO_DOLLAR' });
+    expect([set.status, (set.body as { taxAmountRounding: string }).taxAmountRounding]).toEqual([
+      200,
+      'ROUND_TO_DOLLAR',
+    ]);
+    try {
+      const fresh = ok(
+        await call('post', '/tax-returns', ownerA, {
+          clientId: ids.c1,
+          taxYear: 2015,
+          filingType: 'INDIVIDUAL',
+          formType: '1040',
+        }),
+        TaxReturnDetail,
+        201,
+      );
+      const filings = ok(
+        await call('put', `/tax-returns/${fresh.id}/filings`, ownerA, {
+          filings: [{ jurisdiction: 'US' }],
+        }),
+        TaxReturnFilingList,
+      );
+      const us = filings.items.find((f) => f.jurisdiction === 'US')!.id;
+      const save = async (refundCents: number) =>
+        ok(
+          await call('patch', `/tax-returns/${fresh.id}/filings/${us}`, ownerA, {
+            refundCents,
+            amountStatus: 'ESTIMATED',
+            amountSource: 'STAFF_ESTIMATE',
+          }),
+          TaxReturnFilingList,
+        ).items.find((f) => f.id === us)!.refundCents;
+      expect(await save(148250)).toBe(148300);
+      expect(await save(148249)).toBe(148200);
+      expect(await save(148300)).toBe(148300);
+      const rows = await inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: { action: 'tax_return.filings_changed', entityId: fresh.id },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { metadata: true },
+        }),
+      );
+      const amounts = rows
+        .map((r) => r.metadata as { amount?: { refundCents: number }; entered?: object })
+        .filter((m) => m.amount);
+      expect(amounts.map((m) => [m.amount!.refundCents, m.entered ?? null])).toEqual([
+        [148300, { refundCents: 148250 }],
+        [148200, { refundCents: 148249 }],
+        [148300, null],
+      ]);
+    } finally {
+      await call('patch', '/settings', ownerA, { taxAmountRounding: 'EXACT' });
+    }
   });
 });
 

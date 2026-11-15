@@ -112,6 +112,8 @@ export const TAX_RETURN_IN_PROGRESS_STATUSES = [
   'READY_FOR_REVIEW',
   'READY_FOR_SIGNATURE',
   'READY_TO_FILE',
+  // Tax Returns Review 2: corrected after a rejection, on the way back to review.
+  'IN_CORRECTION',
 ] as const satisfies readonly z.infer<typeof TaxReturnWorkflowStatus>[];
 
 /** GET /business/tax-returns. Search: client name, business name, SSN/EIN last 4, form, id. */
@@ -249,6 +251,12 @@ export const TaxReturnDetail = TaxReturnRow.extend({
    * filing and never changes it); differs from `taxYear` after a Correct Tax Year.
    */
   filedTaxYear: z.number().int().nullable(),
+  /**
+   * Review 2 (File Extension): the day the extension was filed and the new deadline, set
+   * together by Record Extension (the event only; nothing is submitted). Missing reads as null.
+   */
+  extensionFiledOn: CalendarDate.nullable().default(null),
+  extendedDueOn: CalendarDate.nullable().default(null),
   /** The filed return's PDF (R10). */
   document: DocumentRef.nullable(),
   /** The workflow statuses it can move to now (the stepper's buttons). */
@@ -475,6 +483,18 @@ export const CorrectTaxYearRequest = z.strictObject({
   reason: text(500, 'many', 'Say why the year is corrected'),
 });
 export type CorrectTaxYearRequest = z.input<typeof CorrectTaxYearRequest>;
+
+/**
+ * POST /business/tax-returns/{id}/extension (Review 2, File Extension): records that an extension
+ * was filed and the new deadline. The event only: nothing is sent to an agency. The deadline is
+ * after the return's due date (400 otherwise); the filing day is not in the future. A filed
+ * return is 409 RETURN_FILED; an archived one 409 RETURN_LOCKED. Recording again replaces it.
+ */
+export const RecordTaxExtensionRequest = z.strictObject({
+  extensionFiledOn: CalendarDate,
+  extendedDueOn: CalendarDate,
+});
+export type RecordTaxExtensionRequest = z.input<typeof RecordTaxExtensionRequest>;
 
 /** One jurisdiction's filing (federal "US" or a state), with its transmissions, newest first. */
 export const TaxReturnFiling = z.object({

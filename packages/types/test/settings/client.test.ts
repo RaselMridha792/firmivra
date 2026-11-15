@@ -56,6 +56,7 @@ const settings = {
   description: null,
   taxSeasonStart: null,
   taxSeasonEnd: null,
+  taxAmountRounding: 'EXACT' as const,
   updatedAt: at,
 };
 const setup = { completedSteps: ['branding'], completedAt: null };

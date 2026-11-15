@@ -19,8 +19,8 @@ export interface NoticeTo {
 }
 
 /**
- * Tells the client about a booking or a new time through R6's NotifyService. R6 has no
- * cancellation template yet, so a cancel sends nothing (docs/work/R12-calendar-content.md). The
+ * Tells the client about a booking or a new time through R6's NotifyService. A cancel by the
+ * firm goes through the Notifier instead (`appointment.cancelled`, Appointments Review 2 P3). The
  * message goes to the login that acted in the portal, otherwise the client's primary login
  * (their notification preferences apply), otherwise the client record's email. Nothing is sent
  * for an appointment that is over or no longer scheduled. A failure never fails the change.
@@ -144,8 +144,12 @@ export class AppointmentNotices {
           to: address,
           businessId,
           ...(account ? { recipient: { clientAccountId: account.id } } : {}),
-          // Their own name only, never another attendee's.
-          data: { name: account?.user.name ?? p.client.displayName, ...common },
+          // Their own name only, never another attendee's; only the client confirms it.
+          data: {
+            name: account?.user.name ?? p.client.displayName,
+            ...common,
+            ...(p.primary ? {} : { confirmAsk: false }),
+          },
         });
       }
       return out;

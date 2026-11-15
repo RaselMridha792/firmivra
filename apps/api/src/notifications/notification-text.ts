@@ -153,6 +153,7 @@ const TEXT: Record<NotificationEvent, Writer> = {
   'appointment.booked': appointment('Appointment booked'),
   'appointment.changed': appointment('Appointment changed'),
   'appointment.reminder': appointment('Appointment reminder'),
+  'appointment.cancelled': appointment('Appointment cancelled'),
   'invoice.sent': (p) => ({
     title: 'New invoice',
     body: text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'You have a new invoice.',

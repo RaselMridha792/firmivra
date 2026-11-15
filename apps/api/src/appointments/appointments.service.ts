@@ -13,6 +13,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { Notifier } from '../notifications/notifier.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { returnReassignAuthority } from '../tax-returns/return-authority.js';
 import { DATABASE } from '../database/database.module.js';
@@ -89,6 +90,7 @@ export class AppointmentsService {
     private readonly notices: AppointmentNotices,
     @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
     private readonly grants: PermissionGrantsService,
+    private readonly notifier: Notifier,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -475,6 +477,17 @@ export class AppointmentsService {
       });
       return updated;
     });
+    // Appointments Review 2 (P3): the client is told, as the Cancel dialog says: a bell item and an
+    // email to their primary login, with the reason given. Not for a time already past.
+    if (after.startsAt.getTime() > Date.now()) {
+      await this.notifier.notify({
+        businessId,
+        event: 'appointment.cancelled',
+        recordId: after.id,
+        actorUserId: actor.userId,
+        eventKey: `appointment.cancelled:${after.id}`,
+      });
+    }
     return toAppointment(after);
   }
 

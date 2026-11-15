@@ -129,9 +129,11 @@ export const cases: CaseModule['cases'] = {
     body: { name: 'Fake saved form', category: 'PERSONAL_TAX', serviceId: PLACEHOLDER },
   },
   'POST /api/v1/business/intake-forms/:id/publish': { params: { id: 'builderTemplate' } },
+  // USABILITY-03: Duplicate copies an assigned form's own version (`formId`, of this template).
   'POST /api/v1/business/intake-forms/:id/duplicate': {
-    params: { id: 'builderTemplate' },
-    body: {},
+    params: { id: 'intakeTemplate' },
+    bodyIds: { formId: 'intakeForm' },
+    body: { formId: PLACEHOLDER },
   },
   'POST /api/v1/business/intake-forms/:id/archive': { params: { id: 'builderTemplate' } },
 

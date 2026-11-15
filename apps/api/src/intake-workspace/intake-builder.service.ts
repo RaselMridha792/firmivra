@@ -300,11 +300,19 @@ export class IntakeBuilderService {
     userId: string,
     id: string,
     asTemplate: boolean,
+    /** USABILITY-03: the version to copy (the one an assigned form was sent with). */
+    formId?: string,
   ): Promise<IntakeFormDetail> {
     const businessId = tenant.businessId;
     const copy = await this.inFirm(tenant, async (tx) => {
       const t = await this.lockTemplate(tx, businessId, id);
-      const source = await this.sourceDefinition(tx, businessId, t.id);
+      const source = formId
+        ? await tx.intakeForm.findFirst({
+            where: { businessId, templateId: t.id, id: formId },
+            select: { definition: true, title: true },
+          })
+        : await this.sourceDefinition(tx, businessId, t.id);
+      if (!source) throw notFound();
       await tx.$executeRaw`SELECT 1 FROM services
         WHERE business_id = ${businessId}::uuid AND id = ${t.serviceId}::uuid FOR UPDATE`;
       const template = await tx.intakeTemplate.create({
@@ -338,7 +346,7 @@ export class IntakeBuilderService {
     await this.audit.log(
       'intake_form.duplicated',
       { type: 'intake_form', id: copy },
-      { sourceId: id, asTemplate },
+      { sourceId: id, asTemplate, ...(formId ? { sourceVersionId: formId } : {}) },
     );
     return this.library.detail(tenant, copy);
   }

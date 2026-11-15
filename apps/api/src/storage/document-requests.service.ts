@@ -180,16 +180,37 @@ export class DocumentRequestsService {
     });
   }
 
-  /** "Mark missing": the reason goes to the client, who is asked again. 409 as for accept. */
+  /**
+   * "Mark missing" and Request Replacement: the reason goes to the client, who is asked again.
+   * 409 as for accept. An item of a request (packet) the client already submitted opens that
+   * packet again, so the portal takes the replacement (an upload needs an OPEN packet); the
+   * client submits it again. Audited as `document_request_packet.reopened`, in the same
+   * transaction. Lock order as uploads: the item (locked by decide), then the packet.
+   */
   reject(
     businessId: string,
     actor: FirmActor,
     id: string,
     reason: string,
   ): Promise<FirmDocumentRequest> {
-    return this.decide(businessId, actor, id, 'rejected', (_tx, status) => {
+    return this.decide(businessId, actor, id, 'rejected', async (tx, status, packetId) => {
       if (status !== 'SUBMITTED') throw refusal('NOTHING_SUBMITTED');
-      return Promise.resolve({ data: { status: 'REJECTED', statusNote: reason } });
+      if (packetId) {
+        const reopened = await tx.documentRequestPacket.updateMany({
+          where: { businessId, id: packetId, status: 'SUBMITTED' },
+          data: { status: 'OPEN' },
+        });
+        if (reopened.count > 0) {
+          await this.audit.logIn(
+            tx,
+            'document_request_packet.reopened',
+            { type: 'document_request_packet', id: packetId },
+            { requestId: id, reason: 'replacement_requested' },
+            { businessId },
+          );
+        }
+      }
+      return { data: { status: 'REJECTED', statusNote: reason } };
     });
   }
 
@@ -213,6 +234,7 @@ export class DocumentRequestsService {
     change: (
       tx: TxClient,
       status: DocumentRequestStatus,
+      packetId: string | null,
     ) => Promise<{ data: Prisma.DocumentRequestUpdateInput; documentId?: string }>,
   ): Promise<FirmDocumentRequest> {
     const request = await this.inFirm(businessId, async (tx) => {
@@ -227,7 +249,7 @@ export class DocumentRequestsService {
       if (locked.status === 'ACCEPTED' || locked.status === 'CANCELLED') {
         throw refusal('REQUEST_CLOSED');
       }
-      const { data, documentId } = await change(tx, locked.status);
+      const { data, documentId } = await change(tx, locked.status, locked.packet_id);
       const row = await tx.documentRequest.update({ where: { id }, data, select: requestSelect });
       await this.audit.logIn(
         tx,

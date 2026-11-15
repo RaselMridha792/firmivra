@@ -211,7 +211,7 @@ describe('managing a recurring invoice (IP-F18, Octavia Oct 27)', () => {
     expect(d.upcoming).toEqual([nyDay(21), nyDay(42), nyDay(63)]);
     expect(d.invoices).toEqual([expect.objectContaining({ id: invoice.id, periodOn: nyDay(0) })]);
     expect(d.history.map((h) => h.action)).toEqual(['started', 'created']);
-    expect(JSON.stringify(d.history)).not.toMatch(/bookkeeping|35000/);
+    expect(JSON.stringify(d.history)).not.toMatch(/bookkeeping|\b35000\b/);
   });
 
   it('pauses, resumes from the next day on or after today, and ends; each audited', async () => {

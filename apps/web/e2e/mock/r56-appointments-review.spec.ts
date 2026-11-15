@@ -514,3 +514,76 @@ test("Review 2 (B10): a new appointment starts in the firm's time zone and keeps
   await expect(page.getByLabel('Time Zone')).toHaveValue('America/Chicago', { timeout: 60_000 });
   await expect(page.getByLabel('Start Time *')).toHaveValue('09:00');
 });
+
+test('Review 2 (P3): Cancel says the client is told, and that they see the reason', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The scheduling mock's Pending appointment (Bruno Sandoval).
+  await page.goto(app('/calendar/0199c0b0-0a10-7000-8000-000000000003'));
+  await expect(page.getByTestId('detail-summary')).toContainText('Bruno Sandoval', {
+    timeout: 60_000,
+  });
+  await page.getByRole('button', { name: 'Cancel Appointment' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Cancel Appointment' });
+  await expect(dialog).toContainText('They are told');
+  await expect(dialog).toContainText('The client sees this in the cancellation email.');
+  await expect(dialog.getByLabel('Reason (optional)')).toBeEditable();
+  // The notice itself (a bell item and an email with the reason) is the API's: e2e
+  // `appointments` "tells the client's primary login about a booking, a new time and a cancel".
+});
+
+test('Review 2 (B4, B5): the summary shows the repeat and its count, and End Time follows the type', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-10-14T12:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  const summary = page.getByTestId('appointment-summary');
+  // B5: the type's length sets End Time from the start, whatever the type.
+  await page.getByLabel('Date *').fill('2026-10-15');
+  await page.getByLabel('Start Time *').selectOption('15:00');
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await expect(page.getByLabel('End Time *')).toHaveValue('15:30');
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Client Workshop' });
+  await expect(page.getByLabel('End Time *')).toHaveValue('17:00');
+  await expect(summary).toContainText('3:00 PM – 5:00 PM');
+  // B4: the repeat and how many, before saving.
+  await expect(summary).toContainText('Does not repeat');
+  await page.getByLabel('Repeat').selectOption('WEEKLY');
+  await page.getByLabel('Occurrences').selectOption('6');
+  await expect(summary).toContainText('Every week, 6 times');
+});
+
+test('Review 2 (B6): Today labels an all-day appointment All Day', async ({ page }) => {
+  // Booked the evening before (an all-day appointment starts at midnight), then seen on the day.
+  await page.clock.setFixedTime(new Date('2026-10-13T20:00:00-04:00'));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(app('/calendar/new'));
+  await expect(page.getByLabel('Client / Lead *')).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Client / Lead *').fill('Nina');
+  await page
+    .getByTestId('contact-results')
+    .getByRole('button', { name: /Nina Fairbanks/ })
+    .click();
+  await page.getByLabel('Appointment Type *').selectOption({ label: 'Follow-Up' });
+  await page.getByLabel('Date *').fill('2026-10-14');
+  await page.getByLabel('All Day').check();
+  await page.getByRole('button', { name: 'Schedule Appointment' }).click();
+  // A whole day meets the staff member's other appointments: the Owner books anyway, with a reason.
+  await page.getByLabel('Reason to book anyway (Owner or Admin)').fill('Fake: all-day review day.');
+  await page.getByRole('button', { name: 'Book Anyway' }).click();
+  await expect(page).toHaveURL(/\/calendar\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  // Today, on the day, in the same page (the mock keeps what was booked).
+  await page.clock.setFixedTime(new Date('2026-10-14T09:00:00-04:00'));
+  await page.evaluate(() => {
+    (window as unknown as { next: { router: { push: (href: string) => void } } }).next.router.push(
+      '/calendar/today',
+    );
+  });
+  const allDay = page.getByTestId('today-all-day');
+  await expect(allDay).toBeVisible({ timeout: 60_000 });
+  await expect(allDay).toContainText('All Day');
+  await expect(allDay).toContainText('Nina Fairbanks');
+});

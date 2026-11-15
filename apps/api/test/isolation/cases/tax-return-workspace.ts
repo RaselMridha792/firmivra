@@ -69,6 +69,11 @@ export const cases: CaseModule['cases'] = {
     params: ret,
     body: { taxYear: 2010, reason: 'Fake: corrected' },
   },
+  // Review 2 (File Extension): the event only.
+  'POST /api/v1/business/tax-returns/:id/extension': {
+    params: ret,
+    body: { extensionFiledOn: '2020-04-10', extendedDueOn: '2099-10-15' },
+  },
   'POST /api/v1/business/tax-returns/:id/status': {
     params: ret,
     body: { workflowStatus: 'WAITING_ON_CLIENT' },

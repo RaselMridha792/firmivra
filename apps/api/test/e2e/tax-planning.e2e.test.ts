@@ -820,7 +820,7 @@ describe('the strategy library and the plan’s strategies', () => {
     expect(withCustom.projectedSavingsCents).toBe(319_000);
     expect(withCustom.overlapNotes.join(' ')).toMatch(/only the largest/);
     const customRow = withCustom.strategies.find((s) => s.name === customName);
-    expect(JSON.stringify(await auditRows(id))).not.toContain('319000');
+    expect(JSON.stringify(await auditRows(id))).not.toMatch(/\b319000\b/);
     expect(customRow?.id).toBeTruthy();
     shared.custom = customRow?.id ?? '';
   });
@@ -1887,7 +1887,7 @@ describe('screening', () => {
     const all = RunScreeningResult.parse(ok(await screen({}, adminA)));
     expect(all.clientsScreened).toBeGreaterThanOrEqual(4);
     expect(all.queued).toBe(false);
-    expect(JSON.stringify(await auditRows(detail.id))).not.toMatch(/2970|297000/);
+    expect(JSON.stringify(await auditRows(detail.id))).not.toMatch(/\b2970\b|\b297000\b/);
   });
 });
 
@@ -2087,7 +2087,9 @@ describe('the Tax Savings Calculator', () => {
     expect(
       TaxScenario.parse(ok(await call('get', `/calculator/scenarios/${toPlan.id}`, staffA))).id,
     ).toBe(toPlan.id);
-    expect(JSON.stringify(await auditRows(toPlan.id))).not.toMatch(/1317000|10000000|220000/);
+    expect(JSON.stringify(await auditRows(toPlan.id))).not.toMatch(
+      /\b1317000\b|\b10000000\b|\b220000\b/,
+    );
   });
 });
 

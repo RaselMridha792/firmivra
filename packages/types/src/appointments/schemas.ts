@@ -623,6 +623,11 @@ export const MyAppointment = z.object({
    * (only its own client changes it), and never who else attends.
    */
   attending: z.boolean().default(false),
+  /**
+   * Review 2 (row 8): the firm booked it and asks the client to confirm (scheduled, upcoming,
+   * not yet confirmed). `confirm()` confirms it; one the client booked themselves never asks.
+   */
+  needsConfirmation: z.boolean().default(false),
 });
 export type MyAppointment = z.infer<typeof MyAppointment>;
 

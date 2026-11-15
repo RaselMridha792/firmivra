@@ -28,6 +28,7 @@ const row = {
   name: 'Filed',
   sortOrder: 0,
   archivedAt: null,
+  workflowStatus: null,
   createdAt: '2026-10-06T09:00:00.000Z',
   updatedAt: '2026-10-06T09:00:00.000Z',
 };

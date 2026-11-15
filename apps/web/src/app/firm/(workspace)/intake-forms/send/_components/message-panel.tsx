@@ -1,5 +1,6 @@
 'use client';
 
+import { type Expiry, ExpiryField } from '../../_components/expiry';
 import { CalendarBlank, XSquare } from '@phosphor-icons/react';
 import { Input, Toggle } from '@firmivra/ui';
 import { type ReactNode, useId } from 'react';
@@ -159,7 +160,7 @@ export interface MessageValues {
   subject: string;
   message: string;
   dueOn: string;
-  expiresOn: string;
+  expiry: Expiry;
   assignee: Member | undefined;
   reminders: boolean;
   allowSave: boolean;
@@ -171,12 +172,19 @@ export function MessagePanel({
   set,
   errors,
   onEditSchedule,
+  formId = '',
 }: {
   values: MessageValues;
   set: (patch: Partial<MessageValues>) => void;
   errors: FieldErrors;
   onEditSchedule: () => void;
+  /** The chosen form: its own default expiration (EXPIRY-01). */
+  formId?: string;
 }) {
+  const chosenForm = useApiQuery(['intake-forms', 'send', 'form', formId], () =>
+    formId ? api.intakeForms.form(formId) : Promise.resolve(null),
+  );
+  const formDays = chosenForm.data ? chosenForm.data.settings.expiresAfterDays : undefined;
   const subjectId = useId();
   const subjectLabelId = useId();
   const messageId = useId();
@@ -235,13 +243,13 @@ export function MessagePanel({
           onChange={(dueOn) => set({ dueOn })}
           error={errors.dueOn}
         />
-        <DateField
-          label="Expiration Date"
-          value={values.expiresOn}
-          onChange={(expiresOn) => set({ expiresOn })}
-          error={errors.expiresOn}
-        />
       </div>
+      <ExpiryField
+        value={values.expiry}
+        onChange={(expiry) => set({ expiry })}
+        error={errors.expiry}
+        defaultDays={formDays}
+      />
       <AssignField value={values.assignee} onChange={(assignee) => set({ assignee })} />
       <Setting
         title="Send Reminders"

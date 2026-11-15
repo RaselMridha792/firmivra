@@ -26,7 +26,9 @@ import { checkAssignee, conflict, notFound, toDay } from '../workspaces/common.j
 import { rowInclude, toRow } from './intake-workspace.service.js';
 import { emailLeadLink, newLeadLink } from './lead-link.js';
 import type { SendBody, SendDraftBody } from './workspace-input.js';
-import { day, formMetaOf } from './workspace.common.js';
+import { day, formMetaOf, iso } from './workspace.common.js';
+import { firmTimeZone } from '../appointments/calendar-data.js';
+import { checkDue, chosenExpiry, expiryAfterDays } from './intake-expiry.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
 type Send = Out<typeof SendBody>;
@@ -57,12 +59,6 @@ export function maskEmail(email: string | null): string {
   const [name = '', domain = ''] = email.split('@');
   return `${name.slice(0, 1)}***@${domain}`;
 }
-
-/** End of a calendar day (UTC), as intakes.expires_at holds an expiration date. */
-export const endOfDay = (value: string) => new Date(`${value}T23:59:59.999Z`);
-const todayUtc = () => new Date().toISOString().slice(0, 10);
-const addDays = (days: number) =>
-  new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 /** What reached the client for one send, resend or reminder (19b). */
 export interface DeliveryOutcome {
@@ -249,24 +245,20 @@ export class IntakeSendService {
     return null;
   }
 
-  /** Due and expiration dates: the expiration defaults from the form, then the firm's settings. */
+  /**
+   * Due date and expiration (EXPIRY-01): the time chosen (later than now), else the form's default
+   * of N days, else the firm's, each to the end of that day in the firm's time zone; null: none.
+   */
   private dates(
-    dueOn: string | null | undefined,
-    expiresOn: string | null | undefined,
+    body: { dueOn?: string | null; expiresOn?: string | null; expiresAt?: string | null },
     fallbackDays: number | null,
+    timeZone: string,
   ) {
+    const chosen = chosenExpiry(body, timeZone);
     const expires =
-      expiresOn === undefined ? (fallbackDays ? addDays(fallbackDays) : null) : expiresOn;
-    if (expires !== null && expires <= todayUtc()) {
-      throw invalid('The expiration date must be after today');
-    }
-    if (dueOn && expires && dueOn > expires) {
-      throw invalid('The due date cannot be after the expiration date');
-    }
-    return {
-      dueOn: dueOn ? toDay(dueOn) : null,
-      expiresAt: expires ? endOfDay(expires) : null,
-    };
+      chosen !== undefined ? chosen : fallbackDays ? expiryAfterDays(fallbackDays, timeZone) : null;
+    checkDue(body.dueOn, expires, timeZone);
+    return { dueOn: body.dueOn ? toDay(body.dueOn) : null, expiresAt: expires };
   }
 
   /** POST /business/intakes/send. Retry-safe by the idempotency key. */
@@ -357,11 +349,11 @@ export class IntakeSendService {
       );
       const formDays = formMetaOf(form.live.definition).settings['expiresAfterDays'];
       const dates = this.dates(
-        body.dueOn,
-        body.expiresOn,
+        body,
         formDays === null || typeof formDays === 'number'
           ? formDays
           : (settings?.defaultExpiryDays ?? 14),
+        await firmTimeZone(tx, businessId),
       );
       // A lead's secure link: the token for the email only, its hash kept on the intake.
       const link = to.leadId ? newLeadLink(dates.expiresAt) : null;
@@ -596,7 +588,7 @@ export class IntakeSendService {
       formId: i.form.templateId ?? i.form.id,
       ...(i.engagementId ? { engagementId: i.engagementId } : {}),
       dueOn: day(i.dueOn),
-      expiresOn: day(i.expiresAt),
+      expiresAt: iso(i.expiresAt),
       assignedUserId: i.assignedUserId,
       reminders: { enabled: i.remindersEnabled },
       allowSaveAndContinue: i.allowSaveResume,
@@ -688,17 +680,16 @@ export class IntakeSendService {
       if (body.appointmentId) await this.appointmentOf(tx, businessId, to, body.appointmentId);
       const dueOn =
         body.dueOn === undefined ? (prior['dueOn'] as string | null | undefined) : body.dueOn;
-      const expiresOn =
-        body.expiresOn === undefined
-          ? (prior['expiresOn'] as string | null | undefined)
-          : body.expiresOn;
-      if (dueOn && expiresOn && dueOn > expiresOn) {
-        throw invalid('The due date cannot be after the expiration date');
-      }
+      const timeZone = await firmTimeZone(tx, businessId);
+      // A draft has no sent time yet: the expiration is checked against now when it is sent.
+      const chosen = chosenExpiry(body, timeZone, false);
+      const kept = prior['expiresAt'];
+      const expiresAt =
+        chosen !== undefined ? chosen : typeof kept === 'string' ? new Date(kept) : null;
+      checkDue(dueOn, expiresAt, timeZone);
       const data = {
         dueOn: dueOn ? toDay(dueOn) : null,
-        // A draft has no sent time yet: the expiration is checked again when it is sent.
-        expiresAt: expiresOn ? endOfDay(expiresOn) : null,
+        expiresAt,
         assignedUserId,
         ...(body.channel !== undefined ? { deliveryChannel: body.channel } : {}),
         ...(body.subject !== undefined ? { messageSubject: body.subject } : {}),

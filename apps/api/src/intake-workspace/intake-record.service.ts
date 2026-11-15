@@ -20,7 +20,9 @@ import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { checkAssignee, conflict, memberNames, notFound, toDay } from '../workspaces/common.js';
 import { renderIntakePdf } from './intake-pdf.js';
-import { endOfDay, IntakeSendService } from './intake-send.service.js';
+import { IntakeSendService } from './intake-send.service.js';
+import { firmTimeZone } from '../appointments/calendar-data.js';
+import { checkDue, chosenExpiry } from './intake-expiry.js';
 import { newLeadLink } from './lead-link.js';
 import { rowInclude, toRow } from './intake-workspace.service.js';
 import type { UpdateAssignedBody } from './workspace-input.js';
@@ -272,6 +274,7 @@ export class IntakeRecordService {
       history: history.slice(-200),
       communications: history.filter((e) => COMMUNICATION.includes(e.kind)),
       revisionNote: row.correctionNote,
+      formVersionId: row.formId,
     };
     return record;
   }
@@ -315,7 +318,8 @@ export class IntakeRecordService {
     const record = await this.inFirm(tenant, async (tx) => {
       const row = await this.find(tx, tenant, userId, id, true);
       if (row.status === 'ARCHIVED') throw invalidStatus();
-      const datesChange = body.dueOn !== undefined || body.expiresOn !== undefined;
+      const datesChange =
+        body.dueOn !== undefined || body.expiresOn !== undefined || body.expiresAt !== undefined;
       if (datesChange && row.status === 'COMPLETED') throw invalidStatus();
       const data: Prisma.IntakeUncheckedUpdateInput = {};
       if (body.assignedUserId !== undefined) {
@@ -336,23 +340,18 @@ export class IntakeRecordService {
         data.assignedUserId = body.assignedUserId;
       }
       const dueOn = body.dueOn === undefined ? day(row.dueOn) : body.dueOn;
-      const expiresOn = body.expiresOn === undefined ? day(row.expiresAt) : body.expiresOn;
-      if (body.expiresOn) {
-        if (body.expiresOn <= new Date().toISOString().slice(0, 10)) {
-          throw invalid('The expiration date must be after today');
-        }
-        data.expiresAt = endOfDay(body.expiresOn);
+      // EXPIRY-01: an exact time later than now, or a whole day (its end in the firm's zone).
+      const timeZone = await firmTimeZone(tx, businessId);
+      const chosen = chosenExpiry(body, timeZone);
+      if (chosen !== undefined) {
+        data.expiresAt = chosen;
         // A lead's link follows the form's expiration (intakes_access_token: never past it).
-        if (row.accessTokenHash) data.accessTokenExpiresAt = data.expiresAt;
-      } else if (body.expiresOn === null) {
-        data.expiresAt = null;
+        if (chosen && row.accessTokenHash) data.accessTokenExpiresAt = chosen;
       }
-      if (dueOn && expiresOn && dueOn > expiresOn) {
-        throw invalid('The due date cannot be after the expiration date');
-      }
+      checkDue(dueOn, chosen === undefined ? row.expiresAt : chosen, timeZone);
       if (body.dueOn !== undefined) data.dueOn = body.dueOn ? toDay(body.dueOn) : null;
       // Extending an expired form opens it again where the recipient left it.
-      if (row.status === 'EXPIRED' && body.expiresOn !== undefined) {
+      if (row.status === 'EXPIRED' && chosen !== undefined) {
         const started = row.submissions[0]?.answers;
         data.status = started && Object.keys(started as object).length > 0 ? 'IN_PROGRESS' : 'SENT';
       }

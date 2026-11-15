@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { PortalTabsModule } from '../client-portal/portal-tabs.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
@@ -27,7 +28,7 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
  * appointments.
  */
 @Module({
-  imports: [PortalTabsModule, PortalInfoModule],
+  imports: [PortalTabsModule, PortalInfoModule, NotificationsModule],
   controllers: [
     AppointmentTypesController,
     AvailabilityController,

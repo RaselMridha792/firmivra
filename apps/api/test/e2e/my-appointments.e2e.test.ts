@@ -522,6 +522,8 @@ describe('booking', () => {
       instructions: null,
       // A1: the client's own, not one they attend.
       attending: false,
+      // Review 2 (row 8): the client booked it, so it never asks them to confirm.
+      needsConfirmation: false,
     });
     const seen = await firmDetail(mine.id);
     expect(seen).toMatchObject({
@@ -1023,5 +1025,61 @@ describe('meeting methods (A1), on the portal', () => {
     const refused = await bookWith(people.clientB, at(27, '09:00'), 'PHONE');
     expectError(refused, 400, 'VALIDATION_FAILED');
     expect(detailsOf(refused)).toEqual(notOffered);
+  });
+});
+
+describe('confirmation (Review 2, row 8)', () => {
+  const mineNow = async (who: Who) => exact(MyAppointmentList, await portal('get', '', who)).items;
+  const confirm = (id: string, who: Who = people.clientA) => portal('post', `/${id}/confirm`, who);
+
+  it('the firm books it and the client is asked; once they confirm, the firm sees it and reminders stop asking', async () => {
+    outbox.length = 0;
+    const a = await firmBook({
+      clientId: ids.cA,
+      staffUserId: people.staffP1.id,
+      typeId: consult.id,
+      startsAt: at(20, '09:00'),
+    });
+    // The booking email asks the client to confirm, and the portal shows it waiting.
+    const booked = outbox.find((m) => m.template === 'appointment.booked');
+    expect((booked?.data as { confirmAsk?: boolean }).confirmAsk).toBe(true);
+    expect((await mineNow(people.clientA)).find((m) => m.id === a.id)?.needsConfirmation).toBe(
+      true,
+    );
+
+    const confirmed = exact(MyAppointment, await confirm(a.id));
+    expect([confirmed.id, confirmed.needsConfirmation]).toEqual([a.id, false]);
+    // Again changes nothing.
+    expect(exact(MyAppointment, await confirm(a.id)).needsConfirmation).toBe(false);
+    // The firm's calendar has it Confirmed.
+    const record = await firm('get', `/appointments/${a.id}/record`);
+    expect((record.body as { status: string }).status).toBe('CONFIRMED');
+    // A reminder now just reminds.
+    outbox.length = 0;
+    expect((await firm('post', `/appointments/${a.id}/send-reminder`, {})).status).toBe(200);
+    const reminder = outbox.find((m) => m.template === 'appointment.reminder');
+    expect((reminder?.data as { confirmAsk?: boolean }).confirmAsk).toBe(false);
+    // Audited once, with ids only.
+    const rows = await asOwner(ids.firmP, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmP, action: 'appointment.confirmed', entityId: a.id },
+      }),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metadata).toMatchObject({ by: 'CLIENT' });
+  });
+
+  it("one the client booked never asks; another client's is 404; a cancelled one is 409", async () => {
+    const own = await book(people.clientA, consult.id, at(21, '09:00'));
+    expect(own.needsConfirmation).toBe(false);
+    const theirs = await firmBook({
+      clientId: ids.cA,
+      staffUserId: people.staffP1.id,
+      typeId: consult.id,
+      startsAt: at(21, '11:00'),
+    });
+    expectError(await confirm(theirs.id, people.clientB), 404, 'NOT_FOUND');
+    exact(Appointment, await firm('post', `/appointments/${theirs.id}/cancel`, {}));
+    expectError(await confirm(theirs.id), 409, 'APPOINTMENT_CLOSED');
   });
 });

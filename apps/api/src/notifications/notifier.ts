@@ -298,6 +298,8 @@ interface Recipient {
   name: string;
   /** The client login's email, for the event's email copy. */
   email?: string;
+  /** A1: the login of a client who attends the appointment, not its own client's. */
+  attendee?: true;
 }
 
 /**
@@ -309,6 +311,7 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'appointment.booked',
   'appointment.changed',
   'appointment.reminder',
+  'appointment.cancelled',
   'project-deadline.reminder',
   'invoice.sent',
   'payment.received',
@@ -339,6 +342,15 @@ async function stillLive(
   id: string,
   payload: Payload,
 ): Promise<boolean> {
+  // Appointments Review 2 (P3): a cancellation stands while the appointment is still cancelled
+  // and its time has not come.
+  if (event === 'appointment.cancelled') {
+    const a = await db.appointment.findFirst({
+      where: { businessId, id },
+      select: { status: true, startsAt: true },
+    });
+    return a?.status === 'CANCELLED' && a.startsAt.getTime() > Date.now();
+  }
   if (event.startsWith('appointment.')) {
     const a = await db.appointment.findFirst({
       where: { businessId, id },
@@ -404,7 +416,12 @@ async function intakeWords(tx: TxClient, businessId: string, id: string) {
   };
 }
 
-const accountSelect = { userId: true, email: true, user: { select: { name: true } } } as const;
+const accountSelect = {
+  userId: true,
+  email: true,
+  clientId: true,
+  user: { select: { name: true } },
+} as const;
 const memberSelect = { userId: true, user: { select: { name: true, email: true } } } as const;
 
 /**
@@ -427,8 +444,20 @@ async function recipientsOf(
 ): Promise<{ recipients: Recipient[]; clientName: string | null }> {
   const out: Recipient[] = [];
   let clientName: string | null = null;
-  const asClient = (a: { userId: string; email: string; user: { name: string } }) =>
-    out.push({ userId: a.userId, side: 'client', name: a.user.name, email: a.email });
+  const also = new Set(record.alsoClientIds?.map((id) => id.toLowerCase()));
+  const asClient = (a: {
+    userId: string;
+    email: string;
+    clientId: string | null;
+    user: { name: string };
+  }) =>
+    out.push({
+      userId: a.userId,
+      side: 'client',
+      name: a.user.name,
+      email: a.email,
+      ...(a.clientId && also.has(a.clientId.toLowerCase()) ? { attendee: true as const } : {}),
+    });
   const asStaff = (m: { userId: string; user: { name: string; email: string } }) =>
     out.push({
       userId: m.userId,
@@ -935,29 +964,48 @@ export class Notifier {
               timeZone: str('timeZone'),
               link,
             }
-          : template === 'document.requested'
-            ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-            : template === 'intake.sent'
-              ? {
-                  name: recipient.name,
-                  link,
-                  ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                    intakeWords(tx, businessId, target.id),
-                  )),
-                }
-              : template === 'invoice.sent' || template === 'payment.received'
-                ? { name: recipient.name, invoiceNumber: str('number'), link }
-                : {
+          : template === 'appointment.cancelled'
+            ? {
+                name: recipient.name,
+                title: str('title'),
+                startsAt: new Date(str('startsAt')),
+                timeZone: str('timeZone'),
+                link,
+                // Read when the email is sent, never kept in the outbox.
+                reason: await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                  tx.appointment
+                    .findFirst({
+                      where: { businessId, id: target.id },
+                      select: { cancelReason: true },
+                    })
+                    .then((a) => a?.cancelReason ?? null),
+                ),
+              }
+            : template === 'document.requested'
+              ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
+              : template === 'intake.sent'
+                ? {
                     name: recipient.name,
-                    title: str('title'),
-                    startsAt: new Date(str('startsAt')),
-                    timeZone: str('timeZone'),
                     link,
-                    // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
                     ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-                      noticeWords(tx, businessId, target.id, template),
+                      intakeWords(tx, businessId, target.id),
                     )),
-                  };
+                  }
+                : template === 'invoice.sent' || template === 'payment.received'
+                  ? { name: recipient.name, invoiceNumber: str('number'), link }
+                  : {
+                      name: recipient.name,
+                      title: str('title'),
+                      startsAt: new Date(str('startsAt')),
+                      timeZone: str('timeZone'),
+                      link,
+                      // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                      ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+                        noticeWords(tx, businessId, target.id, template),
+                      )),
+                      // A1: only the appointment's own client confirms it.
+                      ...(recipient.attendee ? { confirmAsk: false } : {}),
+                    };
       await this.sender.send({
         template,
         to: recipient.email!,

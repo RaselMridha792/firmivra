@@ -1,7 +1,11 @@
 'use client';
 
-import { RenameTaxStatusRequest, type TaxStatus } from '@firmivra/types';
-import { Button, Input } from '@firmivra/ui';
+import {
+  RenameTaxStatusRequest,
+  type TaxReturnWorkflowStatus,
+  type TaxStatus,
+} from '@firmivra/types';
+import { Button, Input, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -9,7 +13,7 @@ import { RequireRole } from '../../../../../../components/require-role';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
-import { STATUS_ERRORS, TAX_STATUSES } from './shared';
+import { MAPS_TO_OPTIONS, STATUS_ERRORS, TAX_STATUSES, mapsToLabel } from './shared';
 
 /** The statuses in order, each with rename, move up or down, and archive. */
 export function StatusList({ rows }: { rows: TaxStatus[] }) {
@@ -21,6 +25,12 @@ export function StatusList({ rows }: { rows: TaxStatus[] }) {
   const archive = useApiMutation((id: string) => api.taxStatuses.archive(id), {
     invalidate: TAX_STATUSES,
   });
+  // Review 2 (TX-F36): "Maps to" saves on change.
+  const map = useApiMutation(
+    (v: { id: string; workflowStatus: TaxReturnWorkflowStatus | null }) =>
+      api.taxStatuses.rename(v.id, { workflowStatus: v.workflowStatus }),
+    { invalidate: TAX_STATUSES },
+  );
 
   /** The same ids with one moved by one place; the API needs every active id exactly once. */
   const moved = (from: number, to: number) => {
@@ -29,7 +39,7 @@ export function StatusList({ rows }: { rows: TaxStatus[] }) {
     if (id) order.splice(to, 0, id);
     return order;
   };
-  const error = reorder.error ?? archive.error;
+  const error = reorder.error ?? archive.error ?? map.error;
 
   return (
     <div className="flex flex-col gap-2">
@@ -46,6 +56,30 @@ export function StatusList({ rows }: { rows: TaxStatus[] }) {
             className="flex flex-wrap items-center gap-2 p-3"
           >
             <StatusName row={row} />
+            <RequireRole
+              roles={['OWNER', 'ADMIN']}
+              fallback={
+                <span className="text-sm text-muted" data-testid="tax-status-maps-to">
+                  Maps to: {mapsToLabel(row.workflowStatus)}
+                </span>
+              }
+            >
+              <div className="w-full sm:w-56" data-testid="tax-status-maps-to">
+                <Select
+                  label={`Maps to for ${row.name}`}
+                  hideLabel
+                  value={row.workflowStatus ?? ''}
+                  disabled={map.isPending}
+                  options={MAPS_TO_OPTIONS}
+                  onChange={(e) =>
+                    map.mutate({
+                      id: row.id,
+                      workflowStatus: (e.target.value || null) as TaxReturnWorkflowStatus | null,
+                    })
+                  }
+                />
+              </div>
+            </RequireRole>
             <RequireRole roles={['OWNER', 'ADMIN']}>
               <Button
                 variant="ghost"

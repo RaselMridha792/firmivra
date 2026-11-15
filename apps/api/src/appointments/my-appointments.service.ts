@@ -94,11 +94,25 @@ export function toMine(row: AppointmentRow, now: number, clientId: string): MyAp
     // Review 2 (B9): the firm's instructions, when it shows them in the portal.
     instructions: row.instructionsInPortal ? row.clientInstructions : null,
     attending,
+    needsConfirmation: !attending && needsConfirmation(row, now),
   };
 }
 
 /** A1: the people an appointment books, its client and each attendee. */
 const peopleOf = (row: AppointmentRow) => [row.clientId, ...row.attendees.map((a) => a.clientId)];
+
+/**
+ * Review 2 (row 8): the firm booked it and it is not confirmed yet, still ahead: the client is
+ * asked to confirm. One the client booked themselves never asks.
+ */
+export const needsConfirmation = (
+  row: { status: string; confirmedAt: Date | null; bookedByClient: boolean; startsAt: Date },
+  now: number,
+) =>
+  row.status === 'SCHEDULED' &&
+  row.confirmedAt === null &&
+  !row.bookedByClient &&
+  row.startsAt.getTime() > now;
 
 /**
  * The signed-in client's own appointments at one firm (portal; contract in
@@ -392,6 +406,36 @@ export class MyAppointmentsService {
     if (!after) return toMine(before, Date.now(), before.clientId);
     await this.notices.send('appointment.changed', businessId, after.id, { clientAccountId });
     return toMine(after, Date.now(), after.clientId);
+  }
+
+  /**
+   * Review 2 (row 8): the client confirms an appointment the firm booked. It is then confirmed
+   * for the firm too (the calendar's Confirmed), and later reminders stop asking. Again changes
+   * nothing. Audited with ids only.
+   */
+  async confirm(businessId: string, clientAccountId: string, id: string): Promise<MyAppointment> {
+    const { row, changed } = await this.change(businessId, async (tx) => {
+      const me = await this.me(tx, businessId, clientAccountId);
+      if (me) await lockAppointment(tx, businessId, id, me.clientId);
+      const current = await this.mine(tx, businessId, me, id);
+      if (current.status !== 'SCHEDULED') throw errors.closed();
+      if (current.startsAt.getTime() <= Date.now()) throw errors.windowClosed();
+      if (current.confirmedAt) return { row: current, changed: false };
+      const updated = await tx.appointment.update({
+        where: { id: current.id },
+        data: { confirmedAt: new Date() },
+        select: appointmentSelect,
+      });
+      return { row: updated, changed: true };
+    });
+    if (changed) {
+      await this.audit.log(
+        'appointment.confirmed',
+        { type: 'appointment', id: row.id },
+        { by: 'CLIENT', clientId: row.clientId },
+      );
+    }
+    return toMine(row, Date.now(), row.clientId);
   }
 
   async cancel(

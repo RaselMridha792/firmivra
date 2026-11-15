@@ -1,10 +1,12 @@
 'use client';
 
 import { INTAKE_STATUS_LABELS, type AssignedFormRecord, type IntakeView } from '@firmivra/types';
-import { Avatar, Badge, Button, Modal, Textarea, Toast } from '@firmivra/ui';
+import { ApiRequestError } from '@firmivra/types';
+import { ActionMenu, Avatar, Badge, Button, Modal, Textarea, Toast } from '@firmivra/ui';
 import {
   CaretRight,
   CheckCircle,
+  DotsThreeVertical,
   FilePdf,
   PaperPlaneTilt,
   ChatCircle,
@@ -13,7 +15,14 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createContext, type ReactNode, use, useState } from 'react';
 import { api } from '../../../../../../lib/api';
-import { errorMessage } from '../../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../../lib/errors';
+import { expiryText, useFirmTimeZone } from '../../_components/expiry';
+import {
+  type ManageAction,
+  ManageDialog,
+  manageItems,
+  useManager,
+} from '../../_components/form-manage';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import {
   DETAIL_KEY,
@@ -52,6 +61,21 @@ export function useDetail(): DetailValue {
   return value;
 }
 
+/**
+ * USABILITY-04: why an export failed, in words, with what to do; the page stays where it is.
+ * The cause behind a browser error page is not known: the PDF now opens in its own tab.
+ */
+function exportFailed(error: unknown): string {
+  if (error instanceof TypeError)
+    return 'We couldn’t reach Firmivra to make the PDF. Check your connection, then use Export PDF again.';
+  const code = errorCode(error);
+  if (code === 'FILE_STORE_UNAVAILABLE')
+    return 'The PDF couldn’t be saved right now. Use Export PDF again in a minute; nothing on this page changed.';
+  if (error instanceof ApiRequestError && error.status === 400)
+    return 'This form can’t be made into a PDF yet. Its answers are on the Responses tab.';
+  return 'The PDF couldn’t be made. Use Export PDF again; if it keeps failing, contact support with this page’s address.';
+}
+
 const outline =
   'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -79,7 +103,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
   const notify = (text: string, tone: 'success' | 'error' = 'success') =>
     setMessage({ text, tone });
   const options = { invalidate: DETAIL_KEY as unknown as string[] };
-  const exportPdf = useApiMutation(() => api.intakeForms.exportPdf(id), options);
+  const exportPdf = useApiMutation(() => api.intakeForms.exportPdf(id));
+  const timeZone = useFirmTimeZone();
+  const manager = useManager();
+  const [managing, setManaging] = useState<ManageAction>();
   const remind = useApiMutation(() => api.intakeForms.remind(id), options);
   const review = useApiMutation(() => api.intakeForms.markReviewed(id), options);
   const revise = useApiMutation(
@@ -118,18 +145,28 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               type="button"
               disabled={!r || exportPdf.isPending}
               className={outline}
-              onClick={() =>
+              onClick={() => {
+                // USABILITY-04: the PDF opens in a tab of its own (opened in the click, so it is
+                // not blocked), and this review stays as it is whatever happens there.
+                const tab = window.open('', '_blank');
                 exportPdf.mutate(undefined, {
                   onSuccess: (link) => {
-                    const a = document.createElement('a');
-                    a.href = link.url;
-                    a.download = `${r?.form.name ?? 'intake-form'}.txt`;
-                    a.rel = 'noopener';
-                    a.click();
+                    if (tab) {
+                      tab.opener = null;
+                      tab.location.href = link.url;
+                    } else {
+                      notify(
+                        'Your browser blocked the new tab for the PDF. Allow pop-ups for Firmivra, then use Export PDF again.',
+                        'error',
+                      );
+                    }
                   },
-                  onError: failed,
-                })
-              }
+                  onError: (error) => {
+                    tab?.close();
+                    notify(exportFailed(error), 'error');
+                  },
+                });
+              }}
             >
               <FilePdf aria-hidden weight="fill" className="size-4" /> Export PDF
             </button>
@@ -166,6 +203,13 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
             >
               <CheckCircle aria-hidden weight="bold" className="size-4" /> Mark Reviewed
             </Button>
+            {r && manageItems(r, manager, setManaging).length > 0 ? (
+              <ActionMenu
+                label="More actions"
+                trigger={<DotsThreeVertical aria-hidden weight="bold" className="size-5" />}
+                sections={[{ items: manageItems(r, manager, setManaging) }]}
+              />
+            ) : null}
           </div>
         </div>
         {message ? (
@@ -187,7 +231,7 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
         <section
           aria-label="Client"
           data-testid="client-card"
-          className="grid gap-4 rounded-xl bg-surface p-4 shadow-md sm:grid-cols-2 xl:grid-cols-[1.6fr_1.2fr_1fr_1fr_1fr_1fr_1.1fr] xl:items-center"
+          className="grid gap-4 rounded-xl bg-surface p-4 shadow-md sm:grid-cols-2 xl:grid-cols-[1.6fr_1.2fr_1fr_1fr_1fr_1fr_1.2fr_1fr_1.1fr] xl:items-center"
         >
           <div className="flex items-center gap-3">
             <Avatar name={r?.recipient.name ?? 'Client'} size="xl" />
@@ -207,6 +251,9 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
             {r ? <Badge tone={STATUS_TONE[r.status]}>{INTAKE_STATUS_LABELS[r.status]}</Badge> : '—'}
           </Fact>
           <Fact label="Date Sent">{r?.sentAt ? dayText(r.sentAt) : '—'}</Fact>
+          <Fact label="Due Date">{r?.dueOn ? dayText(`${r.dueOn}T12:00:00Z`) : 'Not set'}</Fact>
+          {/* EXPIRY-01: the effective expiration as saved, with its time zone. */}
+          <Fact label="Expires">{r ? expiryText(r.expiresAt, timeZone) : '—'}</Fact>
           <Fact label="Submitted">{r?.submittedAt ? stamp(r.submittedAt) : '—'}</Fact>
           <Fact label="Assigned To">
             {r?.assignedTo ? (
@@ -235,6 +282,14 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
         </nav>
         {children}
       </div>
+      {managing && r ? (
+        <ManageDialog
+          action={managing}
+          row={r}
+          onClose={() => setManaging(undefined)}
+          notify={notify}
+        />
+      ) : null}
       <Modal
         open={revising}
         title="Request Revision"

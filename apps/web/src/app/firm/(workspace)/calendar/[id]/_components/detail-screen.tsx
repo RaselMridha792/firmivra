@@ -545,6 +545,8 @@ export function CloseModal({
         {ask === 'cancel' ? (
           <Textarea
             label="Reason (optional)"
+            // Appointments Review 2 (P3): the cancellation email shows it to the client.
+            hint="The client sees this in the cancellation email. Don't add internal notes."
             rows={2}
             maxLength={500}
             value={reason}
