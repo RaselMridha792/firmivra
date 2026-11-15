@@ -3,6 +3,7 @@ import {
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_ALERT_MINUTES,
   INTAKE_REMINDER_MINUTES,
+  type IntakeRetentionYears,
   type IntakeSettings,
   type PortalInfo,
   UpdateIntakeSettingsRequest,
@@ -75,8 +76,10 @@ export interface Draft {
     acceptedFileTypes: FileType[];
     maxFileSizeMb: number;
     consentRequired: boolean;
-    /** Whole years, or null for not set (Octavia's I12). */
+    /** Apply to all's whole years, or null for not set (Review Two 14b; I12's period before). */
     dataRetentionYears: number | null;
+    /** 14b: each category's own minimum, or null (Apply to all holds for it). */
+    retention: IntakeRetentionYears;
   };
 }
 export type Group = keyof Draft;
@@ -118,6 +121,7 @@ export function toDraft(s: IntakeSettings): Draft {
       maxFileSizeMb: s.security.maxFileSizeMb,
       consentRequired: s.security.consentRequired,
       dataRetentionYears: s.security.dataRetentionYears,
+      retention: { ...s.security.retention },
     },
   };
 }
@@ -158,13 +162,6 @@ export function validate(draft: Draft, body: UpdateIntakeSettingsRequest): Field
     errors['clientExperience.redirectUrl'] = 'Add the address to send clients to';
   else if (url && !/^https:\/\/\S+$/i.test(url))
     errors['clientExperience.redirectUrl'] = 'Use a web address that starts with https://';
-  const n = draft.notifications;
-  if (
-    n.firstReminderAfterMinutes !== null &&
-    n.finalReminderAfterMinutes !== null &&
-    n.finalReminderAfterMinutes <= n.firstReminderAfterMinutes
-  )
-    errors['notifications.finalReminderAfterMinutes'] = 'The final reminder comes after the first';
   if (draft.security.acceptedFileTypes.length === 0)
     errors['security.acceptedFileTypes'] = 'Choose at least one file type';
   const parsed = UpdateIntakeSettingsRequest.safeParse(body);
@@ -189,14 +186,11 @@ export function withCurrent(values: readonly number[], current: number | null): 
   return [...new Set(all)].sort((a, b) => a - b);
 }
 export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
-/**
- * Minutes after sending, in both reminder lists (Octavia's I8): 5 minutes to 30 days. The API takes
- * the final reminder up to 60 days; the lists stop at 30.
- */
+/** The first reminder's choices, after sending (Octavia's I8): 5 minutes to 30 days (10b). */
 export const REMINDER_MINUTES: readonly number[] = INTAKE_REMINDER_MINUTES;
 /**
- * The final reminder's choices: the same, then 45 and 60 days (the API's limit), so a first
- * reminder at 30 days has a final one after it (Review Two, 10b: First 30 days was missing).
+ * The final reminder's choices, before the form expires (Review Two 10c): the same from 5 minutes,
+ * then 45 and 60 days (the API's limit). Neither list depends on the other.
  */
 export const FINAL_REMINDER_MINUTES: readonly number[] = [...INTAKE_REMINDER_MINUTES, 64800, 86400];
 /**
@@ -204,9 +198,6 @@ export const FINAL_REMINDER_MINUTES: readonly number[] = [...INTAKE_REMINDER_MIN
  * as she saw it, not 48). No alert is null.
  */
 export const ALERT_MINUTES: readonly number[] = INTAKE_ALERT_MINUTES;
-/** The first reminder time after `minutes`: the final reminder comes strictly after the first. */
-export const nextReminder = (minutes: number) =>
-  FINAL_REMINDER_MINUTES.find((m) => m > minutes) ?? null;
 /**
  * Max file size per file, in MB: INTAKE_FILE_SIZE_CHOICES (Octavia's I10), plus the firm's saved
  * size when it is not one of them (a 25 MB saved before), so the select shows it as it is and the

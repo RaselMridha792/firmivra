@@ -23,13 +23,15 @@ function Timing() {
         Your firm&apos;s reminder times could not be loaded right now.
       </p>
     );
+  const off = 'None (reminders are off in the settings)';
   const after = (m: number | null) =>
-    m === null
-      ? 'None (reminders are off in the settings)'
-      : `${intakeDurationWords(m)} after sending`;
+    m === null ? off : `${intakeDurationWords(m)} after sending`;
+  // Review Two 10c: the final reminder counts back from the expiry.
+  const before = (m: number | null) =>
+    m === null ? off : `${intakeDurationWords(m)} before it expires`;
   const rows: [string, string][] = [
     ['First reminder', after(n.firstReminderAfterMinutes)],
-    ['Final reminder', after(n.finalReminderAfterMinutes)],
+    ['Final reminder', before(n.finalReminderAfterMinutes)],
     [
       'Expiration alert',
       n.expirationAlertMinutes === null
@@ -67,7 +69,8 @@ export function ScheduleModal({ open, onClose }: { open: boolean; onClose: () =>
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted">
             Every form follows your firm&apos;s reminder times, and reminders stop once the form is
-            submitted. Turn them off for this form with Send Reminders.
+            submitted. A form with no expiration gets the first reminder only. Turn them off for
+            this form with Send Reminders.
           </p>
           <Timing />
           <Link

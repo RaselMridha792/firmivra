@@ -13,7 +13,8 @@ test("View Schedule shows the firm's reminder times and where to change them", a
   const dialog = page.getByRole('dialog', { name: 'Reminder Schedule' });
   const schedule = dialog.getByTestId('send-schedule');
   await expect(schedule).toContainText('First reminder3 days after sending');
-  await expect(schedule).toContainText('Final reminder7 days after sending');
+  // Review Two 10c: the final reminder counts back from the expiry.
+  await expect(schedule).toContainText('Final reminder7 days before it expires');
   await expect(schedule).toContainText('Expiration alert24 hours before it expires');
   await expect(dialog.getByRole('textbox')).toHaveCount(0);
   await expect(

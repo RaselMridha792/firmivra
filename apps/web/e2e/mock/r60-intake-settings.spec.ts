@@ -174,15 +174,16 @@ test('a panel’s Cancel puts its changes back; Save Changes saves and closes it
   await expect(card).toHaveAttribute('aria-checked', 'false');
 });
 
-// Octavia's review of Oct 20 (I8, I9): reminders count from sending, in minutes, hours and days, and
-// the final one follows the first; the expiration alert offers 30 minutes and her hours (42, not
-// 48), and No alert.
+// Octavia's review of Oct 20 (I8, I9): reminders in minutes, hours and days; the first counts from
+// sending (up to 30 days, 10b), the final back from the expiry (10c); the expiration alert offers
+// 30 minutes and her hours (42, not 48), and No alert.
 const MINUTES = ['5 minutes', '10 minutes', '15 minutes', '30 minutes'];
 const HOURS = ['1 hour', '2 hours', '3 hours', '6 hours', '12 hours'];
 const DAYS = ['1 day', '2 days', '3 days', '5 days', '7 days', '10 days', '14 days', '21 days'];
 const after = (times: string[]) => times.map((t) => `${t} after sending`);
+const before = (times: string[]) => times.map((t) => `${t} before expiry`);
 
-test('reminders count from sending, the final follows the first, and No reminders saves', async ({
+test('the first reminder counts from sending, the final back from the expiry, and No reminders saves', async ({
   page,
 }) => {
   await openSettings(page);
@@ -191,10 +192,11 @@ test('reminders count from sending, the final follows the first, and No reminder
   const alert = page.getByRole('combobox', { name: 'Expiration alert' });
   await expect(first.locator('option')).toHaveText([
     'No reminders',
-    ...after([...MINUTES, ...HOURS, ...DAYS]),
+    ...after([...MINUTES, ...HOURS, ...DAYS, '30 days']),
   ]);
+  // Review Two 10c: every time from 5 minutes, whatever the first is.
   await expect(final.locator('option')).toHaveText(
-    after(['5 days', '7 days', '10 days', '14 days', '21 days', '30 days']),
+    before([...MINUTES, ...HOURS, ...DAYS, '30 days', '45 days', '60 days']),
   );
   await expect(alert.locator('option')).toHaveText([
     'No alert',
@@ -203,10 +205,9 @@ test('reminders count from sending, the final follows the first, and No reminder
       .map((t) => `${t} before expiry`),
   ]);
 
-  // A later first reminder moves the final one after it.
+  // A later first reminder leaves the final one as it is.
   await first.selectOption('14400');
-  await expect(final).toHaveValue('20160');
-  await expect(final.locator('option')).toHaveText(after(['14 days', '21 days', '30 days']));
+  await expect(final).toHaveValue('10080');
 
   // No reminders turns both off, and saves so.
   await first.selectOption('');
@@ -256,20 +257,21 @@ test('additional emails to notify are added, checked, removed and saved (I7)', a
   await expect(list.getByRole('listitem')).toHaveText(['office@example.test']);
 });
 
-// Octavia's I12: a custom number of years, saved; choosing one deletes nothing.
-test('a data retention period in years saves, and can be cleared (I12)', async ({ page }) => {
+// Octavia's I12, now Review Two 14b's Apply to all: whole years, saved; choosing one deletes
+// nothing. The six categories are in r1-intake-i3.
+test('a data retention period in years saves, and can be cleared (I12, 14b)', async ({ page }) => {
   await openSettings(page);
   const row = page.getByTestId('data-retention');
-  const years = row.getByLabel('Data retention period (years)');
+  const years = row.getByLabel('Apply to all (years)');
   await expect(years).toHaveValue('');
-  await expect(row).toContainText('Saving a period deletes nothing.');
+  await expect(row).toContainText('nothing is deleted or archived');
   await years.fill('7');
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(years).toHaveValue('7');
   await years.fill('0');
   await page.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(row).toContainText('Enter 1 to 100 years');
+  await expect(row).toContainText('Enter 1 to 30 years');
   await years.fill('');
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await expect(years).toHaveValue('');
@@ -281,7 +283,7 @@ test('a reminder in minutes and one in hours save (I8)', async ({ page }) => {
   const final = page.getByRole('combobox', { name: 'Final reminder' });
   await first.selectOption({ label: '30 minutes after sending' });
   await expect(final).toHaveValue('10080');
-  await final.selectOption({ label: '2 hours after sending' });
+  await final.selectOption({ label: '2 hours before expiry' });
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await expect(page.getByText('Your intake settings were saved.')).toBeVisible();
   await expect(first).toHaveValue('30');

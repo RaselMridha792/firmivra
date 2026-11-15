@@ -30,8 +30,21 @@ const MB = 1024 * 1024;
  * changes it. Retention reads as the firm's own recordkeeping: records stay until the firm
  * deletes them, and nothing here promises that Firmivra keeps them forever.
  */
+/** "20 MB", or why it isn't shown. */
+function sizeText(query: { isPending: boolean; data: number | undefined }): string {
+  if (query.isPending) return 'Loading…';
+  return query.data === undefined ? 'Not available right now' : `${query.data} MB`;
+}
+
 export function FormsDocumentsScreen() {
   const categories = useApiQuery(['documents', 'categories'], () => api.documents.categories());
+  // DOCUMENTS-LIMIT-01: each limit is the firm's own and set where it applies.
+  const documentSettings = useApiQuery(['documents', 'settings', 'limit'], () =>
+    api.documentLibrary.settings(),
+  );
+  const intakeSettings = useApiQuery(['intake-forms', 'settings'], () =>
+    api.intakeForms.settings(),
+  );
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <SettingsHeader
@@ -42,14 +55,29 @@ export function FormsDocumentsScreen() {
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <SettingsCard
           title="Allowed Files"
-          subtitle="What clients and staff can upload, everywhere in Firmivra."
+          subtitle="What clients and staff can upload, and where each limit is set."
           icon={FolderOpen}
           testId="allowed-files"
+          action={<CardLink href="/documents/settings">File Settings</CardLink>}
         >
           <Facts
             rows={[
               ['File types', UPLOAD_LIMITS.typeNames],
-              ['Largest file', `${UPLOAD_LIMITS.maxBytes / MB} MB`],
+              [
+                'Largest document',
+                sizeText({
+                  isPending: documentSettings.isPending,
+                  data: documentSettings.data?.maxFileSizeMb,
+                }),
+              ],
+              [
+                'Largest intake form file',
+                sizeText({
+                  isPending: intakeSettings.isPending,
+                  data: intakeSettings.data?.security.maxFileSizeMb,
+                }),
+              ],
+              ['Firmivra’s own limit', `${UPLOAD_LIMITS.maxBytes / MB} MB a file`],
               [
                 'Files per upload',
                 `Up to ${UPLOAD_LIMITS.maxBatchFiles}, ${UPLOAD_LIMITS.maxBatchBytes / MB} MB in all`,
@@ -57,6 +85,11 @@ export function FormsDocumentsScreen() {
               ['Office files with macros', 'Refused'],
             ]}
           />
+          <p className="mt-2 text-xs text-muted" data-testid="limit-scope">
+            Documents and the client portal take files up to the largest document size, set in
+            Documents &gt; Settings &gt; File Settings. Intake forms have their own, set in Intake
+            Form Settings. Neither goes past Firmivra’s own limit.
+          </p>
         </SettingsCard>
 
         <SettingsCard

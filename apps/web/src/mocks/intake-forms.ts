@@ -150,6 +150,14 @@ function defaultSettings(): IntakeSettings {
       maxFileSizeMb: 10,
       consentRequired: true,
       dataRetentionYears: null,
+      retention: {
+        clientDocuments: null,
+        firmDocuments: null,
+        intakeSubmissions: null,
+        portalMessages: null,
+        systemEmails: null,
+        taxReturnDocuments: null,
+      },
     },
     updatedAt: null,
     version: 'v1',
@@ -1111,22 +1119,14 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       }
       const pick = <T extends object>(o: T | undefined) =>
         Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined));
-      // As the API: no first reminder is no reminders; a final reminder that is not after the
-      // first is refused at its field. No alert (null) is taken.
+      // As the API: no first reminder is no reminders. The final reminder counts back from the
+      // expiry (10c), so it does not depend on the first. No alert (null) is taken.
       const n = { ...st.notifications, ...pick(input.notifications) };
       if (n.firstReminderAfterMinutes === null) n.finalReminderAfterMinutes = null;
       const refuse = (path: string, message: string) =>
         new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
           { path, message },
         ]);
-      if (
-        n.firstReminderAfterMinutes !== null &&
-        (n.finalReminderAfterMinutes ?? 0) <= n.firstReminderAfterMinutes
-      )
-        throw refuse(
-          'notifications.finalReminderAfterMinutes',
-          'The final reminder comes after the first',
-        );
       const { defaultOwnerUserId, ...general } = input.general ?? {};
       Object.assign(st.general, pick(general));
       if (defaultOwnerUserId !== undefined)
@@ -1142,7 +1142,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
           ? { userId: defaultFollowUpOwnerUserId, name: 'Selected member' }
           : null;
       Object.assign(st.branding, pick(input.branding));
-      Object.assign(st.security, pick(input.security));
+      // 14b as the API: Apply to all fills the six, then the categories sent change.
+      const { retention, applyRetentionToAll, ...security } = input.security ?? {};
+      Object.assign(st.security, pick(security));
+      if (applyRetentionToAll) {
+        const years = st.security.dataRetentionYears;
+        if (years === null)
+          throw refuse('security.dataRetentionYears', 'Enter the years to apply to all six');
+        for (const key of Object.keys(
+          st.security.retention,
+        ) as (keyof typeof st.security.retention)[])
+          st.security.retention[key] = years;
+      }
+      Object.assign(st.security.retention, pick(retention));
       st.version = `v${Number(st.version.slice(1)) + 1}`;
       st.updatedAt = new Date().toISOString();
       s.changes.unshift({
