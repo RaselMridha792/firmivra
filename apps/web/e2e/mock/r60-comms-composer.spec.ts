@@ -147,3 +147,21 @@ test('CM-F09: a window that ends before it starts is shown on Show Until, and no
   await expect(page.getByText('Draft saved.')).toBeVisible();
   await expect(page.getByTestId('save-state')).toContainText('Last saved');
 });
+
+test('Resume Draft shows a renamed draft by its new name after Save Draft', async ({ page }) => {
+  await start(page, 'EMAIL');
+  const back = page.getByRole('link', { name: 'Back to Communications' });
+  const picker = page.getByTestId('draft-picker');
+  await back.click();
+  await expect(page).toHaveURL(base);
+  // Opened once, so the list is in the cache before the rename.
+  await reopen(page);
+  await page.getByLabel('Campaign Name').fill('Renamed draft (fake)');
+  await page.getByRole('button', { name: 'Save Draft' }).first().click();
+  await expect(page.getByTestId('save-state')).toContainText('Last saved');
+  await back.click();
+  await expect(page).toHaveURL(base);
+  await page.getByRole('button', { name: 'New Communication' }).click();
+  await page.getByRole('menuitem', { name: 'Resume Draft' }).click();
+  await expect(picker.getByRole('link').first()).toContainText('Renamed draft (fake)');
+});

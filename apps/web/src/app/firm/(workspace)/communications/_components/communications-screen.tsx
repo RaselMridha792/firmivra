@@ -27,6 +27,7 @@ import {
   Plus,
   UsersThree,
 } from '@phosphor-icons/react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
@@ -89,6 +90,7 @@ const kpiLink =
 /** /communications: the overview and the lists behind its tabs. */
 export function CommunicationsScreen() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [tab, setTab] = useState<TabId>('overview');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [picker, setPicker] = useState<'template' | 'draft' | 'recipients'>();
@@ -105,6 +107,8 @@ export function CommunicationsScreen() {
     setBlocked(undefined);
     try {
       const c = await api.communications.create({ channel, ...(templateId ? { templateId } : {}) });
+      // A new draft: the lists and Resume Draft show it.
+      void qc.invalidateQueries({ queryKey: [...COMM_KEY, 'list'] });
       router.push(`/communications/${c.id}/edit${chooseRecipients ? '?recipients=1' : ''}`);
     } catch (e) {
       if (errorCode(e) === 'CHANNEL_UNAVAILABLE') setBlocked(channel);
@@ -954,7 +958,9 @@ function DraftPicker({
   onNewEmail?: () => void;
   onClose: () => void;
 }) {
-  const list = useApiQuery([...COMM_KEY, 'draft-picker'], () =>
+  // Under 'list', so every change that refreshes the lists (Save Draft, a new draft, send,
+  // duplicate, archive) refreshes Resume Draft too: it never shows a draft's old name.
+  const list = useApiQuery([...COMM_KEY, 'list', 'draft-picker'], () =>
     api.communications.list({ tab: 'drafts', page: 1, pageSize: 20 }),
   );
   return (
