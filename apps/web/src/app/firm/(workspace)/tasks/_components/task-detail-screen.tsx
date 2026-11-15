@@ -1,6 +1,6 @@
 'use client';
 
-import type { TaskDetail } from '@firmivra/types';
+import { DOCUMENT_ERRORS, type TaskDetail } from '@firmivra/types';
 import { Badge, Button, Input, Modal, Select, Toast } from '@firmivra/ui';
 import {
   Archive,
@@ -47,6 +47,94 @@ function Card({ title, children, testId }: { title: string; children: ReactNode;
 }
 const btn =
   'inline-flex min-h-10 items-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
+
+/**
+ * T-C06: a task's file, from the task itself: its name opens the document (Back returns here),
+ * Download (the document's own permission and scan checks apply), the client-visible switch and
+ * Remove (the file stays in the client's Documents).
+ */
+function AttachmentRow({
+  taskId,
+  attachment: a,
+  onDone,
+  onFail,
+}: {
+  taskId: string;
+  attachment: TaskDetail['attachments'][number];
+  onDone: (text: string) => void;
+  onFail: (e: unknown) => void;
+}) {
+  const options = { invalidate: [...TASKS_KEY] };
+  const visible = useApiMutation(
+    () => api.taskWork.updateAttachment(taskId, a.id, { clientVisible: !a.clientVisible }),
+    options,
+  );
+  const remove = useApiMutation(() => api.taskWork.removeAttachment(taskId, a.id), options);
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const link = await api.documents.download(a.documentId);
+      window.location.assign(link.url);
+    } catch (e) {
+      onFail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const action = 'text-sm font-medium text-link hover:underline disabled:text-muted';
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
+      <OriginLink
+        href={`/documents/${a.documentId}`}
+        className="min-w-0 truncate font-medium text-link hover:underline"
+      >
+        {a.fileName}
+      </OriginLink>
+      <span className="flex flex-wrap items-center gap-3">
+        <Badge tone={a.clientVisible ? 'info' : 'neutral'}>
+          {a.clientVisible ? 'Visible to client' : 'Staff only'}
+        </Badge>
+        <button type="button" className={action} disabled={busy} onClick={() => void download()}>
+          Download
+        </button>
+        <button
+          type="button"
+          className={action}
+          disabled={visible.isPending}
+          onClick={() =>
+            visible.mutate(undefined, {
+              onSuccess: () =>
+                onDone(
+                  a.clientVisible
+                    ? `${a.fileName} is staff only now.`
+                    : `${a.fileName} is visible to the client now.`,
+                ),
+              onError: onFail,
+            })
+          }
+        >
+          {a.clientVisible ? 'Make Staff Only' : 'Show to Client'}
+        </button>
+        <button
+          type="button"
+          className="text-sm font-medium text-danger hover:underline disabled:text-muted"
+          disabled={remove.isPending}
+          aria-label={`Remove ${a.fileName}`}
+          onClick={() =>
+            remove.mutate(undefined, {
+              onSuccess: () =>
+                onDone(`${a.fileName} removed from the task; it stays in the client's Documents.`),
+              onError: onFail,
+            })
+          }
+        >
+          Remove
+        </button>
+      </span>
+    </li>
+  );
+}
 
 /** /tasks/[id]: one task with its actions, checklist, reminders, dependency, attachments and notes. */
 export function TaskDetailScreen({
@@ -328,12 +416,18 @@ export function TaskDetailScreen({
           ) : (
             <ul className="divide-y divide-divider text-sm">
               {t.attachments.map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="truncate text-heading">{a.fileName}</span>
-                  <Badge tone={a.clientVisible ? 'info' : 'neutral'}>
-                    {a.clientVisible ? 'Visible to client' : 'Staff only'}
-                  </Badge>
-                </li>
+                <AttachmentRow
+                  key={a.id}
+                  taskId={id}
+                  attachment={a}
+                  onDone={(text) => done(text)()}
+                  onFail={(e) =>
+                    setMessage({
+                      text: errorMessage(e, { ...DOCUMENT_ERRORS, ...TASK_ERRORS }),
+                      tone: 'error',
+                    })
+                  }
+                />
               ))}
             </ul>
           )}

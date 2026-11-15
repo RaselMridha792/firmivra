@@ -127,3 +127,37 @@ test('T-C12: Mark Complete is greyed out with the reason while a required checkl
   await expect(complete).toBeDisabled();
   await expect(complete).toContainText('1 required checklist item is open');
 });
+
+test('T-C06: a task’s file opens its document, and is shown, hidden or removed from the task', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('File the engagement letter');
+  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await page.getByLabel('Assigned to').selectOption({ index: 1 });
+  await page.locator('#tf-due').fill('2027-03-02');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Browse Files' }).click();
+  await (
+    await chooser
+  ).setFiles([
+    { name: 'letter.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 synthetic') },
+  ]);
+  await page.getByTestId('task-save').click();
+  await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
+  const files = page.getByTestId('detail-attachments');
+  const file = files.getByRole('listitem');
+  await expect(file).toHaveCount(1);
+  const name = (await file.getByRole('link').innerText()).trim();
+  await expect(file.getByRole('link')).toHaveAttribute('href', /^\/documents\/[0-9a-f-]{36}/);
+  await expect(file.getByRole('button', { name: 'Download' })).toBeEnabled();
+  await file.getByRole('button', { name: 'Show to Client' }).click();
+  await expect(page.getByText(`${name} is visible to the client now.`)).toBeVisible();
+  await expect(file).toContainText('Visible to client');
+  await file.getByRole('button', { name: 'Make Staff Only' }).click();
+  await expect(file).toContainText('Staff only');
+  await file.getByRole('button', { name: `Remove ${name}` }).click();
+  await expect(page.getByText(`${name} removed from the task`)).toBeVisible();
+  await expect(files).toContainText('No attachments.');
+});
