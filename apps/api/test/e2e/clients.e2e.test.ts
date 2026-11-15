@@ -214,6 +214,29 @@ describe('who reaches which client', () => {
     );
   });
 
+  it('FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403', async () => {
+    const mine = await create({ displayName: 'FC04 Assigned', assignedUserId: people.staffA.id });
+    const nobody = await create({ displayName: 'FC04 Nobody' });
+    const ids = (await list('?status=all&assignedUserId=UNASSIGNED', people.ownerA)).items.map(
+      (i) => i.id,
+    );
+    expect(ids).toContain(nobody.id);
+    expect(ids).not.toContain(mine.id);
+    // Combined with a stage: the unassigned clients in that stage only.
+    const stage = (await list(`?status=all&assignedUserId=UNASSIGNED&search=FC04`, people.ownerA))
+      .items;
+    expect(stage.map((i) => i.id)).toEqual([nobody.id]);
+    const withNew = (
+      await list(
+        `?status=all&assignedUserId=UNASSIGNED&clientStatus=${stage[0]!.status}&search=FC04`,
+        people.ownerA,
+      )
+    ).items.map((i) => i.id);
+    expect(withNew).toEqual([nobody.id]);
+    const res = await call('get', '?assignedUserId=UNASSIGNED', people.staffA);
+    expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+  });
+
   it('Staff cannot set the assignee, filter by it, archive or restore (403)', async () => {
     const c = await create({ displayName: 'Assign Test', assignedUserId: people.staffA.id });
     for (const res of [

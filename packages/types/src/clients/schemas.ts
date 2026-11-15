@@ -133,7 +133,11 @@ export const ListClientsQuery = z
   .strictObject({
     search: SearchText.optional(),
     status: z.enum(['active', 'archived', 'all']).optional().default('active'),
-    assignedUserId: z.uuid().optional(),
+    /**
+     * A member's clients, or UNASSIGNED for the clients with nobody assigned (Clients Review 2,
+     * FC-04); either combines with the other filters, such as the New stage.
+     */
+    assignedUserId: z.union([z.uuid(), z.literal('UNASSIGNED')]).optional(),
     /** The firm's stage (the list's tabs: Active, New, ...). */
     clientStatus: ClientStatus.optional(),
     /** Clients with an open engagement in this service (the service tabs). */
