@@ -2,7 +2,9 @@
 
 This file maps every red and yellow row of Octavia's Bookkeeping Review 2 to the PR that fixed it and the test that covers it, or marks it as a **GAP**. It covers both her checklist (Nov 12, 2026) and the developer review. Both reports are kept privately, outside the repo.
 
-Rows are named by their headings only; the report's text is not copied here. Each GAP has a plan and a status.
+Rows are named by their headings only; the report's text is not copied here. Each GAP has a plan and a status. The GAP list is at the end.
+
+Checked against main on Nov 15. Where only part of a row is built or tested, the row is split. **Test gap** means the code is on main but no test checks that part yet; such a row is never marked Done.
 
 **Where the tests are**
 - API e2e: `apps/api/test/e2e/`
@@ -16,26 +18,29 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | Row | Status | PR | Test |
 | --- | --- | --- | --- |
 | R01 approved: discrepancy note beside the difference | Done | #1408 (schema), #1424 | `bookkeeping.e2e` "keeps a note on the difference with who wrote it and when, for the reviewer" |
-| D01 D02: dashboard cohorts and counts | Done | #1394 | `bookkeeping.e2e` "the Active cohort leaves a paused client out, and the chart counts the cohort shown"; `r56-cohorts` "Bookkeeping: the cohort cards and the status chart filter the list" |
-| D03: date filter refresh | Done | #1394 | `r56-module-fixes` "BK-D03: a custom Report Due period filters the list, start no later than end" |
+| D01 D02: dashboard cohorts and counts (the status chart and the Active card) | Done | #1394 | `bookkeeping.e2e` "the Active cohort leaves a paused client out, and the chart counts the cohort shown"; `r56-cohorts` "Bookkeeping: the cohort cards and the status chart filter the list" |
+| D01 D02: the Income, Expense and Net cards and the monthly chart follow the list's cohort and filters | Not built yet (assigned to R56, Nov 15) | — | — (G3) |
+| D03: date filter refresh | Test gap (G5) | #1394 | `r56-module-fixes` "BK-D03: a custom Report Due period filters the list, start no later than end" checks the reversed-date alert, the help and the address only, not that the rows change without a reload. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | N02 N03: Documents scope (client and service) | Done | #1399 | `r56-review2-bookkeeping` "View All keeps the client and service…" |
 | N02 N03: recent document inline preview | Done | #1399, #1401 | `r56-review2-bookkeeping` "a recent document opens in a quick view on the workspace…" |
 | N02: Documents scope by period | Done (G2) | #1441 | `r56-review2-bookkeeping` "View All opens Documents on the current period's uploads, in a chip that clears"; `documents.e2e` "keeps a period's uploads: the days from and to, both included" |
-| N04 update: note fields and route | Done | #1408 (schema), #1424 | `notes.e2e` "keeps a note's type and the record it is about, and every note stays internal"; `r56-bookkeeping-transactions` "Add Note opens in place, internal and on this service" |
+| N04 update: note fields | Done | #1408 (schema), #1424 | `notes.e2e` "keeps a note’s type and the record it is about, and every note stays internal"; `r56-bookkeeping-transactions` "Add Note opens in place, internal and on this service" |
+| N04 update: the Notes tab and Client Notes View All open the workspace's Notes | Test gap (G6) | #1424 | Nothing checks the route yet. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | N05 update: recurrence context and clickable relations | Done | #1379 | `tasks-work.e2e` "names the engagement's own workspace, so Related To can open it"; `new-task-href.test` |
-| N05 original: task service and origin return | Done | #1379 | `new-task-href.test`; `r56-service-tasks` "Bookkeeping: Create Task carries the current period into the details" |
+| N05 original: task service and origin return | Test gap (G7) | #1379 | `r56-service-tasks` "Bookkeeping: Create Task carries the current period into the details" checks the period and the Back label; the Payroll test there checks the client, Related to and Back. Nothing checks that Service starts on the engagement's service or that Cancel returns to the workspace (one check, shared with Payroll F04). **Test gap:** R60 adds the check after the product items (Nov 15). |
 | N08: Categorize opens Transactions; the tab is kept | Done | #1379 | `url-tab.test`; `r56-review2-bookkeeping` "… Categorize opens Transactions, and the tab survives a reload" |
+| N08: Back from Terms returns to the tab it left | Test gap (G8) | #1379 | The tab is in the address and Terms opens with the origin, but nothing checks Back from Terms. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | R01c update: statement required before approval | Done | #1402 | `bookkeeping.e2e` "needs the statement attached before approval, apart from the zero difference"; `recon-rules.test`; `r56-bookkeeping-reconciliation` |
 | RP01 RP03: Refund and Settlement reports | Done | #1430 | `bookkeeping.e2e` BK-RPT part 2 (Refund and Settlement figures, a generated version); `bookkeeping-report-figures-more.test` "Refund Report…", "Settlement Report…" |
 | RP01 RP03: no-data totals, CSV context, readable headings | Done | #1413 | `bookkeeping-report-figures.test` "says whose figures they are, and leaves totals blank when nothing is recorded" |
 | E01b: package from Services & Pricing | Done | #1408 (schema), #1424 | `bookkeeping-terms.e2e` "takes the package from Services & Pricing and keeps its name"; isolation `bookkeeping-terms` (catalogServiceId) |
-| E01b: scoped billing link | Done | #1379 | `r56-review2-bookkeeping` "Terms' Payment Schedule View All opens this client's invoices" |
+| E01b: scoped billing link | Under check (assigned to R60, Nov 15) (G4) | #1379 | `r56-review2-bookkeeping` "Terms' Payment Schedule View All opens this client's invoices" checks the link's address only. For a client with no invoices, the Client select is likely a bug, because its options are built from the loaded invoices. |
 | New approved: Tasks tab scope | Done | #1394 | `r56-review2-bookkeeping` (View All to `/tasks?clientId=`); `r56-origin-back` "Bookkeeping client: the Tasks tab opens Tasks with Back to the same client" |
-| New approved: plain-language Documents messages | Done | #1399 | Help text only (Archived and Trash in `folders-panel`) |
+| New approved: plain-language Documents messages | Test gap (G9) | #1399 | The client-origin entry is covered by N02 above. For the Archived and Trash help in `folders-panel`, `r34-documents` checks only that Archived is disabled and Trash shows its count. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | New approved: desktop tab visibility | Done | #1383 | `r56-review2-bookkeeping` "every workspace tab, Settings too, shows at desktop width with no sideways scroll" |
-| Cross service: independent service and billing pause | Done | #1383 | `service-billing.test`; `r56-stop-billing`; `r56-bookkeeping` "Actions menu: … pause and resume" |
+| Cross service: independent service and billing pause | Done | #1383 | `service-billing.test` "resumes what is paused"; `r56-stop-billing` "Pausing the service says billing is not changed; Bookkeeping has the same dialog" |
 | RP03 approved: explicit P&L source choice | Done | #1408 (schema), #1430 | `bookkeeping.e2e` "P&L source (Review 2, RP03)"; `bookkeeping-report-figures.test` (entered figures) |
-| E01b confirmed: Payment Schedule View All client scope | Done | #1379 | `r56-review2-bookkeeping` "Terms' Payment Schedule View All opens this client's invoices" |
+| E01b confirmed: Payment Schedule View All client scope | Under check (assigned to R60, Nov 15) (G4) | #1379 | As E01b scoped billing link above. |
 
 ## Checklist: Partially fixed (yellow)
 
@@ -44,13 +49,15 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | I01: Connected versus Pending setup | Done | #1413 | `r56-review2-bookkeeping` "the software card says linked and authorized apart from synced"; `r56-connection-state` "Bookkeeping: the software card shows the connection and the sync apart" |
 | I02 I03: unavailable figures shown as zero | Done | #1413 | `bookkeeping-report-figures.test` (blank totals and the no-data note) |
 | I02 I03: a successful sync | Review Three | Needs a provider sandbox; nothing to fix | — |
-| D07: stable catalog link | Done | SH9 (earlier), #1424 for Terms | `r56-catalog-plans`; `bookkeeping-terms.e2e` (E01b) |
+| D07: stable catalog link | Done | #1188 (schema), #1200 (SH9), #1424 for Terms | `r56-catalog-plans`; `bookkeeping-terms.e2e` (E01b) |
 | T01a: import path, amount and source filters | Done | #1417 | `bookkeeping.e2e` "lists the ledger newest first, with search, filters and counts; Staff only their clients" |
 | R01a R01d: source data and close tests | Review Three | Tests with fixtures; no code change | `bookkeeping.e2e` reconciliation-from-the-ledger and close tests |
-| E01a A01: Terms events and View All | Done | #1417 | `bookkeeping-terms.e2e` "starts empty, then New Terms is a draft from the package" (Terms events in Activity) |
-| A01: note and upload events in the feed | Done (G1) | #1436 | `bookkeeping.e2e` "a note written on the Bookkeeping service shows in its Activity, never its text"; `documents.e2e` "shows an upload to a Bookkeeping service in that client's Bookkeeping Activity…" |
+| E01a A01: Terms events in Activity | Done | #1417 | `bookkeeping-terms.e2e` "starts empty, then New Terms is a draft from the package" (Terms events in Activity) |
+| E01a A01: Activity View All | Test gap (G10) | #1417 | Nothing checks View All yet. **Test gap:** R60 adds the check after the product items (Nov 15). |
+| A01: note and staff upload events in the feed | Done (G1) | #1436 | `bookkeeping.e2e` "a note written on the Bookkeeping service shows in its Activity, never its text"; `documents.e2e` "shows an upload to a Bookkeeping service in that client's Bookkeeping Activity…" |
+| A01: a client's upload in the feed | Test gap (G11) | #1436 | `documents.e2e` covers a staff upload only. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | P04 P07 P08 P09: filter, period and status checks | Review Three | Retest; no defect named | `bookkeeping.e2e`, `r56-bookkeeping` |
-| R01 review: consistent approval controls | Done | #1402 | `recon-rules.test`; `r56-bookkeeping` "Close: checklist, figures, reconciliation and the review steps" |
+| R01 review: consistent approval controls | Test gap (G12) | #1402 | `recon-rules.test` (the one rule both screens use); `r56-bookkeeping-reconciliation` "a reconciliation clears its lines and is approved only at a zero difference" (the Reconciliation screen). Nothing checks the Close Checklist's Approve at a nonzero difference. **Test gap:** R60 adds the check after the product items (Nov 15). |
 | R01 review: discrepancy note | Done | #1424 | `bookkeeping.e2e` (R01 note) |
 | E01 latest test: Terms package field | Done | #1424 | `bookkeeping-terms.e2e` (E01b) |
 
@@ -63,17 +70,27 @@ Rows are named by their headings only; the report's text is not copied here. Eac
 | C01: workspace layout (the tab map) | Decision | Octavia approves the final tab map; nothing to fix | — |
 | C05: dates and precision | Decision | Timezone and rounding to approve; nothing to fix | — |
 | C06: plans and current period | Review Three | Verify; nothing to fix | `r56-catalog-plans` |
-| C07: menus and routes | Done | #1379 (Categorize), #1430 (Refund, Settlement) | as N08 and RP01 above |
-| X01: identity and canonical linkage | Done for the routes named | #1379, #1399 | as N02 and N08 above |
-
-## GAPs
-
-| GAP | Row | Plan | Status |
-| --- | --- | --- | --- |
-| G1 | A01 | A note written on a client's Bookkeeping service, or a file uploaded to it (by staff or the client), adds an entry to the client's Bookkeeping Activity. The entry shows who and when, never the note's text or the file's content. | Fixed in #1436 |
-| G2 | N02 (period) | A document has a client, a service and a tax year, but no bookkeeping period. The lead chose (Nov 14) the default with no schema change: Documents opened from Bookkeeping keeps the current period's uploads (its first to last day), in a chip that names the period and clears. | Fixed in #1441 |
+| C07: menus and routes | Done | #1379 (Categorize), #1430 (Refund, Settlement) | as N08 (Categorize) and RP01 above |
+| X01: identity and canonical linkage | Done for the routes named | #1379, #1399 | as N02 and N08 (Categorize) above |
 
 ## Not in scope here
 
 - The purple rows (left for testing) and the BLOCKED developer-review rows (T01b, T01c, RP04, X02, X03, X04) need fixtures, a provider sandbox or role tests in Review Three. None names a defect to fix now.
 - N04 also noted that the client profile Overview's Notes field said "Not on file". That field shows the profile's additional information, not internal notes. Renaming it is a Clients item, outside this map.
+
+## GAPs
+
+| GAP | Row | Plan | Status |
+| --- | --- | --- | --- |
+| G1 | A01 | A note written on a client's Bookkeeping service, or a file uploaded to it (by staff or the client), adds an entry to the client's Bookkeeping Activity. The entry shows who and when, never the note's text or the file's content. | Fixed in #1436; the client's upload is untested (G11) |
+| G2 | N02 (period) | A document has a client, a service and a tax year, but no bookkeeping period. The lead chose (Nov 14) the default with no schema change: Documents opened from Bookkeeping keeps the current period's uploads (its first to last day), in a chip that names the period and clears. | Fixed in #1441 |
+| G3 | D01 D02 | The Income, Expense and Net cards and the Monthly Income vs. Expenses chart take the overview's figures for the period only. They follow the cohort and filters the list shows, as the status chart already does. | Not built yet (assigned to R56, Nov 15) |
+| G4 | E01b, E01b confirmed | Invoices opened from Terms' Payment Schedule names the client in its Client select even when that client has no invoices yet. Today the select's options come from the loaded invoices, so such a client is likely shown as All Clients. | Under check (assigned to R60, Nov 15) |
+| G5 | D03 | A mock check that choosing a custom Report Due range changes the rows at once, with no reload. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G6 | N04 (route) | A mock check that the Notes tab and Client Notes View All open the workspace's own Notes tab. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G7 | N05 original | One check, shared with Payroll F04: Create Task from a workspace starts on the engagement's service, and Cancel returns to the workspace. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G8 | N08 (Terms) | A mock check that Terms opened from a workspace tab goes Back to that same tab. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G9 | New approved: plain-language Documents messages | A mock check of the Archived and Trash help text. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G10 | E01a A01 | A mock check that Activity's View All opens the client's whole history, with Back to the workspace. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G11 | A01 | An e2e check that a client's portal upload to a Bookkeeping service adds an entry to its Activity, with no staff author. | Test gap: R60 adds the check after the product items (Nov 15) |
+| G12 | R01 review | A mock check that the Close Checklist's Approve is disabled, with its reason, while a reconciliation has a difference. | Test gap: R60 adds the check after the product items (Nov 15) |
