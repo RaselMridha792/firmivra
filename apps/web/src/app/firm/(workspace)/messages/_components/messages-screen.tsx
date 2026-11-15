@@ -39,6 +39,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmailChoices, useEmailChoices } from '../../../../../components/message-email-choices';
+import { LeaveDialog } from '../../../../../components/leave-message-dialog';
 import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
 import { RecentActivity } from './recent-activity';
 import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
@@ -1158,67 +1159,79 @@ export function NewMessageDialog({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const choices = useEmailChoices(clientId || undefined);
+  // M21 (Messaging Review 2): closing with unsaved text asks first.
+  const [leaving, setLeaving] = useState(false);
+  const unsaved = body.trim() !== '' || subject !== (initialSubject ?? '');
+  const close = () => (unsaved ? setLeaving(true) : onClose());
   return (
-    <Modal
-      open
-      title="New Message"
-      subtitle="Start a conversation with a client."
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !clientId || !subject.trim() || !body.trim()}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const t = await api.messages.create(clientId, {
-                  subject: subject.trim(),
-                  body: body.trim(),
-                  ...(choices.delivery ? { delivery: choices.delivery } : {}),
-                });
-                onSent(t);
-              } catch (e) {
-                setError(errorMessage(e));
-                setBusy(false);
-              }
-            }}
-          >
-            Send Message
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3" data-testid="new-message">
-        <label className="flex flex-col gap-1 text-sm font-medium text-heading">
-          To
-          <select
-            aria-label="To"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
-          >
-            <option value="">
-              {clients.isError ? 'Clients are not available' : 'Choose a client…'}
-            </option>
-            {options.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.displayName}
+    <>
+      <LeaveDialog open={leaving} onStay={() => setLeaving(false)} onLeave={onClose} />
+      <Modal
+        open={!leaving}
+        title="New Message"
+        subtitle="Start a conversation with a client."
+        onClose={close}
+        footer={
+          <>
+            <Button variant="secondary" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || !clientId || !subject.trim() || !body.trim()}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const t = await api.messages.create(clientId, {
+                    subject: subject.trim(),
+                    body: body.trim(),
+                    ...(choices.delivery ? { delivery: choices.delivery } : {}),
+                  });
+                  onSent(t);
+                } catch (e) {
+                  setError(errorMessage(e));
+                  setBusy(false);
+                }
+              }}
+            >
+              Send Message
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3" data-testid="new-message">
+          <label className="flex flex-col gap-1 text-sm font-medium text-heading">
+            To
+            <select
+              aria-label="To"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className="min-h-10 rounded-control border border-border bg-surface px-3 text-sm font-normal text-text"
+            >
+              <option value="">
+                {clients.isError ? 'Clients are not available' : 'Choose a client…'}
               </option>
-            ))}
-          </select>
-        </label>
-        <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <Textarea label="Message" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
-        <EmailChoices choices={choices} />
-        {error ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
+              {options.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <Textarea
+            label="Message"
+            rows={5}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <EmailChoices choices={choices} />
+          {error ? (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import type { CommunicationDetail } from '@firmivra/types';
+import type { AudienceSummary, CommunicationDetail } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { CheckCircle, Warning, XCircle } from '@phosphor-icons/react';
 import { useState } from 'react';
@@ -14,6 +14,8 @@ import {
   COMM_KEY,
   channelOf,
   dateTimeText,
+  EXCLUSION_REASON,
+  MISSING_CHANNEL,
   plain,
   quiet,
 } from './communications-shared';
@@ -101,20 +103,7 @@ export function ReviewDialog({
                 {scheduledFor ? dateTimeText(scheduledFor) : 'Immediately'}
               </dd>
             </dl>
-            {r.audience.autoExcluded.unsubscribed +
-              r.audience.autoExcluded.invalid +
-              r.audience.autoExcluded.missingChannel +
-              r.audience.manualExcludedCount >
-            0 ? (
-              <p
-                className="rounded-lg bg-warning-soft p-3 text-sm text-warning"
-                data-testid="review-excluded"
-              >
-                Left out: {r.audience.autoExcluded.unsubscribed} unsubscribed,{' '}
-                {r.audience.autoExcluded.invalid} invalid, {r.audience.autoExcluded.missingChannel}{' '}
-                without a phone number, {r.audience.manualExcludedCount} chosen by hand.
-              </p>
-            ) : null}
+            <LeftOut audience={r.audience} channel={r.channel} />
             <ul className="flex flex-col gap-1" aria-label="Checks" data-testid="review-checks">
               {r.checks.map((c, i) => {
                 const Glyph =
@@ -154,5 +143,48 @@ export function ReviewDialog({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * C19 (Communications Review 2): who is included and who is left out, with each reason in the
+ * channel's words (an announcement's missing channel is no portal access), the duplicates and
+ * those without consent too.
+ */
+function LeftOut({
+  audience: a,
+  channel,
+}: {
+  audience: AudienceSummary;
+  channel: CommunicationDetail['channel'];
+}) {
+  const reasons = [
+    [EXCLUSION_REASON['UNSUBSCRIBED'], a.autoExcluded.unsubscribed],
+    [EXCLUSION_REASON['INVALID'], a.autoExcluded.invalid],
+    [MISSING_CHANNEL[channel], a.autoExcluded.missingChannel],
+    [EXCLUSION_REASON['DUPLICATE'], a.autoExcluded.duplicate],
+    [EXCLUSION_REASON['NO_CONSENT'], a.autoExcluded.ineligible],
+    ['Chosen by hand', a.manualExcludedCount],
+  ] as const;
+  const shown = reasons.filter(([, n]) => n > 0);
+  const total = shown.reduce((sum, [, n]) => sum + n, 0);
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p className="text-heading" data-testid="review-included">
+        Included: {a.finalCount}
+      </p>
+      {total > 0 ? (
+        <div className="rounded-lg bg-warning-soft p-3 text-warning" data-testid="review-excluded">
+          <p className="font-medium">Left out: {total}</p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {shown.map(([label, n]) => (
+              <li key={label}>
+                {label}: {n}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }

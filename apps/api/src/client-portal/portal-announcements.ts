@@ -7,7 +7,9 @@ import { DATABASE } from '../database/database.module.js';
 import type { NotifyConfig } from '../notify/config.js';
 import { firmImages } from '../notify/email-html.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
+import { mergeValues } from '../communications/merge-values.js';
 import { sanitizeForPortal, toPlainText } from '../templates/html.js';
+import { fill } from '../templates/merge-fields.js';
 
 // Client Portal guide 3 (Rasel, Oct 24: the parts without schema): announcements are made and
 // published in Communications; the portal shows the ones published to the client, inside their
@@ -15,6 +17,9 @@ import { sanitizeForPortal, toPlainText } from '../templates/html.js';
 // notification channels need schema (R0). CM-F08 (R60, a one-off exception to owned paths the lead
 // gave on Nov 7): the announcement's own page shows its formatting (`html`, cleaned for the
 // portal: images only from this firm's email-images address); snippets keep the plain `body`.
+// C25 (Communications Review 2): the merge fields are filled for the signed-in client, as an
+// email or text of the same campaign is filled for its recipient; one with no value stays as
+// written (the send's review warned of it).
 
 const LIMIT = 50;
 
@@ -30,7 +35,10 @@ export class PortalAnnouncementsService {
     const scope = this.db.forBusiness(businessId);
     const account = await scope.clientAccount.findFirst({
       where: { businessId, id: clientAccountId },
-      select: { clientId: true },
+      select: {
+        clientId: true,
+        client: { select: { displayName: true, email: true, phone: true } },
+      },
     });
     if (!account?.clientId) return { items: [] };
     const now = new Date();
@@ -61,21 +69,39 @@ export class PortalAnnouncementsService {
       },
     });
     // Images only from this firm's own email-images address on the portal's host.
-    const firm = rows.length
-      ? await scope.business.findUnique({ where: { id: businessId }, select: { slug: true } })
-      : null;
+    const [firm, custom] = rows.length
+      ? await Promise.all([
+          scope.business.findUnique({
+            where: { id: businessId },
+            select: { slug: true, name: true },
+          }),
+          scope.customMergeField.findMany({
+            where: { businessId },
+            select: { label: true, fallback: true },
+          }),
+        ])
+      : [null, []];
     const origin = this.notify.portalOrigin;
     const images = origin && firm ? firmImages(origin, firm.slug) : () => false;
+    const c = account.client;
+    const values = mergeValues(
+      c ? { name: c.displayName, email: c.email, phone: c.phone } : null,
+      firm?.name ?? '',
+      custom,
+    );
     return {
-      items: rows.map((r): MyAnnouncement => ({
-        id: r.id,
-        title: r.subject?.trim() || null,
-        body: toPlainText(r.body),
-        html: sanitizeForPortal(r.body, images),
-        where: AnnouncementPlace.safeParse(r.visibility).data ?? 'dashboard',
-        publishedAt: (r.publishStartsAt ?? r.sentAt ?? r.createdAt).toISOString(),
-        endsAt: r.publishEndsAt?.toISOString() ?? null,
-      })),
+      items: rows.map((r): MyAnnouncement => {
+        const html = fill(r.body, values, 'html').text;
+        return {
+          id: r.id,
+          title: r.subject ? fill(r.subject, values, 'text').text.trim() || null : null,
+          body: toPlainText(html),
+          html: sanitizeForPortal(html, images),
+          where: AnnouncementPlace.safeParse(r.visibility).data ?? 'dashboard',
+          publishedAt: (r.publishStartsAt ?? r.sentAt ?? r.createdAt).toISOString(),
+          endsAt: r.publishEndsAt?.toISOString() ?? null,
+        };
+      }),
     };
   }
 }
