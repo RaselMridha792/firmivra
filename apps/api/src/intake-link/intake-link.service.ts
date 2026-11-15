@@ -37,6 +37,7 @@ import {
   consentRequiredError,
   intakeCompletion,
   intakeConsentRequired,
+  submittedNoticeExcludes,
 } from '../intake/intake-completion.js';
 import { readDefinition } from '../intake/intake-forms.js';
 import { maskStoredNumbers } from '../intake/intake-numbers.js';
@@ -443,7 +444,16 @@ export class IntakeLinkService {
     }
     const intake = done.view;
     try {
-      await this.notifier.notify({ businessId, event: 'intake.submitted', recordId: id });
+      // Row 23: Notify assigned staff member off leaves the form's assignee out of the notice.
+      const excludeUserIds = await this.inFirm(businessId, (tx) =>
+        submittedNoticeExcludes(tx, businessId, id),
+      );
+      await this.notifier.notify({
+        businessId,
+        event: 'intake.submitted',
+        recordId: id,
+        ...(excludeUserIds ? { excludeUserIds } : {}),
+      });
     } catch (error) {
       this.logger.warn(`intake.submitted for intake ${id} not written (${errorName(error)})`);
     }

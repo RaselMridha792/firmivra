@@ -43,3 +43,46 @@ export async function checkIntakeFileSize(
     });
   }
 }
+
+/** A firm with no intake settings yet: the table's default accepted types. */
+export const INTAKE_DEFAULT_FILE_TYPES: readonly string[] = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+];
+const TYPE_NAMES: Record<string, string> = {
+  'application/pdf': 'PDF',
+  'image/jpeg': 'JPG',
+  'image/png': 'PNG',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel (.xlsx)',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word (.docx)',
+};
+
+/**
+ * Review Two row 23 (P2-6): the firm's accepted file types for intake forms (Intake Form Settings
+ * > Security; PDF, JPG and PNG until it sets them) at the upload ticket, after the platform's own
+ * list: 400 VALIDATION_FAILED at `contentType` naming what it takes. Portal intakes, lead links
+ * and Begin Online drafts all call it, as they do the size check.
+ */
+export async function checkIntakeFileType(
+  tx: TxClient,
+  businessId: string,
+  contentType: string,
+): Promise<void> {
+  const row = await tx.intakeSettings.findUnique({
+    where: { businessId },
+    select: { acceptedFileTypes: true },
+  });
+  const accepted = row?.acceptedFileTypes.length
+    ? row.acceptedFileTypes
+    : INTAKE_DEFAULT_FILE_TYPES;
+  if (accepted.includes(contentType)) return;
+  const names = accepted.map((m) => TYPE_NAMES[m] ?? m);
+  const list =
+    names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : (names[0] ?? '');
+  throw new BadRequestException({
+    code: 'VALIDATION_FAILED',
+    message: 'The request is not valid',
+    details: [{ path: 'contentType', message: `Your firm takes ${list} files here` }],
+  });
+}

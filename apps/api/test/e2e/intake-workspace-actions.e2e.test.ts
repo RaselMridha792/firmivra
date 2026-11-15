@@ -1259,7 +1259,7 @@ describe('another firm', () => {
 describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert, Expired)', () => {
   const MIN = 60_000;
   /** A client of firm A with an active portal login, an engagement and the form sent by Email. */
-  const sentForm = async (key: string, days = 20) => {
+  const sentForm = async (key: string, days = 20, extra: object = {}) => {
     const userId = randomUUID();
     const email = `${key}-${run}@client.test`;
     await asOwner({ kind: 'platform' }, (tx) =>
@@ -1295,7 +1295,12 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
           'post',
           '/intakes/send',
           ownerA,
-          sendBody({ recipient: { kind: 'CLIENT', id: clientId }, channel: 'EMAIL', expiresAt }),
+          sendBody({
+            recipient: { kind: 'CLIENT', id: clientId },
+            channel: 'EMAIL',
+            expiresAt,
+            ...extra,
+          }),
         ),
       ),
     );
@@ -1451,6 +1456,51 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
         ['intake.reminder_skipped', { kind: 'FIRST', reason: 'AFTER_FINAL' }],
       ]),
     );
+  });
+
+  it('22: the firm’s No reminders holds; a send asking for reminders gets none', async () => {
+    ok(await call('get', '/intake-settings', ownerA));
+    const reminding = (on: boolean) =>
+      inFirm('a', (tx) =>
+        tx.intakeSettings.update({
+          where: { businessId: firms.a },
+          data: { remindersEnabled: on },
+        }),
+      );
+    await reminding(false);
+    try {
+      const f = await sentForm('noreminders', 20, { reminders: { enabled: true } });
+      expect(await row(f.id)).toMatchObject({
+        reminderFirstMinutes: null,
+        reminderFinalMinutes: null,
+      });
+      await app.get(IntakeScheduleJobs).run('intake-reminders', {
+        now: new Date(Date.now() + 4320 * MIN + MIN),
+        businessIds: [firms.a],
+      });
+      expect(reminders(f.email)).toEqual([]);
+    } finally {
+      await reminding(true);
+    }
+  });
+
+  it('22: the job takes only the forms with a reminder due, whatever older ones wait', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    // The older form's first reminder is three days out; the newer one's is due in 5 minutes.
+    const waiting = await sentForm('waiting');
+    const soon = await sentForm('soon');
+    await inFirm('a', (tx) =>
+      tx.intake.update({ where: { id: soon.id }, data: { reminderFirstMinutes: 5 } }),
+    );
+    // One form per run: the oldest open one would have been the waiting one.
+    await jobs.run('intake-reminders', {
+      now: new Date(Date.now() + 6 * MIN),
+      businessIds: [firms.a],
+      batch: 1,
+    });
+    expect(reminders(soon.email)).toHaveLength(1);
+    expect(reminders(waiting.email)).toEqual([]);
+    expect((await row(waiting.id)).firstReminderSentAt).toBeNull();
   });
 
   it('Extend Expiration to a later time gives the final reminder and the alert their own time again', async () => {

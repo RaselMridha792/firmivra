@@ -16,7 +16,7 @@ import { type PoolSecrets, poolSecrets, Sealer } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { checkIntakeFileSize } from '../intake/intake-file-size.js';
+import { checkIntakeFileSize, checkIntakeFileType } from '../intake/intake-file-size.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
 import { refusal, storageUnavailable } from '../storage/document-records.js';
 import {
@@ -133,9 +133,11 @@ export class DraftUploadsService {
     const businessId = draft.firm.id;
     // The firm's own limit (Intake Form Settings), before storage is asked for anything. The size
     // is sealed in the ticket: confirm checks the stored file against it, not the setting again.
-    await this.database.withScope({ kind: 'business', businessId }, (tx) =>
-      checkIntakeFileSize(tx, businessId, body.sizeBytes),
-    );
+    // Review Two row 23: and the firm's accepted file types for intake forms.
+    await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      await checkIntakeFileSize(tx, businessId, body.sizeBytes);
+      await checkIntakeFileType(tx, businessId, body.contentType);
+    });
     const claim: LeadUploadClaim = {
       pool: 'CLIENT',
       businessId,
