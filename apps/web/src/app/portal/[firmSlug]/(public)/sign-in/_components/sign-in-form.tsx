@@ -34,9 +34,12 @@ export function SignInForm() {
   });
   // The shell sends a client the firm has not approved yet on to /sign-up/done. A booking link's
   // type (Appointments Review 2, row 3: this page's ?book=, else the one kept in this browser)
-  // opens booking on it instead of home.
-  const home = () =>
-    router.replace(afterSignIn(slug, new URLSearchParams(window.location.search).get('book')));
+  // opens booking on it instead of home; the page opened before signing in (?next=, an intake
+  // email's form: INTAKE-ACCESS-01) opens again.
+  const home = () => {
+    const params = new URLSearchParams(window.location.search);
+    router.replace(afterSignIn(slug, params.get('book'), params.get('next')));
+  };
   const mutation = useApiMutation(async (action: () => Promise<SignInResult | void>) => {
     const result = await action();
     form.resetField('password');

@@ -12,6 +12,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { LeaveDialog } from '../../../../../../../components/leave-message-dialog';
 import { useClientRecord } from '../../_components/use-client-record';
 import { textareaClass, when } from './parts';
 
@@ -168,59 +169,69 @@ export function NewThreadDialog({
       }),
     refresh,
   );
+  // M21 (Messaging Review 2): closing with unsaved text asks first.
+  const [leaving, setLeaving] = useState(false);
+  const unsaved = body.trim() !== '' || subject !== initialSubject;
   return (
-    <Modal open title="New Message" onClose={onClose}>
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate(undefined, {
-            onSuccess: () => {
-              // The client's Activity and Last Activity show the new entry.
-              if (addToTimeline) void qc.invalidateQueries({ queryKey: ['clients', clientId] });
-              onSent?.();
-              onClose();
-            },
-          });
-        }}
+    <>
+      <LeaveDialog open={leaving} onStay={() => setLeaving(false)} onLeave={onClose} />
+      <Modal
+        open={!leaving}
+        title="New Message"
+        onClose={() => (unsaved ? setLeaving(true) : onClose())}
       >
-        <Input
-          label="Subject"
-          required
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
-        <div className="flex flex-col gap-1">
-          <label htmlFor="new-message" className="text-sm font-medium">
-            Message
-          </label>
-          <textarea
-            id="new-message"
-            rows={6}
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate(undefined, {
+              onSuccess: () => {
+                // The client's Activity and Last Activity show the new entry.
+                if (addToTimeline) void qc.invalidateQueries({ queryKey: ['clients', clientId] });
+                onSent?.();
+                onClose();
+              },
+            });
+          }}
+        >
+          <Input
+            label="Subject"
             required
-            className={textareaClass}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
           />
-        </div>
-        <Recipient clientId={clientId} />
-        <EmailChoices choices={choices} />
-        <div className="flex flex-col">
-          <Checkbox
-            label="Add to Client Timeline"
-            checked={addToTimeline}
-            onChange={(e) => setAddToTimeline(e.target.checked)}
-          />
-          <p className="text-xs text-muted">
-            Once sent, the client&apos;s Activity shows the subject, who sent it and when, never the
-            message.
-          </p>
-        </div>
-        <Problem error={create.error} />
-        <Button type="submit" disabled={create.isPending}>
-          {create.isPending ? 'Sending…' : 'Send Message'}
-        </Button>
-      </form>
-    </Modal>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="new-message" className="text-sm font-medium">
+              Message
+            </label>
+            <textarea
+              id="new-message"
+              rows={6}
+              required
+              className={textareaClass}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+          </div>
+          <Recipient clientId={clientId} />
+          <EmailChoices choices={choices} />
+          <div className="flex flex-col">
+            <Checkbox
+              label="Add to Client Timeline"
+              checked={addToTimeline}
+              onChange={(e) => setAddToTimeline(e.target.checked)}
+            />
+            <p className="text-xs text-muted">
+              Once sent, the client&apos;s Activity shows the subject, who sent it and when, never
+              the message.
+            </p>
+          </div>
+          <Problem error={create.error} />
+          <Button type="submit" disabled={create.isPending}>
+            {create.isPending ? 'Sending…' : 'Send Message'}
+          </Button>
+        </form>
+      </Modal>
+    </>
   );
 }

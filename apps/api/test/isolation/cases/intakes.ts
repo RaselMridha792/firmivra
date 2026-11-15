@@ -195,6 +195,7 @@ export const cases: CaseModule['cases'] = {
         acknowledgments: [],
         signer: { printedName: 'Fake Client X', method: 'TYPED', typedSignature: 'Fake Client X' },
       },
+      consent: true,
     },
     expect: 409,
   },

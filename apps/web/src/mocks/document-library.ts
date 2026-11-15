@@ -34,6 +34,7 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
+import { mockDocumentLimitMb, setMockDocumentLimitMb } from './documents';
 import { SAMPLE_PDF_URL } from './esign-common';
 
 // Synthetic folders and the upload step of the firm's document library (R55 contract,
@@ -406,7 +407,7 @@ export function createDocumentLibraryMock(options: {
     requestExpiryDays: null,
     documentExpiryReminderDays: options.empty ? null : 30,
     shareExpiryDays: options.empty ? null : 14,
-    maxFileSizeMb: 100,
+    maxFileSizeMb: mockDocumentLimitMb(),
     uploadTypes: [],
     defaultReviewer: options.empty ? null : (MEMBERS[0] ?? null),
     updatedAt: null,
@@ -1265,6 +1266,8 @@ export function createDocumentLibraryMock(options: {
           : {}),
         updatedAt: new Date().toISOString(),
       };
+      // DOCUMENTS-LIMIT-01: every document upload ticket follows the new limit, as the API's do.
+      setMockDocumentLimitMb(settings.maxFileSizeMb);
       return structuredClone(settings);
     },
   };

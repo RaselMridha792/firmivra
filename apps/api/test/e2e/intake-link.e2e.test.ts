@@ -314,7 +314,12 @@ describe("a lead's secure intake link", () => {
       await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
       'Lee Lead',
     );
-    const done = LinkIntake.parse(ok(await v.post('/submit', { answers: {}, signature })));
+    // Review Two row 21: the firm asks for consent (the setting's default); none is refused.
+    expect(LinkIntake.parse(ok(await v.get())).consentRequired).toBe(true);
+    expectError(await v.post('/submit', { answers: {}, signature }), 400, 'CONSENT_REQUIRED');
+    const done = LinkIntake.parse(
+      ok(await v.post('/submit', { answers: {}, signature, consent: true })),
+    );
     expect(done).toMatchObject({ status: 'SUBMITTED', canEdit: false });
     expect(done.signature?.printedName).toBe('Lee Lead');
     const stored = await inFirmA((tx) =>
@@ -340,6 +345,14 @@ describe("a lead's secure intake link", () => {
     expect(actions).toEqual(
       expect.arrayContaining(['intake.link_opened', 'intake.step_saved', 'intake.submitted']),
     );
+    // The consent is kept with the submit (no schema change: the audit row holds it).
+    const submitted = await inFirmA((tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { entityId: id, action: 'intake.submitted' },
+        select: { metadata: true },
+      }),
+    );
+    expect(submitted.metadata).toMatchObject({ consent: true, consentAt: expect.any(String) });
   });
 
   it('refuses another firm, a made-up token and a missing or moved cookie (410 LINK_INVALID)', async () => {

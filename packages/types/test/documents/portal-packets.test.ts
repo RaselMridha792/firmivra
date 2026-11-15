@@ -46,6 +46,7 @@ const packet = {
   taxYear: 2024,
   expiresAt: null,
   allowMultipleFiles: true,
+  maxFileSizeMb: 100,
   items: [item],
   canSubmit: false,
   activity: [{ at, kind: 'SENT', itemTitle: null, by: 'FIRM' }],

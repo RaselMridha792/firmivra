@@ -33,6 +33,7 @@ import {
   e164,
   type Person,
 } from './communications-audience.service.js';
+import { mergeValues } from './merge-values.js';
 import type {
   AudienceCandidatesQ,
   CancelBody,
@@ -1316,18 +1317,7 @@ export class CommunicationsService {
     firmName: string,
     custom: { key: string; label: string; fallback: string | null }[],
   ): Map<string, string> {
-    const m = new Map<string, string>();
-    for (const f of custom) if (f.fallback) m.set(f.label.toLowerCase(), f.fallback);
-    m.set('business name', firmName);
-    if (p) {
-      const [first = '', ...rest] = p.name.split(' ');
-      m.set('client first name', first);
-      m.set('client last name', rest.join(' '));
-      m.set('client full name', p.name);
-      if (p.email) m.set('email address', p.email);
-      if (p.phone) m.set('phone number', p.phone);
-    }
-    return m;
+    return mergeValues(p, firmName, custom);
   }
 
   private async checks(

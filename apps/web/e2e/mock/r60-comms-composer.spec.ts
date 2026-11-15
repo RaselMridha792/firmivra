@@ -45,6 +45,30 @@ test('CM-F05: an announcement chooses its clients below the window; only portal 
   await expect(page.getByTestId('checklist')).not.toContainText('Choose recipients first.');
 });
 
+test("C19: the review says who is included and why each one left out is, in the channel's words", async ({
+  page,
+}) => {
+  // The composer opens at once; Choose Recipients makes the draft (Dashboard Review 2, Q3).
+  await page.goto(`${base}/new?channel=ANNOUNCEMENT`);
+  const recipients = page.getByTestId('composer-form').getByTestId('recipients-field');
+  await recipients.getByRole('button', { name: 'Choose Recipients' }).click({ timeout: 60_000 });
+  await page.waitForURL(/\/edit$/);
+  const modal = page.getByTestId('recipients-modal');
+  await modal.getByLabel(/Small Business Clients/).check();
+  await page.getByRole('button', { name: /^Apply \d+ Recipients/ }).click();
+  await page
+    .getByRole('button', { name: /^Review/ })
+    .first()
+    .click();
+  const review = page.getByTestId('review-dialog');
+  await expect(review.getByTestId('review-included')).toHaveText(/^Included: \d+$/);
+  // An announcement's missing channel is a missing portal login, never a phone number.
+  const out = review.getByTestId('review-excluded');
+  await expect(out).toContainText(/Left out: \d+/);
+  await expect(out).toContainText(/No portal access: \d+/);
+  await expect(out).not.toContainText('phone');
+});
+
 test('CM-F06, F07: Back with unsaved changes asks; Keep Editing, Discard and Save Draft', async ({
   page,
 }) => {

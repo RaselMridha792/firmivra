@@ -98,6 +98,13 @@ export type SavedIntakeStep = z.infer<typeof SavedIntakeStep>;
 export const SubmitIntakeRequest = z.strictObject({
   answers: IntakeAnswersInput.optional(),
   signature: IntakeSignatureInput,
+  /**
+   * Review Two row 21: the recipient ticked the firm's consent checkbox (Intake Form Settings >
+   * Consent checkbox required; `consentRequired` of MyIntake and LinkIntake). A portal intake or a
+   * lead's link without it while the setting is on: 400 CONSENT_REQUIRED. Kept in the submit's
+   * audit (consent and its time). Begin Online does not ask it.
+   */
+  consent: z.literal(true).optional(),
 });
 export type SubmitIntakeRequest = z.input<typeof SubmitIntakeRequest>;
 
@@ -271,6 +278,18 @@ export const MyIntakeListItem = z.object({
 });
 export type MyIntakeListItem = z.infer<typeof MyIntakeListItem>;
 
+/**
+ * Intake Forms Review Two row 21: what the recipient sees once the form is sent. `message`: the
+ * form's success message, else the firm's thank-you message; null shows the screen's own words.
+ * `redirectUrl`: the https page the browser opens after (Intake Form Settings > Redirect after
+ * completion); null stays on the form.
+ */
+export const IntakeCompletion = z.object({
+  message: z.string().nullable(),
+  redirectUrl: z.string().nullable(),
+});
+export type IntakeCompletion = z.infer<typeof IntakeCompletion>;
+
 /** GET /portal/{firmSlug}/me/intakes: open ones first (by due date), then the newest. */
 export const MyIntakeList = z.object({ items: z.array(MyIntakeListItem).max(200) });
 
@@ -300,6 +319,10 @@ export const MyIntake = MyIntakeListItem.extend({
   /** False for spouse and authorized logins, and outside the editable statuses. */
   canEdit: z.boolean(),
   canSubmit: z.boolean(),
+  /** Review Two row 21: the review step shows the firm's consent checkbox (send `consent`). */
+  consentRequired: z.boolean(),
+  /** Review Two row 21: the message and redirect once it is sent. */
+  completion: IntakeCompletion,
 }).superRefine(refuseFullNumbers);
 export type MyIntake = z.infer<typeof MyIntake>;
 
@@ -312,6 +335,8 @@ export const IntakeErrorCode = z.enum([
   'INTAKE_LOCKED',
   /** 410: the intake expired; the client asks the firm to reopen it. */
   'INTAKE_EXPIRED',
+  /** 400 on a submit: the firm asks for consent (Consent checkbox required) and none was given. */
+  'CONSENT_REQUIRED',
   /** 409 on a submit: the intake changed at that moment (a save or upload); reload and submit again. */
   'INTAKE_CHANGED',
   /**
@@ -346,6 +371,7 @@ export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
 export const INTAKE_ERRORS = {
   INTAKE_LOCKED: 'This form has been submitted and can no longer be changed.',
   INTAKE_EXPIRED: 'This form has expired. Contact your firm to reopen it.',
+  CONSENT_REQUIRED: 'Tick the box to confirm your information before you submit.',
   INTAKE_CHANGED:
     'Your form changed while it was being sent. Please reload the page and try again.',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
