@@ -354,7 +354,8 @@ export function createBeginOnlineMock(
       if (!isMockShare(parseInput(IntakeShareToken, token))) throw linkInvalid();
       if (input.website?.trim())
         throw fail(400, 'VALIDATION_FAILED', 'Check the highlighted answers');
-      const { website: _honeypot, ...contact } = input;
+      // The link's campaign (Leads row 24) goes to the lead's source detail in the API.
+      const { website: _honeypot, utm: _campaign, ...contact } = input;
       return self.start(SHARED_FORM, contact);
     },
     start: async (form, body) => {

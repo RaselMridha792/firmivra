@@ -646,7 +646,7 @@ function connectCopy(
 ): string {
   if (!p) return 'Connect this integration to your firm.';
   if (p.provider === 'website_forms')
-    return 'Built in: nothing goes outside Firmivra. Connecting turns on your form endpoint; you choose the forms and fields in the next steps.';
+    return 'Built in: nothing to connect. Every published intake form has a share link and a website button for your site; open Intake Forms and choose Share & Publish on a form.';
   if (p.provider === 'custom_api')
     return 'Built in: for your own systems. Connecting creates the connection here; its endpoint, events and secret are set on the API & Webhooks setup, not on this page.';
   switch (p.authMethod) {
