@@ -425,6 +425,13 @@ function Summary({ r }: { r: AppointmentRecord }) {
           ],
           ['Email', r.contact.email ?? '—'],
           ['Phone', r.contact.phone ?? '—'],
+          // Appointments A1: a group appointment's other clients (staff only).
+          ...(r.attendees.length > 0
+            ? ([['Other attendees', r.attendees.map((a) => a.name).join(', ')]] as [
+                string,
+                string,
+              ][])
+            : []),
           ['Type', r.type?.name ?? '—'],
           ['Service', r.service?.name ?? '—'],
           ['Date & time', r.allDay ? `${d}, all day` : `${d}, ${t1} – ${t2}`],

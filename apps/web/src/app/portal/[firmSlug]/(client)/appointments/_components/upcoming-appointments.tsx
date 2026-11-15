@@ -289,7 +289,12 @@ function Upcoming({
         </p>
       ) : null}
       {!item.changeableUntil ? (
-        <p className="text-xs text-muted">To change this appointment, please contact us.</p>
+        <p className="text-xs text-muted">
+          {/* Appointments A1: another client's group appointment, read only. */}
+          {item.attending
+            ? 'You are attending as a guest. To change this appointment, please contact us.'
+            : 'To change this appointment, please contact us.'}
+        </p>
       ) : null}
       {action === 'reschedule' && item.type ? (
         <Reschedule
