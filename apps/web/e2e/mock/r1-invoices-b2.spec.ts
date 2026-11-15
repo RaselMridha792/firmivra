@@ -82,3 +82,26 @@ test('I-N08: Preview opens the invoice on screen, from the list and from the inv
     page.getByRole('dialog', { name: 'Invoice preview' }).getByTestId('invoice-preview'),
   ).toContainText('INV-2026-0101');
 });
+
+test('I-P01/I-P02: Create Task and Schedule Follow-Up open with the invoice’s client filled in', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByRole('button', { name: 'Actions for INV-2026-0106' }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Create Task' }).click();
+  await expect(page).toHaveURL(/\/tasks\/new\?/, { timeout: 60_000 });
+  // The client, and the invoice it is about.
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Follow up on INV-2026-0106', {
+    timeout: 60_000,
+  });
+  await expect(page.locator('main')).toContainText('Jamie Sample');
+  await expect(page.getByLabel('Description')).toHaveValue('About invoice INV-2026-0106.');
+
+  await page.goto(app('/invoices'));
+  await page.getByRole('button', { name: 'Actions for INV-2026-0106' }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Schedule Follow-Up' }).click();
+  await expect(page).toHaveURL(/\/calendar\/new\?/, { timeout: 60_000 });
+  await expect(page.locator('main')).toContainText('Jamie Sample', { timeout: 60_000 });
+  await expect(page.locator('input[value="jamie.sample@example.test"]')).toBeVisible();
+});

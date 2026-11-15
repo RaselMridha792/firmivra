@@ -996,7 +996,14 @@ function InvoiceTable({
             label: 'Create Task',
             icon: CheckSquare,
             onSelect: () =>
-              toOrigin(newTaskHref({ clientId: i.client.id, engagementId: i.service?.id })),
+              toOrigin(
+                newTaskHref({
+                  clientId: i.client.id,
+                  engagementId: i.service?.id,
+                  // I-P01: the task is about this invoice.
+                  invoice: i.number,
+                }),
+              ),
           },
           {
             label: 'Schedule Follow-Up',
