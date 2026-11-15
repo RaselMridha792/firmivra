@@ -29,7 +29,9 @@ import { isUniqueViolation, memberNames, memberRef, notAMember } from '../worksp
 import { ISSUES_BLOCK, openErrorIssues, TaxReturnIssuesService } from './issues.service.js';
 import { notFound } from './tax-return-rules.js';
 import {
+  backToReview,
   blockersOf,
+  CHECK_RANK,
   conflict,
   detailSelect,
   invalid,
@@ -110,7 +112,14 @@ export class TaxReturnReviewService {
     }
     const r = await tx.taxReturn.findFirst({
       where: { AND: [{ businessId, id }, returnReach(tenant, userId)] },
-      select: { id: true, clientId: true, reviewerUserId: true, archivedAt: true },
+      select: {
+        id: true,
+        clientId: true,
+        preparerUserId: true,
+        reviewerUserId: true,
+        archivedAt: true,
+        workflowStatus: true,
+      },
     });
     if (!r) throw notFound();
     return r;
@@ -731,7 +740,7 @@ export class TaxReturnReviewService {
       (k) => (body as Record<string, unknown>)[k] !== undefined,
     );
     return this.write(tenant, async (tx) => {
-      await this.reach(tx, tenant, userId, id, true);
+      const r = await this.reach(tx, tenant, userId, id, true);
       const item = await tx.taxReturnChecklistItem.findFirst({
         where: { businessId, id: itemId, taxReturnId: id },
         select: { section: true, result: true },
@@ -739,6 +748,29 @@ export class TaxReturnReviewService {
       if (!item) throw notFound();
       if (body.result !== undefined) this.resultFits(item.section, body.result);
       const result = body.result ?? item.result;
+      // Review 2 (TX-F21): a validation line's result changes with a reason, kept in the
+      // history; marking it Valid or lowering it is for the return's preparer or reviewer, or an
+      // Owner or Admin as the override; an Error lowered past Ready for Review goes back for the
+      // reviewer's approval.
+      const changed = item.section === 'VALIDATION' && result !== item.result;
+      let override = false;
+      let reReview = false;
+      if (changed) {
+        if (!body.reason) throw invalid('Say why the result changes', 'reason');
+        if ((CHECK_RANK[result] ?? 0) < (CHECK_RANK[item.result] ?? 0)) {
+          const own = r.preparerUserId === userId || r.reviewerUserId === userId;
+          if (!own) {
+            if (!(await this.mayOverride(tenant))) {
+              throw new ForbiddenException({
+                code: 'FORBIDDEN',
+                message:
+                  "Only the return's preparer or reviewer, or an Owner or Admin, can mark a check Valid or lower it",
+              });
+            }
+            override = true;
+          }
+        }
+      }
       if (body.acknowledge && result !== 'WARNING')
         throw invalid('Only a warning is acknowledged', 'acknowledge');
       await tx.taxReturnChecklistItem.update({
@@ -757,7 +789,16 @@ export class TaxReturnReviewService {
           updatedByUserId: userId,
         },
       });
-      await this.log(tx, tenant, id, 'checklist_changed', { itemId, fields: fields.sort() });
+      if (changed && item.result === 'ERROR') {
+        reReview = await backToReview(tx, r, userId, body.reason!);
+      }
+      await this.log(tx, tenant, id, 'checklist_changed', {
+        itemId,
+        fields: fields.filter((f) => f !== 'reason').sort(),
+        ...(changed ? { from: item.result, to: result, reason: body.reason } : {}),
+        ...(reReview ? { reReview: true } : {}),
+        ...(override ? { override: true } : {}),
+      });
       return this.checklistOf(tx, businessId, id);
     });
   }

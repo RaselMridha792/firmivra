@@ -6,7 +6,7 @@ import type {
   TaxReturnDetail,
   TaxValidationIssue,
 } from '@firmivra/types';
-import { Badge, Select, Textarea } from '@firmivra/ui';
+import { Badge, Radio, Select, Textarea } from '@firmivra/ui';
 import { CheckCircle, WarningOctagon } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
@@ -177,6 +177,37 @@ export function ReturnIssueChoice({
   );
 }
 
+/**
+ * Review 2 (TX-F21): the rule for resolving, shown where issues and validation lines change. The
+ * API enforces it: who may, the reason (kept in the return's history), and the re-review.
+ */
+export function ResolveRule() {
+  return (
+    <div className="rounded-lg bg-canvas p-3 text-xs text-muted" data-testid="resolve-rule">
+      <p className="font-semibold text-heading">How issues are resolved</p>
+      <ul className="list-disc pl-4">
+        <li>
+          The return&apos;s preparer or reviewer resolves an issue or lowers a check; an Owner or
+          Admin may too, recorded as an override.
+        </li>
+        <li>
+          Resolving, marking a check Valid or changing its severity needs a reason, kept in the
+          return&apos;s history.
+        </li>
+        <li>Valid means it was checked and needs no change (resolved without a fix).</li>
+        <li>
+          Resolving or lowering an Error after Ready for Review sends the return back to Ready for
+          Review for the reviewer&apos;s approval.
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+/** Past Ready for Review, where resolving or lowering an Error sends the return back. */
+export const pastReview = (status: TaxReturnDetail['workflowStatus']) =>
+  status === 'READY_FOR_SIGNATURE' || status === 'READY_TO_FILE';
+
 /** Validation Issues: each issue, who resolves it, and Resolve or Reopen for those who may. */
 export function IssuesPanel({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: Notice }) {
   const act = useAct(onNotice);
@@ -186,6 +217,10 @@ export function IssuesPanel({ detail, onNotice }: { detail: TaxReturnDetail; onN
   const [draft, setDraft] = useState<IssueDraft>(() => blankIssue(detail.preparer?.userId));
   const [handing, setHanding] = useState<TaxValidationIssue>();
   const [to, setTo] = useState('');
+  // Review 2 (TX-F21): Resolve asks how (Fixed or Valid) and why.
+  const [resolving, setResolving] = useState<TaxValidationIssue>();
+  const [resolution, setResolution] = useState<'FIXED' | 'VALID'>('FIXED');
+  const [reason, setReason] = useState('');
   const errors = (q.data ?? []).filter((i) => !i.resolvedAt && i.severity === 'ERROR').length;
   return (
     <Panel
@@ -252,15 +287,21 @@ export function IssuesPanel({ detail, onNotice }: { detail: TaxReturnDetail; onN
                     <button
                       type="button"
                       className={textButton}
-                      onClick={() =>
-                        void act(
-                          () =>
-                            api.taxReturnWorkspace.updateIssue(detail.id, i.id, {
-                              resolved: !i.resolvedAt,
-                            }),
-                          i.resolvedAt ? 'Issue reopened.' : 'Issue resolved.',
-                        )
-                      }
+                      onClick={() => {
+                        if (i.resolvedAt) {
+                          void act(
+                            () =>
+                              api.taxReturnWorkspace.updateIssue(detail.id, i.id, {
+                                resolved: false,
+                              }),
+                            'Issue reopened.',
+                          );
+                          return;
+                        }
+                        setResolution('FIXED');
+                        setReason('');
+                        setResolving(i);
+                      }}
                     >
                       {i.resolvedAt ? 'Reopen' : 'Resolve'}
                     </button>
@@ -283,9 +324,61 @@ export function IssuesPanel({ detail, onNotice }: { detail: TaxReturnDetail; onN
           </ul>
         </>
       )}
+      <ResolveRule />
       <p className="text-xs text-muted">
         Recorded by the firm&apos;s review; not a provider&apos;s or the IRS&apos;s validation.
       </p>
+      {resolving ? (
+        <Dialog
+          title="Resolve Issue"
+          confirm="Resolve"
+          disabled={!reason.trim()}
+          onConfirm={() =>
+            void act(
+              () =>
+                api.taxReturnWorkspace.updateIssue(detail.id, resolving.id, {
+                  resolved: true,
+                  resolution,
+                  reason: reason.trim(),
+                }),
+              'Issue resolved.',
+            ).then((r) => {
+              if (r) setResolving(undefined);
+            })
+          }
+          onClose={() => setResolving(undefined)}
+          testId="resolve-issue-dialog"
+        >
+          <fieldset className="flex flex-col gap-2 text-sm">
+            <legend className="mb-1 font-semibold text-heading">How it was resolved</legend>
+            <Radio
+              label="Fixed: corrected on the return"
+              name="resolution"
+              value="FIXED"
+              checked={resolution === 'FIXED'}
+              onChange={() => setResolution('FIXED')}
+            />
+            <Radio
+              label="Valid: checked, it needs no change"
+              name="resolution"
+              value="VALID"
+              checked={resolution === 'VALID'}
+              onChange={() => setResolution('VALID')}
+            />
+          </fieldset>
+          <Textarea
+            label="Reason (kept in the return's history)"
+            value={reason}
+            maxLength={500}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          {resolving.severity === 'ERROR' && pastReview(detail.workflowStatus) ? (
+            <p role="note" className="rounded-lg bg-warning-soft p-2 text-sm text-heading">
+              The return goes back to Ready for Review for the reviewer&apos;s approval.
+            </p>
+          ) : null}
+        </Dialog>
+      ) : null}
       {raising ? (
         <Dialog
           title="Raise Validation Issue"

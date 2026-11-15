@@ -635,6 +635,11 @@ export const UpdateTaxChecklistItemRequest = z
     note: clearable(text(1000, 'many')),
     sortOrder: z.number().int().min(0).max(10_000),
     acknowledge: z.boolean(),
+    /**
+     * Review 2 (TX-F21): why a validation line's result changes (marked Valid, or its severity
+     * changed). Required for that change (400 otherwise) and kept in the return's history.
+     */
+    reason: text(500, 'many').optional(),
   })
   .partial()
   .refine((b) => Object.keys(b).length > 0, 'Change something first');
@@ -701,9 +706,8 @@ export const TaxValidationIssue = z.object({
   resolvedAt: DateTime.nullable(),
   resolvedBy: MemberRef.nullable(),
   /**
-   * Whether the member reading it may resolve or reopen it: who raised it, the return's reviewer,
-   * or an Owner or Admin with APPROVE as the override; for a Manual Warning or Info issue also the
-   * person responsible.
+   * Whether the member reading it may resolve or reopen it (Review 2, TX-F21): the return's
+   * preparer or reviewer, or an Owner or Admin with APPROVE as the override (recorded).
    */
   canResolve: z.boolean(),
 });
@@ -728,13 +732,27 @@ export type CreateTaxValidationIssueRequest = z.input<typeof CreateTaxValidation
  * PATCH /business/tax-returns/{id}/issues/{issueId} (EDIT): resolve or reopen it (see
  * `canResolve`), or hand it to someone else. Its severity and note never change.
  */
+/**
+ * Review 2 (TX-F21): resolving needs a reason, kept in the return's history, and says how it was
+ * resolved: FIXED (corrected), or VALID (checked; it needs no change). Resolving an Error on a
+ * return past Ready for Review sends the return back to Ready for Review.
+ */
+export const TaxIssueResolution = z.enum(['FIXED', 'VALID']);
+export type TaxIssueResolution = z.infer<typeof TaxIssueResolution>;
+
 export const UpdateTaxValidationIssueRequest = z
   .strictObject({
     resolved: z.boolean(),
     responsibleUserId: z.uuid().nullable(),
+    reason: text(500, 'many'),
+    resolution: TaxIssueResolution,
   })
   .partial()
-  .refine((b) => Object.keys(b).length > 0, 'Change something first');
+  .refine((b) => Object.keys(b).length > 0, 'Change something first')
+  .refine((b) => b.resolved !== true || !!b.reason, {
+    message: 'Say why it is resolved',
+    path: ['reason'],
+  });
 export type UpdateTaxValidationIssueRequest = z.input<typeof UpdateTaxValidationIssueRequest>;
 
 /**

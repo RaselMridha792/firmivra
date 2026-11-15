@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, type HttpException } from '@nestjs/common';
-import type { Prisma } from '@firmivra/db';
+import type { Prisma, TxClient } from '@firmivra/db';
 import type {
   TaxReturnBlocker,
   TaxReturnDetail,
@@ -51,6 +51,34 @@ export function canMoveTo(from: TaxReturnWorkflowStatus): TaxReturnWorkflowStatu
   if (from === 'REJECTED') return ALL.filter((s) => s !== from && s !== 'READY_FOR_REVIEW');
   return ALL.filter((s) => s !== from && s !== 'IN_CORRECTION');
 }
+
+/**
+ * Review 2 (TX-F21): resolving or downgrading an Error once the return is past Ready for Review
+ * (Ready for Signature or Ready to File) sends it back to Ready for Review for the reviewer's
+ * approval, with the reason in its history. A filed return stays as filed. True when it moved.
+ */
+export async function backToReview(
+  tx: TxClient,
+  r: { id: string; workflowStatus: TaxReturnWorkflowStatus },
+  userId: string,
+  reason: string,
+): Promise<boolean> {
+  if (r.workflowStatus !== 'READY_FOR_SIGNATURE' && r.workflowStatus !== 'READY_TO_FILE') {
+    return false;
+  }
+  await tx.taxReturn.update({
+    where: { id: r.id },
+    data: {
+      workflowStatus: 'READY_FOR_REVIEW',
+      statusReason: `Re-review after an error changed: ${reason}`.slice(0, 500),
+      updatedByUserId: userId,
+    },
+  });
+  return true;
+}
+
+/** Validation results from least to most severe (a lower one is a downgrade). */
+export const CHECK_RANK: Record<string, number> = { VALID: 0, INFO: 1, WARNING: 2, ERROR: 3 };
 
 /** Going back a step (it needs a reason). */
 export const isBackward = (from: TaxReturnWorkflowStatus, to: TaxReturnWorkflowStatus) =>
