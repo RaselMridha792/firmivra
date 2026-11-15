@@ -37,7 +37,7 @@ Rows are named by their IDs and headings only; the report's text is not copied h
 | Normalized phone duplicate: the web dialog | Fixed (G2) | #1382 (API) and #1429: Possible duplicate client with Create Anyway and Save Anyway | `clients.e2e`, `r60-clients-gaps` (Add; Edit's Save Anyway is not checked) |
 | Business responsible party (name, email, phone) | Done | #1380 | `clients.e2e`, `r60-clients-required` |
 | Business responsible party: linked personal and business profile | Fixed (G9) | #1446 (`client_links`) and #1454: Linked Profiles on Overview | `clients-work.e2e` (reach, firm B, once per pair, audit), isolation cases, `r60-clients-links` |
-| Business responsible party: prefill from the linked profile | Not built yet (R55) | — | — |
+| Business responsible party: prefill from the linked profile | Done: a Business's Edit details offers Fill from the linked Responsible party (else Owner) personal profile, which fills only the blank name, email and phone; nothing shows without such a link | #PR_NUM | mock `r55-business-party-fill` "Edit details fills the responsible party from the linked owner, blank fields only", "a Business with no linked person offers no fill" |
 | Service management (enroll, pause or end with history, package, staff) | Fixed (G8) | #1444: Enroll, Edit, Service & Billing, End, Mark Completed, Reactivate and History (audit rows); #1446 and #1454: a pause with a reason for every service | `engagements.e2e` (activity, pause and resume), `r60-clients-services` |
 | Document and portal actions (profile Upload, Request Details, Portal invitation) | Done | #1384 | `r60-clients-e8-e10` |
 | Bulk and contextual actions: tag, status, inactive, export | Done | #1386, #1387 | `clients-work.e2e`, `r60-clients-export`, `r60-clients-bulk` |
@@ -195,7 +195,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 | G6 Last Activity counts every recorded action | Fixed, #1429 |
 | G7 Bulk message, request, intake | Fixed, #1431 |
 | G8 Service management | Fixed, #1444; the pause for every service in #1446 and #1454 |
-| G9 Linked profiles (`client_links`) | Fixed, #1446 (schema) and #1454; the prefill from the linked profile is open (R55) |
+| G9 Linked profiles (`client_links`) | Fixed, #1446 (schema) and #1454; the prefill from the linked profile: #PR_NUM |
 | G10 ZIP prefix and state | Fixed, #1438; the city and server check after Nov 17 |
 | G11 Billing links on the client | Fixed, #1434 and #1444 |
 | G12 Card view sort | Fixed, #1432 |
