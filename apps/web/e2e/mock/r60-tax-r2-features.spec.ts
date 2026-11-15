@@ -128,3 +128,16 @@ test('Full Review: File Extension records it there; Return Details corrects the 
   await details.getByRole('button', { name: 'Correct Tax Year' }).click();
   await expect(page.getByTestId('correct-year-dialog')).toBeVisible();
 });
+
+test('Print / Export List downloads the list as a file, with no pop-up to block (Review 2)', async ({
+  page,
+}) => {
+  await page.goto(app('/tax-returns'));
+  const action = page
+    .getByTestId('quick-actions')
+    .getByRole('button', { name: 'Print / Export List' });
+  await expect(action).toBeVisible({ timeout: 60_000 });
+  const [file] = await Promise.all([page.waitForEvent('download'), action.click()]);
+  expect(file.suggestedFilename()).toBe('tax-returns.csv');
+  await expect(page.getByText('Export ready.')).toBeVisible();
+});
