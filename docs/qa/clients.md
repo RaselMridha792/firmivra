@@ -163,7 +163,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-30 Business dirty Edit | Scoped pass; invalid Save stays under Edit validation (section 3) | — | — |
 | N8-31 Share Access recipients | Scoped pass; nothing to build | — | — |
 | N8-32 Service labels match the catalog | Scoped pass; nothing to build | — | — |
-| N8-33 Draft services in Clients | Not built yet (R55): Draft services out of the Clients tabs and Service dropdown, with a status filter | — | — |
+| N8-33 Draft services in Clients | Done: only active services are Clients tabs and Service choices; draft and inactive services stay in the catalog | #PR_NUM | `clients-work.e2e` "counts the firm's cards and tabs; archived clients are in none of them" (a draft and an inactive service are not in `byService`); mock `r55-clients-draft-services` |
 | N8-34 Sign-ups list checks | Scoped pass; the empty-state copy is FC-02 (R55) | — | — |
 | N8-35 Signature history and filters | Scoped pass; nothing to build | — | — |
 | N8-36 Tasks tab with New Task for the client | Done, test gap | #1378 | `r60-clients-tabs` opens the Tasks tab; its Create Task link with the client is not checked |

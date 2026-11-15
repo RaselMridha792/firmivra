@@ -206,6 +206,13 @@ beforeAll(async () => {
     ids.books = (
       await tx.service.create({ data: { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping' } })
     ).id;
+    // N8-33: a draft and an inactive service are in no tab (her drafts showed with zero clients).
+    await tx.service.createMany({
+      data: [
+        { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping (Copy)', status: 'DRAFT' },
+        { businessId, kind: 'PAYROLL', name: 'Old Payroll', status: 'INACTIVE' },
+      ],
+    });
     const open = await tx.engagement.create({
       data: { businessId, clientId: ids.w1, serviceId: ids.personal, title: 'Fake 2025 return' },
     });
@@ -400,6 +407,7 @@ describe('GET /business/clients/summary', () => {
       inactiveClients: { value: 1, previous: null },
     });
     expect(s.counts).toMatchObject({ all: 4, active: 1, new: 1, inactive: 1 });
+    // N8-33: only active services are tabs and Service choices; drafts and inactive ones are not.
     expect(s.counts.byService).toEqual([
       { id: ids.books, name: 'Bookkeeping', kind: 'BOOKKEEPING', count: 0 },
       { id: ids.personal, name: 'Personal Tax', kind: 'ANNUAL_TAX', count: 1 },

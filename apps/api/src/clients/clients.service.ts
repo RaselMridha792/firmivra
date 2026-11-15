@@ -826,6 +826,8 @@ export class ClientsService {
         LEFT JOIN clients c ON c.business_id = sv.business_id AND c.id = en.client_id
           AND c.archived_at IS NULL AND ${mine}
         WHERE sv.business_id = ${businessId}::uuid AND sv.archived_at IS NULL
+          -- Clients Review 2 (N8-33): a draft or inactive service is no tab or Service choice.
+          AND sv.status = 'ACTIVE'
         GROUP BY sv.id, sv.name, sv.kind
         ORDER BY sv.name, sv.id
         LIMIT 100`;

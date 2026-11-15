@@ -642,10 +642,16 @@ export function createClientsMock(
           active,
           new: count((w) => w.status === 'NEW'),
           inactive: count((w) => w.status === 'INACTIVE'),
-          byService: mockClientServices().map((x) => ({
-            ...x,
-            count: count((w) => w.services.some((y) => y.id === x.id)),
-          })),
+          // N8-33: as the API, only active services are tabs and Service choices, not a draft.
+          byService: [
+            ...mockClientServices().map((x) => ({ ...x, status: 'ACTIVE' })),
+            { ...service(5, 'Bookkeeping (Copy)', 'BOOKKEEPING'), status: 'DRAFT' },
+          ]
+            .filter((x) => x.status === 'ACTIVE')
+            .map(({ status: _status, ...x }) => ({
+              ...x,
+              count: count((w) => w.services.some((y) => y.id === x.id)),
+            })),
         },
       };
     },
