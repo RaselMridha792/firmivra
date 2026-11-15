@@ -141,7 +141,7 @@ describe('tax in the invoice totals', () => {
     expect(await read(inv.id)).toMatchObject({ taxRateBps: 0, taxCents: 0, totalCents: 10000 });
   });
 
-  it('an issued invoice keeps its rate, discount type and tax; the rate row can change', async () => {
+  it('an issued invoice with a payment keeps its rate, discount type and tax; the rate row can change', async () => {
     const { rate, inv } = await taxedDraft();
     await firmA().invoice.update({
       where: { id: inv.id },
@@ -152,6 +152,17 @@ describe('tax in the invoice totals', () => {
       taxRateBps: 800,
       taxCents: 1600,
       totalCents: 56600,
+    });
+    // I-N06: with no money on it a sent invoice can be corrected (invoice-correction.test.ts);
+    // a payment, even pending, keeps it as it is.
+    await firmA().payment.create({
+      data: {
+        ...A(),
+        invoiceId: inv.id,
+        amountCents: 1000,
+        processorRef: `cs_${stripeId()}`,
+        accountId: account,
+      },
     });
     const other = await newRate(500);
     await expect(
