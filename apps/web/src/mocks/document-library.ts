@@ -7,6 +7,7 @@ import {
   CreateDocumentShareRequest,
   DocumentFolder,
   type DocumentShare,
+  type FirmDocument,
   type LibraryDocument,
   UpdateDocumentShareRequest,
   ReviewDocumentRequest,
@@ -482,6 +483,25 @@ export function createDocumentLibraryMock(options: {
   const edits = new Map<string, Partial<LibraryDocument>>();
   const edit = (id: string, next: Partial<LibraryDocument>) =>
     edits.set(id, { ...edits.get(id), ...next, updatedAt: new Date().toISOString() });
+  // As the API (one document row): a rename, a new type or tax year made here shows in the
+  // client's own list and file too (Clients Review 2 V-008, C2-051: Rename from that table).
+  const shown = <T extends FirmDocument>(d: T): T => {
+    const e = edits.get(d.id);
+    if (!e) return d;
+    return {
+      ...d,
+      ...(e.fileName !== undefined ? { fileName: e.fileName } : {}),
+      ...(e.category !== undefined ? { category: e.category } : {}),
+      ...(e.taxYear !== undefined ? { taxYear: e.taxYear } : {}),
+    };
+  };
+  const baseList = options.documents.list;
+  options.documents.list = async (...args) => {
+    const page = await baseList(...args);
+    return { ...page, items: page.items.map(shown) };
+  };
+  const baseGet = options.documents.get;
+  options.documents.get = async (id) => shown(await baseGet(id));
   /** The documents mock's file, as the library reads it. */
   const libraryDoc = async (id: string): Promise<LibraryDocument> => {
     const d = await options.documents.get(id);

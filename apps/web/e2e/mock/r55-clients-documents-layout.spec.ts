@@ -305,3 +305,33 @@ test('V-006: the Document Requests cards put their counts and labels on shared l
     }
   }
 });
+
+// Clients Review 2 (V-008): a cut-off file name must show its whole name, extension included, on
+// hover. A long name (renamed here) is truncated in the table, and its hover text is the full
+// name with ".pdf"; every other name's hover text is its own full name too.
+test('V-008: a truncated file name shows its full name with the extension on hover', async ({
+  page,
+}) => {
+  await openJamie(page);
+  const long = 'Quarterly_Estimated_Tax_Payment_Vouchers_and_Worksheets_2026_Final_Signed_Copy.pdf';
+  const first = page.getByTestId('document-name').first();
+  const was = ((await first.textContent()) ?? '').trim();
+  await page.getByRole('button', { name: `Actions for ${was}` }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  const rename = page.getByRole('dialog', { name: 'Rename Document' });
+  await rename.getByLabel('File name *').fill(long);
+  await rename.getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByTestId('document-action-done')).toHaveText(`Renamed to ${long}.`);
+
+  const link = page.getByTestId('document-name').filter({ hasText: long });
+  await expect(link).toHaveAttribute('title', long);
+  // It is cut off on screen: the hover text is what shows the rest.
+  expect(await link.evaluate((a) => a.scrollWidth > a.clientWidth)).toBe(true);
+  await link.hover();
+  await expect(link).toHaveAttribute('title', long);
+  for (const name of await page.getByTestId('document-name').all()) {
+    const text = ((await name.textContent()) ?? '').trim();
+    await expect(name).toHaveAttribute('title', text);
+    expect(text).toMatch(/\.(pdf|jpg|png|xlsx|docx)$/);
+  }
+});
