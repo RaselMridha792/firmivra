@@ -327,7 +327,12 @@ export class ClientsService {
       q.status === 'active' && !then ? { archivedAt: null } : {},
       q.status === 'archived' && !then ? { archivedAt: { not: null } } : {},
       then ? { id: { in: then } } : {},
-      q.assignedUserId ? { assignedUserId: q.assignedUserId } : {},
+      // FC-04: UNASSIGNED, the clients nobody is assigned to.
+      q.assignedUserId === 'UNASSIGNED'
+        ? { assignedUserId: null }
+        : q.assignedUserId
+          ? { assignedUserId: q.assignedUserId }
+          : {},
       q.clientStatus ? { status: q.clientStatus } : {},
       // D4: a dashboard service card's list, exactly what it counts.
       engagementThen
