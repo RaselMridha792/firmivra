@@ -8,9 +8,16 @@ import { STAGES } from './list-parts';
 
 const REASON = { PHONE: 'Same phone number', NAME: 'Similar name' } as const;
 
-/** The matches of a 409 DUPLICATE_PHONE, or null for any other error. */
+/**
+ * The matches of a 409 DUPLICATE_PHONE, or (Clients Review 2 §6) a business's POSSIBLE_DUPLICATE
+ * name match; null for any other error. Both are confirmed by the same Create Anyway.
+ */
 export function duplicateOf(error: unknown): DuplicatePhoneDetails | null {
-  if (!(error instanceof ApiRequestError) || error.code !== 'DUPLICATE_PHONE') return null;
+  if (
+    !(error instanceof ApiRequestError) ||
+    (error.code !== 'DUPLICATE_PHONE' && error.code !== 'POSSIBLE_DUPLICATE')
+  )
+    return null;
   const parsed = DuplicatePhoneDetails.safeParse(error.rawDetails);
   return parsed.success ? parsed.data : { count: 1, matches: [] };
 }
@@ -35,11 +42,17 @@ export function DuplicatePhoneDialog({
   onCancel: () => void;
 }) {
   const hidden = details.count - details.matches.length;
+  // §6: a business name match says so; otherwise it is the phone, as before.
+  const byName = details.matches.length > 0 && details.matches.every((m) => m.reason === 'NAME');
   return (
     <Modal
       open
       title="Possible duplicate client"
-      subtitle="Another client of your firm already has this phone number."
+      subtitle={
+        byName
+          ? 'Another business client of your firm has a similar name.'
+          : 'Another client of your firm already has this phone number.'
+      }
       onClose={onCancel}
       footer={
         <>
@@ -90,8 +103,9 @@ export function DuplicatePhoneDialog({
       ) : null}
       {hidden > 0 ? (
         <p className="mt-2 text-xs text-muted">
-          {hidden} more client{hidden === 1 ? '' : 's'} with this phone{' '}
-          {hidden === 1 ? 'is' : 'are'} not assigned to you.
+          {hidden} more client{hidden === 1 ? '' : 's'} with{' '}
+          {byName ? 'a similar name' : 'this phone'} {hidden === 1 ? 'is' : 'are'} not assigned to
+          you.
         </p>
       ) : null}
     </Modal>

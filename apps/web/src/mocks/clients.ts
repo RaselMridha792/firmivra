@@ -458,6 +458,39 @@ export function createClientsMock(
     status: workOf(r.id).status,
     reason,
   });
+  /** Clients Review 2 §6, as the API: a business with a likely matching name pauses the save. */
+  const ENDINGS =
+    /\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|the|pllc|pc|lp|llp)\b/g;
+  const companyKey = (name: string) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, '')
+      .replace(ENDINGS, '')
+      .replace(/\s+/g, '');
+  const uniqueCompany = (
+    accountType: string,
+    name: string,
+    allow: boolean | undefined,
+    exceptId?: string,
+  ) => {
+    if (accountType !== 'BUSINESS' || allow || companyKey(name).length < 2) return;
+    const same = rows.filter(
+      (r) =>
+        r.id !== exceptId &&
+        r.accountType === 'BUSINESS' &&
+        companyKey(r.displayName) === companyKey(name),
+    );
+    if (same.length === 0) return;
+    throw new ApiRequestError(
+      409,
+      'POSSIBLE_DUPLICATE',
+      'Another business client has a similar name',
+      undefined,
+      undefined,
+      undefined,
+      { count: same.length, matches: same.map((r) => duplicateMatch(r, 'NAME')) },
+    );
+  };
   /** As the API (Clients Review 2): the same phone digits as another client pauses the save. */
   const uniquePhone = (
     phone: string | null | undefined,
@@ -915,6 +948,7 @@ export function createClientsMock(
       if (staffOnly && assignedUserId) throw forbidden();
       uniqueEmail(data.email);
       uniquePhone(data.phone, allowDuplicatePhone);
+      uniqueCompany(data.accountType, data.displayName, allowDuplicatePhone);
       const row = fixture(nextId++, {
         ...data,
         assignedTo: staffOnly ? mockStaff : assignee(assignedUserId ?? null),
@@ -937,6 +971,11 @@ export function createClientsMock(
       notArchived(row);
       uniqueEmail(data.email, row.id);
       uniquePhone(data.phone, allowDuplicatePhone, row.id);
+      // §6, as the API: a business renamed (or made a business) to a likely match.
+      const type = data.accountType ?? row.accountType;
+      const name = data.displayName ?? row.displayName;
+      if (name !== row.displayName || type !== row.accountType)
+        uniqueCompany(type, name, allowDuplicatePhone, row.id);
       const defined = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
       return save({
         ...row,

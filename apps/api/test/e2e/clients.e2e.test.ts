@@ -448,6 +448,41 @@ describe('create and update', () => {
 });
 
 describe('a phone another client has (Clients Review 2, C2-038)', () => {
+  it('§6: a business with a likely matching name pauses Add and Edit with 409 POSSIBLE_DUPLICATE until confirmed', async () => {
+    const first = await create({
+      accountType: 'BUSINESS',
+      displayName: `Harbor Lights LLC ${run}`,
+    });
+    // Case, punctuation and the company ending aside, the same business name.
+    const alike = await call('post', '', people.ownerA, 'a', {
+      accountType: 'BUSINESS',
+      displayName: `harbor lights, inc. ${run}`,
+    });
+    expect([alike.status, codeOf(alike)]).toEqual([409, 'POSSIBLE_DUPLICATE']);
+    const details = (alike.body as { error: { details: unknown } }).error.details as {
+      count: number;
+      matches: { id: string; reason: string; accountType: string }[];
+    };
+    expect(details.count).toBe(1);
+    expect(details.matches).toEqual([
+      expect.objectContaining({ id: first.id, reason: 'NAME', accountType: 'BUSINESS' }),
+    ]);
+    // An individual of that name is not matched by name; the same Create Anyway saves the business.
+    await create({ displayName: `Harbor Lights ${run}` });
+    const confirmed = await create({
+      accountType: 'BUSINESS',
+      displayName: `harbor lights, inc. ${run}`,
+      allowDuplicatePhone: true,
+    });
+    // Edit: another business renamed to a likely match pauses too.
+    const other = await create({ accountType: 'BUSINESS', displayName: `Quayside Ltd ${run}` });
+    const renamed = await call('patch', `/${other.id}`, people.ownerA, 'a', {
+      displayName: `Harbor-Lights ${run}`,
+    });
+    expect([renamed.status, codeOf(renamed)]).toEqual([409, 'POSSIBLE_DUPLICATE']);
+    expect(confirmed.displayName).toBe(`harbor lights, inc. ${run}`);
+  });
+
   it('pauses Add and Edit with 409 DUPLICATE_PHONE until confirmed, naming only reachable matches', async () => {
     const first = await create({ displayName: `Phone First ${run}`, phone: '+12025550188' });
     const typed = await call('post', '', people.ownerA, 'a', {

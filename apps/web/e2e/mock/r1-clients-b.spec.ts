@@ -94,3 +94,34 @@ test('§5: each possible duplicate shows its type, email or phone, staff, status
   await expect(facts).toContainText(/Assigned to |Unassigned/);
   await expect(duplicate.getByTestId('duplicate-matches')).toContainText('CL-10001');
 });
+
+test('§6: a business with a likely matching name asks first, then Create Anyway saves it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/clients?new=1'));
+  const dialog = page.getByRole('dialog', { name: 'Add New Client' });
+  await expect(dialog).toBeVisible({ timeout: 60_000 });
+  await dialog.getByLabel('Client type *').selectOption('BUSINESS');
+  // The mock's "Acme Widgets LLC (fake)": the same name once the ending is set aside.
+  await dialog.getByLabel('Business name *').fill('Acme Widgets, Inc. (fake)');
+  await dialog.getByLabel('Business email *').fill('acme.inc@example.test');
+  await dialog.getByLabel('Business phone *').fill('(404) 555-0999');
+  await dialog.getByLabel('Street address *').fill('1 Fake Way');
+  await dialog.getByLabel('City *').fill('Atlanta');
+  await dialog.getByLabel('State *').selectOption('GA');
+  await dialog.getByLabel('ZIP code *').fill('30301');
+  // The person who answers for the business.
+  await dialog.getByLabel('Full name *').fill('Avery Owner (fake)');
+  await dialog.getByLabel('Their email *').fill('avery.owner@example.test');
+  await dialog.getByLabel('Their phone *').fill('(404) 555-0998');
+  await dialog.getByRole('button', { name: 'Add Client' }).click();
+  const duplicate = page.getByRole('dialog', { name: 'Possible duplicate client' });
+  await expect(duplicate).toContainText('Another business client of your firm has a similar name.');
+  await expect(duplicate.getByTestId('duplicate-matches')).toContainText('Acme Widgets LLC (fake)');
+  await expect(duplicate.getByTestId('duplicate-facts').first()).toContainText('Similar name');
+  await duplicate.getByRole('button', { name: 'Create Anyway' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Acme Widgets, Inc. (fake)', {
+    timeout: 60_000,
+  });
+});

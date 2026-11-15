@@ -754,6 +754,12 @@ export type MyTaxYearList = z.infer<typeof MyTaxYearList>;
 export const ClientErrorCode = z.enum([
   /** 409: another client of the firm has this email. */
   'DUPLICATE_EMAIL',
+  /**
+   * 409 (Clients Review 2 §6): a business client of the firm has a likely matching name (case,
+   * punctuation and endings such as LLC or Inc aside). Details as DUPLICATE_PHONE's, each match's
+   * reason NAME; sent again with `allowDuplicatePhone` (the same Create Anyway), it is saved.
+   */
+  'POSSIBLE_DUPLICATE',
   /** 409: the record is archived; restore it first. */
   'CLIENT_ARCHIVED',
   /** 409: the tax status is archived and cannot be assigned. */
