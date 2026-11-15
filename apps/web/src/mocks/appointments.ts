@@ -917,6 +917,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
     locationDetails: a.locationDetails,
     changeableUntil: until(a),
     instructions: null,
+    // Appointments A1: the mock client attends no other client's appointment.
+    attending: false,
     // Review 2 (row 8): the firm booked it and the client has not confirmed it yet.
     needsConfirmation:
       a.status === 'SCHEDULED' &&
