@@ -335,3 +335,20 @@ test('V-008: a truncated file name shows its full name with the extension on hov
     expect(text).toMatch(/\.(pdf|jpg|png|xlsx|docx)$/);
   }
 });
+
+// Clients Review 2 (FC-03): with All Clients chosen, staff saw a note that began "Choose a client
+// above" and went on with an API and source-code change. The note says only "Select a client to
+// view their documents.", and nothing on the screen talks about code.
+test('FC-03: with no client chosen the Documents note is plain words, with no code talk', async ({
+  page,
+}) => {
+  await openDocuments(page, HER);
+  await expect(page.getByTestId('filter-client')).toHaveValue('');
+  await expect(page.getByTestId('documents-no-client')).toHaveText(
+    'Select a client to view their documents.',
+  );
+  const main = (await page.getByRole('main').innerText()).replace(/\s+/g, ' ');
+  expect(main).not.toMatch(
+    /\bAPI\b|endpoint|source code|\/api\/|apps\/web|packages\/|\.tsx?\b|GET \/|POST \//i,
+  );
+});
