@@ -78,3 +78,35 @@ test('T-C08: the Actions column stays on screen while the task table scrolls sid
   }
   await expect(menu.locator('xpath=ancestor::td[1]')).toHaveCSS('position', 'sticky');
 });
+
+test('T-C13: Archive asks first; the Archived tab lists the task with View and Restore only; Restore brings it back', async ({
+  page,
+}) => {
+  await page.goto(base);
+  const link = page.getByTestId('task-table').getByTestId('task-link').first();
+  await expect(link).toBeVisible({ timeout: 60_000 });
+  const title = (await link.innerText()).trim();
+  await link.click();
+  await page
+    .getByRole('group', { name: 'Task actions' })
+    .getByRole('button', { name: 'Archive' })
+    .click();
+  const confirm = page.getByRole('dialog', { name: 'Archive this task?' });
+  await expect(confirm).toContainText('Restore brings it back');
+  await confirm.getByRole('button', { name: 'Archive Task' }).click();
+  await expect(page).toHaveURL(/\/tasks\?view=archived$/);
+  await expect(page.getByRole('tab', { name: 'Archived' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const row = page.getByTestId('task-table').getByRole('row').filter({ hasText: title });
+  await expect(row).toHaveCount(1);
+  await page.getByRole('button', { name: `Actions for ${title}` }).click();
+  const items = page.getByRole('menuitem');
+  await expect(items).toHaveText(['View', 'Restore']);
+  await page.getByRole('menuitem', { name: 'Restore' }).click();
+  await expect(page.getByText(`${title} restored.`)).toBeVisible();
+  await expect(row).toHaveCount(0);
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await expect(page.getByTestId('task-table')).toContainText(title);
+});

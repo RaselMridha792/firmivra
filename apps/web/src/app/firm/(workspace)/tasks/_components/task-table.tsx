@@ -99,6 +99,7 @@ export function TaskTable({
   const fail = (e: unknown) => setMessage({ text: errorMessage(e, TASK_ERRORS), tone: 'error' });
   const complete = useApiMutation((id: string) => api.taskWork.complete(id), options);
   const reopen = useApiMutation((id: string) => api.taskWork.reopen(id), options);
+  const restore = useApiMutation((id: string) => api.taskWork.restore(id), options);
   const progress = useApiMutation(
     (v: { id: string; progress: TaskProgress; blockedReason?: string }) =>
       api.taskWork.setProgress(v.id, {
@@ -233,6 +234,17 @@ export function TaskTable({
 
   const menu = (t: TaskRow): MenuItem[] => {
     const open = t.status === 'OPEN';
+    // T-C13: an archived task offers only View and Restore.
+    if (t.archivedAt)
+      return [
+        { label: 'View', icon: Eye, onSelect: () => go(`/tasks/${t.id}`) },
+        {
+          label: 'Restore',
+          icon: ArrowCounterClockwise,
+          onSelect: () =>
+            restore.mutate(t.id, { onSuccess: done(`${t.title} restored.`), onError: fail }),
+        },
+      ];
     return [
       { label: 'View', icon: Eye, onSelect: () => go(`/tasks/${t.id}`) },
       { label: 'Edit', icon: PencilSimple, onSelect: () => go(`/tasks/${t.id}/edit`) },

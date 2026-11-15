@@ -60,7 +60,7 @@ export function TaskDetailScreen({
   const query = useApiQuery([...TASKS_KEY, 'task', id], () => api.taskWork.task(id));
   const t: TaskDetail | undefined = query.data;
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [dialog, setDialog] = useState<'template' | 'recurring' | null>(
+  const [dialog, setDialog] = useState<'template' | 'recurring' | 'archive' | null>(
     convertToRecurring ? 'recurring' : null,
   );
   const options = { invalidate: [...TASKS_KEY] };
@@ -70,6 +70,7 @@ export function TaskDetailScreen({
   const reopen = useApiMutation(() => api.taskWork.reopen(id), options);
   const duplicate = useApiMutation(() => api.taskWork.duplicate(id), options);
   const archive = useApiMutation(() => api.taskWork.archive(id), options);
+  const restore = useApiMutation(() => api.taskWork.restore(id), options);
   const item = useApiMutation(
     (v: { itemId: string; done: boolean }) =>
       v.done ? api.taskWork.reopenItem(id, v.itemId) : api.taskWork.completeItem(id, v.itemId),
@@ -153,15 +154,27 @@ export function TaskDetailScreen({
                 <Repeat aria-hidden weight="fill" className="size-4" /> Convert to Recurring
               </button>
             )}
-            <button
-              type="button"
-              className={`${btn} text-danger`}
-              onClick={() =>
-                archive.mutate(undefined, { onSuccess: () => router.push('/tasks'), onError: fail })
-              }
-            >
-              <Archive aria-hidden weight="fill" className="size-4" /> Archive
-            </button>
+            {/* T-C13: an archived task is restored here; Archive asks first. */}
+            {t.archivedAt ? (
+              <button
+                type="button"
+                className={btn}
+                disabled={restore.isPending}
+                onClick={() =>
+                  restore.mutate(undefined, { onSuccess: done('Task restored.'), onError: fail })
+                }
+              >
+                <ArrowCounterClockwise aria-hidden weight="fill" className="size-4" /> Restore
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`${btn} text-danger`}
+                onClick={() => setDialog('archive')}
+              >
+                <Archive aria-hidden weight="fill" className="size-4" /> Archive
+              </button>
+            )}
           </div>
         ) : null}
       </header>
@@ -318,6 +331,39 @@ export function TaskDetailScreen({
           </p>
         </Card>
       </div>
+      {dialog === 'archive' && t ? (
+        <Modal
+          open
+          title="Archive this task?"
+          onClose={() => setDialog(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                disabled={archive.isPending}
+                onClick={() =>
+                  archive.mutate(undefined, {
+                    onSuccess: () => router.push('/tasks?view=archived'),
+                    onError: (e) => {
+                      setDialog(null);
+                      fail(e);
+                    },
+                  })
+                }
+              >
+                Archive Task
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            {t.title} leaves the task lists. It stays under Archived, where Restore brings it back.
+          </p>
+        </Modal>
+      ) : null}
       {dialog === 'template' && t ? (
         <TemplateDialog
           task={t}
