@@ -6,15 +6,24 @@ export interface ServiceMockEngagement {
   id: string;
   clientId: string;
   clientName: string;
-  kind: 'PAYROLL' | 'BOOKKEEPING' | 'ANNUAL_TAX';
+  kind: 'PAYROLL' | 'BOOKKEEPING' | 'ANNUAL_TAX' | 'BUSINESS_DEVELOPMENT';
   title: string;
   status: 'ACTIVE';
+  /** The catalog service, when it is not the kind's usual one (an advisory workstream's). */
+  service?: { id: string; name: string };
   /** The Bookkeeping or Payroll mock's workspace for it, so a task's Related To opens it. */
   workspaceId?: string;
 }
 
 let engagements: Map<string, ServiceMockEngagement> | undefined;
 const store = () => (engagements ??= new Map());
+let known: Set<string> | undefined;
+const clients = () => (known ??= new Set());
+
+/** A service mock's client that may have no engagement yet (an advisory client, A-12). */
+export function registerServiceClient(clientId: string): void {
+  clients().add(clientId);
+}
 
 /** Called by the Payroll and Bookkeeping mocks for each of their clients. */
 export function registerServiceEngagement(e: ServiceMockEngagement): void {
@@ -29,7 +38,7 @@ export const serviceEngagement = (clientId: string, id: string) => {
 
 /** True when a service mock has this client. */
 export const serviceMockClient = (clientId: string) =>
-  [...store().values()].some((e) => e.clientId === clientId);
+  clients().has(clientId) || [...store().values()].some((e) => e.clientId === clientId);
 
 /** A service mock client's engagements. */
 export const serviceMockEngagements = (clientId: string) =>

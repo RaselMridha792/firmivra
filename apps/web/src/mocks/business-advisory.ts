@@ -1,4 +1,5 @@
 import {
+  ADVISORY_ENGAGED_STATUSES,
   ADVISORY_DISCLAIMER,
   AddAdvisoryWorkstreamRequest,
   AdvisoryActionItemsQuery,
@@ -65,6 +66,11 @@ import {
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
 import { clientFixtures } from './clients';
+import {
+  registerServiceClient,
+  registerServiceEngagement,
+  serviceMockEngagements,
+} from './service-engagements';
 import { teamFixtures } from './team';
 
 /**
@@ -592,6 +598,9 @@ export function createAdvisoryMock({
         engagementId: uid('a230', i + 1),
         version: 1,
       });
+      // A-12: seeded as added before Add Client started engagements: none yet, so the first
+      // upload or request starts one (workstreamEngagement), as the API does for her old clients.
+      registerServiceClient(uid('a220', i + 1));
       (s.figures ?? []).forEach(([rev, exp, cash, debt, budget, heads], k) => {
         const end = new Date(Date.UTC(YEAR - 1 - k, 11, 31));
         const asOfOffset = -(s.figuresAgeDays ?? 30) - k * 365;
@@ -1050,6 +1059,23 @@ export function createAdvisoryMock({
     if (!c || !reachable(c)) throw notFound();
     return c;
   };
+  /** As the API's ensureAdvisoryEngagement: the client's engagement on a service, or a new one. */
+  const ensureEngagement = (c: ClientState, w: AdvisoryWorkstream) => {
+    const found = serviceMockEngagements(c.client.id).find((e) => e.service?.id === w.serviceId);
+    if (found) return { engagementId: found.id, created: false };
+    const engagementId = id('a240');
+    registerServiceEngagement({
+      id: engagementId,
+      clientId: c.client.id,
+      clientName: c.client.name,
+      kind: 'BUSINESS_DEVELOPMENT',
+      title: w.serviceName,
+      status: 'ACTIVE',
+      service: { id: w.serviceId, name: w.serviceName },
+    });
+    return { engagementId, created: true };
+  };
+  const ENGAGED = ADVISORY_ENGAGED_STATUSES;
   const isStale = (asOf: string) => asOf < day(-settings.staleFinancialsDays);
   const liveFinancials = (advisoryClientId: string) =>
     financials
@@ -1580,6 +1606,8 @@ export function createAdvisoryMock({
           version: 1,
         };
         if (role === 'STAFF' && advisor?.userId !== SAM.userId) c.advisor = SAM;
+        // A-12: the accepted primary service's engagement is open from the start.
+        c.engagementId = ensureEngagement(c, c.workstreams[0]!).engagementId;
         clients.push(c);
         log(c.id, 'advisory.client_added', 'Added to the advisory program');
         return clientDetail(c);
@@ -1637,6 +1665,7 @@ export function createAdvisoryMock({
           openItems: 0,
         };
         c.workstreams.push(w);
+        if (ENGAGED.includes(w.status)) ensureEngagement(c, w);
         c.version++;
         log(c.id, 'advisory.workstream_added', `Service added: ${s.name}`);
         return w;
@@ -1653,9 +1682,22 @@ export function createAdvisoryMock({
         if (req.packageName !== undefined) w.packageName = req.packageName;
         if (req.startedOn !== undefined) w.startedOn = req.startedOn;
         if (req.completedOn !== undefined) w.completedOn = req.completedOn;
+        if (ENGAGED.includes(w.status)) ensureEngagement(c, w);
         c.version++;
         log(c.id, 'advisory.workstream_updated', `Service updated: ${w.serviceName}`);
         return w;
+      }),
+    workstreamEngagement: (advisoryClientId, workstreamId) =>
+      run(() => {
+        const c = findClient(advisoryClientId);
+        if (c.archived) throw fail(409, 'CLIENT_ARCHIVED', 'Restore the advisory client first');
+        const w = c.workstreams.find((x) => x.id === workstreamId);
+        if (!w) throw notFound();
+        if (!ENGAGED.includes(w.status))
+          throw fail(409, 'SERVICE_NOT_STARTED', 'Accept or start this service first');
+        const got = ensureEngagement(c, w);
+        if (got.created) log(c.id, 'advisory.engagement_started', 'Service started for documents');
+        return got;
       }),
     activity: (advisoryClientId, q = {}) =>
       run(() => {

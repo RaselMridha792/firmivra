@@ -67,6 +67,24 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A-12: a service under way with no engagement yet (a client added before the fix). */
+  advisoryWorkstreamStarted: {
+    async create({ tx, businessId, get }) {
+      const service = await tx.service.create({
+        data: { businessId, kind: 'BUSINESS_DEVELOPMENT', name: `Fake started ${tag()}` },
+      });
+      const row = await tx.advisoryWorkstream.create({
+        data: {
+          businessId,
+          advisoryClientId: await get('advisoryClient'),
+          serviceId: service.id,
+          role: 'ADDITIONAL',
+          status: 'IN_PROGRESS',
+        },
+      });
+      return row.id;
+    },
+  },
   /** A finalized plan with its version 1, unchanged since. */
   advisoryPlan: {
     async create({ tx, businessId, owner, get }) {
@@ -194,6 +212,9 @@ export const cases: CaseModule['cases'] = {
   [`PATCH ${BASE}/clients/:id/workstreams/:workstreamId`]: {
     params: { id: 'advisoryClient', workstreamId: 'advisoryWorkstream' },
     body: { status: 'IN_PROGRESS' },
+  },
+  [`POST ${BASE}/clients/:id/workstreams/:workstreamId/engagement`]: {
+    params: { id: 'advisoryClient', workstreamId: 'advisoryWorkstreamStarted' },
   },
   [`GET ${BASE}/clients/:id/activity`]: { params: { id: 'advisoryClient' } },
   [`POST ${BASE}/clients/:id/financials`]: {

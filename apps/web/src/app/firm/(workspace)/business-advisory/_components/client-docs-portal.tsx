@@ -5,6 +5,7 @@ import {
   megabytes,
   type FirmDocument,
   type FirmDocumentList,
+  type AdvisoryWorkstream,
   type FirmDocumentRequest,
 } from '@firmivra/types';
 import {
@@ -36,7 +37,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useDeferredValue, useState } from 'react';
 import { api } from '../../../../../lib/api';
-import { advisoryEngagements } from './advisory-engagements';
+import { advisoryEngagements, type FileChoice } from './advisory-engagements';
 import { PortalAccessCard } from './portal-invitation';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -85,6 +86,22 @@ const REQUEST: Record<
 };
 const docError = (e: unknown) => errorMessage(e, DOCUMENT_ERRORS);
 
+/**
+ * The engagement a file or request goes to (the documents API's `serviceId`). A service under way
+ * with none yet starts it here, on the first upload or request (A-12, A-13): a client added before
+ * Add Client started engagements works on the first click, with no data change before it.
+ */
+async function engagementFor(
+  advisoryClientId: string,
+  choices: readonly FileChoice[],
+  serviceId: string,
+): Promise<string> {
+  const choice = choices.find((x) => x.serviceId === serviceId);
+  if (!choice?.workstreamId) return serviceId;
+  const got = await api.advisory.workstreamEngagement(advisoryClientId, choice.workstreamId);
+  return got.engagementId;
+}
+
 async function download(id: string) {
   const link = await api.documents.download(id);
   window.location.assign(link.url);
@@ -100,7 +117,7 @@ async function download(id: string) {
  */
 function useAdvisoryEngagements(
   firmClientId: string | undefined,
-  workstreams: readonly { serviceId: string }[],
+  workstreams: readonly AdvisoryWorkstream[],
 ) {
   const query = useApiQuery([...BA_KEY, 'client-engagements', firmClientId], () =>
     firmClientId ? api.engagements.listForClient(firmClientId) : Promise.resolve([]),
@@ -249,8 +266,8 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
             role="status"
             className="rounded-control bg-warning-soft px-4 py-3 text-sm text-heading"
           >
-            {c.client.name} has no active advisory service, so nothing can be filed or requested
-            here yet. Start the service from the client&apos;s profile first.
+            {c.client.name} has no advisory service under way, so nothing can be filed or requested
+            here yet. Accept or start one of their services first.
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
@@ -354,6 +371,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       </section>
       {dialog === 'upload' && c && firmClientId ? (
         <UploadDocumentDialog
+          advisoryClientId={advisoryClientId}
           firmClientId={firmClientId}
           services={open}
           onClose={() => setDialog(undefined)}
@@ -365,6 +383,7 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
       ) : null}
       {dialog === 'request' && c && firmClientId ? (
         <RequestDocumentDialog
+          advisoryClientId={advisoryClientId}
           firmClientId={firmClientId}
           clientName={c?.client.name ?? ''}
           services={open}
@@ -379,14 +398,16 @@ export function ClientDocumentsTab({ advisoryClientId }: { advisoryClientId: str
   );
 }
 
-type Workstreams = { serviceId: string; serviceName: string }[];
+type Workstreams = readonly FileChoice[];
 
 function UploadDocumentDialog({
+  advisoryClientId,
   firmClientId,
   services,
   onClose,
   onDone,
 }: {
+  advisoryClientId: string;
   firmClientId: string;
   services: Workstreams;
   onClose: () => void;
@@ -406,10 +427,11 @@ function UploadDocumentDialog({
     if (!file) return;
     setError(undefined);
     try {
+      const engagementId = await engagementFor(advisoryClientId, services, serviceId);
       await uploadFile(file, {
         start: (facts) =>
           api.documents.createUpload(firmClientId, {
-            serviceId,
+            serviceId: engagementId,
             shareWithClient: share,
             ...(categoryId ? { categoryId } : {}),
             ...facts,
@@ -503,12 +525,14 @@ function UploadDocumentDialog({
 }
 
 function RequestDocumentDialog({
+  advisoryClientId,
   firmClientId,
   clientName,
   services,
   onClose,
   onDone,
 }: {
+  advisoryClientId: string;
   firmClientId: string;
   clientName: string;
   services: Workstreams;
@@ -527,7 +551,7 @@ function RequestDocumentDialog({
     setError(undefined);
     try {
       await api.documents.createRequest(firmClientId, {
-        serviceId,
+        serviceId: await engagementFor(advisoryClientId, services, serviceId),
         title: title.trim(),
         ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
         ...(due ? { dueOn: due } : {}),

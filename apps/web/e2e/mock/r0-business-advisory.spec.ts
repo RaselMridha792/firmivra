@@ -421,13 +421,12 @@ test('Client tabs: documents (filed on the advisory engagements) and the client 
   // Files live in the Documents module (api.documents), whose mock holds none of this client's.
   await expect(docs).toContainText('No advisory documents');
   // Files go to the client's engagement on an advisory service (the documents API's serviceId),
-  // never the catalog service's id (Octavia Oct 25, B1 and B2). The advisory mock's clients have
-  // no engagements in the engagements mock, so filing is off and says why.
-  await expect(docs.getByRole('button', { name: 'Upload Document' })).toBeDisabled();
-  await expect(docs.getByRole('button', { name: 'Request Document' })).toBeDisabled();
-  await expect(docs.getByRole('status')).toContainText(
-    'nothing can be filed or requested here yet',
-  );
+  // never the catalog service's id (Octavia Oct 25, B1 and B2). Review Two A-12, A-13: a service
+  // under way can take files even before its engagement exists (it starts on the first one), so
+  // filing is on (r56-advisory-documents covers the first request).
+  await expect(docs.getByRole('button', { name: 'Upload Document' })).toBeEnabled();
+  await expect(docs.getByRole('button', { name: 'Request Document' })).toBeEnabled();
+  await expect(docs).not.toContainText('nothing can be filed or requested here yet');
   await expect(page.getByTestId('tab-doc-requests')).toBeVisible();
 
   await page.goto(`${marcus}/portal`);
