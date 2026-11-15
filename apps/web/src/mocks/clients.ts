@@ -928,7 +928,19 @@ export function createClientsMock(
       await pause();
       const row = find(parseInput(ClientId, id));
       const { limit } = parseInput(ClientTimelineQuery, query);
-      const all = timelineOf(row.id);
+      // N8-05: as the API, the client's own recorded changes too (here: when it was added).
+      const all = [
+        ...timelineOf(row.id),
+        {
+          id: row.id.replace(/^.{8}/, 'ad0000ad'),
+          kind: 'OTHER' as const,
+          title: 'Client added',
+          summary: null,
+          occurredAt: row.createdAt,
+          href: null,
+          createdBy: null,
+        },
+      ].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
       return { items: all.slice(0, limit), nextCursor: null };
     },
     setTags: async (id, body) => {

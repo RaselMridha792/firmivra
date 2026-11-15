@@ -196,18 +196,36 @@ export const MESSAGE_ATTACHMENTS_MAX = 10;
  * client's documents the client can see (shared, or their own uploads; never an internal one).
  * The firm's Messages Settings decide the file types and the size.
  */
-export const SendFirmMessageRequest = z.strictObject({
-  body: MessageBody,
-  documentIds: z
-    .array(z.uuid())
-    .max(MESSAGE_ATTACHMENTS_MAX, `Attach up to ${MESSAGE_ATTACHMENTS_MAX} files`)
-    .refine((ids) => new Set(ids.map((i) => i.toLowerCase())).size === ids.length, {
-      message: 'Attach each file once',
-    })
-    .optional(),
-  /** Tax Returns Review 2 (Messaging): this send's email choices (see MessageDelivery). */
-  delivery: MessageDelivery.optional(),
-});
+/**
+ * M22 (Messaging Review 2): a message of files with no text gets this line as its text ("Sent 1
+ * file: W-2.pdf", "Sent 3 files: a.pdf, b.pdf and 1 more"), names in order, at most two. The
+ * screens show it as a system line: a message whose text is exactly this for its own files.
+ */
+export function filesOnlyBody(fileNames: readonly string[]): string {
+  const names = [...fileNames].sort((a, b) => a.localeCompare(b));
+  const n = names.length;
+  const listed = n <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${n - 2} more`;
+  return `Sent ${n} ${n === 1 ? 'file' : 'files'}: ${listed}`;
+}
+
+export const SendFirmMessageRequest = z
+  .strictObject({
+    /** M22: may be left out when files are attached (the message then says what was sent). */
+    body: MessageBody.optional(),
+    documentIds: z
+      .array(z.uuid())
+      .max(MESSAGE_ATTACHMENTS_MAX, `Attach up to ${MESSAGE_ATTACHMENTS_MAX} files`)
+      .refine((ids) => new Set(ids.map((i) => i.toLowerCase())).size === ids.length, {
+        message: 'Attach each file once',
+      })
+      .optional(),
+    /** Tax Returns Review 2 (Messaging): this send's email choices (see MessageDelivery). */
+    delivery: MessageDelivery.optional(),
+  })
+  .refine((b) => b.body !== undefined || (b.documentIds?.length ?? 0) > 0, {
+    message: 'Enter a message or attach a file',
+    path: ['body'],
+  });
 export type SendFirmMessageRequest = z.input<typeof SendFirmMessageRequest>;
 
 /** PATCH /business/message-threads/{id}: close or reopen the client's replies. */

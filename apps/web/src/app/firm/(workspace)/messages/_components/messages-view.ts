@@ -148,7 +148,10 @@ export function inView(t: InboxThread, view: MessagesView, now = new Date()): bo
             ? false
             : tab === 'automations'
               ? t.automated
-              : t.related?.type === tab;
+              : tab === 'document_request'
+                ? // M25: Documents has the requests and the documents themselves.
+                  t.related?.type === 'document_request' || t.related?.type === 'document'
+                : t.related?.type === tab;
     if (!inTab) return false;
     if (view.clientId && t.client.id !== view.clientId) return false;
     if (view.replies && t.repliesEnabled !== (view.replies === 'open')) return false;

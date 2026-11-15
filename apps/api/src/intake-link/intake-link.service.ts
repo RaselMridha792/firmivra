@@ -44,7 +44,10 @@ import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import type { IntakeSigner } from '../intake/intake-signing.js';
 import { intakeLocked, OPEN_STATUSES, requireOpen, saveIntakeStep } from '../intake/intake-step.js';
 import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-submit.js';
-import { sendSubmittedNotice } from '../intake-workspace/submitted-notice.js';
+import {
+  sendClientConfirmation,
+  sendSubmittedNotice,
+} from '../intake-workspace/submitted-notice.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { IntakeLinkCookies, type LinkClaim } from './intake-link-cookies.js';
@@ -457,11 +460,15 @@ export class IntakeLinkService {
     } catch (error) {
       this.logger.warn(`intake.submitted for intake ${id} not written (${errorName(error)})`);
     }
-    await sendSubmittedNotice(
-      { database: this.database, notify: this.notify, env: this.env, logger: this.logger },
-      businessId,
-      id,
-    );
+    const deps = {
+      database: this.database,
+      notify: this.notify,
+      env: this.env,
+      logger: this.logger,
+    };
+    await sendSubmittedNotice(deps, businessId, id);
+    // Send confirmation email to client: to the lead who sent it, when the firm has it on.
+    await sendClientConfirmation(deps, businessId, id, before.lead?.email ?? null);
     return intake;
   }
 }
