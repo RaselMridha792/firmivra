@@ -53,6 +53,8 @@ export const errors = {
   reasonRequired: () => invalidField('reason', 'Give a reason for blocking your time'),
   duplicateName: () =>
     conflict('DUPLICATE_NAME', 'An appointment type with this name already exists'),
+  /** Review 2 (A2): a room's or an item's name already in use, with the message saying which. */
+  duplicate: (message: string) => conflict('DUPLICATE_NAME', message),
   /** 409 with the conflict check's answer in `details`, so the form can show and offer a way out. */
   schedulingConflict: (result: ConflictResult) =>
     conflict(
@@ -139,6 +141,17 @@ export function isStaffConflict(error: unknown): boolean {
   return (
     databaseErrorCode(error) === '23P01' &&
     databaseMessage(error).includes('appointments_no_double_booking_staff')
+  );
+}
+
+/**
+ * Review 2 (A2): whether the equipment's exclusion constraint refused the time (an item another
+ * live appointment holds then). packages/db/prisma/migrations/*_r56_appointment_equipment.
+ */
+export function isEquipmentConflict(error: unknown): boolean {
+  return (
+    databaseErrorCode(error) === '23P01' &&
+    databaseMessage(error).includes('appointment_equipment_no_double_booking')
   );
 }
 
