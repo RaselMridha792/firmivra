@@ -1034,6 +1034,13 @@ export class TaxReturnWorkspaceService {
             k = ['ASSIGNED', 'Assignment changed'];
           }
         }
+        // F26d: a paper filing is not a transmission.
+        if (
+          l.action === 'tax_return.transmission' &&
+          (l.metadata as { action?: string } | null)?.action === 'paper_filed'
+        ) {
+          k = ['FILING', 'Paper filing recorded'];
+        }
         if (l.action === 'tax_return.issue') {
           const a = (l.metadata as { action?: string } | null)?.action ?? '';
           k = ['VALIDATION', ISSUE[a] ?? k[1]];
