@@ -57,11 +57,11 @@ export function InfoCard({
 /** Label and value rows. A missing answer reads "Not provided". */
 export function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[minmax(7rem,40%)_1fr] gap-x-3 text-sm">
+    <dl className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-3 text-sm">
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
-          <dt className="border-b border-divider py-2 text-text">{label}</dt>
-          <dd className="border-b border-divider py-2 whitespace-pre-line text-heading">
+          <dt className="min-w-0 border-b border-divider py-2 wrap-anywhere text-text">{label}</dt>
+          <dd className="min-w-0 border-b border-divider py-2 whitespace-pre-line wrap-anywhere text-heading">
             {value || <span className="text-muted">Not provided</span>}
           </dd>
         </div>

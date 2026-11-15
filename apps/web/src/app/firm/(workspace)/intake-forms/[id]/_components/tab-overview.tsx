@@ -116,8 +116,8 @@ export function OverviewTab() {
   const ready = record?.progress.readyForReview || record?.status === 'COMPLETED';
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_21rem]">
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 @6xl:grid-cols-2">
         {!responses ? (
           <InfoCard icon={ClipboardText} title="Answers" edit={false} testId="card-answers">
             <Quiet>The answers are not available right now.</Quiet>

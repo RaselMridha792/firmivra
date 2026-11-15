@@ -24,7 +24,7 @@ export function ResponsesTab() {
       {steps.map((step) => (
         <div key={step.key} className="flex flex-col gap-3">
           <h2 className="font-display text-xl font-bold text-heading">{step.title}</h2>
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 @3xl:grid-cols-2">
             {step.sections
               .filter((s) => s.fields.some((f) => f.type !== 'info' && f.type !== 'upload'))
               .map((section) => (

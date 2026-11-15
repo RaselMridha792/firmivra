@@ -34,8 +34,13 @@ export async function layoutIssues(page: Page): Promise<string[]> {
       if (r.width < 2 || r.height < 2) continue;
       const cs = getComputedStyle(el);
       if (cs.position === 'absolute' || cs.position === 'fixed' || clipped(el)) continue;
+      // The block that holds it: past inline wrappers, and `display: contents` ones (no box).
       let box = el.parentElement;
-      while (box && getComputedStyle(box).display.startsWith('inline')) box = box.parentElement;
+      while (box) {
+        const display = getComputedStyle(box).display;
+        if (!display.startsWith('inline') && display !== 'contents') break;
+        box = box.parentElement;
+      }
       if (!box) continue;
       const b = box.getBoundingClientRect();
       if (r.right > b.right + 2 || r.left < b.left - 2) {
@@ -63,15 +68,22 @@ async function check(page: Page, label: string) {
 }
 
 /**
- * Opens `path` with the sidebar expanded at 1280 (screenshot), then 1366 and 1440, collapses the
- * sidebar for the three widths again, and ends at 390. `ready` is a test id the page shows once
- * loaded (the page's main heading when left out).
+ * Opens `path` with the sidebar expanded at the first width (screenshot), then the others,
+ * collapses the sidebar for them all again, and ends at 390. `widths` defaults to 1280, 1366 and
+ * 1440. `ready` is a test id the page shows once loaded (the page's main heading when left out).
  */
 export async function checkLayout(
   page: Page,
-  { name, path, ready, shots }: { name: string; path: string; ready?: string; shots: string },
+  {
+    name,
+    path,
+    ready,
+    shots,
+    widths = [1280, 1366, 1440],
+  }: { name: string; path: string; ready?: string; shots: string; widths?: number[] },
 ) {
-  await page.setViewportSize({ width: 1280, height: 900 });
+  const [firstWidth = 1280, ...otherWidths] = widths;
+  await page.setViewportSize({ width: firstWidth, height: 900 });
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem('firmivra.sidebar.collapsed', '0');
@@ -84,15 +96,17 @@ export async function checkLayout(
   await expect(shown.first()).toBeVisible({ timeout: 90_000 });
   // Lists and cards load after the heading.
   await page.waitForLoadState('networkidle').catch(() => undefined);
-  await check(page, `${name} at 1280, sidebar expanded`);
+  await check(page, `${name} at ${firstWidth}, sidebar expanded`);
   await page.mouse.move(5, 5);
-  await page.screenshot({ path: `${shots}/${name}-1280-expanded.png`, fullPage: true });
-  for (const width of [1366, 1440]) {
+  await page.screenshot({ path: `${shots}/${name}-${firstWidth}-expanded.png`, fullPage: true });
+  for (const width of otherWidths) {
     await page.setViewportSize({ width, height: 900 });
     await check(page, `${name} at ${width}, sidebar expanded`);
   }
+  // The menu's own toggle shows at desktop widths: collapse it there.
+  await page.setViewportSize({ width: Math.max(...widths, 1280), height: 900 });
   await page.getByRole('button', { name: 'Collapse menu' }).click();
-  for (const width of [1280, 1366, 1440]) {
+  for (const width of widths) {
     await page.setViewportSize({ width, height: 900 });
     await check(page, `${name} at ${width}, sidebar collapsed`);
   }
