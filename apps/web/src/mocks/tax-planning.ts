@@ -245,6 +245,7 @@ const RESOURCES: PlanningResource[] = [
     category: 'Internal',
     kind: 'GUIDE',
     clientFacing: false,
+    staffOnly: true,
     url: null,
     summary: 'A short guide for the client (fake).',
   },
@@ -366,6 +367,13 @@ export function createTaxPlanningMock({
     await mockDelay();
     return copy(work());
   };
+  const CONTENT_FROZEN: readonly string[] = [
+    'FINALIZED',
+    'AWAITING_CLIENT',
+    'READY_FOR_REVIEW',
+    'CLIENT_APPROVED',
+    'IMPLEMENTED',
+  ];
   const manage = () => {
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
   };
@@ -532,6 +540,7 @@ export function createTaxPlanningMock({
       discussions: [],
       tasks: [],
       canEdit: role !== 'STAFF',
+      canTrack: role !== 'STAFF',
       canChangeStatus: role !== 'STAFF',
       canOverride: role !== 'STAFF',
       canSend: role !== 'STAFF',
@@ -675,10 +684,14 @@ export function createTaxPlanningMock({
     } = x as T & { _versions?: unknown; _events?: unknown };
     void [_v, _e];
     // Review 2 workflow: a plan's workflow is worked out on every answer, as the API does.
-    if ('planYear' in rest && 'strategies' in rest)
-      (rest as unknown as TaxPlanDetail).workflow = workflowOf(
-        x as unknown as TaxPlanDetail & { _versions: PlanVersionDetail[] },
-      );
+    if ('planYear' in rest && 'strategies' in rest) {
+      const d = rest as unknown as TaxPlanDetail;
+      d.workflow = workflowOf(x as unknown as TaxPlanDetail & { _versions: PlanVersionDetail[] });
+      // C27 as the API: content frozen from Finalized on; the implementation tracked until Closed.
+      const may = role !== 'STAFF';
+      d.canEdit = may && !CONTENT_FROZEN.includes(d.status) && d.status !== 'CLOSED';
+      d.canTrack = may && d.status !== 'CLOSED';
+    }
     return rest as Omit<T, '_versions' | '_events'>;
   };
   /** Review 2 workflow (fake): each plan's reviewer, approvals, requests and delivery. */
@@ -888,6 +901,17 @@ export function createTaxPlanningMock({
     if (role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
     if (p.archived) throw fail(409, 'PLAN_ARCHIVED', 'Restore the plan before changing it.');
   };
+  /** C27 as the API: from Finalized on, the content changes only through Revise. */
+  const frozen = (p: TaxPlanDetail) => {
+    if (!CONTENT_FROZEN.includes(p.status)) return;
+    throw fail(
+      409,
+      'INVALID_STATUS',
+      p.status === 'READY_FOR_REVIEW'
+        ? 'Use Start Revision to change the plan'
+        : 'Use Revise to change a finalized plan',
+    );
+  };
   /** Review 2 workflow: work begins by itself, so a change moves Draft or Scheduled to In Progress. */
   const work = (p: TaxPlanDetail) => {
     if (p.status !== 'DRAFT' && p.status !== 'SCHEDULED') return;
@@ -917,6 +941,7 @@ export function createTaxPlanningMock({
       staleData: _sd,
       disclaimer: _di,
       canEdit: _ce,
+      canTrack: _ct,
       workflow: _wf,
       canChangeStatus: _ch,
       canOverride: _co,
@@ -1175,6 +1200,14 @@ export function createTaxPlanningMock({
         const input = parseInput(UpdateTaxPlanRequest, body);
         const p = findPlan(pid);
         editable(p);
+        const tracking = [
+          'notes',
+          'assignedUserId',
+          'targetCompletionOn',
+          'nextDiscussionOn',
+          'etag',
+        ];
+        if (Object.keys(input).some((k) => !tracking.includes(k))) frozen(p);
         work(p);
         conflict(p, input.etag);
         const { etag: _e, ...fields } = input;
@@ -1191,6 +1224,7 @@ export function createTaxPlanningMock({
         const input = parseInput(SavePlanInputsRequest, body);
         const p = findPlan(pid);
         editable(p);
+        frozen(p);
         work(p);
         conflict(p, input.etag);
         if (role === 'STAFF')
@@ -1227,6 +1261,7 @@ export function createTaxPlanningMock({
         const input = parseInput(AddPlanStrategyRequest, body);
         const p = findPlan(pid);
         editable(p);
+        frozen(p);
         work(p);
         if (input.kind === 'LIBRARY') {
           const l = library.find((x) => x.id === input.strategyId);
@@ -1267,6 +1302,19 @@ export function createTaxPlanningMock({
         const input = parseInput(UpdatePlanStrategyRequest, body);
         const p = findPlan(pid);
         editable(p);
+        const was = p.strategies.find((x) => x.id === sid)?.status;
+        const declines =
+          input.status !== undefined &&
+          input.status !== was &&
+          (input.status === 'DECLINED' || was === 'DECLINED');
+        const content = [
+          'selected',
+          'priority',
+          'assumptions',
+          'overrideSavingsCents',
+          'overrideReason',
+        ];
+        if (declines || Object.keys(input).some((k) => content.includes(k))) frozen(p);
         work(p);
         conflict(p, input.etag);
         const s = p.strategies.find((x) => x.id === sid);
@@ -1296,6 +1344,7 @@ export function createTaxPlanningMock({
         const input = parseInput(ReorderPlanStrategiesRequest, body);
         const p = findPlan(pid);
         editable(p);
+        frozen(p);
         work(p);
         conflict(p, input.etag);
         p.strategies = input.ids
@@ -1308,6 +1357,7 @@ export function createTaxPlanningMock({
       run(() => {
         const p = findPlan(pid);
         editable(p);
+        frozen(p);
         return strip(recompute(p));
       }),
     attachDocument: (pid, body) =>
@@ -1364,6 +1414,7 @@ export function createTaxPlanningMock({
         const input = parseInput(FinalizePlanRequest, body);
         const p = findPlan(pid);
         editable(p);
+        frozen(p);
         conflict(p, input.etag);
         if (p.strategies.filter((s) => s.selected).length === 0)
           throw fail(409, 'PLAN_NOT_READY', 'Select at least one strategy before finalizing.');
@@ -2108,6 +2159,13 @@ export function createTaxPlanningMock({
         const input = parseInput(UpdatePlanningResourceRequest, body);
         const r = RESOURCES.find((x) => x.key === key);
         if (!r) throw fail(404, 'NOT_FOUND', 'That resource was not found.');
+        // C17 as the API: a staff reference is never made client-facing.
+        if (r.staffOnly && input.clientFacing) {
+          const message = 'A staff reference stays for staff only';
+          throw new ApiRequestError(400, 'VALIDATION_FAILED', message, undefined, undefined, [
+            { path: 'clientFacing', message },
+          ]);
+        }
         Object.assign(r, {
           title: input.title,
           category: input.category,

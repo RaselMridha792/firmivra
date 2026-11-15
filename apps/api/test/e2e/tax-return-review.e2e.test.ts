@@ -472,6 +472,32 @@ describe('filings', () => {
     expect(report.rejections).toMatchObject([
       { taxReturnId: id, jurisdiction: 'US', rejectCode: 'IND-031' },
     ]);
+    // Review 2 (TX-F22): from Rejected the only move is In Correction, and nothing is sent again
+    // until the return is through review and Ready to File.
+    expect(moved.canMoveTo).toEqual(['IN_CORRECTION']);
+    const resend = () =>
+      call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
+        submissionId: 'SUB-002',
+        transmittedAt: ago(4),
+      });
+    expectError(await resend(), 409, 'STATUS_BLOCKED');
+    expectError(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'READY_TO_FILE' }),
+      409,
+      'STATUS_BLOCKED',
+    );
+    ok(
+      await call('post', `/tax-returns/${id}/status`, adminA, {
+        workflowStatus: 'IN_CORRECTION',
+        reason: 'Fake: fix the prior-year AGI',
+      }),
+      TaxReturnDetail,
+    );
+    expectError(await resend(), 409, 'STATUS_BLOCKED');
+    ok(
+      await call('post', `/tax-returns/${id}/status`, adminA, { workflowStatus: 'READY_TO_FILE' }),
+      TaxReturnDetail,
+    );
     const t2 = ok(
       await call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
         submissionId: 'SUB-002',
@@ -1135,8 +1161,10 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
           }),
           TaxReturnFilingList,
         ).items.find((f) => f.id === us)!.refundCents;
+      // Review 2 (rounding): up to the next whole dollar for any cents; a whole dollar stays.
       expect(await save(148250)).toBe(148300);
-      expect(await save(148249)).toBe(148200);
+      expect(await save(148249)).toBe(148300);
+      expect(await save(148201)).toBe(148300);
       expect(await save(148300)).toBe(148300);
       const rows = await inFirm('a', (tx) =>
         tx.auditLog.findMany({
@@ -1150,7 +1178,8 @@ describe('Review 2: Start Correction, Record Extension and amount rounding', () 
         .filter((m) => m.amount);
       expect(amounts.map((m) => [m.amount!.refundCents, m.entered ?? null])).toEqual([
         [148300, { refundCents: 148250 }],
-        [148200, { refundCents: 148249 }],
+        [148300, { refundCents: 148249 }],
+        [148300, { refundCents: 148201 }],
         [148300, null],
       ]);
     } finally {

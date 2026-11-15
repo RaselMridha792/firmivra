@@ -51,6 +51,9 @@ const returnSelect = {
   createdAt: true,
   updatedAt: true,
   document: { select: { id: true, fileName: true } },
+  // Client Portal instructions 4: the assigned staff.
+  preparer: { select: { userId: true, user: { select: { name: true } } } },
+  reviewer: { select: { userId: true, user: { select: { name: true } } } },
 } satisfies Prisma.TaxReturnSelect;
 
 type ReturnRow = Prisma.TaxReturnGetPayload<{ select: typeof returnSelect }>;

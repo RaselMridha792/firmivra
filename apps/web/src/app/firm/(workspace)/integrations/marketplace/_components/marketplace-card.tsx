@@ -8,13 +8,24 @@ import { useId } from 'react';
 import { useFromHere } from '../../_components/integrations-origin';
 import { actionLink, categoryLabel } from './marketplace-shared';
 
+/**
+ * Leads Review Two, row 24: website lead capture is an intake form's share link or website button,
+ * so Website & Lead Forms opens Intake Forms instead of a connect step.
+ */
+const viaIntakeForms = (item: IntegrationCard) =>
+  item.provider.provider === 'website_forms' &&
+  item.connections.length === 0 &&
+  !item.provider.comingSoon;
+
 export function integrationDestination(item: IntegrationCard): string {
+  if (viaIntakeForms(item)) return '/intake-forms';
   const connection = item.connections[0];
   return connection
     ? `/integrations/${connection.id}`
     : `/integrations/${item.provider.provider}/connect`;
 }
 export function integrationAction(item: IntegrationCard): string {
+  if (viaIntakeForms(item)) return 'Open Intake Forms';
   if (item.connections.length)
     return item.status === 'NEEDS_ATTENTION' ? 'Fix connection' : 'Manage';
   return item.action === 'CONFIGURE' ? 'Configure' : 'Connect';
@@ -105,8 +116,9 @@ export function MarketplaceAction({
   const reasonId = useId();
   const fromHere = useFromHere();
   const connected = item.connections.length > 0;
-  const reason =
-    item.provider.comingSoon && !connected
+  const reason = viaIntakeForms(item)
+    ? null
+    : item.provider.comingSoon && !connected
       ? 'Not available to connect yet.'
       : !canManage && !connected
         ? 'Ask your administrator to connect.'

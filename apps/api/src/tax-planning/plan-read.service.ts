@@ -16,6 +16,7 @@ import { inputDef } from './catalog.js';
 import {
   clientRef,
   clientRefSelect,
+  CONTENT_FROZEN,
   DISCLAIMER,
   entityLabel,
   estimateView,
@@ -254,8 +255,11 @@ export class TaxPlanReadService {
       overlapNotes: totals.notes,
       staleData: rows.some((r) => isStale(r.asOf)),
       disclaimer: DISCLAIMER,
-      // C27 (Review 2): a Closed plan is read-only until Reopen.
-      canEdit: ctx.perms.edit && plan.status !== 'CLOSED',
+      // C27 (Review 2): a Closed plan is read-only until Reopen; from Finalized on, its content
+      // changes only through Revise (Start Revision for Needs Review), while the implementation
+      // (a strategy's status and date, documents, discussions, tasks) goes on.
+      canEdit: ctx.perms.edit && !CONTENT_FROZEN.includes(plan.status) && plan.status !== 'CLOSED',
+      canTrack: ctx.perms.edit && plan.status !== 'CLOSED',
       canChangeStatus: ctx.perms.edit,
       discussions: discussions.map((a) => ({
         id: a.id,

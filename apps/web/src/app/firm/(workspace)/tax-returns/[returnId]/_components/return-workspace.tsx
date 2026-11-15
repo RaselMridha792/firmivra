@@ -149,6 +149,8 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
         linkTo: {
           label: `Link to the ${r.taxYear} return as`,
           roles: RETURN_ROLES,
+          // Review 2 (TR-3): started from the return, the file is the return's by default.
+          defaultRole: RETURN_ROLES[0]?.value,
           link: (documentId: string, kind: string) =>
             api.taxReturnWorkspace.linkDocument(r.id, {
               documentId,

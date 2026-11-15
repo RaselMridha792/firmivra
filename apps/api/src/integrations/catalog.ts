@@ -354,8 +354,10 @@ export const PROVIDERS: readonly IntegrationProvider[] = [
     provider: 'website_forms',
     name: 'Website & Lead Forms',
     category: 'MARKETING',
-    summary: 'Intake and consultation leads',
-    description: 'Capture leads and intake submissions from your website forms.',
+    // Leads Review Two, row 24: the real method is an intake form's share link or website button.
+    summary: 'Intake form links and website buttons',
+    description:
+      'Every published intake form has a share link and a website button. Put either on your website (WordPress, Wix, GoDaddy, Shopify or any page that takes a link or HTML): each visitor who starts the form becomes a Website Form lead. Nothing to connect: open Intake Forms and choose Share & Publish on a form.',
     popularity: 78,
     authMethod: 'NONE',
     directions: ['IMPORT'],

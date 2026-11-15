@@ -29,6 +29,8 @@ export interface ServiceDocumentTarget {
   linkTo?: {
     label: string;
     roles: readonly { value: string; label: string }[];
+    /** Review 2 (TR-3): the role chosen at first; the person can still choose not to link. */
+    defaultRole?: string;
     link: (documentId: string, role: string) => Promise<unknown>;
   };
 }
@@ -288,7 +290,7 @@ function UploadDocumentDialog({
   const [categoryId, setCategoryId] = useState('');
   const [taxYear, setTaxYear] = useState(target?.taxYear ? String(target.taxYear) : '');
   const [share, setShare] = useState(false);
-  const [role, setRole] = useState('');
+  const [role, setRole] = useState(target?.linkTo?.defaultRole ?? '');
   const [file, setFile] = useState<File>();
   const [percent, setPercent] = useState<number>();
   const [error, setError] = useState<string>();

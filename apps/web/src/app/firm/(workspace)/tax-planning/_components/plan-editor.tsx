@@ -124,6 +124,18 @@ export function PlanEditor({ id, step }: { id?: string; step: Step }) {
           This plan is closed and read-only. Use Reopen Plan, with the reason, to change it.
         </p>
       ) : null}
+      {/* C27 (Review 2): from Finalized on, the content changes only through a new version. */}
+      {p && !p.canEdit && p.canTrack && !p.archived ? (
+        <p
+          role="status"
+          data-testid="plan-frozen"
+          className="rounded-lg bg-info-soft p-3 text-sm text-info"
+        >
+          {p.status === 'READY_FOR_REVIEW'
+            ? 'The client asked for a change. Use Start Revision to change the plan.'
+            : 'This plan is finalized: its figures, strategies and goals change only through Revise, as a new version. Its implementation (each strategy’s status, documents, discussions and tasks) goes on.'}
+        </p>
+      ) : null}
       {p ? (
         <PlanWorkflow plan={p} expanded={step === 5} onNotice={notice} onSaved={refresh} />
       ) : null}
@@ -1512,7 +1524,9 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
               <Select
                 label={`Status of ${s.name}`}
                 value={s.status}
-                disabled={!plan.canEdit}
+                // C27: the implementation is tracked after approval; declining is a change of
+                // the plan's content (Revise first).
+                disabled={!plan.canTrack || (!plan.canEdit && s.status === 'DECLINED')}
                 onChange={(e) =>
                   void run(
                     () =>
@@ -1529,13 +1543,15 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
                   ['IN_PROGRESS', 'In progress'],
                   ['IMPLEMENTED', 'Implemented'],
                   ['DECLINED', 'Declined'],
-                ].map(([value, label]) => ({ value: value!, label: label! }))}
+                ]
+                  .filter(([value]) => plan.canEdit || value !== 'DECLINED' || s.status === value)
+                  .map(([value, label]) => ({ value: value!, label: label! }))}
               />
               <Input
                 label="Implemented on"
                 type="date"
                 defaultValue={s.implementedOn ?? ''}
-                disabled={!plan.canEdit}
+                disabled={!plan.canTrack}
                 onBlur={(e) => {
                   if ((e.target.value || null) !== s.implementedOn)
                     void run(
@@ -1603,7 +1619,7 @@ function StepImplementation({ plan, onNotice, onSaved, onNext, onBack }: StepPro
           <button
             type="button"
             className={outlined}
-            disabled={!docId || !plan.canEdit}
+            disabled={!docId || !plan.canTrack}
             onClick={() =>
               void run(
                 () => api.taxPlanning.attachDocument(plan.id, { documentId: docId }),
@@ -1892,7 +1908,7 @@ function PlanDiscussions({ plan }: { plan: TaxPlanDetail }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-lg font-bold text-heading">Client Discussions</h2>
-        {plan.canEdit ? (
+        {plan.canTrack ? (
           <Link
             href={scheduleHref(overview.data?.planningServiceId, from, plan.client.id, plan.id)}
             className={subtle}
@@ -1960,7 +1976,7 @@ function PlanTasks({
           <Link href="/tasks" className={linkBtn}>
             Open Tasks <ArrowRight aria-hidden weight="bold" className="size-3" />
           </Link>
-          {plan.canEdit ? (
+          {plan.canTrack ? (
             <button
               type="button"
               className={subtle}

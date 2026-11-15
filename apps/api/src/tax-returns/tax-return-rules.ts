@@ -117,7 +117,12 @@ interface ReturnRow {
   createdAt: Date;
   updatedAt: Date;
   document: { id: string; fileName: string } | null;
+  preparer?: { userId: string; user: { name: string } } | null;
+  reviewer?: { userId: string; user: { name: string } } | null;
 }
+
+const member = (m: { userId: string; user: { name: string } } | null | undefined) =>
+  m ? { userId: m.userId, name: m.user.name } : null;
 
 /** A return as the firm sees it; the PDF whatever its scan state (the firm's own vault). */
 export function toTaxReturn(row: ReturnRow): TaxReturn {
@@ -132,6 +137,8 @@ export function toTaxReturn(row: ReturnRow): TaxReturn {
     status: row.status,
     filedOn: row.filedOn ? isoDate(row.filedOn) : null,
     document: row.document ? { id: row.document.id, fileName: row.document.fileName } : null,
+    preparer: member(row.preparer),
+    reviewer: member(row.reviewer),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
