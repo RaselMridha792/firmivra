@@ -230,10 +230,33 @@ export function activityLabel(a: ActivityData, source: LeadSource): string {
     return `Status changed to ${a.status ? LEAD_STATUS_LABELS[a.status as LeadPipelineStatus] : 'a new status'}`;
   }
   if (a.kind === 'ASSIGNED') {
-    return (a.metadata as { assigned?: boolean }).assigned ? 'Lead assigned' : 'Lead unassigned';
+    const assigned = a.metadata as { assigned?: boolean; ruleName?: string };
+    // R2 17a: an owner a routing rule gave (lead-routing.service.ts), named as the rule was then.
+    if (assigned.ruleName) return `Assigned by rule: ${assigned.ruleName}`;
+    return assigned.assigned ? 'Lead assigned' : 'Lead unassigned';
   }
   const base = ACTIVITY_LABELS[a.kind] ?? 'Activity';
   return a.summary && a.kind !== 'NOTE' ? `${base}: ${a.summary}` : base;
+}
+
+/**
+ * R2 17a: the plain "Lead assigned" rows that a routing rule's own ASSIGNED row replaces (written
+ * by the leads_activity trigger in the same change), left out of the lead's timeline so the change
+ * shows once, by its rule. A lead has few ASSIGNED rows.
+ */
+export async function replacedActivityIds(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+): Promise<string[]> {
+  const rows = await tx.leadActivity.findMany({
+    where: { businessId, leadId, kind: 'ASSIGNED' },
+    select: { metadata: true },
+  });
+  return rows.flatMap((r) => {
+    const replaces = (r.metadata as { replaces?: unknown } | null)?.replaces;
+    return typeof replaces === 'string' ? [replaces] : [];
+  });
 }
 
 export function toActivity(a: ActivityData, source: LeadSource): LeadActivity {
@@ -362,8 +385,9 @@ export async function loadProfile(
     select: profileSelect,
   });
   if (!r) throw notFound();
+  const replaced = await replacedActivityIds(tx, businessId, id);
   const recent = await tx.leadActivity.findMany({
-    where: { businessId, leadId: id },
+    where: { businessId, leadId: id, ...(replaced.length ? { id: { notIn: replaced } } : {}) },
     orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
     take: 10,
     select: activitySelect,

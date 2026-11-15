@@ -240,6 +240,60 @@ describe('Leads R2 17: routing', () => {
     expect(audit).toHaveLength(3);
   });
 
+  it('R2 17a: a rule\'s assignment shows in the lead\'s activity as "Assigned by rule: <name>"; a lead no rule matches has none', async () => {
+    const saved = routing(
+      await call('put', '/lead-routing', people.ownerA, {
+        enabled: true,
+        fallbackUserId: people.staff2A.id,
+        rules: [{ name: 'Referral desk', sources: ['REFERRAL'], assigneeUserId: people.staffA.id }],
+      }),
+    );
+    const rule = saved.rules[0]!;
+    const activityOf = async (id: string) => {
+      const res = await call('get', `/leads/${id}/activity`, people.ownerA);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return (res.body as { items: { kind: string; label: string; by: unknown }[] }).items;
+    };
+    const routed = await newLead();
+    expect(routed.assignedByRule?.name).toBe('Referral desk');
+    const items = await activityOf(routed.id);
+    const assigned = items.filter((a) => a.kind === 'ASSIGNED');
+    // One line for the change, by its rule, from the system (the trigger's plain row is replaced).
+    expect(assigned).toEqual([
+      expect.objectContaining({ label: 'Assigned by rule: Referral desk', by: null }),
+    ]);
+    expect(routed.recentActivity.map((a) => a.label)).toContain('Assigned by rule: Referral desk');
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const rows = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.leadActivity.findMany({
+        where: { businessId: ids.firmA, leadId: routed.id, kind: 'ASSIGNED' },
+      }),
+    );
+    await owner.$disconnect();
+    // The trigger's row and the rule's row, written at the same moment by the same change.
+    expect(rows).toHaveLength(2);
+    const byRule = rows.find((r) => (r.metadata as { ruleId?: string }).ruleId);
+    const trigger = rows.find((r) => r !== byRule);
+    expect(byRule?.metadata).toEqual({
+      assigned: true,
+      ruleId: rule.id,
+      ruleName: 'Referral desk',
+      replaces: trigger?.id,
+    });
+    expect(trigger?.metadata).toEqual({ assigned: true });
+    expect(byRule?.occurredAt).toEqual(trigger?.occurredAt);
+
+    // No rule matches: the fallback takes it, and no activity names a rule.
+    const unmatched = await newLead({ source: 'OTHER' });
+    expect(unmatched.assignedTo?.userId).toBe(people.staff2A.id);
+    expect(unmatched.assignedByRule ?? null).toBeNull();
+    const plain = await activityOf(unmatched.id);
+    expect(plain.filter((a) => a.label.startsWith('Assigned by rule'))).toEqual([]);
+    expect(plain.filter((a) => a.kind === 'ASSIGNED').map((a) => a.label)).toEqual([
+      'Lead assigned',
+    ]);
+  });
+
   it("firm B's owner sees and changes none of firm A's routing", async () => {
     expect(
       routing(await call('get', '/lead-routing', people.ownerB, undefined, ids.firmB)),
