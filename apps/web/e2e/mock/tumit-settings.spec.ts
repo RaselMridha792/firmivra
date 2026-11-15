@@ -27,7 +27,12 @@ test('an owner changes the profile, branding and client portal', async ({ page }
   await settings.getByRole('link', { name: 'Client portal' }).click();
   await expect(page.getByTestId('page-title')).toHaveText('Client portal settings');
   await page.getByLabel('Welcome message').fill('Welcome, clients.');
-  await page.getByRole('button', { name: 'Save changes' }).click();
+  // The page's own form: Contact Information and Portal Features have Save changes of their own.
+  await page
+    .locator('form')
+    .filter({ has: page.getByLabel('Welcome message') })
+    .getByRole('button', { name: 'Save changes' })
+    .click();
   await expect(page.getByText('Changes saved.')).toBeVisible();
 
   // Saved values come back on the next visit (same mock session).
