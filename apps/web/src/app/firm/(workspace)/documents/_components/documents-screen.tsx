@@ -104,9 +104,14 @@ export function DocumentsScreen({
     <div className="flex flex-col gap-4" data-testid="documents-screen">
       <DocumentsHeader />
       <DocumentsStatCards />
-      {/* Clients V-003, V-004, V-009: slim side panels; the table gets the widest region. The
-          right rail sits under it (three across) until the window is wide enough for it beside. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[13rem_minmax(0,1fr)_17rem]">
+      {/* Clients V-003, V-004, V-009: the panels take the stat cards' own columns (same gap), so
+          their edges line up: Folders the first card's column and the table the widest region;
+          the right rail the last column at 2xl, or three across under the table (one card's
+          column each) while the cards are three across. */}
+      <div
+        className="grid grid-cols-1 gap-4 lg:grid-cols-3 2xl:grid-cols-5"
+        data-testid="documents-columns"
+      >
         <FoldersPanel
           categories={categories.data ?? []}
           selected={categoryId}
@@ -115,7 +120,7 @@ export function DocumentsScreen({
             resetPaging();
           }}
         />
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 2xl:col-span-3">
           <Card className="flex flex-col gap-4 p-4">
             <DocumentsFiltersBar
               clients={clients.data?.items ?? []}
@@ -233,7 +238,10 @@ export function DocumentsScreen({
             )}
           </Card>
         </div>
-        <div className="flex flex-col gap-4 lg:col-span-2 lg:grid lg:grid-cols-3 lg:items-start 2xl:col-span-1 2xl:flex 2xl:flex-col">
+        <div
+          className="flex min-w-0 flex-col gap-4 lg:col-span-3 lg:grid lg:grid-cols-3 lg:items-start 2xl:col-span-1 2xl:flex 2xl:flex-col"
+          data-testid="documents-rail"
+        >
           <QuickUploadCard />
           <DocumentRequestsCard />
           <RecentActivityCard />

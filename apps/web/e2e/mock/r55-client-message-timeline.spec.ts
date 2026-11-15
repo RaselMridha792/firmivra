@@ -49,7 +49,8 @@ test('unticked, the message stays off the client’s Activity', async ({ page })
   await dialog.getByRole('button', { name: 'Send Message' }).click();
   await expect(dialog).toBeHidden();
   await page.getByRole('link', { name: 'Activity', exact: true }).click();
-  await expect(page.getByTestId('client-activity')).toContainText('No activity yet', {
-    timeout: 60_000,
-  });
+  // N8-05: the client's recorded events are listed; the unticked message is not one of them.
+  const activity = page.getByTestId('client-activity');
+  await expect(activity).toContainText('Client added', { timeout: 60_000 });
+  await expect(activity).not.toContainText('Off the timeline (sample)');
 });
