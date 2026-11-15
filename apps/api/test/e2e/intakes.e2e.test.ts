@@ -1085,8 +1085,9 @@ describe('portal: submit', () => {
   const save = (intakeId: string, step: string, answers: object) =>
     portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(saved);
 
+  // Review Two row 21: the firm asks for consent (the setting's default), so every submit gives it.
   const submit = (intakeId: string, body: object = { signature: signature() }) =>
-    portal('post', `/${intakeId}/submit`, people.one, body);
+    portal('post', `/${intakeId}/submit`, people.one, { consent: true, ...body });
   const signaturesOf = (intakeId: string) =>
     inFirm((tx) => tx.intakeSignature.count({ where: { intakeId } }));
   const sent = { intakeId: '', spouseId: '' };
@@ -1241,6 +1242,52 @@ describe('portal: submit', () => {
     expect(after).toEqual(before);
     expect(after).toMatchObject({ status: 'IN_PROGRESS', canSubmit: true, signature: null });
     expect(await signaturesOf(intakeId)).toBe(0);
+  });
+
+  it('Review Two row 21: no consent is 400 CONSENT_REQUIRED while the firm asks; the setting off asks none; the firm’s message and redirect', async () => {
+    const { intakeId } = sent;
+    const view = async () => mine(await portal('get', `/${intakeId}`, people.one));
+    expect(await view()).toMatchObject({
+      consentRequired: true,
+      completion: { message: null, redirectUrl: null },
+    });
+    const none = await portal('post', `/${intakeId}/submit`, people.one, {
+      signature: signature(),
+    });
+    expect(none.status).toBe(400);
+    expect(codeOf(none)).toBe('CONSENT_REQUIRED');
+    expect(await signaturesOf(intakeId)).toBe(0);
+    // The firm's settings row (made on its first read), then the switch off and its own words.
+    ok(await firm('get', '/intake-settings', people.owner));
+    const settings = (data: object) =>
+      inFirm((tx) => tx.intakeSettings.update({ where: { businessId: ids.firmA }, data }));
+    await settings({
+      consentRequired: false,
+      thankYouMessage: 'Thanks, we have it (fake).',
+      redirectAfterCompletion: true,
+      redirectUrl: 'https://example.test/next',
+    });
+    try {
+      expect(await view()).toMatchObject({
+        consentRequired: false,
+        completion: {
+          message: 'Thanks, we have it (fake).',
+          redirectUrl: 'https://example.test/next',
+        },
+      });
+      // No consent asked: the submit goes on to the signing, which refuses the unticked box.
+      const off = await portal('post', `/${intakeId}/submit`, people.one, {
+        signature: { ...signature(), acknowledgments: [] },
+      });
+      expect(codeOf(off)).toBe('ACKNOWLEDGMENT_REQUIRED');
+    } finally {
+      await settings({
+        consentRequired: true,
+        thankYouMessage: null,
+        redirectAfterCompletion: false,
+        redirectUrl: null,
+      });
+    }
   });
 
   it('a save between the check and the lock starts the submit again; three in a row are 409 INTAKE_CHANGED', async () => {

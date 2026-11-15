@@ -17,7 +17,7 @@ import {
   UPLOAD_LIMITS,
   type UploadTicket,
 } from '@firmivra/types';
-import { Button, Card } from '@firmivra/ui';
+import { Button, Card, Checkbox } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CircleCheck, Info, Save } from 'lucide-react';
 import Link from 'next/link';
@@ -74,6 +74,10 @@ export type FlowIntake = Pick<
   correction: { note: string } | null;
   /** The form's status where the source has one (a signed-in client's form). */
   status?: MyIntake['status'];
+  /** Review Two row 21: the firm's consent checkbox on the review step. */
+  consentRequired?: boolean;
+  /** Review Two row 21: the firm's message and redirect once it is sent. */
+  completion?: MyIntake['completion'];
 };
 
 /**
@@ -180,6 +184,9 @@ function BackToList({ slug }: { slug: string }) {
   );
 }
 
+/** Review Two row 21: how long the firm's message shows before its redirect page opens. */
+const REDIRECT_MS = 3000;
+
 const day = (iso: string) =>
   new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', {
     month: 'long',
@@ -213,7 +220,13 @@ function ReadOnlyIntake({
       >
         <Info aria-hidden className="size-5 shrink-0 text-firm-text" />
         {intake.signature ? (
-          `Submitted and signed by ${intake.signature.printedName} on ${day(intake.signature.signedAt)}. Your firm has it; they will tell you if anything needs changing.`
+          <span data-testid="intake-completion">
+            {/* Review Two row 21: the firm's own message (the form's, else Intake Form Settings'). */}
+            {intake.completion?.message ? (
+              <span className="block font-semibold">{intake.completion.message}</span>
+            ) : null}
+            {`Submitted and signed by ${intake.signature.printedName} on ${day(intake.signature.signedAt)}. Your firm has it; they will tell you if anything needs changing.`}
+          </span>
         ) : intake.status === 'EXPIRED' || intake.status === 'ARCHIVED' ? (
           // INTAKE-ACCESS-01: an expired or closed form says so, and what to do next.
           <span>
@@ -256,6 +269,7 @@ function IntakeFlow({
   const { definition } = intake;
   const queryClient = useQueryClient();
   const fill = useFill(intake.taxYear);
+  const { business } = usePortal();
   const look = formLook(intake.form);
   const [values, setValues] = useState<ScreenValues>(() =>
     screenValues(definition, intake.answers),
@@ -306,8 +320,15 @@ function IntakeFlow({
   });
   // The firm's current agreements for this form's service, signed on the review step.
   const agreements = useApiQuery(source.agreementsKey, source.agreements);
+  // Review Two row 21: the firm's consent checkbox, when Intake Form Settings asks for one.
+  const [consent, setConsent] = useState(false);
+  const [consentError, setConsentError] = useState('');
   const submit = useApiMutation((signature: IntakeSignatureInput) =>
-    source.submit({ answers: stepAnswers(step, values, shown.fields), signature }),
+    source.submit({
+      answers: stepAnswers(step, values, shown.fields),
+      signature,
+      ...(intake.consentRequired ? { consent: true as const } : {}),
+    }),
   );
 
   const onChange = (key: string, value: ScreenValue) => {
@@ -400,11 +421,18 @@ function IntakeFlow({
       return;
     }
     setAgreementError('');
+    if (intake.consentRequired && !consent) {
+      setConsentError(INTAKE_ERRORS.CONSENT_REQUIRED);
+      return;
+    }
     try {
       const done = await submit.mutateAsync(signed.signature);
-      // The form as it now is (submitted, read only).
+      // The form as it now is (submitted, read only), with the firm's message (row 21).
       queryClient.setQueryData(source.key, done);
       source.onSubmitted?.();
+      // Then the firm's page, when Redirect after completion is on (an https address).
+      const to = done.completion?.redirectUrl;
+      if (to?.startsWith('https://')) setTimeout(() => window.location.assign(to), REDIRECT_MS);
     } catch (error) {
       if (error instanceof ApiRequestError && error.code === 'AGREEMENT_OUTDATED') {
         setAgreement((a) => ({ ...a, ticked: [] }));
@@ -543,6 +571,23 @@ function IntakeFlow({
               error={agreementError}
               title={look.agreementTitle}
             />
+            {intake.consentRequired ? (
+              <div className="mt-3 grid gap-1" data-testid="intake-consent">
+                <Checkbox
+                  checked={consent}
+                  onChange={(event) => {
+                    setConsent(event.target.checked);
+                    setConsentError('');
+                  }}
+                  label={`I confirm the information and files I've provided are accurate and complete, and I agree to ${business.name} using them to provide the requested services.`}
+                />
+                {consentError ? (
+                  <p role="alert" className="text-sm text-danger">
+                    {consentError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {notice ? (
