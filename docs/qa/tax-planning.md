@@ -26,20 +26,20 @@ This file maps every row of Octavia's Tax Planning Review 2 (C01 to C27 and the 
 | C10: opportunity reasoning and Edit | Done | #1409 | TP e2e "takes the reasoning on create, and edits an open opportunity with its history and audit"; isolation case PATCH opportunities. The screens have no mock test. |
 | C11: reopen an opportunity | Done | #1416, #1427 | TP e2e "reopens a closed opportunity to Under Review, with its history"; db `tax-planning-opportunities` (a closed one reopens only to Under Review) |
 | C12: client discussions from the plan | Done | #1416, #1433, #1474 | `scheduling.e2e` "links the appointment to one of the client's open plans, never another's" and "moves a Draft plan to Scheduled…"; TP e2e "lists the tasks and client discussions linked to the plan, only its own"; db Review 2 (S3) |
-| C13: strategy inputs, documents and checklist | Done (no test) | #1409 | The New and Edit Strategy fields are screens only; the API side is the older TP e2e "manages the library with Manage Strategies…" |
+| C13: strategy inputs, documents and checklist | Done | #1409, this PR | mock `r1-tp-gaps` "C13 and C23: a strategy keeps its inputs, documents and checklist, and View Details shows them"; the API side, TP e2e "manages the library with Manage Strategies…" |
 | C14: plan documents | Evidence | (earlier) | Dev: a saved plan > Implementation > Documents > Attach Document lists the client's documents. TP e2e "links only the plan client's documents". |
 | C15: implementation tasks | Done | #1416, #1433 | `tasks-work.e2e` "links the task to one of the client's open plans, never another's"; TP e2e "lists the tasks and client discussions…" (owner, due date) |
 | C16: calendar and list views | Done | #1376 | mock TP "Review 2 (C01, C02, C04, C16)…" (the month grid; the view in the address) |
 | C17: resources View and Edit | Done | #1409, #1416, #1433 | TP e2e "edits a built-in resource in the firm's own words…" (Staff refused, another firm unchanged); TP e2e "lists the approved resources…"; db Review 2 (S6) |
-| C18: Reports context and filters | Done (no test); **GAP** in part | #1376 | The savings report opens central Reports on its Tax category with the way back. **GAP:** central Reports has no Tax Planning filter or data of its own (the Tax category also holds Tax Returns); the planning reports stay on the local Reports tab. |
-| C19: save a calculation to a plan | Done (no test); **GAP** in part | #1409 | Save to Plan attaches the scenario to one of the client's open plans (the older TP e2e "saves scenarios, to a plan as snapshots…"). **GAP:** no "save to a new plan" choice. |
-| C20: find saved scenarios | Done (no test) | #1409 | The plan's Goals & Strategies step lists its scenarios, and the calculator's Recent Scenarios reopens one (`?scenario=`). There is no per-client Tax Planning page, so the list sits there. |
+| C18: Reports context and filters | Done | #1376, this PR | Central Reports has the Tax Planning service area: the `tax_plans` data source (the firm's plans with their projected savings, as the plan shows them; Staff only their clients'), two quick reports (Projected Savings by Plan, Planning Plans by Status), and the library's Category filter offers Tax Planning and Tax Returns. The Tax Planning Reports tab opens the report and the filtered library, each with Back to Tax Planning. `reports.e2e` "Tax Planning in central Reports…" (rows, Staff reach, the filter, another firm); mock `r1-tp-gaps` "C18: …"; `r56-reports` (the quick reports) |
+| C19: save a calculation to a plan | Done | #1409, this PR | Save to Plan attaches the scenario to one of the client's open plans, or makes a new plan for it (New plan…). mock `r1-tp-gaps` "C19: Save to Plan can start a new plan for the client"; TP e2e "saves scenarios, to a plan as snapshots…" |
+| C20: find saved scenarios | Done | #1409, this PR (test) | The calculator's Recent Scenarios reopens a saved scenario (`?scenario=`), and the plan's Goals & Strategies step lists its own. There is no per-client Tax Planning page, so the list sits there. mock `r1-tp-gaps` "C20: a saved scenario is listed and reopens with what it kept" |
 | C21: calculator method, limits and Add as Strategy | Done | #1409 | TP e2e "works out the saving from the tables, and says why when it cannot" (limits, overlap, unsupported year) |
 | C22: plan-name search and filters | Done | #1376 | TP e2e (C01, C02, C22) for the plan-name search; mock TP "Review 2 (C03, C22)…" (entity and year in the address) |
-| C23: strategy View Details | Done (no test) | #1409 | Screen only |
+| C23: strategy View Details | Done | #1409, this PR (test) | mock `r1-tp-gaps` "C13 and C23…" (View Details shows the documents and the checklist) |
 | C24: entity presets | Done | #1397 | mock TP "Plan: create it…" (the Individual preset; custom entry stays) |
-| C25: saved versions open read-only | Done; **GAP** in part | #1397 | mock TP "Plan: create it…" (a kept version opens read-only). **GAP:** the version view does not show that version's client approval (approvals show in the workflow panel since #1474). |
-| C26: stale calculations | Done (no test) | #1397 | Screen only: the result is marked out of date after an input changes, and Save Scenario waits for Calculate |
+| C25: saved versions open read-only | Done | #1397, this PR | A kept version opens read-only with its own send and approval history: when it was finalized, sent for the client's review or delivered, by whom, and the client's approval of exactly that version. mock TP "Plan: create it…"; mock `r1-tp-gaps` "C25: a version shows its own send history and the client approval of exactly that version" |
+| C26: stale calculations | Done | #1397, this PR (test) | The result is marked out of date once an input changes, and Save Scenario waits for Calculate. mock `r1-tp-gaps` "C26: …" |
 | C27: reopen, revise and Finalized | Done | #1416, #1427, #1474 | TP e2e "finalizes to Finalized, revises and reopens with a reason, and keeps the history"; db Review 2 (Finalized; a closed plan changes only its status); the workflow e2e (approval of one exact version) |
 
 ## Approved additions
@@ -64,9 +64,8 @@ This file maps every row of Octavia's Tax Planning Review 2 (C01 to C27 and the 
 
 **Client approval: manual now, portal later.** Her row accepts "portal approval or documented manual approval". Staff record a documented manual approval now (method `MANUAL`, with the date, the exact version and how it was given). The schema already holds `PORTAL` approvals, so a portal Approve button can come later without a schema change. The manual record meets the row as written.
 
-## GAPs and what has no test yet
+## GAPs
 
-- **C18:** central Reports has no Tax Planning filter or data of its own; the planning reports stay on the local Reports tab.
-- **C19:** Save to Plan has no "new plan" choice.
-- **C25:** the version view does not show that version's client approval.
-- **No test yet:** C13 (the strategy fields), C18, C20, C23 and C26 are screens with no mock spec; C19's Save to Plan button, C10's Edit Details, C12's and C15's sections and C17's View screen have API tests but no screen test.
+None. Every C row and approved addition is built, and each has a test.
+
+Screen parts whose API is tested but which have no mock spec of their own: C10's Edit Details, the C12 and C15 sections of the Implementation step, and C17's View screen.

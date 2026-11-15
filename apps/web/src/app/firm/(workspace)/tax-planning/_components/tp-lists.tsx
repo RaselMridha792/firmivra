@@ -1830,16 +1830,27 @@ export function PlanningReports() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-xl font-bold text-heading">Projected Savings by Plan</h2>
           {/*
-            C18 (Review 2): the firm's own reports stay in Reports. This opens them on the Tax
-            category, with Back to Tax Planning, and Reports' own filters reach every service area.
+            C18 (Review 2): the firm's reports stay in Reports. These open the same report there and
+            Reports filtered to Tax Planning, each with Back to Tax Planning.
           */}
-          <Link
-            href={`/reports/library?category=TAX&from=${encodeURIComponent('/tax-planning/reports')}`}
-            className={linkBtn}
-            data-testid="open-in-reports"
-          >
-            Open Tax reports in Reports <ArrowRight aria-hidden weight="bold" className="size-3" />
-          </Link>
+          <span className="flex flex-wrap gap-3">
+            <Link
+              href={`/reports/tax_plan_savings?from=${encodeURIComponent('/tax-planning/reports')}`}
+              className={linkBtn}
+              data-testid="open-report-in-reports"
+            >
+              Open this report in Reports{' '}
+              <ArrowRight aria-hidden weight="bold" className="size-3" />
+            </Link>
+            <Link
+              href={`/reports/library?category=TAX&source=tax_plans&from=${encodeURIComponent('/tax-planning/reports')}`}
+              className={linkBtn}
+              data-testid="open-in-reports"
+            >
+              Tax Planning reports in Reports{' '}
+              <ArrowRight aria-hidden weight="bold" className="size-3" />
+            </Link>
+          </span>
         </div>
         <div className="relative">
           <Table

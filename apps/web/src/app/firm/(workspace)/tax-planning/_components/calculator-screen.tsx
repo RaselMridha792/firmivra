@@ -45,6 +45,9 @@ const STRAT: [string, string][] = [
 ];
 
 /** /tax-planning/calculator: the Tax Savings Calculator: a scenario against a baseline, never a guarantee. */
+/** C19: the Plan list's choice that starts a new plan. */
+const NEW_PLAN = '__new__';
+
 export function SavingsCalculator() {
   const qc = useQueryClient();
   const clients = useApiQuery([...TP_KEY, 'pick-clients'], () =>
@@ -75,6 +78,8 @@ export function SavingsCalculator() {
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [busy, setBusy] = useState(false);
   const [planId, setPlanId] = useState('');
+  // C19 (Review 2): Save to Plan can also start a new plan for the client.
+  const [newPlanName, setNewPlanName] = useState('');
   const [adding, setAdding] = useState(false);
   const plans = useApiQuery([...TP_KEY, 'client-plans', clientId], () =>
     clientId ? api.taxPlanning.plans({ clientId, pageSize: 50 }) : Promise.resolve(null),
@@ -137,6 +142,33 @@ export function SavingsCalculator() {
       setMessage({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
     }
     setBusy(false);
+  };
+  /**
+   * C19 (Review 2): Save to Plan into a new plan: the client's new Draft plan for the scenario's
+   * tax year (its name as typed), then the scenario saved to it. Nothing is saved if the plan is
+   * refused (a plan of that name and year already exists).
+   */
+  const saveToNewPlan = async () => {
+    if (stale || !clientId) return;
+    let made: string;
+    try {
+      made = (
+        await api.taxPlanning.createPlan({
+          clientId,
+          planYear: Number(taxYear),
+          name: newPlanName.trim() || `${taxYear} Tax Plan`,
+          filingStatus: filing as never,
+        })
+      ).id;
+    } catch (e) {
+      setMessage({ text: errorMessage(e, TP_ERRORS), tone: 'error' });
+      return;
+    }
+    if (await save(made)) {
+      setPlanId(made);
+      setNewPlanName('');
+      setMessage({ text: 'New plan made, and the scenario saved to it.', tone: 'success' });
+    }
   };
   // C19 (Review 2): with a plan, the scenario is saved to it as a snapshot that never changes.
   const save = async (toPlan?: string): Promise<boolean> => {
@@ -348,17 +380,32 @@ export function SavingsCalculator() {
                             value: p.id,
                             label: `${p.name} (${p.planYear})`,
                           })),
+                          { value: NEW_PLAN, label: 'New plan…' },
                         ]}
                       />
                     </div>
+                    {planId === NEW_PLAN ? (
+                      <div className="min-w-40 flex-1">
+                        <Input
+                          label="New plan name"
+                          placeholder={`${taxYear} Tax Plan`}
+                          value={newPlanName}
+                          onChange={(e) => setNewPlanName(e.target.value)}
+                        />
+                      </div>
+                    ) : null}
                     <Button
                       variant="secondary"
                       disabled={!planId}
-                      onClick={() => void save(planId)}
+                      onClick={() => void (planId === NEW_PLAN ? saveToNewPlan() : save(planId))}
                     >
                       Save to Plan
                     </Button>
-                    <Button variant="secondary" disabled={!planId} onClick={() => setAdding(true)}>
+                    <Button
+                      variant="secondary"
+                      disabled={!planId || planId === NEW_PLAN}
+                      onClick={() => setAdding(true)}
+                    >
                       Add as Strategy
                     </Button>
                   </div>
