@@ -1373,3 +1373,99 @@ describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert
     expect(await row(f.id)).toMatchObject({ finalReminderSentAt: null, expiryAlertSentAt: null });
   });
 });
+
+describe('Clients Review Two N8-23: no active service is needed to send a form', () => {
+  it('sends a Bookkeeping form to a client with no service, on one pending request: fillable in the portal, nothing billed or started', async () => {
+    const userId = randomUUID();
+    const email = `noservice-${run}@client.test`;
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: userId, cognitoSub: userId, pool: 'CLIENT', email, name: 'Fake No Service' },
+      }),
+    );
+    const { clientId, serviceId, templateId } = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: firms.a, displayName: 'No Service (fake)', email },
+        select: { id: true },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId,
+          clientId: c.id,
+          email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      const service = await tx.service.create({
+        data: { businessId: firms.a, kind: 'BOOKKEEPING', name: `Books ${run}`, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      const def = INTAKE_FORMS.BOOKKEEPING;
+      if (!def) throw new Error('the built-in bookkeeping form is missing');
+      const form = await tx.intakeForm.create({
+        data: {
+          businessId: firms.a,
+          serviceId: service.id,
+          version: 1,
+          title: 'Business Bookkeeping Intake (fake)',
+          definition: def as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdByUserId: ownerA.id,
+        },
+        select: { templateId: true },
+      });
+      return { clientId: c.id, serviceId: service.id, templateId: form.templateId as string };
+    });
+    const engagements = () =>
+      inFirm('a', (tx) =>
+        tx.engagement.findMany({
+          where: { businessId: firms.a, clientId, serviceId },
+          select: { id: true, status: true, title: true },
+        }),
+      );
+    const send = () =>
+      call(
+        'post',
+        '/intakes/send',
+        ownerA,
+        sendBody({ recipient: { kind: 'CLIENT', id: clientId }, formId: templateId }),
+      );
+    const first = SendIntakeFormResult.parse(ok(await send()));
+    // Linked to one pending request for the service, as the screen says.
+    const made = await engagements();
+    expect(made).toEqual([
+      { id: expect.any(String), status: 'PENDING', title: 'Requested (from an intake send)' },
+    ]);
+    // The client opens and fills it in the portal.
+    const token = await tokenFor(email);
+    const mine = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${slugs.a}/me/intakes/${first.form.id}`)
+      .set('authorization', `Bearer ${token}`);
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    const saved = await request(app.getHttpServer())
+      .put(`/api/v1/portal/${slugs.a}/me/intakes/${first.form.id}/steps/business`)
+      .set('authorization', `Bearer ${token}`)
+      .send({ answers: { firstName: 'Sam' } });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    // Nothing billed or started: no invoice, the request still pending, the client still New.
+    const after = await inFirm('a', async (tx) => ({
+      invoices: await tx.invoice.count({ where: { businessId: firms.a, clientId } }),
+      client: (
+        await tx.client.findFirstOrThrow({ where: { id: clientId }, select: { status: true } })
+      ).status,
+    }));
+    expect(after).toEqual({ invoices: 0, client: 'NEW' });
+    expect((await engagements()).map((e) => e.status)).toEqual(['PENDING']);
+    // A second send (once the first is archived) reuses the pending request, never a second one.
+    ok(await call('post', `/intakes/${first.form.id}/archive`, ownerA));
+    SendIntakeFormResult.parse(ok(await send()));
+    expect((await engagements()).map((e) => e.id)).toEqual([made[0]!.id]);
+    const requested = await inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { businessId: firms.a, action: 'engagement.requested' } }),
+    );
+    expect(requested).toBeGreaterThanOrEqual(1);
+  });
+});

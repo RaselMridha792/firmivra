@@ -501,7 +501,8 @@ export class CatalogServicesService {
     if (!s) throw errors.notFound();
     const [activeEngagements, openInvoices] = await Promise.all([
       db.engagement.count({
-        where: { businessId, serviceId: id, status: { in: ['PENDING', 'ACTIVE'] } },
+        // N8-23: a requested (pending) service is not counted as in use.
+        where: { businessId, serviceId: id, status: 'ACTIVE' },
       }),
       db.invoice.count({
         where: { businessId, status: 'OPEN', lines: { some: { serviceId: id } } },

@@ -130,25 +130,13 @@ test('a lead gets email only, and a client with no portal sign-in gets no route 
   await expect(page.getByText('Not Ready Yet')).toBeVisible();
 });
 
-test('a refused send says why, with where to fix it; a failed delivery says why', async ({
-  page,
-}) => {
+test('no active service is needed (N8-23); a failed delivery says why', async ({ page }) => {
   await open(page, `/intake-forms/send?formId=${PERSONAL_TAX}`);
   await page.getByRole('button', { name: /^Client \*/ }).click();
   await page.getByRole('option', { name: /Jamie Sample/ }).click();
   const subject = page.getByRole('textbox', { name: /^Subject/ });
-  // The mock's stand-in for a client with no active service for the form.
-  await subject.fill('Your form noservice');
-  await page.getByRole('button', { name: 'Send Form' }).click();
-  const alert = page.getByRole('alert').filter({ hasText: 'no active service' });
-  await expect(alert).toContainText(
-    "This client has no active service for this form's service. Add the service to the client, then send.",
-  );
-  await expect(alert.getByRole('link', { name: 'Open Jamie Sample' })).toHaveAttribute(
-    'href',
-    /^\/clients\/[0-9a-f-]{36}$/,
-  );
-  await expect(page.getByText('Something went wrong')).toHaveCount(0);
+  // Clients Review Two N8-23: no active service is needed, and the screen says so.
+  await expect(page.getByTestId('no-service-needed')).toContainText('No active service is needed');
 
   // The mock's stand-in for a send that reached no one.
   await subject.fill('Your form undelivered');
