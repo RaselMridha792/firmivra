@@ -1,4 +1,4 @@
-import type { CommunicationRow } from '@firmivra/types';
+import type { CommunicationDetail, CommunicationRow } from '@firmivra/types';
 import { Badge, tileTones, type TileTone } from '@firmivra/ui';
 import { ChatCircleDots, EnvelopeSimple, Megaphone, type Icon } from '@phosphor-icons/react';
 
@@ -118,3 +118,17 @@ export const linkBtn =
   'inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-link';
 export const fieldCls =
   'min-h-10 w-full min-w-0 rounded-control border border-border bg-surface px-3 text-sm text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 disabled:bg-canvas disabled:text-muted';
+
+/** Why a recipient is left out (Choose Recipients and the pre-send review, C19). */
+export const EXCLUSION_REASON: Record<string, string> = {
+  UNSUBSCRIBED: 'Unsubscribed',
+  INVALID: 'Invalid address',
+  NO_CONSENT: 'No consent',
+  DUPLICATE: 'Duplicate',
+};
+/** What a missing channel means: no email, no mobile, or (an announcement, CM-F05) no portal login. */
+export const MISSING_CHANNEL: Record<CommunicationDetail['channel'], string> = {
+  EMAIL: 'No email address',
+  SMS: 'No phone number',
+  ANNOUNCEMENT: 'No portal access',
+};

@@ -65,7 +65,7 @@ test('Composer: choose recipients, review and send, then see the results', async
     .click();
   const review = page.getByTestId('review-dialog');
   await expect(review.getByTestId('review-count')).toContainText('selected');
-  await expect(review.getByTestId('review-excluded')).toContainText('unsubscribed');
+  await expect(review.getByTestId('review-excluded')).toContainText('Unsubscribed: ');
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /^Send to/ })

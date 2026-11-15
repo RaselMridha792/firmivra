@@ -36,6 +36,7 @@ import {
   AdvisoryVersionDetail,
   AdvisoryVersionList,
   AdvisoryWorkstream,
+  AdvisoryWorkstreamEngagement,
   OkResponse,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -503,8 +504,9 @@ describe('services and advisory clients', () => {
     expect(second).toMatchObject({
       businessName: 'Riley Bakery (fake)',
       businessProfile: { entityType: 'LLC', einMasked: 'XX-XXX1234' },
-      engagementId: null,
     });
+    // A-12: c2 had no engagement on its primary service, so adding it started one.
+    expect(second.engagementId).toBeTruthy();
     expect(second.businessProfile.address).toMatchObject({ city: 'Atlanta', state: 'GA' });
     const rows = await auditFor(added.id);
     expect(rows.map((r) => r.action)).toContain('advisory_client.added');
@@ -725,6 +727,116 @@ describe('services and advisory clients', () => {
       }),
       403,
       'FORBIDDEN',
+    );
+  });
+});
+
+describe('Documents and Request Document (Review Two A-12, A-13)', () => {
+  /** A firm route outside the advisory prefix (the documents API). */
+  const firmCall = async (path: string, who: Who, body: object) =>
+    request(app.getHttpServer())
+      .post(`/api/v1/business${path}`)
+      .set('x-business-id', firms.a)
+      .set('x-forwarded-for', viewer())
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`)
+      .send(body);
+  const freshClient = (name: string) =>
+    inFirm('a', (tx) =>
+      tx.client.create({
+        data: { businessId: firms.a, displayName: mark(name) },
+        select: { id: true },
+      }),
+    ).then((c) => c.id);
+  const engagementsOf = (clientId: string) =>
+    inFirm('a', (tx) =>
+      tx.engagement.findMany({
+        where: { clientId },
+        select: { id: true, status: true, serviceId: true },
+      }),
+    );
+  const requestDocument = (clientId: string, engagementId: string) =>
+    firmCall(`/clients/${clientId}/document-requests`, ownerA, {
+      serviceId: engagementId,
+      title: mark('Bank statements'),
+    });
+
+  it('a client added with Business Development has its service open: Request Document works', async () => {
+    const clientId = await freshClient('New advisory client');
+    const added = await addClient(clientId, { primaryServiceId: services.s2 });
+    const open = await engagementsOf(clientId);
+    expect(open).toEqual([{ id: added.engagementId, status: 'ACTIVE', serviceId: services.s2 }]);
+    // Upload and Request Document ask for the service's engagement: the same one, nothing new.
+    const primary = added.workstreams.find((w) => w.role === 'PRIMARY')!;
+    const got = AdvisoryWorkstreamEngagement.parse(
+      ok(await call('post', `/clients/${added.id}/workstreams/${primary.id}/engagement`, ownerA)),
+    );
+    expect(got).toEqual({ engagementId: added.engagementId, created: false });
+    ok(await requestDocument(clientId, got.engagementId));
+    expect(await engagementsOf(clientId)).toHaveLength(1);
+  });
+
+  it('a client added before the fix gets its engagement on the first Request Document, once', async () => {
+    const clientId = await freshClient('Old advisory client');
+    const { advisoryClientId, started, interested } = await inFirm('a', async (tx) => {
+      const c = await tx.advisoryClient.create({
+        data: { businessId: firms.a, clientId },
+        select: { id: true },
+      });
+      const ws = (
+        serviceId: string,
+        role: 'PRIMARY' | 'ADDITIONAL',
+        status: 'ACCEPTED' | 'INTERESTED',
+      ) =>
+        tx.advisoryWorkstream
+          .create({
+            data: { businessId: firms.a, advisoryClientId: c.id, serviceId, role, status },
+            select: { id: true },
+          })
+          .then((w) => w.id);
+      return {
+        advisoryClientId: c.id,
+        started: await ws(services.s1, 'PRIMARY', 'ACCEPTED'),
+        interested: await ws(services.s3, 'ADDITIONAL', 'INTERESTED'),
+      };
+    });
+    expect(await engagementsOf(clientId)).toEqual([]);
+    const path = (w: string) => `/clients/${advisoryClientId}/workstreams/${w}/engagement`;
+    // A service only of interest is not under way: no engagement, and it says so.
+    expectError(await call('post', path(interested), ownerA), 409, 'SERVICE_NOT_STARTED');
+    // Staff reach only their own clients.
+    expectError(await call('post', path(started), staffA), 404, 'NOT_FOUND');
+    const first = AdvisoryWorkstreamEngagement.parse(ok(await call('post', path(started), ownerA)));
+    expect(first.created).toBe(true);
+    const again = AdvisoryWorkstreamEngagement.parse(ok(await call('post', path(started), ownerA)));
+    expect(again).toEqual({ engagementId: first.engagementId, created: false });
+    ok(await requestDocument(clientId, first.engagementId));
+    expect(await engagementsOf(clientId)).toEqual([
+      { id: first.engagementId, status: 'ACTIVE', serviceId: services.s1 },
+    ]);
+    const rows = await auditFor(advisoryClientId);
+    expect(rows.filter((r) => r.action === 'advisory_workstream.engagement_started')).toEqual([
+      {
+        action: 'advisory_workstream.engagement_started',
+        metadata: { advisoryClientId, workstreamId: started, engagementId: first.engagementId },
+      },
+    ]);
+  });
+
+  it('accepting a service starts its engagement; one only of interest does not', async () => {
+    const clientId = await freshClient('Accepting client');
+    const added = await addClient(clientId, {
+      primaryServiceId: services.s1,
+      additionalServiceIds: [services.s3],
+    });
+    const extra = added.workstreams.find((w) => w.serviceId === services.s3)!;
+    expect((await engagementsOf(clientId)).map((e) => e.serviceId)).toEqual([services.s1]);
+    ok(
+      await call('patch', `/clients/${added.id}/workstreams/${extra.id}`, ownerA, {
+        status: 'ACCEPTED',
+      }),
+    );
+    expect((await engagementsOf(clientId)).map((e) => e.serviceId).sort()).toEqual(
+      [services.s1, services.s3].sort(),
     );
   });
 });

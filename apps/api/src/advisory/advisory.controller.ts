@@ -32,6 +32,7 @@ import {
   type AdvisoryVersionDetail,
   type AdvisoryVersionList,
   type AdvisoryWorkstream,
+  type AdvisoryWorkstreamEngagement,
   AdvisoryWorkstreamId,
   type OkResponse,
 } from '@firmivra/types';
@@ -222,6 +223,19 @@ export class AdvisoryController {
   ): Promise<AdvisoryWorkstream> {
     const w = who(auth, tenant);
     return this.clients.updateWorkstream(w.businessId, w.tenant, w.userId, id, workstreamId, body);
+  }
+
+  /** A-12, A-13: Upload and Request Document's engagement for a service under way. */
+  @Post('clients/:id/workstreams/:workstreamId/engagement')
+  @HttpCode(200)
+  workstreamEngagement(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientPipe) id: string,
+    @Param('workstreamId', workstreamPipe) workstreamId: string,
+  ): Promise<AdvisoryWorkstreamEngagement> {
+    const w = who(auth, tenant);
+    return this.clients.workstreamEngagement(w.businessId, w.tenant, w.userId, id, workstreamId);
   }
 
   @Get('clients/:id/activity')

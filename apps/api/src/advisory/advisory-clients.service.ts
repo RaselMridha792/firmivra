@@ -7,6 +7,7 @@ import type {
   AdvisoryClientRow,
   AdvisoryMetric,
   AdvisoryWorkstream,
+  AdvisoryWorkstreamEngagement,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -40,6 +41,7 @@ import type {
   UpdateWorkstreamBody,
 } from './advisory-input.js';
 import { advErrors, DISCLAIMER, effectiveGoalStatus, iso } from './advisory.common.js';
+import { ensureAdvisoryEngagement, isEngaged } from './advisory-engagement.js';
 import { formulaVersion } from './health.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -54,6 +56,7 @@ const ACTIVITY: Record<string, string> = {
   'advisory_client.restored': 'Restored to the advisory program',
   'advisory_workstream.added': 'Service added',
   'advisory_workstream.updated': 'Service changed',
+  'advisory_workstream.engagement_started': 'Service started for documents',
   'advisory_plan.created': 'Business plan created',
   'advisory_plan.updated': 'Business plan changed',
   'advisory_plan.status_changed': 'Plan status changed',
@@ -420,10 +423,12 @@ export class AdvisoryClientsService {
       if (existing) throw advErrors.alreadyAdvisoryClient();
       const advisorUserId = body.advisorUserId ?? ctx.settings.defaultAdvisorId;
       if (advisorUserId) await checkAssignee(tx, businessId, advisorUserId, client);
-      const engagement = await tx.engagement.findFirst({
-        where: { businessId, clientId: body.clientId, service: { kind: 'BUSINESS_DEVELOPMENT' } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
+      // A-12: the primary service is accepted, so the client's engagement on it is open (started
+      // when it has none); the latest Business Development one of any service was linked before.
+      const engagement = await ensureAdvisoryEngagement(tx, businessId, {
+        clientId: body.clientId,
+        serviceId: body.primaryServiceId,
+        assignedUserId: advisorUserId ?? client.assignedUserId,
       });
       let created: { id: string };
       try {
@@ -431,7 +436,7 @@ export class AdvisoryClientsService {
           data: {
             businessId,
             clientId: body.clientId,
-            engagementId: engagement?.id ?? null,
+            engagementId: engagement.id,
             advisorUserId: advisorUserId ?? null,
             industry: body.industry ?? null,
             businessStage: body.businessStage ?? null,
@@ -462,7 +467,13 @@ export class AdvisoryClientsService {
         tx,
         'advisory_client.added',
         { type: 'advisory_client', id: created.id },
-        { advisoryClientId: created.id, clientId: body.clientId, services: wanted.length },
+        {
+          advisoryClientId: created.id,
+          clientId: body.clientId,
+          services: wanted.length,
+          engagementId: engagement.id,
+          engagementStarted: engagement.created,
+        },
       );
       return this.detail(ctx, await this.read.loadClient(ctx, created.id));
     });
@@ -594,11 +605,21 @@ export class AdvisoryClientsService {
         },
         include: { service: { select: { name: true } } },
       });
+      const engagement = isEngaged(created.status)
+        ? await this.engagementFor(ctx, c, created.serviceId)
+        : null;
       await this.audit.logIn(
         tx,
         'advisory_workstream.added',
         { type: 'advisory_client', id },
-        { advisoryClientId: id, workstreamId: created.id, serviceId: body.serviceId },
+        {
+          advisoryClientId: id,
+          workstreamId: created.id,
+          serviceId: body.serviceId,
+          ...(engagement
+            ? { engagementId: engagement.id, engagementStarted: engagement.created }
+            : {}),
+        },
       );
       return this.read.workstream(created);
     });
@@ -650,6 +671,9 @@ export class AdvisoryClientsService {
         },
         include: { service: { select: { name: true } } },
       });
+      const engagement = isEngaged(updated.status)
+        ? await this.engagementFor(ctx, c, updated.serviceId)
+        : null;
       await this.audit.logIn(
         tx,
         'advisory_workstream.updated',
@@ -658,9 +682,56 @@ export class AdvisoryClientsService {
           advisoryClientId: id,
           workstreamId,
           fields: sentFields(body, ['role', 'status', 'packageName', 'startedOn', 'completedOn']),
+          ...(engagement
+            ? { engagementId: engagement.id, engagementStarted: engagement.created }
+            : {}),
         },
       );
       return this.read.workstream(updated);
+    });
+  }
+
+  /**
+   * A-12, A-13: the engagement a service's files and document requests go to. A client added
+   * before Add Client started one gets it here, on the first upload or request (no data change
+   * until then). The service must be under way; a PENDING one waits for staff review.
+   */
+  workstreamEngagement(
+    businessId: string,
+    tenant: TenantContext,
+    userId: string,
+    id: string,
+    workstreamId: string,
+  ): Promise<AdvisoryWorkstreamEngagement> {
+    return this.run(businessId, tenant, userId, async (ctx) => {
+      const c = await this.read.lockClient(ctx, id);
+      if (c.archivedAt) throw advErrors.clientArchived();
+      const w = c.workstreams.find((x) => x.id === workstreamId);
+      if (!w) throw notFound();
+      if (!isEngaged(w.status))
+        throw conflict('SERVICE_NOT_STARTED', 'Accept or start this service first');
+      const engagement = await this.engagementFor(ctx, c, w.serviceId);
+      if (engagement.status !== 'ACTIVE')
+        throw conflict(
+          'SERVICE_PENDING',
+          "This service is waiting for review: accept it from the client's profile first",
+        );
+      if (engagement.created)
+        await this.audit.logIn(
+          ctx.tx,
+          'advisory_workstream.engagement_started',
+          { type: 'advisory_client', id },
+          { advisoryClientId: id, workstreamId, engagementId: engagement.id },
+        );
+      return { engagementId: engagement.id, created: engagement.created };
+    });
+  }
+
+  private engagementFor(ctx: AdvisoryCtx, c: ClientShape, serviceId: string) {
+    return ensureAdvisoryEngagement(ctx.tx, ctx.businessId, {
+      clientId: c.clientId,
+      serviceId,
+      assignedUserId: c.advisorUserId,
     });
   }
 
