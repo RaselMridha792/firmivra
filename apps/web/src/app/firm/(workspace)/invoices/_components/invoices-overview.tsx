@@ -737,7 +737,15 @@ function InvoiceTable({
   };
   const [busy, setBusy] = useState(false);
 
-  const clients = [...new Map(items.map((i) => [i.client.id, i.client.displayName])).entries()]
+  // E01b: a client chosen from elsewhere (Terms' Payment Schedule View All) may have no invoices
+  // yet; the Client select still names that client, with its empty list, not All Clients.
+  const unlisted = !loading && clientId && !items.some((i) => i.client.id === clientId);
+  const chosen = useApiQuery([...INV_KEY, 'chosen-client', unlisted ? clientId : ''], () =>
+    unlisted ? api.clients.get(clientId) : Promise.resolve(null),
+  );
+  const names = new Map(items.map((i) => [i.client.id, i.client.displayName]));
+  if (unlisted) names.set(clientId, chosen.data?.displayName ?? 'Selected client');
+  const clients = [...names.entries()]
     .sort((a, b) => a[1].localeCompare(b[1]))
     .map(([value, label]) => ({ value, label }));
   const services = [...new Set(items.map((i) => i.service?.title ?? i.title))].sort();
