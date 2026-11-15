@@ -119,7 +119,12 @@ test('Reset Defaults asks first', async ({ page }) => {
 
 test('Test Reminder Email says where it went, and that nothing changed', async ({ page }) => {
   await openSettings(page);
+  // Review Two (16): the destination is named before the click.
+  const destination = page.getByTestId('test-reminder-destination');
+  await expect(destination).toHaveText(/^Sends to \S+@\S+$/);
+  const to = (await destination.textContent())!.replace('Sends to ', '');
   await page.getByRole('button', { name: 'Test Reminder Email' }).click();
+  await expect(page.getByRole('status').filter({ hasText: to })).toBeVisible();
   await expect(
     page.getByRole('status').filter({
       hasText: /A test reminder email was sent to \S+@\S+\. No client was contacted/,

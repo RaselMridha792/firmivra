@@ -546,15 +546,28 @@ export function SettingsScreen() {
                   Save Settings
                 </Button>
               </div>
+              {/* Review Two (16): the destination is named before the click, the member's own
+                  address from the session (never typed); the test goes nowhere else. */}
               <button
                 type="button"
                 disabled={testReminder.isPending || !manager}
                 title={manager ? undefined : STAFF_ONLY}
                 onClick={sendTestReminder}
                 className={quickAction}
+                aria-label="Test Reminder Email"
+                aria-describedby="test-reminder-destination"
               >
                 <EnvelopeSimple aria-hidden weight="fill" className="size-6 shrink-0" />
-                <span>Test Reminder Email</span>
+                <span className="flex min-w-0 flex-col text-left">
+                  <span>Test Reminder Email</span>
+                  <span
+                    id="test-reminder-destination"
+                    data-testid="test-reminder-destination"
+                    className="text-xs font-normal wrap-anywhere text-muted"
+                  >
+                    Sends to {me.user.email}
+                  </span>
+                </span>
               </button>
               <button type="button" onClick={() => setPreviewing(true)} className={quickAction}>
                 <Eye aria-hidden weight="fill" className="size-6 shrink-0" />
