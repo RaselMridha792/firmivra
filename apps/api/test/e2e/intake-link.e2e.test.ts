@@ -322,6 +322,13 @@ describe("a lead's secure intake link", () => {
     );
     expect(done).toMatchObject({ status: 'SUBMITTED', canEdit: false });
     expect(done.signature?.printedName).toBe('Lee Lead');
+    // Send confirmation email to client (on by default): the lead gets "we received your form",
+    // the form's title only, never an answer.
+    const confirmed = outbox.filter(
+      (m) => m.template === 'intake.received' && m.to === `lee-sign-${run}@lead.test`,
+    );
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0]!.data).toEqual({ formTitle: 'Tax Planning Intake' });
     const stored = await inFirmA((tx) =>
       tx.intake.findUniqueOrThrow({
         where: { id },

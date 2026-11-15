@@ -63,6 +63,13 @@ export interface NotifyTemplates {
    */
   'intake.submitted-notice': IgnoredFirmName & { formTitle: string; link: string };
   /**
+   * Intake Forms Review Two row 21/23: Intake Form Settings > Send confirmation email to client.
+   * The person who submitted a form (a client in the portal, or a lead through the emailed link)
+   * gets a plain "we received your form": the form's title and the firm's name, never an answer.
+   * The firm turned it on, so it is always sent (ACCOUNT), as a lead's own confirmation.
+   */
+  'intake.received': IgnoredFirmName & { formTitle: string };
+  /**
    * A form the firm sent a lead (Intake Forms Review Two, ACCESS-01): the secure link
    * (`{PORTAL_BASE_URL}/{slug}/form#token=...`) and when it stops working. `subject` and `message`
    * are what the member typed on Send Intake Form; they go out, and nowhere else. A lead has no
@@ -341,6 +348,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.confirmation': 'email',
   'lead.received': 'email',
   'intake.submitted-notice': 'email',
+  'intake.received': 'email',
   'intake.lead-link': 'email',
   'intake.sent': 'email',
   'intake.reminder': 'email',
@@ -396,6 +404,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
   'intake.submitted-notice': 'firm',
+  'intake.received': 'firm',
   'intake.lead-link': 'firm',
   'intake.sent': 'firm',
   'intake.reminder': 'firm',
@@ -488,6 +497,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
   'intake.submitted-notice': 'INTAKE',
+  'intake.received': 'ACCOUNT',
   'intake.lead-link': 'ACCOUNT',
   // Always sent (the member chose Email), so in ACCOUNT, as the lead's link.
   'intake.sent': 'ACCOUNT',
