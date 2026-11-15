@@ -22,6 +22,8 @@ const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
   staff2A: person('staff2-a'),
+  // R2 17b: a member who becomes unavailable after the rules are saved.
+  awayA: person('away-a'),
   ownerB: person('owner-b'),
 };
 const ids = { firmA: '', firmB: '', tax: '', books: '', serviceB: '' };
@@ -94,6 +96,7 @@ beforeAll(async () => {
       [people.ownerA, 'OWNER'],
       [people.staffA, 'STAFF'],
       [people.staff2A, 'STAFF'],
+      [people.awayA, 'STAFF'],
     ] as const) {
       await tx.membership.create({
         data: { businessId: ids.firmA, userId: p.id, role, status: 'ACTIVE' },
@@ -292,6 +295,38 @@ describe('Leads R2 17: routing', () => {
     expect(plain.filter((a) => a.kind === 'ASSIGNED').map((a) => a.label)).toEqual([
       'Lead assigned',
     ]);
+  });
+
+  it('R2 17b: an unavailable assignee is skipped for the next matching rule, and an unavailable fallback leaves the lead unassigned', async () => {
+    const saved = routing(
+      await call('put', '/lead-routing', people.ownerA, {
+        enabled: true,
+        fallbackUserId: people.awayA.id,
+        rules: [
+          { name: 'Walk-in desk', sources: ['WALK_IN'], assigneeUserId: people.awayA.id },
+          { name: 'Walk-in backup', sources: ['WALK_IN'], assigneeUserId: people.staffA.id },
+        ],
+      }),
+    );
+    expect(saved.fallback?.userId).toBe(people.awayA.id);
+    // While available, the first rule and the fallback take their leads.
+    expect((await newLead({ source: 'WALK_IN' })).assignedByRule?.name).toBe('Walk-in desk');
+    expect((await newLead({ source: 'EVENT' })).assignedTo?.userId).toBe(people.awayA.id);
+    // The member leaves the firm (deactivated); the rules stay as saved.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.membership.updateMany({
+        where: { businessId: ids.firmA, userId: people.awayA.id },
+        data: { status: 'DEACTIVATED' },
+      }),
+    );
+    await owner.$disconnect();
+    const walkIn = await newLead({ source: 'WALK_IN' });
+    expect(walkIn.assignedTo?.userId).toBe(people.staffA.id);
+    expect(walkIn.assignedByRule?.name).toBe('Walk-in backup');
+    const unmatched = await newLead({ source: 'EVENT' });
+    expect(unmatched.assignedTo).toBeNull();
+    expect(unmatched.assignedByRule ?? null).toBeNull();
   });
 
   it("firm B's owner sees and changes none of firm A's routing", async () => {
