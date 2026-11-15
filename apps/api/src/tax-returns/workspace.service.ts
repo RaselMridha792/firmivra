@@ -623,6 +623,33 @@ export class TaxReturnWorkspaceService {
       if (r.firstFiledAt) {
         throw conflict('RETURN_LOCKED', 'A filed return keeps its business identity');
       }
+      // F32a: the audit keeps each changed field's old and new value (the EIN as its last 4).
+      const old = await tx.taxReturn.findUniqueOrThrow({
+        where: { id },
+        select: {
+          businessName: true,
+          businessEinLast4: true,
+          businessAddressLine1: true,
+          businessAddressLine2: true,
+          businessCity: true,
+          businessState: true,
+          businessPostalCode: true,
+        },
+      });
+      const was: Record<string, string | null> = {
+        name: old.businessName,
+        ein: old.businessEinLast4,
+        addressLine1: old.businessAddressLine1,
+        addressLine2: old.businessAddressLine2,
+        city: old.businessCity,
+        state: old.businessState,
+        postalCode: old.businessPostalCode,
+      };
+      const now = (k: string): string | null =>
+        k === 'ein' ? (ein?.last4 ?? null) : ((body as Record<string, string | null>)[k] ?? null);
+      const changes = Object.fromEntries(
+        changed.map((k) => [k, { from: was[k] ?? null, to: now(k) }]),
+      );
       await tx.taxReturn.update({
         where: { id },
         data: {
@@ -642,7 +669,7 @@ export class TaxReturnWorkspaceService {
         tx,
         'tax_return.business_identity_corrected',
         { type: 'tax_return', id },
-        { fields: changed },
+        { fields: changed, changes },
         { businessId },
       );
     });
@@ -1005,6 +1032,8 @@ export class TaxReturnWorkspaceService {
       'tax_return.transmission': ['TRANSMISSION', 'Transmission recorded'],
       'tax_return.document': ['DOCUMENT', 'Documents changed'],
       'tax_return.issue': ['VALIDATION', 'Validation issue updated'],
+      // F32a: a business return's identity corrected after it was filed.
+      'tax_return.business_identity_corrected': ['UPDATED', 'Business identity corrected'],
     };
     const ISSUE: Record<string, string> = {
       raised: 'Validation issue raised',
