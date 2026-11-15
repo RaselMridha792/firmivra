@@ -63,8 +63,11 @@ export async function tryLock(
  * bookings could run past BUSY_WAIT_MS (429). Tried, never waited for: the others retry and meet
  * the winner's row (409 SLOT_TAKEN).
  */
-export const bookingLockKey = (businessId: string, kind: 'staff' | 'client', id: string) =>
-  `appointment_booking:${businessId.toLowerCase()}:${kind}:${id.toLowerCase()}`;
+export const bookingLockKey = (
+  businessId: string,
+  kind: 'staff' | 'client' | 'equipment',
+  id: string,
+) => `appointment_booking:${businessId.toLowerCase()}:${kind}:${id.toLowerCase()}`;
 
 /** Before a booking or a new time for `staffUserId` with `clientId`. */
 export async function lockForBooking(
@@ -81,6 +84,22 @@ export async function lockForBooking(
   // A1: each other attendee is booked too.
   for (const id of [...attendeeClientIds].sort()) {
     await tryLock(tx, bookingLockKey(businessId, 'client', id));
+  }
+}
+
+/**
+ * Review 2 (A2): before booking items of equipment, after lockForBooking. One booking of an item
+ * at a time, so the conflict check of the second sees the first's hold and names the item (409
+ * SCHEDULING_CONFLICT) instead of meeting the database's exclusion constraint. Sorted, so two
+ * bookings of the same items take them in one order.
+ */
+export async function lockEquipment(
+  tx: TxClient,
+  businessId: string,
+  equipmentIds: readonly string[],
+): Promise<void> {
+  for (const id of [...equipmentIds].map((i) => i.toLowerCase()).sort()) {
+    await tryLock(tx, bookingLockKey(businessId, 'equipment', id));
   }
 }
 

@@ -442,6 +442,8 @@ function Summary({ r }: { r: AppointmentRecord }) {
           ['Time zone', r.timezone],
           ['Staff', r.staff.map((s) => s.name).join(', ')],
           ['Location', where],
+          // Review 2 (A2): the equipment it books.
+          ['Equipment', r.equipment.map((e) => e.name).join(', ') || '—'],
           ['Video link', r.videoUrl ? 'Join Meeting (above)' : '—'],
         ]}
       />
