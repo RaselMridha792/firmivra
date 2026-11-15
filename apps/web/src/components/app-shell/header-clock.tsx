@@ -5,7 +5,9 @@ import { useSyncExternalStore } from 'react';
 // Octavia's SM10 (Staff Management review of Oct 23): the current date and time at the top right
 // of every page, updating, with its time zone named. Dashboard Review 2 (U2): in the firm
 // workspace, the firm's time zone (Settings > Preferences), the one its dates and "today" follow;
-// on the Super Admin console, which belongs to no firm, the person's own (the browser's).
+// on the Super Admin console, which belongs to no firm, the person's own (the browser's). When the
+// firm's zone can't be read (`deviceFallback`), the clock shows the device's and says so, so it is
+// never taken for the firm's.
 
 const MINUTE = 60_000;
 const subscribe = (tick: () => void) => {
@@ -17,7 +19,10 @@ const minuteNow = () => Math.floor(Date.now() / MINUTE);
 /** The server draws no time (no hydration mismatch); the browser fills it in at once. */
 const noMinute = () => 0;
 
-export function HeaderClock({ timeZone }: { timeZone?: string } = {}) {
+export function HeaderClock({
+  timeZone,
+  deviceFallback = false,
+}: { timeZone?: string; deviceFallback?: boolean } = {}) {
   const minute = useSyncExternalStore(subscribe, minuteNow, noMinute);
   if (!minute) return null;
   const now = new Date(minute * MINUTE);
@@ -38,7 +43,11 @@ export function HeaderClock({ timeZone }: { timeZone?: string } = {}) {
   return (
     <p
       data-testid="header-clock"
-      title={`Time zone: ${zone}`}
+      title={
+        deviceFallback
+          ? `Using your device's time zone (${zone}): your firm's time zone could not be loaded`
+          : `Time zone: ${zone}`
+      }
       className="hidden flex-col items-end px-2 text-xs leading-tight lg:flex"
     >
       <time dateTime={now.toISOString()} className="font-semibold whitespace-nowrap text-heading">
@@ -47,6 +56,11 @@ export function HeaderClock({ timeZone }: { timeZone?: string } = {}) {
       <span className="whitespace-nowrap text-muted">
         {time} <span className="sr-only">({zone})</span>
       </span>
+      {deviceFallback ? (
+        <span data-testid="header-clock-note" className="whitespace-nowrap text-warning">
+          Using your device&apos;s time zone
+        </span>
+      ) : null}
     </p>
   );
 }

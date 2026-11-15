@@ -245,6 +245,8 @@ function FirmShell({
   // Dashboard Review 2 (U2): the header clock shows the firm's time zone, which every role reads.
   const availability = useApiQuery(['availability'], () => api.availability.get());
   const clockZone = availability.data?.timezone ?? (availability.isError ? undefined : null);
+  // U2: when the firm's zone can't be read, the clock shows the device's and says so.
+  const clockFallback = availability.isError && !availability.data;
   const branding = info.data?.branding;
   const badge = unread.data?.total;
   const alertCount = alerts.data?.count;
@@ -257,6 +259,7 @@ function FirmShell({
     <AppShell
       subtitle="Firm workspace"
       clockZone={clockZone}
+      clockFallback={clockFallback}
       sections={[
         items
           .filter((i) => manager || !i.managers)
