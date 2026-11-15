@@ -8,7 +8,7 @@ import type {
   TaxReturnSummary,
   TaxReturnWorkflowStatus,
 } from '@firmivra/types';
-import { TAX_RETURN_IN_PROGRESS_STATUSES } from '@firmivra/types';
+import { TAX_RETURN_IN_PROGRESS_STATUSES, TAX_RETURN_KPI_STATUSES } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { likeEscape } from '../clients/clients.service.js';
@@ -50,14 +50,10 @@ type Out<S extends z.ZodType> = z.output<S>;
 
 const DAY = 86_400_000;
 const toDay = (v: string) => new Date(`${v}T00:00:00Z`);
-const GROUPS: Record<string, TaxReturnWorkflowStatus[]> = {
-  inPreparation: ['IN_PREPARATION'],
-  waitingOnClient: ['WAITING_ON_CLIENT'],
-  readyForReviewOrFile: ['READY_FOR_REVIEW', 'READY_FOR_SIGNATURE', 'READY_TO_FILE'],
-  transmitted: ['TRANSMITTED'],
-  accepted: ['ACCEPTED'],
-  rejected: ['REJECTED'],
-};
+// The KPI cards' statuses, shared with Settings > Tax statuses' explanation (Review 2, TX-F36).
+const GROUPS: Record<string, TaxReturnWorkflowStatus[]> = Object.fromEntries(
+  Object.entries(TAX_RETURN_KPI_STATUSES).map(([k, v]) => [k, [...v]]),
+);
 
 /**
  * The Tax Returns workspace, part 1 (R55): the overview (list with tabs, KPI cards, Create New
