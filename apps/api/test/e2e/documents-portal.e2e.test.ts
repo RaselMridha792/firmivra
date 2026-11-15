@@ -1455,6 +1455,29 @@ describe('scan results (q22, q24)', () => {
     expect(outbox).toEqual([]);
   });
 
+  it('C2-055: a firm file made client-visible later tells the PRIMARY login: at once when clean, by its scan result while checked', async () => {
+    const primaryOnly = bells('document.shared', [people.primary]);
+    const show = async (id: string, clientVisible: boolean) =>
+      expect(
+        (await call('post', `/documents/${id}/visibility`, people.ownerA, { clientVisible }))
+          .status,
+      ).toBe(200);
+    const clean = await firmFile({});
+    expect(await bellsOf(clean.id, 'document.shared')).toEqual([]);
+    await show(clean.id, true);
+    expect(await bellsOf(clean.id, 'document.shared')).toEqual(primaryOnly);
+    // Shown again (no change) or hidden: nobody is told again.
+    await show(clean.id, true);
+    await show(clean.id, false);
+    expect(await bellsOf(clean.id, 'document.shared')).toEqual(primaryOnly);
+    // Still being checked: the scan result tells, once.
+    const waiting = await scanned(() => firmFile({}));
+    await show(waiting.id, true);
+    expect(await bellsOf(waiting.id, 'document.shared')).toEqual([]);
+    expect(await scan(waiting.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    expect(await bellsOf(waiting.id, 'document.shared')).toEqual(primaryOnly);
+  });
+
   it('accepts a password-protected PDF unscanned, fails other file reasons, and waits on our side', async () => {
     const { pdfFile, docx, ours, denied } = await scanned(async () => ({
       pdfFile: await mine(people.primary, {}),
