@@ -673,6 +673,27 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  'intake.reminder': (d, b, o) => {
+    const firm = b.name;
+    const due = field(d, 'dueOn');
+    const expires = field(d, 'expiresAt');
+    return {
+      channel: 'email',
+      subject: `Reminder: ${capped(oneLine(required(d, 'formTitle')), 180)}`,
+      blocks: [
+        hello(d),
+        text(
+          `${firm} is still waiting for ${required(d, 'formTitle')}. Open it in your client portal to fill it in and submit it.`,
+        ),
+        ...(typeof due === 'string' ? [text(`Please complete it by ${calendarDate(due)}.`)] : []),
+        button('Open my form', link(d, 'link', o)),
+        ...(expires instanceof Date
+          ? [small(`The form can be filled in until ${dateTime(d, 'expiresAt', b.timeZone)}.`)]
+          : []),
+      ],
+    };
+  },
+
   'client.portal-invite': (d, b, o) => {
     const firm = b.name;
     return {
@@ -708,12 +729,28 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
 
   'message.received': (d, b, o) => {
     const firm = b.name;
+    // Review 2 (Messaging): the text only when the message was sent with it; the documents only
+    // as their number, behind the portal sign-in.
+    // Only an explicit `includesBody: true` (set when the message was sent with its text) shows
+    // it; a stray `body` alone never does.
+    const body = field(d, 'includesBody') === true ? field(d, 'body') : undefined;
+    const documents = field(d, 'documents');
+    const count = typeof documents === 'number' && documents > 0 ? documents : 0;
     return {
       channel: 'email',
       subject: `New message in ${firm}'s portal`,
       blocks: [
         hello(d),
-        text('You have a new message. Open it to read and reply.'),
+        ...(typeof body === 'string' && body.trim()
+          ? [text(`${firm} wrote:`), text(body)]
+          : [text('You have a new message. Open it to read and reply.')]),
+        ...(count
+          ? [
+              text(
+                `It has ${count === 1 ? '1 document' : `${count} documents`}. Sign in to your portal to view ${count === 1 ? 'it' : 'them'}.`,
+              ),
+            ]
+          : []),
         button('Read the message', link(d, 'link', o)),
       ],
     };

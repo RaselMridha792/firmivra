@@ -38,6 +38,7 @@ import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
+import { EmailChoices, useEmailChoices } from '../../../../../components/message-email-choices';
 import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
 import { RecentActivity } from './recent-activity';
 import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
@@ -541,6 +542,7 @@ function Conversation({
   const [body, setBody] = useState('');
   const [files, setFiles] = useState<ChosenFile[]>([]);
   const [busy, setBusy] = useState(false);
+  const choices = useEmailChoices(thread.client.id);
   const d = detail.data;
   // Only a client's message can be marked unread for the firm.
   const fromClient = d?.messages.some((m) => m.direction === 'CLIENT_TO_FIRM') ?? false;
@@ -555,9 +557,11 @@ function Conversation({
       await api.messages.send(thread.id, {
         body: body.trim(),
         ...(files.length ? { documentIds: files.map((f) => f.documentId) } : {}),
+        ...(choices.delivery ? { delivery: choices.delivery } : {}),
       });
       setBody('');
       setFiles([]);
+      choices.reset();
       await detail.refetch();
       onChanged();
     } catch (e) {
@@ -658,6 +662,8 @@ function Conversation({
         files={files}
         onRemove={(id) => setFiles((list) => list.filter((f) => f.documentId !== id))}
       />
+      {/* Tax Returns Review 2 (Messaging): this reply's email to the client. */}
+      <EmailChoices choices={choices} clientName={thread.client.displayName} compact />
       <form
         className="flex items-end gap-2"
         onSubmit={(e) => {
@@ -1151,6 +1157,7 @@ export function NewMessageDialog({
   const [body, setBody] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const choices = useEmailChoices(clientId || undefined);
   return (
     <Modal
       open
@@ -1170,6 +1177,7 @@ export function NewMessageDialog({
                 const t = await api.messages.create(clientId, {
                   subject: subject.trim(),
                   body: body.trim(),
+                  ...(choices.delivery ? { delivery: choices.delivery } : {}),
                 });
                 onSent(t);
               } catch (e) {
@@ -1204,6 +1212,7 @@ export function NewMessageDialog({
         </label>
         <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
         <Textarea label="Message" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+        <EmailChoices choices={choices} />
         {error ? (
           <p role="alert" className="text-sm text-danger">
             {error}

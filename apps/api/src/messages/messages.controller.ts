@@ -29,8 +29,10 @@ import {
   type MyMessageThread,
   type MyMessageThreadDetail,
   type MyMessageThreadList,
+  type ClientMessagePreference,
   SendFirmMessageRequest,
   SendMessageRequest,
+  SetClientMessagePreferenceRequest,
   SetMessageThreadAssigneeRequest,
   type UnreadCount,
   UpdateMessageThreadRequest,
@@ -87,6 +89,37 @@ export class ClientMessageThreadsController {
     body: z.output<typeof CreateMessageThreadRequest>,
   ): Promise<MessageThreadDetail> {
     return this.messages.create(tenant.businessId, actorOf(auth, tenant), clientId, body);
+  }
+}
+
+/**
+ * Tax Returns Review 2 (Messaging): a client's saved choices for the new-message email (Staff:
+ * their own clients). The firm comes from TenantGuard; the client must be one the member reaches.
+ */
+@Controller('business/clients/:id/message-preference')
+@Access('MESSAGES')
+@Roles(...FIRM_STAFF)
+export class ClientMessagePreferenceController {
+  constructor(private readonly messages: MessagesService) {}
+
+  @Get()
+  get(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientPipe) clientId: string,
+  ): Promise<ClientMessagePreference> {
+    return this.messages.preference(tenant.businessId, actorOf(auth, tenant), clientId);
+  }
+
+  @Put()
+  set(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', clientPipe) clientId: string,
+    @Body(new ZodValidationPipe(SetClientMessagePreferenceRequest))
+    body: z.output<typeof SetClientMessagePreferenceRequest>,
+  ): Promise<ClientMessagePreference> {
+    return this.messages.setPreference(tenant.businessId, actorOf(auth, tenant), clientId, body);
   }
 }
 
@@ -167,6 +200,7 @@ export class MessageThreadsController {
       id,
       body.body,
       body.documentIds,
+      body.delivery,
     );
   }
 

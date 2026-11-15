@@ -120,6 +120,14 @@ const TEXT: Record<NotificationEvent, Writer> = {
     body: `${who(p)} uploaded a document.`,
   }),
   'intake.sent': (p) => ({ title: 'New intake form', body: withDue(p, 'An intake form') }),
+  'intake.reminder': (p) => ({
+    title: 'Intake form reminder',
+    body: `${withDue(p, 'An intake form')} is waiting for you.`,
+  }),
+  'intake.expiring': (p) => ({
+    title: 'Intake form expiring',
+    body: forClient(p, `${text(p, 'title') ?? 'An intake form'} expires soon`),
+  }),
   'intake.submitted': (p) => ({
     title: 'Intake form submitted',
     body: forClient(p, text(p, 'title') ?? 'An intake form'),

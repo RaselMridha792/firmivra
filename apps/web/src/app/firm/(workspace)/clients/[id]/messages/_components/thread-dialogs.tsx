@@ -3,6 +3,10 @@
 import { MESSAGE_ERRORS } from '@firmivra/types';
 import { Button, Input, Modal } from '@firmivra/ui';
 import { useEffect, useState } from 'react';
+import {
+  EmailChoices,
+  useEmailChoices,
+} from '../../../../../../../components/message-email-choices';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
@@ -23,9 +27,8 @@ function Problem({ error }: { error: Error | null }) {
 
 /**
  * Octavia's E9: before sending, who it goes to, where and how they hear of it. A firm message goes
- * to the client's portal conversation, and the client's active primary portal login gets an email
- * notice (no message text), as the notifier does; no other channel is offered here until the
- * channel rules are settled.
+ * to the client's portal conversation; the client's active primary portal login gets the email
+ * the choices below make (Tax Returns Review 2, Messaging).
  */
 function Recipient({ clientId }: { clientId: string }) {
   const record = useClientRecord(clientId);
@@ -46,7 +49,7 @@ function Recipient({ clientId }: { clientId: string }) {
         {record.isPending
           ? '…'
           : login
-            ? `An email to ${login.email} that a message is waiting (not the message itself)`
+            ? `An email to ${login.email}, as chosen below`
             : 'None: they have no active portal login yet, so they see it once they sign in'}
       </dd>
     </dl>
@@ -57,7 +60,15 @@ function Recipient({ clientId }: { clientId: string }) {
 export function ThreadDialog({ threadId, onClose }: { threadId: string; onClose: () => void }) {
   const thread = useApiQuery(['messages', 'thread', threadId], () => api.messages.get(threadId));
   const { mutate: markRead } = useApiMutation((tid: string) => api.messages.markRead(tid), refresh);
-  const send = useApiMutation((body: string) => api.messages.send(threadId, { body }), refresh);
+  const choices = useEmailChoices(thread.data?.client.id);
+  const send = useApiMutation(
+    (body: string) =>
+      api.messages.send(threadId, {
+        body,
+        ...(choices.delivery ? { delivery: choices.delivery } : {}),
+      }),
+    refresh,
+  );
   const [reply, setReply] = useState('');
   useEffect(() => markRead(threadId), [threadId, markRead]);
 
@@ -87,7 +98,12 @@ export function ThreadDialog({ threadId, onClose }: { threadId: string; onClose:
               className="flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                send.mutate(reply, { onSuccess: () => setReply('') });
+                send.mutate(reply, {
+                  onSuccess: () => {
+                    setReply('');
+                    choices.reset();
+                  },
+                });
               }}
             >
               <label htmlFor="reply" className="text-sm font-medium">
@@ -102,6 +118,7 @@ export function ThreadDialog({ threadId, onClose }: { threadId: string; onClose:
                 onChange={(e) => setReply(e.target.value)}
               />
               <Recipient clientId={t.client.id} />
+              <EmailChoices choices={choices} clientName={t.client.displayName} />
               <Problem error={send.error} />
               <Button type="submit" className="self-end" disabled={send.isPending}>
                 {send.isPending ? 'Sending…' : 'Send Reply'}
@@ -131,9 +148,15 @@ export function NewThreadDialog({
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState('');
+  const choices = useEmailChoices(clientId);
   const create = useApiMutation(
     () =>
-      api.messages.create(clientId, { subject, body, ...(engagementId ? { engagementId } : {}) }),
+      api.messages.create(clientId, {
+        subject,
+        body,
+        ...(engagementId ? { engagementId } : {}),
+        ...(choices.delivery ? { delivery: choices.delivery } : {}),
+      }),
     refresh,
   );
   return (
@@ -170,6 +193,7 @@ export function NewThreadDialog({
           />
         </div>
         <Recipient clientId={clientId} />
+        <EmailChoices choices={choices} />
         <Problem error={create.error} />
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? 'Sending…' : 'Send Message'}

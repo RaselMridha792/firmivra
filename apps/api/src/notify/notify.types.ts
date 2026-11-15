@@ -90,12 +90,31 @@ export interface NotifyTemplates {
     dueOn: string | null;
     expiresAt: Date | null;
   };
+  /** The form's first or final reminder by email (an Email form), with the same words as its send. */
+  'intake.reminder': IgnoredFirmName & {
+    name: string;
+    formTitle: string;
+    link: string;
+    subject: string | null;
+    message: string | null;
+    dueOn: string | null;
+    expiresAt: Date | null;
+  };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** The firm invites an existing client to its portal: a sealed link that expires. */
   'client.portal-invitation': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
   /** A new message in a thread. Never the message text: the reader opens the link. */
-  'message.received': IgnoredFirmName & { name: string; link: string };
+  /** Review 2 (Messaging): `body` only when the message was sent with its text; `documents`
+   * only as a count (the files stay behind the portal sign-in). */
+  'message.received': IgnoredFirmName & {
+    name: string;
+    link: string;
+    /** Both or neither: the message was sent with its text. */
+    includesBody?: true;
+    body?: string;
+    documents?: number;
+  };
   /**
    * Send Email from the Leads page: the member's own subject and text to a lead (no account, so
    * no preferences). `body` is the text the member typed: it goes out, and nowhere else. `html`
@@ -321,6 +340,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'intake.submitted-notice': 'email',
   'intake.lead-link': 'email',
   'intake.sent': 'email',
+  'intake.reminder': 'email',
   'client.portal-invite': 'email',
   'client.portal-invitation': 'email',
   'message.received': 'email',
@@ -374,6 +394,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'intake.submitted-notice': 'firm',
   'intake.lead-link': 'firm',
   'intake.sent': 'firm',
+  'intake.reminder': 'firm',
   'client.portal-invite': 'firm',
   'client.portal-invitation': 'firm',
   'message.received': 'firm',
@@ -413,6 +434,7 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'intake.lead-link',
   // The member chose to send this form by Email (19b): the client's preferences don't stop it.
   'intake.sent',
+  'intake.reminder',
   'lead.message-email',
   'lead.message-sms',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
@@ -463,6 +485,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'intake.lead-link': 'ACCOUNT',
   // Always sent (the member chose Email), so in ACCOUNT, as the lead's link.
   'intake.sent': 'ACCOUNT',
+  'intake.reminder': 'ACCOUNT',
   'client.portal-invite': 'ACCOUNT',
   'client.portal-invitation': 'ACCOUNT',
   'message.received': 'MESSAGES',
