@@ -6,6 +6,7 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import { intakeReminderPlan } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
@@ -182,25 +183,28 @@ export class IntakeScheduleJobs implements OnApplicationBootstrap, OnModuleDestr
       for (const r of rows) {
         if (Date.now() > deadline) break;
         const at = now.getTime();
+        // Review Two 10c: the two reminders in order (intakeReminderPlan); a skipped one never goes.
+        const plan = r.sentAt
+          ? intakeReminderPlan({
+              sentAt: r.sentAt,
+              expiresAt: r.expiresAt,
+              firstMinutes: r.reminderFirstMinutes,
+              finalMinutes: r.reminderFinalMinutes,
+            })
+          : null;
+        // The first never goes once the final has: it would come after it.
         const firstDue =
-          r.reminderFirstMinutes !== null &&
+          !!plan?.firstAt &&
           !r.firstReminderSentAt &&
-          r.sentAt !== null &&
-          r.sentAt.getTime() + r.reminderFirstMinutes * MIN <= at;
-        const finalDue =
-          r.reminderFinalMinutes !== null &&
           !r.finalReminderSentAt &&
-          r.expiresAt !== null &&
-          r.expiresAt.getTime() - r.reminderFinalMinutes * MIN <= at;
+          plan.firstAt.getTime() <= at;
+        const finalDue = !!plan?.finalAt && !r.finalReminderSentAt && plan.finalAt.getTime() <= at;
         if (!firstDue && !finalDue) continue;
-        // The final covers a first that never went (a short expiry): one reminder, the final.
         const kind: Reminder = finalDue ? 'FINAL' : 'FIRST';
-        const marks = finalDue
-          ? {
-              finalReminderSentAt: now,
-              ...(r.firstReminderSentAt ? {} : { firstReminderSentAt: now }),
-            }
-          : { firstReminderSentAt: now };
+        // Only its own mark: the final never marks the first as sent (10c).
+        const marks = finalDue ? { finalReminderSentAt: now } : { firstReminderSentAt: now };
+        // A first that was due but never went (the job was behind) is now skipped, in History.
+        const firstMissed = finalDue && !r.firstReminderSentAt && !!plan?.firstAt;
         const marker = kind === 'FINAL' ? 'finalReminderSentAt' : 'firstReminderSentAt';
         const stop = await this.stopReason(businessId, r);
         let delivered = false;
@@ -246,6 +250,14 @@ export class IntakeScheduleJobs implements OnApplicationBootstrap, OnModuleDestr
           stop ? { kind, reason: stop } : { kind, delivered },
           { businessId },
         );
+        if (firstMissed) {
+          await this.audit.log(
+            'intake.reminder_skipped',
+            { type: 'intake', id: r.id },
+            { kind: 'FIRST', reason: 'AFTER_FINAL' },
+            { businessId },
+          );
+        }
         done += 1;
       }
     }

@@ -717,6 +717,12 @@ let myMocks: Map<string, MyIntakesClient> | undefined;
  * `api.myIntakes(slug)` in mock mode: one mock per firm, so an upload's three steps (and what a
  * save stored) reach the same mock however often the page calls `api.myIntakes(slug)`.
  */
+/** Review Two row 21: the mock firm's thank-you message (Intake Form Settings). */
+export const MOCK_INTAKE_COMPLETION = {
+  message: 'Thank you! We have your form and will be in touch within two business days.',
+  redirectUrl: null,
+};
+
 export function myIntakesMock(firmSlug: string): MyIntakesClient {
   myMocks ??= new Map();
   const slug = firmSlug.trim().toLowerCase();
@@ -788,6 +794,10 @@ export function createMyIntakesMock(
       signature: row.signature,
       canEdit: primary && editable(row.item.status),
       canSubmit: primary && editable(row.item.status),
+      // Review Two row 21 as the API: the firm asks for consent (the setting's default) and
+      // thanks the client in its own words; no redirect.
+      consentRequired: true,
+      completion: MOCK_INTAKE_COMPLETION,
     });
 
   return {
@@ -817,11 +827,15 @@ export function createMyIntakesMock(
     submit: async (id, body) => {
       await mockDelay();
       const iid = parseInput(IntakeId, id);
-      const { answers, signature } = parseInput(SubmitIntakeRequest, body);
+      const { answers, signature, consent } = parseInput(SubmitIntakeRequest, body);
       firm();
       const row = changeable(find(iid));
       const form = definition(row);
       if (answers) saveStep(row, form.steps.at(-1)!.key, answers);
+      // Review Two row 21 as the API: the answers stay saved, then no consent is a 400.
+      if (!consent) {
+        throw fail(400, 'CONSENT_REQUIRED', 'Tick the box to confirm your information');
+      }
       const kept = keptFiles(form, row.answers, row.files);
       const clean = answersOrFail(form, row.answers, { mode: 'submit', uploads: slotCounts(kept) });
       checkMockSignature(

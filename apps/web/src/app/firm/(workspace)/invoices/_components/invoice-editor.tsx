@@ -71,6 +71,15 @@ const blankLine = (): LineDraft => ({
 /** 825 basis points: "8.25%". */
 const pct = (bps: number) => `${(bps / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
 const centsText = (cents: number) => (cents / 100).toFixed(2);
+/** I-N02: the Payment Terms choice for a due date picked by hand (sent as no terms). */
+const CUSTOM = 'custom';
+/** The due date for terms, counted from the day the invoice is sent (Send On, else today). */
+function dueFor(terms: PaymentTerm, sendOn: string): string {
+  const from = sendOn && sendOn > localToday() ? sendOn : localToday();
+  const due = new Date(`${from}T12:00:00Z`);
+  due.setUTCDate(due.getUTCDate() + (paymentTermDays(terms) ?? 0));
+  return due.toISOString().slice(0, 10);
+}
 
 /**
  * /invoices/new (and ?from=<id> to start from a copy) and /invoices/[invoiceId]/edit: the
@@ -161,11 +170,14 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   // IP-F02: the terms (the due date follows them unless typed), the note to the client and the
   // firm's internal note, which never reaches the client.
   const prefs = useApiQuery(['payment-preferences'], () => api.paymentPreferences.get());
-  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm | ''>(editing?.paymentTerms ?? '');
+  // I-N02 (Review 2): 'custom' is a due date chosen by hand, with no terms shown to the client.
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm | typeof CUSTOM | ''>(
+    editing ? (editing.paymentTerms ?? CUSTOM) : '',
+  );
   const terms = paymentTerms || prefs.data?.invoiceDefaults.defaultTerms || 'net_14';
   // The four standard terms and the firm's own; a draft keeps terms the firm has since removed.
   const offered = offeredPaymentTerms(prefs.data?.invoiceDefaults.customTermDays ?? []);
-  const termOptions = offered.includes(terms) ? offered : [...offered, terms];
+  const termOptions = terms === CUSTOM || offered.includes(terms) ? offered : [...offered, terms];
   const [notesToClient, setNotesToClient] = useState(editing?.notesToClient ?? '');
   const [internalNote, setInternalNote] = useState(editing?.internalNote ?? '');
   const [previewing, setPreviewing] = useState(false);
@@ -180,12 +192,20 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
   // IP-F05: off keeps a one-time invoice; on, the schedule starts the day the invoice opens.
   const [recurring, setRecurring] = useState(() => recurringDraftOf(editing?.recurring));
   const startOn = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
-  const chooseTerms = (next: PaymentTerm) => {
+  // I-N02: every term counts from the day the invoice is sent (Send On, else today), and the due
+  // date follows Send On when it changes; a due date typed by hand is a custom one.
+  const shownDue = dueOn || (!editing && terms !== CUSTOM ? dueFor(terms, scheduledFor) : '');
+  const chooseTerms = (next: PaymentTerm | typeof CUSTOM) => {
     setPaymentTerms(next);
-    const from = scheduledFor && scheduledFor > localToday() ? scheduledFor : localToday();
-    const due = new Date(`${from}T12:00:00Z`);
-    due.setUTCDate(due.getUTCDate() + (paymentTermDays(next) ?? 0));
-    setDueOn(due.toISOString().slice(0, 10));
+    if (next !== CUSTOM) setDueOn(dueFor(next, scheduledFor));
+  };
+  const chooseSendOn = (next: string) => {
+    setScheduledFor(next);
+    if (terms !== CUSTOM) setDueOn(dueFor(terms, next));
+  };
+  const chooseDue = (next: string) => {
+    setDueOn(next);
+    if (terms !== CUSTOM && next !== dueFor(terms, scheduledFor)) setPaymentTerms(CUSTOM);
   };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState('');
@@ -259,8 +279,14 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       if (Number.isNaN(l.unitAmountCents)) next[`rate${i}`] = 'Enter an amount like 125.50';
       if (!(l.quantity > 0)) next[`qty${i}`] = 'Enter a quantity greater than zero';
     });
-    if (!dueOn) next['dueOn'] = 'Choose a due date';
-    else if (!invoiceId && dueOn < localToday()) next['dueOn'] = 'Choose today or a future date';
+    if (!shownDue) next['dueOn'] = 'Choose a due date';
+    else if (!invoiceId && shownDue < localToday()) next['dueOn'] = 'Choose today or a future date';
+    else if (scheduledFor && shownDue < scheduledFor) {
+      next['dueOn'] = 'Choose the Send On date or later';
+    }
+    // A recurring invoice's later due dates come from its terms.
+    if (recurring.on && terms === CUSTOM)
+      next['paymentTerms'] = 'Choose terms for a recurring invoice';
     if (recurring.on && recurring.ends === 'ON') {
       const second = upcomingDays(recurring, startOn, 1)[0];
       if (!recurring.endOn) next['recurring.endOn'] = 'Choose an end date';
@@ -272,9 +298,9 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
       engagementId: engagementId || null,
       lines: parsed,
       discountCents,
-      dueOn,
+      dueOn: shownDue,
       scheduledFor: scheduledFor || null,
-      paymentTerms: terms,
+      paymentTerms: terms === CUSTOM ? null : terms,
       notesToClient: notesToClient || null,
       internalNote: internalNote || null,
       recurring: recurringBody(recurring),
@@ -406,21 +432,29 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
                 value={scheduledFor}
                 min={localToday()}
                 error={errors['scheduledFor']}
-                onChange={(e) => setScheduledFor(e.target.value)}
+                onChange={(e) => chooseSendOn(e.target.value)}
               />
               <Select
                 label="Payment Terms"
                 value={terms}
-                onChange={(e) => chooseTerms(PaymentTerm.parse(e.target.value))}
-                options={termOptions.map((t) => ({ value: t, label: paymentTermLabel(t) }))}
+                error={errors['paymentTerms']}
+                onChange={(e) =>
+                  chooseTerms(
+                    e.target.value === CUSTOM ? CUSTOM : PaymentTerm.parse(e.target.value),
+                  )
+                }
+                options={[
+                  ...termOptions.map((t) => ({ value: t, label: paymentTermLabel(t) })),
+                  { value: CUSTOM, label: 'Custom date' },
+                ]}
               />
               <Input
                 label="Due Date *"
                 type="date"
-                value={dueOn}
-                min={localToday()}
+                value={shownDue}
+                min={startOn}
                 error={errors['dueOn']}
-                onChange={(e) => setDueOn(e.target.value)}
+                onChange={(e) => chooseDue(e.target.value)}
               />
               <Select
                 label="Assigned Staff"
@@ -901,13 +935,16 @@ function EditorForm({ invoiceId, source }: { invoiceId?: string; source: Invoice
               <dt className="text-xs text-muted">Issued</dt>
               <dd>{scheduledFor || localToday()}</dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Terms</dt>
-              <dd>{paymentTermLabel(terms)}</dd>
-            </div>
+            {/* I-N02: a custom due date has no terms to show. */}
+            {terms !== CUSTOM ? (
+              <div>
+                <dt className="text-xs text-muted">Terms</dt>
+                <dd>{paymentTermLabel(terms)}</dd>
+              </div>
+            ) : null}
             <div>
               <dt className="text-xs text-muted">Due</dt>
-              <dd>{dueOn || 'Not chosen yet'}</dd>
+              <dd>{shownDue || 'Not chosen yet'}</dd>
             </div>
           </dl>
           {beforeDueOffered && payBeforeDue ? (

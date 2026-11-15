@@ -163,9 +163,24 @@ beforeAll(async () => {
       },
     });
     await announce('Email (fake)', { subject: 'Email', channel: 'EMAIL' });
-    ids.c = await announce('Other (fake)', { subject: 'Only other', visibility: 'unknown' }, [
-      [clients.other!, 'DELIVERED'],
-    ]);
+    // C25: merge fields filled for the signed-in client, as an email would be; a field with no
+    // value (no phone on file) stays as written.
+    await tx.customMergeField.create({
+      data: { businessId, key: 'Office Code', label: 'Office Code', fallback: 'HQ-1' },
+    });
+    await tx.client.update({
+      where: { id: clients.other! },
+      data: { displayName: 'Fake <b>Other</b>' },
+    });
+    ids.c = await announce(
+      'Other (fake)',
+      {
+        subject: 'Hi [Client First Name]',
+        body: '<p>Dear [Client Full Name] of [Business Name]: [Office Code], [Phone Number].</p>',
+        visibility: 'unknown',
+      },
+      [[clients.other!, 'DELIVERED']],
+    );
   });
   await db.$disconnect();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
@@ -239,6 +254,15 @@ describe('GET /portal/{firmSlug}/me/announcements', () => {
   it('shows another client only theirs (an unknown place reads as the dashboard)', async () => {
     const items = MyAnnouncementList.parse((await mine(other)).body).items;
     expect(items.map((i) => [i.id, i.where])).toEqual([[ids.c, 'dashboard']]);
+  });
+
+  it('C25: fills the merge fields for the signed-in client, their name as text, never markup', async () => {
+    const [item] = MyAnnouncementList.parse((await mine(other)).body).items;
+    expect(item?.title).toBe('Hi Fake');
+    expect(item?.body).toBe(`Dear Fake <b>Other</b> of ${slug}: HQ-1, [Phone Number].`);
+    expect(item?.html).toContain('Dear Fake &lt;b&gt;Other&lt;/b&gt; of');
+    expect(item?.html).not.toContain('<b>');
+    expect(item?.html).not.toContain('[Client');
   });
 
   it('shows nothing to a left-out recipient, a login without a client record, or staff', async () => {

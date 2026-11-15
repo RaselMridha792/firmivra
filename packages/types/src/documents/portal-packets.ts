@@ -126,6 +126,8 @@ export const MyRequestPacket = MyRequestPacketRow.extend({
    * upload for the item, and the newest file is the answer (the older one stays on record).
    */
   allowMultipleFiles: z.boolean(),
+  /** DOCUMENTS-LIMIT-01: the firm's largest regular document, in MB (as UploadTargets). */
+  maxFileSizeMb: z.number().int().min(1).max(100),
   items: z.array(MyRequestPacketItem),
   /**
    * Whether Submit for Review is open now: OPEN, not expired, every required item answered, and

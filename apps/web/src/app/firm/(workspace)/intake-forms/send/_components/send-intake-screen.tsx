@@ -11,7 +11,7 @@ import {
 } from '@firmivra/types';
 import { PageHeader } from '@firmivra/ui';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { useMe } from '../../../../../../components/signed-in';
@@ -144,9 +144,16 @@ export function SendIntakeScreen({
   const forms = useApiQuery(FORMS_KEY, () =>
     api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' }),
   );
-  const send = useApiMutation((body: SendIntakeFormRequest) => api.intakeForms.send(body), {
-    invalidate: INTAKE_KEY,
-  });
+  const queryClient = useQueryClient();
+  const send = useApiMutation(
+    async (body: SendIntakeFormRequest) => {
+      const sent = await api.intakeForms.send(body);
+      // Request Form from the Client Portal module: its forms tab lists the new form on return.
+      void queryClient.invalidateQueries({ queryKey: ['client-portal'] });
+      return sent;
+    },
+    { invalidate: INTAKE_KEY },
+  );
   const saveDraft = useApiMutation((input: { body: SaveSendDraftRequest; id?: string }) =>
     api.intakeForms.saveSendDraft(input.body, input.id),
   );
@@ -394,7 +401,12 @@ export function SendIntakeScreen({
           />
         </div>
       </div>
-      <ScheduleModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} />
+      <ScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        formId={choices.formId}
+        expiry={choices.expiry}
+      />
     </div>
   );
 }

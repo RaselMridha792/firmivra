@@ -38,9 +38,14 @@ const overdue = (now: Date): Prisma.LeadWhereInput => ({
 
 /**
  * Search: every word must match one of the lead's fields, so "Jane Doe" finds Jane Doe (first and
- * last name are separate fields) and a single word behaves as before (L12).
+ * last name are separate fields) and a single word behaves as before (L12). Leads Review 2 (22): a
+ * word also finds the leads in a campaign whose name has it, among `campaigns`, the ones this
+ * member sees (the Campaign filter's list).
  */
-const searchWords = (search: string | undefined): Prisma.LeadWhereInput[] =>
+const searchWords = (
+  search: string | undefined,
+  campaigns: { id: string; name: string }[] = [],
+): Prisma.LeadWhereInput[] =>
   (search ?? '')
     .split(/\s+/)
     .filter(Boolean)
@@ -50,6 +55,9 @@ const searchWords = (search: string | undefined): Prisma.LeadWhereInput[] =>
       const sources = Object.entries(SOURCE_LABELS)
         .filter(([, label]) => label.toLowerCase().includes(word.toLowerCase()))
         .map(([key]) => key as keyof typeof SOURCE_LABELS);
+      const inCampaigns = campaigns
+        .filter((c) => c.name.toLowerCase().includes(word.toLowerCase()))
+        .map((c) => c.id);
       return {
         OR: [
           { firstName: { contains: term, mode: 'insensitive' } },
@@ -59,6 +67,15 @@ const searchWords = (search: string | undefined): Prisma.LeadWhereInput[] =>
           { phone: { contains: term, mode: 'insensitive' } },
           { sourceDetail: { contains: term, mode: 'insensitive' } },
           ...(sources.length ? [{ source: { in: sources } }] : []),
+          ...(inCampaigns.length
+            ? [
+                {
+                  commAudience: {
+                    some: { kind: 'LEAD' as const, communicationId: { in: inCampaigns } },
+                  },
+                },
+              ]
+            : []),
           { activities: { some: { kind: 'NOTE', body: { contains: term, mode: 'insensitive' } } } },
         ],
       };
@@ -82,8 +99,19 @@ export class LeadPipelineService {
     return s?.timezone ?? 'America/New_York';
   }
 
-  async list(businessId: string, actor: PipelineActor, q: Query): Promise<LeadPipelinePage> {
+  /**
+   * `tenant` (the member's context): a search also matches the campaigns they see. Without it, a
+   * search matches the lead's own fields only.
+   */
+  async list(
+    businessId: string,
+    actor: PipelineActor,
+    q: Query,
+    tenant?: TenantContext,
+  ): Promise<LeadPipelinePage> {
     const now = new Date();
+    const campaigns =
+      q.search?.trim() && tenant ? await this.comms.campaignRefs(tenant, actor.userId) : [];
     const zone = q.from || q.to ? await this.timezone(businessId) : '';
     const where: Prisma.LeadWhereInput = {
       AND: [
@@ -108,7 +136,7 @@ export class LeadPipelineService {
           ? { commAudience: { some: { communicationId: q.campaignId, kind: 'LEAD' as const } } }
           : {},
         q.tag ? { tags: { some: { tag: { name: { equals: q.tag, mode: 'insensitive' } } } } } : {},
-        ...searchWords(q.search),
+        ...searchWords(q.search, campaigns),
       ],
     };
     const db = this.tenantPrisma.db.lead;

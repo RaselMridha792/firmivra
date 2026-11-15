@@ -27,6 +27,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
+import { documentMaxBytes } from '../../../../../../../lib/document-limit';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { checkUploadBatch, uploadFile } from '../../../../../../../lib/upload';
@@ -98,6 +99,8 @@ export function PacketScreen() {
   const [target, setTarget] = useState('');
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
   const p = packet.data;
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = documentMaxBytes(p?.maxFileSizeMb);
   const open = p ? p.items.filter((i) => i.canUpload) : [];
   const chosen = p?.items.find((i) => i.id === target) ?? open.find((i) => !answered(i)) ?? open[0];
 
@@ -115,7 +118,7 @@ export function PacketScreen() {
               ...facts,
             }),
           finish: (uploadToken) => api.myDocuments(slug).confirmUpload({ uploadToken }),
-          maxBytes: UPLOAD_LIMITS.maxBytes,
+          maxBytes,
         });
       return files.length;
     },
@@ -442,12 +445,10 @@ export function PacketScreen() {
                   icon="upload"
                   title="Drag & drop your files here or click to choose"
                   accept={ACCEPT}
-                  maxBytes={UPLOAD_LIMITS.maxBytes}
+                  maxBytes={maxBytes}
                   multiple={p?.allowMultipleFiles}
                   disabled={upload.isPending || !chosen}
-                  hints={[
-                    `${UPLOAD_LIMITS.typeNames}, up to ${megabytes(UPLOAD_LIMITS.maxBytes)} each.`,
-                  ]}
+                  hints={[`${UPLOAD_LIMITS.typeNames}, up to ${megabytes(maxBytes)} each.`]}
                   onFiles={(files) => chosen && send(chosen, files)}
                   onReject={() =>
                     setNotice({ tone: 'error', text: DOCUMENT_ERRORS.FILE_TYPE_NOT_ALLOWED })

@@ -45,6 +45,8 @@ export const TAB_STATUSES: Record<string, IntakeStatus[]> = {
   expired: ['EXPIRED'],
   // The dashboard's Intake stage (C5): every form not finished.
   open: ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION', 'SUBMITTED', 'UNDER_REVIEW'],
+  // Client Portal module item 1: archived forms are counted, so they can be listed too.
+  archived: ['ARCHIVED'],
 };
 
 /** The category tab a service's forms sit under. */

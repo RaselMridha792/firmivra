@@ -58,6 +58,7 @@ test("the firm's own terms are kept in Settings and offered on Create Invoice", 
     'Net 14',
     'Net 30',
     'Net 45',
+    'Custom date',
   ]);
   await expect(select).toHaveValue('net_45');
   await select.selectOption('net_7');

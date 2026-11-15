@@ -86,6 +86,8 @@ export const AssignedFormTab = z.enum([
   'completed',
   'expired',
   'open',
+  /** Archived forms, outside "all" (Client Portal module item 1): listed only on their own. */
+  'archived',
 ]);
 export type AssignedFormTab = z.infer<typeof AssignedFormTab>;
 
@@ -502,6 +504,18 @@ export const AssignedFormRecord = AssignedFormRow.extend({
   revisionNote: z.string().nullable(),
   /** USABILITY-03: the form version this one was sent with (Duplicate copies exactly it). */
   formVersionId: z.uuid().nullable().default(null),
+  /**
+   * Review Two 19b: only in the answer to Resend or Remind, what really happened, as a send's
+   * `delivery` says it (SENT: the mail service took the email or the portal notice was written;
+   * RETRYING: the outbox tries again; FAILED: nothing reached them, `reason` says why). History
+   * records the same. Absent everywhere else.
+   */
+  delivery: z
+    .object({
+      status: z.enum(['SENT', 'RETRYING', 'FAILED']),
+      reason: z.string().nullable(),
+    })
+    .optional(),
 });
 export type AssignedFormRecord = z.infer<typeof AssignedFormRecord>;
 

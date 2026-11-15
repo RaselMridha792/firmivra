@@ -373,6 +373,8 @@ describe('Document Request & Upload', () => {
       requestedBy: 'Fake owner',
       taxYear: 2024,
       allowMultipleFiles: true,
+      // DOCUMENTS-LIMIT-01: the firm's limit (100 MB until changed), for the screen's own check.
+      maxFileSizeMb: 100,
       canSubmit: false,
     });
     expect(p.items.map((i) => [i.title, i.required, i.canUpload])).toEqual([

@@ -53,6 +53,7 @@ import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 import { PageState as ApiPageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { nudgeNotice } from '../../../../../lib/intake-delivery';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { CreateTemplateDialog } from '../templates/_components/template-dialogs';
 
@@ -554,7 +555,8 @@ export function IntakeFormsScreen({
   });
   const [notice, setNotice] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
   /** Create Intake Form's service choice is open (17c). */
-  const [creating, setCreating] = useState(false);
+  // Review Two 17c: every new form or template is for a service, so each create button asks first.
+  const [creating, setCreating] = useState<'form' | 'template' | null>(null);
 
   const query = useMemo<AssignedFormsQuery>(
     () => ({
@@ -721,10 +723,16 @@ export function IntakeFormsScreen({
     },
   ];
 
+  /** Create New Form / Create Form Template: the service is chosen first (Review Two 17c). */
+  function openCreate(kind: 'form' | 'template') {
+    setNotice(null);
+    setCreating(kind);
+  }
+
   function startCreate(
-    isTemplate = false,
-    templateId?: string,
-    category: FormCategory = 'OTHER',
+    isTemplate: boolean,
+    templateId: string | undefined,
+    category: FormCategory,
     serviceId?: string,
   ) {
     setNotice(null);
@@ -740,11 +748,9 @@ export function IntakeFormsScreen({
   function sendAgain(row: AssignedFormRow, action: 'resend' | 'remind') {
     const mutation = action === 'resend' ? resend : remind;
     mutation.mutate(row.id, {
-      onSuccess: () =>
-        setNotice({
-          message: action === 'resend' ? 'Form resent.' : 'Reminder sent.',
-          tone: 'success',
-        }),
+      // 19b: the true result (sent, retrying, or not delivered and why).
+      onSuccess: (record) =>
+        setNotice(nudgeNotice(record, action === 'resend' ? 'Form resent.' : 'Reminder sent.')),
       onError: (error) => setNotice({ message: errorMessage(error), tone: 'error' }),
     });
   }
@@ -774,10 +780,7 @@ export function IntakeFormsScreen({
           <Button
             className="px-5"
             disabled={createDraft.isPending}
-            onClick={() => {
-              setNotice(null);
-              setCreating(true);
-            }}
+            onClick={() => openCreate('form')}
           >
             <Plus aria-hidden weight="bold" className="size-5" />
             Create Intake Form
@@ -864,7 +867,7 @@ export function IntakeFormsScreen({
           <Button
             className="min-h-10 shrink-0 px-5"
             disabled={createDraft.isPending}
-            onClick={() => startCreate()}
+            onClick={() => openCreate('form')}
           >
             <Plus aria-hidden weight="bold" className="size-5" />
             Create New Form
@@ -978,7 +981,7 @@ export function IntakeFormsScreen({
                   }
                   emptyAction={
                     !search && !activeFilterCount && tab === 'all' ? (
-                      <Button disabled={createDraft.isPending} onClick={() => startCreate()}>
+                      <Button disabled={createDraft.isPending} onClick={() => openCreate('form')}>
                         <Plus aria-hidden weight="bold" className="size-4" />
                         Create New Form
                       </Button>
@@ -1037,7 +1040,7 @@ export function IntakeFormsScreen({
                 icon={PlusSquare}
                 label="Create Form Template"
                 disabled={createDraft.isPending}
-                onClick={() => startCreate(true)}
+                onClick={() => openCreate('template')}
               />
               <QuickAction
                 icon={GearSix}
@@ -1054,8 +1057,10 @@ export function IntakeFormsScreen({
               <FormTemplates
                 templates={items}
                 loading={templates.isFetching && !templates.isPending}
-                onCreateFromTemplate={(form) => startCreate(false, form.id, form.category)}
-                onCreateTemplate={() => startCreate(true)}
+                onCreateFromTemplate={(form) =>
+                  startCreate(false, form.id, form.category, form.service?.id)
+                }
+                onCreateTemplate={() => openCreate('template')}
               />
             )}
           </ApiPageState>
@@ -1082,12 +1087,14 @@ export function IntakeFormsScreen({
       </div>
       {creating ? (
         <CreateTemplateDialog
-          form
+          form={creating === 'form'}
           library={templates}
           category={null}
           busy={createDraft.isPending}
-          onClose={() => setCreating(false)}
-          onCreate={(service) => startCreate(false, undefined, service.category, service.id)}
+          onClose={() => setCreating(null)}
+          onCreate={(service) =>
+            startCreate(creating === 'template', undefined, service.category, service.id)
+          }
         />
       ) : null}
     </div>

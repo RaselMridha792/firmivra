@@ -21,7 +21,13 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { CommsHelp } from './communications-help';
 import { SegmentDialog } from './segments-panel';
-import { COMM_ERRORS, COMM_KEY, quiet } from './communications-shared';
+import {
+  COMM_ERRORS,
+  COMM_KEY,
+  EXCLUSION_REASON as REASON,
+  MISSING_CHANNEL as MISSING,
+  quiet,
+} from './communications-shared';
 
 const VIEWS = [
   { id: 'CONTACTS', label: 'All Contacts', icon: UsersThree },
@@ -32,18 +38,6 @@ const VIEWS = [
   { id: 'LISTS', label: 'Custom Lists', icon: Calendar },
 ] as const;
 type ViewId = (typeof VIEWS)[number]['id'];
-
-const REASON: Record<string, string> = {
-  UNSUBSCRIBED: 'Unsubscribed',
-  INVALID: 'Invalid address',
-  NO_CONSENT: 'No consent',
-};
-/** What a missing channel means: no email, no mobile, or (an announcement, CM-F05) no portal login. */
-const MISSING: Record<CommunicationDetail['channel'], string> = {
-  EMAIL: 'No email address',
-  SMS: 'No phone number',
-  ANNOUNCEMENT: 'No portal access',
-};
 
 interface Pick {
   segments: Map<string, string>;
