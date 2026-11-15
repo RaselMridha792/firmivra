@@ -62,3 +62,23 @@ test('I-N09: Invoice Templates opens the invoice templates, and Back returns to 
   await page.getByTestId('back-to-origin').click();
   await expect(page).toHaveURL(/\/invoices$/, { timeout: 60_000 });
 });
+
+test('I-N08: Preview opens the invoice on screen, from the list and from the invoice', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByRole('button', { name: 'Actions for INV-2026-0106' }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Preview Invoice' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Invoice preview' });
+  await expect(dialog.getByTestId('invoice-preview')).toContainText('INV-2026-0106');
+  await expect(dialog.getByTestId('invoice-preview')).toContainText('Monthly bookkeeping, October');
+  await expect(page).toHaveURL(/\/invoices$/);
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+
+  await page.goto(app('/invoices/0199b6e1-0000-7000-8000-000000000001'));
+  await page.getByRole('button', { name: 'Preview' }).click({ timeout: 60_000 });
+  await expect(
+    page.getByRole('dialog', { name: 'Invoice preview' }).getByTestId('invoice-preview'),
+  ).toContainText('INV-2026-0101');
+});

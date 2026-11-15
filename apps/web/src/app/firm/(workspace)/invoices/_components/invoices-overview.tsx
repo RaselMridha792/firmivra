@@ -74,6 +74,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceCorrectForm } from './invoice-correct-form';
+import { InvoicePreviewDialog } from './invoice-preview';
 import { InvoiceHistoryForm } from './invoice-history';
 import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
 import { NewMessageDialog } from '../../messages/_components/messages-screen';
@@ -717,21 +718,21 @@ function InvoiceTable({
     how: 'archive' | 'delete' | 'restore';
   }>();
   const [correcting, setCorrecting] = useState<InvoiceListItem>();
+  // I-N08: Preview opens on screen, not as a file.
+  const [previewing, setPreviewing] = useState<string>();
   // IP-F09: the row menu's dialogs.
   const [historyFor, setHistoryFor] = useState<{ i: InvoiceListItem; kind: InvoiceHistoryKind }>();
   const [messageFor, setMessageFor] = useState<{ i: InvoiceListItem; reminder: boolean }>();
   const toOrigin = useOriginNavigate();
-  const pdf = async (i: InvoiceListItem, view: boolean) => {
+  // Download PDF (I-N08: Preview is on screen, InvoicePreviewDialog).
+  const pdf = async (i: InvoiceListItem) => {
     try {
       const link = await api.invoices.pdf(i.id);
-      if (view) window.open(link.url, '_blank', 'noopener');
-      else {
-        const save = document.createElement('a');
-        save.href = link.url;
-        save.download = `${i.number}.pdf`;
-        save.rel = 'noopener';
-        save.click();
-      }
+      const save = document.createElement('a');
+      save.href = link.url;
+      save.download = `${i.number}.pdf`;
+      save.rel = 'noopener';
+      save.click();
     } catch (e) {
       onNotice(errorMessage(e, INVOICE_ERRORS), 'error');
     }
@@ -878,9 +879,9 @@ function InvoiceTable({
           {
             label: 'Preview Invoice',
             icon: FileMagnifyingGlass,
-            onSelect: () => void pdf(i, true),
+            onSelect: () => setPreviewing(i.id),
           },
-          { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i, false) },
+          { label: 'Download PDF', icon: FilePdf, onSelect: () => void pdf(i) },
           // I-N06: a scheduled one, or a sent one with nothing paid, too.
           ...(canChange && canEditInvoice(i)
             ? [
@@ -1368,6 +1369,9 @@ function InvoiceTable({
             onNotice('Message sent.', 'success');
           }}
         />
+      ) : null}
+      {previewing ? (
+        <InvoicePreviewDialog invoiceId={previewing} onClose={() => setPreviewing(undefined)} />
       ) : null}
       {correcting ? (
         <InvoiceCorrectForm

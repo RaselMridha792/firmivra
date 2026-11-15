@@ -10,6 +10,7 @@ import {
 import { Button, Input, Modal } from '@firmivra/ui';
 import {
   ArrowLeft,
+  FileMagnifyingGlass,
   Invoice as InvoiceIcon,
   PaperPlaneTilt,
   PencilSimple,
@@ -41,6 +42,7 @@ import {
   ViewPill,
 } from './inv-shared';
 import { InvoiceHistoryCard } from './invoice-history';
+import { InvoicePreviewDialog } from './invoice-preview';
 
 const PAYMENT_STATUS: Record<string, string> = {
   PENDING: 'Pending',
@@ -54,6 +56,8 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
   const qc = useQueryClient();
   const q = useApiQuery([...INV_KEY, 'one', invoiceId], () => api.invoices.get(invoiceId));
   const [canceling, setCanceling] = useState(false);
+  // I-N08: Preview on screen.
+  const [previewing, setPreviewing] = useState(false);
   const [refunding, setRefunding] = useState<Invoice['payments'][number]>();
   const [voiding, setVoiding] = useState<Invoice['offlinePayments'][number]>();
   const [failure, setFailure] = useState('');
@@ -124,6 +128,10 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                 </>
               ) : null}
               {/* I-N06: a draft, a scheduled invoice, or a sent one with nothing paid. */}
+              <button type="button" className={outlined} onClick={() => setPreviewing(true)}>
+                <FileMagnifyingGlass aria-hidden weight="fill" className="size-5 text-action" />{' '}
+                Preview
+              </button>
               {canEditInvoice(i) ? (
                 <Link href={`/invoices/${i.id}/edit`} className={outlined}>
                   <PencilSimple aria-hidden weight="fill" className="size-5 text-action" /> Edit
@@ -408,6 +416,9 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           </dl>
         </aside>
       </div>
+      {previewing && i ? (
+        <InvoicePreviewDialog invoiceId={i.id} onClose={() => setPreviewing(false)} />
+      ) : null}
       {canceling && i ? (
         <InvoiceCancelForm invoice={i} onClose={() => setCanceling(false)} />
       ) : null}
