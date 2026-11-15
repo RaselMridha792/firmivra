@@ -4,11 +4,19 @@ import type { CaseModule } from '../world.js';
 
 const SIGN_IN = 'Public sign-in step: no firm or client data before a session exists';
 const SIGN_UP = 'Public portal sign-up step: answers the same whether or not an account exists';
+const RESPOND =
+  "Public: an applicant answers one information request, found by its link's hash or the pass the code gives; no firm exists yet";
 
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/health': 'Public health check, no data',
   'GET /api/v1/me': "The session's own login and memberships, from the token",
   'POST /api/v1/firm-applications': 'Public: a new firm applies; no firm exists yet',
+  // SA-APP-F04: the applicant's answer, by the emailed link (firm-application-respond e2e).
+  'POST /api/v1/firm-applications/respond/open': RESPOND,
+  'POST /api/v1/firm-applications/respond/code': RESPOND,
+  'POST /api/v1/firm-applications/respond/verify': RESPOND,
+  'POST /api/v1/firm-applications/respond/uploads': RESPOND,
+  'POST /api/v1/firm-applications/respond': RESPOND,
   'POST /api/v1/auth/sign-in': SIGN_IN,
   'POST /api/v1/auth/mfa': SIGN_IN,
   'POST /api/v1/auth/mfa/setup': SIGN_IN,

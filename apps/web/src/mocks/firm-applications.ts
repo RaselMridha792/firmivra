@@ -1,6 +1,11 @@
 import {
   type AdminRef,
   ApiRequestError,
+  CreateApplicationResponseUploadRequest,
+  OpenApplicationResponseRequest,
+  SendApplicationResponseCodeRequest,
+  SubmitApplicationResponseRequest,
+  VerifyApplicationResponseCodeRequest,
   ApproveFirmApplicationRequest,
   AssignFirmReviewerRequest,
   type BusinessSummary,
@@ -404,7 +409,31 @@ const emailDomainCheck = (email: string, website: string | null): FirmApplicatio
 };
 
 /** An in-memory `api.firmApplications`. The Super Admin acting is Morgan Admin. */
+/**
+ * The applicant's link in mock mode (SA-APP-F04): `/apply/respond#token=` this token opens the
+ * mock's one open request; every other token is 410 LINK_EXPIRED, as in the API. The code is
+ * always 000000 (as locally).
+ */
+export const MOCK_RESPONSE_TOKEN = 'mockResponseToken0000000000000000000000000A';
+const MOCK_CODE = '000000';
+
 export function createFirmApplicationsMock(): FirmApplicationsClient {
+  // The applicant's answer: one open request until it is answered.
+  const answer = { open: true, codeSent: false, tries: 0, sessions: new Set<string>() };
+  const linkExpired = () =>
+    fail(
+      410,
+      'LINK_EXPIRED',
+      'This link no longer works. It may have expired, been answered, or been replaced by a newer request.',
+    );
+  const openLink = (token: string) => {
+    if (token !== MOCK_RESPONSE_TOKEN || !answer.open) throw linkExpired();
+  };
+  const session = (value: string) => {
+    if (!answer.sessions.has(value))
+      throw fail(410, 'SESSION_EXPIRED', 'Your session ended. Open the link from the email again.');
+    if (!answer.open) throw linkExpired();
+  };
   // NEXT_PUBLIC_API_MOCK_EMPTY=firmApplications: no applications and no firms (the empty states).
   const empty = mockedEmpty('firmApplications');
   let rows: Row[] = empty ? [] : structuredClone([...firmApplicationFixtures()]);
@@ -572,6 +601,63 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
   };
 
   return {
+    respond: {
+      open: async (body) => {
+        await mockDelay();
+        openLink(parseInput(OpenApplicationResponseRequest, body).token);
+        return {
+          legalName: 'Sample Tax Partners LLC (fake)',
+          reason: 'Please send your PTIN and a copy of your current license.',
+          requestedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+          expiresAt: new Date(Date.now() + 12 * 86_400_000).toISOString(),
+          codeSentTo: 'ca***@example.test',
+        };
+      },
+      sendCode: async (body) => {
+        await mockDelay();
+        openLink(parseInput(SendApplicationResponseCodeRequest, body).token);
+        answer.codeSent = true;
+        answer.tries = 0;
+        return { sent: true };
+      },
+      verifyCode: async (body) => {
+        await mockDelay();
+        const { token, code } = parseInput(VerifyApplicationResponseCodeRequest, body);
+        openLink(token);
+        if (!answer.codeSent)
+          throw fail(400, 'CODE_INVALID', 'That code is not right or has expired.');
+        if (answer.tries >= 5)
+          throw fail(429, 'CODE_LOCKED', 'Too many tries. Ask for a new code.');
+        answer.tries += 1;
+        if (code !== MOCK_CODE)
+          throw fail(400, 'CODE_INVALID', 'That code is not right or has expired.');
+        answer.codeSent = false;
+        const value = `mock-session-${answer.sessions.size + 1}`;
+        answer.sessions.add(value);
+        return { session: value, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+      },
+      createUpload: async (body) => {
+        await mockDelay();
+        const b = parseInput(CreateApplicationResponseUploadRequest, body);
+        session(b.session);
+        return {
+          uploadToken: `mock-upload:${b.session}:${b.fileName}`,
+          method: 'PUT',
+          url: `mock:upload/${encodeURIComponent(b.fileName)}`,
+          headers: { 'content-type': b.contentType },
+          expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+        };
+      },
+      submit: async (body) => {
+        await mockDelay();
+        const b = parseInput(SubmitApplicationResponseRequest, body);
+        session(b.session);
+        if (b.uploadTokens.some((t) => !t.startsWith(`mock-upload:${b.session}:`)))
+          throw fail(410, 'UPLOAD_EXPIRED', 'The upload took too long. Attach the file again.');
+        answer.open = false;
+        return { submittedAt: new Date().toISOString() };
+      },
+    },
     submit: async (body) => {
       await mockDelay();
       const {
