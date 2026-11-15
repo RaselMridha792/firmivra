@@ -576,6 +576,16 @@ const InvoiceNote = z
 const DraftFields = {
   /** One of this client's services (an engagement id from api.engagements); null or left out: none. */
   engagementId: z.uuid().nullable().optional(),
+  /**
+   * Invoices Review 2 I-N01: a service from the firm's catalog instead (Services & Pricing), for
+   * a client not enrolled in it: saving adds it as a PENDING "Requested" engagement (one per
+   * client and service, reused) and the invoice is for it; enrolled, its active engagement is
+   * used. 404 for another firm's, an inactive, a draft or an archived service. With
+   * `engagementId` too, both are checked and the client's own engagement decides.
+   */
+  serviceId: z.uuid().optional(),
+  /** I-N01: the plan chosen for a Requested engagement, by name (one of the service's plans). */
+  servicePackage: z.string().trim().max(100).nullable().optional(),
   lines: z
     .array(LineInput)
     .min(1, 'Add at least one line')

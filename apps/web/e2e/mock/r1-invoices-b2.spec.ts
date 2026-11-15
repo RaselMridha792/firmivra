@@ -1,7 +1,8 @@
 import { expect, test, type Locator } from '@playwright/test';
 
 // R1, Invoices Review 2 batch 2 (the lead's list): the list's badges, Preview, the Invoice
-// Templates link, Create Task / Schedule Follow-Up context, Send Receipt, the Payment Method filter.
+// Templates link, Create Task / Schedule Follow-Up context, Send Receipt, the Payment Method filter,
+// the Tipping label and the header Service from the whole catalog.
 // Mock mode as the Owner; synthetic data only.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
@@ -128,4 +129,27 @@ test('I-N05: the Tipping setting says tips are not active yet at Pay Now', async
     "Not active yet: clients can't add a tip at Pay Now yet",
     { timeout: 60_000 },
   );
+});
+
+test('I-N01: the header Service lists the whole catalog; one the client lacks is added as Requested, with its plans', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices/new'));
+  // Riley Example (fake) has no services yet.
+  await page.getByLabel('Client *').selectOption({ label: 'Riley Example' }, { timeout: 60_000 });
+  const service = page.getByLabel('Service', { exact: true });
+  await service.selectOption({ label: 'Bookkeeping Services (new for this client)' });
+  await expect(page.getByTestId('service-requested-hint')).toHaveText(
+    'Not yet a service for this client: saving adds it as Requested.',
+  );
+  const plan = page.getByLabel('Plan', { exact: true });
+  await expect(plan.locator('option')).toHaveText(['No plan', 'Starter', 'Growth', 'Premium']);
+  await expect(page.getByTestId('invoice-service-plan')).toContainText('Billed monthly');
+  await plan.selectOption('Growth');
+  await page.getByLabel('Description 1 *').fill('Monthly books (fake)');
+  await page.getByLabel('Rate 1 *').fill('199');
+  await page.getByRole('button', { name: 'Save Draft' }).click();
+  await expect(page).toHaveURL(/\/invoices\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  await expect(page.getByText('Bookkeeping Services (Requested)').first()).toBeVisible();
 });

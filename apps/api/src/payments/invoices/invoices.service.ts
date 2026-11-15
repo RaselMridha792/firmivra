@@ -49,6 +49,7 @@ import {
   withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
+import { requestedEngagement } from '../../engagements/requested-engagement.js';
 import { REPORT_FILES, type ReportFiles } from '../../reports/report-files.js';
 import { checkDraftExtras, writeAttachments } from './invoice-extras.js';
 import { InvoiceNotices } from './invoice-notices.js';
@@ -359,15 +360,25 @@ export class InvoicesService {
     return invoice;
   }
 
-  /** The client (404) and the service (one of this client's, 404); true when it is archived. */
+  /**
+   * The client (404) and the service (one of this client's, 404); true when it is archived. With
+   * a catalog service (I-N01) the client row is held for update from the start, as the Requested
+   * engagement needs, so two saves at once queue instead of deadlocking on the upgrade.
+   */
   private async checkClient(
     tx: TxClient,
     businessId: string,
     clientId: string,
     engagementId: string | null | undefined,
+    catalogService?: string,
   ): Promise<boolean> {
-    await tx.$queryRaw`
-      SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid FOR SHARE`;
+    if (catalogService) {
+      await tx.$queryRaw`
+        SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid FOR UPDATE`;
+    } else {
+      await tx.$queryRaw`
+        SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid FOR SHARE`;
+    }
     const client = await tx.client.findFirst({
       where: { businessId, id: clientId },
       select: { archivedAt: true },
@@ -453,6 +464,45 @@ export class InvoicesService {
     await writeAttachments(tx, businessId, id, body.documentIds, actorUserId);
   }
 
+  /**
+   * Invoices Review 2 I-N01: the engagement an invoice is for. The one named (checked by
+   * checkClient); or, for a catalog service (`serviceId`, the firm's own, active and not archived,
+   * else 404, checked even beside `engagementId`), the client's ACTIVE engagement of it, else its
+   * Requested (PENDING) one, made once (N8-23's helper).
+   */
+  private async engagementOf(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    clientId: string,
+    body: { engagementId?: string | null; serviceId?: string; servicePackage?: string | null },
+  ): Promise<string | null | undefined> {
+    if (!body.serviceId) return body.engagementId;
+    const service = await tx.service.findFirst({
+      where: { businessId, id: body.serviceId, status: 'ACTIVE', archivedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!service) throw notFound();
+    if (body.engagementId) return body.engagementId;
+    const active = await tx.engagement.findFirst({
+      where: { businessId, clientId, serviceId: service.id, status: 'ACTIVE' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    if (active) return active.id;
+    const requested = await requestedEngagement(tx, this.audit, {
+      businessId,
+      userId: actor.userId,
+      clientId,
+      serviceId: service.id,
+      // Named for the service, as the invoice shows it ("Bookkeeping (Requested)").
+      title: `${service.name} (Requested)`,
+      via: 'invoice',
+      plan: body.servicePackage ?? null,
+    });
+    return requested.id;
+  }
+
   /** IP-F05: the draft's schedule follows its Recurring settings (see invoice-recurrence.ts). */
   private async writeRecurrence(
     tx: TxClient,
@@ -503,9 +553,16 @@ export class InvoicesService {
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<Invoice> {
     const attempt = () =>
       this.inFirm(businessId, async (tx) => {
-        if (await this.checkClient(tx, businessId, body.clientId, body.engagementId)) {
+        if (
+          await this.checkClient(tx, businessId, body.clientId, body.engagementId, body.serviceId)
+        ) {
           throw archived();
         }
+        // I-N01: a catalog service the client isn't enrolled in becomes a Requested engagement.
+        const draft = {
+          ...body,
+          engagementId: await this.engagementOf(tx, businessId, actor, body.clientId, body),
+        };
         const { id } = await tx.invoice.create({
           data: {
             businessId,
@@ -515,8 +572,8 @@ export class InvoicesService {
           },
           select: { id: true },
         });
-        await this.writeDraft(tx, businessId, id, body, actor.userId);
-        await this.writeRecurrence(tx, businessId, actor, id, body);
+        await this.writeDraft(tx, businessId, id, draft, actor.userId);
+        await this.writeRecurrence(tx, businessId, actor, id, draft);
         const row = await this.load(tx, businessId, actor, id);
         await this.audit.logIn(
           tx,
@@ -737,7 +794,9 @@ export class InvoicesService {
     const current = await this.load(tx, businessId, actor, id);
     if (closed(current.status)) throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
     if (current.archivedAt) throw invoiceArchived();
-    if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
+    if (
+      await this.checkClient(tx, businessId, current.clientId, body.engagementId, body.serviceId)
+    ) {
       throw archived();
     }
     const sent = current.status === 'OPEN';
@@ -782,9 +841,14 @@ export class InvoicesService {
         });
       }
     }
-    await this.writeDraft(tx, businessId, id, body, actor.userId);
+    // I-N01: a catalog service the client isn't enrolled in becomes a Requested engagement.
+    const draft = {
+      ...body,
+      engagementId: await this.engagementOf(tx, businessId, actor, current.clientId, body),
+    };
+    await this.writeDraft(tx, businessId, id, draft, actor.userId);
     // The Recurring settings belong to a draft's or a scheduled invoice's schedule.
-    if (!sent) await this.writeRecurrence(tx, businessId, actor, id, body);
+    if (!sent) await this.writeRecurrence(tx, businessId, actor, id, draft);
     const row = await this.load(tx, businessId, actor, id);
     // I-N06: a correction leaves something to pay (lines pass through zero while they change, so
     // this is checked here, not by the database).
