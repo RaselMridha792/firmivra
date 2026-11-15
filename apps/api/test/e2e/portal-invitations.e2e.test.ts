@@ -353,7 +353,20 @@ describe('Sign-ups > Invitations (Clients Review Two, N8-09)', () => {
       .set('authorization', `Bearer ${await tokenFor(who.email)}`);
     return PortalInvitationPage.parse(ok(res));
   };
-  const made: Record<string, string> = {};
+  type Made =
+    | 'notInvited'
+    | 'open'
+    | 'opened'
+    | 'expired'
+    | 'revoked'
+    | 'notSent'
+    | 'accepted'
+    | 'noEmail'
+    | 'archived'
+    | 'limit'
+    | 'staffs';
+  // Filled in beforeAll, before any test reads it.
+  const made = {} as Record<Made, string>;
   let sends = 0;
   /** Send as the Owner from an address of its own (the send route allows 10 a minute per caller). */
   const sendFrom = async (clientId: string) =>
