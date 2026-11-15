@@ -14,6 +14,9 @@ import {
 // history, so a closed lead reached New only and a lead's time in its stage counts from when it
 // came in.
 
+/** A lead as the leads mock stores it (its score is computed only when a profile is read). */
+type FunnelLead = Omit<LeadProfile, 'score'>;
+
 const DAY = 86_400_000;
 const STAGES: LeadFunnelStage[] = [
   'NEW',
@@ -49,7 +52,7 @@ const bucketOf = (days: number): LeadAgeBucket =>
           ? 'D31_60'
           : 'D61_PLUS';
 
-function counted(leads: LeadProfile[], query: LeadReportQuery) {
+function counted(leads: FunnelLead[], query: LeadReportQuery) {
   const q = parseInput(LeadReportQuery, query);
   const today = day(new Date());
   const to = q.to ?? today;
@@ -81,7 +84,7 @@ function counted(leads: LeadProfile[], query: LeadReportQuery) {
 }
 
 /** `funnelReport` on the given leads (those the member reaches, archived included). */
-export function mockFunnelReport(leads: LeadProfile[], query: LeadReportQuery = {}): LeadReport {
+export function mockFunnelReport(leads: FunnelLead[], query: LeadReportQuery = {}): LeadReport {
   const { from, to, today, items } = counted(leads, query);
   const open = items.filter((i) => i.open);
   return {
@@ -128,7 +131,7 @@ export function mockFunnelReport(leads: LeadProfile[], query: LeadReportQuery = 
 
 /** `funnelReportLeads` on the given leads: the leads behind one number. */
 export function mockFunnelReportLeads(
-  leads: LeadProfile[],
+  leads: FunnelLead[],
   query: LeadReportLeadsQuery,
 ): LeadReportLeads {
   const q = parseInput(LeadReportLeadsQuery, query);

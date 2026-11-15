@@ -1,6 +1,6 @@
 'use client';
 
-import type { ContactChannel, LeadProfile } from '@firmivra/types';
+import type { ContactChannel, LeadProfile, LeadScore } from '@firmivra/types';
 import { Avatar, Badge, Button, Callout, Modal, tileTones } from '@firmivra/ui';
 import {
   Cake,
@@ -123,6 +123,34 @@ function Figure({
         <div className="text-sm text-text">{note}</div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Lead scoring v1 (Leads checklist): the score's label, and "Why this score", the parts that gave
+ * or took points, in plain words (packages/types score.ts), opened on demand so the figure stays
+ * the design's size.
+ */
+function ScoreNote({ score }: { score: LeadScore }) {
+  return (
+    <>
+      <span>{score.label}</span>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-xs text-link">Why this score</summary>
+        <ul aria-label="Why this score" className="mt-1 flex flex-col gap-0.5 text-xs">
+          {score.factors.map((f) => (
+            <li key={f.label} className="flex justify-between gap-2">
+              <span className="min-w-0">{f.label}</span>
+              <span
+                className={`shrink-0 font-semibold ${f.points < 0 ? 'text-danger' : 'text-success'}`}
+              >
+                {f.points < 0 ? `−${-f.points}` : `+${f.points}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </>
   );
 }
 
@@ -434,8 +462,8 @@ export function OverviewTab() {
               tone="red"
               label="Lead Score"
               testId="figure-lead-score"
-              value={lead?.score ? lead.score.value : '—'}
-              note={lead?.score ? lead.score.label : 'Not scored yet'}
+              value={lead ? lead.score.value : '—'}
+              note={lead ? <ScoreNote score={lead.score} /> : 'Not scored yet'}
             />
             <Figure
               icon={FileText}

@@ -1,16 +1,21 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { Prisma, TxClient } from '@firmivra/db';
 import {
+  idleDaysSince,
   LEAD_STATUS_LABELS,
+  leadScoreActivitySince,
   type LeadActivity,
   type LeadFollowUp,
   type LeadPipelineStatus,
   type LeadProfile,
   type LeadTask,
   type LeadRow,
+  type LeadScore,
+  type LeadScoreInput,
   type LeadSource,
   roleCan,
   type PermissionCapability,
+  scoreLead,
 } from '@firmivra/types';
 import { legacyFirmRole, type TenantRole } from '../common/request-context.js';
 import { notFound } from './leads.service.js';
@@ -365,6 +370,53 @@ async function followUpsOrLegacy(
   ];
 }
 
+/**
+ * Lead scoring v1 (score.ts): the lead's contact details, source and stage, what was recorded on
+ * it in the last 30 days, and how long it has waited. What counts as activity: a logged call
+ * (CALL), a meeting or appointment (MEETING, APPOINTMENT_SCHEDULED) and a submitted form
+ * (FORM_SUBMITTED) on the lead's timeline. A reply from the lead is not recorded anywhere yet (a
+ * lead's thread holds only the firm's messages: messages_rules needs a client's portal login for a
+ * message to the firm), so replies count 0 until replies are kept. The wait runs from the newest
+ * timeline row of any kind (the database writes one when the lead is made).
+ */
+async function leadScoreOf(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  lead: {
+    row: LeadRow;
+    status: LeadScoreInput['status'];
+    createdAt: Date;
+    newestActivityAt: Date | null;
+  },
+): Promise<LeadScore> {
+  const now = new Date();
+  const recent = await tx.leadActivity.findMany({
+    where: {
+      businessId,
+      leadId,
+      occurredAt: { gte: leadScoreActivitySince(now) },
+      kind: { in: ['CALL', 'MEETING', 'APPOINTMENT_SCHEDULED', 'FORM_SUBMITTED'] },
+    },
+    select: { kind: true },
+  });
+  const count = (...kinds: string[]) => recent.filter((a) => kinds.includes(a.kind)).length;
+  return scoreLead({
+    hasEmail: !!lead.row.email,
+    hasPhone: !!lead.row.phone,
+    services: lead.row.services.length,
+    source: lead.row.source,
+    status: lead.status,
+    recent: {
+      replies: 0,
+      calls: count('CALL'),
+      meetings: count('MEETING', 'APPOINTMENT_SCHEDULED'),
+      forms: count('FORM_SUBMITTED'),
+    },
+    idleDays: idleDaysSince(lead.newestActivityAt ?? lead.createdAt, now),
+  });
+}
+
 export async function loadProfile(
   tx: TxClient,
   businessId: string,
@@ -429,8 +481,15 @@ export async function loadProfile(
   ]
     .filter(Boolean)
     .join(', ');
+  const row = toRow(r);
   return {
-    ...toRow(r),
+    ...row,
+    score: await leadScoreOf(tx, businessId, id, {
+      row,
+      status: r.status,
+      createdAt: r.createdAt,
+      newestActivityAt: recent[0]?.occurredAt ?? null,
+    }),
     address: address || null,
     dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
     assignedByRule: r.assignedByRule,
