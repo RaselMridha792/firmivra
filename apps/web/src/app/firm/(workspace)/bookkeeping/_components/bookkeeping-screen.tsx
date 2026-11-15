@@ -176,8 +176,19 @@ export function BookkeepingScreen({
   const notice: Notice = (text, tone) => setMessage({ text, tone });
   const act = useAct(notice);
   const term = useDeferredValue(search.trim());
-  const overview = useApiQuery([...BK_KEY, 'overview', period], () =>
-    api.bookkeeping.overview({ period }),
+  // The list's tab and filters; Review 2 (D01, D02): the money cards and the monthly chart total
+  // the same clients the list shows.
+  const listFilters = {
+    tab,
+    ...(type ? { clientType: type as 'INDIVIDUAL' | 'BUSINESS' } : {}),
+    ...(plan ? { plan } : {}),
+    ...(software ? { software } : {}),
+    ...(status ? { status: status as BookkeepingClientRow['status'] } : {}),
+    ...(custom ?? {}),
+    ...(term ? { search: term } : {}),
+  };
+  const overview = useApiQuery([...BK_KEY, 'overview', period, listFilters], () =>
+    api.bookkeeping.overview({ period, ...listFilters }),
   );
   const list = useApiQuery(
     [
@@ -199,13 +210,7 @@ export function BookkeepingScreen({
     ],
     () =>
       api.bookkeeping.clients({
-        tab,
-        ...(type ? { clientType: type as 'INDIVIDUAL' | 'BUSINESS' } : {}),
-        ...(plan ? { plan } : {}),
-        ...(software ? { software } : {}),
-        ...(status ? { status: status as BookkeepingClientRow['status'] } : {}),
-        ...(custom ?? {}),
-        ...(term ? { search: term } : {}),
+        ...listFilters,
         sort: SORT_KEY[sort.id] ?? 'clientName',
         direction: sort.descending ? 'desc' : 'asc',
         page,
@@ -256,6 +261,15 @@ export function BookkeepingScreen({
     setPage(1);
   };
   const anyFilter = !!(type || plan || software || status || due || search);
+  // The money cards name the clients they total: the list's tab, or the clients it shows.
+  const counted =
+    !anyFilter && tab === 'ALL'
+      ? 'All Clients'
+      : !anyFilter && tab === 'ACTIVE'
+        ? 'Active Clients'
+        : 'Clients Shown';
+  const noFiguresNote =
+    counted === 'All Clients' ? 'No figures entered yet' : 'No figures for these clients';
 
   const columns: Column<BookkeepingClientRow>[] = [
     {
@@ -415,12 +429,12 @@ export function BookkeepingScreen({
               icon={CurrencyDollar}
               tone="blue"
               value={k && !noFigures ? moneyWhole(k.totalIncomeCents.value) : '—'}
-              label="Total Income (Active Clients)"
+              label={`Total Income (${counted})`}
               loading={overview.isPending}
               {...(k && !noFigures && trendOf(k.totalIncomeCents)
                 ? { trend: trendOf(k.totalIncomeCents)!, note: 'vs last period' }
                 : noFigures
-                  ? { note: 'No figures entered yet' }
+                  ? { note: noFiguresNote }
                   : {})}
             />
           </li>
@@ -429,12 +443,12 @@ export function BookkeepingScreen({
               icon={CreditCard}
               tone="blue"
               value={k && !noFigures ? moneyWhole(k.totalExpensesCents.value) : '—'}
-              label="Total Expenses (Active Clients)"
+              label={`Total Expenses (${counted})`}
               loading={overview.isPending}
               {...(k && !noFigures && trendOf(k.totalExpensesCents, true)
                 ? { trend: trendOf(k.totalExpensesCents, true)!, note: 'vs last period' }
                 : noFigures
-                  ? { note: 'No figures entered yet' }
+                  ? { note: noFiguresNote }
                   : {})}
             />
           </li>
@@ -443,12 +457,12 @@ export function BookkeepingScreen({
               icon={ChartBar}
               tone="blue"
               value={k && !noFigures ? moneyWhole(k.netProfitCents.value) : '—'}
-              label="Net Profit (Active Clients)"
+              label={`Net Profit (${counted})`}
               loading={overview.isPending}
               {...(k && !noFigures && trendOf(k.netProfitCents)
                 ? { trend: trendOf(k.netProfitCents)!, note: 'vs last period' }
                 : noFigures
-                  ? { note: 'No figures entered yet' }
+                  ? { note: noFiguresNote }
                   : {})}
             />
           </li>
@@ -559,7 +573,11 @@ export function BookkeepingScreen({
               </>
             ) : (
               <p className={quiet}>
-                {overview.isPending ? 'Loading…' : 'No monthly figures have been entered yet.'}
+                {overview.isPending
+                  ? 'Loading…'
+                  : counted === 'All Clients'
+                    ? 'No monthly figures have been entered yet.'
+                    : 'No monthly figures for the clients shown.'}
               </p>
             )}
           </section>

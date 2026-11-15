@@ -311,6 +311,13 @@ describe('the forms sent', () => {
     expect((await list(`formId=${ids.template}`)).total).toBe(6);
     expect((await list(`formId=${randomUUID()}`)).total).toBe(0);
     expect((await list(`serviceId=${ids.service}`)).total).toBe(6);
+    // Client Portal module items 1 and 7: archived forms are listed on their own tab, and the
+    // form type and service filters apply there too.
+    expect((await list('tab=archived')).items.map((i) => i.id)).toEqual([ids.archived]);
+    expect((await list(`tab=archived&formId=${ids.template}&serviceId=${ids.service}`)).total).toBe(
+      1,
+    );
+    expect((await list(`tab=archived&serviceId=${randomUUID()}`)).total).toBe(0);
     expect((await list('pageSize=2&page=2')).items).toHaveLength(2);
     expect((await call('get', '/intakes?tab=nope', ownerA)).status).toBe(400);
   });

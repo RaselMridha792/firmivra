@@ -75,6 +75,8 @@ import {
 import { BookkeepingStatusService, readSettings } from './bookkeeping-status.service.js';
 
 type ClientsQuery = z.output<typeof BookkeepingClientsQuery>;
+/** What the list's rows depend on: its tab and filters, not its order or page. */
+type ListFilters = Omit<ClientsQuery, 'sort' | 'direction' | 'page' | 'pageSize'>;
 type ListQuery = z.output<typeof BookkeepingListQuery>;
 
 const EXPORT_LIMIT = 5_000;
@@ -219,10 +221,27 @@ export class BookkeepingClientsService {
           (p.engagement.status === 'ACTIVE' || p.engagement.status === 'PENDING'),
       );
       const ids = active.map((p) => p.engagementId);
+      // Review 2 (D01, D02): with the list's tab, the money cards and the monthly chart total the
+      // clients the list shows (its tab and filters); without one, the active clients.
+      const counted = q.tab
+        ? (
+            await tx.bookkeepingProfile.findMany({
+              where: this.where(
+                businessId,
+                actor,
+                { ...q, tab: q.tab },
+                now,
+                settings.upcomingReportDays,
+                true,
+              ),
+              select: { engagementId: true },
+            })
+          ).map((p) => p.engagementId)
+        : ids;
       const periods = await tx.bookkeepingPeriod.findMany({
         where: {
           businessId,
-          engagementId: { in: ids },
+          engagementId: { in: counted },
           periodStart: { gte: toDay(earliest) },
           periodEnd: { lte: toDay(latest) },
           incomeCents: { not: null },
@@ -249,7 +268,7 @@ export class BookkeepingClientsService {
         take: 5,
       });
       const names = await memberNames(tx, businessId, reportMemberIds(upcoming));
-      return { settings, profiles, active, periods, upcoming, names };
+      return { settings, profiles, active, counted: new Set(counted), periods, upcoming, names };
     });
 
     const figures = result.periods.map((p) => ({
@@ -288,7 +307,7 @@ export class BookkeepingClientsService {
         (p) =>
           p.kind === 'MONTH' &&
           p.periodStart.startsWith(month) &&
-          result.active.some((a) => a.engagementId === p.engagementId),
+          result.counted.has(p.engagementId),
       );
       return {
         month,
@@ -375,7 +394,7 @@ export class BookkeepingClientsService {
   private where(
     businessId: string,
     actor: BookkeepingActor,
-    q: ClientsQuery,
+    q: ListFilters,
     now: Date,
     upcomingDays: number,
     withTab: boolean,

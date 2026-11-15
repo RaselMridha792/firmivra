@@ -27,6 +27,7 @@ import {
   ClipboardText,
   ClockCounterClockwise,
   DotsThree,
+  DownloadSimple,
   Eye,
   FileText,
   FilePlus,
@@ -42,6 +43,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { openPdf } from '../../intake-forms/_components/export-pdf';
 import { dayText } from './activity-labels';
 
 const STATUS_TONE: Record<
@@ -78,6 +80,8 @@ export function PortalForms({ clientId }: { clientId: string }) {
   const [term, setTerm] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [formId, setFormId] = useState('');
+  const [serviceId, setServiceId] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [notice, setNotice] = useState('');
@@ -90,10 +94,28 @@ export function PortalForms({ clientId }: { clientId: string }) {
     search: term.trim() || undefined,
     from: from || undefined,
     to: to || undefined,
+    formId: formId || undefined,
+    serviceId: serviceId || undefined,
     page,
     pageSize,
   };
   const forms = useApiQuery(['client-portal', 'forms', query], () => api.intakeForms.list(query));
+  // Client Portal module item 7: the Form Type and Service choices are the client's own forms
+  // in the chosen status, whatever the other filters say.
+  const choicesQuery = { clientId, tab, pageSize: 100 };
+  const choices = useApiQuery(['client-portal', 'forms', choicesQuery], () =>
+    api.intakeForms.list(choicesQuery),
+  );
+  const formChoices = new Map<string, string>();
+  const serviceChoices = new Map<string, string>();
+  for (const f of choices.data?.items ?? []) {
+    formChoices.set(f.form.id, f.form.name);
+    if (f.service) serviceChoices.set(f.service.id, f.service.name);
+  }
+  const optionsOf = (m: Map<string, string>) =>
+    [...m]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   // The canonical intakes also give each one's submission date.
   const intakes = useApiQuery(['client-portal', 'intakes', clientId], () =>
     api.intakes.listForClient(clientId),
@@ -120,7 +142,7 @@ export function PortalForms({ clientId }: { clientId: string }) {
       },
     );
   const s = summary.data;
-  const filtered = !!(term || from || to || tab !== 'all');
+  const filtered = !!(term || from || to || formId || serviceId || tab !== 'all');
   return (
     <div
       className="grid items-start gap-6 @5xl:grid-cols-[minmax(0,1fr)_20rem]"
@@ -195,7 +217,7 @@ export function PortalForms({ clientId }: { clientId: string }) {
           <Kpi icon={WarningCircle} tone="red" value={s?.notStarted} label="Not Started" />
           <Kpi icon={Archive} tone="grey" value={s?.archived} label="Archived" />
         </div>
-        <div className="mb-4 grid gap-3 @4xl:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))_auto] @4xl:items-end">
+        <div className="mb-4 grid gap-3 @4xl:grid-cols-[minmax(12rem,2fr)_repeat(3,minmax(9rem,1fr))] @4xl:items-end">
           <SearchField
             label="Search forms"
             placeholder="Search forms by name or keyword..."
@@ -221,7 +243,29 @@ export function PortalForms({ clientId }: { clientId: string }) {
               { value: 'submitted', label: 'Submitted / Needs Review' },
               { value: 'completed', label: 'Completed' },
               { value: 'expired', label: 'Expired' },
+              // Client Portal module item 1: archived forms are listed on their own.
+              { value: 'archived', label: 'Archived' },
             ]}
+          />
+          <Select
+            label="Form Type"
+            hideLabel
+            value={formId}
+            onChange={(e) => {
+              setFormId(e.target.value);
+              setPage(1);
+            }}
+            options={[{ value: '', label: 'All Form Types' }, ...optionsOf(formChoices)]}
+          />
+          <Select
+            label="Service"
+            hideLabel
+            value={serviceId}
+            onChange={(e) => {
+              setServiceId(e.target.value);
+              setPage(1);
+            }}
+            options={[{ value: '', label: 'All Services' }, ...optionsOf(serviceChoices)]}
           />
           <label className="flex flex-col gap-1 text-sm text-muted">
             <span className="sr-only">Requested from</span>
@@ -257,6 +301,8 @@ export function PortalForms({ clientId }: { clientId: string }) {
                 setTerm('');
                 setFrom('');
                 setTo('');
+                setFormId('');
+                setServiceId('');
                 setTab('all');
                 setPage(1);
               }}
@@ -507,6 +553,13 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
     },
     { invalidate: ['client-portal'] },
   );
+  // Client Portal module item 4: Download PDF, the same export as the form's Export PDF.
+  const pdf = useApiMutation(() => api.intakeForms.exportPdf(form.id));
+  const [pdfError, setPdfError] = useState('');
+  const download = () => {
+    setPdfError('');
+    openPdf((handlers) => pdf.mutate(undefined, handlers), setPdfError);
+  };
   const open = (path = '') => router.push(`/intake-forms/${form.id}${path}`);
   const waiting = OUTSTANDING.includes(form.status);
   const review = form.status === 'SUBMITTED' || form.status === 'UNDER_REVIEW';
@@ -520,6 +573,7 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
           {
             items: [
               { label: 'View Submission', icon: Eye, onSelect: () => open('/responses') },
+              { label: 'Download PDF', icon: DownloadSimple, onSelect: download },
               ...(review
                 ? [
                     { label: 'Review Form', icon: ClipboardText, onSelect: () => open() },
@@ -558,9 +612,9 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
           },
         ]}
       />
-      {act.error ? (
+      {act.error || pdfError ? (
         <span role="alert" className="text-xs text-danger">
-          {errorMessage(act.error)}
+          {pdfError || errorMessage(act.error)}
         </span>
       ) : null}
     </div>

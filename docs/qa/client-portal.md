@@ -109,12 +109,12 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Intake Forms header: Request Form (Send Intake Form with the client chosen), Send Reminder, More Actions | #1414 | `r60-client-portal-forms` |
 | KPIs: Total, Completed, Submitted Needs Review, In Progress, Not Started, Archived | #1400, #1414 | `client-portal-access`, `r60-client-portal-forms` |
 | Search, status and date filters, with Clear | #1414 | `r60-client-portal-forms` |
-| **Filters by form type and service: not built yet (assigned to R1, Nov 15).** | — | — |
+| Filters by form type and service: Form Type and Service choices are the client's own forms in the chosen status (P1-17) | this PR (R56) | e2e `intake-workspace` "lists with tabs, search, filters and pages" (formId and serviceId on the archived tab); mock `r56-client-portal-forms-filters` |
 | Table: Form Name, Form Type, Date Requested, Due Date, Date Submitted, Status, Assigned To | #1414 | `r60-client-portal-forms`, `intake-workspace` |
 | Every state kept: a submitted form never disappears ("Submitted - Needs Review") | #1414 | `r60-client-portal-forms` |
-| **Archived forms listed: not built yet (assigned to R1, Nov 15).** They are counted in Total and Archived, but no tab or filter lists them. | — | — |
+| Archived forms listed: Status "Archived" lists them; they stay out of All Statuses, as counted (P1-17). A form sent from Request Form shows on return | this PR (R56) | e2e `intake-workspace` "lists with tabs, search, filters and pages" (tab=archived); mock `r56-client-portal-forms-filters` |
 | Row actions: View Submission, Review, Request Correction, Mark Reviewed, Send Reminder, Send Message, View Form History, Archive | #1414 | `r60-client-portal-forms` |
-| **Row action: Download or Export: not built yet (assigned to R1, Nov 15).** | — | — |
+| Row action: Download PDF, the same export as the form's Export PDF (`GET /intakes/:id/pdf`), in its own tab; a failure says why and the list stays (P1-18) | this PR (R56) | mock `r56-client-portal-forms-filters` "P1-18: Download PDF on a form row…"; the route: e2e `intake-workspace-actions` "exports the answers as a PDF behind a short link" |
 | Pending Client Actions, Quick Actions, Form Templates (Manage Templates) | #1414 | `r60-client-portal-forms` |
 | Form Settings (Client Permissions): the client's Intake Forms switch plus each form's Archive. No per-form portal flag (a Review 2 default). | #1400, #1414 | `client-portal-access`, `r60-client-portal-forms` |
 
