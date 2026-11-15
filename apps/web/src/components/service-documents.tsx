@@ -22,6 +22,8 @@ export interface ServiceDocumentTarget {
   /** "October 2026", "Tax year 2025": the period the workspace is on, when it knows one. */
   period?: string;
   taxYear?: number | null;
+  /** TR-2: opened from a tax return, a request names that return (and the API, its year). */
+  taxReturnId?: string;
   /**
    * Tax Returns Review 2 (TX-F08): opened from a return, the uploaded file can be one of the
    * return's own documents (its draft, signature form, filed return, ...): the same file, linked.
@@ -190,6 +192,7 @@ function RequestDocumentsDialog({
     try {
       await api.documents.createRequest(picked.clientId, {
         serviceId: picked.engagementId,
+        ...(picked.taxReturnId ? { taxReturnId: picked.taxReturnId } : {}),
         title: title.trim(),
         ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
         ...(categoryId ? { categoryId } : {}),

@@ -40,7 +40,13 @@ const row = 'flex items-center justify-between gap-3 py-1 text-sm text-heading';
 
 type Draft = Omit<
   MessageSettings,
-  'smsReady' | 'defaultAssignee' | 'timezone' | 'updatedAt' | 'updatedBy' | 'clientEmailBodyAllowed'
+  | 'smsReady'
+  | 'defaultAssignee'
+  | 'timezone'
+  | 'updatedAt'
+  | 'updatedBy'
+  | 'clientEmailBodyAllowed'
+  | 'clientEmailNotice'
 > & { defaultAssigneeUserId: string | null };
 
 const draftOf = (s: MessageSettings): Draft => ({
@@ -63,7 +69,6 @@ const draftOf = (s: MessageSettings): Draft => ({
   quietHoursEnd: s.quietHoursEnd,
   bulkConfirmThreshold: s.bulkConfirmThreshold,
   bulkRequiresManager: s.bulkRequiresManager,
-  clientEmailNotice: s.clientEmailNotice,
   clientEmailIncludesBody: s.clientEmailIncludesBody,
   clientEmailIncludesDocuments: s.clientEmailIncludesDocuments,
 });
@@ -283,34 +288,21 @@ export function MessageSettingsScreen() {
           {/* Tax Returns Review 2 (Messaging): the firm's defaults; a client or a send can differ. */}
           <SettingsCard
             title="Client Email for New Messages"
-            subtitle="The message always reaches the client's portal. These are the defaults; a client's saved preference or a single send can differ."
+            subtitle="The message always reaches the client's portal. What the email carries is a default; a client's saved preference or a single send can differ."
             icon={EnvelopeSimple}
             testId="settings-client-email"
           >
-            <Switch
-              label="Email the client that a message is waiting"
-              hint="A short email with a sign-in link to the portal."
-              checked={draft.clientEmailNotice}
-              onChange={(v) =>
-                set(
-                  v
-                    ? { clientEmailNotice: true }
-                    : {
-                        clientEmailNotice: false,
-                        clientEmailIncludesBody: false,
-                        clientEmailIncludesDocuments: false,
-                      },
-                )
-              }
-            />
+            {/* TR-4 (her Review Two): the email that a message is waiting is always sent. */}
+            <p className="text-sm text-heading" data-testid="client-email-always">
+              The client always gets a short email that a message is waiting, with a sign-in link to
+              the portal.
+            </p>
             {loaded.clientEmailBodyAllowed ? (
               <Switch
                 label="Include the message text"
                 hint="Off unless you choose it."
                 checked={draft.clientEmailIncludesBody}
-                onChange={(v) =>
-                  set({ clientEmailIncludesBody: v, ...(v ? { clientEmailNotice: true } : {}) })
-                }
+                onChange={(v) => set({ clientEmailIncludesBody: v })}
               />
             ) : null}
             {draft.clientEmailIncludesBody ? (
@@ -322,9 +314,7 @@ export function MessageSettingsScreen() {
               label="Link the message's documents"
               hint="Only as links that open after signing in to the portal; never the files."
               checked={draft.clientEmailIncludesDocuments}
-              onChange={(v) =>
-                set({ clientEmailIncludesDocuments: v, ...(v ? { clientEmailNotice: true } : {}) })
-              }
+              onChange={(v) => set({ clientEmailIncludesDocuments: v })}
             />
           </SettingsCard>
 

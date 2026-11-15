@@ -296,7 +296,8 @@ export class MyDocumentsService {
       requestId: target.request?.id ?? null,
       categoryId: body.categoryId ?? null,
       direction: 'CLIENT_TO_FIRM',
-      taxYear: body.taxYear ?? target.engagement.taxYear,
+      // TR-2: a file answering a request made from a tax return takes that return's year.
+      taxYear: target.request?.taxYear ?? body.taxYear ?? target.engagement.taxYear,
       fileName: body.fileName,
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,
