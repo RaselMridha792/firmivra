@@ -180,3 +180,92 @@ test('V-004: the Documents table keeps each header and value in its cell and scr
     }
   }
 });
+
+/** Every item of the open menu: inside the window, and the element on top at its centre. */
+async function menuItemsInView(page: Page, name: string) {
+  const menu = page.getByRole('menu', { name });
+  await expect(menu).toBeVisible();
+  return menu.evaluate((m) => {
+    const table = document.querySelector('[data-testid="documents-table"]')!;
+    const items = [...m.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => {
+      const r = item.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return {
+        label: item.textContent?.trim(),
+        inWindow:
+          r.top >= 0 &&
+          r.left >= 0 &&
+          r.bottom <= window.innerHeight &&
+          r.right <= window.innerWidth,
+        onTop: Boolean(top && item.contains(top)),
+      };
+    });
+    return {
+      outsideTable: !table.contains(m),
+      menuScrolls: m.scrollHeight > m.clientHeight,
+      items,
+    };
+  });
+}
+
+// Clients Review 2 (V-005): the row menu opened inside the table's scroll area, so only the top of
+// Download showed and Share and the rest were hidden. The menu opens outside the table, and every
+// item is inside the window, on top and works: Download asks for the file, Archive asks first,
+// Share opens Share Access. A row at the bottom of the page is the one most likely to be cut off:
+// Driver_License.jpg, a clean file, so its menu has every item.
+test('V-005: the Documents row menu opens outside the table with every item in view and working', async ({
+  page,
+}) => {
+  await openJamie(page);
+  const last = 'Driver_License.jpg';
+  const names = page.getByTestId('document-name');
+  await expect(names.nth(8)).toHaveText(last);
+  // Download goes to the file's own link (the mock's is a data: URL naming the file, which the
+  // browser refuses to open in the tab and says so in the console).
+  const said: string[] = [];
+  page.on('console', (message) => said.push(message.text()));
+  const steps: [string, () => Promise<void>][] = [
+    [
+      'Download',
+      async () => {
+        const link = encodeURIComponent(`Mock file: ${last}`);
+        await expect.poll(() => said.some((text) => text.includes(link))).toBe(true);
+      },
+    ],
+    [
+      'Archive',
+      async () => {
+        const dialog = page.getByRole('dialog', { name: 'Archive Document' });
+        await expect(dialog).toContainText(last);
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await expect(dialog).toBeHidden();
+      },
+    ],
+    [
+      'Share',
+      async () => {
+        await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}\/share$/);
+        await expect(page.getByTestId('share-file')).toContainText(last);
+      },
+    ],
+  ];
+  for (const [item, done] of steps) {
+    await page.getByRole('button', { name: `Actions for ${last}` }).click();
+    const measured = await menuItemsInView(page, `Actions for ${last}`);
+    expect(measured.outsideTable).toBe(true);
+    expect(measured.menuScrolls).toBe(false);
+    expect(measured.items.map((i) => i.label)).toEqual([
+      'Download',
+      'Share',
+      'Rename',
+      'Move',
+      'Request e-sign',
+      'Archive',
+    ]);
+    for (const i of measured.items) {
+      expect(i, `${i.label}`).toMatchObject({ inWindow: true, onTop: true });
+    }
+    await page.getByRole('menuitem', { name: item, exact: true }).click();
+    await done();
+  }
+});
