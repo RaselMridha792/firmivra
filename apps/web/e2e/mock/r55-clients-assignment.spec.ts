@@ -89,3 +89,25 @@ test('a profile seen before a bulk assign shows the new staff member when opened
   // Never the old value first, even for a moment.
   expect(await assignedSeen(page)).toEqual(['Adam Admin']);
 });
+
+// Clients Review 2 (C2-034, §4 Stale profile after assignment): right after a bulk staff change
+// the profile and the directory must say the same thing; here the change is an unassign.
+test('after a bulk unassign the profile and the directory both say Unassigned', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1165, height: 747 });
+  await page.goto(app('/clients'));
+  await expect(page.getByTestId('page-title')).toHaveText('Clients', { timeout: 60_000 });
+
+  await openProfileFromList(page, 'Jamie Sample');
+  await expect(assignedOnProfile(page)).toHaveText('Sam Staff');
+  await backToClients(page);
+
+  await bulkAssign(page, 'Jamie Sample', 'Nobody (unassign)');
+  await expect(row(page, 'Jamie Sample')).toContainText('Unassigned');
+
+  await watchAssigned(page);
+  await openProfileFromList(page, 'Jamie Sample');
+  await expect(assignedOnProfile(page)).toHaveText('Unassigned');
+  expect(await assignedSeen(page)).toEqual(['Unassigned']);
+});
