@@ -1,10 +1,12 @@
-import { type ApiRequest, parseInput } from '../client.js';
+import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { ClientId } from '../clients/schemas.js';
 import { FirmSlug } from '../schemas.js';
 import {
   ClientPortalAccess,
   OpenedPortalInvitation,
   OpenPortalInvitationRequest,
+  PortalInvitationPage,
+  PortalInvitationsQuery,
   SendPortalInvitationRequest,
 } from './schemas.js';
 
@@ -18,6 +20,15 @@ const one = (clientId: string) => `/business/clients/${parseInput(ClientId, clie
  */
 export function createPortalInvitationsClient(request: ApiRequest) {
   return {
+    /**
+     * Sign-ups > Invitations (Clients Review Two, N8-09): clients with no portal login, and those
+     * invited in the last eight days, with each one's state. Staff see their own clients only.
+     */
+    list: async (query: PortalInvitationsQuery = {}): Promise<PortalInvitationPage> =>
+      request(
+        PortalInvitationPage,
+        `/business/portal-invitations${toQuery(parseInput(PortalInvitationsQuery, query))}`,
+      ),
     access: async (clientId: string): Promise<ClientPortalAccess> =>
       request(ClientPortalAccess, `${one(clientId)}/portal-access`),
     /**

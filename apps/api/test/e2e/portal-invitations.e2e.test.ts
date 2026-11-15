@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { ClientPortalAccess, OpenedPortalInvitation } from '@firmivra/types';
+import { ClientPortalAccess, OpenedPortalInvitation, PortalInvitationPage } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -341,5 +341,159 @@ describe('another firm', () => {
     ]) {
       expect(res.status).toBe(404);
     }
+  });
+});
+
+describe('Sign-ups > Invitations (Clients Review Two, N8-09)', () => {
+  const tag = `inv-${run}`;
+  const listed = async (query: string, who: { email: string } = people.ownerA) => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/business/portal-invitations${query}`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', `Bearer ${await tokenFor(who.email)}`);
+    return PortalInvitationPage.parse(ok(res));
+  };
+  const made: Record<string, string> = {};
+  let sends = 0;
+  /** Send as the Owner from an address of its own (the send route allows 10 a minute per caller). */
+  const sendFrom = async (clientId: string) =>
+    request(app.getHttpServer())
+      .post(`/api/v1/business/clients/${clientId}/portal-invitation`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`)
+      .set('x-forwarded-for', `198.18.${++sends}.9, 10.0.0.5`)
+      .send({ confirm: true });
+  /** An invitation record written as the service writes it (sent, failed), days ago. */
+  const record = (
+    clientId: string,
+    action: 'client.portal_invitation_sent' | 'client.portal_invitation_failed',
+    invitationId: string,
+    daysAgo: number,
+  ) =>
+    inFirm((tx) =>
+      tx.auditLog.create({
+        data: {
+          businessId: ids.firmA,
+          actorUserId: people.ownerA.id,
+          action,
+          entityType: 'client',
+          entityId: clientId,
+          metadata: {
+            invitationId,
+            expiresAt: new Date(Date.now() - (daysAgo - 7) * 86_400_000).toISOString(),
+          },
+          createdAt: new Date(Date.now() - daysAgo * 86_400_000),
+        },
+      }),
+    );
+
+  beforeAll(async () => {
+    const make = (name: string, data: object = {}) =>
+      inFirm((tx) =>
+        tx.client.create({
+          data: { businessId: ids.firmA, displayName: `Fake ${tag} ${name}`, ...data },
+          select: { id: true },
+        }),
+      ).then((c) => c.id);
+    const mail = (name: string) => ({ email: `${name}-${tag}@example.test` });
+    made.notInvited = await make('Not Invited', mail('ni'));
+    made.open = await make('Open', mail('open'));
+    made.opened = await make('Opened', mail('opened'));
+    made.expired = await make('Expired', mail('expired'));
+    made.revoked = await make('Revoked', mail('revoked'));
+    made.notSent = await make('Not Sent', mail('notsent'));
+    made.accepted = await make('Accepted', mail('accepted'));
+    made.noEmail = await make('No Email');
+    made.archived = await make('Archived', { ...mail('archived'), archivedAt: new Date() });
+    made.limit = await make('Limit', mail('limit'));
+    made.staffs = await make('Staff Own', { ...mail('staff'), assignedUserId: people.staffA.id });
+
+    ok(await sendFrom(made.open), 201);
+    ok(await sendFrom(made.opened), 201);
+    ok(await open(lastToken(`opened-${tag}@example.test`)));
+    ok(await sendFrom(made.revoked), 201);
+    ok(await firm('post', `${made.revoked}/portal-invitation/revoke`, people.ownerA, {}));
+    ok(await sendFrom(made.accepted), 201);
+    await login(`accepted-${tag}@example.test`, made.accepted);
+    // Three today, the last revoked: nothing live, and no fourth today (an open one stays OPEN).
+    for (let i = 0; i < 3; i++) ok(await sendFrom(made.limit), 201);
+    ok(await firm('post', `${made.limit}/portal-invitation/revoke`, people.ownerA, {}));
+    // Seven and a half days ago: past its seven days, still in the list's eight.
+    await record(made.expired, 'client.portal_invitation_sent', randomUUID(), 7.5);
+    const failed = randomUUID();
+    await record(made.notSent, 'client.portal_invitation_sent', failed, 1);
+    await record(made.notSent, 'client.portal_invitation_failed', failed, 1);
+  });
+
+  it('shows each client once with its state, newest invitation first', async () => {
+    const page = await listed(`?search=${tag}&limit=100`);
+    const state = Object.fromEntries(page.items.map((r) => [r.clientId, [r.state, r.blocked]]));
+    expect(state).toEqual({
+      [made.notInvited]: ['NOT_INVITED', null],
+      [made.open]: ['OPEN', null],
+      [made.opened]: ['OPENED', null],
+      [made.expired]: ['EXPIRED', null],
+      [made.revoked]: ['REVOKED', null],
+      [made.notSent]: ['NOT_SENT', null],
+      [made.accepted]: ['ACCEPTED', 'HAS_LOGIN'],
+      [made.noEmail]: ['BLOCKED', 'NO_EMAIL'],
+      [made.archived]: ['BLOCKED', 'ARCHIVED'],
+      [made.limit]: ['BLOCKED', 'DAILY_LIMIT'],
+      [made.staffs]: ['NOT_INVITED', null],
+    });
+    expect(page.total).toBe(11);
+    const opened = page.items.find((r) => r.clientId === made.opened);
+    expect(opened?.invitation).toMatchObject({ sentBy: 'Fake ownerA' });
+    expect(opened?.invitation?.openedAt).not.toBeNull();
+    const revoked = page.items.find((r) => r.clientId === made.revoked);
+    expect(revoked?.invitation?.revokedAt).not.toBeNull();
+    expect(page.items.find((r) => r.clientId === made.notInvited)).toMatchObject({
+      email: `ni-${tag}@example.test`,
+      invitation: null,
+      clientNumber: expect.stringMatching(/^CL-\d+$/) as string,
+    });
+    // Invited first, newest first; the never invited last.
+    const sentAt = page.items.flatMap((r) => (r.invitation ? [r.invitation.sentAt] : []));
+    expect(sentAt).toEqual([...sentAt].sort().reverse());
+    expect(page.items.at(-1)?.invitation).toBeNull();
+  });
+
+  it('filters by state and pages; Staff see only their own clients', async () => {
+    const blocked = await listed(`?search=${tag}&state=BLOCKED`);
+    expect(blocked.items.map((r) => r.blocked).sort()).toEqual([
+      'ARCHIVED',
+      'DAILY_LIMIT',
+      'NO_EMAIL',
+    ]);
+    const first = await listed(`?search=${tag}&limit=4&page=1`);
+    const second = await listed(`?search=${tag}&limit=4&page=2`);
+    expect([first.items.length, second.items.length, first.total]).toEqual([4, 4, 11]);
+    expect(first.items.map((r) => r.clientId)).not.toContain(second.items[0]?.clientId);
+    const staff = await listed(`?search=${tag}`, people.staffA);
+    expect(staff.items.map((r) => r.clientId)).toEqual([made.staffs]);
+    expect(staff.total).toBe(1);
+  });
+
+  it('another firm sees none of them; bad input is 400; the view is audited with counts only', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/business/portal-invitations?search=${tag}`)
+      .set('x-business-id', ids.firmB)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerB.email)}`);
+    expect(PortalInvitationPage.parse(ok(res)).items).toEqual([]);
+    for (const q of ['?state=SOMETHING', '?limit=500', '?page=0', '?extra=1']) {
+      const bad = await request(app.getHttpServer())
+        .get(`/api/v1/business/portal-invitations${q}`)
+        .set('x-business-id', ids.firmA)
+        .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
+      expect([q, bad.status, codeOf(bad)]).toEqual([q, 400, 'VALIDATION_FAILED']);
+    }
+    const rows = await inFirm((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'client.portal_invitations_viewed' },
+        select: { metadata: true },
+      }),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(JSON.stringify(rows)).not.toContain('@');
   });
 });

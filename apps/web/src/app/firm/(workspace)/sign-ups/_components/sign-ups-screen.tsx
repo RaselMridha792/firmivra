@@ -21,7 +21,8 @@ import { ApprovalCard } from './approval-card';
 import { ClientViewPreview } from './client-view-preview';
 import { FiltersMenu } from './filters-menu';
 import { type Notice, RequestActivity, RequestPanel } from './request-panel';
-import { dayText, SIGN_UP_ERRORS, SIGN_UPS, TABS } from './sign-up-parts';
+import { InvitationsTab } from './invitations-tab';
+import { dayText, SIGN_UP_ERRORS, SIGN_UPS, TAB_ROW, TABS } from './sign-up-parts';
 import {
   SIGN_UP_PAGE_SIZE,
   type SignUpsPlace,
@@ -74,9 +75,12 @@ export function SignUpsScreen({
     window.history.replaceState(null, '', url);
   }, [url]);
 
+  // Invitations has no requests of its own: the counts still come from the waiting list.
+  const invitations = place.status === 'INVITATIONS';
+  const requestStatus = place.status === 'INVITATIONS' ? 'PENDING_APPROVAL' : place.status;
   const query = useMemo<ClientSignUpsQuery>(
     () => ({
-      status: place.status,
+      status: requestStatus,
       sort: place.sort,
       page: place.page,
       limit: SIGN_UP_PAGE_SIZE,
@@ -85,7 +89,7 @@ export function SignUpsScreen({
       ...(place.to ? { to: place.to } : {}),
       ...(place.match ? { match: place.match } : {}),
     }),
-    [place],
+    [place, requestStatus],
   );
   const list = useApiQuery([...SIGN_UPS, 'list', query], () => api.clientSignUps.list(query));
   const settings = useApiQuery([...SIGN_UPS, 'settings'], () => api.clientSignUps.settings());
@@ -164,9 +168,9 @@ export function SignUpsScreen({
             aria-label="Sign-up status"
             className="flex gap-6 overflow-x-auto overflow-y-hidden border-b border-divider"
           >
-            {TABS.map((tab) => {
+            {TAB_ROW.map((tab) => {
               const on = tab.status === place.status;
-              const count = counts?.[tab.status];
+              const count = tab.status === 'INVITATIONS' ? undefined : counts?.[tab.status];
               return (
                 <button
                   key={tab.status}
@@ -177,12 +181,12 @@ export function SignUpsScreen({
                   data-testid={`sign-ups-tab-${tab.status}`}
                   onClick={() => change({ status: tab.status, match: '', request: '' })}
                   onKeyDown={(event) => {
-                    const at = TABS.indexOf(tab);
+                    const at = TAB_ROW.indexOf(tab);
                     const next =
                       event.key === 'ArrowRight'
-                        ? TABS[(at + 1) % TABS.length]
+                        ? TAB_ROW[(at + 1) % TAB_ROW.length]
                         : event.key === 'ArrowLeft'
-                          ? TABS[(at - 1 + TABS.length) % TABS.length]
+                          ? TAB_ROW[(at - 1 + TAB_ROW.length) % TAB_ROW.length]
                           : undefined;
                     if (!next) return;
                     event.preventDefault();
@@ -210,80 +214,90 @@ export function SignUpsScreen({
             })}
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <SearchField
-              label="Search name or email"
-              placeholder="Search name or email"
-              value={searchText}
-              maxLength={100}
-              minWidth="10rem"
-              onChange={(event) => setSearchText(event.target.value)}
-              className="bg-surface!"
-            />
-            <label className="relative flex h-10 shrink-0 items-center">
-              <span className="sr-only">Sort by date submitted</span>
-              <select
-                data-testid="sign-ups-sort"
-                value={place.sort}
-                onChange={(event) =>
-                  change({ sort: event.target.value === 'oldest' ? 'oldest' : 'newest' })
-                }
-                className="h-10 cursor-pointer appearance-none rounded-lg border border-divider bg-surface pl-3 pr-9 text-sm text-text"
-              >
-                <option value="newest">Date submitted</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-              <CaretDown
-                aria-hidden
-                weight="bold"
-                className="pointer-events-none absolute right-3 size-4 text-muted"
-              />
-            </label>
-            <FiltersMenu place={place} onApply={(patch) => change(patch)} />
-          </div>
-          <FilterChips
-            place={place}
-            onClear={(patch) => change(patch)}
-            onClearAll={() => {
-              setSearchText('');
-              change({ search: '', from: '', to: '', match: '' });
-            }}
-          />
-
-          <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
-            <RequestsTable
-              status={place.status}
-              sort={place.sort}
-              onSort={() => change({ sort: place.sort === 'newest' ? 'oldest' : 'newest' })}
-              list={list}
-              filtered={filtered}
-              selected={place.request}
-              onOpen={(row) => setPlace({ ...place, request: row.clientAccountId })}
-              onClear={() => {
-                setSearchText('');
-                change({ search: '', from: '', to: '', match: '' });
-              }}
-            />
-            {list.data && list.data.total > 0 ? (
-              <div className="flex flex-col gap-3 border-t border-divider px-4 py-3">
-                <p aria-live="polite" data-testid="sign-ups-total" className="text-sm text-muted">
-                  {filtered
-                    ? `${list.data.total} matching ${list.data.total === 1 ? 'request' : 'requests'} · ${counts?.[place.status] ?? 0} ${noun} in total`
-                    : `${list.data.total} ${noun} ${list.data.total === 1 ? 'request' : 'requests'}`}
-                </p>
-                {pageCount > 1 ? (
-                  <Pagination
-                    page={place.page}
-                    pageCount={pageCount}
-                    onPage={(page) => setPlace({ ...place, page })}
+          {invitations ? (
+            <InvitationsTab />
+          ) : (
+            <>
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
+                <SearchField
+                  label="Search name or email"
+                  placeholder="Search name or email"
+                  value={searchText}
+                  maxLength={100}
+                  minWidth="10rem"
+                  onChange={(event) => setSearchText(event.target.value)}
+                  className="bg-surface!"
+                />
+                <label className="relative flex h-10 shrink-0 items-center">
+                  <span className="sr-only">Sort by date submitted</span>
+                  <select
+                    data-testid="sign-ups-sort"
+                    value={place.sort}
+                    onChange={(event) =>
+                      change({ sort: event.target.value === 'oldest' ? 'oldest' : 'newest' })
+                    }
+                    className="h-10 cursor-pointer appearance-none rounded-lg border border-divider bg-surface pl-3 pr-9 text-sm text-text"
+                  >
+                    <option value="newest">Date submitted</option>
+                    <option value="oldest">Oldest first</option>
+                  </select>
+                  <CaretDown
+                    aria-hidden
+                    weight="bold"
+                    className="pointer-events-none absolute right-3 size-4 text-muted"
                   />
-                ) : null}
+                </label>
+                <FiltersMenu place={place} onApply={(patch) => change(patch)} />
               </div>
-            ) : null}
-            <div className="border-t border-divider px-4 py-4">
-              <RequestActivity id={place.request} />
-            </div>
-          </div>
+              <FilterChips
+                place={place}
+                onClear={(patch) => change(patch)}
+                onClearAll={() => {
+                  setSearchText('');
+                  change({ search: '', from: '', to: '', match: '' });
+                }}
+              />
+
+              <div className="min-w-0 overflow-hidden rounded-xl border border-divider bg-surface">
+                <RequestsTable
+                  status={requestStatus}
+                  sort={place.sort}
+                  onSort={() => change({ sort: place.sort === 'newest' ? 'oldest' : 'newest' })}
+                  list={list}
+                  filtered={filtered}
+                  selected={place.request}
+                  onOpen={(row) => setPlace({ ...place, request: row.clientAccountId })}
+                  onClear={() => {
+                    setSearchText('');
+                    change({ search: '', from: '', to: '', match: '' });
+                  }}
+                />
+                {list.data && list.data.total > 0 ? (
+                  <div className="flex flex-col gap-3 border-t border-divider px-4 py-3">
+                    <p
+                      aria-live="polite"
+                      data-testid="sign-ups-total"
+                      className="text-sm text-muted"
+                    >
+                      {filtered
+                        ? `${list.data.total} matching ${list.data.total === 1 ? 'request' : 'requests'} · ${counts?.[requestStatus] ?? 0} ${noun} in total`
+                        : `${list.data.total} ${noun} ${list.data.total === 1 ? 'request' : 'requests'}`}
+                    </p>
+                    {pageCount > 1 ? (
+                      <Pagination
+                        page={place.page}
+                        pageCount={pageCount}
+                        onPage={(page) => setPlace({ ...place, page })}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="border-t border-divider px-4 py-4">
+                  <RequestActivity id={place.request} />
+                </div>
+              </div>
+            </>
+          )}
         </section>
         <div className="min-w-0 xl:col-start-2 xl:row-span-2 xl:row-start-1">
           <RequestPanel
