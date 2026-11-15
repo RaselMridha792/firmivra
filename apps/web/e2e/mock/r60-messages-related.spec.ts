@@ -56,3 +56,29 @@ test('MSG-F13: Related To is for one client; MSG-F16: a staff member owns only t
     page.getByText('This staff member does not work with everyone you chose.'),
   ).toBeVisible();
 });
+
+test("M25: Related To lists the client's invoices and documents; a document's conversation is under Documents", async ({
+  page,
+}) => {
+  await page.goto(app('/messages/new'));
+  await pick(page, 'Jamie Sample').check({ timeout: 60_000 });
+  const related = page.getByLabel('Related To');
+  await expect(related.locator('optgroup[label="Invoice or payment"] option')).toContainText([
+    'Invoice INV-1001',
+  ]);
+  await expect(related.locator('optgroup[label="Document"] option')).toContainText([
+    'Engagement_Letter_2025.pdf',
+  ]);
+  await related.selectOption({ label: 'Engagement_Letter_2025.pdf' });
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('About your engagement letter. (synthetic)');
+  await page.getByRole('button', { name: 'Review and Send' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Send Message' }).click();
+  const outcome = page.getByTestId('compose-outcome');
+  await outcome.getByRole('link', { name: 'Open conversation' }).click();
+  await page.getByRole('tab', { name: /^Documents/ }).click();
+  await expect(
+    page.getByTestId('thread-row').filter({ hasText: 'About your engagement letter' }),
+  ).toHaveCount(1);
+});

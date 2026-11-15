@@ -278,13 +278,27 @@ export function NewMenu({ links }: { links: readonly { label: string; href: stri
   );
 }
 
+/** M23: how many of the latest notifications the bell lists (the list scrolls). */
+const BELL_LIMIT = 20;
+
 /** The bell: the unread count and the latest notifications. */
 export function FirmBell() {
-  const list = useApiQuery(['notifications', 'bell'], () => api.notifications.list({ limit: 5 }));
+  // M23 (Messaging Review 2): more than five, in a list that scrolls, with Mark All Read.
+  const list = useApiQuery(['notifications', 'bell'], () =>
+    api.notifications.list({ limit: BELL_LIMIT }),
+  );
   const unread = list.data?.unreadCount ?? 0;
   const qc = useQueryClient();
   // Octavia's N2: opening the list marks the notifications it shows as read (only those; the
   // history stays in the Notification Center), and the badge counts the rest.
+  const [markingAll, setMarkingAll] = useState(false);
+  const markAllRead = () => {
+    setMarkingAll(true);
+    void api.notifications
+      .markAllRead()
+      .then(() => qc.invalidateQueries({ queryKey: ['notifications'] }))
+      .finally(() => setMarkingAll(false));
+  };
   const markShownRead = () => {
     const shown = (list.data?.items ?? []).filter((item) => !item.readAt);
     if (!shown.length) return;
@@ -311,39 +325,54 @@ export function FirmBell() {
       )}
     >
       <div className="w-80 max-w-[calc(100vw-2rem)]">
-        {list.isPending ? (
-          <Skeleton className="m-3 h-10" />
-        ) : list.isError ? (
-          <p className="px-3 py-2 text-sm text-danger">We couldn&apos;t load your notifications.</p>
-        ) : list.data.items.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-muted">You&apos;re all caught up.</p>
-        ) : (
-          list.data.items.map((item) => {
-            const href = notificationLink(item.target, { site: 'firm' });
-            const body = (
-              <>
-                <span className={`block text-sm text-text ${item.readAt ? '' : 'font-semibold'}`}>
-                  {item.title}
-                </span>
-                <span className="line-clamp-2 text-xs text-muted">{item.body}</span>
-              </>
-            );
-            return href ? (
-              <Link
-                key={item.id}
-                href={href}
-                role="menuitem"
-                className="block rounded-control px-3 py-2 hover:bg-canvas"
-              >
-                {body}
-              </Link>
-            ) : (
-              <p key={item.id} className="px-3 py-2">
-                {body}
-              </p>
-            );
-          })
-        )}
+        <div className="flex items-center justify-between gap-2 border-b border-divider px-3 py-2">
+          <span className="text-sm font-semibold text-heading">Notifications</span>
+          <button
+            type="button"
+            className="text-xs font-semibold text-link hover:underline disabled:text-muted disabled:no-underline"
+            disabled={unread === 0 || markingAll}
+            onClick={markAllRead}
+          >
+            Mark All Read
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto" data-testid="bell-list">
+          {list.isPending ? (
+            <Skeleton className="m-3 h-10" />
+          ) : list.isError ? (
+            <p className="px-3 py-2 text-sm text-danger">
+              We couldn&apos;t load your notifications.
+            </p>
+          ) : list.data.items.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted">You&apos;re all caught up.</p>
+          ) : (
+            list.data.items.map((item) => {
+              const href = notificationLink(item.target, { site: 'firm' });
+              const body = (
+                <>
+                  <span className={`block text-sm text-text ${item.readAt ? '' : 'font-semibold'}`}>
+                    {item.title}
+                  </span>
+                  <span className="line-clamp-2 text-xs text-muted">{item.body}</span>
+                </>
+              );
+              return href ? (
+                <Link
+                  key={item.id}
+                  href={href}
+                  role="menuitem"
+                  className="block rounded-control px-3 py-2 hover:bg-canvas"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <p key={item.id} className="px-3 py-2">
+                  {body}
+                </p>
+              );
+            })
+          )}
+        </div>
       </div>
     </Popover>
   );

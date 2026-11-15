@@ -47,6 +47,12 @@ type Update = z.output<typeof UpdateOutboundRequest>;
 type Check = z.output<typeof CheckOutboundRequest>;
 type Schedule = z.output<typeof ScheduleOutboundRequest>;
 type ListQuery = z.output<typeof ListOutboundQuery>;
+/** M25: a document a message can be about: one the client can see, not trashed or archived. */
+const CLIENT_SEES = {
+  direction: { not: 'INTERNAL' },
+  trashedAt: null,
+  archivedAt: null,
+} as const;
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
@@ -438,6 +444,13 @@ export class OutboundMessagesService {
         const d = await tx.documentRequest.findFirst({ where: own, select: { title: true } });
         return of(d?.title);
       }
+      case 'document': {
+        const d = await tx.document.findFirst({
+          where: { ...own, ...CLIENT_SEES },
+          select: { fileName: true },
+        });
+        return of(d?.fileName);
+      }
       case 'task': {
         const t = await tx.task.findFirst({ where: own, select: { title: true } });
         return of(t?.title);
@@ -520,50 +533,59 @@ export class OutboundMessagesService {
       if (!client) throw notFound();
       const own = { businessId, clientId };
       const take = 20;
-      const [appointments, invoices, returns, requests, tasks, services] = await Promise.all([
-        tx.appointment.findMany({
-          where: own,
-          orderBy: { startsAt: 'desc' },
-          take,
-          select: { id: true },
-        }),
-        tx.invoice.findMany({
-          where: { ...own, canceledAt: null },
-          orderBy: { createdAt: 'desc' },
-          take,
-          select: { id: true },
-        }),
-        tx.taxReturn.findMany({
-          where: { ...own, archivedAt: null },
-          orderBy: { taxYear: 'desc' },
-          take,
-          select: { id: true },
-        }),
-        tx.documentRequest.findMany({
-          where: own,
-          orderBy: { createdAt: 'desc' },
-          take,
-          select: { id: true },
-        }),
-        tx.task.findMany({
-          where: { ...own, archivedAt: null },
-          orderBy: { createdAt: 'desc' },
-          take,
-          select: { id: true },
-        }),
-        tx.engagement.findMany({
-          where: own,
-          orderBy: { createdAt: 'desc' },
-          take,
-          select: { id: true },
-        }),
-      ]);
+      const [appointments, invoices, returns, requests, documents, tasks, services] =
+        await Promise.all([
+          tx.appointment.findMany({
+            where: own,
+            orderBy: { startsAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          tx.invoice.findMany({
+            where: { ...own, canceledAt: null },
+            orderBy: { createdAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          tx.taxReturn.findMany({
+            where: { ...own, archivedAt: null },
+            orderBy: { taxYear: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          tx.documentRequest.findMany({
+            where: own,
+            orderBy: { createdAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          // M25: the client's documents they can see (an internal one is never a client's subject).
+          tx.document.findMany({
+            where: { ...own, ...CLIENT_SEES },
+            orderBy: { createdAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          tx.task.findMany({
+            where: { ...own, archivedAt: null },
+            orderBy: { createdAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+          tx.engagement.findMany({
+            where: own,
+            orderBy: { createdAt: 'desc' },
+            take,
+            select: { id: true },
+          }),
+        ]);
       const items: OutboundRelated[] = [];
       for (const [type, rows] of [
         ['appointment', appointments],
         ['invoice', invoices],
         ['tax_return', returns],
         ['document_request', requests],
+        ['document', documents],
         ['task', tasks],
         ['engagement', services],
       ] as const) {
