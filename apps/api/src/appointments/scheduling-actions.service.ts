@@ -211,6 +211,10 @@ export class SchedulingActionsService {
         method: item.method,
         officeId: row.officeId,
         roomId: row.roomId,
+        // Review 2 (A2): its live equipment.
+        equipmentIds: row.equipment
+          .filter((e) => !e.equipment.archivedAt)
+          .map((e) => e.equipment.id),
         details: item.videoUrl ? null : row.locationDetails,
         allDay: row.allDay,
         staffUserIds: [row.staffUserId],

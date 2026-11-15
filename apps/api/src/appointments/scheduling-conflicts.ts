@@ -19,7 +19,8 @@ import { type FirmActor, workingHours } from './calendar-data.js';
 // The conflict check behind Schedule Appointment, Edit Existing and the Staff Availability
 // panel. `findConflicts` is pure over the data `loadConflictData` reads, so the unit tests cover
 // it directly (test/unit/scheduling.test.ts). The database stays the last line: it refuses double
-// booking of a staff member, a client or a room and overlap with blocked time (409 SLOT_TAKEN),
+// booking of a staff member, a client, a room or an item of equipment (A2) and overlap with
+// blocked time (409 SLOT_TAKEN, or for equipment the check run again: 409 SCHEDULING_CONFLICT),
 // whatever this check says. So those are HARD conflicts, never overridden. The staff rule counts
 // each appointment's buffers too (appointments_no_double_booking_staff), so a buffer clash is hard
 // as well; only working hours (SOFT) may be overridden, by an Owner or Admin with a reason.
@@ -47,6 +48,8 @@ export interface LiveAppointment {
   staffUserId: string;
   clientId: string;
   roomId: string | null;
+  /** Review 2 (A2): the items it holds, of those the candidate asks for. */
+  equipmentIds?: readonly string[];
   start: number;
   end: number;
   bufferBeforeMinutes: number;
@@ -65,6 +68,8 @@ export interface ConflictData {
   staff: Map<string, ConflictStaff>;
   appointments: LiveAppointment[];
   blocks: ConflictBlock[];
+  /** Review 2 (A2): the asked-for items' names (the firm's own), for the conflict's message. */
+  equipmentNames?: Map<string, string>;
 }
 
 export interface Candidate {
@@ -73,6 +78,8 @@ export interface Candidate {
   allDay: boolean;
   clientId: string | null;
   roomId: string | null;
+  /** Review 2 (A2): the equipment it books (lower-case ids). */
+  equipmentIds?: readonly string[] | undefined;
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
   exceptId?: string | undefined;
@@ -172,6 +179,13 @@ export function findConflicts(data: ConflictData, c: Candidate): Found[] {
       if (c.roomId && a.roomId === c.roomId && overlaps(slot, a)) {
         push('ROOM', true, null, a, 'This room is already booked at this time');
       }
+      // Review 2 (A2): one item, one live appointment at a time (no buffers, as for rooms).
+      for (const id of c.equipmentIds ?? []) {
+        if (a.equipmentIds?.includes(id) && overlaps(slot, a)) {
+          const name = data.equipmentNames?.get(id) ?? 'This item of equipment';
+          push('EQUIPMENT', true, null, a, `${name} is already booked at this time`);
+        }
+      }
     }
   });
   return found.slice(0, MAX_CONFLICTS);
@@ -255,6 +269,7 @@ export async function loadConflictData(
   span: Interval,
   clientId: string | null,
   roomId: string | null,
+  equipmentIds: readonly string[] = [],
 ): Promise<ConflictData> {
   const userIds = members.map((m) => m.userId);
   const weekly = await workingHours(tx, businessId, userIds);
@@ -292,6 +307,9 @@ export async function loadConflictData(
     { staffUserId: { in: userIds } },
     ...(clientId ? [{ clientId }] : []),
     ...(roomId ? [{ roomId }] : []),
+    ...(equipmentIds.length > 0
+      ? [{ equipment: { some: { equipmentId: { in: [...equipmentIds] } } } }]
+      : []),
   ];
   // One after the other: a transaction runs its queries on one connection.
   const appointments = await tx.appointment.findMany({
@@ -305,8 +323,20 @@ export async function loadConflictData(
       endsAt: true,
       bufferBeforeMinutes: true,
       bufferAfterMinutes: true,
+      // Only the asked-for items (none asked: an empty list, nothing read).
+      equipment: {
+        where: { equipmentId: { in: [...equipmentIds] } },
+        select: { equipmentId: true },
+      },
     },
   });
+  const items =
+    equipmentIds.length > 0
+      ? await tx.firmEquipment.findMany({
+          where: { businessId, id: { in: [...equipmentIds] } },
+          select: { id: true, name: true },
+        })
+      : [];
   const blocks = await tx.blockedTime.findMany({
     where: { businessId, ...touching, OR: [{ userId: null }, { userId: { in: userIds } }] },
     select: { userId: true, startsAt: true, endsAt: true, kind: true },
@@ -319,11 +349,13 @@ export async function loadConflictData(
       staffUserId: a.staffUserId,
       clientId: a.clientId,
       roomId: a.roomId,
+      equipmentIds: a.equipment.map((e) => e.equipmentId.toLowerCase()),
       start: a.startsAt.getTime(),
       end: a.endsAt.getTime(),
       bufferBeforeMinutes: a.bufferBeforeMinutes,
       bufferAfterMinutes: a.bufferAfterMinutes,
     })),
+    equipmentNames: new Map(items.map((i) => [i.id.toLowerCase(), i.name])),
     blocks: blocks.map((b) => ({
       userId: b.userId,
       start: b.startsAt.getTime(),

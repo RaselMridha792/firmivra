@@ -72,6 +72,11 @@ export const schedulingSelect = {
   service: { select: { id: true, name: true } },
   office: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
+  // Review 2 (A2): the equipment it books, by name.
+  equipment: {
+    select: { equipment: { select: { id: true, name: true, archivedAt: true } } },
+    orderBy: { equipment: { name: 'asc' } },
+  },
   reminders: {
     // Review 2 (B8): sentAt, when the automatic reminder went out (its notice history); (B7)
     // each reminder's own note.
@@ -212,6 +217,7 @@ export function toRecord(
     timezone: row.timeZone ?? timezone,
     internalNotes: row.internalNotes,
     clientInstructions: row.clientInstructions,
+    equipment: row.equipment.map((e) => ({ id: e.equipment.id, name: e.equipment.name })),
     related: {
       taxReturn: row.engagement?.taxReturns[0]
         ? {

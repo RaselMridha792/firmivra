@@ -86,13 +86,6 @@ export class SchedulingAvailabilityService {
       for (const userId of body.staffUserIds)
         members.push(await activeMember(tx, businessId, userId));
       const clientId = await this.clientOf(tx, businessId, actor, body.contact);
-      if (body.roomId) {
-        const room = await tx.firmRoom.findFirst({
-          where: { businessId, id: body.roomId, archivedAt: null },
-          select: { id: true },
-        });
-        if (!room) throw errors.notFound();
-      }
       if (body.excludeAppointmentId) {
         // Staff may exclude only an appointment they see in full (else 404), as R12's slots.
         const mine = await tx.appointment.findFirst({
@@ -100,6 +93,37 @@ export class SchedulingAvailabilityService {
           select: { id: true },
         });
         if (!mine) throw errors.notFound();
+      }
+      // The firm's own room and items (else 404); an archived one only when the appointment
+      // being edited holds it (Review 2, A2: Archive keeps its appointments).
+      const except = body.excludeAppointmentId;
+      if (body.roomId) {
+        const room = await tx.firmRoom.findFirst({
+          where: { businessId, id: body.roomId },
+          select: { id: true, archivedAt: true },
+        });
+        const kept =
+          room?.archivedAt && except
+            ? (await tx.appointment.count({ where: { businessId, id: except, roomId: room.id } })) >
+              0
+            : false;
+        if (!room || (room.archivedAt && !kept)) throw errors.notFound();
+      }
+      const equipmentIds = [...new Set((body.equipmentIds ?? []).map((i) => i.toLowerCase()))];
+      if (equipmentIds.length > 0) {
+        const items = await tx.firmEquipment.findMany({
+          where: { businessId, id: { in: equipmentIds } },
+          select: { id: true, archivedAt: true },
+        });
+        const held = except
+          ? await tx.appointmentEquipment.findMany({
+              where: { businessId, appointmentId: except },
+              select: { equipmentId: true },
+            })
+          : [];
+        const keeps = new Set(held.map((h) => h.equipmentId.toLowerCase()));
+        const usable = items.filter((i) => !i.archivedAt || keeps.has(i.id.toLowerCase()));
+        if (usable.length !== equipmentIds.length) throw errors.notFound();
       }
       const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
       const expansion = expandRecurrence(timeZone, first, body.recurrence);
@@ -110,6 +134,7 @@ export class SchedulingAvailabilityService {
         allDay: false,
         clientId,
         roomId: body.roomId ?? null,
+        equipmentIds,
         ...(await typeBuffers(tx, businessId, body.typeId)),
         exceptId: body.excludeAppointmentId,
       };
@@ -121,6 +146,7 @@ export class SchedulingAvailabilityService {
         conflictSpan(candidate),
         clientId,
         candidate.roomId,
+        equipmentIds,
       );
       return toResult(data, candidate, actor).result;
     });

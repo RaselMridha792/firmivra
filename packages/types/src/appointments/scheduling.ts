@@ -269,6 +269,20 @@ const scheduleFields = {
   otherVideoPlatform: clearable(OtherVideoPlatform),
   officeId: z.uuid().nullable().optional(),
   roomId: z.uuid().nullable().optional(),
+  /**
+   * Review 2 (A2): the equipment it books, up to 5 live items of the firm: an office's own only
+   * for an in-person appointment at that office, an any-office item for any appointment (400 at
+   * `equipmentIds` otherwise). An item another live appointment holds then is a hard conflict
+   * (409 SCHEDULING_CONFLICT, kind EQUIPMENT). An item archived since keeps an appointment that
+   * already holds it.
+   */
+  equipmentIds: z
+    .array(z.uuid())
+    .max(5, 'Choose at most 5 items')
+    .refine((ids) => new Set(ids.map((i) => i.toLowerCase())).size === ids.length, {
+      message: 'Choose each item once',
+    })
+    .optional(),
   details: clearable(text(500, 'many')),
   /** "Generate Zoom Link": made by the video integration on save (none connected: 409). */
   generateVideoLink: z.boolean(),
@@ -376,6 +390,8 @@ export const AppointmentRecord = AgendaItem.extend({
     .default({ email: true, portal: true, sms: false }),
   /** Review 2 (B7): the appointment's own confirmation words; null uses the type's. */
   confirmationMessage: z.string().nullable().default(null),
+  /** Review 2 (A2): the equipment it books, by name. */
+  equipment: z.array(NamedItem).default([]),
   related: RelatedItems,
   reminders: z.array(AppointmentReminder),
   recurrence: AppointmentRecurrence.nullable(),
@@ -421,8 +437,13 @@ export const SchedulingOptions = z.object({
   staff: z.array(MemberRef),
   /** Optional until firm locations exist (Settings > Company Profile, to build). */
   offices: z.array(NamedItem).optional(),
-  /** Optional until rooms exist (to build). */
+  /** Live rooms of active offices (Settings > Appointment Settings). */
   rooms: z.array(NamedItem.extend({ officeId: z.uuid() })).optional(),
+  /**
+   * Review 2 (A2): live equipment; an office's own (officeId) or any office's (null). An office's
+   * item shows when that office is the appointment's, of an active office only.
+   */
+  equipment: z.array(NamedItem.extend({ officeId: z.uuid().nullable() })).default([]),
   /** SMS reminders need the firm's SMS sender (Communications) and a client phone number. */
   smsEnabled: z.boolean(),
   portalEnabled: z.boolean(),
@@ -468,6 +489,8 @@ export const ConflictKind = z.enum([
   'BLOCKED_TIME',
   'TIME_OFF',
   'ROOM',
+  /** Review 2 (A2): an item of equipment another live appointment holds then. */
+  'EQUIPMENT',
   'CLIENT_DOUBLE_BOOKED',
   'BUFFER',
   'RECURRING_OCCURRENCE',
@@ -522,6 +545,8 @@ export const ConflictCheckRequest = z.strictObject({
   endsAt: DateTime,
   contact: ContactInput.optional(),
   roomId: z.uuid().nullable().optional(),
+  /** Review 2 (A2): the equipment to check, up to 5 of the firm's items. */
+  equipmentIds: z.array(z.uuid()).max(5).optional(),
   recurrence: AppointmentRecurrence.optional(),
   excludeAppointmentId: z.uuid().optional(),
   /** Review 2 (Appointments B11): the type being booked, so its buffers count as at save. */
