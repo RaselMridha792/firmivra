@@ -18,6 +18,7 @@ import { iso } from './communications.common.js';
 import { CommunicationAudienceService } from './communications-audience.service.js';
 import type { ActivityQ, ExportBody, FollowUpBody, RecipientsQ } from './communications-input.js';
 import { CommunicationProviders } from './communications-provider.js';
+import { HELD_ON_DEV, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
 import { CommunicationsService } from './communications.service.js';
 
@@ -38,6 +39,8 @@ export const FAILURE_LABELS: Record<string, string> = {
   timed_out: 'Not sent in time',
   bounced: 'Bounced',
   complained: 'Marked as spam',
+  // Leads row 14: Firmivra Mail on a test site sends only to the firm's own team.
+  [HELD_ON_DEV]: 'Held on this test site (not sent)',
 };
 const labelOf = (code: string | null) =>
   code === null ? null : (FAILURE_LABELS[code] ?? code.replace(/_/g, ' '));
@@ -199,6 +202,7 @@ export class CommunicationResultsService {
           .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
         canExport: ctx.perms.exportResults,
         canResendFailed: retryable > 0,
+        note: holdNoteOf(this.providers, conn?.provider),
       };
     });
   }
