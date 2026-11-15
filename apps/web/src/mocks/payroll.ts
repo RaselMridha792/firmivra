@@ -119,7 +119,11 @@ const pct = (now: number | null, before: number | null) =>
     ? null
     : Math.round(((now - before) / before) * 1000) / 10;
 
-export function createPayrollMock({ role = 'OWNER', empty = false }: Options = {}): PayrollClient {
+export function createPayrollMock({
+  role = 'OWNER',
+  empty = false,
+  documentName,
+}: Options = {}): PayrollClient {
   const store = seedStore(empty);
   const id = (block: string) => uuid(block, store.next++);
   const run = async <T>(work: () => T): Promise<T> => {
@@ -1206,8 +1210,10 @@ export function createPayrollMock({ role = 'OWNER', empty = false }: Options = {
           query,
         );
       }),
-    addReport: (clientId, body) =>
-      run(() => {
+    addReport: async (clientId, body) => {
+      // As the API: the report names its file (Review 2, B01).
+      const fileName = documentName ? await documentName(body.documentId).catch(() => null) : null;
+      return run(() => {
         const input = parseInput(AddPayrollReportRequest, body);
         const r = rec(clientId);
         const report = {
@@ -1220,13 +1226,15 @@ export function createPayrollMock({ role = 'OWNER', empty = false }: Options = {
             r.reports.filter((x) => x.kind === input.kind && x.periodStart === input.periodStart)
               .length + 1,
           documentId: input.documentId,
+          fileName,
           source: 'import' as const,
           pulledAt: nowIso(),
           requestedBy: mockMe,
         };
         r.reports.unshift(report);
         return report;
-      }),
+      });
+    },
     yearEnd: (clientId, q = {}) =>
       run(() => {
         const query = parseInput(PayrollYearEndQuery, q);

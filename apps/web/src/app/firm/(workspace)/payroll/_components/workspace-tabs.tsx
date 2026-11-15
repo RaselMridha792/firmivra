@@ -412,7 +412,16 @@ export function ReportsTab({ id }: { id: string }) {
       label: 'File',
       cell: (r) =>
         r.documentId ? (
-          <FileActions id={r.documentId} name={r.fileName ?? 'Attached file'} />
+          // Review 2 (B01): the file's name shows, not only to a screen reader.
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            <span
+              className="text-sm font-medium wrap-anywhere text-heading"
+              data-testid="report-file-name"
+            >
+              {r.fileName ?? 'Attached file'}
+            </span>
+            <FileActions id={r.documentId} name={r.fileName ?? 'Attached file'} />
+          </div>
         ) : (
           <span className="text-muted">No file</span>
         ),
@@ -695,9 +704,17 @@ function FileActions({
   name: string;
   scanned?: boolean;
 }) {
+  // Review 2 (UX02): a link with the file's name, so the browser downloads it (a presigned
+  // address downloads as before).
   const download = useApiMutation(async () => {
     const link = await api.documents.download(id);
-    window.location.assign(link.url);
+    const a = document.createElement('a');
+    a.href = link.url;
+    a.download = name;
+    a.rel = 'noopener';
+    document.body.append(a);
+    a.click();
+    a.remove();
   });
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2">
