@@ -46,6 +46,7 @@ import type {
   UpdateCommunicationBody,
 } from './communications-input.js';
 import { CommunicationProviders } from './communications-provider.js';
+import { FIRMIVRA_MAIL, FIRMIVRA_MAIL_LABEL, holdNoteOf } from './firmivra-mail.js';
 import { type SegCtx, CommunicationSegmentsService } from './communications-segments.service.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -57,10 +58,12 @@ const LOCK_MS = LOCK_MINUTES * 60_000;
 
 /** The integration providers that can carry each channel. */
 export const CHANNEL_PROVIDERS: Record<'EMAIL' | 'SMS', string[]> = {
-  EMAIL: ['outlook', 'gmail'],
+  // Leads row 14: Firmivra Mail, the built-in channel, beside a firm's own mailbox.
+  EMAIL: [FIRMIVRA_MAIL, 'outlook', 'gmail'],
   SMS: ['textmagic'],
 };
 const PROVIDER_NAMES: Record<string, string> = {
+  [FIRMIVRA_MAIL]: FIRMIVRA_MAIL_LABEL,
   outlook: 'Outlook',
   gmail: 'Gmail',
   textmagic: 'Textmagic',
@@ -129,6 +132,66 @@ export class CommunicationsService {
 
   // ---------- Providers, senders, readiness ----------
 
+  /**
+   * Leads row 14: the firm's Firmivra Mail connection, made the first time a campaign is started or
+   * changed (a write, never a read). One per firm (unique firm and provider: ON CONFLICT DO NOTHING
+   * keeps two at once safe), and never again once the firm disconnected it. Audited when made.
+   */
+  private async ensureFirmivraMail(ctx: SegCtx): Promise<void> {
+    if (!this.providers.has(FIRMIVRA_MAIL)) return;
+    const made = await ctx.tx.integrationConnection.createMany({
+      data: [
+        {
+          businessId: ctx.businessId,
+          provider: FIRMIVRA_MAIL,
+          status: 'CONNECTED',
+          accountLabel: FIRMIVRA_MAIL_LABEL,
+          direction: 'EXPORT',
+          syncMode: 'MANUAL',
+          entities: ['email'],
+          connectedByUserId: ctx.userId,
+        },
+      ],
+      skipDuplicates: true,
+    });
+    if (made.count > 0) {
+      await this.audit.logIn(
+        ctx.tx,
+        'integration.connected',
+        { type: 'integration_connection' },
+        { provider: FIRMIVRA_MAIL, builtIn: true },
+      );
+    }
+  }
+
+  /** Firmivra Mail can still be made for this firm (none yet, not one it disconnected). */
+  private async firmivraMailPending(ctx: SegCtx): Promise<boolean> {
+    if (!this.providers.has(FIRMIVRA_MAIL)) return false;
+    const row = await ctx.tx.integrationConnection.findFirst({
+      where: { businessId: ctx.businessId, provider: FIRMIVRA_MAIL },
+      select: { id: true },
+    });
+    return row === null;
+  }
+
+  /** What the builder says about where a campaign's emails go (Firmivra Mail holding). */
+  private holdNote(provider: string | null | undefined): string | null {
+    return holdNoteOf(this.providers, provider);
+  }
+
+  /** The From name of a connection's emails: the firm's own name for Firmivra Mail. */
+  private async fromNameOf(
+    ctx: SegCtx,
+    conn: { provider: string; accountLabel: string | null },
+  ): Promise<string | null> {
+    if (conn.provider !== FIRMIVRA_MAIL) return conn.accountLabel ?? null;
+    const firm = await ctx.tx.business.findUnique({
+      where: { id: ctx.businessId },
+      select: { name: true },
+    });
+    return firm?.name ?? null;
+  }
+
   private connections(ctx: SegCtx, channel: CommunicationChannel) {
     if (channel === 'ANNOUNCEMENT') return Promise.resolve([]);
     return ctx.tx.integrationConnection.findMany({
@@ -171,14 +234,41 @@ export class CommunicationsService {
         reason: 'You do not have permission to send communications',
         route: 'PERMISSIONS',
         senderCount: 0,
+        note: null,
       };
     if (channel === 'ANNOUNCEMENT')
-      return { channel, ready: true, reason: null, route: null, senderCount: 0 };
+      return { channel, ready: true, reason: null, route: null, senderCount: 0, note: null };
     const all = await this.connections(ctx, channel);
     const healthy = all.filter(
       (c) => (HEALTHY as string[]).includes(c.status) && this.providers.has(c.provider),
     );
     const what = channel === 'EMAIL' ? 'an email provider' : 'an SMS provider';
+    // Leads row 14: Firmivra Mail is there for every firm; its connection is made on the first
+    // campaign (a write), so until then email is ready through it.
+    if (channel === 'EMAIL' && !healthy.length && (await this.firmivraMailPending(ctx)))
+      return {
+        channel,
+        ready: true,
+        reason: null,
+        route: null,
+        senderCount: 1,
+        note: this.holdNote(FIRMIVRA_MAIL),
+      };
+    // No text message provider ships yet: the platform's toll-free number is being registered.
+    if (
+      channel === 'SMS' &&
+      !all.length &&
+      !CHANNEL_PROVIDERS.SMS.some((p) => this.providers.has(p))
+    )
+      return {
+        channel,
+        ready: false,
+        reason:
+          'Text messages are not available yet: the toll-free number they are sent from is being registered.',
+        route: null,
+        senderCount: 0,
+        note: null,
+      };
     if (!all.length)
       return {
         channel,
@@ -186,6 +276,7 @@ export class CommunicationsService {
         reason: `Connect ${what} to ${channel === 'EMAIL' ? 'send emails' : 'send text messages'}`,
         route: 'INTEGRATIONS',
         senderCount: 0,
+        note: null,
       };
     if (!healthy.length && all.some((c) => (HEALTHY as string[]).includes(c.status)))
       return {
@@ -196,6 +287,7 @@ export class CommunicationsService {
         } is not available yet`,
         route: 'INTEGRATIONS',
         senderCount: 0,
+        note: null,
       };
     if (!healthy.length)
       return {
@@ -204,8 +296,16 @@ export class CommunicationsService {
         reason: `Reconnect ${what}: the connection needs attention`,
         route: 'INTEGRATIONS',
         senderCount: 0,
+        note: null,
       };
-    return { channel, ready: true, reason: null, route: null, senderCount: healthy.length };
+    return {
+      channel,
+      ready: true,
+      reason: null,
+      route: null,
+      senderCount: healthy.length,
+      note: this.holdNote(healthy[0]?.provider),
+    };
   }
 
   senders(tenant: TenantContext, userId: string): Promise<CommunicationSenderList> {
@@ -591,6 +691,8 @@ export class CommunicationsService {
       const snapshot = body.templateId
         ? await this.snapshotOf(ctx, body.channel, body.templateId)
         : {};
+      // Leads row 14: the first email campaign makes the firm's Firmivra Mail connection.
+      if (body.channel === 'EMAIL') await this.ensureFirmivraMail(ctx);
       const ready = await this.readiness(ctx, body.channel);
       if (!ready.ready)
         throw refuse('CHANNEL_UNAVAILABLE', ready.reason ?? 'This channel is not ready', {
@@ -612,7 +714,7 @@ export class CommunicationsService {
           createdByUserId: ctx.userId,
           updatedByUserId: ctx.userId,
           connectionId: healthy?.id ?? null,
-          fromName: healthy ? (healthy.accountLabel ?? null) : null,
+          fromName: healthy ? await this.fromNameOf(ctx, healthy) : null,
           timezone: await firmTimeZone(ctx.tx, ctx.businessId),
           ...snapshot,
         },
@@ -654,6 +756,7 @@ export class CommunicationsService {
         body: c.body,
       };
       if (channel !== c.channel) {
+        if (channel === 'EMAIL') await this.ensureFirmivraMail(ctx);
         const ready = await this.readiness(ctx, channel);
         if (!ready.ready)
           throw refuse('CHANNEL_UNAVAILABLE', ready.reason ?? 'This channel is not ready', {
@@ -693,7 +796,7 @@ export class CommunicationsService {
         const [first] = await this.connections(ctx, channel);
         if (first && this.usable(first)) {
           data.connectionId = first.id;
-          data.fromName = first.accountLabel ?? null;
+          data.fromName = await this.fromNameOf(ctx, first);
         }
       }
       if (
@@ -739,7 +842,7 @@ export class CommunicationsService {
           if (!conn)
             throw comErrors.invalid('senderId', 'This is not a verified sender of the channel');
           data.connectionId = conn.id;
-          data.fromName = conn.accountLabel ?? null;
+          data.fromName = await this.fromNameOf(ctx, conn);
         }
       }
       const starts =
