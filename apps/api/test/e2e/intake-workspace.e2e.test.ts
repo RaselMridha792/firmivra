@@ -707,15 +707,34 @@ describe('the settings', () => {
       call('put', '/intake-settings', ownerA, { version, security: { dataRetentionYears } });
     const seven = IntakeSettings.parse(ok(await put(at.version, 7)));
     expect(seven.security.dataRetentionYears).toBe(7);
-    // 14b: 1 to 30 years, as each category.
-    for (const years of [0, 31, 1.5, '7']) {
+    // 14b: a change is 1 to 30 years, as each category.
+    for (const years of [0, 31, 100, 1.5, '7']) {
       const res = await put(seven.version, years);
       expectError(res, 400, 'VALIDATION_FAILED');
       expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
     }
     const thirty = IntakeSettings.parse(ok(await put(seven.version, 30)));
     expect(thirty.security.dataRetentionYears).toBe(30);
-    const cleared = IntakeSettings.parse(ok(await put(thirty.version, null)));
+    // A value saved under I12 (1 to 100 then) reads as it is and is never rewritten on read; a
+    // write is 1 to 30, so it can't be sent back or applied to the categories, only changed.
+    await inFirm('a', (tx) =>
+      tx.intakeSettings.update({
+        where: { businessId: firms.a },
+        data: { dataRetentionYears: 50 },
+      }),
+    );
+    const old = IntakeSettings.parse(ok(await call('get', '/intake-settings', ownerA)));
+    expect(old.security.dataRetentionYears).toBe(50);
+    expect(
+      IntakeSettings.parse(ok(await call('get', '/intake-settings', adminA))).security
+        .dataRetentionYears,
+    ).toBe(50);
+    for (const security of [{ dataRetentionYears: 50 }, { applyRetentionToAll: true }]) {
+      const res = await call('put', '/intake-settings', ownerA, { version: old.version, security });
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(JSON.stringify(res.body)).toContain('security.dataRetentionYears');
+    }
+    const cleared = IntakeSettings.parse(ok(await put(old.version, null)));
     expect(cleared.security.dataRetentionYears).toBeNull();
     expect(await counts()).toEqual(before);
     IntakeSettings.parse(ok(await put(cleared.version, 7)));

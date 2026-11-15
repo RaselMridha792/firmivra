@@ -688,7 +688,8 @@ export const IntakeSettings = z.object({
     consentRequired: z.boolean(),
     /**
      * Review Two 14b, Apply to all: the minimum years of every category not set on its own; null
-     * is not set. (It was I12's single data retention period: a value saved then holds here.)
+     * is not set. A change is 1 to 30, but a value saved under I12's single period (up to 100)
+     * reads as it is and is never rewritten on read: show it, with how to change it.
      */
     dataRetentionYears: z.number().int().nullable(),
     /**
@@ -766,7 +767,10 @@ export const UpdateIntakeSettingsRequest = z.strictObject({
        */
       maxFileSizeMb: z.number().int().min(1).max(INTAKE_MAX_FILE_SIZE_MB),
       consentRequired: z.boolean(),
-      /** Apply to all's years: 1 to 30 (14b, as each category), or null for not set. */
+      /**
+       * Apply to all's years: 1 to 30 (14b, as each category), or null for not set. A value saved
+       * under I12 (up to 100) still reads as it is; it can only be changed to 1 to 30 or cleared.
+       */
       dataRetentionYears: RetentionYearsInput.nullable(),
       /** The categories sent change; null clears one (Apply to all then holds for it). */
       retention: z

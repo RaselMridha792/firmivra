@@ -332,6 +332,7 @@ export class IntakeSettingsService {
         }
         if (s.consentRequired !== undefined) data.consentRequired = s.consentRequired;
         // Review Two 14b: minimums only. Nothing is deleted or archived because of them.
+        // 14b: 1 to 30 (the contract); a value saved under I12 (up to 100) is read as it is.
         if (s.dataRetentionYears !== undefined) data.dataRetentionYears = s.dataRetentionYears;
         if (s.applyRetentionToAll) {
           const years =

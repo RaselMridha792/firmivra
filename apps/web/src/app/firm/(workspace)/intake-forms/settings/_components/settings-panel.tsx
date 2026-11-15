@@ -55,6 +55,7 @@ export function SettingsPanel({
   generalOwner,
   followUpOwner,
   savedFileSizeMb,
+  savedRetentionYears,
   dirty,
   busy,
   onSave,
@@ -66,6 +67,7 @@ export function SettingsPanel({
   generalOwner: Member | null;
   followUpOwner: Member | null;
   savedFileSizeMb: number | null;
+  savedRetentionYears: number | null;
   dirty: boolean;
   busy: boolean;
   onSave: () => void;
@@ -104,7 +106,11 @@ export function SettingsPanel({
         ) : panel === 'submission' ? (
           <SubmissionRulesFields {...fields} />
         ) : panel === 'security' ? (
-          <SecurityFields {...fields} savedFileSizeMb={savedFileSizeMb} />
+          <SecurityFields
+            {...fields}
+            savedFileSizeMb={savedFileSizeMb}
+            savedRetentionYears={savedRetentionYears}
+          />
         ) : null}
       </div>
     </Drawer>

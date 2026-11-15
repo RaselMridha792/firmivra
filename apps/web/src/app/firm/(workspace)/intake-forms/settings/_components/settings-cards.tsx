@@ -29,6 +29,7 @@ import {
   type FieldErrors,
   type FileType,
   FINAL_REMINDER_MINUTES,
+  legacyRetentionNote,
   REMINDER_MINUTES,
   fileSizeOptions,
   type Group,
@@ -570,7 +571,9 @@ function FileTypesRow({
   );
 }
 
-export function SecurityCard(props: CardProps & { savedFileSizeMb: number | null }) {
+export function SecurityCard(
+  props: CardProps & { savedFileSizeMb: number | null; savedRetentionYears: number | null },
+) {
   return (
     <SettingsCard
       section="security"
@@ -592,7 +595,8 @@ export function SecurityFields({
   errors,
   readOnly,
   savedFileSizeMb,
-}: FieldsProps & { savedFileSizeMb: number | null }) {
+  savedRetentionYears,
+}: FieldsProps & { savedFileSizeMb: number | null; savedRetentionYears: number | null }) {
   const s = draft?.security;
   return (
     <>
@@ -627,6 +631,7 @@ export function SecurityFields({
           />
           <RetentionFields
             security={s}
+            saved={savedRetentionYears}
             readOnly={readOnly}
             errors={errors}
             onChange={(patch) => set('security', patch)}
@@ -648,17 +653,22 @@ const yearsValue = (v: string) => (v.trim() === '' ? null : Number(v));
  */
 function RetentionFields({
   security,
+  saved,
   readOnly,
   errors,
   onChange,
 }: {
   security: Draft['security'];
+  /** Apply to all as saved: one over 30 was saved under I12 (1 to 100 then). */
+  saved: number | null;
   readOnly: boolean;
   errors: FieldErrors;
   onChange: (patch: Partial<Draft['security']>) => void;
 }) {
   const all = security.dataRetentionYears;
   const canApply = all !== null && Number.isInteger(all) && all >= 1 && all <= 30;
+  // Read as it is, never rewritten: it can only be changed to 1 to 30 or cleared.
+  const legacy = legacyRetentionNote(saved, all);
   return (
     <div className="flex flex-col gap-3 py-1" data-testid="data-retention">
       <div className="flex flex-col gap-1">
@@ -681,6 +691,11 @@ function RetentionFields({
             error={errors['security.dataRetentionYears']}
             onChange={(v) => onChange({ dataRetentionYears: yearsValue(v) })}
           />
+          {legacy ? (
+            <p className="mt-1 text-xs text-text" data-testid="retention-legacy">
+              {legacy}.
+            </p>
+          ) : null}
         </div>
         <Button
           variant="secondary"

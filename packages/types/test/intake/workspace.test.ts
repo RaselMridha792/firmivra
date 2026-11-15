@@ -3,6 +3,7 @@ import {
   beginOnlinePageUrl,
   createIntakeFormsClient,
   createRequest,
+  effectiveRetentionYears,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_MAX_FILE_SIZE_MB,
   INTAKE_ALERT_MINUTES,
@@ -10,6 +11,7 @@ import {
   intakeAlertWords,
   intakeDurationWords,
   IntakeFormKey,
+  IntakeSettings,
   publicEmbedCode,
   SaveIntakeFormRequest,
   SendIntakeFormRequest,
@@ -212,16 +214,40 @@ describe('the expiration alert (I9)', () => {
   });
 });
 
-describe('the data retention period (I12)', () => {
-  it('takes 1 to 100 whole years, or none', () => {
+describe('the data retention period (I12, now 14b Apply to all)', () => {
+  // Review Two 14b: Apply to all fills the six categories, each 1 to 30 years (the database's
+  // range for them), so a change is 1 to 30. I12 took 1 to 100: a value saved then is still read.
+  it('takes 1 to 30 whole years, or none', () => {
     const ok = (dataRetentionYears: unknown) =>
       UpdateIntakeSettingsRequest.safeParse({ version: 'v', security: { dataRetentionYears } })
         .success;
     expect(ok(1)).toBe(true);
-    expect(ok(100)).toBe(true);
+    expect(ok(30)).toBe(true);
     expect(ok(null)).toBe(true);
     expect(ok(0)).toBe(false);
-    expect(ok(101)).toBe(false);
+    expect(ok(31)).toBe(false);
+    expect(ok(100)).toBe(false);
     expect(ok(2.5)).toBe(false);
+  });
+
+  it('reads a value saved under I12 above 30 as it is', () => {
+    const security = {
+      encryptedUploads: true,
+      acceptedFileTypes: ['PDF'],
+      maxFileSizeMb: 10,
+      consentRequired: true,
+      dataRetentionYears: 50,
+      retention: {
+        clientDocuments: null,
+        firmDocuments: 7,
+        intakeSubmissions: null,
+        portalMessages: null,
+        systemEmails: null,
+        taxReturnDocuments: null,
+      },
+    };
+    expect(IntakeSettings.shape.security.parse(security).dataRetentionYears).toBe(50);
+    expect(effectiveRetentionYears(security, 'clientDocuments')).toBe(50);
+    expect(effectiveRetentionYears(security, 'firmDocuments')).toBe(7);
   });
 });

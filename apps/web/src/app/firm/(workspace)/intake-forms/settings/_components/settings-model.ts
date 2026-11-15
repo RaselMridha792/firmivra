@@ -186,6 +186,16 @@ export function withCurrent(values: readonly number[], current: number | null): 
   return [...new Set(all)].sort((a, b) => a - b);
 }
 export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
+/**
+ * Review Two 14b: Apply to all as saved under I12 (1 to 100 years then) reads as it is and is never
+ * rewritten; a change is 1 to 30. While the draft still holds that saved value over 30, the screen
+ * says so: "50 years (saved before; choose 1–30 to change)". Null otherwise.
+ */
+export function legacyRetentionNote(saved: number | null, draft: number | null): string | null {
+  if (saved === null || saved <= 30 || draft !== saved) return null;
+  return `${saved} years (saved before; choose 1–30 to change)`;
+}
+
 /** The first reminder's choices, after sending (Octavia's I8): 5 minutes to 30 days (10b). */
 export const REMINDER_MINUTES: readonly number[] = INTAKE_REMINDER_MINUTES;
 /**

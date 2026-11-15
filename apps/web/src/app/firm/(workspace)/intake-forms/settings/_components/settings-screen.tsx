@@ -514,6 +514,7 @@ export function SettingsScreen() {
                 <SecurityCard
                   {...cardProps}
                   savedFileSizeMb={saved?.security.maxFileSizeMb ?? null}
+                  savedRetentionYears={saved?.security.dataRetentionYears ?? null}
                 />
                 <BrandingCard
                   {...cardProps}
@@ -595,6 +596,7 @@ export function SettingsScreen() {
         generalOwner={saved?.general.defaultOwner ?? null}
         followUpOwner={saved?.automation.defaultFollowUpOwner ?? null}
         savedFileSizeMb={saved?.security.maxFileSizeMb ?? null}
+        savedRetentionYears={saved?.security.dataRetentionYears ?? null}
         dirty={dirty}
         busy={busy}
         onSave={() => save(() => setPanel(null))}
