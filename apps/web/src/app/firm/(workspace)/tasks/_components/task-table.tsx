@@ -1,6 +1,6 @@
 'use client';
 
-import type { TaskOverviewQuery, TaskProgress, TaskRow } from '@firmivra/types';
+import type { BulkTaskResult, TaskOverviewQuery, TaskProgress, TaskRow } from '@firmivra/types';
 import {
   ActionMenu,
   BulkBar,
@@ -29,6 +29,7 @@ import {
   UserSwitch,
   FloppyDisk,
   ArrowCounterClockwise,
+  ArrowSquareOut,
   type Icon,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
@@ -49,6 +50,7 @@ import {
   shortName,
 } from './task-shared';
 import { OriginLink, useOriginNavigate } from '../../../../../components/origin-link';
+import { workspacePath } from './new-task-href';
 
 type Dialog =
   | { kind: 'reassign' | 'due' | 'priority' | 'progress'; ids: string[] }
@@ -71,6 +73,40 @@ export function requiredOpenText(requiredOpen: number): string | undefined {
 }
 
 /** What a table of tasks offers: sort, page, select, row menu and the bulk bar. */
+/** T-D04: the page of the record a task is about (its engagement's workspace), if it has one. */
+const relatedHref = (t: TaskRow): string | null =>
+  (t.engagement ? workspacePath(t.engagement.workspace) : null) ?? null;
+
+/** T-D04: why a bulk action left a task as it was, in a few words. */
+const SKIP_WORDS: Record<string, string> = {
+  REQUIRED_ITEMS_OPEN: 'required checklist items are open',
+  DEPENDENCY_OPEN: 'its prerequisite is not done',
+  TASK_CLOSED: 'it is closed; reopen it first',
+  NOT_FOUND: 'not found or not yours',
+  SAVE_CONFLICT: 'someone changed it meanwhile',
+  TYPE_ARCHIVED: 'its type is archived',
+};
+
+/**
+ * T-D04: a bulk action's result for the toast: how many changed, and each skipped task by name
+ * with the reason ("2 completed, 1 skipped: Collect W-2s (required checklist items are open).").
+ */
+export function bulkResultText(
+  r: BulkTaskResult,
+  verb: string,
+  rows: readonly Pick<TaskRow, 'id' | 'title'>[],
+): string {
+  const done = `${r.updated} ${verb}`;
+  if (r.skipped.length === 0) return `${done}.`;
+  const named = r.skipped.map(
+    (x) =>
+      `${rows.find((t) => t.id === x.id)?.title ?? 'A task'} (${
+        SKIP_WORDS[x.reason] ?? x.reason.toLowerCase().replaceAll('_', ' ')
+      })`,
+  );
+  return `${done}, ${r.skipped.length} skipped: ${named.join('; ')}.`;
+}
+
 export function TaskTable({
   query,
   onQuery,
@@ -255,6 +291,16 @@ export function TaskTable({
       ];
     return [
       { label: 'View', icon: Eye, onSelect: () => go(`/tasks/${t.id}`) },
+      // T-D04: the record the task is about, as the task page's Related To opens it.
+      ...(relatedHref(t)
+        ? [
+            {
+              label: 'View Related Record',
+              icon: ArrowSquareOut,
+              onSelect: () => go(relatedHref(t)!),
+            },
+          ]
+        : []),
       { label: 'Edit', icon: PencilSimple, onSelect: () => go(`/tasks/${t.id}/edit`) },
       ...(open
         ? [
@@ -385,7 +431,7 @@ export function TaskTable({
                     onSuccess: (r) => {
                       setSelected([]);
                       setMessage({
-                        text: `${r.updated} completed${r.skipped.length ? `, ${r.skipped.length} skipped` : ''}.`,
+                        text: bulkResultText(r, 'completed', rows),
                         tone: 'success',
                       });
                     },
@@ -497,6 +543,7 @@ export function TaskTable({
         <ChangeDialog
           kind={dialog.kind}
           ids={dialog.ids}
+          rows={rows}
           onClose={() => setDialog(null)}
           onDone={(text) => {
             setDialog(null);
@@ -529,7 +576,14 @@ export function TaskTable({
                       onSuccess: (r) => {
                         setDialog(null);
                         setSelected([]);
-                        setMessage({ text: `${r.updated} updated.`, tone: 'success' });
+                        setMessage({
+                          text: bulkResultText(
+                            r,
+                            dialog.action === 'CANCEL' ? 'cancelled' : 'archived',
+                            rows,
+                          ),
+                          tone: 'success',
+                        });
                       },
                       onError: fail,
                     },
@@ -601,11 +655,13 @@ export function TaskTable({
 function ChangeDialog({
   kind,
   ids,
+  rows,
   onClose,
   onDone,
 }: {
   kind: 'reassign' | 'due' | 'priority' | 'progress';
   ids: string[];
+  rows: readonly TaskRow[];
   onClose: () => void;
   onDone: (text: string) => void;
 }) {
@@ -645,10 +701,7 @@ function ChangeDialog({
             disabled={bulk.isPending || (kind === 'due' && !date)}
             onClick={() =>
               bulk.mutate(undefined, {
-                onSuccess: (r) =>
-                  onDone(
-                    `${r.updated} updated${r.skipped.length ? `, ${r.skipped.length} skipped` : ''}.`,
-                  ),
+                onSuccess: (r) => onDone(bulkResultText(r, 'updated', rows)),
               })
             }
           >

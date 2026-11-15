@@ -272,7 +272,14 @@ function seed(empty: boolean): Store {
       title,
       client: CLIENTS[c]!,
       type: ty(t),
-      engagement: { id: uuid('0f10', i + 1), title: project },
+      engagement: {
+        id: uuid('0f10', i + 1),
+        title: project,
+        // T-D04: the business plan task is about the advisory mock's first client.
+        ...(i === 0
+          ? { workspace: { kind: 'ADVISORY' as const, id: '0199c0f1-a200-7000-8000-000000000001' } }
+          : {}),
+      },
       engagementId: uuid('0f10', i + 1),
       priority,
       progress,
@@ -1188,7 +1195,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         touch(t);
         updated++;
       }
-      if (updated === 0 && skipped.length === b.ids.length)
+      // As the API: a 404 only when nothing was found at all; other skips come back named.
+      if (updated === 0 && skipped.every((x) => x.reason === 'NOT_FOUND'))
         throw fail(404, 'NOT_FOUND', 'Not found');
       return { updated, skipped };
     },

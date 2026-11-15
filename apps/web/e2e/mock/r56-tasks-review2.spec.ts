@@ -161,3 +161,32 @@ test('T-C06: a task’s file opens its document, and is shown, hidden or removed
   await expect(page.getByText(`${name} removed from the task`)).toBeVisible();
   await expect(files).toContainText('No attachments.');
 });
+
+test('T-D04: View Related Record opens the task’s record; a bulk Complete names each skipped task and why', async ({
+  page,
+}) => {
+  await page.goto(`${base}?view=all`);
+  const table = page.getByTestId('task-table');
+  await expect(table.getByTestId('task-link').first()).toBeVisible({ timeout: 60_000 });
+  const blocked = 'Prepare business plan draft';
+  await page.getByRole('button', { name: `Actions for ${blocked}` }).click();
+  await expect(page.getByRole('menuitem', { name: 'View Related Record' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // The business plan has a required step open; another open task completes.
+  const other = (await table.getByTestId('task-link').nth(0).innerText()).trim();
+  const second =
+    other === blocked ? (await table.getByTestId('task-link').nth(1).innerText()).trim() : other;
+  for (const title of [blocked, second])
+    await table.getByRole('row').filter({ hasText: title }).getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Complete', exact: true }).click();
+  const toast = page.getByRole('status').filter({ hasText: 'skipped' });
+  await expect(toast).toContainText(/\d completed, \d skipped: /);
+  await expect(toast).toContainText(`${blocked} (required checklist items are open)`);
+
+  await page.getByRole('button', { name: `Actions for ${blocked}` }).click();
+  await page.getByRole('menuitem', { name: 'View Related Record' }).click();
+  await expect(page).toHaveURL(
+    /\/business-advisory\/clients\/0199c0f1-a200-7000-8000-000000000001/,
+  );
+});
