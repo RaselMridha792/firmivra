@@ -525,6 +525,8 @@ export interface RowContext {
   done: Map<string, number>;
   /** Checklist steps in all, by task id. */
   total: Map<string, number>;
+  /** T-C12: required steps still open, by task id (those with none are missing). */
+  requiredOpen?: Map<string, number>;
 }
 
 /** The Firmivra workspace an engagement has: bookkeeping, payroll or advisory (one each at most). */
@@ -561,7 +563,11 @@ export function toRow(t: RowShape, ctx: RowContext): TaskRow {
     overdue: isOverdue(t, ctx.today, ctx.nowMinutes),
     assignedTo: assignee(t.assignedMember),
     additionalAssigneeCount: t._count.assignees,
-    checklist: { done: ctx.done.get(t.id) ?? 0, total: ctx.total.get(t.id) ?? 0 },
+    checklist: {
+      done: ctx.done.get(t.id) ?? 0,
+      total: ctx.total.get(t.id) ?? 0,
+      requiredOpen: ctx.requiredOpen?.get(t.id) ?? 0,
+    },
     blocked: t.dependsOn !== null && t.dependsOn.status !== 'DONE',
     recurring: t.taskOccurrence !== null,
     clientVisible: t.clientVisible,
@@ -615,6 +621,7 @@ export function toDetail(t: DetailShape, names: Map<string, string>, ctx: RowCon
     ...ctx,
     done: new Map([[t.id, items.filter((i) => i.completedAt).length]]),
     total: new Map([[t.id, items.length]]),
+    requiredOpen: new Map([[t.id, items.filter((i) => i.required && !i.completedAt).length]]),
   };
   return {
     ...toRow(t, withTotals),

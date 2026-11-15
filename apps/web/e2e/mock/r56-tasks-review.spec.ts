@@ -5,6 +5,24 @@ import { expect, test, type Page } from '@playwright/test';
 // page, so these tests move between pages by their links: a full load starts the data again.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
+
+/** T-C04: the Task Type dropdown: open it and choose a type (the first by default). */
+async function chooseType(page: Page, name?: string) {
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await (
+    name ? list.getByRole('option', { name, exact: true }) : list.getByRole('option').nth(1)
+  ).click();
+}
+
+/** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
+async function chooseClient(page: Page, name?: string) {
+  const box = page.getByRole('combobox', { name: 'Client' });
+  await box.click();
+  await box.fill(name ? name.split(' ')[0]!.toLowerCase() : '');
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await (name ? list.getByRole('option', { name }) : list.getByRole('option').first()).click();
+}
 const TYPES = ['Business Advisory', 'Bookkeeping', 'Tax Preparation', 'Compliance', 'Onboarding'];
 
 async function rowAction(page: Page, name: string, action: string) {
@@ -26,7 +44,7 @@ async function noActiveTypes(page: Page) {
 
 async function fillRequired(page: Page, title: string) {
   await page.getByLabel('Task Name *').fill(title);
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
 }
@@ -67,7 +85,8 @@ test('C1 Manage Task Types: add, refuse a taken name, rename, archive and restor
   // An archived type leaves the picker of a new task.
   await page.getByRole('link', { name: 'Back to Tasks' }).click();
   await page.getByRole('link', { name: 'Add Task', exact: true }).first().click();
-  const options = page.locator('#tf-type option');
+  await page.locator('#tf-type').click();
+  const options = page.getByRole('listbox', { name: 'Task types' }).getByRole('option');
   await expect(options.filter({ hasText: 'Bookkeeping' })).toHaveCount(1);
   await expect(options.filter({ hasText: 'Payroll Returns' })).toHaveCount(0);
 
@@ -123,14 +142,15 @@ test('C1 Add Task Type from the field selects it, and the field is then required
   ).toBeVisible();
   const type = page.getByLabel('Task type');
   await expect(type).toBeEnabled();
-  await expect(type.locator('option:checked')).toHaveText('Advisory Review');
+  await expect(type).toHaveText('Advisory Review');
   await expect(page.locator('label[for="tf-type"]')).toHaveText('Task Type *');
 
-  await type.selectOption('');
+  await type.click();
+  await page.getByRole('option', { name: 'Select task type' }).click();
   await fillRequired(page, 'Advisory review for Q1');
   await page.getByTestId('task-save').click();
   await expect(page.getByText('Choose a task type')).toBeVisible();
-  await type.selectOption({ label: 'Advisory Review' });
+  await chooseType(page, 'Advisory Review');
   await page.getByTestId('task-save').click();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
   await expect(page.getByRole('main')).toContainText('Advisory Review');
@@ -154,7 +174,7 @@ test('C2 a task saves without a template, and another from one; each is one task
 }) => {
   await page.goto(`${base}/new`);
   await fillRequired(page, 'Standalone payroll check');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByTestId('task-save').click();
   await expect(page.getByTestId('task-title')).toHaveText('Standalone payroll check');
 
@@ -215,7 +235,8 @@ test('C3 Create Task Template in the library, Use it, Edit its source; the task 
   await expect(page.getByLabel('Template Name *')).toHaveValue('new client onboarding');
 
   await page.getByLabel('Template Name *').fill('Quarterly payroll review');
-  await page.locator('#tt-type').selectOption({ label: 'Bookkeeping' });
+  await page.locator('#tt-type').click();
+  await page.getByRole('option', { name: 'Bookkeeping', exact: true }).click();
   await page.getByLabel('Priority').selectOption('HIGH');
   await page.getByLabel('Due Date (days after the task is made)').fill('10');
   await page.getByLabel('Assign to').selectOption('SPECIFIC_USER');
@@ -247,13 +268,13 @@ test('C3 Create Task Template in the library, Use it, Edit its source; the task 
   await expect(page.getByRole('heading', { name: 'Create Task' })).toBeVisible();
   await expect(page.getByLabel('Checklist item 1')).toHaveValue('Collect payroll registers');
   await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('HIGH');
-  await expect(page.locator('#tf-type option:checked')).toHaveText('Bookkeeping');
+  await expect(page.locator('#tf-type')).toHaveText('Bookkeeping');
   await expect(page.getByLabel('Assigned to').locator('option:checked')).toHaveText(member);
   await expect(page.getByLabel('Visible to client (optional)')).toBeChecked();
   await expect(page.getByLabel('Reminder 1', { exact: true })).toHaveValue('1');
   await expect(page.locator('#tf-due')).not.toHaveValue('');
   await page.getByLabel('Task Name *').fill('Q1 payroll review for Jamie');
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseClient(page);
   await page.getByTestId('task-save').click();
   await expect(page.getByTestId('task-title')).toHaveText('Q1 payroll review for Jamie');
   const made = page.url();
@@ -340,11 +361,11 @@ test('C6 Create Task: Browse Files and drop; wrong type and over 10 MB are named
   await expect(browse).toBeDisabled();
   await expect(note).toContainText('Choose the client first');
   await fillRequired(page, 'Collect the W-2s');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   // Riley Example has no open service: files cannot go to their documents yet.
   await expect(note).toContainText('Riley Example has no open service');
   await expect(browse).toBeDisabled();
-  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await chooseClient(page, 'Jamie Sample');
   await expect(browse).toBeEnabled();
   await expect(note).toHaveText(
     "Saved privately to Jamie Sample's documents under Bookkeeping (Growth), staff only.",
@@ -403,22 +424,23 @@ test('C6 Create Task: Browse Files and drop; wrong type and over 10 MB are named
 
 test('C4 Client: search by part of a name, choose, clear, search for another', async ({ page }) => {
   await page.goto(`${base}/new`);
-  const client = page.getByLabel('Client', { exact: true });
-  const search = page.getByTestId('client-search');
-  await search.fill('jam');
-  await expect(client.locator('option', { hasText: 'Jamie Sample' })).toHaveCount(1);
-  await expect(client.locator('option', { hasText: 'Riley Example' })).toHaveCount(0);
-  await client.selectOption({ label: 'Jamie Sample' });
+  const client = page.getByRole('combobox', { name: 'Client' });
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await client.fill('jam');
+  await expect(list.getByRole('option', { name: 'Jamie Sample' })).toHaveCount(1);
+  await expect(list.getByRole('option', { name: 'Riley Example' })).toHaveCount(0);
+  await list.getByRole('option', { name: 'Jamie Sample' }).click();
   await expect(page.getByTestId('form-summary')).toContainText('Jamie Sample');
-  await client.selectOption('');
+  await page.getByRole('button', { name: 'Clear client' }).click();
   await expect(page.getByTestId('form-summary')).not.toContainText('Jamie Sample');
-  await search.fill('riley');
-  await expect(client.locator('option', { hasText: 'Riley Example' })).toHaveCount(1);
-  await client.selectOption({ label: 'Riley Example' });
+  await client.fill('riley');
+  await list.getByRole('option', { name: 'Riley Example' }).click();
+  await expect(client).toHaveValue('Riley Example');
   // A choice keeps its name when the search changes.
-  await search.fill('zzzz-no-such-client');
-  await expect(client.locator('option').first()).toHaveText('No clients match');
-  await expect(client.locator('option:checked')).toHaveText('Riley Example');
+  await client.fill('zzzz-no-such-client');
+  await expect(list).toContainText('No clients match');
+  await client.press('Escape');
+  await expect(client).toHaveValue('Riley Example');
 });
 
 test('C5 Related To: the chosen client open engagements; a client change clears it', async ({
@@ -427,14 +449,14 @@ test('C5 Related To: the chosen client open engagements; a client change clears 
   await page.goto(`${base}/new`);
   const related = page.getByLabel('Related to');
   await expect(related).toBeDisabled();
-  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await chooseClient(page, 'Jamie Sample');
   await expect(related.locator('option', { hasText: 'Bookkeeping (Growth) (open)' })).toHaveCount(
     1,
   );
   await expect(related.locator('option', { hasText: '2024 Personal Tax' })).toHaveCount(0);
   await related.selectOption({ label: 'Bookkeeping (Growth) (open)' });
   await expect(page.getByTestId('form-summary')).toContainText('Bookkeeping (Growth)');
-  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Riley Example' });
+  await chooseClient(page, 'Riley Example');
   await expect(related).toHaveValue('');
   await expect(related.locator('option').first()).toHaveText('No open engagement for this client');
   await expect(page.getByTestId('form-summary')).not.toContainText('Bookkeeping (Growth)');
@@ -477,7 +499,7 @@ test('C8 Apply the same checklist: usable once there is a step; each occurrence 
   await expect(note).toHaveText('Occurrences start without a checklist.');
   await apply.check();
   await page.getByLabel('Task Name *').fill('Monthly bank review');
-  await page.getByLabel('Task Type *').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByLabel('Client *').selectOption({ index: 1 });
   await page.getByLabel('Assign To *').selectOption({ index: 1 });
   await page.getByTestId('series-save').click();
@@ -528,7 +550,7 @@ test('C11 Duplicate a checklist item: a separate copy below it, kept in order on
 }) => {
   await page.goto(`${base}/new`);
   await fillRequired(page, 'Prepare the payroll filing');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByRole('button', { name: 'Add Checklist Item' }).click();
   await page.getByLabel('Checklist item 1').fill('Collect the timesheets');
   await page.getByRole('button', { name: 'Add Checklist Item' }).click();
@@ -554,7 +576,7 @@ test('A3 Custom reminders: any days and a time; alike or late ones are refused; 
 }) => {
   await page.goto(`${base}/new`);
   await fillRequired(page, 'File the quarterly estimate');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByLabel('All Day').uncheck();
   await page.locator('#tf-time').selectOption('14:30');
   await page.getByLabel('Enable reminders').check();
@@ -596,7 +618,7 @@ test('A3 Custom reminders: any days and a time; alike or late ones are refused; 
 test('A5 Recurring Save & Create Another: saved once, a fresh form says so', async ({ page }) => {
   await page.goto(`${base}/recurring/new`);
   await page.getByLabel('Task Name *').fill('Monthly sales tax filing');
-  await page.getByLabel('Task Type *').selectOption({ label: 'Compliance' });
+  await chooseType(page, 'Compliance');
   await page.getByLabel('Client *').selectOption({ index: 1 });
   await page.getByLabel('Assign To *').selectOption({ index: 1 });
   await page.getByTestId('series-save-another').dblclick();
@@ -615,7 +637,7 @@ test('A5 Recurring Save & Create Another: saved once, a fresh form says so', asy
 test('T2 A double click on Save makes one task', async ({ page }) => {
   await page.goto(`${base}/new`);
   await fillRequired(page, 'Send the engagement renewal');
-  await page.getByLabel('Task type').selectOption({ label: 'Onboarding' });
+  await chooseType(page, 'Onboarding');
   await page.getByTestId('task-save').dblclick();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
   await page.getByRole('link', { name: 'Back to Tasks' }).click();
@@ -630,7 +652,7 @@ test('A3 Custom: minutes, hours or days before the due time; it needs a due time
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/new`);
   await fillRequired(page, 'Call about the payroll deposit');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByLabel('All Day').uncheck();
   await page.locator('#tf-time').selectOption('14:30');
   await page.getByLabel('Enable reminders').check();
@@ -710,10 +732,10 @@ test('A2 Save as Draft, the Drafts tab (search, filters), reopen and Save Task p
   await rows.getByRole('link', { name: 'Draft the engagement letter', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Edit Draft' })).toBeVisible();
   await expect(page.getByLabel('Task Name *')).toHaveValue('Draft the engagement letter');
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
-  await page.getByLabel('Task type').selectOption({ label: 'Onboarding' });
+  await chooseType(page, 'Onboarding');
   await page.getByTestId('task-save').click();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]{36}$/);
   await page.getByRole('link', { name: 'Back to Tasks' }).click();

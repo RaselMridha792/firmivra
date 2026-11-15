@@ -1,6 +1,6 @@
 'use client';
 
-import type { TaskDetail } from '@firmivra/types';
+import { DOCUMENT_ERRORS, type TaskDetail } from '@firmivra/types';
 import { Badge, Button, Input, Modal, Select, Toast } from '@firmivra/ui';
 import {
   Archive,
@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
+import { requiredOpenText } from './task-table';
 import { safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -47,6 +48,94 @@ function Card({ title, children, testId }: { title: string; children: ReactNode;
 const btn =
   'inline-flex min-h-10 items-center gap-2 rounded-control border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-canvas disabled:opacity-50';
 
+/**
+ * T-C06: a task's file, from the task itself: its name opens the document (Back returns here),
+ * Download (the document's own permission and scan checks apply), the client-visible switch and
+ * Remove (the file stays in the client's Documents).
+ */
+function AttachmentRow({
+  taskId,
+  attachment: a,
+  onDone,
+  onFail,
+}: {
+  taskId: string;
+  attachment: TaskDetail['attachments'][number];
+  onDone: (text: string) => void;
+  onFail: (e: unknown) => void;
+}) {
+  const options = { invalidate: [...TASKS_KEY] };
+  const visible = useApiMutation(
+    () => api.taskWork.updateAttachment(taskId, a.id, { clientVisible: !a.clientVisible }),
+    options,
+  );
+  const remove = useApiMutation(() => api.taskWork.removeAttachment(taskId, a.id), options);
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const link = await api.documents.download(a.documentId);
+      window.location.assign(link.url);
+    } catch (e) {
+      onFail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const action = 'text-sm font-medium text-link hover:underline disabled:text-muted';
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
+      <OriginLink
+        href={`/documents/${a.documentId}`}
+        className="min-w-0 truncate font-medium text-link hover:underline"
+      >
+        {a.fileName}
+      </OriginLink>
+      <span className="flex flex-wrap items-center gap-3">
+        <Badge tone={a.clientVisible ? 'info' : 'neutral'}>
+          {a.clientVisible ? 'Visible to client' : 'Staff only'}
+        </Badge>
+        <button type="button" className={action} disabled={busy} onClick={() => void download()}>
+          Download
+        </button>
+        <button
+          type="button"
+          className={action}
+          disabled={visible.isPending}
+          onClick={() =>
+            visible.mutate(undefined, {
+              onSuccess: () =>
+                onDone(
+                  a.clientVisible
+                    ? `${a.fileName} is staff only now.`
+                    : `${a.fileName} is visible to the client now.`,
+                ),
+              onError: onFail,
+            })
+          }
+        >
+          {a.clientVisible ? 'Make Staff Only' : 'Show to Client'}
+        </button>
+        <button
+          type="button"
+          className="text-sm font-medium text-danger hover:underline disabled:text-muted"
+          disabled={remove.isPending}
+          aria-label={`Remove ${a.fileName}`}
+          onClick={() =>
+            remove.mutate(undefined, {
+              onSuccess: () =>
+                onDone(`${a.fileName} removed from the task; it stays in the client's Documents.`),
+              onError: onFail,
+            })
+          }
+        >
+          Remove
+        </button>
+      </span>
+    </li>
+  );
+}
+
 /** /tasks/[id]: one task with its actions, checklist, reminders, dependency, attachments and notes. */
 export function TaskDetailScreen({
   id,
@@ -60,7 +149,7 @@ export function TaskDetailScreen({
   const query = useApiQuery([...TASKS_KEY, 'task', id], () => api.taskWork.task(id));
   const t: TaskDetail | undefined = query.data;
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
-  const [dialog, setDialog] = useState<'template' | 'recurring' | null>(
+  const [dialog, setDialog] = useState<'template' | 'recurring' | 'archive' | null>(
     convertToRecurring ? 'recurring' : null,
   );
   const options = { invalidate: [...TASKS_KEY] };
@@ -70,6 +159,7 @@ export function TaskDetailScreen({
   const reopen = useApiMutation(() => api.taskWork.reopen(id), options);
   const duplicate = useApiMutation(() => api.taskWork.duplicate(id), options);
   const archive = useApiMutation(() => api.taskWork.archive(id), options);
+  const restore = useApiMutation(() => api.taskWork.restore(id), options);
   const item = useApiMutation(
     (v: { itemId: string; done: boolean }) =>
       v.done ? api.taskWork.reopenItem(id, v.itemId) : api.taskWork.completeItem(id, v.itemId),
@@ -112,16 +202,28 @@ export function TaskDetailScreen({
               <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
             </Link>
             {t.status === 'OPEN' ? (
-              <button
-                type="button"
-                className={btn}
-                disabled={complete.isPending}
-                onClick={() =>
-                  complete.mutate(undefined, { onSuccess: done('Task completed.'), onError: fail })
-                }
-              >
-                <CheckCircle aria-hidden weight="fill" className="size-4" /> Complete
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={btn}
+                  disabled={complete.isPending || !!requiredOpenText(t.checklist.requiredOpen)}
+                  aria-describedby={t.checklist.requiredOpen ? 'complete-blocked' : undefined}
+                  onClick={() =>
+                    complete.mutate(undefined, {
+                      onSuccess: done('Task completed.'),
+                      onError: fail,
+                    })
+                  }
+                >
+                  <CheckCircle aria-hidden weight="fill" className="size-4" /> Complete
+                </button>
+                {/* T-C12: why Complete is off, before anyone clicks it. */}
+                {requiredOpenText(t.checklist.requiredOpen) ? (
+                  <span id="complete-blocked" className="text-xs text-muted" role="note">
+                    {requiredOpenText(t.checklist.requiredOpen)}
+                  </span>
+                ) : null}
+              </>
             ) : (
               <button
                 type="button"
@@ -153,15 +255,27 @@ export function TaskDetailScreen({
                 <Repeat aria-hidden weight="fill" className="size-4" /> Convert to Recurring
               </button>
             )}
-            <button
-              type="button"
-              className={`${btn} text-danger`}
-              onClick={() =>
-                archive.mutate(undefined, { onSuccess: () => router.push('/tasks'), onError: fail })
-              }
-            >
-              <Archive aria-hidden weight="fill" className="size-4" /> Archive
-            </button>
+            {/* T-C13: an archived task is restored here; Archive asks first. */}
+            {t.archivedAt ? (
+              <button
+                type="button"
+                className={btn}
+                disabled={restore.isPending}
+                onClick={() =>
+                  restore.mutate(undefined, { onSuccess: done('Task restored.'), onError: fail })
+                }
+              >
+                <ArrowCounterClockwise aria-hidden weight="fill" className="size-4" /> Restore
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`${btn} text-danger`}
+                onClick={() => setDialog('archive')}
+              >
+                <Archive aria-hidden weight="fill" className="size-4" /> Archive
+              </button>
+            )}
           </div>
         ) : null}
       </header>
@@ -302,12 +416,18 @@ export function TaskDetailScreen({
           ) : (
             <ul className="divide-y divide-divider text-sm">
               {t.attachments.map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="truncate text-heading">{a.fileName}</span>
-                  <Badge tone={a.clientVisible ? 'info' : 'neutral'}>
-                    {a.clientVisible ? 'Visible to client' : 'Staff only'}
-                  </Badge>
-                </li>
+                <AttachmentRow
+                  key={a.id}
+                  taskId={id}
+                  attachment={a}
+                  onDone={(text) => done(text)()}
+                  onFail={(e) =>
+                    setMessage({
+                      text: errorMessage(e, { ...DOCUMENT_ERRORS, ...TASK_ERRORS }),
+                      tone: 'error',
+                    })
+                  }
+                />
               ))}
             </ul>
           )}
@@ -318,6 +438,39 @@ export function TaskDetailScreen({
           </p>
         </Card>
       </div>
+      {dialog === 'archive' && t ? (
+        <Modal
+          open
+          title="Archive this task?"
+          onClose={() => setDialog(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                disabled={archive.isPending}
+                onClick={() =>
+                  archive.mutate(undefined, {
+                    onSuccess: () => router.push('/tasks?view=archived'),
+                    onError: (e) => {
+                      setDialog(null);
+                      fail(e);
+                    },
+                  })
+                }
+              >
+                Archive Task
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text">
+            {t.title} leaves the task lists. It stays under Archived, where Restore brings it back.
+          </p>
+        </Modal>
+      ) : null}
       {dialog === 'template' && t ? (
         <TemplateDialog
           task={t}

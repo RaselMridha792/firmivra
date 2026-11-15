@@ -3,6 +3,7 @@ import type { Database, Prisma, Task, TxClient } from '@firmivra/db';
 import type { TaskDetail, TaskDraft, TaskDraftPage } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { likeEscape } from '../clients/clients.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import {
@@ -131,7 +132,8 @@ export class TaskDraftsService {
       if (q.assignedUserId) and.push(mineOf(q.assignedUserId));
       if (q.mine === true) and.push({ createdByUserId: actor.userId });
       if (q.search) {
-        const has = { contains: q.search, mode: 'insensitive' } as const;
+        // T-D03: % and _ are letters here, never wildcards.
+        const has = { contains: likeEscape(q.search), mode: 'insensitive' } as const;
         and.push({
           OR: [
             { title: has },
