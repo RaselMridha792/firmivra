@@ -9,7 +9,7 @@ const season = String(new Date().getFullYear() - 1);
 
 test.describe.configure({ timeout: 180_000 });
 
-// Tax Returns Review 2 (F03a): the list's search and filters come back with Back.
+// Tax Returns Review 2 (F03a): the list's search and filters, its Status too, come back with Back.
 test('Request Client Information from a searched and filtered list comes Back to that list', async ({
   page,
 }) => {
@@ -22,6 +22,16 @@ test('Request Client Information from a searched and filtered list comes Back to
   const rows = page.getByRole('row').filter({ has: page.getByTestId('return-link') });
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Jamie Sample');
+  // The Status filter too: the status this row shows (the longest label it contains).
+  const statusFilter = filters.getByLabel('Status', { exact: true });
+  const rowText = await rows.first().innerText();
+  const statusLabel = (await statusFilter.locator('option').allTextContents())
+    .slice(2)
+    .sort((a, b) => b.length - a.length)
+    .find((l) => rowText.includes(l))!;
+  await statusFilter.selectOption({ label: statusLabel });
+  await expect(rows).toHaveCount(1);
+  const statusValue = await statusFilter.inputValue();
 
   await rows
     .first()
@@ -37,6 +47,8 @@ test('Request Client Information from a searched and filtered list comes Back to
   await expect(filters.getByLabel('Search returns')).toHaveValue('Jamie');
   await expect(filters.getByLabel('Tax Year')).toHaveValue(season);
   await expect(filters.getByLabel('Client Type')).toHaveValue('INDIVIDUAL');
+  await expect(statusFilter).toHaveValue(statusValue);
+  await expect(page).toHaveURL(new RegExp(`[?&]status=${statusValue}(&|$)`));
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Jamie Sample');
 });
