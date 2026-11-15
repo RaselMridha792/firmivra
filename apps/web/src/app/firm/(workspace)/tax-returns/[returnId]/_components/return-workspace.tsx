@@ -5,7 +5,7 @@ import type {
   TaxReturnDocumentKind,
   TaxReturnWorkflowStatus,
 } from '@firmivra/types';
-import { ActionMenu, Avatar, Badge, Tabs, Toast } from '@firmivra/ui';
+import { ActionMenu, Avatar, Badge, Drawer, Tabs, Toast } from '@firmivra/ui';
 import {
   Archive,
   ArrowLeft,
@@ -26,6 +26,7 @@ import { type ReactNode, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { BusinessIdentityCard } from './business-identity-card';
+import { ScheduleForm } from '../../../calendar/_components/schedule-form';
 import { IntakeFormCard } from './intake-form-card';
 import {
   AssignDialog,
@@ -852,6 +853,8 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
   const [back, setBack] = useState<TaxReturnWorkflowStatus>();
   const [rejecting, setRejecting] = useState(false);
   const [writing, setWriting] = useState(false);
+  // Review 2 (TX-F06): Create Appointment in a side panel, staying on this return.
+  const [scheduling, setScheduling] = useState(false);
   const next = NEXT[detail.workflowStatus];
   const goEfile =
     detail.workflowStatus === 'READY_TO_FILE' ||
@@ -884,14 +887,11 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
         <button type="button" className={button} onClick={() => setWriting(true)}>
           <ChatCircleDots aria-hidden weight="fill" className="size-5" /> Send Message
         </button>
-        {/* TX-F06 (SH6): the shared appointment form on this client and return's engagement;
-            Cancel or Back returns here without creating anything. */}
-        <OriginLink
-          href={`/calendar/new?clientId=${detail.client.id}&taxReturnId=${detail.id}${detail.engagement ? `&engagementId=${detail.engagement.id}` : ''}`}
-          className={button}
-        >
+        {/* Review 2 (TX-F06): the shared appointment form in a side panel on this client, linked
+            to this return; Schedule and Cancel stay here. */}
+        <button type="button" className={button} onClick={() => setScheduling(true)}>
           <CalendarPlus aria-hidden weight="fill" className="size-5" /> Create Appointment
-        </OriginLink>
+        </button>
         <span className="inline-flex">
           {goEfile ? (
             <button
@@ -978,6 +978,32 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
           onClose={() => setWriting(false)}
           onSent={() => onNotice('Message sent to the client.', 'success')}
         />
+      ) : null}
+      {scheduling ? (
+        <Drawer
+          open
+          size="wide"
+          title="Create Appointment"
+          subtitle={`${detail.client.name}, ${detail.taxYear} ${detail.formType ?? 'Tax'} Return`}
+          onClose={() => setScheduling(false)}
+        >
+          <div data-testid="schedule-panel">
+            <ScheduleForm
+              prefill={{
+                clientId: detail.client.id,
+                taxReturnId: detail.id,
+                ...(detail.engagement ? { engagementId: detail.engagement.id } : {}),
+              }}
+              embedded={{
+                onDone: () => {
+                  setScheduling(false);
+                  onNotice('Appointment scheduled, linked to this return.', 'success');
+                },
+                onCancel: () => setScheduling(false),
+              }}
+            />
+          </div>
+        </Drawer>
       ) : null}
     </div>
   );
