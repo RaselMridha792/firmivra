@@ -353,9 +353,8 @@ export class ClientsService {
             ? {
                 OR: [
                   {
-                    engagements: {
-                      some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-                    },
+                    // N8-23: as the tab's count, a requested (pending) service is not enrolled.
+                    engagements: { some: { serviceId: q.serviceId, status: 'ACTIVE' } },
                   },
                   // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
                   {
@@ -719,7 +718,11 @@ export class ClientsService {
       db.engagement.findMany({
         where: { businessId, clientId: { in: ids }, status: { in: ['PENDING', 'ACTIVE'] } },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { clientId: true, service: { select: { id: true, name: true, kind: true } } },
+        select: {
+          clientId: true,
+          status: true,
+          service: { select: { id: true, name: true, kind: true } },
+        },
       }),
       db.advisoryWorkstream.findMany({
         where: {
@@ -760,12 +763,19 @@ export class ClientsService {
       ),
     ]);
     const enrolled = [
-      ...engagements,
-      ...workstreams.map((w) => ({ clientId: w.advisoryClient.clientId, service: w.service })),
+      ...engagements.map((e) => ({ ...e, requested: e.status === 'PENDING' })),
+      ...workstreams.map((w) => ({
+        clientId: w.advisoryClient.clientId,
+        service: w.service,
+        requested: false,
+      })),
     ];
     for (const e of enrolled) {
       const list = services.get(e.clientId) ?? [];
-      if (!list.some((s) => s.id === e.service.id)) list.push(e.service);
+      const seen = list.find((s) => s.id === e.service.id);
+      // N8-23: a requested (pending) service shows as such; one enrolled for real wins.
+      if (!seen) list.push(e.requested ? { ...e.service, requested: true } : { ...e.service });
+      else if (seen.requested && !e.requested) delete seen.requested;
       services.set(e.clientId, list);
     }
     for (const r of requests) missing.set(r.clientId, r._count._all);
@@ -816,7 +826,8 @@ export class ClientsService {
         FROM services sv
         LEFT JOIN (
           SELECT e.service_id, e.client_id FROM engagements e
-            WHERE e.business_id = ${businessId}::uuid AND e.status IN ('PENDING', 'ACTIVE')
+            -- N8-23: a requested (pending) service is not counted as enrolled.
+            WHERE e.business_id = ${businessId}::uuid AND e.status = 'ACTIVE'
           UNION
           SELECT w.service_id, a.client_id FROM advisory_workstreams w
             JOIN advisory_clients a ON a.business_id = w.business_id AND a.id = w.advisory_client_id

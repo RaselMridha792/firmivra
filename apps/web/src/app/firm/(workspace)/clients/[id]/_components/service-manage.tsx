@@ -15,6 +15,7 @@ import {
   DotsThree,
   PauseCircle,
   PencilSimple,
+  PlayCircle,
   StopCircle,
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -272,7 +273,21 @@ export function ServiceRowActions({
     onNotice(text, tone);
   };
   const live = engagement.status === 'ACTIVE' || engagement.status === 'PENDING';
+  const refresh = useRefresh(clientId);
+  // Clients Review Two N8-17: a pending (requested) service begins; a New client becomes Active.
+  const start = async () => {
+    try {
+      await api.engagements.activate(engagement.id);
+      await refresh();
+      onNotice(`${service.service.name} started. A New client is now Active.`, 'success');
+    } catch (error) {
+      onNotice(errorMessage(error), 'error');
+    }
+  };
   const items = [
+    ...(engagement.status === 'PENDING'
+      ? [{ label: 'Start Service', icon: PlayCircle, onSelect: () => void start() }]
+      : []),
     ...(live
       ? [
           { label: 'Edit Details', icon: PencilSimple, onSelect: () => setOwn('edit') },

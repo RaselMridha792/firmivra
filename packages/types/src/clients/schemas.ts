@@ -91,7 +91,17 @@ export const ClientListItem = z.object({
 export type ClientListItem = z.infer<typeof ClientListItem>;
 
 /** A service the client has open work in (an engagement that is PENDING or ACTIVE). */
-export const ClientServiceRef = z.object({ id: z.uuid(), name: z.string(), kind: ServiceKind });
+export const ClientServiceRef = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  kind: ServiceKind,
+  /**
+   * Clients Review Two N8-23: a requested (PENDING) service, not started yet: from Begin Online,
+   * the portal, or an intake sent with no active service. Shown "Requested", never as enrolled,
+   * and left out of the counts. An active service of the same kind wins.
+   */
+  requested: z.boolean().optional(),
+});
 export type ClientServiceRef = z.infer<typeof ClientServiceRef>;
 
 /**

@@ -231,6 +231,8 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/intakes/:id': { params: { id: 'intake' } },
   'POST /api/v1/business/intakes/:id/review': { params: { id: 'submittedIntake' } },
   'POST /api/v1/business/intakes/:id/complete': { params: { id: 'submittedIntake' } },
+  // Clients Review Two N8-17: Accept (completed, and its client New → Active).
+  'POST /api/v1/business/intakes/:id/accept': { params: { id: 'submittedIntake' } },
   'POST /api/v1/business/intakes/:id/request-correction': {
     params: { id: 'submittedIntake' },
     body: { note: 'Fake note' },

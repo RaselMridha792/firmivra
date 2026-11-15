@@ -751,6 +751,72 @@ describe('firm: send, review, correct and unlock', () => {
       locked: false,
     });
   });
+
+  it('N8-17: Accept completes a submitted intake and its New client becomes Active; submitting alone never does', async () => {
+    const statusOf = async () =>
+      (
+        await inFirm((tx) =>
+          tx.client.findFirstOrThrow({ where: { id: ids.clientOne }, select: { status: true } }),
+        )
+      ).status;
+    const setStatus = (status: 'NEW' | 'ON_HOLD') =>
+      inFirm((tx) =>
+        tx.client.updateMany({
+          where: { businessId: ids.firmA, id: ids.clientOne },
+          data: { status },
+        }),
+      );
+    const activation = (clientId: string) =>
+      inFirm((tx) =>
+        tx.auditLog.findFirst({
+          where: { businessId: ids.firmA, entityId: clientId, action: 'client.updated' },
+          orderBy: { createdAt: 'desc' },
+          select: { metadata: true },
+        }),
+      );
+    await setStatus('NEW');
+    await markSubmitted(ids.intake);
+    // Submitted: still New.
+    expect(await statusOf()).toBe('NEW');
+    expect(
+      codeOf(await firm('post', `/intakes/${ids.intake}/accept`, people.ownerB, {}, ids.firmB)),
+    ).toBe('NOT_FOUND');
+    expect(view(await firm('post', `/intakes/${ids.intake}/accept`, people.staff, {})).status).toBe(
+      'COMPLETED',
+    );
+    expect(await statusOf()).toBe('ACTIVE');
+    expect((await activation(ids.clientOne))?.metadata).toEqual({
+      fields: ['status'],
+      from: 'NEW',
+      to: 'ACTIVE',
+      via: 'intake_accepted',
+    });
+    expect(codeOf(await firm('post', `/intakes/${ids.intake}/accept`, people.staff, {}))).toBe(
+      'INVALID_STATUS',
+    );
+    // A client past New (On Hold here) stays as it is: a manual status always stands.
+    await setStatus('ON_HOLD');
+    view(await firm('post', `/intakes/${ids.intake}/unlock`, people.owner, {}));
+    await markSubmitted(ids.intake);
+    expect(view(await firm('post', `/intakes/${ids.intake}/accept`, people.owner, {})).status).toBe(
+      'COMPLETED',
+    );
+    expect(await statusOf()).toBe('ON_HOLD');
+    const accepted = await inFirm((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: ids.intake, action: 'intake.accepted' },
+        orderBy: { createdAt: 'asc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(accepted.map((a) => a.metadata)).toEqual([
+      { clientId: ids.clientOne, clientActivated: true },
+      { clientId: ids.clientOne, clientActivated: false },
+    ]);
+    // Left as the test before left it: open again, for the upload tests that follow.
+    view(await firm('post', `/intakes/${ids.intake}/unlock`, people.owner, {}));
+    await setStatus('NEW');
+  });
 });
 
 describe('portal: uploads', () => {

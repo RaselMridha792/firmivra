@@ -73,11 +73,19 @@ function Services({ client }: { client: ClientListRow }) {
   if (!client.services.length) return <span className="text-muted">—</span>;
   return (
     <span className="flex min-w-0 flex-col items-start gap-1 [&>span]:!max-w-full [&>span]:!rounded-md [&>span]:!px-2 [&>span]:!py-0.5 [&>span]:!leading-4 [&>span]:!font-medium">
-      {client.services.map((service) => (
-        <Badge key={service.id} tone="info">
-          {service.name}
-        </Badge>
-      ))}
+      {client.services.map((service) =>
+        // Clients Review Two N8-23: a requested (pending) service is shown as such, never as
+        // enrolled.
+        service.requested ? (
+          <Badge key={service.id} tone="neutral">
+            {service.name} (Requested)
+          </Badge>
+        ) : (
+          <Badge key={service.id} tone="info">
+            {service.name}
+          </Badge>
+        ),
+      )}
     </span>
   );
 }

@@ -3,8 +3,11 @@
 // same view back. Plain values, so the server page reads them too.
 import type { SignUpListStatus, SignUpMatch } from '@firmivra/types';
 
+/** The request tabs, and Invitations (Clients Review Two, N8-09). */
+export type SignUpsTab = SignUpListStatus | 'INVITATIONS';
+
 export interface SignUpsPlace {
-  status: SignUpListStatus;
+  status: SignUpsTab;
   search: string;
   sort: 'newest' | 'oldest';
   /** Submitted on or after / on or before (the firm's days, YYYY-MM-DD); '' is any. */
@@ -17,15 +20,17 @@ export interface SignUpsPlace {
 }
 
 export const SIGN_UP_PAGE_SIZE = 10;
-const TABS: Record<string, SignUpListStatus> = {
+const TABS: Record<string, SignUpsTab> = {
   waiting: 'PENDING_APPROVAL',
   approved: 'APPROVED',
   declined: 'DECLINED',
+  invitations: 'INVITATIONS',
 };
-const TAB_OF: Record<SignUpListStatus, string> = {
+const TAB_OF: Record<SignUpsTab, string> = {
   PENDING_APPROVAL: 'waiting',
   APPROVED: 'approved',
   DECLINED: 'declined',
+  INVITATIONS: 'invitations',
 };
 const MATCHES: Record<string, SignUpMatch> = { potential: 'POTENTIAL_MATCH', none: 'NO_MATCH' };
 const MATCH_OF: Record<SignUpMatch, string> = { POTENTIAL_MATCH: 'potential', NO_MATCH: 'none' };
