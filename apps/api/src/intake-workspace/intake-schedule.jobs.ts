@@ -5,8 +5,8 @@ import {
   type OnApplicationBootstrap,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import type { Database } from '@firmivra/db';
-import { intakeReminderPlan } from '@firmivra/types';
+import { type Database, Prisma } from '@firmivra/db';
+import { INTAKE_REMINDER_MIN_GAP_MINUTES, intakeReminderPlan } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
@@ -43,6 +43,8 @@ export interface IntakeJobOptions {
   now?: Date;
   /** Only these firms (tests); otherwise every ACTIVE firm. */
   businessIds?: string[];
+  /** How many due forms one firm's run takes (tests); otherwise 100. */
+  batch?: number;
 }
 export type IntakeJobResult = { skipped: true } | { skipped: false; done: number };
 
@@ -145,26 +147,33 @@ export class IntakeScheduleJobs implements OnApplicationBootstrap, OnModuleDestr
     for (const businessId of await this.firms(options)) {
       if (Date.now() > deadline) break;
       const db = this.database.forBusiness(businessId);
+      // Review Two 22 (P2-5): only the forms with a reminder due now, in the firm's scope. A form
+      // waiting for its time, a skipped first (10c: the final goes first and ends it) and a final
+      // too close to sending are not picked, so the oldest forms never crowd out the due ones.
+      const due = await this.database.withScope(
+        { kind: 'business', businessId },
+        (tx) =>
+          tx.$queryRaw<{ id: string }[]>`
+          SELECT id::text AS id FROM intakes
+          WHERE business_id = ${businessId}::uuid
+            AND status::text IN (${Prisma.join([...OPEN])})
+            AND reminders_enabled AND sent_at IS NOT NULL
+            AND (expires_at IS NULL OR expires_at > ${now})
+            AND (
+              (first_reminder_sent_at IS NULL AND final_reminder_sent_at IS NULL
+                AND reminder_first_minutes IS NOT NULL
+                AND sent_at + reminder_first_minutes * interval '1 minute' <= ${now})
+              OR (final_reminder_sent_at IS NULL AND reminder_final_minutes IS NOT NULL
+                AND expires_at IS NOT NULL
+                AND expires_at - reminder_final_minutes * interval '1 minute' <= ${now}
+                AND expires_at - reminder_final_minutes * interval '1 minute'
+                  > sent_at + ${INTAKE_REMINDER_MIN_GAP_MINUTES}::int * interval '1 minute'))
+          ORDER BY sent_at, id
+          LIMIT ${options.batch ?? BATCH}`,
+      );
+      if (due.length === 0) continue;
       const rows = await db.intake.findMany({
-        where: {
-          businessId,
-          status: { in: [...OPEN] },
-          remindersEnabled: true,
-          sentAt: { not: null },
-          AND: [
-            { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-            {
-              OR: [
-                { firstReminderSentAt: null, reminderFirstMinutes: { not: null } },
-                {
-                  finalReminderSentAt: null,
-                  reminderFinalMinutes: { not: null },
-                  expiresAt: { not: null },
-                },
-              ],
-            },
-          ],
-        },
+        where: { businessId, id: { in: due.map((d) => d.id) } },
         select: {
           id: true,
           sentAt: true,
@@ -177,8 +186,7 @@ export class IntakeScheduleJobs implements OnApplicationBootstrap, OnModuleDestr
           leadId: true,
           engagementId: true,
         },
-        orderBy: { sentAt: 'asc' },
-        take: BATCH,
+        orderBy: [{ sentAt: 'asc' }, { id: 'asc' }],
       });
       for (const r of rows) {
         if (Date.now() > deadline) break;
