@@ -15,6 +15,7 @@ import {
   BulkClientsResponse,
   ClientExportLink,
   ClientsSummary,
+  ClientTimelinePage,
   ListClientsResponse,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -686,6 +687,86 @@ describe("E2: a client's Last Activity is its latest event", () => {
         data: { businessId, clientId: e.none, number: `INV-${randomUUID()}` },
       });
     });
+  });
+
+  it('N8-05: Activity lists each recorded event with its link; a firm message off the timeline moves Last Activity but adds no row', async () => {
+    const feed = async (id: string, query = '?limit=50') =>
+      ClientTimelinePage.parse((await call('get', `/${id}/timeline${query}`, people.ownerA)).body);
+    const rows = (await list('?limit=100')).items;
+    // e.msg's only event is a firm message not added to the timeline: it is its Last Activity,
+    // and the feed has no row for it (her N8-05 opt-in). e.none has no event at all.
+    expect(rows.find((r) => r.id === e.msg)?.lastActivityAt).toBe(onDay(-3).toISOString());
+    expect((await feed(e.msg)).items).toEqual([]);
+    expect((await feed(e.none)).items).toEqual([]);
+    const doc = (await feed(e.doc)).items;
+    expect(doc).toHaveLength(1);
+    expect(doc[0]).toMatchObject({
+      kind: 'DOCUMENT',
+      title: 'fake.pdf',
+      summary: 'Uploaded by the client',
+      occurredAt: onDay(-4).toISOString(),
+    });
+    expect(doc[0]?.href).toMatch(/^\/documents\/[0-9a-f-]{36}$/);
+    expect((await feed(e.task)).items[0]).toMatchObject({
+      kind: 'TASK',
+      title: 'Fake done task',
+      summary: 'Task completed',
+    });
+    expect((await feed(e.task)).items[0]?.href).toMatch(/^\/tasks\/[0-9a-f-]{36}$/);
+    expect((await feed(e.note)).items[0]).toMatchObject({
+      kind: 'NOTE',
+      href: `/clients/${e.note}/notes`,
+    });
+    expect((await feed(e.held)).items[0]?.href).toMatch(/^\/calendar\/[0-9a-f-]{36}$/);
+    // The note and the firm message: only the note is a row.
+    expect((await feed(e.both)).items.map((x) => x.kind)).toEqual(['NOTE']);
+
+    // w1's own portal reply and a recorded assignment change are rows; a view never is.
+    const thread = await inFirm('a', async (tx) => {
+      const t = await tx.messageThread.create({
+        data: { businessId: firms.a.id, clientId: ids.w1, subject: 'Fake reply thread' },
+      });
+      await tx.message.create({
+        data: {
+          businessId: firms.a.id,
+          threadId: t.id,
+          senderUserId: people.clientA.id,
+          direction: 'CLIENT_TO_FIRM',
+          body: 'Fake reply',
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          businessId: firms.a.id,
+          actorUserId: people.ownerA.id,
+          action: 'client.assignment_changed',
+          entityType: 'client',
+          entityId: ids.w1,
+        },
+      });
+      return t.id;
+    });
+    const w1 = (await feed(ids.w1)).items;
+    expect(w1).toContainEqual(
+      expect.objectContaining({
+        kind: 'MESSAGE',
+        title: 'Fake reply thread',
+        summary: 'Reply from the client',
+        href: `/messages?thread=${thread}`,
+      }),
+    );
+    expect(w1).toContainEqual(
+      expect.objectContaining({ kind: 'OTHER', title: 'Assigned staff changed', href: null }),
+    );
+    expect(JSON.stringify(w1)).not.toMatch(/viewed|Viewed/);
+    const times = w1.map((x) => x.occurredAt);
+    expect([...times].sort().reverse()).toEqual(times);
+    // Paged: the next page starts after the last row shown.
+    const first = await feed(ids.w1, '?limit=1');
+    expect(first.nextCursor).not.toBeNull();
+    const next = await feed(ids.w1, `?limit=1&cursor=${first.nextCursor}`);
+    expect(next.items[0]?.id).not.toBe(first.items[0]?.id);
+    expect(next.items[0]?.id).toBe(w1[1]?.id);
   });
 
   it('is each kind of event, the latest of several, and null for none', async () => {
