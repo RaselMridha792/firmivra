@@ -81,9 +81,9 @@ const outline =
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 border-divider text-sm xl:border-l xl:pl-5">
+    <div className="flex min-w-0 flex-col gap-0.5 border-divider text-sm @7xl:border-l @7xl:pl-5">
       <span className="text-xs font-semibold text-heading">{label}</span>
-      <span className="text-text">{children}</span>
+      <span className="wrap-anywhere text-text">{children}</span>
     </div>
   );
 }
@@ -122,7 +122,8 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
     <DetailContext.Provider
       value={{ id, record: r, responses: responses.data, loading: record.isPending, notify }}
     >
-      <div className="flex flex-col gap-4" data-testid={`intake-tab-${tab}`}>
+      {/* Review Two (layout): sized by the space beside the side menu, not the window. */}
+      <div className="@container flex min-w-0 flex-col gap-4" data-testid={`intake-tab-${tab}`}>
         <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
           <Link href="/intake-forms" className="text-link">
             Intake Forms
@@ -232,9 +233,9 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
           aria-label="Client"
           data-testid="client-card"
           // INTAKE-DESIGN-01: compact, every detail kept; two rows at a laptop's width, not five.
-          className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-surface px-4 py-3 shadow-md sm:grid-cols-3 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))] xl:grid-cols-[1.6fr_1.2fr_1fr_1fr_1fr_1fr_1.2fr_1fr_1.1fr] xl:items-center"
+          className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-x-4 gap-y-3 rounded-xl bg-surface px-4 py-3 shadow-md @xl:grid-cols-[repeat(3,minmax(0,1fr))] @3xl:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(0,1fr))] @7xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_repeat(4,minmax(0,1fr))_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.1fr)] @7xl:items-center"
         >
-          <div className="col-span-2 flex items-center gap-3 sm:col-span-1">
+          <div className="col-span-2 flex min-w-0 items-center gap-3 @xl:col-span-1">
             <Avatar name={r?.recipient.name ?? 'Client'} size="lg" />
             <div className="flex min-w-0 flex-col">
               <span className="text-xs font-semibold text-heading">
@@ -268,7 +269,7 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
         </section>
         <nav
           aria-label="Submission"
-          className="grid grid-cols-3 overflow-hidden rounded-lg border border-divider bg-surface sm:grid-cols-6"
+          className="grid grid-cols-3 overflow-hidden rounded-lg border border-divider bg-surface @2xl:grid-cols-6"
         >
           {TABS.map((item) => (
             <Link
