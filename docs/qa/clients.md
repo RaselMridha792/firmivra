@@ -145,7 +145,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-12 Overview summary cards | After Nov 17 (decided). Active Services (#1378) and Billing (#1434) are on Overview | — | — |
 | N8-13 New Clients definition | Done | #1382 (R1) | `clients.e2e` "New Clients counts what its New tab lists; the clients added this month are their own figure", `clients-work.e2e` summary |
 | N8-14 Client reply and firm notification | Scoped pass; nothing to build | — | — |
-| N8-15 Balances reconcile; profile invoice details | Balances: scoped pass. Invoice details: FC-01 (R55) | — | — |
+| N8-15 Balances reconcile; profile invoice details | Balances: scoped pass. Invoice details: Done in FC-01 | #PR_NUM | mock `r55-client-invoices-balance` |
 | N8-16 Firm PDF content | Scoped pass; the portal byte check is her retest | — | — |
 | N8-17 Intake Accept; New to Active | Not built yet (R1): Accept on a submitted intake, work-start triggers, and a manual override | — | — |
 | N8-18 Appointment outcomes and notes | After Nov 17 (decided) | — | — |
@@ -171,7 +171,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-38 Task details readable | Scoped pass; nothing to build | — | — |
 | N8-39 Portal notification filter | Scoped pass; clearing needs a known-unread notice (her retest) | — | — |
 | N8-40 Message audit names the client | Scoped pass; nothing to build | — | — |
-| FC-01 Profile Invoices: balance due and Open Invoice | Not built yet (R55): balance due and a link to each invoice | — | — |
+| FC-01 Profile Invoices: balance due and Open Invoice | Done: the client's Invoices tab shows Total, Balance due and the detailed status (Partially Paid, Overdue, Due Soon, Sent) together, and Open Invoice opens that invoice with Back to the client | #PR_NUM | mock `r55-client-invoices-balance` "the Invoices tab shows total, balance due and status, and Open Invoice opens it" and "the cards show total and balance due at phone width" |
 | FC-02 Sign-ups empty state by approval mode | Not built yet (R55) | — | — |
 | FC-03 Documents staff guidance | Done, test gap | #1381 (R55) | `r34-documents` checks the no-client note is shown, not its words |
 | FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
