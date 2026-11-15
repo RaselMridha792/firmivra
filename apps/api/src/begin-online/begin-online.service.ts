@@ -245,9 +245,10 @@ export class BeginOnlineService {
       });
     }
     const shared = await this.shared(firm, token);
-    const { website: _honeypot, ...contact } = body;
+    const { website: _honeypot, utm, ...contact } = body;
     return this.begin(firm, shared.form, shared.service, shared.newest, contact, res, {
       templateId: shared.templateId,
+      sourceDetail: campaignDetail(utm),
     });
   }
 
@@ -298,7 +299,7 @@ export class BeginOnlineService {
     newest: { formId: string | null; version: number; definition: IntakeFormDefinition },
     body: z.output<typeof StartBeginDraftRequest>,
     res: Response,
-    share: { templateId: string } | null,
+    share: { templateId: string; sourceDetail: string | null } | null,
   ): Promise<BeginDraft> {
     const businessId = firm.id;
     const { definition } = newest;
@@ -355,6 +356,8 @@ export class BeginOnlineService {
           // The firm's website link: Leads shows and filters it as Begin Online (L13); a shared
           // form's link as Website Form (INTAKE-ACCESS-02).
           source: share ? 'WEBSITE_FORM' : 'BEGIN_ONLINE',
+          // Leads row 24: the link's campaign, as the lead's source detail.
+          ...(share?.sourceDetail ? { sourceDetail: share.sourceDetail } : {}),
           serviceId: service.id,
           firstName: contact.firstName,
           lastName: contact.lastName,
@@ -756,4 +759,20 @@ export async function serviceFor(tx: TxClient, form: IntakeFormKey) {
   });
   if (!service) throw draftErrors.notFound();
   return { ...service, kind: form };
+}
+
+/**
+ * Leads Review Two, row 24: a shared link's campaign as the lead's source detail ("Campaign: …
+ * · Source: … · Medium: …", at most 200 characters); none without one.
+ */
+export function campaignDetail(
+  utm: { source?: string; medium?: string; campaign?: string } | undefined,
+): string | null {
+  if (!utm) return null;
+  const parts = [
+    utm.campaign && `Campaign: ${utm.campaign}`,
+    utm.source && `Source: ${utm.source}`,
+    utm.medium && `Medium: ${utm.medium}`,
+  ].filter((p): p is string => Boolean(p));
+  return parts.length ? parts.join(' · ').slice(0, 200) : null;
 }
