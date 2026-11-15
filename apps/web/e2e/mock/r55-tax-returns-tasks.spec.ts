@@ -60,3 +60,27 @@ test('Blocked from the return’s task list asks why in a field you can type in,
     timeout: 60_000,
   });
 });
+
+// Tax Returns Review 2 (F15): Convert to Recurring from the return opens its setup straight away,
+// and the new series still has the way back to the return.
+test('Convert to Recurring from the return’s task list opens the setup at once, with Back to the return', async ({
+  page,
+}) => {
+  const title = 'Fake: remind the client of the estimate';
+  const { tasks, returnUrl } = await taskOnReturn(page, title);
+  await tasks.getByRole('button', { name: `Actions for ${title}` }).click();
+  await page.getByRole('menuitem', { name: 'Convert to Recurring', exact: true }).click();
+  await expect(page).toHaveURL(
+    /\/tasks\/[0-9a-f-]{36}\?convert=recurring&from=%2Ftax-returns%2F[0-9a-f-]{36}/,
+    { timeout: 60_000 },
+  );
+  const setup = page.getByRole('dialog', { name: 'Convert to Recurring' });
+  await expect(setup).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Tax Returns');
+  await setup.getByRole('button', { name: 'Convert', exact: true }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}\?from=%2Ftax-returns%2F/, {
+    timeout: 60_000,
+  });
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(returnUrl);
+});
