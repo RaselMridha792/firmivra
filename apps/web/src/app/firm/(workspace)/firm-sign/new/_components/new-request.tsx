@@ -38,11 +38,16 @@ export function NewRequest({
   templateId,
   documentId,
   engagementId,
+  taxReturnId,
+  authorizationId,
 }: {
   clientId?: string;
   templateId?: string;
   /** The service the request is for (a tax return's Signatures). */
   engagementId?: string;
+  /** F03db: a tax return's signature line (Form 8879, ...) the new request is linked to. */
+  taxReturnId?: string;
+  authorizationId?: string;
   /** Documents' Request e-sign (Clients C2-051): this client file goes into the new request. */
   documentId?: string;
 }) {
@@ -56,6 +61,14 @@ export function NewRequest({
             fromDocument={DocumentId.safeParse(documentId).success ? documentId : undefined}
             fromEngagement={
               engagementId && /^[0-9a-f-]{36}$/i.test(engagementId) ? engagementId : undefined
+            }
+            forReturn={
+              taxReturnId &&
+              authorizationId &&
+              /^[0-9a-f-]{36}$/i.test(taxReturnId) &&
+              /^[0-9a-f-]{36}$/i.test(authorizationId)
+                ? { taxReturnId, authorizationId }
+                : undefined
             }
             canListMembers={isOwnerOrAdmin(role)}
           />
@@ -74,12 +87,14 @@ function StartForm({
   fromTemplate,
   fromDocument,
   fromEngagement,
+  forReturn,
   canListMembers,
 }: {
   fromClient?: string;
   fromTemplate?: string;
   fromDocument?: string;
   fromEngagement?: string;
+  forReturn?: { taxReturnId: string; authorizationId: string };
   canListMembers: boolean;
 }) {
   const router = useRouter();
@@ -128,6 +143,20 @@ function StartForm({
         r = await api.esign.get(r.id);
       } catch {
         // The draft stands without it.
+      }
+    }
+    // F03db: from a tax return's Signatures, the request is that return's signature line from
+    // the start. If it can't be linked, the draft stands and Link Firm Sign request still works.
+    if (forReturn) {
+      try {
+        await api.taxReturnWorkspace.linkAuthorization(
+          forReturn.taxReturnId,
+          forReturn.authorizationId,
+          { esignRequestId: r.id },
+        );
+        void queryClient.invalidateQueries({ queryKey: ['tax-returns'] });
+      } catch {
+        // The draft stands without the link.
       }
     }
     // The wizard opens on the draft just made; the lists and counters catch up behind it.

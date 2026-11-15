@@ -46,6 +46,7 @@ import {
   type TaxValidationIssue,
   TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
+import { esignStore } from './esign';
 import { registerServiceEngagement } from './service-engagements';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -1739,6 +1740,11 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (!a) throw notFound();
       a.esignRequestId = b.esignRequestId;
       a.status = 'SENT';
+      // As the API: the request must exist, and be this return's client's.
+      const request = esignStore().details.find((d) => d.id === b.esignRequestId);
+      if (!request) throw notFound();
+      if (request.client && request.client.id !== r.clientId)
+        throw fail(409, 'INVALID_DOCUMENT', "This request is not this client's");
       a.updatedAt = nowIso();
       touch(r, 'AUTHORIZATION', 'Signature request linked');
       return copy(r.authorizations);

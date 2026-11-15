@@ -61,6 +61,7 @@ import {
 import { esignExtrasMock, esignKioskOpen, esignMockMayApprove } from './esign-extras';
 import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
+import { serviceEngagement } from './service-engagements';
 import { mockUploadTicket } from './upload-ticket';
 
 /**
@@ -759,8 +760,11 @@ export function createEsignMock(
         x.clientId === clientId &&
         ['PENDING', 'ACTIVE'].includes(x.status),
     );
-    if (!e) throw fail(409, 'ENGAGEMENT_MISMATCH', 'Choose one of the client’s open services');
-    return { id: e.id, title: e.title };
+    if (e) return { id: e.id, title: e.title };
+    // A service mock's engagement (a tax return's, Bookkeeping's ...) is the client's too.
+    const own = clientId ? serviceEngagement(clientId, engagementId) : undefined;
+    if (own && ['PENDING', 'ACTIVE'].includes(own.status)) return { id: own.id, title: own.title };
+    throw fail(409, 'ENGAGEMENT_MISMATCH', 'Choose one of the client’s open services');
   };
   const readiness = (r: EsignRequestDetail): EsignReadiness => {
     const problems: EsignReadiness['problems'] = [];
