@@ -257,8 +257,10 @@ export class InvoicesService {
 
   /**
    * IP-F20 (Octavia, Oct 27): the money collected in the range by method, on the firm's calendar.
-   * Stripe payments count once their webhook confirmed them, less their confirmed refunds; recorded
-   * payments count unless voided. Staff see only their clients' money.
+   * Stripe payments count once their webhook confirmed them, on the day paid; a confirmed refund
+   * comes off on the day it is confirmed (Dashboard Review 2, as the dashboard and All Payments);
+   * recorded payments count unless voided. `count` is the payments in the range; a method at or
+   * below zero is left out. Staff see only their clients' money.
    */
   async paymentMethods(
     businessId: string,
@@ -279,12 +281,16 @@ export class InvoicesService {
           paidAt: { gte: widen(from, -1), lt: widen(to, 2) },
           invoice: reach,
         },
-        select: {
-          amountCents: true,
-          methodType: true,
-          paidAt: true,
-          refunds: { where: { status: 'SUCCEEDED' }, select: { amountCents: true } },
+        select: { amountCents: true, methodType: true, paidAt: true },
+      });
+      const refunds = await tx.paymentRefund.findMany({
+        where: {
+          businessId,
+          status: 'SUCCEEDED',
+          refundedAt: { gte: widen(from, -1), lt: widen(to, 2) },
+          payment: { invoice: reach },
         },
+        select: { amountCents: true, refundedAt: true, payment: { select: { methodType: true } } },
       });
       const recorded = await tx.offlinePayment.findMany({
         where: {
@@ -296,23 +302,23 @@ export class InvoicesService {
         select: { amountCents: true, method: true },
       });
       const totals = new Map<PaymentMethodKey, { amountCents: number; count: number }>();
-      const add = (method: PaymentMethodKey, cents: number) => {
-        if (cents <= 0) return;
+      // A payment adds its amount and one to the count; a refund only takes its amount off.
+      const add = (method: PaymentMethodKey, cents: number, payments: number) => {
         const t = totals.get(method) ?? { amountCents: 0, count: 0 };
-        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + 1 });
+        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + payments });
       };
-      for (const p of online) {
-        const onDay = p.paidAt ? dateIn(timeZone, p.paidAt) : null;
-        if (!onDay || onDay < from || onDay > to) continue;
-        const refunded = p.refunds.reduce((s, r) => s + r.amountCents, 0);
-        add(
-          p.methodType === 'card' ? 'CARD' : p.methodType === 'us_bank_account' ? 'ACH' : 'OTHER',
-          p.amountCents - refunded,
-        );
-      }
-      for (const p of recorded) add(p.method, p.amountCents);
+      const methodOf = (type: string | null): PaymentMethodKey =>
+        type === 'card' ? 'CARD' : type === 'us_bank_account' ? 'ACH' : 'OTHER';
+      const inRange = (at: Date | null) => {
+        const onDay = at ? dateIn(timeZone, at) : null;
+        return onDay !== null && onDay >= from && onDay <= to;
+      };
+      for (const p of online) if (inRange(p.paidAt)) add(methodOf(p.methodType), p.amountCents, 1);
+      for (const r of refunds)
+        if (inRange(r.refundedAt)) add(methodOf(r.payment.methodType), -r.amountCents, 0);
+      for (const p of recorded) add(p.method, p.amountCents, 1);
       const items = PaymentMethodKey.options
-        .filter((m) => totals.has(m))
+        .filter((m) => (totals.get(m)?.amountCents ?? 0) > 0)
         .map((method) => ({ method, ...totals.get(method)! }));
       return {
         from,
@@ -703,8 +709,11 @@ export class InvoicesService {
 
   /**
    * IP-F17 (Octavia, Oct 27): View All Payments: every payment in the range on the firm's
-   * calendar, Stripe's (confirmed, less confirmed refunds) and recorded ones (voided ones marked),
-   * newest first. Staff see their clients' only.
+   * calendar, Stripe's (confirmed) and recorded ones (voided ones marked), newest first. Staff see
+   * their clients' only. Dashboard Review 2 (decided Nov 15): a refund counts on the day it is
+   * confirmed, as on the dashboard: a Stripe payment shows its whole amount on the day paid, and
+   * each confirmed refund is its own REFUNDED row (a negative amount) on its own day, so the
+   * range's total is the dashboard's for the same days.
    */
   async payments(
     businessId: string,
@@ -744,9 +753,21 @@ export class InvoicesService {
           amountCents: true,
           methodType: true,
           paidAt: true,
-          status: true,
-          refunds: { where: { status: 'SUCCEEDED' }, select: { amountCents: true } },
           invoice: invoiceRef,
+        },
+      });
+      const refunds = await tx.paymentRefund.findMany({
+        where: {
+          businessId,
+          status: 'SUCCEEDED',
+          refundedAt: { gte: widen(from, -1), lt: widen(to, 2) },
+          payment: { invoice: reach },
+        },
+        select: {
+          id: true,
+          amountCents: true,
+          refundedAt: true,
+          payment: { select: { methodType: true, invoice: invoiceRef } },
         },
       });
       const recorded = await tx.offlinePayment.findMany({
@@ -765,20 +786,34 @@ export class InvoicesService {
         },
       });
       const rows: PaymentRow[] = [];
+      const methodOf = (type: string | null) =>
+        type === 'card' ? 'CARD' : type === 'us_bank_account' ? 'ACH' : 'OTHER';
       for (const p of online) {
         const on = p.paidAt ? dateIn(timeZone, p.paidAt) : null;
         if (!on || on < from || on > to) continue;
-        const refunded = p.refunds.reduce((s, r) => s + r.amountCents, 0);
         rows.push({
           id: p.id,
           source: 'STRIPE',
           invoice: { id: p.invoice.id, number: p.invoice.number },
           client: p.invoice.client,
-          method:
-            p.methodType === 'card' ? 'CARD' : p.methodType === 'us_bank_account' ? 'ACH' : 'OTHER',
-          amountCents: p.amountCents - refunded,
+          method: methodOf(p.methodType),
+          amountCents: p.amountCents,
           receivedOn: on,
-          status: p.status === 'REFUNDED' || refunded >= p.amountCents ? 'REFUNDED' : 'RECEIVED',
+          status: 'RECEIVED',
+        });
+      }
+      for (const r of refunds) {
+        const on = r.refundedAt ? dateIn(timeZone, r.refundedAt) : null;
+        if (!on || on < from || on > to) continue;
+        rows.push({
+          id: r.id,
+          source: 'STRIPE',
+          invoice: { id: r.payment.invoice.id, number: r.payment.invoice.number },
+          client: r.payment.invoice.client,
+          method: methodOf(r.payment.methodType),
+          amountCents: -r.amountCents,
+          receivedOn: on,
+          status: 'REFUNDED',
         });
       }
       for (const p of recorded) {
@@ -809,8 +844,9 @@ export class InvoicesService {
         pageSize: q.pageSize,
         from,
         to,
+        // The dashboard's money for these days: received, less refunds confirmed in them.
         receivedCents: found
-          .filter((r) => r.status === 'RECEIVED')
+          .filter((r) => r.status !== 'VOIDED')
           .reduce((s, r) => s + r.amountCents, 0),
       };
     });

@@ -889,25 +889,25 @@ export function createInvoicesMock(
       const from = q.from ?? `${now.slice(0, 4)}-01-01`;
       const to = q.to ?? now;
       const totals = new Map<PaymentMethodKey, { amountCents: number; count: number }>();
-      const add = (method: PaymentMethodKey, cents: number) => {
-        if (cents <= 0) return;
+      // As the API (Dashboard Review 2): a payment on the day paid, a refund off on its own day.
+      const add = (method: PaymentMethodKey, cents: number, payments: number) => {
         const t = totals.get(method) ?? { amountCents: 0, count: 0 };
-        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + 1 });
+        totals.set(method, { amountCents: t.amountCents + cents, count: t.count + payments });
       };
+      const inRange = (on: string | null) => on !== null && on >= from && on <= to;
       for (const r of s.rows.filter(visible)) {
         for (const p of r.payments) {
-          const on = p.paidAt ? dateOf(p.paidAt) : null;
-          if (p.status !== 'SUCCEEDED' || !on || on < from || on > to) continue;
-          const refunded = p.refunds
-            .filter((x) => x.status === 'SUCCEEDED')
-            .reduce((n, x) => n + x.amountCents, 0);
-          add('CARD', p.amountCents - refunded);
+          if (p.status !== 'SUCCEEDED') continue;
+          if (inRange(p.paidAt ? dateOf(p.paidAt) : null)) add('CARD', p.amountCents, 1);
+          for (const x of p.refunds)
+            if (x.status === 'SUCCEEDED' && inRange(x.refundedAt ? dateOf(x.refundedAt) : null))
+              add('CARD', -x.amountCents, 0);
         }
         for (const o of live(r))
-          if (o.receivedOn >= from && o.receivedOn <= to) add(o.method, o.amountCents);
+          if (o.receivedOn >= from && o.receivedOn <= to) add(o.method, o.amountCents, 1);
       }
       const items = PaymentMethodKey.options
-        .filter((m) => totals.has(m))
+        .filter((m) => (totals.get(m)?.amountCents ?? 0) > 0)
         .map((method) => ({ method, ...totals.get(method)! }));
       return copy({ from, to, items, totalCents: items.reduce((n, i) => n + i.amountCents, 0) });
     },
@@ -1020,21 +1020,35 @@ export function createInvoicesMock(
         };
         const invoice = { id: r.id, number: r.number };
         for (const p of r.payments) {
+          if (p.status !== 'SUCCEEDED') continue;
+          // As the API (Dashboard Review 2): the payment whole on the day paid, and each confirmed
+          // refund its own row (a negative amount) on the day it was confirmed.
           const on = p.paidAt ? dateOf(p.paidAt) : null;
-          if (p.status !== 'SUCCEEDED' || !on || on < from || on > to) continue;
-          const refunded = p.refunds
-            .filter((x) => x.status === 'SUCCEEDED')
-            .reduce((n, x) => n + x.amountCents, 0);
-          rows.push({
-            id: p.id,
-            source: 'STRIPE',
-            invoice,
-            client,
-            method: 'CARD',
-            amountCents: p.amountCents - refunded,
-            receivedOn: on,
-            status: refunded >= p.amountCents ? 'REFUNDED' : 'RECEIVED',
-          });
+          if (on && on >= from && on <= to)
+            rows.push({
+              id: p.id,
+              source: 'STRIPE',
+              invoice,
+              client,
+              method: 'CARD',
+              amountCents: p.amountCents,
+              receivedOn: on,
+              status: 'RECEIVED',
+            });
+          for (const x of p.refunds) {
+            const back = x.refundedAt ? dateOf(x.refundedAt) : null;
+            if (x.status !== 'SUCCEEDED' || !back || back < from || back > to) continue;
+            rows.push({
+              id: x.id,
+              source: 'STRIPE',
+              invoice,
+              client,
+              method: 'CARD',
+              amountCents: -x.amountCents,
+              receivedOn: back,
+              status: 'REFUNDED',
+            });
+          }
         }
         for (const o of r.offline)
           if (o.receivedOn >= from && o.receivedOn <= to)
@@ -1065,8 +1079,9 @@ export function createInvoicesMock(
         pageSize: q.pageSize,
         from,
         to,
+        // Received, less the refunds confirmed in the range (never a voided record).
         receivedCents: found
-          .filter((x) => x.status === 'RECEIVED')
+          .filter((x) => x.status !== 'VOIDED')
           .reduce((n, x) => n + x.amountCents, 0),
       });
     },
