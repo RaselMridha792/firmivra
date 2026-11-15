@@ -30,6 +30,48 @@ test('the workspace: header, six cards, nine tabs and the overview widgets', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+// Tax Returns Review 2 (F01a): on a desktop, Client Details and its two-line address stay in
+// their own card, clear of the Document Checklist beside or below it.
+test('Client Details with a two-line address never runs into the Document Checklist on a desktop', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [1165, 747],
+    [1280, 800],
+    [1440, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto(app('/tax-returns?q=Jamie%20Sample'));
+    await page.getByTestId('return-link').first().click();
+    const details = page.getByTestId('client-details');
+    await expect(details).toContainText('123 Main Street', { timeout: 60_000 });
+    await expect(details).toContainText('Atlanta, GA 30301');
+    const checklist = page.getByTestId('document-checklist');
+    await expect(checklist).toBeVisible();
+    const a = (await details.boundingBox())!;
+    const b = (await checklist.boundingBox())!;
+    const overlap =
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    expect(overlap, `cards overlap at ${String(width)} px`).toBe(false);
+    // Each value, the address too, stays inside the card and inside its own cell.
+    const spills = await details.evaluate((card) => {
+      const c = card.getBoundingClientRect();
+      return Array.from(card.querySelectorAll('dt, dd'))
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            r.right > c.right + 1 || r.left < c.left - 1 || el.scrollWidth > el.clientWidth + 1
+          );
+        })
+        .map((el) => el.textContent);
+    });
+    expect(spills, `at ${String(width)} px`).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+});
+
 test('preparation checklist, review tab and moving to Ready for Review', async ({ page }) => {
   await openReturn(page, 'IN_PREPARATION');
   await page.getByRole('tab', { name: 'Preparation' }).click();
