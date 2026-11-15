@@ -206,6 +206,13 @@ beforeAll(async () => {
     ids.books = (
       await tx.service.create({ data: { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping' } })
     ).id;
+    // N8-33: a draft and an inactive service are in no tab (her drafts showed with zero clients).
+    await tx.service.createMany({
+      data: [
+        { businessId, kind: 'BOOKKEEPING', name: 'Bookkeeping (Copy)', status: 'DRAFT' },
+        { businessId, kind: 'PAYROLL', name: 'Old Payroll', status: 'INACTIVE' },
+      ],
+    });
     const open = await tx.engagement.create({
       data: { businessId, clientId: ids.w1, serviceId: ids.personal, title: 'Fake 2025 return' },
     });
@@ -400,6 +407,7 @@ describe('GET /business/clients/summary', () => {
       inactiveClients: { value: 1, previous: null },
     });
     expect(s.counts).toMatchObject({ all: 4, active: 1, new: 1, inactive: 1 });
+    // N8-33: only active services are tabs and Service choices; drafts and inactive ones are not.
     expect(s.counts.byService).toEqual([
       { id: ids.books, name: 'Bookkeeping', kind: 'BOOKKEEPING', count: 0 },
       { id: ids.personal, name: 'Personal Tax', kind: 'ANNUAL_TAX', count: 1 },
@@ -552,6 +560,32 @@ describe('services from advisory enrollment (E3)', () => {
     // Firm B's tabs never see firm A's enrolments.
     const b = await summary(people.ownerB, 'b');
     expect(b.counts.byService.some((x) => x.id === svc)).toBe(false);
+  });
+});
+
+describe('a requested (pending) service (Clients Review Two N8-23)', () => {
+  it('shows on the row as requested, but is not counted in the tab or listed by its filter', async () => {
+    const svc = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a.id, kind: 'PAYROLL', name: 'Payroll (fake)' },
+      });
+      await tx.engagement.create({
+        data: {
+          businessId: firms.a.id,
+          clientId: ids.w2,
+          serviceId: service.id,
+          title: 'Requested (from an intake send)',
+          status: 'PENDING',
+        },
+      });
+      return service.id;
+    });
+    const all = await list('?limit=100');
+    const row = all.items.find((r) => r.id === ids.w2);
+    expect(row?.services.find((s) => s.id === svc)).toMatchObject({ requested: true });
+    expect((await list(`?serviceId=${svc}`)).items).toEqual([]);
+    const s = await summary(people.ownerA);
+    expect(s.counts.byService.find((b) => b.id === svc)).toMatchObject({ count: 0 });
   });
 });
 

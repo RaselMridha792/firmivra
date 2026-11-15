@@ -11,7 +11,7 @@ import {
 } from '@firmivra/types';
 import { PageHeader } from '@firmivra/ui';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useFirm } from '../../../../../../components/firm-context';
 import { useMe } from '../../../../../../components/signed-in';
@@ -51,8 +51,6 @@ const FORMS_KEY = ['intake-forms', 'send', 'forms'];
 const SEND_ERRORS: Record<string, string> = {
   FORM_ALREADY_OPEN:
     'This recipient already has this form open. Open it from Intake Forms to resend it instead.',
-  NO_ENGAGEMENT:
-    "This client has no active service for this form's service. Add the service to the client, then send.",
   PORTAL_UNAVAILABLE:
     'This client has no client portal sign-in yet, so the form can’t reach them. They can sign up on your portal, and you approve it under Sign-ups.',
   LEAD_LINK_UNAVAILABLE:
@@ -66,8 +64,6 @@ const SEND_ERRORS: Record<string, string> = {
 /** Where to fix a refused send, when there is one place for it. */
 function fixLink(code: string | undefined, recipient: Recipient): SendNotice['link'] {
   if (recipient.kind !== 'CLIENT') return undefined;
-  if (code === 'NO_ENGAGEMENT')
-    return { href: `/clients/${recipient.id}`, label: `Open ${recipient.name}` };
   if (code === 'PORTAL_UNAVAILABLE') return { href: '/sign-ups', label: 'Open Sign-ups' };
   return undefined;
 }
@@ -148,9 +144,16 @@ export function SendIntakeScreen({
   const forms = useApiQuery(FORMS_KEY, () =>
     api.intakeForms.forms({ templates: 'all', status: 'PUBLISHED' }),
   );
-  const send = useApiMutation((body: SendIntakeFormRequest) => api.intakeForms.send(body), {
-    invalidate: INTAKE_KEY,
-  });
+  const queryClient = useQueryClient();
+  const send = useApiMutation(
+    async (body: SendIntakeFormRequest) => {
+      const sent = await api.intakeForms.send(body);
+      // Request Form from the Client Portal module: its forms tab lists the new form on return.
+      void queryClient.invalidateQueries({ queryKey: ['client-portal'] });
+      return sent;
+    },
+    { invalidate: INTAKE_KEY },
+  );
   const saveDraft = useApiMutation((input: { body: SaveSendDraftRequest; id?: string }) =>
     api.intakeForms.saveSendDraft(input.body, input.id),
   );

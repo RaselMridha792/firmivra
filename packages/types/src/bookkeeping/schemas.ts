@@ -266,12 +266,6 @@ export const BookkeepingOverviewPeriod = z.enum([
 ]);
 export type BookkeepingOverviewPeriod = z.infer<typeof BookkeepingOverviewPeriod>;
 
-/** GET /business/bookkeeping/overview. */
-export const BookkeepingOverviewQuery = z.strictObject({
-  period: BookkeepingOverviewPeriod.optional().default('THIS_MONTH'),
-});
-export type BookkeepingOverviewQuery = z.input<typeof BookkeepingOverviewQuery>;
-
 /** A KPI card: the value, the same figure for the period before and the change (null when there is nothing to compare). */
 export const BookkeepingKpi = z.object({
   value: Int,
@@ -289,7 +283,7 @@ export const BookkeepingOverview = z.object({
     activeClients: BookkeepingKpi,
     /**
      * The three money cards sum the period figures that preparers entered or imported for the
-     * active clients: periods inside the overview's dates with both income and expenses known,
+     * active clients, or with the list's `tab` the clients the list shows: periods inside the overview's dates with both income and expenses known,
      * the shortest period first so a quarter never counts on top of its months. A client with no
      * such period adds nothing; `clientsWithFigures` says how many did.
      */
@@ -368,6 +362,23 @@ export const BookkeepingClientsQuery = z.strictObject({
   ...pageQuery(25),
 });
 export type BookkeepingClientsQuery = z.input<typeof BookkeepingClientsQuery>;
+
+/**
+ * GET /business/bookkeeping/overview. Review 2 (D01, D02): with the list's `tab` and filters, the
+ * Income, Expense and Net cards and the monthly chart total only the clients the list shows (one
+ * cohort for cards, charts and rows). Without a tab they total the active clients.
+ */
+export const BookkeepingOverviewQuery = BookkeepingClientsQuery.omit({
+  tab: true,
+  sort: true,
+  direction: true,
+  page: true,
+  pageSize: true,
+}).extend({
+  period: BookkeepingOverviewPeriod.optional().default('THIS_MONTH'),
+  tab: BookkeepingClientTab.optional(),
+});
+export type BookkeepingOverviewQuery = z.input<typeof BookkeepingOverviewQuery>;
 
 export const BookkeepingClientRow = z.object({
   /** The bookkeeping client's id (the profile), used by every /clients/{id} route. */

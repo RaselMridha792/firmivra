@@ -1307,17 +1307,57 @@ export function createBookkeepingMock({
     };
   };
 
+  /** The list's filters, without its tab (as the API's where() without the tab). */
+  const filtered = (query: Omit<BookkeepingClientsQuery, 'tab'>) => {
+    const term = query.search?.toLowerCase();
+    return clients
+      .filter((c) => !c.archived)
+      .filter(
+        (c) =>
+          (!term ||
+            `${c.client.displayName} ${c.client.clientNumber}`.toLowerCase().includes(term)) &&
+          (!query.clientType || c.client.accountType === query.clientType) &&
+          (!query.plan || c.plan === query.plan) &&
+          (!query.assignedUserId || c.assignedTo?.userId === query.assignedUserId) &&
+          (!query.paused || String(c.paused) === query.paused) &&
+          (!query.status || c.status === query.status),
+      )
+      .filter((c) => {
+        if (!query.software) return true;
+        const sw = c.connections.find((k) => k.status !== 'DISCONNECTED');
+        return query.software === 'NOT_CONNECTED' ? !sw : sw?.provider === query.software;
+      })
+      .filter(
+        (c) =>
+          (!query.reportDueFrom || (c.nextReportDueOn ?? '') >= query.reportDueFrom) &&
+          (!query.reportDueTo || (!!c.nextReportDueOn && c.nextReportDueOn <= query.reportDueTo)),
+      );
+  };
+  // Review 2 (D01): ACTIVE and UPCOMING leave paused clients out, as the API does.
+  const tabOf = (c: Ws, t: string) =>
+    t === 'ALL'
+      ? true
+      : t === 'ACTIVE'
+        ? !c.paused
+        : t === 'UPCOMING'
+          ? inUpcoming(c.nextReportDueOn) && !c.paused
+          : c.status === t;
+
   const api: BookkeepingClient = {
     overview: (q = {}) =>
       run((): BookkeepingOverview => {
         const query = parseInput(BookkeepingOverviewQuery, q);
         const r = range(query.period);
         const active = clients.filter((c) => !c.paused && !c.archived);
+        // Review 2 (D01, D02): with the list's tab, the money cards and the monthly chart total
+        // the clients the list shows; without one, the active clients (as the API).
+        const tab = query.tab;
+        const counted = tab ? filtered(query).filter((c) => tabOf(c, tab)) : active;
         const sum = (from: string, to: string) => {
           let income = 0;
           let expenses = 0;
           let n = 0;
-          for (const c of active) {
+          for (const c of counted) {
             const ps = [...periods.values()].filter(
               (p) =>
                 p.bookkeepingClientId === c.id &&
@@ -1367,6 +1407,7 @@ export function createBookkeepingMock({
           let exp = 0;
           for (const p of periods.values())
             if (
+              counted.some((c) => c.id === p.bookkeepingClientId) &&
               p.kind === 'MONTH' &&
               p.periodStart.startsWith(key) &&
               p.incomeCents !== null &&
@@ -1431,39 +1472,7 @@ export function createBookkeepingMock({
     clients: (q = {}) =>
       run(() => {
         const query = parseInput(BookkeepingClientsQuery, q);
-        const term = query.search?.toLowerCase();
-        const base = clients
-          .filter((c) => !c.archived)
-          .filter(
-            (c) =>
-              (!term ||
-                `${c.client.displayName} ${c.client.clientNumber}`.toLowerCase().includes(term)) &&
-              (!query.clientType || c.client.accountType === query.clientType) &&
-              (!query.plan || c.plan === query.plan) &&
-              (!query.assignedUserId || c.assignedTo?.userId === query.assignedUserId) &&
-              (!query.paused || String(c.paused) === query.paused) &&
-              (!query.status || c.status === query.status),
-          )
-          .filter((c) => {
-            if (!query.software) return true;
-            const sw = c.connections.find((k) => k.status !== 'DISCONNECTED');
-            return query.software === 'NOT_CONNECTED' ? !sw : sw?.provider === query.software;
-          })
-          .filter(
-            (c) =>
-              (!query.reportDueFrom || (c.nextReportDueOn ?? '') >= query.reportDueFrom) &&
-              (!query.reportDueTo ||
-                (!!c.nextReportDueOn && c.nextReportDueOn <= query.reportDueTo)),
-          );
-        // Review 2 (D01): ACTIVE and UPCOMING leave paused clients out, as the API does.
-        const tabOf = (c: Ws, t: string) =>
-          t === 'ALL'
-            ? true
-            : t === 'ACTIVE'
-              ? !c.paused
-              : t === 'UPCOMING'
-                ? inUpcoming(c.nextReportDueOn) && !c.paused
-                : c.status === t;
+        const base = filtered(query);
         const tabCounts = Object.fromEntries(
           (
             [

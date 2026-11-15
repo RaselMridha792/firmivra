@@ -35,6 +35,7 @@ import { sendSubmittedNotice } from '../intake-workspace/submitted-notice.js';
 import { errorName, Notifier } from '../notifications/notifier.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
+import { activateNewClient } from '../clients/client-activation.js';
 import { intakeFileSizeMb } from './intake-file-size.js';
 import {
   consentEvidence,
@@ -514,6 +515,47 @@ export class IntakesService {
       type: 'intake',
       id,
     });
+    return view;
+  }
+
+  /**
+   * Clients Review Two N8-17: Accept a submitted intake. It is completed as Mark Reviewed does,
+   * and its client moves New → Active (a client past New stays as it is; a lead's intake has no
+   * client yet). Owner, Admin, or the staff member who reaches it. Submitting alone never
+   * activates.
+   */
+  async accept(businessId: string, reach: IntakeReach, id: string): Promise<IntakeView> {
+    const actorUserId = reach.kind === 'staff' ? reach.actor.userId : null;
+    const { view, clientId, activated } = await this.inFirm(businessId, async (tx) => {
+      const row = await this.lockRow(tx, businessId, reach, id);
+      if (row.status !== 'SUBMITTED' && row.status !== 'UNDER_REVIEW') throw invalidStatus();
+      await tx.intake.update({ where: { id }, data: { status: 'COMPLETED' } });
+      const owner = await tx.intake.findFirst({
+        where: { businessId, id },
+        select: { engagement: { select: { clientId: true } } },
+      });
+      const client = owner?.engagement?.clientId ?? null;
+      const moved = client
+        ? await activateNewClient(
+            tx,
+            this.audit,
+            businessId,
+            client,
+            actorUserId,
+            'intake_accepted',
+          )
+        : false;
+      return {
+        view: await this.view(tx, businessId, await this.row(tx, businessId, reach, id)),
+        clientId: client,
+        activated: moved,
+      };
+    });
+    await this.audit.log(
+      'intake.accepted',
+      { type: 'intake', id },
+      { clientId, clientActivated: activated },
+    );
     return view;
   }
 

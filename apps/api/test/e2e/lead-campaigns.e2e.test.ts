@@ -239,6 +239,31 @@ describe('Leads campaigns are Communications campaigns (L7)', () => {
     }
   });
 
+  it('Leads Review 2 (22): a search finds the leads in a campaign by its name', async () => {
+    const inIt = await create({ campaignId: ids.draft });
+    const outside = await create();
+    const search = async (text: string) =>
+      LeadPipelinePage.parse(
+        ok(
+          await call(
+            'get',
+            `/pipeline?search=${encodeURIComponent(text)}&pageSize=50`,
+            people.ownerA,
+          ),
+        ),
+      ).items.map((r) => r.id);
+    const found = await search(`Spring Email ${run}`);
+    expect(found).toContain(inIt.id);
+    expect(found).not.toContain(outside.id);
+    // One word of the name is enough; with the lead's own name it narrows to that lead.
+    expect(await search('spring')).toContain(inIt.id);
+    expect(await search(`spring ${inIt.lastName}`)).toEqual([inIt.id]);
+    // An archived campaign is not one the Leads page offers, so its name finds nothing.
+    expect(await search(`Old ${run}`)).toEqual([]);
+    // Firm B's campaign name finds nothing in firm A.
+    expect(await search(`B campaign ${run}`)).toEqual([]);
+  });
+
   it('Add New Lead with a campaign puts the new lead in it', async () => {
     const lead = await create({ campaignId: ids.draft });
     expect(await audience(ids.draft)).toContain(lead.id);

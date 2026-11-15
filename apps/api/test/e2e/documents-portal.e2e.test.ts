@@ -1506,3 +1506,44 @@ describe('scan results (q22, q24)', () => {
     expect(untouched.scanStatus).toBe('PENDING');
   });
 });
+
+describe('Tax Returns Review 2 (TR-2): a request made from a tax return', () => {
+  it('names the return and its year; the file that answers it takes the year', async () => {
+    const [ours, theirs] = await asOwner(firms.a.id, async (tx) => {
+      const made = (clientId: string, engagementId: string | null) =>
+        tx.taxReturn
+          .create({
+            data: {
+              businessId: firms.a.id,
+              clientId,
+              engagementId,
+              taxYear: 2024,
+              filingType: 'INDIVIDUAL',
+            },
+          })
+          .then((r) => r.id);
+      return [await made(ids.c1, ids.e1), await made(ids.c2, null)] as const;
+    });
+    const ask = (body: Record<string, unknown>) =>
+      call('post', `/clients/${ids.c1}/document-requests`, people.ownerA, {
+        serviceId: ids.e1,
+        title: 'W-2 for the return (fake)',
+        ...body,
+      });
+    // Another client's return, or none: 404, before the service's 409.
+    expectError(await ask({ taxReturnId: theirs }), 404, 'NOT_FOUND');
+    expectError(await ask({ taxReturnId: randomUUID(), serviceId: ids.e1p }), 404, 'NOT_FOUND');
+    // The year is the return's, never sent.
+    expectError(await ask({ taxReturnId: ours, taxYear: 2023 }), 400, 'VALIDATION_FAILED');
+    const r = await newRequest({ taxReturnId: ours });
+    expect(await requestRow(r.id)).toMatchObject({ taxReturnId: ours, taxYear: 2024 });
+    const created = (await auditOf(r.id)).find((a) => a.action === 'document_request.created');
+    expect(created?.metadata).toMatchObject({ taxReturnId: ours });
+    // The client's file takes the return's 2024, not the service's 2025 or the year it named.
+    const doc = await mine(people.primary, { requestId: r.id, taxYear: 2025 });
+    expect([doc.requestId, doc.taxYear]).toEqual([r.id, 2024]);
+    // A request made anywhere else names neither.
+    const plain = await newRequest();
+    expect(await requestRow(plain.id)).toMatchObject({ taxReturnId: null, taxYear: null });
+  });
+});

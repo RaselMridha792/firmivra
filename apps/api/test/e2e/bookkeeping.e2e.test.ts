@@ -1937,6 +1937,34 @@ describe('periods and the close workflow', () => {
       expenseRatioPercent: expect.any(Number),
     });
     expect(ws.trend.map((t) => t.month)).toContain(entry.month);
+    // Review 2 (D01, D02): with the list's tab and filters, the money cards and the monthly chart
+    // total only the clients the list shows; a filter that leaves this client out leaves its
+    // figures out too, and the cohort cards stay the firm's.
+    const shown = async (filters: string) =>
+      exact(
+        BookkeepingOverview,
+        await call('get', `/overview?period=THIS_MONTH&${filters}`, people.ownerA),
+      );
+    const name = encodeURIComponent(ws.client.displayName);
+    const listed = await shown(`tab=ALL&search=${name}`);
+    expect(listed.kpis.totalIncomeCents.value).toBe(2_458_000);
+    expect(listed.kpis.clientsWithFigures).toBe(1);
+    expect(listed.monthly[now.getUTCMonth()]).toEqual(entry);
+    expect((await shown(`tab=${ws.status}&search=${name}`)).kpis.netProfitCents.value).toBe(
+      836_000,
+    );
+    const otherStatus = ws.status === 'OVERDUE' ? 'ON_TRACK' : 'OVERDUE';
+    for (const left of [
+      `tab=ALL&search=${name}&status=${otherStatus}`,
+      `tab=${otherStatus}&search=${name}`,
+    ]) {
+      const out = await shown(left);
+      expect(out.kpis.totalIncomeCents.value).toBe(0);
+      expect(out.kpis.clientsWithFigures).toBe(0);
+      expect(out.monthly[now.getUTCMonth()]?.incomeCents).toBe(0);
+      expect(out.kpis.activeClients).toEqual(o.kpis.activeClients);
+    }
+    expect((await call('get', '/overview?tab=NOPE', people.ownerA)).status).toBe(400);
     // The overview is for the firm: Staff see it for their clients only, and firm B sees nothing of A.
     const b = exact(
       BookkeepingOverview,

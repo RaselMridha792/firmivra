@@ -1,7 +1,6 @@
 'use client';
 
 import { INTAKE_STATUS_LABELS, type AssignedFormRecord, type IntakeView } from '@firmivra/types';
-import { ApiRequestError } from '@firmivra/types';
 import { ActionMenu, Avatar, Badge, Button, Modal, Textarea, Toast } from '@firmivra/ui';
 import {
   CaretRight,
@@ -10,14 +9,16 @@ import {
   FilePdf,
   PaperPlaneTilt,
   ChatCircle,
+  UserCheck,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createContext, type ReactNode, use, useState } from 'react';
 import { api } from '../../../../../../lib/api';
-import { errorCode, errorMessage } from '../../../../../../lib/errors';
+import { errorMessage } from '../../../../../../lib/errors';
 import { nudgeNotice } from '../../../../../../lib/intake-delivery';
 import { expiryText, useFirmTimeZone } from '../../_components/expiry';
+import { openPdf } from '../../_components/export-pdf';
 import {
   type ManageAction,
   ManageDialog,
@@ -62,21 +63,6 @@ export function useDetail(): DetailValue {
   return value;
 }
 
-/**
- * USABILITY-04: why an export failed, in words, with what to do; the page stays where it is.
- * The cause behind a browser error page is not known: the PDF now opens in its own tab.
- */
-function exportFailed(error: unknown): string {
-  if (error instanceof TypeError)
-    return 'We couldn’t reach Firmivra to make the PDF. Check your connection, then use Export PDF again.';
-  const code = errorCode(error);
-  if (code === 'FILE_STORE_UNAVAILABLE')
-    return 'The PDF couldn’t be saved right now. Use Export PDF again in a minute; nothing on this page changed.';
-  if (error instanceof ApiRequestError && error.status === 400)
-    return 'This form can’t be made into a PDF yet. Its answers are on the Responses tab.';
-  return 'The PDF couldn’t be made. Use Export PDF again; if it keeps failing, contact support with this page’s address.';
-}
-
 const outline =
   'inline-flex min-h-10 items-center justify-center gap-2 rounded-control border border-action bg-surface px-4 text-sm font-medium text-action hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -110,6 +96,8 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
   const [managing, setManaging] = useState<ManageAction>();
   const remind = useApiMutation(() => api.intakeForms.remind(id), options);
   const review = useApiMutation(() => api.intakeForms.markReviewed(id), options);
+  // Clients Review Two N8-17: Accept completes the form and makes a New client Active.
+  const accept = useApiMutation(() => api.intakeForms.accept(id), options);
   const revise = useApiMutation(
     () => api.intakeForms.requestRevision(id, { note: note.trim() }),
     options,
@@ -150,24 +138,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               onClick={() => {
                 // USABILITY-04: the PDF opens in a tab of its own (opened in the click, so it is
                 // not blocked), and this review stays as it is whatever happens there.
-                const tab = window.open('', '_blank');
-                exportPdf.mutate(undefined, {
-                  onSuccess: (link) => {
-                    if (tab) {
-                      tab.opener = null;
-                      tab.location.href = link.url;
-                    } else {
-                      notify(
-                        'Your browser blocked the new tab for the PDF. Allow pop-ups for Firmivra, then use Export PDF again.',
-                        'error',
-                      );
-                    }
-                  },
-                  onError: (error) => {
-                    tab?.close();
-                    notify(exportFailed(error), 'error');
-                  },
-                });
+                openPdf(
+                  (handlers) => exportPdf.mutate(undefined, handlers),
+                  (text) => notify(text, 'error'),
+                );
               }}
             >
               <FilePdf aria-hidden weight="fill" className="size-4" /> Export PDF
@@ -198,8 +172,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
             >
               <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Follow-Up
             </button>
-            <Button
+            <button
+              type="button"
               disabled={!reviewable || review.isPending}
+              className={outline}
               onClick={() =>
                 review.mutate(undefined, {
                   onSuccess: () => notify('Marked as reviewed.'),
@@ -208,6 +184,23 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               }
             >
               <CheckCircle aria-hidden weight="bold" className="size-4" /> Mark Reviewed
+            </button>
+            <Button
+              disabled={!reviewable || accept.isPending}
+              title="Completes the form, and a New client becomes Active"
+              onClick={() =>
+                accept.mutate(undefined, {
+                  onSuccess: () =>
+                    notify(
+                      r?.recipient.kind === 'LEAD'
+                        ? 'Accepted.'
+                        : 'Accepted. A New client is now Active.',
+                    ),
+                  onError: failed,
+                })
+              }
+            >
+              <UserCheck aria-hidden weight="bold" className="size-4" /> Accept
             </Button>
             {r && manageItems(r, manager, setManaging).length > 0 ? (
               <ActionMenu

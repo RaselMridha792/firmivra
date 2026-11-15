@@ -37,7 +37,7 @@ Rows are named by their IDs and headings only; the report's text is not copied h
 | Normalized phone duplicate: the web dialog | Fixed (G2) | #1382 (API) and #1429: Possible duplicate client with Create Anyway and Save Anyway | `clients.e2e`, `r60-clients-gaps` (Add; Edit's Save Anyway is not checked) |
 | Business responsible party (name, email, phone) | Done | #1380 | `clients.e2e`, `r60-clients-required` |
 | Business responsible party: linked personal and business profile | Fixed (G9) | #1446 (`client_links`) and #1454: Linked Profiles on Overview | `clients-work.e2e` (reach, firm B, once per pair, audit), isolation cases, `r60-clients-links` |
-| Business responsible party: prefill from the linked profile | Not built yet (R55) | — | — |
+| Business responsible party: prefill from the linked profile | Done: a Business's Edit details offers Fill from the linked Responsible party (else Owner) personal profile, which fills only the blank name, email and phone; nothing shows without such a link | #1558 | mock `r55-business-party-fill` "Edit details fills the responsible party from the linked owner, blank fields only", "a Business with no linked person offers no fill" |
 | Service management (enroll, pause or end with history, package, staff) | Fixed (G8) | #1444: Enroll, Edit, Service & Billing, End, Mark Completed, Reactivate and History (audit rows); #1446 and #1454: a pause with a reason for every service | `engagements.e2e` (activity, pause and resume), `r60-clients-services` |
 | Document and portal actions (profile Upload, Request Details, Portal invitation) | Done | #1384 | `r60-clients-e8-e10` |
 | Bulk and contextual actions: tag, status, inactive, export | Done | #1386, #1387 | `clients-work.e2e`, `r60-clients-export`, `r60-clients-bulk` |
@@ -134,18 +134,18 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-02 Existing intake assignment: detail and start | Done in Intake Forms | #1407, #1425, #1471, #1479 | `intake-forms.md` INTAKE-ACCESS-01 (mock `r55-portal-assigned-intake`) |
 | N8-03 Portal document source filters | Scoped pass; nothing to build | — | — |
 | N8-04 Portal message delivery and read state | Scoped pass; nothing to build | — | — |
-| N8-05 Client Activity and Last Activity | Last Activity column: Done (#1362, #1429). Activity tab: Not built yet (R55): the profile composer offers Add to Client Timeline, and Activity shows it | #1362, #1429 | `clients-work.e2e` "counts the client's own recorded changes, never a view…" (the column only) |
+| N8-05 Client Activity and Last Activity | Done: the client's Messages tab New Message has Add to Client Timeline (on by default); the entry shows on Activity with its link, never the message, and an Activity entry counts as Last Activity | #1362, #1429, #1558 | `messages.e2e` "puts the subject, sender and link on the Activity, never the message; off adds nothing"; mock `r55-client-message-timeline`; `clients-work.e2e` "counts the client's own recorded changes, never a view…" (the column) |
 | N8-06 Digits-only phone search | Done: any phone format finds the client, so no hint is needed | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-07 Client ID search (UUID and CL- number) | Done | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-08 Pagination and return | Scoped pass; nothing to build | — | — |
 | N8-09 Profile tab scrollbar (V-001) | Done, test gap | #1381, #1415 (R55) | None (see V-001) |
-| N8-09 Sign-ups Invite, Resend and Revoke | Not built yet (R56): with the existing invitation APIs | — | — |
+| N8-09 Sign-ups Invite, Resend and Revoke | Done: Sign-ups > Invitations lists every client once with its invitation state (newest first, state filter, search, pages; Staff see their own clients) and Invite, Resend and Revoke per row through the existing invitation APIs | this PR (R56) | e2e `portal-invitations` "shows each client once with its state, newest invitation first", "filters by state and pages; Staff see only their own clients", "another firm sees none of them; bad input is 400; the view is audited with counts only"; mock `r56-sign-ups-invitations` |
 | N8-10 Last Activity dismissal and names | Done, test gap | #1415 (R55) | `r23-clients` (the From label only; see section 4) |
 | N8-11 Text preference and SMS | Preference: scoped pass. SMS: retest once SMS is set up on dev; nothing to build in Clients | — | — |
 | N8-12 Overview summary cards | After Nov 17 (decided). Active Services (#1378) and Billing (#1434) are on Overview | — | — |
 | N8-13 New Clients definition | Done | #1382 (R1) | `clients.e2e` "New Clients counts what its New tab lists; the clients added this month are their own figure", `clients-work.e2e` summary |
 | N8-14 Client reply and firm notification | Scoped pass; nothing to build | — | — |
-| N8-15 Balances reconcile; profile invoice details | Balances: scoped pass. Invoice details: FC-01 (R55) | — | — |
+| N8-15 Balances reconcile; profile invoice details | Balances: scoped pass. Invoice details: Done in FC-01 | #1558 | mock `r55-client-invoices-balance` |
 | N8-16 Firm PDF content | Scoped pass; the portal byte check is her retest | — | — |
 | N8-17 Intake Accept; New to Active | Not built yet (R1): Accept on a submitted intake, work-start triggers, and a manual override | — | — |
 | N8-18 Appointment outcomes and notes | After Nov 17 (decided) | — | — |
@@ -163,19 +163,19 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-30 Business dirty Edit | Scoped pass; invalid Save stays under Edit validation (section 3) | — | — |
 | N8-31 Share Access recipients | Scoped pass; nothing to build | — | — |
 | N8-32 Service labels match the catalog | Scoped pass; nothing to build | — | — |
-| N8-33 Draft services in Clients | Not built yet (R55): Draft services out of the Clients tabs and Service dropdown, with a status filter | — | — |
-| N8-34 Sign-ups list checks | Scoped pass; the empty-state copy is FC-02 (R55) | — | — |
+| N8-33 Draft services in Clients | Done: only active services are Clients tabs and Service choices; draft and inactive services stay in the catalog | #1558 | `clients-work.e2e` "counts the firm's cards and tabs; archived clients are in none of them" (a draft and an inactive service are not in `byService`); mock `r55-clients-draft-services` |
+| N8-34 Sign-ups list checks | Scoped pass; the empty-state copy: Done in FC-02 | #1558 | web unit `sign-up-parts.test` |
 | N8-35 Signature history and filters | Scoped pass; nothing to build | — | — |
 | N8-36 Tasks tab with New Task for the client | Done, test gap | #1378 | `r60-clients-tabs` opens the Tasks tab; its Create Task link with the client is not checked |
 | N8-37 Request a Document at the top | Done: Request a Document and the open requests come first | #1547 | Mock `r60-clients-e8-e10` (the client's Documents) |
 | N8-38 Task details readable | Scoped pass; nothing to build | — | — |
 | N8-39 Portal notification filter | Scoped pass; clearing needs a known-unread notice (her retest) | — | — |
 | N8-40 Message audit names the client | Scoped pass; nothing to build | — | — |
-| FC-01 Profile Invoices: balance due and Open Invoice | Not built yet (R55): balance due and a link to each invoice | — | — |
-| FC-02 Sign-ups empty state by approval mode | Not built yet (R55) | — | — |
+| FC-01 Profile Invoices: balance due and Open Invoice | Done: the client's Invoices tab shows Total, Balance due and the detailed status (Partially Paid, Overdue, Due Soon, Sent) together, and Open Invoice opens that invoice with Back to the client | #1558 | mock `r55-client-invoices-balance` "the Invoices tab shows total, balance due and status, and Open Invoice opens it" and "the cards show total and balance due at phone width" |
+| FC-02 Sign-ups empty state by approval mode | Done: the Waiting tab's empty help names the firm's mode; Manual Review: verified requests wait for review; Automatic Approval: no email or phone match is approved at once, a possible match waits | #1558 | web unit `sign-up-parts.test` "Manual Review: every verified request waits for review", "Automatic Approval: no match is approved at once; a possible match waits" |
 | FC-03 Documents staff guidance | Done, test gap | #1381 (R55) | `r34-documents` checks the no-client note is shown, not its words |
 | FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
-| §23 Messages: wider Subject, collapsible Internal Notes | Not built yet (R55) | — | — |
+| §23 Messages: wider Subject, collapsible Internal Notes | Done: Hide / Show Internal Notes on the client's Messages (Messages then take the whole width; a note being typed is kept), and the Subject takes the room while the sender stays on one line | #1558 | mock `r55-client-messages-notes-collapse` "Hide Internal Notes widens the Subject and keeps the draft note" (at her 1165 px) |
 | §23 V-007 for side menus | Main sidebar: Done (#1396). The Internal Notes rail is the R60 row above | #1396 | `r60-sidebar-collapse` |
 | §23 Mobile-friendly Clients | Her mobile check was not run; nothing new to build. 375 px checks: `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` | — | — |
 | §23 Platform heading and action-row consistency | After Nov 17 (decided): a platform-wide pass | — | — |
@@ -183,7 +183,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 
 ## GAP status
 
-G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are listed by owner below.
+G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are listed by owner below.
 
 | GAP | Status |
 | --- | --- |
@@ -195,7 +195,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 | G6 Last Activity counts every recorded action | Fixed, #1429 |
 | G7 Bulk message, request, intake | Fixed, #1431 |
 | G8 Service management | Fixed, #1444; the pause for every service in #1446 and #1454 |
-| G9 Linked profiles (`client_links`) | Fixed, #1446 (schema) and #1454; the prefill from the linked profile is open (R55) |
+| G9 Linked profiles (`client_links`) | Fixed, #1446 (schema) and #1454; the prefill from the linked profile: #1558 |
 | G10 ZIP prefix and state | Fixed, #1438; the city and server check after Nov 17 |
 | G11 Billing links on the client | Fixed, #1434 and #1444 |
 | G12 Card view sort | Fixed, #1432 |
@@ -206,7 +206,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 - N8-37: Request a Document above the documents list
 - FC-04: Unassigned in Assigned Staff, combinable with New
 
-**R55, product (moved from R60, Nov 15)**
+**R55, product: done in #1558**
 - N8-05: Add to Client Timeline in the profile composer; Activity shows it
 - N8-33: Draft services out of the Clients tabs and dropdown, with a status filter
 - FC-01 / N8-15: the profile Invoices tab shows the balance due and links each invoice
@@ -226,7 +226,7 @@ G1 to G12 are closed except G9's prefill (Nov 15, 2026). The open items are list
 - N8-17: Accept on a submitted intake, work-start triggers from New to Active, and a manual override
 
 **R56**
-- N8-09: Sign-ups Invite, Resend and Revoke with the existing invitation APIs
+- N8-09: Sign-ups Invite, Resend and Revoke with the existing invitation APIs (this PR)
 
 **After Nov 17 (decided)**
 - N8-18: appointment outcomes and notes

@@ -7,7 +7,10 @@ import {
   PORTAL_INVITATION_DAYS,
   PORTAL_INVITATIONS_PER_DAY,
   type PortalInvitationClient,
+  type PortalInvitationListState,
+  type PortalInvitationRow,
   type PortalInvitationsClient,
+  PortalInvitationsQuery,
   SendPortalInvitationRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
@@ -79,7 +82,62 @@ export function createPortalInvitationsMock(): PortalInvitationsClient {
             : null,
     };
   };
+  /** Sign-ups > Invitations (N8-09): the clients mock's clients, as the API lists them. */
+  const row = (clientId: string, number: number): PortalInvitationRow => {
+    const v = view(clientId);
+    const latest = v.invitation;
+    const state: PortalInvitationListState =
+      latest?.state === 'ACCEPTED'
+        ? 'ACCEPTED'
+        : latest?.state === 'OPEN'
+          ? 'OPEN'
+          : v.blocked
+            ? 'BLOCKED'
+            : (latest?.state ?? 'NOT_INVITED');
+    return {
+      clientId: v.clientId,
+      clientName: v.clientName,
+      clientNumber: `CL-${10020 + number}`,
+      email: v.recipient?.email ?? null,
+      state: state === 'BLOCKED' && v.blocked === 'HAS_LOGIN' ? 'ACCEPTED' : state,
+      invitation: latest
+        ? {
+            sentAt: latest.sentAt,
+            sentBy: latest.sentBy,
+            expiresAt: latest.expiresAt,
+            openedAt: null,
+            revokedAt: latest.revokedAt,
+          }
+        : null,
+      blocked: v.blocked,
+    };
+  };
   return {
+    list: async (query = {}) => {
+      await mockDelay();
+      const q = parseInput(PortalInvitationsQuery, query);
+      const term = q.search?.toLowerCase();
+      const rows = clientFixtures()
+        .map((c, i) => ({ c, r: row(c.id, i) }))
+        // Clients with a login are listed only once invited (as the API's eight days).
+        .filter(({ r }) => r.blocked !== 'HAS_LOGIN' || r.invitation)
+        .filter(
+          ({ c, r }) =>
+            (!term ||
+              c.displayName.toLowerCase().includes(term) ||
+              (r.email ?? '').toLowerCase().includes(term)) &&
+            (!q.state || r.state === q.state),
+        )
+        .map(({ r }) => r)
+        .sort((a, b) => (b.invitation?.sentAt ?? '').localeCompare(a.invitation?.sentAt ?? ''));
+      const start = (q.page - 1) * q.limit;
+      return {
+        items: rows.slice(start, start + q.limit),
+        total: rows.length,
+        page: q.page,
+        limit: q.limit,
+      };
+    },
     access: async (clientId) => {
       await mockDelay();
       return view(clientId);

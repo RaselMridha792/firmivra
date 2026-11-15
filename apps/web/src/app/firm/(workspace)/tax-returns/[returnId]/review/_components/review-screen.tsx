@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { NewThreadDialog } from '../../../../clients/[id]/messages/_components/thread-dialogs';
 import {
   DetailsDialog,
   ExtensionDialog,
@@ -361,6 +362,8 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
   const router = useRouter();
   const [back, setBack] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  // TR-4: Send Message is written here (as on the Overview); Cancel stays on Full Review.
+  const [writing, setWriting] = useState(false);
   const canFile = detail.canMoveTo.includes('READY_TO_FILE');
   const blocked = detail.blockers.filter(
     (b) => b !== 'NO_FILING_TRANSMITTED' && b !== 'FILINGS_NOT_ACCEPTED',
@@ -384,14 +387,11 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
         <OriginLink href={`/client-portal/${detail.client.id}`} className={button}>
           <UsersThree aria-hidden weight="fill" className="size-5" /> Client Portal
         </OriginLink>
-        {/* Review 2 (TX-F03): New Message and New Task open on this client and this return, and
-            Back (or Cancel) comes here. */}
-        <OriginLink
-          href={`/messages/new?clientId=${detail.client.id}&related=tax_return:${detail.id}`}
-          className={button}
-        >
+        {/* TR-4: a message to this client about this return, written here; Cancel stays here. */}
+        <button type="button" className={button} onClick={() => setWriting(true)}>
           <ChatCircleDots aria-hidden weight="fill" className="size-5" /> Send Message
-        </OriginLink>
+        </button>
+        {/* Review 2 (TX-F03): New Task opens on this client and this return, and Back comes here. */}
         <OriginLink
           href={`/tasks/new?clientId=${detail.client.id}${
             detail.engagement ? `&engagementId=${detail.engagement.id}` : ''
@@ -467,6 +467,16 @@ function ReviewActions({ detail, onNotice }: { detail: TaxReturnDetail; onNotice
       </div>
       {back ? (
         <StatusDialog row={detail} onClose={() => setBack(false)} onNotice={onNotice} />
+      ) : null}
+      {writing ? (
+        <NewThreadDialog
+          clientId={detail.client.id}
+          engagementId={detail.engagement?.id}
+          related={{ type: 'tax_return', id: detail.id }}
+          initialSubject={`${detail.taxYear} ${detail.formType ?? 'Tax'} Return`}
+          onClose={() => setWriting(false)}
+          onSent={() => onNotice('Message sent to the client.', 'success')}
+        />
       ) : null}
       {rejecting ? (
         <RejectDialog row={detail} onClose={() => setRejecting(false)} onNotice={onNotice} />

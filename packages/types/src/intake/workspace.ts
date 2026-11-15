@@ -86,6 +86,8 @@ export const AssignedFormTab = z.enum([
   'completed',
   'expired',
   'open',
+  /** Archived forms, outside "all" (Client Portal module item 1): listed only on their own. */
+  'archived',
 ]);
 export type AssignedFormTab = z.infer<typeof AssignedFormTab>;
 

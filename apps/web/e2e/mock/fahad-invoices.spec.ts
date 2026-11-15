@@ -17,7 +17,8 @@ for (const width of [375, 768, 1024, 1440]) {
     await page.getByTestId('invoice-status-filter').selectOption('PAID');
     await expect(list).toContainText('Paid');
     await expect(list).not.toContainText('Draft');
-    await expect(list).not.toContainText('Open');
+    // FC-01: every row has Open Invoice, so the open statuses are checked by their own words.
+    await expect(list).not.toContainText(/Not Sent|Partially Paid|Overdue|Due Today|Due Soon/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -53,7 +54,7 @@ test('create a multiple-line draft, remove a line and send', async ({ page }) =>
     .filter({ hasText: 'Quarterly planning review' });
   await expect(row).toContainText('$50.00');
   await row.getByTestId('invoice-send').click();
-  await expect(row).toContainText('Open');
+  await expect(row).toContainText('Sent');
 });
 
 test('a draft can be cancelled with a required reason', async ({ page }) => {

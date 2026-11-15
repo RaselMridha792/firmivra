@@ -1,7 +1,8 @@
 'use client';
 
-import { MESSAGE_ERRORS } from '@firmivra/types';
-import { Button, Input, Modal } from '@firmivra/ui';
+import { type CreateMessageThreadRequest, MESSAGE_ERRORS } from '@firmivra/types';
+import { Button, Checkbox, Input, Modal } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   EmailChoices,
@@ -135,6 +136,7 @@ export function NewThreadDialog({
   clientId,
   onClose,
   engagementId,
+  related,
   initialSubject = '',
   onSent,
 }: {
@@ -142,19 +144,26 @@ export function NewThreadDialog({
   onClose: () => void;
   /** TX-F05: the service record the conversation is about (a tax return's engagement). */
   engagementId?: string;
+  /** TR-4: the record the conversation is about (MSG-F13's Related To), e.g. a tax return. */
+  related?: CreateMessageThreadRequest['related'];
   initialSubject?: string;
   /** Called once the message is sent, before the dialog closes. */
   onSent?: () => void;
 }) {
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState('');
+  // Clients Review 2 (N8-05): on by default, as the owner wants every client action reported.
+  const [addToTimeline, setAddToTimeline] = useState(true);
+  const qc = useQueryClient();
   const choices = useEmailChoices(clientId);
   const create = useApiMutation(
     () =>
       api.messages.create(clientId, {
         subject,
         body,
+        addToTimeline,
         ...(engagementId ? { engagementId } : {}),
+        ...(related ? { related } : {}),
         ...(choices.delivery ? { delivery: choices.delivery } : {}),
       }),
     refresh,
@@ -167,6 +176,8 @@ export function NewThreadDialog({
           e.preventDefault();
           create.mutate(undefined, {
             onSuccess: () => {
+              // The client's Activity and Last Activity show the new entry.
+              if (addToTimeline) void qc.invalidateQueries({ queryKey: ['clients', clientId] });
               onSent?.();
               onClose();
             },
@@ -194,6 +205,17 @@ export function NewThreadDialog({
         </div>
         <Recipient clientId={clientId} />
         <EmailChoices choices={choices} />
+        <div className="flex flex-col">
+          <Checkbox
+            label="Add to Client Timeline"
+            checked={addToTimeline}
+            onChange={(e) => setAddToTimeline(e.target.checked)}
+          />
+          <p className="text-xs text-muted">
+            Once sent, the client&apos;s Activity shows the subject, who sent it and when, never the
+            message.
+          </p>
+        </div>
         <Problem error={create.error} />
         <Button type="submit" disabled={create.isPending}>
           {create.isPending ? 'Sending…' : 'Send Message'}

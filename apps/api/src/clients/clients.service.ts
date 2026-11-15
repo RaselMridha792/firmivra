@@ -353,9 +353,8 @@ export class ClientsService {
             ? {
                 OR: [
                   {
-                    engagements: {
-                      some: { serviceId: q.serviceId, status: { in: ['PENDING', 'ACTIVE'] } },
-                    },
+                    // N8-23: as the tab's count, a requested (pending) service is not enrolled.
+                    engagements: { some: { serviceId: q.serviceId, status: 'ACTIVE' } },
                   },
                   // Octavia's E3: an advisory enrollment is a workstream, not an engagement.
                   {
@@ -597,7 +596,8 @@ export class ClientsService {
    * worked out when the list is read, so no other module has to write it: a message in the
    * client's thread, a document uploaded or requested, a task completed, an appointment held
    * (completed, or scheduled and begun), an invoice sent or paid, an e-sign completed, a note
-   * added, and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
+   * added, an entry on the client's Activity timeline (N8-05: an email or text sent with Add to
+   * Client Timeline), and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
    * every recorded client action counts): also the client's own audit rows (profile and contact
    * edits, assignment, tags, status, archive and restore), never a view, list or export. In the
    * firm's scope. With
@@ -638,6 +638,8 @@ export class ClientsService {
           UNION ALL SELECT client_id, completed_at FROM esign_requests
             WHERE business_id = ${b}::uuid AND client_id IS NOT NULL AND completed_at IS NOT NULL
           UNION ALL SELECT client_id, created_at FROM notes WHERE business_id = ${b}::uuid
+          UNION ALL SELECT client_id, occurred_at FROM client_timeline_entries
+            WHERE business_id = ${b}::uuid
           UNION ALL SELECT id, last_activity_at FROM clients
             WHERE business_id = ${b}::uuid AND last_activity_at IS NOT NULL
           UNION ALL SELECT a.entity_id::uuid, a.created_at FROM audit_logs a
@@ -716,7 +718,11 @@ export class ClientsService {
       db.engagement.findMany({
         where: { businessId, clientId: { in: ids }, status: { in: ['PENDING', 'ACTIVE'] } },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        select: { clientId: true, service: { select: { id: true, name: true, kind: true } } },
+        select: {
+          clientId: true,
+          status: true,
+          service: { select: { id: true, name: true, kind: true } },
+        },
       }),
       db.advisoryWorkstream.findMany({
         where: {
@@ -757,12 +763,19 @@ export class ClientsService {
       ),
     ]);
     const enrolled = [
-      ...engagements,
-      ...workstreams.map((w) => ({ clientId: w.advisoryClient.clientId, service: w.service })),
+      ...engagements.map((e) => ({ ...e, requested: e.status === 'PENDING' })),
+      ...workstreams.map((w) => ({
+        clientId: w.advisoryClient.clientId,
+        service: w.service,
+        requested: false,
+      })),
     ];
     for (const e of enrolled) {
       const list = services.get(e.clientId) ?? [];
-      if (!list.some((s) => s.id === e.service.id)) list.push(e.service);
+      const seen = list.find((s) => s.id === e.service.id);
+      // N8-23: a requested (pending) service shows as such; one enrolled for real wins.
+      if (!seen) list.push(e.requested ? { ...e.service, requested: true } : { ...e.service });
+      else if (seen.requested && !e.requested) delete seen.requested;
       services.set(e.clientId, list);
     }
     for (const r of requests) missing.set(r.clientId, r._count._all);
@@ -813,7 +826,8 @@ export class ClientsService {
         FROM services sv
         LEFT JOIN (
           SELECT e.service_id, e.client_id FROM engagements e
-            WHERE e.business_id = ${businessId}::uuid AND e.status IN ('PENDING', 'ACTIVE')
+            -- N8-23: a requested (pending) service is not counted as enrolled.
+            WHERE e.business_id = ${businessId}::uuid AND e.status = 'ACTIVE'
           UNION
           SELECT w.service_id, a.client_id FROM advisory_workstreams w
             JOIN advisory_clients a ON a.business_id = w.business_id AND a.id = w.advisory_client_id
@@ -823,6 +837,8 @@ export class ClientsService {
         LEFT JOIN clients c ON c.business_id = sv.business_id AND c.id = en.client_id
           AND c.archived_at IS NULL AND ${mine}
         WHERE sv.business_id = ${businessId}::uuid AND sv.archived_at IS NULL
+          -- Clients Review 2 (N8-33): a draft or inactive service is no tab or Service choice.
+          AND sv.status = 'ACTIVE'
         GROUP BY sv.id, sv.name, sv.kind
         ORDER BY sv.name, sv.id
         LIMIT 100`;

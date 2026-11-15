@@ -33,6 +33,7 @@ import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './c
 import { engagementFixtures } from './engagements';
 import { mockUploadTicket } from './upload-ticket';
 import { serviceEngagement, serviceMockClient } from './service-engagements';
+import { taxReturnMockOf } from './tax-return-workspace';
 
 /**
  * Mock data for `api.documents` (firm) and `api.myDocuments(slug)` (portal), R5. Synthetic data
@@ -569,6 +570,8 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     createRequest: async (clientId, body) => {
       await mockDelay();
       const b = parseInput(CreateDocumentRequestRequest, body);
+      // As the API (TR-2): a request made from a return names only this client's return.
+      if (b.taxReturnId && !taxReturnMockOf(clientId, b.taxReturnId)) throw notFound();
       const { engagement: e, category } = s.target(reachable(clientId), b);
       return s.addRequest({
         clientId,

@@ -407,11 +407,16 @@ export type ListDocumentRequestsQuery = z.input<typeof ListDocumentRequestsQuery
 
 /**
  * POST /business/clients/{clientId}/document-requests ("Request a document"), for an open
- * service: 404 for a service or category that isn't the client's or firm's, then 409
+ * service: 404 for a service, category or tax return that isn't the client's or firm's, then 409
  * NO_OPEN_SERVICE or CATEGORY_ARCHIVED. The client gets a bell and an email (no content).
  */
 export const CreateDocumentRequestRequest = z.strictObject({
   serviceId: z.uuid(),
+  /**
+   * Tax Returns Review 2 (TR-2): made from a tax return. The request names that return and its
+   * tax year (taken from the return, never sent), and the file that answers it takes the year.
+   */
+  taxReturnId: z.uuid().optional(),
   title: text(200, 'one', 'Say which document you need'),
   instructions: clearable(text(1000, 'many')),
   categoryId: z.uuid().nullable().optional(),
