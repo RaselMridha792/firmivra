@@ -327,6 +327,29 @@ describe('firm: tax returns per client and year', () => {
     expect(items.find((r) => r.id === filed.id)).toEqual(filed);
   });
 
+  it("names each return's assigned staff, its preparer and reviewer, null when none (Client Portal instructions 4)", async () => {
+    const r = await made(ids.one, { taxYear: 2019, filingType: 'INDIVIDUAL' });
+    expect(r).toMatchObject({ preparer: null, reviewer: null });
+    await inFirm(ids.firmA, (tx) =>
+      tx.taxReturn.update({
+        where: { id: r.id },
+        data: { preparerUserId: people.staffA.id, reviewerUserId: people.ownerA.id },
+      }),
+    );
+    const names = await inFirm(ids.firmA, (tx) =>
+      tx.user.findMany({
+        where: { id: { in: [people.staffA.id, people.ownerA.id] } },
+        select: { id: true, name: true },
+      }),
+    );
+    const name = (id: string) => names.find((u) => u.id === id)?.name;
+    const listed = (await firmList(ids.one)).find((x) => x.id === r.id);
+    expect(listed).toMatchObject({
+      preparer: { userId: people.staffA.id, name: name(people.staffA.id) },
+      reviewer: { userId: people.ownerA.id, name: name(people.ownerA.id) },
+    });
+  });
+
   it('refuses bad input before anything else (400)', async () => {
     const r = await made(ids.one, { taxYear: 2011, filingType: 'INDIVIDUAL' });
     const base = { taxYear: 2024, filingType: 'INDIVIDUAL' };

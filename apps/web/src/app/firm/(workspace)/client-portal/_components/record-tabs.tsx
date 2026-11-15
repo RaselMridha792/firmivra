@@ -229,6 +229,7 @@ export function PortalTaxReturns({ clientId }: { clientId: string }) {
                   <th className="py-2 pr-3 font-medium">Tax Year</th>
                   <th className="py-2 pr-3 font-medium">Return Type</th>
                   <th className="py-2 pr-3 font-medium">Form</th>
+                  <th className="py-2 pr-3 font-medium">Assigned Staff</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 font-medium">Filed</th>
                 </tr>
@@ -248,6 +249,19 @@ export function PortalTaxReturns({ clientId }: { clientId: string }) {
                       {r.filingType === 'BUSINESS' ? 'Business' : 'Personal'}
                     </td>
                     <td className="py-2 pr-3 text-text">{r.formType ?? '—'}</td>
+                    {/* Instructions 4: the return's assigned staff. */}
+                    <td className="py-2 pr-3 text-text" data-testid="return-staff">
+                      {r.preparer || r.reviewer ? (
+                        <>
+                          {r.preparer ? <span className="block">{r.preparer.name}</span> : null}
+                          {r.reviewer ? (
+                            <span className="block text-muted">Reviewer: {r.reviewer.name}</span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-muted">Unassigned</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3">
                       <Badge tone={RETURN_STATUS[r.status].tone}>
                         {RETURN_STATUS[r.status].label}
