@@ -361,7 +361,13 @@ const work = (): Record<number, Work> => {
   };
   return workTable;
 };
-const workOf = (id: string): Work => structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+const workOf = (id: string): Work => {
+  const w = structuredClone(work()[Number(id.slice(-12))] ?? noWork());
+  // Clients Review 2 (N8-05): an Activity timeline entry is the client's Last Activity too.
+  const newest = timelineOf(id)[0]?.occurredAt;
+  if (newest && (!w.lastActivityAt || newest > w.lastActivityAt)) w.lastActivityAt = newest;
+  return w;
+};
 
 /**
  * An in-memory `api.clients`. `role: 'STAFF'` is Sam Staff: only clients 1 and 2 (assigned to
@@ -636,10 +642,16 @@ export function createClientsMock(
           active,
           new: count((w) => w.status === 'NEW'),
           inactive: count((w) => w.status === 'INACTIVE'),
-          byService: mockClientServices().map((x) => ({
-            ...x,
-            count: count((w) => w.services.some((y) => y.id === x.id)),
-          })),
+          // N8-33: as the API, only active services are tabs and Service choices, not a draft.
+          byService: [
+            ...mockClientServices().map((x) => ({ ...x, status: 'ACTIVE' })),
+            { ...service(5, 'Bookkeeping (Copy)', 'BOOKKEEPING'), status: 'DRAFT' },
+          ]
+            .filter((x) => x.status === 'ACTIVE')
+            .map(({ status: _status, ...x }) => ({
+              ...x,
+              count: count((w) => w.services.some((y) => y.id === x.id)),
+            })),
         },
       };
     },

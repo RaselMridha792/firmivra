@@ -587,12 +587,31 @@ export class MessagesService {
           messageId: message.id,
         },
       );
-      return this.firmDetail(
+      const made = await this.firmDetail(
         tx,
         businessId,
         await this.thread(tx, businessId, actor, thread.id),
         actor.userId,
       );
+      // Clients Review 2 (N8-05): Add to Client Timeline, one entry on the client's Activity (the
+      // subject, who and when), never the message. It also counts as the client's Last Activity.
+      if (body.addToTimeline) {
+        const by = made.messages[0]?.sender.name;
+        await tx.clientTimelineEntry.create({
+          data: {
+            businessId,
+            clientId,
+            kind: 'MESSAGE',
+            sourceType: 'message_thread',
+            sourceId: thread.id,
+            title: body.subject.trim().slice(0, 200),
+            summary: `Sent through the client portal${by ? ` by ${by}` : ''}`.slice(0, 500),
+            occurredAt: new Date(),
+            createdByUserId: actor.userId,
+          },
+        });
+      }
+      return made;
     });
     await this.notify(
       businessId,

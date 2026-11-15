@@ -889,3 +889,45 @@ describe('Review 2 (Messaging): the new-message email to the client', () => {
     ).toBe(404);
   });
 });
+
+describe('Clients Review 2 (N8-05): Add to Client Timeline from the client’s Messages tab', () => {
+  type Entry = { kind: string; title: string; summary: string | null; href: string | null };
+  const timeline = async () =>
+    (
+      expectOk(await firm('get', `/clients/${ids.one}/timeline`, people.ownerA)).body as {
+        items: (Entry & { occurredAt: string })[];
+      }
+    ).items;
+
+  it('puts the subject, sender and link on the Activity, never the message; off adds nothing', async () => {
+    const before = (await timeline()).length;
+    const t = await startThread({
+      subject: `On the timeline ${run}`,
+      body: `Private body ${run}`,
+      addToTimeline: true,
+    });
+    const after = await timeline();
+    expect(after).toHaveLength(before + 1);
+    expect(after[0]).toMatchObject({
+      kind: 'MESSAGE',
+      title: `On the timeline ${run}`,
+      href: `/messages?thread=${t.id}`,
+    });
+    // Who sent it, by name.
+    expect(after[0]!.summary).toMatch(/^Sent through the client portal by \S/);
+    expect(JSON.stringify(after)).not.toContain(`Private body ${run}`);
+    // The directory's Last Activity is at least as new as the entry.
+    const list = expectOk(await firm('get', '/clients?limit=100', people.ownerA)).body as {
+      items: { id: string; lastActivityAt: string | null }[];
+    };
+    const row = list.items.find((c) => c.id === ids.one);
+    expect(row?.lastActivityAt).not.toBeNull();
+    expect(Date.parse(row!.lastActivityAt!)).toBeGreaterThanOrEqual(
+      Date.parse(after[0]!.occurredAt) - 1000,
+    );
+
+    await startThread({ subject: `Not on the timeline ${run}`, body: 'b' });
+    await startThread({ subject: `Off ${run}`, body: 'b', addToTimeline: false });
+    expect(await timeline()).toHaveLength(before + 1);
+  });
+});
