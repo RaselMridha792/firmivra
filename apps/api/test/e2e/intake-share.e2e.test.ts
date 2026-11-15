@@ -19,12 +19,14 @@ import {
   INTAKE_FORMS,
   IntakeAgreementBlock,
   IntakeShare,
+  intakeStepFields,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { SHARE_STARTS_PER_HOUR } from '../../src/begin-online/begin-online.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+import { firmWideVersion, publishFirmWideAgreement, signatureFor } from '../intake-signing.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -93,8 +95,7 @@ async function firmCall(
 const share = (res: Response) => IntakeShare.parse(ok(res));
 
 /** A browser on a firm's Begin Online pages: its own network, cookie jar and the portal's origin. */
-function visitor(slug: string) {
-  const ip = viewer();
+function visitor(slug: string, ip = viewer()) {
   const jar = new Map<string, string>();
   const keep = (res: Response) => {
     const raw = res.headers['set-cookie'] as unknown;
@@ -106,7 +107,7 @@ function visitor(slug: string) {
     }
     return res;
   };
-  const send = (method: 'get' | 'post', path: string, body?: object) => {
+  const send = (method: 'get' | 'post' | 'put', path: string, body?: object) => {
     let req = request(app.getHttpServer())
       [method](`/api/v1/portal/${slug}/begin${path}`)
       .set('x-forwarded-for', `${ip}, 10.0.0.5`)
@@ -114,7 +115,11 @@ function visitor(slug: string) {
     if (method !== 'get') req = req.set('origin', portalOrigin);
     return (body ? req.send(body) : req).then(keep);
   };
-  return { get: (p: string) => send('get', p), post: (p: string, b: object) => send('post', p, b) };
+  return {
+    get: (p: string) => send('get', p),
+    post: (p: string, b: object) => send('post', p, b),
+    put: (p: string, b: object) => send('put', p, b),
+  };
 }
 let emails = 0;
 const contact = (extra: object = {}) => ({
@@ -377,5 +382,157 @@ describe('the shared link (public)', () => {
     );
     const res = await visitor(firms.a.slug).post(`/share/${token}/draft`, contact());
     expectError(res, 429, 'RATE_LIMITED');
+  });
+});
+
+// Leads Review Two, row 24 (website lead capture): the shared form's lead carries the link's
+// campaign, a known email goes to the firm's duplicate review (R2 15) once the form is submitted,
+// and the visitor is never told. A Tax Planning form (no upload fields), signed and submitted.
+describe('website capture (Leads row 24)', () => {
+  const PLANNING = INTAKE_FORMS.TAX_PLANNING!;
+  const answers = (email: string): Record<string, unknown> => ({
+    fullName: 'Robin Repeat',
+    phone: '(404) 555-0177',
+    email,
+    planningFor: 'INDIVIDUAL',
+    businessStructure: 'SOLE_PROPRIETORSHIP',
+    industry: 'CONSTRUCTION',
+    operatingStates: ['GA'],
+    accountingMethod: 'CASH',
+    planningTaxYear: 2026,
+    hasBookkeeper: 'NO',
+    services: ['INDIVIDUAL'],
+    reasons: ['REDUCE_LIABILITY'],
+    multipleStates: false,
+    filedRecentReturn: 'YES',
+    taxIssues: false,
+    taxProfessional: 'NO',
+  });
+  const stepOf = (key: string, all: Record<string, unknown>) => {
+    const keys = new Set(
+      intakeStepFields(PLANNING.steps.find((s) => s.key === key)!).map((f) => f.key),
+    );
+    return Object.fromEntries(Object.entries(all).filter(([k]) => keys.has(k)));
+  };
+  let planning = '';
+
+  beforeAll(async () => {
+    planning = await inFirmA(async (tx) => {
+      const businessId = firms.a.id;
+      await publishFirmWideAgreement(tx, businessId, people.ownerA.id);
+      const service = await tx.service.create({
+        data: { businessId, kind: 'TAX_PLANNING', name: `Planning ${run}`, status: 'ACTIVE' },
+      });
+      const t = await tx.intakeTemplate.create({
+        data: { businessId, serviceId: service.id, createdByUserId: people.ownerA.id },
+      });
+      await tx.intakeForm.create({
+        data: {
+          businessId,
+          serviceId: service.id,
+          templateId: t.id,
+          version: 1,
+          title: 'Plan Ahead (shared)',
+          definition: { ...PLANNING, title: 'Plan Ahead (shared)' } as object,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      });
+      return t.id;
+    });
+    ok(
+      await firmCall('put', `/${planning}/share`, people.ownerA, {
+        sharing: true,
+        portalPublished: false,
+      }),
+    );
+  });
+
+  it('a known email is a possible duplicate in the firm’s review once submitted; the campaign rides along', async () => {
+    const email = `robin.repeat.${run}@example.test`;
+    const known = await inFirmA((tx) =>
+      tx.lead.create({
+        data: {
+          businessId: firms.a.id,
+          serviceId: ids.service,
+          source: 'REFERRAL',
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          firstName: 'Robin',
+          lastName: 'Earlier',
+          email,
+          taxYear: 2026,
+        },
+        select: { id: true },
+      }),
+    );
+    const on = share(await firmCall('get', `/${planning}/share`, people.ownerA));
+    const token = tokenOf(on.link!.url);
+    // A network of its own: the start throttle counts per network.
+    const v = visitor(firms.a.slug, '198.72.10.7');
+    const draft = BeginDraft.parse(
+      ok(
+        await v.post(`/share/${token}/draft`, {
+          ...contact({ firstName: 'Robin', lastName: 'Repeat', email: email.toUpperCase() }),
+          utm: { source: 'google', medium: 'cpc', campaign: 'Spring 2027 Planning' },
+        }),
+        201,
+      ),
+    );
+    // Nothing says the email is known: the visitor's draft is as any other.
+    expect(JSON.stringify(draft)).not.toContain(known.id);
+    expect(JSON.stringify(draft)).not.toMatch(/duplicate/i);
+    const all = answers(email);
+    for (const step of PLANNING.steps.map((s) => s.key)) {
+      const res = await v.put(`/tax-planning/draft/steps/${step}`, { answers: stepOf(step, all) });
+      expect(res.status, `${step}: ${JSON.stringify(res.body)}`).toBe(200);
+    }
+    const signature = signatureFor(
+      await inFirmA((tx) => firmWideVersion(tx, firms.a.id)),
+      'Robin Repeat',
+    );
+    const done = await v.post('/tax-planning/draft/submit', { answers: {}, signature });
+    expect(done.status, JSON.stringify(done.body)).toBe(200);
+    expect(JSON.stringify(done.body)).not.toMatch(/duplicate/i);
+
+    const lead = await inFirmA((tx) =>
+      tx.lead.findFirstOrThrow({
+        where: { businessId: firms.a.id, email, id: { not: known.id } },
+        select: { id: true, status: true, source: true, sourceDetail: true },
+      }),
+    );
+    expect(lead).toMatchObject({
+      status: 'SUBMITTED',
+      source: 'WEBSITE_FORM',
+      sourceDetail: 'Campaign: Spring 2027 Planning · Source: google · Medium: cpc',
+    });
+    // The firm's duplicate review pairs the two by email; nothing was merged.
+    const token2 = await tokenFor(people.ownerA.email);
+    const review = await request(app.getHttpServer())
+      .get('/api/v1/business/leads/duplicates')
+      .set('x-business-id', firms.a.id)
+      .set('x-forwarded-for', `${viewer()}, 10.0.0.5`)
+      .set('authorization', `Bearer ${token2}`);
+    const pairs = (ok(review) as { items: { leads: { id: string }[]; reasons: string[] }[] }).items;
+    const pair = pairs.find((p) => p.leads.some((l) => l.id === lead.id));
+    expect(pair?.leads.map((l) => l.id).sort()).toEqual([known.id, lead.id].sort());
+    expect(pair?.reasons).toContain('EMAIL');
+  });
+
+  it('a campaign that is not plain text is refused as a bad start, and nothing is written', async () => {
+    const on = share(await firmCall('get', `/${planning}/share`, people.ownerA));
+    const token = tokenOf(on.link!.url);
+    const email = `utm.bad.${run}@example.test`;
+    expectError(
+      await visitor(firms.a.slug, '198.72.11.7').post(`/share/${token}/draft`, {
+        ...contact({ email }),
+        utm: { campaign: '<script>x</script>' },
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+    expect(await inFirmA((tx) => tx.lead.count({ where: { businessId: firms.a.id, email } }))).toBe(
+      0,
+    );
   });
 });

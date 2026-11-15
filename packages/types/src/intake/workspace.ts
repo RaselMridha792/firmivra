@@ -569,7 +569,8 @@ export const INTAKE_RETENTION_CATEGORIES = [
   {
     key: 'clientDocuments',
     label: 'Client-sent documents',
-    covers: 'Files a client uploads: in the portal, for a request or with an intake form.',
+    covers:
+      'Files a client uploads: in the portal, for a request or with an intake form. A lead’s files count once the lead becomes a client.',
     starts: 'When the service (job) the file belongs to is completed.',
   },
   {

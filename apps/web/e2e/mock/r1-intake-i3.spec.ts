@@ -52,6 +52,16 @@ test('14b: six minimums, Apply to all, each on its own, and what is in effect', 
   await expect(page.getByTestId('retention-taxReturnDocuments')).toContainText(
     'Starts: when the tax return’s service (job) is completed.',
   );
+  // I3b: the date the server's guard keeps to, and the default for a record with no completed job.
+  await expect(page.getByTestId('retention-kept-taxReturnDocuments')).toContainText(
+    'Kept until 10 years after its job is completed',
+  );
+  await expect(page.getByTestId('retention-kept-clientDocuments')).toContainText(
+    'While its job isn’t completed, or if it has none, it is kept.',
+  );
+  await expect(page.getByTestId('retention-clientDocuments')).toContainText(
+    'A lead’s files count once the lead becomes a client.',
+  );
   await page.getByRole('button', { name: 'Save Changes' }).click();
   await saved(page);
   await expect(box.getByLabel('Tax return documents')).toHaveValue('10');
