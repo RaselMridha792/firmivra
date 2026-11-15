@@ -269,3 +269,39 @@ test('V-005: the Documents row menu opens outside the table with every item in v
     await done();
   }
 });
+
+// Clients Review 2 (V-006): on Document Requests the counts sat at different heights (Partially
+// Received higher than the rest). Every card's icon, count and label start on shared lines.
+test('V-006: the Document Requests cards put their counts and labels on shared lines', async ({
+  page,
+}) => {
+  for (const size of [HER, WIDE]) {
+    await page.setViewportSize(size);
+    await page.goto(app('/documents/requests'));
+    const cards = page.getByTestId('request-cards').locator('> *');
+    await expect(cards).toHaveCount(5, { timeout: 60_000 });
+    await expect(cards.nth(2)).toContainText('Partially Received');
+    await expect(cards.nth(2)).toContainText(/\d/);
+    const tops = await cards.evaluateAll((all) =>
+      all.map((card) => {
+        const [icon, body] = [...card.children] as HTMLElement[];
+        const [count, label] = [...(body?.children ?? [])] as HTMLElement[];
+        const top = (el: HTMLElement | undefined) =>
+          Math.round(el?.getBoundingClientRect().top ?? -1);
+        return {
+          icon: top(icon),
+          count: top(count),
+          label: top(label),
+          card: Math.round(card.getBoundingClientRect().height),
+        };
+      }),
+    );
+    for (const key of ['icon', 'count', 'label', 'card'] as const) {
+      const values = tops.map((t) => t[key]);
+      expect(
+        Math.max(...values) - Math.min(...values),
+        `${key} at ${size.width}: ${values.join(', ')}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
+});
