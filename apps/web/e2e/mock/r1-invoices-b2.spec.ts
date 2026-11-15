@@ -33,3 +33,15 @@ test('I-N07: Overdue and Canceled, Due Today and Partially Paid, Scheduled and S
   await expect(badge(table, 'Canceled')).not.toHaveClass(/bg-danger-soft/);
   await expect(badge(table, 'Canceled').locator('svg')).toHaveCount(1);
 });
+
+test('I-P03: Record Payment starts with Send receipt ticked, and it can be unticked', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // INV-2026-0101, sent and unpaid.
+  await page.goto(app('/invoices/record-payment?invoice=0199b6e1-0000-7000-8000-000000000001'));
+  const receipt = page.getByLabel('Send receipt to client');
+  await expect(receipt).toBeChecked({ timeout: 60_000 });
+  await receipt.uncheck();
+  await expect(receipt).not.toBeChecked();
+});
