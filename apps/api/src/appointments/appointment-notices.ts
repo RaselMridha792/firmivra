@@ -10,12 +10,22 @@ import { noticeWords } from './notice-words.js';
 export type AppointmentNotice =
   'appointment.booked' | 'appointment.changed' | 'appointment.reminder';
 
+/** Who a notice reaches. */
+export interface NoticeTo {
+  /** The client's login that acted in the portal: the client's copy goes to it. */
+  clientAccountId?: string;
+  /** A1: only these of the appointment's people (its client, its attendees); all by default. */
+  clientIds?: readonly string[];
+}
+
 /**
  * Tells the client about a booking or a new time through R6's NotifyService. A cancel by the
  * firm goes through the Notifier instead (`appointment.cancelled`, Appointments Review 2 P3). The
  * message goes to the login that acted in the portal, otherwise the client's primary login
  * (their notification preferences apply), otherwise the client record's email. Nothing is sent
  * for an appointment that is over or no longer scheduled. A failure never fails the change.
+ * A1: each other client who attends gets their own copy the same way (their primary login, else
+ * their email), with their own name only: a notice never names who else attends.
  */
 @Injectable()
 export class AppointmentNotices {
@@ -31,14 +41,22 @@ export class AppointmentNotices {
     template: AppointmentNotice,
     businessId: string,
     appointmentId: string,
-    login?: { clientAccountId: string },
+    to: NoticeTo = {},
   ): Promise<void> {
+    let messages: NotifyMessage<AppointmentNotice>[];
     try {
-      const message = await this.message(template, businessId, appointmentId, login);
-      if (message) await this.notify.send(message);
+      messages = await this.messages(template, businessId, appointmentId, to);
     } catch {
       // Ids only (hard rule 4). The change stands; R6 owns delivery and retries.
       this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+      return;
+    }
+    for (const message of messages) {
+      try {
+        await this.notify.send(message);
+      } catch {
+        this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+      }
     }
   }
 
@@ -51,23 +69,30 @@ export class AppointmentNotices {
     businessId: string,
     appointmentId: string,
   ): Promise<boolean> {
+    let sent = false;
     try {
-      const message = await this.message(template, businessId, appointmentId);
-      if (!message) return false;
-      await this.notify.send(message);
-      return true;
+      for (const message of await this.messages(template, businessId, appointmentId, {})) {
+        try {
+          await this.notify.send(message);
+          sent = true;
+        } catch {
+          this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
+        }
+      }
     } catch {
       this.logger.warn(`Could not send ${template} for appointment ${appointmentId}`);
-      return false;
     }
+    // The client's or an attendee's copy went out.
+    return sent;
   }
 
-  private message(
+  /** One message for each person reached: the client first, then each attendee. */
+  private messages(
     template: AppointmentNotice,
     businessId: string,
     appointmentId: string,
-    login?: { clientAccountId: string },
-  ): Promise<NotifyMessage<AppointmentNotice> | null> {
+    to: NoticeTo,
+  ): Promise<NotifyMessage<AppointmentNotice>[]> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const a = await tx.appointment.findFirst({
         where: { businessId, id: appointmentId },
@@ -77,37 +102,57 @@ export class AppointmentNotices {
           status: true,
           client: { select: { displayName: true, email: true } },
           type: { select: { name: true } },
+          attendees: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { clientId: true, client: { select: { displayName: true, email: true } } },
+          },
         },
       });
-      if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) return null;
-      const account = await tx.clientAccount.findFirst({
-        where: login
-          ? { businessId, id: login.clientAccountId }
-          : { businessId, clientId: a.clientId, portalRole: 'PRIMARY', status: 'ACTIVE' },
-        select: { id: true, email: true, user: { select: { name: true } } },
-      });
-      const to = account?.email ?? a.client.email;
-      if (!to) return null;
+      if (!a || a.status !== 'SCHEDULED' || a.startsAt.getTime() <= Date.now()) return [];
+      const only = to.clientIds && new Set(to.clientIds.map((id) => id.toLowerCase()));
+      const people = [
+        { clientId: a.clientId, client: a.client, primary: true },
+        ...a.attendees.map((x) => ({ ...x, primary: false })),
+      ].filter((p) => !only || only.has(p.clientId.toLowerCase()));
+      if (people.length === 0) return [];
       const firm = await tx.business.findUniqueOrThrow({
         where: { id: businessId },
         select: { name: true, slug: true },
       });
-      return {
-        template,
-        to,
-        businessId,
-        ...(account ? { recipient: { clientAccountId: account.id } } : {}),
-        data: {
-          name: account?.user.name ?? a.client.displayName,
-          firmName: firm.name,
-          title: a.type?.name ?? 'Appointment',
-          startsAt: a.startsAt,
-          timeZone: await firmTimeZone(tx, businessId),
-          link: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/appointments`,
-          // Review 2 (B7, B9): the firm's own words and the instructions shown in email.
-          ...(await noticeWords(tx, businessId, appointmentId, template)),
-        },
+      const common = {
+        firmName: firm.name,
+        title: a.type?.name ?? 'Appointment',
+        startsAt: a.startsAt,
+        timeZone: await firmTimeZone(tx, businessId),
+        link: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/appointments`,
+        // Review 2 (B7, B9): the firm's own words and the instructions shown in email.
+        ...(await noticeWords(tx, businessId, appointmentId, template)),
       };
+      const out: NotifyMessage<AppointmentNotice>[] = [];
+      for (const p of people) {
+        const account = await tx.clientAccount.findFirst({
+          where:
+            p.primary && to.clientAccountId
+              ? { businessId, id: to.clientAccountId }
+              : { businessId, clientId: p.clientId, portalRole: 'PRIMARY', status: 'ACTIVE' },
+          select: { id: true, email: true, user: { select: { name: true } } },
+        });
+        const address = account?.email ?? p.client.email;
+        if (!address) continue;
+        out.push({
+          template,
+          to: address,
+          businessId,
+          ...(account ? { recipient: { clientAccountId: account.id } } : {}),
+          // Their own name only, never another attendee's; only the client confirms it.
+          data: {
+            name: account?.user.name ?? p.client.displayName,
+            ...common,
+            ...(p.primary ? {} : { confirmAsk: false }),
+          },
+        });
+      }
+      return out;
     });
   }
 }

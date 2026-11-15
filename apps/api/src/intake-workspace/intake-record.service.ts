@@ -62,6 +62,10 @@ const EVENTS: Record<string, { kind: EventKind; label: string }> = {
   'intake.sent': { kind: 'SENT', label: 'Form sent' },
   'intake.resent': { kind: 'RESENT', label: 'Form resent' },
   'intake.reminded': { kind: 'REMINDER', label: 'Reminder sent' },
+  // The schedule job (intake-schedule.jobs.ts).
+  'intake.first_reminder_sent': { kind: 'REMINDER', label: 'First reminder sent' },
+  'intake.final_reminder_sent': { kind: 'REMINDER', label: 'Final reminder sent' },
+  'intake.expired': { kind: 'EXPIRED', label: 'Form expired' },
   'intake.step_saved': { kind: 'SAVED', label: 'Progress saved' },
   'intake.submitted': { kind: 'SUBMITTED', label: 'Form submitted' },
   'intake.review_started': { kind: 'REVIEW_STARTED', label: 'Review started' },
@@ -354,6 +358,15 @@ export class IntakeRecordService {
       if (row.status === 'EXPIRED' && chosen !== undefined) {
         const started = row.submissions[0]?.answers;
         data.status = started && Object.keys(started as object).length > 0 ? 'IN_PROGRESS' : 'SENT';
+      }
+      // The schedule: a later expiration (or none) gives the final reminder and the staff alert
+      // their own time again, as an appointment's reschedule does its reminder.
+      if (
+        chosen !== undefined &&
+        (chosen === null || !row.expiresAt || chosen.getTime() > row.expiresAt.getTime())
+      ) {
+        data.finalReminderSentAt = null;
+        data.expiryAlertSentAt = null;
       }
       await tx.intake.update({ where: { id: row.id }, data });
       // In the transaction, so the history this answer shows has the change.

@@ -206,6 +206,10 @@ export class SchedulingActionsService {
       const who = (await memberNames(tx, businessId, [actor.userId])).get(actor.userId) ?? null;
       const data: Record<string, unknown> = {
         contact: { kind: 'CLIENT', id: row.clientId },
+        // A1: the same other attendees.
+        ...(row.attendees.length > 0
+          ? { attendeeClientIds: row.attendees.map((a) => a.clientId) }
+          : {}),
         typeId: row.typeId,
         serviceId: row.serviceId,
         method: item.method,
@@ -219,7 +223,8 @@ export class SchedulingActionsService {
         clientInstructions: row.clientInstructions,
         reminders: row.reminders.map((r) => reminderFromOffset(r.channel, r.offsetMinutes)),
       };
-      return { data, who, contact: item.contact };
+      const attendees = row.attendees.map((a) => ({ id: a.clientId, name: a.client.displayName }));
+      return { data, who, contact: item.contact, attendees };
     });
     await this.audit.log('appointment.duplicated', { type: 'appointment', id });
     return {
@@ -227,6 +232,7 @@ export class SchedulingActionsService {
       data: draft.data,
       // The duplicate opens on the same client.
       contact: draft.contact,
+      attendees: draft.attendees,
       createdBy: draft.who,
       updatedAt: new Date().toISOString(),
     };

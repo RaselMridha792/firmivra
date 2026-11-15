@@ -59,6 +59,13 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** A1: another client of the firm, who attends client X's group appointment (no login). */
+  attendeeClient: {
+    async create({ tx, businessId }) {
+      const row = await tx.client.create({ data: { businessId, displayName: 'Fake Attendee' } });
+      return row.id;
+    },
+  },
   firmOffice: {
     async create({ tx, businessId }) {
       const row = await tx.firmOffice.create({
@@ -94,6 +101,8 @@ const scheduleIds = {
   officeId: 'firmOffice',
   roomId: 'firmRoom',
   staffUserIds: 'staffUser',
+  // A1: the other clients of a group appointment.
+  attendeeClientIds: 'attendeeClient',
 };
 
 const inOneHour = () => ({
@@ -121,6 +130,8 @@ export const cases: CaseModule['cases'] = {
       excludeAppointmentId: 'appointment',
       // Review 2 (B11): the type being booked, for its buffers.
       typeId: 'appointmentType',
+      // A1: the other attendees, each checked for another appointment then.
+      attendeeClientIds: 'attendeeClient',
     },
     body: { ...inOneHour(), contact: { kind: 'CLIENT', id: '' } },
   },
