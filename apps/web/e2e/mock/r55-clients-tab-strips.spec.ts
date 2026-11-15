@@ -22,6 +22,7 @@ async function measure(strip: Locator) {
       verticalScrollbar:
         cs.overflowY === 'scroll' || (scrollsY && el.scrollHeight > el.clientHeight),
       overflowY: cs.overflowY,
+      overflowX: cs.overflowX,
       sideways: el.scrollWidth > el.clientWidth,
     };
   });
@@ -54,13 +55,26 @@ async function focusRing(strip: Locator, focused: Locator) {
   return { ring, box };
 }
 
-async function expectStripClean(page: Page, strip: Locator, firstTab: Locator, name: string) {
+/**
+ * `fits`: the strip's tabs fit its width, so it needs no sideways scroll. Left out for a strip that
+ * may be wider than the window (the profile's eleven sections and More): it then scrolls sideways
+ * only (overflow-x auto), never up and down.
+ */
+async function expectStripClean(
+  page: Page,
+  strip: Locator,
+  firstTab: Locator,
+  name: string,
+  fits = true,
+) {
   await expect(strip, name).toBeVisible({ timeout: 60_000 });
-  expect(await measure(strip), name).toEqual({
+  const measured = await measure(strip);
+  expect(measured, name).toMatchObject({
     verticalScrollbar: false,
     overflowY: 'hidden',
-    sideways: false,
+    overflowX: 'auto',
   });
+  if (fits) expect(measured.sideways, `${name}: needs no sideways scroll`).toBe(false);
   // Keyboard focus: the ring is drawn inside the tab (a negative offset at least its width), so
   // its sides and top lie inside the strip's clip box. The tab sits 1 px over the strip's bottom
   // border (its underline covers that line), so at most that 1 px of the ring's bottom edge is
@@ -102,5 +116,31 @@ test('V-001: the Sign-ups and Share Access tab strips show no vertical scrollbar
       sharing.getByRole('tab', { name: 'Share Access' }),
       `Share Access at ${size.width}`,
     );
+  }
+});
+
+// Clients Review 2 (N8-09): V-001 on the client profile. She still saw the scrollbar beside the
+// one-line profile tabs on Overview, Documents, Messages, Invoices and Signatures.
+test('N8-09: the client profile tab strip shows no vertical scrollbar on each tab, focus rings in view', async ({
+  page,
+}) => {
+  // Five profile screens at two widths, each compiled on first visit in the dev server.
+  test.setTimeout(300_000);
+  const base = '/clients/0199b6a1-0000-7000-8000-000000000001';
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    for (const tab of ['', '/documents', '/messages', '/invoices', '/signatures']) {
+      await page.goto(app(`${base}${tab}`));
+      await expect(page.getByTestId('page-title')).toHaveText('Jamie Sample', { timeout: 60_000 });
+      const strip = page.getByRole('navigation', { name: 'Client', exact: true });
+      await expectStripClean(
+        page,
+        strip,
+        strip.getByRole('link', { name: 'Overview', exact: true }),
+        `profile ${tab || '/overview'} at ${size.width}`,
+        // Eleven sections and More can be wider than the strip (at her 1165 px they are).
+        false,
+      );
+    }
   }
 });
