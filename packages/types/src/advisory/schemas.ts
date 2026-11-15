@@ -86,6 +86,17 @@ export type AdvisoryServiceOption = z.infer<typeof AdvisoryServiceOption>;
 export const AdvisoryServiceOptionList = z.object({ items: z.array(AdvisoryServiceOption) });
 export type AdvisoryServiceOptionList = z.infer<typeof AdvisoryServiceOptionList>;
 
+/**
+ * Business Advisory Review Two A-12, A-13: a service under way. Its files and document requests
+ * go to the client's ACTIVE engagement on it, which these statuses start when it is missing.
+ */
+export const ADVISORY_ENGAGED_STATUSES: readonly AdvisoryServiceStatus[] = [
+  'ACCEPTED',
+  'IN_PROGRESS',
+  'AWAITING_CLIENT',
+  'ON_HOLD',
+];
+
 /** A service workstream of an advisory client. */
 export const AdvisoryWorkstream = z.object({
   id: AdvisoryWorkstreamId,
@@ -100,6 +111,17 @@ export const AdvisoryWorkstream = z.object({
   openItems: z.number().int(),
 });
 export type AdvisoryWorkstream = z.infer<typeof AdvisoryWorkstream>;
+
+/**
+ * POST /business/advisory/clients/{id}/workstreams/{workstreamId}/engagement (A-12, A-13): the
+ * client's ACTIVE engagement on a service under way, started if it had none, for Upload Document
+ * and Request Document (the documents API's `serviceId`).
+ */
+export const AdvisoryWorkstreamEngagement = z.object({
+  engagementId: z.uuid(),
+  created: z.boolean(),
+});
+export type AdvisoryWorkstreamEngagement = z.infer<typeof AdvisoryWorkstreamEngagement>;
 
 // ---------- Overview ----------
 

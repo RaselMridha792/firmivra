@@ -22,6 +22,7 @@ import {
 import { clientFixtures, firstClientId, mockStaff, type MockFirmRole } from './clients';
 import {
   type ServiceMockEngagement,
+  serviceMockClient,
   serviceMockEngagement,
   serviceMockEngagements,
 } from './service-engagements';
@@ -228,7 +229,9 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       title: e.title,
       taxYear: null,
       status: 'ACTIVE',
-      service: ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
+      service: e.service
+        ? { ...e.service, kind: e.kind }
+        : ref(services[e.kind === 'PAYROLL' ? 2 : 1]!),
       billingInterval: 'MONTHLY',
       recurring: true,
       nextBillingOn: addDays(today(), 20),
@@ -242,13 +245,20 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       if (!clients.has(id)) {
         // SH4: a Payroll or Bookkeeping mock client (mocks/service-engagements.ts).
         const extra = serviceMockEngagements(id);
-        if (!extra.length) throw notFound();
+        if (!extra.length && !serviceMockClient(id)) throw notFound();
         return extra.map(serviceRecord);
       }
-      return all()
-        .filter((r) => r.clientId === id && (!status || r.status === status))
-        .sort(newestFirst)
-        .map((r) => structuredClone(r));
+      // A-12: an advisory service the Business Advisory mock started for this client.
+      const advisory = serviceMockEngagements(id)
+        .filter((e) => e.kind === 'BUSINESS_DEVELOPMENT' && (!status || status === 'ACTIVE'))
+        .map(serviceRecord);
+      return [
+        ...all()
+          .filter((r) => r.clientId === id && (!status || r.status === status))
+          .sort(newestFirst)
+          .map((r) => structuredClone(r)),
+        ...advisory,
+      ];
     },
     get: async (id) => {
       await pause();
