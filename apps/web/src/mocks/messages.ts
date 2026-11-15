@@ -824,11 +824,14 @@ function createOutboundMock(role: MockFirmRole, me: { userId: string; name: stri
     list: async (query: ListOutboundQuery = {}): Promise<OutboundMessageList> => {
       await mockDelay();
       const q = parseInput(ListOutboundQuery, query);
+      // As the API (M24): a client the member doesn't reach is 404.
+      if (q.clientId) await clientsMock.get(q.clientId).catch(() => Promise.reject(notFound()));
       const rows = outboundRows
         .filter((r) =>
           q.status ? r.status === q.status : r.status === 'DRAFT' || r.status === 'SCHEDULED',
         )
         .filter((r) => role !== 'STAFF' || r.createdBy.userId === me.userId)
+        .filter((r) => !q.clientId || r.clientIds.includes(q.clientId))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       return { items: await Promise.all(rows.map(shape)) };
     },
