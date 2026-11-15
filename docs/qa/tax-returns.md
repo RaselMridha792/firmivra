@@ -1,61 +1,61 @@
 # Tax Returns: Review 2 QA map
 
-This file maps every row of Octavia's Tax Returns Review 2 (Nov 11, 2026), the 36 Review One items F01 to F36 and the seven approved additions, to the PR that built it and the test that covers it. There are no GAPs left (Nov 15). Her checklist and checkpoint are kept privately, outside the repo. Rows are named by their IDs and headings only; her text is not copied here, except where a row's own wording decides its status.
+This file maps every row of Octavia's Tax Returns Review 2 (Nov 11, 2026), the 36 Review One items F01 to F36 and the seven approved additions, to the PR that built it and the test that covers it. An independent check on Nov 16 found five GAPs (one more turned up while writing its tests) and the rows only her retest can close (see GAPs); the tests it asked for are in #PR_NUM. Her checklist and checkpoint are kept privately, outside the repo. Rows are named by their IDs and headings only; her text is not copied here, except where a row's own wording decides its status.
 
 Her review status is in the second column: Verified, Partial, Correction or Pending. Verified rows still name her remaining retests. Those are her checks to repeat (roles, narrow screens, populated fixtures), not open code work.
 
 **Where the tests are**
 - API e2e: `apps/api/test/e2e/` `tax-return-workspace`, `tax-return-review`, `tax-return-issues`, `tax-statuses`, `scheduling`, `tasks-work`, `documents-packets-portal`
 - Isolation: `apps/api/test/isolation/cases/tax-return-workspace.ts`, `tax-return-review.ts`, `tax-statuses.ts`
-- db: `packages/db/test/tax-return-filed-year.test.ts`, `tax-review2-fields.test.ts`
-- Mock specs: `apps/web/e2e/mock/r60-tax-returns-*.spec.ts`, `r60-tax-r2-features.spec.ts`, `r55-tax-returns.spec.ts`, `r55-tax-return-workspace.spec.ts`, `tax-statuses.spec.ts`
+- db: `packages/db/test/tax-return-filed-year.test.ts`, `tax-review2-fields.test.ts`, `tax-return-filings.test.ts`
+- Mock specs: `apps/web/e2e/mock/r60-tax-returns-*.spec.ts`, `r60-tax-r2-features.spec.ts`, `r55-tax-returns.spec.ts`, `r55-tax-returns-*.spec.ts`, `r55-tax-return-workspace.spec.ts`, `tax-statuses.spec.ts`
 
 ## Review One items F01 to F36
 
 | Row | Her status | Code status | PR | Test |
 | --- | --- | --- | --- | --- |
-| F01 Client details | Verified | Done | #1175 | Mock `r55-tax-return-workspace` (the cards); long text and mobile are her retest |
+| F01 Client details | Verified | Done | #1175; test #PR_NUM | F01a: mock `r55-tax-return-workspace` "Client Details with a two-line address never runs into the Document Checklist on a desktop" (1165, 1280 and 1440 px). Long text and mobile (F01b) are her retest |
 | F02 Row menu | Verified | Done | before Review 2 | Mock `r55-tax-returns` "the row menu changes status ..."; narrow screens and full keyboard are her retest |
-| F03 Navigation | Partial | Done | #1340, #1466; TR-4 #1557 | #1466: the list keeps tab, filters, search and page in the address; Full Review's Create Task and Signatures open on the client and return with Back. #1557 (TR-4): Send Message from the row menu and from Full Review opens New Message in place, linked to the return, and closing it stays there. Mock `r60-tax-returns-menu` "TR-4: Send Message is written on the list and on Full Review ...", `-shared` |
+| F03 Navigation | Partial | GAP (F03c, F03db) | #1340, #1466; TR-4 #1557; tests #PR_NUM | F03a: mock `r55-tax-returns-context` "Request Client Information from a searched and filtered list comes Back to that list" (search, Tax Year, Client Type). F03b (TR-4): mock `r60-tax-returns-menu` "TR-4: Send Message is written on the list and on Full Review ...". F03da: mock `r55-tax-returns-context` "Full Review Signatures: View / Send opens Firm Sign on the client and the return's service, with Back". F03c, F03db and the Status filter are GAPs below |
 | F04 Firm-side Client Portal | Pending (deferred) | Done | #1418 | A return's Client Portal opens the firm-side Client Portal for its client, with Back. Mock `r60-tax-returns-shared` "... Client Portal keep Back to the return" |
 | F05 Messaging | Verified | Done | #1340; delivery controls #1508, #1512; email always on #1557 | Mock `r60-tax-returns-shared` "Send Message is written here". The delivery controls are the Messaging addition below |
 | F06 Appointments | Partial | Done | #1484, #1519 | Create Appointment opens the shared Schedule form in a side panel on the return's client, linked to the return; Schedule and Cancel stay on the return. e2e `scheduling` (linked as the return's engagement; another client's return 404); mock `r60-tax-returns-appointment`, `r60-tax-returns-shared` (the panel) |
 | F07 Row actions | Partial | Done | #1466, #1484 | Her row: "context and appointment association defects are tracked under F03/F06". Both are done. Mock `r60-tax-returns-menu` |
-| F08 Upload/Request | Partial | Done | #1340, #1485 | Upload and Request open in place with the client, Tax Returns and the year; Set Up Service for a return with none. Mock `r60-tax-returns-upload`, `-shared` |
-| F09 Documents | Partial | Done | #1485 | An upload from the return can link the same record to it in a role. Mock `r60-tax-returns-upload`. Opening the linked PDF, folder/type and search are her retest |
-| F10 Upload and request | Correction | Done | #1485 (+ Clients E8) | Client Documents has its own Upload, separate from Request. Bookkeeping, Payroll, Business Advisory and Tax Returns use the shared upload. A request from a return carries Tax Returns and the year (her "only Bookkeeping, no year" was a return without its service). TR-2 #1557: the request names the return and its year, and the file that answers it takes the year. e2e `documents-portal` "Tax Returns Review 2 (TR-2) ... names the return and its year; the file that answers it takes the year"; mock `r60-tax-returns-upload`, `-shared` |
-| F11 Intake forms | Partial | Done | #1186, #1466 | Send an Intake Form opens on the client, on the return's engagement. Mock `r60-tax-returns-intake`. Submitted-form, correction and version flows are her retest |
+| F08 Upload/Request | Partial | Done | #1340, #1485; test #PR_NUM | Mock `r55-tax-returns-documents` "Upload Documents on a return works in place, prefilled, and links the uploaded file to the return"; Request: mock `r60-tax-returns-upload`, `-shared`. Her reload check of the saved record across central and return views (ACC-DOC) is her retest |
+| F09 Documents | Partial | Done | #1485; test #PR_NUM | F09a: mock `r55-tax-returns-documents` "a file uploaded from the return is linked to it and opens from the return's Documents". Folder/type, client search and opening her PDF on dev (F09b) are her retest |
+| F10 Upload and request | Correction | GAP (F10b) | #1485 (+ Clients E8) | Client Documents has its own Upload, separate from Request. Bookkeeping, Payroll, Business Advisory and Tax Returns use the shared upload. A request from a return carries Tax Returns and the year (her "only Bookkeeping, no year" was a return without its service). TR-2 #1557: the request names the return and its year, and the file that answers it takes the year. e2e `documents-portal` "Tax Returns Review 2 (TR-2) ... names the return and its year; the file that answers it takes the year"; mock `r60-tax-returns-upload`, `-shared` |
+| F11 Intake forms | Partial | Done | #1186, #1466; test #PR_NUM | Mock `r55-tax-returns-context` "Send an Intake Form from a return presets its client, carries the return and comes Back to it"; `r60-tax-returns-intake`. Submitted-form, correction and version flows are her retest |
 | F12 Link Document | Verified | Done | before Review 2 | e2e `tax-return-review` "links the client's documents; the filed return stays linked"; other roles and surfaces are her retest |
-| F13 Task status | Partial | Done | #1422 | Blocked asks why and keeps the reason. e2e `tasks-work` (Blocked without a reason is 400) |
+| F13 Task status | Partial | Done | #1422; test #PR_NUM | e2e `tasks-work` (Blocked without a reason is 400); mock `r55-tax-returns-tasks` "Blocked from the return's task list asks why in a field you can type in, and saves with it" |
 | F14 Task actions | Verified | Done | before Review 2 | Mock `r56-tasks-review`, `r56-service-tasks`; future occurrences and roles are her retest |
-| F15 Task flow | Partial | Done | #1466 | Convert to Recurring opens the setup straight away, with Back to the return. Mock `r60-tax-returns-shared` |
+| F15 Task flow | Partial | Done | #1466; test #PR_NUM | Mock `r55-tax-returns-tasks` "Convert to Recurring from the return's task list opens the setup at once, with Back to the return" |
 | F16 Correct Tax Year | Correction | Done | #1469, #1473 | e2e `tax-return-review` "TX-F16: Correct Tax Year"; db `tax-return-filed-year`; mock `r60-tax-returns-rejection` |
-| F17 Metadata authority | Pending (deferred) | No code gap known | #1346, #1348 | Deferred to her Settings/Staff role pass |
+| F17 Metadata authority | Pending (deferred) | No code gap known | #1346, #1348 | Her retest: her Settings/Staff pass with reviewer and non-reviewer logins |
 | F18 Reviewer permissions | Pending (deferred) | Done | #1346, #1348 | e2e `tax-return-review` "TX-F18: ..."; role testing is her Settings/Staff pass |
-| F19 Validation issues | Partial | Done | #1172, #1354, #1466 | Each validation line shows who is responsible and the draft version. Mock `r60-tax-returns-issues` |
+| F19 Validation issues | Partial | Done | #1172, #1354, #1466; test #PR_NUM | Mock `r55-tax-returns-validation` "a validation item added and assigned shows its responsible person and its version" (Add Validation Item, then the line's Assign); `r60-tax-returns-issues` |
 | F20 Severity gates | Partial | Done | #1354, #1466 | An open Error, or a validation line back at Error, blocks every transmission, retransmission and paper filing, also after Ready to File. e2e `tax-return-issues` (the post-Ready Error case); mock `r60-tax-returns-issues` |
-| F21 Issue resolution | Pending (clarify) | Done (the rule defined, shown and enforced) | #1515 | See "The F21 rule" below. e2e `tax-return-issues` (a reason is required, the override recorded, an Error lowered at Ready for Signature goes back to Ready for Review); mock `r60-tax-returns-issues` (Resolve as Valid with a reason, a line's result changes only with a reason, the rule note) |
+| F21 Issue resolution | Pending (clarify) | Done (the rule defined, shown and enforced) | #1515 | See "The F21 rule" below. e2e `tax-return-issues` (a reason is required, the override recorded, an Error lowered at Ready for Signature goes back to Ready for Review; #PR_NUM: "refuses a member who reaches the return but is neither its preparer, its reviewer nor an Owner or Admin"); mock `r60-tax-returns-issues` (Resolve as Valid with a reason, a line's result changes only with a reason, the rule note) |
 | F22 Rejection | Verified | Done | #1185; In Correction #1488, #1499 | e2e `tax-return-review` "Review 2: Start Correction ..."; mock `r60-tax-returns-rejection`, `r60-tax-r2-features` |
 | F23 Rejection history | Verified | Done | #1185 | e2e `tax-return-review` "records transmissions and their answers" |
-| F24 Retry history | Partial | Done | #1466, #1469, #1473 | Earlier attempts keep the full rejection; a recorded rejection makes its corrective task with an owner. e2e `tax-return-review` |
+| F24 Retry history | Partial | Done | #1466, #1469, #1473; test #PR_NUM | e2e `tax-return-review` "keeps the whole first rejection after a retry, with a corrective task owned by the preparer"; mock `r55-tax-return-workspace` "E-File: record a transmission and its rejection, then retransmit" (Earlier attempts show the description, corrective action and the task with its owner) |
 | F25 Filing methods | Partial | Done | #1354, #1466 | The Error gate (F20) now covers paper |
-| F26 Mailing | Partial | Done | #1198, #1422 | Date mailed starts empty and is required; Record needs the Mail Tracking Number. Mock `r60-tax-returns-mail` |
+| F26 Mailing | Partial | GAP (F26d) | #1198, #1422; tests #PR_NUM | F26a: mock `r60-tax-returns-mail`. F26ba: e2e `tax-return-review` "refuses a paper filing record without its mailing date and never puts in today". F26c: db `tax-return-filings` "is not closed while a required paper filing has no mailing record, and closes once it has". Her keyboard retest of a cleared date (F26bb) is hers. F26d is a GAP below |
 | F27 Mailing Report | Correction | Done | #1422 | Quick Actions: Mailing Report, with each paper filing's date, tracking and status, and CSV. e2e `tax-return-review` (the report, another firm sees none) |
 | F28 Amounts | Verified | Done | #1187 | Mock `r60-tax-returns-amounts` |
-| F29 Amount validation | Verified | Done | #1187; rounding #1499 | See Rounding below |
+| F29 Amount validation | Verified | Done | #1187; rounding #1499; test #PR_NUM | Mock `r55-tax-returns-amounts` "an amount below zero or in words cannot be saved, and 2.345 is saved as 2.35". See Rounding below |
 | F30 Record versus submit | Partial | No code gap | | Real transmission and integrations are not part of this release |
 | F31 Business identity | Pending | Done | #1176, #1179 | Mock `r60-tax-returns-business`. A populated-entity retest is hers |
-| F32 Business snapshots | Partial | Done | #1195 | Mock `r60-tax-returns-identity` |
+| F32 Business snapshots | Partial | GAP (F32a) | #1195; test #PR_NUM | F32b: e2e `tax-return-workspace` "lets only a member who may edit tax returns correct the business identity"; mock `r60-tax-returns-identity`. A populated synthetic business (F32c) is her retest. F32a is a GAP below |
 | F33 Quarterly selector | Verified | Done | before Review 2 | Mock `r55-tax-returns` (the quarterly tab); the quarterly lifecycle is her retest |
 | F34 Archived view | Verified | Done | #1178 | Mock `r60-tax-returns-archived` |
-| F35 Restore | Partial | Done | #1178 | Mock `r60-tax-returns-archived`; exhaustive data and role checks are her retest |
+| F35 Restore | Partial | Done | #1178; test #PR_NUM | F35a: e2e `tax-return-workspace` "restores the return with its details and its linked document, and audits both steps"; mock `r60-tax-returns-archived`. Exhaustive data and role checks (F35b) are her retest |
 | F36 Configuration | Pending (clarify) | Done (Maps to, and where returns appear) | #1488, #1499, #1518 | Settings > Tax statuses: each label's Maps to, and "Where returns appear": each Tax Returns tab and preset, the statuses it lists and the labels mapped to them (read-only). e2e `tax-statuses` "Review 2 (TX-F36)"; mock `r60-tax-r2-features` |
 
 ## Approved additions
 
 | Addition | Status | PR | Test |
 | --- | --- | --- | --- |
-| File Extension | Done | #1488 (db), #1499 | e2e `tax-return-review`: the event only, audited, the new deadline after the due date, refused on a filed return; mock "Record Extension" |
+| File Extension | Done | #1488 (db), #1499 | e2e `tax-return-review`: the event only, audited, the new deadline after the due date, refused on a filed return; mock "Record Extension"; mock `r55-tax-returns-extension` "the extension panel names the client, the tax year and the current filing deadline" (EXT-1) and "Cancel on the extension panel leaves the return unchanged" (EXT-4a), #PR_NUM. Her reload retest on dev (EXT-4b) is hers |
 | Messaging | Done | #1508 (db), #1512; TR-4 #1557 | e2e `messages` "Review 2 (Messaging)": the defaults, the text only when chosen, the email always sent (TR-4: no switch; turning it off is refused), Save for the client, the preference followed and overridden, another firm 404; "TR-4: a firm or client saved earlier with the email off still gets it, and saves again"; unit `notify-templates` (no text unless chosen; documents as a count); mock `r60-messages-email-choices`. Known limit below |
 | Rejected return (In Correction) | Done | #1488 (db), #1499 | db: Rejected never goes straight to review; e2e: a reason is required and the client sees In Progress; mock "Start Correction" |
 | Replacement request | Done | #1502 | e2e `documents-packets-portal` "Request Replacement on a submitted item opens the packet ..." |
@@ -65,7 +65,17 @@ Her review status is in the second column: Verified, Partial, Correction or Pend
 
 ## GAPs
 
-None. The four listed on Nov 15 are closed: Messaging (#1508, #1512), F06 (#1519), F21 (#1515) and F36 (#1518).
+Found by the check of Nov 16; each needs a code change:
+- **F03c** Full Review's Create Task carries the client and the service but not the return's year, so the task is not tied to this return. Build it with the return's period, as the workspace's Create Task does.
+- **F03db** A Firm Sign request sent from Full Review's Signatures is not linked to the return's authorization line; staff must link it with Manage afterwards.
+- **F03 Status filter** (found from the code while writing the F03a test): the list's Status filter is not written to the address, so Back loses a Status chosen on the page. Search, year, form, client type and assigned staff are kept.
+- **F10b** A request's return and tax year are stored but not in the request contracts, so the firm and portal request views cannot show them.
+- **F26d** The paper filing's audit keeps no mailed date and no replaced values, and Activity shows it as a transmission.
+- **F32a** A business identity correction is not in the return's Activity, and its audit keeps the field names only.
+
+Her retests (no code change known): F01b, F09b, ACC-DOC, F17, F26bb, F32c, F35b, EXT-4b, and the remaining-acceptance areas CR-1 to CR-4, CR-5b and CR-6. CR-5a (exports audited) is covered: e2e `tax-return-review` "audits each export with who made it and how many rows, and a refused one leaves none" (#PR_NUM).
+
+The four listed on Nov 15 stay closed: Messaging (#1508, #1512), F06 (#1519), F21 (#1515) and F36 (#1518).
 
 **Known limit, not a GAP (the lead, Nov 15).** New Message's portal channel goes through the outbound queue. That path uses the client's saved preference or the firm's default, which is the correct behaviour; it has no per-send choice yet, because the queue has no column for one. The direct composers (a client's New Message and reply, also from a tax return, and the Messages screen) have the per-send choice. A per-send choice on the queue needs schema and is on the after-Nov-17 list.
 
