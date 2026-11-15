@@ -17,7 +17,6 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
   - `client-portal-management`
   - `client-portal-access`
   - `intake-workspace` (the `clientId` filter)
-  - `tax-return-review` (the Client Portal link)
 - **Tenant isolation:** `apps/api/test/isolation/cases/client-portal.ts` covers every route that takes a client id.
 - **Mock specs** (`apps/web/e2e/mock/`):
   - `r60-client-portal`
@@ -26,6 +25,8 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
   - `r60-client-portal-forms`
   - `r60-client-portal-preview`
   - `r29-firm-sidebar`
+  - `r60-tax-returns-shared` (TX-F04's Client Portal link)
+  - `r60-portal-layout` (the module's own width)
 
 **PRs**
 
@@ -38,13 +39,14 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | #1410 | Web 4: Documents |
 | #1414 | Web 5: Intake Forms, the record tabs, Communications |
 | #1418 | Web 6: the preview and TX-F04 |
+| #1480 | Layout by the module's own width |
 
 ## Frame 1: client-portal.jpg (`/client-portal`)
 
 | Item | PR | Test |
 | --- | --- | --- |
 | Sidebar "Client Portal" opens the module; the placeholder is removed | #1405 | `r29-firm-sidebar` |
-| Page title and subtitle | #1405 | `r60-client-portal` |
+| Page title and subtitle | #1405 | `r29-firm-sidebar` (the title) |
 | Switch Client: active client; search by name, email, phone, company or Client ID | #1405 (search: #1382) | `r60-client-portal` |
 | Recent Clients: one-click switching, newest first | #1375, #1405 | `client-portal-management`, `r60-client-portal` |
 | Clients list: search, All Statuses, All Services, rows with type and status, pagination | #1405 | `r60-client-portal` |
@@ -57,6 +59,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: Overview, Documents, Messages, Appointments, Tax Returns, Invoices & Payments, Intake Forms | #1405, #1410, #1414 | `r60-client-portal`, `r60-client-portal-forms` |
 | Portal Summary: six cards with a Last 7 / 30 / 90 Days range; each card opens its tab | #1375, #1405 | `client-portal-management`, `r60-client-portal` |
 | Recent Activity table and View All Activity | #1370, #1375, #1405 | `client-portal-management`, `r60-client-portal` |
+| **Unsaved edits: a warning before Switch Client or Back: not built yet (assigned to R56, Nov 15).** | — | — |
 
 ## Frame 2: individual-client-portal-management-access-and-visibility.jpg (`/client-portal/{id}`)
 
@@ -64,12 +67,12 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | --- | --- | --- |
 | Breadcrumbs: Client Portal > Clients > client > tab | #1405 | `r60-client-portal-manage` |
 | Back to All Clients and Switch Client, on every page | #1405 | `r60-client-portal-manage` |
-| Header: name, portal status, Client ID, email, phone, type | #1375, #1405 | `r60-client-portal-manage` |
+| Header: name, portal status, Client ID, email, phone, type | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Status strip: Portal Status, Last Login, Portal Since, Last Activity, MFA, Access Method (Edit) | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Tabs: Overview, Access & Security, Portal Content, Documents, Forms & Requests, Communications, Activity | #1405, #1410, #1414 | `r60-client-portal-manage` |
 | Pending Client Actions: documents, intake incomplete or submitted, signature, invoice, appointment, task; each opens its record; overdue flagged | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Portal Content & Visibility: 8 areas per client, on top of the firm's switches; enforced in the portal API and menu; audited | #1400, #1405 | `client-portal-access`, `r60-client-portal-manage` |
-| Quick Actions: Resend Portal Invitation | #1405 (existing invitation API) | `r60-client-portal-manage` |
+| Quick Actions: Resend Portal Invitation | #1405 (existing invitation API) | `portal-invitations` (the API; the button is not tested yet) |
 | Quick Actions: Reset Client Access | #1400, #1405 | `client-portal-access` |
 | Quick Actions: Lock and Unlock Portal Access (refused at sign-in, on refresh and on every portal request) | #1370, #1405 | `client-portal-lock`, `r60-client-portal-manage` |
 | Quick Actions: Deactivate and Reactivate Portal | #1400, #1405 | `client-portal-access` |
@@ -79,6 +82,8 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Recent Portal Activity with IP address (Owner and Admin only) | #1370, #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
 | Access & Security: invitation status and date, MFA Management (Reset MFA), Login History and Security Events | #1375, #1400, #1405 | `client-portal-management`, `client-portal-access`, `r60-client-portal-manage` |
 | Activity tab: type, actor and date filters; load more | #1375, #1405 | `client-portal-management`, `r60-client-portal-manage` |
+| **Activity: each row opens its record: not built yet (assigned to R56, Nov 15).** The API returns the record; the screen does not link it. | — | — |
+| **Pending Client Actions: Send Reminder on an overdue item: not built yet (assigned to R56, Nov 15).** Overdue is flagged; the existing reminder routes are not wired here. | — | — |
 | Communications tab: the client's threads, unread counts, New Message | #1414 | `r60-client-portal-forms` |
 
 ## Frame 3: documents-tab.jpg (Documents)
@@ -91,6 +96,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Tabs: All Documents, Client Uploaded, Firm Shared, Pending Review, Requested | #1410 | `r60-client-portal-documents` |
 | Table columns: Name, Type, Category, Source, Uploaded By, Date, Status | #1410 | `r60-client-portal-documents` |
 | Row menu: View, Download, Mark Reviewed, Request Replacement, Share to or Remove from Portal, Archive, Move to Trash | #1410 | `r60-client-portal-documents` |
+| **Row menu: Link to Record, Reclassify and Rename: not built yet (assigned to R56, Nov 15).** The Documents library's APIs exist. | — | — |
 | Pagination with 10, 25 or 50 per page | #1410 | `r60-client-portal-documents` |
 | Document Requests panel, with Request New Document | #1410 | `r60-client-portal-documents` |
 | Recent Document Activity | #1370, #1410 | `r60-client-portal-documents` |
@@ -103,9 +109,12 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Intake Forms header: Request Form (Send Intake Form with the client chosen), Send Reminder, More Actions | #1414 | `r60-client-portal-forms` |
 | KPIs: Total, Completed, Submitted Needs Review, In Progress, Not Started, Archived | #1400, #1414 | `client-portal-access`, `r60-client-portal-forms` |
 | Search, status and date filters, with Clear | #1414 | `r60-client-portal-forms` |
+| **Filters by form type and service: not built yet (assigned to R1, Nov 15).** | — | — |
 | Table: Form Name, Form Type, Date Requested, Due Date, Date Submitted, Status, Assigned To | #1414 | `r60-client-portal-forms`, `intake-workspace` |
 | Every state kept: a submitted form never disappears ("Submitted - Needs Review") | #1414 | `r60-client-portal-forms` |
+| **Archived forms listed: not built yet (assigned to R1, Nov 15).** They are counted in Total and Archived, but no tab or filter lists them. | — | — |
 | Row actions: View Submission, Review, Request Correction, Mark Reviewed, Send Reminder, Send Message, View Form History, Archive | #1414 | `r60-client-portal-forms` |
+| **Row action: Download or Export: not built yet (assigned to R1, Nov 15).** | — | — |
 | Pending Client Actions, Quick Actions, Form Templates (Manage Templates) | #1414 | `r60-client-portal-forms` |
 | Form Settings (Client Permissions): the client's Intake Forms switch plus each form's Archive. No per-form portal flag (a Review 2 default). | #1400, #1414 | `client-portal-access`, `r60-client-portal-forms` |
 
@@ -115,3 +124,17 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | --- | --- | --- |
 | TX-F04: a tax return's Client Portal action opens the firm-side Client Portal for its client, with Back to the return on every tab | #1418 | `r60-client-portal-preview`, `r60-tax-returns-shared` |
 | Frame 1's record tabs: Messages, Appointments, Tax Returns, Invoices & Payments | #1414 | `r60-client-portal-forms` |
+| **Tax Returns tab: the assigned staff column: not built yet (assigned to R56, Nov 15).** | — | — |
+| Layout: nothing overlaps with the side menu open; no sideways scroll at 1440 or 390 | #1480 | `r60-portal-layout`, `r29-firm-sidebar` |
+
+## Tests still to add (cross-check, Nov 15)
+
+These rows have their code and a named spec, but the spec does not assert the row yet. R60 adds the checks after Payroll's test PR; until then the row's code is merged and untested.
+
+- Frame 1: Switch Client search; the Clients list search, status and service filters and pagination; Send Message and View Profile; View All Activity; the last client reopened; the More menu.
+- Frame 2: Client Notes, Copy Link, the breadcrumb's Clients link, the Portal Content tab, the invitation status and date, the Resend Portal Invitation button.
+- Pending Client Actions: a signature item (none is seeded).
+- Intake KPIs: counts other than zero.
+- Frame 3: Request Document, the filters with Clear, the columns, the row menu, 10, 25 or 50 per page.
+- Intake Forms: Send Reminder, More Actions, the filters, the row actions, Quick Actions, Manage Templates, and a "Submitted - Needs Review" row in the table.
+- The record tabs and Communications: the client's records and unread counts, not just the tabs.
