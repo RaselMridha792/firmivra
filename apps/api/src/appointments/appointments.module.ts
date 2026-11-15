@@ -21,6 +21,9 @@ import { SchedulingAvailabilityService } from './scheduling-availability.service
 import { SchedulingConfigService } from './scheduling-config.service.js';
 import { SchedulingReadService } from './scheduling-read.service.js';
 import { SchedulingWriteService } from './scheduling-write.service.js';
+import { AppointmentWaitlistController, MyWaitlistController } from './waitlist.controller.js';
+import { WaitlistJob } from './waitlist.job.js';
+import { AppointmentWaitlistService } from './waitlist.service.js';
 
 /**
  * Appointments (R12 step 2; contract in packages/types/src/appointments): appointment types,
@@ -37,6 +40,9 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
     AppointmentDraftsController,
     MyAppointmentsController,
     PublicBookingController,
+    // Appointments A3 (R55): the waitlist for an earlier time.
+    AppointmentWaitlistController,
+    MyWaitlistController,
   ],
   providers: [
     AppointmentDraftsService,
@@ -51,6 +57,8 @@ import { SchedulingWriteService } from './scheduling-write.service.js';
     SchedulingConfigService,
     AppointmentHistory,
     AppointmentNotices,
+    AppointmentWaitlistService,
+    WaitlistJob,
     { provide: MEETING_LINKS, useClass: PrismaMeetingLinks },
   ],
 })
