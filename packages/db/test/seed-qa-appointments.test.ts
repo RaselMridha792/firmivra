@@ -114,12 +114,10 @@ describe('QA seed part 4: Test Firm B appointments', () => {
       await set({ id: one }, { startsAt: new Date(at), endsAt: new Date(at + 3_600_000) });
     }
     // Firm B's own appointment, not one of ours: it never moves.
-    const seeded = await db
-      .forBusiness(firmB)
-      .appointment.findFirstOrThrow({
-        where: { id: ids[0] },
-        select: { clientId: true, staffUserId: true },
-      });
+    const seeded = await db.forBusiness(firmB).appointment.findFirstOrThrow({
+      where: { id: ids[0] },
+      select: { clientId: true, staffUserId: true },
+    });
     const theirs = randomUUID();
     const theirsAt = new Date(now.getTime() - 60 * 24 * 3_600_000);
     await runInScope(owner, { kind: 'business', businessId: firmB }, (tx) =>
