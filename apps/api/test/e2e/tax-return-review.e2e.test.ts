@@ -367,6 +367,46 @@ describe('filings', () => {
     );
   });
 
+  // Tax Returns Review 2 (F26ba): the server, not only the screen, insists on the mailing date.
+  it('refuses a paper filing record without its mailing date and never puts in today', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2014,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const set = ok(
+      await call('put', `/tax-returns/${fresh.id}/filings`, ownerA, {
+        filings: [{ jurisdiction: 'US', filingMethod: 'PAPER' }],
+      }),
+      TaxReturnFilingList,
+    );
+    const us = set.items.find((f) => f.jurisdiction === 'US')!.id;
+    const path = `/tax-returns/${fresh.id}/filings/${us}/paper-filed`;
+    const tracking = { mailTrackingNumber: '9400 1000 0000 0000 0000 77' };
+    expectError(await call('post', path, ownerA, tracking), 400, 'VALIDATION_FAILED');
+    for (const paperFiledOn of ['', null, '   ']) {
+      expectError(
+        await call('post', path, ownerA, { ...tracking, paperFiledOn }),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+    const after = ok(
+      await call('get', `/tax-returns/${fresh.id}/filings`, ownerA),
+      TaxReturnFilingList,
+    ).items.find((f) => f.id === us)!;
+    expect([after.status, after.paperFiledOn]).toEqual(['NOT_FILED', null]);
+    const logged = await inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { action: 'tax_return.transmission', entityId: fresh.id } }),
+    );
+    expect(logged).toBe(0);
+  });
+
   it('records transmissions and their answers as the database allows', async () => {
     const id = ids.r2!;
     ok(
