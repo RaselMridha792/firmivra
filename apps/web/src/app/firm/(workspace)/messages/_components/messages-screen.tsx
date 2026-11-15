@@ -69,6 +69,9 @@ const day = (iso: string) => {
   const d = new Date(iso);
   return d.toDateString() === new Date().toDateString() ? hm.format(d) : when.format(d);
 };
+/** M27: how often the open conversation and the inbox look for changes (only while visible). */
+const CONVERSATION_REFRESH_MS = 15_000;
+const INBOX_REFRESH_MS = 30_000;
 const card = 'min-w-0 rounded-xl bg-surface p-4 shadow-md';
 const quiet = 'rounded-lg bg-canvas p-4 text-center text-sm text-muted';
 const gold =
@@ -147,6 +150,8 @@ export function MessagesScreen({
     queryFn: () => api.messages.inbox({ ...search, limit: 100 }),
     placeholderData: keepPreviousData,
     retry: shouldRetry,
+    // M27: new messages and unread counts arrive without a refresh.
+    refetchInterval: INBOX_REFRESH_MS,
   });
   const archive = useQuery({
     queryKey: [...KEY, 'inbox', 'archived', term],
@@ -540,7 +545,13 @@ function Conversation({
   onChanged: () => void;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
-  const detail = useApiQuery([...KEY, 'thread', thread.id], () => api.messages.get(thread.id));
+  // M27 (Messaging Review 2): the open conversation keeps itself current (new replies, and
+  // Delivered turning Read when the client opens it) without a manual refresh.
+  const detail = useQuery({
+    queryKey: [...KEY, 'thread', thread.id],
+    queryFn: () => api.messages.get(thread.id),
+    refetchInterval: CONVERSATION_REFRESH_MS,
+  });
   const [body, setBody] = useState('');
   // M26: a template or emoji goes in at the cursor; typed text is never replaced.
   const caret = useCaret();

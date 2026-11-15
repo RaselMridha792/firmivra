@@ -141,6 +141,11 @@ interface SavedEmailPreference {
 }
 interface Store {
   settings?: MessageSettings;
+  /**
+   * M27: when the mock's client reads each firm message sent in this session (ten seconds after
+   * it arrives), so the firm's conversation can be seen updating on its own. Mock only.
+   */
+  clientReads?: Map<string, number>;
   preferences?: Map<string, SavedEmailPreference>;
   threads: ThreadRow[];
   messages: Message[];
@@ -1186,10 +1191,21 @@ export function createMessagesMock(
     if (!t) throw notFound();
     return t;
   };
-  const detail = (t: ThreadRow): MessageThreadDetail => ({
-    ...firmThread(t),
-    messages: inThread(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
-  });
+  const detail = (t: ThreadRow): MessageThreadDetail => {
+    // M27: the mock client has read what reached them by now.
+    const reads = (s().clientReads ??= new Map());
+    for (const m of inThread(t.id)) {
+      const at = reads.get(m.id);
+      if (at !== undefined && at <= Date.now()) {
+        m.readAt ??= new Date(at).toISOString();
+        reads.delete(m.id);
+      }
+    }
+    return {
+      ...firmThread(t),
+      messages: inThread(t.id).map((m) => ({ ...m, sender: { ...m.sender } })),
+    };
+  };
   const list = (rows: ThreadRow[], query: ListMessageThreadsQuery) => {
     const q = parseInput(ListMessageThreadsQuery, query);
     const kept = rows
@@ -1347,7 +1363,9 @@ export function createMessagesMock(
           status: d.scanStatus === 'CLEAN' ? 'READY' : 'CHECKING',
         });
       }
-      return addMessage(t, staff(me), b.body, files);
+      const sent = addMessage(t, staff(me), b.body, files);
+      (s().clientReads ??= new Map()).set(sent.id, Date.now() + 10_000);
+      return sent;
     },
     update: async (threadId, body) => {
       await mockDelay();
