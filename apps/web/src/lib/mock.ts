@@ -72,8 +72,10 @@ export const MOCK_FAIL_KEY = 'fv-mock-fail';
 /**
  * Mock mode, for fault-injection specs (Dashboard Review 2 V6): the module's mock client, whose
  * calls named in sessionStorage `fv-mock-fail` ("dashboard.summary,messages.inbox") answer 500
- * like a failing API, so a spec can show each widget's error state and Try again. Reads the key
- * on every call, so clearing it lets Try again succeed. Mock mode is off in production builds.
+ * like a failing API, so a spec can show each widget's error state and Try again. A name ending
+ * in "@after" ("leadPipeline.update@after") does the call, then answers 500: a change that went
+ * through although its answer was lost (Leads R2 7). Reads the key on every call, so clearing it
+ * lets Try again succeed. Mock mode is off in production builds.
  */
 export function failable<T extends object>(module: string, client: T): T {
   return new Proxy(client, {
@@ -87,11 +89,13 @@ export function failable<T extends object>(module: string, client: T): T {
         } catch {
           // No storage (server render, a private window): nothing fails.
         }
-        if (failing.includes(`${module}.${prop}`))
-          return Promise.reject(
-            new ApiRequestError(500, 'INTERNAL_ERROR', 'Something went wrong on our side.'),
-          );
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
+        const failure = () =>
+          new ApiRequestError(500, 'INTERNAL_ERROR', 'Something went wrong on our side.');
+        if (failing.includes(`${module}.${prop}`)) return Promise.reject(failure());
+        const result = (value as (...a: unknown[]) => unknown).apply(target, args);
+        if (failing.includes(`${module}.${prop}@after`))
+          return Promise.resolve(result).then(() => Promise.reject(failure()));
+        return result;
       };
     },
   });
