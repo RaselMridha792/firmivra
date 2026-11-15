@@ -640,6 +640,8 @@ export const TemplateErrorCode = z.enum([
   'NOT_THE_OWNER',
   /** 403 (CM-F12): only an Owner or Admin makes a template Active; Staff save drafts. */
   'ACTIVATE_NOT_ALLOWED',
+  /** 403 (C22): only an Owner or Admin takes an active template back to draft (Deactivate). */
+  'DEACTIVATE_NOT_ALLOWED',
   /** 409 (TP-F08): another template already stands for that task template, request list or intake. */
   'STRUCTURE_IN_USE',
   /** 409: the template is archived: restore it first. */

@@ -52,6 +52,11 @@ export const templateErrors = {
       code: 'ACTIVATE_NOT_ALLOWED',
       message: 'Only an Owner or an Admin can make a template active',
     }),
+  deactivateNotAllowed: () =>
+    new ForbiddenException({
+      code: 'DEACTIVATE_NOT_ALLOWED',
+      message: 'Only an Owner or an Admin can deactivate a template',
+    }),
   testRefused: () =>
     new BadRequestException({
       code: 'TEST_SEND_REFUSED',

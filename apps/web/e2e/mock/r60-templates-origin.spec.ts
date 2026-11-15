@@ -110,3 +110,35 @@ test('A tag and a search survive Edit and Back; Use keeps its Back to the list',
   await expect(page.getByPlaceholder('Search templates...')).toHaveValue('Tax Season');
   await expect(filters(page).getByLabel('Tag')).toHaveValue('Reminder');
 });
+
+test('C24: My Templates rows have Use, which opens the template with Back to the list', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await page.getByRole('tab', { name: /^My Templates/ }).click();
+  const results = page.getByTestId('home-results');
+  await expect(results.getByTestId('template-link').first()).toBeVisible({ timeout: 60_000 });
+  // Every kind that can be used has Use (a link with Back to this list, or switched off with why).
+  const uses = results.locator('a, button').filter({ hasText: /^Use$/ });
+  expect(await uses.count()).toBeGreaterThan(0);
+  const usable = results.getByRole('link', { name: /^Use / });
+  if ((await usable.count()) > 0) {
+    await expect(usable.first()).toHaveAttribute('href', /from=%2Ftemplates/);
+  }
+});
+
+test('C22: an active template has Deactivate, asked first, and goes back to draft', async ({
+  page,
+}) => {
+  await page.goto(base);
+  await page.getByRole('tab', { name: /^My Templates/ }).click();
+  const results = page.getByTestId('home-results');
+  const active = results.getByRole('row').filter({ hasText: 'Active' }).first();
+  const name = (await active.getByTestId('template-link').textContent({ timeout: 60_000 }))?.trim();
+  await active.getByRole('button', { name: /actions/i }).click();
+  await page.getByRole('menuitem', { name: 'Deactivate' }).click();
+  const ask = page.getByRole('dialog', { name: 'Deactivate this template?' });
+  await expect(ask.getByTestId('deactivate-note')).toContainText('goes back to draft');
+  await ask.getByRole('button', { name: 'Deactivate' }).click();
+  await expect(page.getByText(`${name} is a draft again.`)).toBeVisible();
+});

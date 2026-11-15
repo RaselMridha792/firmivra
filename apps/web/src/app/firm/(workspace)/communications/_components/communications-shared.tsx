@@ -103,6 +103,8 @@ export const COMM_ERRORS: Record<string, string> = {
   EXPORT_NOT_ALLOWED: 'Your role cannot export results.',
   FORBIDDEN: 'Your role cannot do this.',
   ACTIVATE_NOT_ALLOWED: 'Only an Owner or Admin can activate a template. Ask one to activate it.',
+  DEACTIVATE_NOT_ALLOWED:
+    'Only an Owner or Admin can deactivate a template. Ask one to deactivate it.',
   SUBJECT_REQUIRED: 'Add a subject line before activating the template.',
 };
 

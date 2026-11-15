@@ -1099,11 +1099,26 @@ export function createCommunicationsMock({
               (!query.createdByUserId || r.d.createdBy.userId === query.createdByUserId) &&
               (!query.from || (r.d.sentAt ?? r.d.updatedAt).slice(0, 10) >= query.from) &&
               (!query.to || (r.d.sentAt ?? r.d.updatedAt).slice(0, 10) <= query.to) &&
+              // As the API (C28): the name, subject, message and who it went to.
               (!term ||
-                `${r.d.name} ${r.d.subject ?? ''} ${r.d.body}`.toLowerCase().includes(term)),
+                [
+                  r.d.name,
+                  r.d.subject ?? '',
+                  r.d.body,
+                  ...r.recipients.map((x) => x.client?.name ?? x.leadName ?? ''),
+                ]
+                  .join(' ')
+                  .toLowerCase()
+                  .includes(term)),
           )
           .sort((a, b) => {
             if (query.sort === 'name') return a.d.name.localeCompare(b.d.name);
+            // As the API: the most recipients first.
+            if (query.sort === 'performance')
+              return (
+                (b.d.audience?.finalCount ?? b.d.finalCount ?? 0) -
+                (a.d.audience?.finalCount ?? a.d.finalCount ?? 0)
+              );
             if (query.sort === 'scheduled')
               return (a.d.scheduledFor ?? '9').localeCompare(b.d.scheduledFor ?? '9');
             const x = a.d.sentAt ?? a.d.updatedAt;
@@ -1116,6 +1131,8 @@ export function createCommunicationsMock({
           total: rows.length,
           page: query.page,
           pageSize: query.pageSize,
+          // As the API (C23): the recipients of everything the filter finds.
+          recipients: rows.reduce((n, r) => n + (r.finalCount ?? 0), 0),
         };
       }),
     senders: () => run(() => senders),

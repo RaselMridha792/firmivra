@@ -26,7 +26,7 @@ const reader = person('reader');
 const other = person('other');
 const left = person('left');
 const pending = person('pending');
-const ids = { a: '', b: '', c: '', d: '' };
+const ids = { a: '', b: '', c: '', d: '', firm: '' };
 const DAY = 86_400_000;
 
 let portal = '';
@@ -57,6 +57,7 @@ beforeAll(async () => {
     return tx.business.create({ data: { slug, name: slug, status: 'ACTIVE' } });
   });
   const businessId = firm.id;
+  ids.firm = firm.id;
   await runInScope(db, { kind: 'business', businessId }, async (tx) => {
     await tx.membership.create({
       data: { businessId, userId: owner.id, role: 'OWNER', status: 'ACTIVE' },
@@ -275,5 +276,56 @@ describe('GET /portal/{firmSlug}/me/announcements', () => {
     expect((await mine(fx.users.clientA)).status).toBe(404);
     const theirs = await mine(fx.users.clientA, fx.firmA.slug);
     expect(MyAnnouncementList.parse(theirs.body).items).toEqual([]);
+  });
+});
+
+describe('POST /portal/{firmSlug}/me/announcements/{id}/opened (C26)', () => {
+  const open = async (who: { email: string }, id: string) => {
+    const token = (
+      (await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email: who.email }))
+        .body as { token: string }
+    ).token;
+    return request(app.getHttpServer())
+      .post(`/api/v1/portal/${slug}/me/announcements/${id}/opened`)
+      .set('authorization', `Bearer ${token}`)
+      .send({});
+  };
+  const rowOf = async () => {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      return await runInScope(db, { kind: 'business', businessId: ids.firm }, async (tx) => ({
+        recipient: await tx.communicationRecipient.findFirstOrThrow({
+          where: { communicationId: ids.a, status: { not: 'NOT_SENT' } },
+          select: { status: true, openCount: true, firstOpenedAt: true },
+        }),
+        events: await tx.communicationEvent.count({
+          where: { communicationId: ids.a, type: 'OPENED' },
+        }),
+      }));
+    } finally {
+      await db.$disconnect();
+    }
+  };
+
+  it("records the client's open of their live announcement, every time, the first kept", async () => {
+    const first = await open(reader, ids.a);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body).toEqual({ ok: true });
+    const once = await rowOf();
+    expect(once.recipient).toMatchObject({ status: 'OPENED', openCount: 1 });
+    expect(once.recipient.firstOpenedAt).not.toBeNull();
+    expect(once.events).toBe(1);
+    expect((await open(reader, ids.a)).status).toBe(200);
+    const twice = await rowOf();
+    expect([twice.recipient.openCount, twice.events]).toEqual([2, 2]);
+    expect(twice.recipient.firstOpenedAt).toEqual(once.recipient.firstOpenedAt);
+  });
+
+  it("refuses another client's, a left-out recipient's, an unknown one and staff", async () => {
+    expect((await open(reader, ids.c)).status).toBe(404);
+    expect((await open(left, ids.a)).status).toBe(404);
+    expect((await open(reader, randomUUID())).status).toBe(404);
+    expect((await open(reader, 'not-an-id')).status).toBe(400);
+    expect((await open(owner, ids.a)).status).toBe(401);
   });
 });

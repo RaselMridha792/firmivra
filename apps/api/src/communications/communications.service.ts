@@ -86,6 +86,32 @@ const refuse = (code: string, message: string, details?: unknown) =>
   new ConflictException({ code, message, ...(details === undefined ? {} : { details }) });
 
 /** The campaigns themselves: overview, lists, the composer's draft, the audience, review and send. */
+/** C28: what a communications search looks in. */
+function searchWhere(term: string): Prisma.CommunicationWhereInput {
+  const has = { contains: term, mode: 'insensitive' as const };
+  return {
+    OR: [
+      { name: has },
+      { subject: has },
+      { body: has },
+      { template: { name: has } },
+      {
+        recipients: {
+          some: {
+            OR: [
+              { client: { displayName: has } },
+              { client: { email: has } },
+              { lead: { firstName: has } },
+              { lead: { lastName: has } },
+              { lead: { email: has } },
+            ],
+          },
+        },
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class CommunicationsService {
   constructor(
@@ -629,6 +655,7 @@ export class CommunicationsService {
               : q.tab === 'drafts'
                 ? { status: 'DRAFT', createdByUserId: ctx.userId }
                 : { channel: { in: ['EMAIL', 'SMS'] } };
+      const dateField = q.tab === 'sent' ? 'sentAt' : 'createdAt';
       const where: Prisma.CommunicationWhereInput = {
         AND: [
           { businessId: ctx.businessId, archivedAt: q.archived ? { not: null } : null },
@@ -637,20 +664,14 @@ export class CommunicationsService {
           ...(q.channel ? [{ channel: q.channel }] : []),
           ...(q.status ? [{ status: q.status }] : []),
           ...(q.createdByUserId ? [{ createdByUserId: q.createdByUserId }] : []),
-          ...(q.from ? [{ createdAt: { gte: new Date(`${q.from}T00:00:00Z`) } }] : []),
+          // C32: Sent History's dates are the day it was sent; the other lists', the day it was made.
+          ...(q.from ? [{ [dateField]: { gte: new Date(`${q.from}T00:00:00Z`) } }] : []),
           ...(q.to
-            ? [{ createdAt: { lt: new Date(Date.parse(`${q.to}T00:00:00Z`) + 86_400_000) } }]
+            ? [{ [dateField]: { lt: new Date(Date.parse(`${q.to}T00:00:00Z`) + 86_400_000) } }]
             : []),
-          ...(q.search
-            ? [
-                {
-                  OR: [
-                    { name: { contains: q.search, mode: 'insensitive' as const } },
-                    { subject: { contains: q.search, mode: 'insensitive' as const } },
-                  ],
-                },
-              ]
-            : []),
+          // C28: the name, subject, message, its template and who it went to (the defaults of
+          // Review One's search).
+          ...(q.search ? [searchWhere(q.search)] : []),
         ],
       };
       const orderBy: Prisma.CommunicationOrderByWithRelationInput[] =
@@ -663,7 +684,7 @@ export class CommunicationsService {
               : q.sort === 'performance'
                 ? [{ finalCount: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }]
                 : [{ createdAt: 'desc' }, { id: 'desc' }];
-      const [total, found] = await Promise.all([
+      const [total, found, sum] = await Promise.all([
         ctx.tx.communication.count({ where }),
         ctx.tx.communication.findMany({
           where,
@@ -671,8 +692,16 @@ export class CommunicationsService {
           skip: (q.page - 1) * q.pageSize,
           take: q.pageSize,
         }),
+        // C23: the recipients of everything the filter finds.
+        ctx.tx.communication.aggregate({ where, _sum: { finalCount: true } }),
       ]);
-      return { items: await this.rows(ctx, found), total, page: q.page, pageSize: q.pageSize };
+      return {
+        items: await this.rows(ctx, found),
+        total,
+        page: q.page,
+        pageSize: q.pageSize,
+        recipients: sum._sum.finalCount ?? 0,
+      };
     });
   }
 
