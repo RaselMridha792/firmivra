@@ -338,7 +338,7 @@ export const api = {
   // R34: wired to its existing mock (mocks/clients.ts), which no module had registered yet.
   clients:
     dev && mocked('clients')
-      ? createClientsMock({ role: MOCK_ROLE })
+      ? failable('clients', createClientsMock({ role: MOCK_ROLE }))
       : createClientsClient(request),
   /** A client's portal access and the firm's invitation (Business Advisory B3). */
   portalInvitations:

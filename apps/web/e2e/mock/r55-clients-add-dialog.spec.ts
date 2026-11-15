@@ -63,3 +63,49 @@ test('a filled Add New Client asks before Cancel, Escape or the X throws it away
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
 });
+
+// Clients Review 2 (§6 Reliability and accessibility a): a save that fails (here the clients
+// mock answers 500, like a failing API) keeps every value typed and says why, so Add Client can
+// simply be pressed again; and closing the dialog gives focus back to Add New Client.
+test('a failed Add keeps every value and says why; trying again saves; closing refocuses Add New Client', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1165, height: 747 });
+  await page.goto(app('/clients'));
+  await expect(page.getByTestId('page-title')).toHaveText('Clients', { timeout: 60_000 });
+
+  let dialog = await openAdd(page);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole('main').getByRole('button', { name: 'Add New Client' }),
+  ).toBeFocused();
+
+  dialog = await openAdd(page);
+  const values: [string, string][] = [
+    ['Full name *', 'Robin Retry (fake)'],
+    ['Email *', 'robin.retry@example.test'],
+    ['Phone *', '(404) 555-0177'],
+    ['Street address *', '9 Fake Lane'],
+    ['City *', 'Atlanta'],
+    ['ZIP code *', '30303'],
+  ];
+  for (const [label, value] of values) await dialog.getByLabel(label).fill(value);
+  await dialog.getByLabel('State *').selectOption('GA');
+
+  await page.evaluate(() => sessionStorage.setItem('fv-mock-fail', 'clients.create'));
+  await dialog.getByRole('button', { name: 'Add Client' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Something went wrong on our side. Try again in a moment.',
+  );
+  await expect(dialog).toBeVisible();
+  for (const [label, value] of values) await expect(dialog.getByLabel(label)).toHaveValue(value);
+  await expect(dialog.getByLabel('State *')).toHaveValue('GA');
+  await expect(dialog.getByRole('button', { name: 'Add Client' })).toBeEnabled();
+
+  await page.evaluate(() => sessionStorage.removeItem('fv-mock-fail'));
+  await dialog.getByRole('button', { name: 'Add Client' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Robin Retry (fake)', {
+    timeout: 60_000,
+  });
+});
