@@ -7,6 +7,7 @@ import { PublicLinkSection } from '../../../../../components/public-link';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { WebsiteGuide } from './website-guide';
 
 /**
  * Whether a form is its service's main form (the service's default template of one of the six
@@ -108,6 +109,8 @@ export function FormLinkDialog({
     >
       <div className="flex flex-col gap-4" data-testid="form-share">
         <PublicLinkSection kind="INTAKE_FORM" link={s?.link ?? null} emptyText={emptyText} />
+        {/* Leads row 24: where the link or button goes on the common website builders. */}
+        {s?.link ? <WebsiteGuide /> : null}
         {s ? (
           <div className="flex flex-col gap-3">
             {s.main ? (
