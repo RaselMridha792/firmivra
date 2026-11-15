@@ -10,6 +10,7 @@ import {
   type FormCategory,
   INTAKE_FILE_SIZE_CHOICES,
   INTAKE_FORMS,
+  type IntakeAnswers,
   type IntakeFormDetail,
   type IntakeFormKey,
   type IntakeFormsClient,
@@ -492,13 +493,33 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     if (['SENT', 'RESENT', 'REMINDER'].includes(kind)) r.communications.push(e);
     r.lastActivityAt = e.at;
   };
+  /**
+   * The version a record was sent with (18d: the detail shows that version's own sections). The
+   * records were sent with the Annual Tax form, the Payroll Setup Form's record with the Payroll
+   * form and a few payroll answers of its own.
+   */
+  const payroll = (r: AssignedFormRecord) =>
+    s.forms.find((f) => f.id === r.form.id)?.category === 'PAYROLL';
+  const answersOf = (r: AssignedFormRecord): IntakeAnswers => {
+    const answers = mockIntakeAnswers(r);
+    if (!payroll(r) || Object.keys(answers).length === 0) return answers;
+    return {
+      fullName: r.recipient.name,
+      email: answers['email'] ?? null,
+      phone: answers['phone'] ?? null,
+      businessName: `${r.recipient.name.split(' ').at(-1) ?? 'Sample'} Garden Supply (sample)`,
+      totalEmployees: 12,
+      fullTimeEmployees: 9,
+      partTimeEmployees: 3,
+    };
+  };
   const toView = (r: AssignedFormRecord): IntakeView => ({
     id: r.id,
     status: r.status,
     service: {
       id: r.service?.id ?? uuid('0e10', 1),
       name: r.service?.name ?? 'Personal Tax',
-      kind: 'ANNUAL_TAX',
+      kind: payroll(r) ? 'PAYROLL' : 'ANNUAL_TAX',
     },
     engagement: {
       id: uuid('1e00', 1),
@@ -513,8 +534,8 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     submittedAt: r.submittedAt,
     createdAt: r.sentAt ?? new Date().toISOString(),
     updatedAt: r.lastActivityAt ?? new Date().toISOString(),
-    definition: INTAKE_FORMS.ANNUAL_TAX!,
-    answers: mockIntakeAnswers(r),
+    definition: payroll(r) ? INTAKE_FORMS.PAYROLL! : INTAKE_FORMS.ANNUAL_TAX!,
+    answers: answersOf(r),
     savedSteps: [],
     locked: !['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status),
     uploads: r.documents.map((d) => ({

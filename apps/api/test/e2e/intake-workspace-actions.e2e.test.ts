@@ -1079,6 +1079,111 @@ describe('the form builder', () => {
     );
     expectError(await call('post', `/intake-forms/${copy.id}/archive`, staffA), 403, 'FORBIDDEN');
   });
+
+  it('18d: a copy keeps every question, the description, the settings, the notes and the default assignee, and stays its own form', async () => {
+    const content = [
+      {
+        key: 'about',
+        title: 'About you',
+        description: 'Fake section help',
+        questions: [
+          {
+            key: 'fullName',
+            type: 'SHORT_ANSWER',
+            label: 'Full name',
+            help: 'As on your ID (fake)',
+            required: true,
+          },
+          {
+            key: 'pick',
+            type: 'DROPDOWN',
+            label: 'Pick one',
+            required: false,
+            options: ['A', 'B'],
+          },
+          {
+            key: 'why',
+            type: 'PARAGRAPH',
+            label: 'Why B',
+            required: false,
+            showIf: { questionKey: 'pick', equals: 'B' },
+          },
+        ],
+      },
+      {
+        key: 'more',
+        title: 'More',
+        questions: [{ key: 'kids', type: 'YES_NO', label: 'Any children?', required: true }],
+      },
+    ];
+    const source = IntakeFormDetail.parse(
+      ok(
+        await call('post', '/intake-forms', ownerA, {
+          name: 'Fake Faithful Form',
+          category: 'PERSONAL_TAX',
+          description: 'Fake words for the client',
+          internalNotes: 'Fake staff notes',
+          sections: content,
+          settings: {
+            requireAllQuestions: true,
+            allowFileUploads: false,
+            requireSignature: true,
+            showProgressBar: false,
+            expiresAfterDays: 21,
+            successMessage: 'Fake thanks',
+          },
+        }),
+        201,
+      ),
+    );
+    await inFirm('a', (tx) =>
+      tx.intakeTemplate.update({
+        where: { id: source.id },
+        data: { defaultAssignedUserId: adminA.id },
+      }),
+    );
+    const assignee = (id: string) =>
+      inFirm('a', (tx) =>
+        tx.intakeTemplate.findFirstOrThrow({
+          where: { id },
+          select: { defaultAssignedUserId: true },
+        }),
+      );
+    const copy = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${source.id}/duplicate`, ownerA, {}), 201),
+    );
+    expect(copy.id).not.toBe(source.id);
+    expect(copy).toMatchObject({
+      name: 'Copy of Fake Faithful Form',
+      status: 'DRAFT',
+      category: source.category,
+      service: source.service,
+      description: source.description,
+      internalNotes: source.internalNotes,
+      settings: source.settings,
+    });
+    expect(copy.sections).toEqual(source.sections);
+    expect((await assignee(copy.id)).defaultAssignedUserId).toBe(adminA.id);
+    // Changing the copy leaves the source as it was.
+    ok(
+      await call('put', `/intake-forms/${copy.id}`, ownerA, {
+        name: 'Fake Faithful Form, changed',
+        category: 'PERSONAL_TAX',
+        description: 'Changed words',
+        sections: content.slice(0, 1),
+        settings: { requireSignature: false, expiresAfterDays: 3 },
+      }),
+    );
+    const after = IntakeFormDetail.parse(
+      ok(await call('get', `/intake-forms/${source.id}`, ownerA)),
+    );
+    expect(after).toMatchObject({
+      name: source.name,
+      description: source.description,
+      settings: source.settings,
+    });
+    expect(after.sections).toEqual(source.sections);
+  });
 });
 
 describe('another firm', () => {
