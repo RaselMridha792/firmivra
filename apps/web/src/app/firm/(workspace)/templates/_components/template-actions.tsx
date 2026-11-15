@@ -5,6 +5,7 @@ import { ActionMenu, type ActionMenuItem, Button, Checkbox, Modal } from '@firmi
 import {
   Archive,
   ArrowCounterClockwise,
+  PauseCircle,
   CheckCircle,
   Copy,
   DotsThreeVertical,
@@ -24,12 +25,12 @@ import { PreviewDialog } from './template-dialogs';
 import { TEMPLATES_KEY, TEMPLATE_ERRORS, dayText, quiet } from './templates-shared';
 import { templateUse } from './use-template';
 
-type Dialog = 'preview' | 'share' | 'archive';
+type Dialog = 'preview' | 'share' | 'archive' | 'deactivate';
 
 /**
- * The three-dot menu of one template: Edit, Preview, Activate (a draft, CM-F12), Duplicate, Share,
- * Favorite, Archive. Activate is an Owner's or Admin's; Staff see who can do it. Archive asks first
- * (TP-F10).
+ * The three-dot menu of one template: Edit, Preview, Activate (a draft, CM-F12), Deactivate (an
+ * active one, C22), Duplicate, Share, Favorite, Archive. Activate and Deactivate are an Owner's or
+ * Admin's; Staff see who can do them. Deactivate and Archive ask first (TP-F10).
  */
 export function TemplateMenu({
   row,
@@ -54,6 +55,11 @@ export function TemplateMenu({
   const activate = useApiMutation(async () => {
     const t = await api.templates.get(row.id);
     return api.templates.update(row.id, { status: 'ACTIVE', etag: t.etag });
+  }, options);
+  // C22: an active template back to draft: no longer offered for use until it is activated again.
+  const deactivate = useApiMutation(async () => {
+    const t = await api.templates.get(row.id);
+    return api.templates.update(row.id, { status: 'DRAFT', etag: t.etag });
   }, options);
   const item = (
     label: string,
@@ -82,6 +88,18 @@ export function TemplateMenu({
             : {
                 ...item('Activate', CheckCircle, () =>
                   onNotice('Ask an Owner or Admin to activate this template.', 'error'),
+                ),
+                restricted: 'Owner or Admin',
+              },
+        ]
+      : []),
+    ...(row.status === 'ACTIVE'
+      ? [
+          canActivate
+            ? item('Deactivate', PauseCircle, () => setDialog('deactivate'))
+            : {
+                ...item('Deactivate', PauseCircle, () =>
+                  onNotice('Ask an Owner or Admin to deactivate this template.', 'error'),
                 ),
                 restricted: 'Owner or Admin',
               },
@@ -125,6 +143,40 @@ export function TemplateMenu({
             onNotice('Sharing saved.', 'success');
           }}
         />
+      ) : null}
+      {dialog === 'deactivate' ? (
+        <Modal
+          open
+          title="Deactivate this template?"
+          subtitle={row.name}
+          onClose={() => setDialog(undefined)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(undefined)}>
+                Keep Active
+              </Button>
+              <Button
+                disabled={deactivate.isPending}
+                onClick={() =>
+                  deactivate.mutate(undefined, {
+                    onSuccess: () => {
+                      setDialog(undefined);
+                      onNotice(`${row.name} is a draft again.`, 'success');
+                    },
+                    onError: fail,
+                  })
+                }
+              >
+                Deactivate
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text" data-testid="deactivate-note">
+            It goes back to draft: New Message, Communications and automations stop offering it
+            until an Owner or Admin activates it again. What was already sent stays as it is.
+          </p>
+        </Modal>
       ) : null}
       {dialog === 'archive' ? (
         <ArchiveDialog

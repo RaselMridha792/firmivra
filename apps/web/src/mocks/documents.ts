@@ -452,8 +452,21 @@ function noCategories(): boolean {
   }
 }
 
+/** The firm documents mock's files, for a mock that links one of them (a tax return's Documents). */
+let firmStore: ReturnType<typeof store> | undefined;
+
+/**
+ * A firm document as the documents mock holds it now (its scan settled), or undefined: the tax
+ * return mock names and scans a linked file from here, as the API reads it from the document.
+ */
+export function mockFirmDocument(id: string): FirmDocument | undefined {
+  const d = firmStore?.documents.find((x) => x.id === id);
+  return d ? firmStore!.view(d) : undefined;
+}
+
 export function createDocumentsMock(options: { role?: MockFirmRole } = {}): DocumentsClient {
   const s = store();
+  firmStore = s;
   const reachable = (clientId: string) => {
     if (serviceMockClient(clientId)) return clientId;
     const c = clientFixtures().find((x) => x.id === clientId);

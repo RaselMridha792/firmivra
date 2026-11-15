@@ -627,6 +627,96 @@ describe('Review 2 (TX-F21): a validation line is never deleted', () => {
   });
 });
 
+// Tax Returns Review 2 (F21): who may act on a resolution.
+describe('Review 2 (TX-F21): who may resolve', () => {
+  it('refuses a member who reaches the return but is neither its preparer, its reviewer nor an Owner or Admin', async () => {
+    // Staff A2's own client, so A2 reaches the return; Staff A prepares it, Admin A reviews it.
+    const clientId = await inFirm(
+      'a',
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: {
+              businessId: firms.a,
+              displayName: 'Dana Three (fake)',
+              assignedUserId: staffA2.id,
+            },
+          })
+        ).id,
+    );
+    const id = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId,
+        taxYear: 2025,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+      }),
+      TaxReturnDetail,
+      201,
+    ).id;
+    const issue = ok(
+      await call('post', `/tax-returns/${id}/issues`, adminA, {
+        severity: 'ERROR',
+        note: 'Fake: the 1099-B basis is missing',
+        responsibleUserId: staffA.id,
+      }),
+      TaxValidationIssueList,
+    ).items[0]!.id;
+    const line = ok(
+      await call('post', `/tax-returns/${id}/checklist`, adminA, {
+        section: 'VALIDATION',
+        label: 'Fake: basis check',
+        result: 'ERROR',
+      }),
+      TaxChecklist,
+    ).items.find((l) => l.label === 'Fake: basis check')!.id;
+
+    // A2 sees the issue, is told it is not theirs to resolve, and is refused when they try.
+    const seen = (await issuesOf(id, staffA2)).find((i) => i.id === issue)!;
+    expect(seen.canResolve).toBe(false);
+    expectError(
+      await call('patch', `/tax-returns/${id}/issues/${issue}`, staffA2, {
+        resolved: true,
+        reason: 'Fake: looks fine to me',
+        resolution: 'VALID',
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    // Nor may A2 mark the validation line Valid or lower it.
+    expectError(
+      await call('patch', `/tax-returns/${id}/checklist/${line}`, staffA2, {
+        result: 'VALID',
+        reason: 'Fake: looks fine to me',
+      }),
+      403,
+      'FORBIDDEN',
+    );
+    // Nothing changed and nothing was recorded for A2.
+    expect((await issuesOf(id, adminA)).find((i) => i.id === issue)!.resolvedAt).toBeNull();
+    expect(
+      ok(await call('get', `/tax-returns/${id}/checklist`, adminA), TaxChecklist).items.find(
+        (l) => l.id === line,
+      )!.result,
+    ).toBe('ERROR');
+    const byA2 = await inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { businessId: firms.a, entityId: id, actorUserId: staffA2.id } }),
+    );
+    expect(byA2).toBe(0);
+    // The return's reviewer may.
+    const resolved = ok(
+      await call('patch', `/tax-returns/${id}/issues/${issue}`, adminA, {
+        resolved: true,
+        reason: 'Fake: basis added',
+      }),
+      TaxValidationIssueList,
+    ).items.find((i) => i.id === issue)!;
+    expect(resolved.resolvedAt).not.toBeNull();
+  });
+});
+
 describe('another firm', () => {
   it('reaches none of it', async () => {
     const [issue] = await issuesOf(ids.r!, ownerA);

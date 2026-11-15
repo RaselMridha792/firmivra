@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
   type BulkDocumentsResult,
@@ -26,7 +26,8 @@ import {
 } from '../storage/document-records.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { DocumentRequestsService } from '../storage/document-requests.service.js';
-import { UploadsService } from '../storage/uploads.service.js';
+import { tellShared, UploadsService } from '../storage/uploads.service.js';
+import { Notifier } from '../notifications/notifier.js';
 import { checkDocumentFileSize } from '../storage/document-file-size.js';
 import { memberNames } from '../workspaces/common.js';
 import {
@@ -86,7 +87,10 @@ export class DocumentLibraryService {
     private readonly uploads: UploadsService,
     private readonly requests: DocumentRequestsService,
     private readonly grants: PermissionGrantsService,
+    private readonly notifier: Notifier,
   ) {}
+
+  private readonly logger = new Logger(DocumentLibraryService.name);
 
   private inFirm<T>(tenant: TenantContext, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId: tenant.businessId }, fn);
@@ -469,14 +473,14 @@ export class DocumentLibraryService {
     clientVisible: boolean,
   ): Promise<LibraryDocument> {
     const businessId = tenant.businessId;
-    return this.inFirm(tenant, async (tx) => {
+    const result = await this.inFirm(tenant, async (tx) => {
       const row = await this.find(tx, tenant, userId, id, true);
       if (row.direction === 'CLIENT_TO_FIRM') {
         throw conflict('CLIENT_UPLOAD', 'The client uploaded this file, so they always see it');
       }
       if (row.trashedAt) throw conflict('INVALID_STATUS', 'Restore the document from Trash first');
       const to = clientVisible ? 'FIRM_TO_CLIENT' : 'INTERNAL';
-      if (row.direction === to) return this.one(tx, tenant, row);
+      if (row.direction === to) return { doc: await this.one(tx, tenant, row), tell: false };
       if (clientVisible && row.folder) {
         const folder = await tx.documentFolder.findUnique({
           where: { id: row.folder.id },
@@ -489,7 +493,11 @@ export class DocumentLibraryService {
       if (!clientVisible && row.documentShares.length > 0) {
         throw conflict('SHARE_ACTIVE', "Revoke the client's share before hiding the file");
       }
-      await tx.document.update({ where: { id }, data: { direction: to } });
+      const changed = await tx.document.update({
+        where: { id },
+        data: { direction: to },
+        select: { scanStatus: true },
+      });
       await this.audit.logIn(
         tx,
         'document.visibility_changed',
@@ -497,8 +505,18 @@ export class DocumentLibraryService {
         { clientId: row.clientId, from: row.direction, to },
         { businessId },
       );
-      return this.one(tx, tenant, await this.find(tx, tenant, userId, id));
+      const doc = await this.one(tx, tenant, await this.find(tx, tenant, userId, id));
+      // C2-055: a file the client now sees is told to them, as an upload or a Share is: now when
+      // it is clean, or by its scan result when it is still being checked.
+      return { doc, tell: clientVisible && changed.scanStatus === 'CLEAN' };
     });
+    if (result.tell)
+      await tellShared(this.notifier, this.logger, {
+        businessId,
+        documentId: id,
+        uploadedByUserId: userId,
+      });
+    return result.doc;
   }
 
   async move(

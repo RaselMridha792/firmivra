@@ -22,6 +22,7 @@ import { OriginLink } from '../../../../../../../components/origin-link';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiQuery } from '../../../../../../../lib/query';
+import { useFirmTimeZone } from '../../../../intake-forms/_components/expiry';
 
 // MSG-F16: the client's Activity tab, their own timeline (newest first). An entry names what
 // happened, when and by whom, and opens its record; it never shows a message's text or files.
@@ -39,8 +40,10 @@ const ICON: Record<ClientTimelineKind, Icon> = {
   OTHER: Pulse,
 };
 
-const when = (iso: string) =>
+/** In the firm's time zone (the lead's N8-05 note), as every firm date. */
+const when = (iso: string, timeZone: string | undefined) =>
   new Date(iso).toLocaleString('en-US', {
+    timeZone,
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -56,14 +59,16 @@ export function ClientActivityScreen() {
     api.clients.timeline(id, cursor ? { cursor } : {}),
   );
   const items = page.data?.items ?? [];
+  const timeZone = useFirmTimeZone();
   return (
     <Card>
       <section aria-label="Activity" data-testid="client-activity" className="flex flex-col gap-3">
         <div>
           <h2 className="text-lg font-bold text-heading">Activity</h2>
           <p className="text-sm text-muted">
-            What happened with this client, newest first. Messages appear here when they are sent
-            with Add to Client Timeline.
+            Everything recorded about this client, newest first: their portal replies, documents and
+            requests, tasks, appointments, invoices, signatures, notes and profile changes. A
+            message from the firm appears when it is sent with Add to Client Timeline.
           </p>
         </div>
         {page.isPending ? (
@@ -75,12 +80,12 @@ export function ClientActivityScreen() {
         ) : items.length === 0 ? (
           <EmptyState
             title={cursor ? 'No more activity' : 'No activity yet'}
-            description="Send a message with Add to Client Timeline and it shows here."
+            description="Events for this client show here as they are recorded."
           />
         ) : (
           <ol className="flex flex-col divide-y divide-divider" aria-label="Activity, newest first">
             {items.map((e) => (
-              <Entry key={e.id} entry={e} />
+              <Entry key={e.id} entry={e} timeZone={timeZone} />
             ))}
           </ol>
         )}
@@ -104,7 +109,13 @@ export function ClientActivityScreen() {
   );
 }
 
-function Entry({ entry: e }: { entry: ClientTimelineEntry }) {
+function Entry({
+  entry: e,
+  timeZone,
+}: {
+  entry: ClientTimelineEntry;
+  timeZone: string | undefined;
+}) {
   const Glyph = ICON[e.kind];
   return (
     <li className="flex items-start gap-3 py-3" data-testid="activity-entry">
@@ -114,7 +125,7 @@ function Entry({ entry: e }: { entry: ClientTimelineEntry }) {
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="font-semibold break-words text-heading">{e.title}</span>
         {e.summary ? <span className="text-sm text-muted">{e.summary}</span> : null}
-        <span className="text-xs text-muted">{when(e.occurredAt)}</span>
+        <span className="text-xs text-muted">{when(e.occurredAt, timeZone)}</span>
       </span>
       {e.href ? (
         <OriginLink href={e.href} className="shrink-0 text-sm font-semibold text-link">
@@ -134,6 +145,7 @@ export function RecentActivityCard({ clientId }: { clientId: string }) {
     api.clients.timeline(clientId, { limit: 5 }),
   );
   const items = page.data?.items ?? [];
+  const timeZone = useFirmTimeZone();
   return (
     <Card
       title={
@@ -160,7 +172,7 @@ export function RecentActivityCard({ clientId }: { clientId: string }) {
         ) : (
           <ol className="flex flex-col divide-y divide-divider" aria-label="Recent activity">
             {items.map((e) => (
-              <Entry key={e.id} entry={e} />
+              <Entry key={e.id} entry={e} timeZone={timeZone} />
             ))}
           </ol>
         )}

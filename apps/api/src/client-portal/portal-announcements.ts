@@ -1,9 +1,27 @@
-import { Controller, Get, Inject, Injectable, Module } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Injectable,
+  Module,
+  NotFoundException,
+  Param,
+  Post,
+} from '@nestjs/common';
 import type { Database } from '@firmivra/db';
-import { AnnouncementPlace, type MyAnnouncement, type MyAnnouncementList } from '@firmivra/types';
+import {
+  type AnnouncementOpened,
+  AnnouncementPlace,
+  CommunicationId,
+  type MyAnnouncement,
+  type MyAnnouncementList,
+} from '@firmivra/types';
+import { AuditService } from '../audit/audit.service.js';
 import { CurrentTenant, Roles } from '../auth/decorators.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { NotifyConfig } from '../notify/config.js';
 import { firmImages } from '../notify/email-html.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
@@ -28,7 +46,71 @@ export class PortalAnnouncementsService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(NOTIFY_CONFIG) private readonly notify: NotifyConfig,
+    private readonly audit: AuditService,
   ) {}
+
+  /**
+   * C26 (Communications Review 2): the signed-in client opened one of their live announcements.
+   * Their recipient row counts the open (the first one is kept) and Results gets an OPENED
+   * event, as an email's open does. 404 for one that isn't theirs, live, or an announcement.
+   */
+  async opened(businessId: string, clientAccountId: string, id: string): Promise<void> {
+    const scope = this.db.forBusiness(businessId);
+    const account = await scope.clientAccount.findFirst({
+      where: { businessId, id: clientAccountId },
+      select: { clientId: true },
+    });
+    if (!account?.clientId)
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+    const now = new Date();
+    const recipient = await scope.communicationRecipient.findFirst({
+      where: {
+        businessId,
+        communicationId: id,
+        clientId: account.clientId,
+        status: { not: 'NOT_SENT' },
+        communication: {
+          channel: 'ANNOUNCEMENT',
+          status: 'SENT',
+          archivedAt: null,
+          AND: [
+            { OR: [{ publishStartsAt: null }, { publishStartsAt: { lte: now } }] },
+            { OR: [{ publishEndsAt: null }, { publishEndsAt: { gt: now } }] },
+          ],
+        },
+      },
+      select: { id: true, status: true, firstOpenedAt: true },
+    });
+    if (!recipient) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+    // The open and its event together.
+    await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      await tx.communicationRecipient.update({
+        where: { id: recipient.id },
+        data: {
+          openCount: { increment: 1 },
+          ...(recipient.firstOpenedAt ? {} : { firstOpenedAt: now }),
+          // Delivered becomes Opened; a later state (clicked, unsubscribed) stays.
+          ...(['SENT', 'DELIVERED'].includes(recipient.status)
+            ? { status: 'OPENED' as const }
+            : {}),
+        },
+      });
+      await tx.communicationEvent.create({
+        data: {
+          businessId,
+          communicationId: id,
+          recipientId: recipient.id,
+          type: 'OPENED',
+          occurredAt: now,
+        },
+      });
+    });
+    await this.audit.log(
+      'communication.announcement_opened',
+      { type: 'communication', id },
+      { clientAccountId },
+    );
+  }
 
   /** The signed-in client's live announcements, newest first. Their client record, never the URL. */
   async mine(businessId: string, clientAccountId: string): Promise<MyAnnouncementList> {
@@ -115,6 +197,18 @@ export class MyAnnouncementsController {
   mine(@CurrentTenant() tenant: TenantContext): Promise<MyAnnouncementList> {
     if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
     return this.announcements.mine(tenant.businessId, tenant.clientAccountId);
+  }
+
+  /** C26: the client opened this announcement (its page); counted in its Results. */
+  @Post(':id/opened')
+  @HttpCode(200)
+  async opened(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', new ZodValidationPipe(CommunicationId)) id: string,
+  ): Promise<AnnouncementOpened> {
+    if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
+    await this.announcements.opened(tenant.businessId, tenant.clientAccountId, id);
+    return { ok: true };
   }
 }
 

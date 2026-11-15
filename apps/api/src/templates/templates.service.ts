@@ -290,6 +290,10 @@ export class TemplatesService {
       if (next.status === 'ACTIVE' && cur.status !== 'ACTIVE' && !isAdmin(actor)) {
         throw templateErrors.activateNotAllowed();
       }
+      // C22: taking an active template back to draft (Deactivate) is an Owner's or Admin's too.
+      if (cur.status === 'ACTIVE' && next.status === 'DRAFT' && !isAdmin(actor)) {
+        throw templateErrors.deactivateNotAllowed();
+      }
       if (next.status === 'ACTIVE' && SUBJECT_KINDS.has(kind) && !next.subject) {
         throw templateErrors.subjectRequired();
       }

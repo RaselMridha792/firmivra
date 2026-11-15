@@ -338,7 +338,17 @@ export function TemplatesScreen() {
                   ? 'We could not load the templates. Try again in a moment.'
                   : 'Try another tab, category or search.'
               }
-              rowActions={(r) => <TemplateMenu row={r} onNotice={notice} />}
+              // C24: Use on every row (My Templates, Shared with Me, Favorites), as in the library.
+              rowActions={(r) => (
+                <span className="flex items-center justify-end gap-2">
+                  <UseTemplate
+                    row={r}
+                    onNotice={notice}
+                    className="inline-flex min-h-9 items-center rounded-control bg-info-soft px-4 text-sm font-semibold text-action hover:bg-accent-soft"
+                  />
+                  <TemplateMenu row={r} onNotice={notice} />
+                </span>
+              )}
               server={{
                 page: results.data?.page ?? 1,
                 total: results.data?.total ?? 0,
