@@ -13,6 +13,10 @@ import {
   SendOutboundRequest,
   UpdateOutboundRequest,
   ClientId,
+  type ClientMessagePreference,
+  type MessageDelivery,
+  resolveEmailChoices,
+  SetClientMessagePreferenceRequest,
   type ClientNotesClient,
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
@@ -128,8 +132,16 @@ interface LeadThreadRow {
   archivedAt: string | null;
   createdAt: string;
 }
+/** Review 2 (Messaging): a client's saved email choices, as the API keeps them. */
+interface SavedEmailPreference {
+  emailNotice: boolean | null;
+  emailIncludesBody: boolean | null;
+  emailIncludesDocuments: boolean | null;
+  updatedAt: string;
+}
 interface Store {
   settings?: MessageSettings;
+  preferences?: Map<string, SavedEmailPreference>;
   threads: ThreadRow[];
   messages: Message[];
   leadThreads: LeadThreadRow[];
@@ -1104,10 +1116,39 @@ const settingsOf = (): MessageSettings =>
     allowedAttachmentTypes: [...MESSAGE_SETTINGS_DEFAULTS.allowedAttachmentTypes],
     smsReady: false,
     defaultAssignee: null,
+    clientEmailBodyAllowed: true,
     timezone: 'America/New_York',
     updatedAt: null,
     updatedBy: null,
   });
+
+/** Review 2 (Messaging): clients' saved email choices, as the API keeps them. */
+const prefs = () => (s().preferences ??= new Map<string, SavedEmailPreference>());
+const firmEmail = () => {
+  const s = settingsOf();
+  return {
+    emailNotice: s.clientEmailNotice,
+    emailIncludesBody: s.clientEmailIncludesBody,
+    emailIncludesDocuments: s.clientEmailIncludesDocuments,
+  };
+};
+const preferenceOf = (clientId: string): ClientMessagePreference => {
+  const saved = prefs().get(clientId) ?? null;
+  return {
+    firm: firmEmail(),
+    saved: saved ? { ...saved, updatedBy: { ...mockMe } } : null,
+    effective: resolveEmailChoices(firmEmail(), saved),
+    bodyAllowed: true,
+  };
+};
+/** As the API: the send, else the saved preference, else the firm; Save keeps it. */
+const deliver = (clientId: string, delivery: MessageDelivery | undefined) => {
+  if (!delivery) return;
+  const { saveForClient, ...send } = delivery;
+  if (!saveForClient) return;
+  const resolved = resolveEmailChoices(firmEmail(), prefs().get(clientId) ?? null, send);
+  prefs().set(clientId, { ...resolved, updatedAt: new Date().toISOString() });
+};
 
 /** An in-memory `api.messages`. */
 export function createMessagesMock(
@@ -1213,6 +1254,26 @@ export function createMessagesMock(
       );
     },
     get: async (threadId) => (await mockDelay(), detail(find(threadId))),
+    preference: async (clientId) => {
+      await mockDelay();
+      const cid = parseInput(ClientId, clientId);
+      if (!reaches(cid)) throw notFound();
+      return preferenceOf(cid);
+    },
+    setPreference: async (clientId, body) => {
+      await mockDelay();
+      const cid = parseInput(ClientId, clientId);
+      const b = parseInput(SetClientMessagePreferenceRequest, body);
+      if (!reaches(cid)) throw notFound();
+      if (
+        b.emailNotice === null &&
+        b.emailIncludesBody === null &&
+        b.emailIncludesDocuments === null
+      )
+        prefs().delete(cid);
+      else prefs().set(cid, { ...b, updatedAt: new Date().toISOString() });
+      return preferenceOf(cid);
+    },
     create: async (clientId, body) => {
       await mockDelay();
       const cid = parseInput(ClientId, clientId);
@@ -1232,12 +1293,14 @@ export function createMessagesMock(
       };
       s().threads.push(t);
       addMessage(t, staff(me), b.body);
+      deliver(cid, b.delivery);
       return detail(t);
     },
     send: async (threadId, body) => {
       await mockDelay();
       const t = find(threadId);
       const b = parseInput(SendFirmMessageRequest, body);
+      deliver(t.clientId, b.delivery);
       // MSG-F12: the thread client's documents the client can see, within Messages Settings.
       const files: MessageAttachment[] = [];
       for (const documentId of b.documentIds ?? []) {
@@ -1396,6 +1459,11 @@ export function createMessagesMock(
       if (version !== undefined && version !== current.updatedAt)
         throw fail(409, 'STALE_VERSION', 'Someone saved these settings since you opened them.');
       const set = Object.fromEntries(Object.entries(change).filter(([, v]) => v !== undefined));
+      // As the API: the email's text and documents go only in an email that is sent.
+      if ((set['clientEmailNotice'] ?? current.clientEmailNotice) === false) {
+        set['clientEmailIncludesBody'] = false;
+        set['clientEmailIncludesDocuments'] = false;
+      }
       s().settings = {
         ...current,
         ...set,
