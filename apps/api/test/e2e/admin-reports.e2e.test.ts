@@ -34,7 +34,8 @@ const people = {
   ownerA: { id: randomUUID(), email: `r55r-owner-${run}@r55.test`, pool: 'STAFF' as const },
 };
 const firms = {} as Record<'a' | 'b', string>;
-const today = new Date().toISOString().slice(0, 10);
+// The UTC day, read when used (a run that crosses midnight UTC uses the API's new day).
+const today = () => new Date().toISOString().slice(0, 10);
 let app: INestApplication;
 const tokens = new Map<string, string>();
 
@@ -129,7 +130,7 @@ beforeAll(async () => {
     });
     // Two days of rollups for firm A: users, documents, a feature.
     for (const [d, users, docs] of [
-      [today, 7, 3],
+      [today(), 7, 3],
       [new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), 6, 2],
     ] as const) {
       await tx.platformFirmMetricsDaily.create({
@@ -181,7 +182,7 @@ afterAll(async () => {
 describe('the dashboard', () => {
   it('answers the overview with live figures and uptime as not available', async () => {
     const o = AdminReportsOverview.parse(ok(await call('get', '/overview')));
-    expect(o.range.to).toBe(today);
+    expect(o.range.to).toBe(today());
     expect(o.kpis.uptimePercent).toEqual({ value: null, previous: null });
     expect(o.kpis.totalFirms.value).toBeGreaterThanOrEqual(2);
     expect(o.firmGrowth).toHaveLength(6);
@@ -258,7 +259,7 @@ describe('firms', () => {
     const joined = async (q: string) =>
       AdminFirmsReport.parse(ok(await call('get', `/firms?search=r55r-a-${run}&${q}`))).items
         .length;
-    expect(await joined(`joinedFrom=${today}&joinedTo=${today}`)).toBe(1);
+    expect(await joined(`joinedFrom=${today()}&joinedTo=${today()}`)).toBe(1);
     expect(await joined('joinedTo=2020-01-01')).toBe(0);
     const a = AdminFirmReport.parse(ok(await call('get', `/firms/${firms.a}`)));
     expect(a).toMatchObject({
