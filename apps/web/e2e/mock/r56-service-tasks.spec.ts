@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 // SH4 (Octavia's Oct 25 review: PY-F04, the Bookkeeping Tasks contract; TX-F13 to F15 for R60):
 // Create Task opens Tasks prefilled with the client, the service and its period, with Back to the
@@ -6,6 +6,15 @@ import { expect, test } from '@playwright/test';
 // an inline status and the Tasks module's own action menu. Mock mode, as an Owner.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = `http://app.localhost:${port}`;
+
+/** T-C04: the Task Type dropdown: open it and choose a type (the first by default). */
+async function chooseType(page: Page, name?: string) {
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await (
+    name ? list.getByRole('option', { name, exact: true }) : list.getByRole('option').nth(1)
+  ).click();
+}
 const GREEN = '0199c0f0-9c00-7000-8000-000000000001';
 
 test('Payroll: Create Task is prefilled, Back asks first, and the new task is listed with its status and menu', async ({
@@ -14,16 +23,14 @@ test('Payroll: Create Task is prefilled, Back asks first, and the new task is li
   await page.goto(`${app}/payroll/clients/${GREEN}`);
   await page.getByTestId('quick-actions').getByRole('link', { name: 'Create Task' }).click();
   await expect(page).toHaveURL(/\/tasks\/new\?clientId=.+&engagementId=.+&from=/);
-  await expect(page.getByLabel('Client', { exact: true }).locator('option:checked')).toHaveText(
-    'Green Leaf Café LLC',
-  );
+  await expect(page.getByRole('combobox', { name: 'Client' })).toHaveValue('Green Leaf Café LLC');
   await expect(page.getByLabel('Related to').locator('option:checked')).toHaveText(/Payroll/);
 
   await page.locator('#tf-title').fill('Fake: collect the Q4 timesheets');
   await page.getByTestId('back-to-origin').click();
   await expect(page.getByRole('dialog', { name: 'Leave without saving?' })).toBeVisible();
   await page.getByRole('button', { name: 'Stay on This Page' }).click();
-  await page.getByLabel('Task type').selectOption({ index: 1 });
+  await chooseType(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Save Task' }).click();

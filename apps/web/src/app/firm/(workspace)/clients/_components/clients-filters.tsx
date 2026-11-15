@@ -439,7 +439,8 @@ export function ClientsFilterRow({
       >
         <SearchField
           label="Search clients"
-          placeholder="Search clients by name, email, phone, or company..."
+          placeholder="Search clients by name, email, phone, company, or Client ID..."
+          aria-describedby="client-search-hint"
           maxLength={100}
           minWidth="12rem"
           className="!h-9 [&_input]:!text-xs"
@@ -493,6 +494,11 @@ export function ClientsFilterRow({
           onChange={({ from, to }) => onChange({ from, to })}
         />
       </FilterBar>
+      {/* Clients Review 2 §3 and N8-06: which identifiers the search takes, and how to type a phone. */}
+      <p id="client-search-hint" className="text-xs text-muted" data-testid="client-search-hint">
+        Search by name, email, company or Client ID (CL-10024). Phone: type numbers only, e.g.
+        5551234567.
+      </p>
       {chips.length ? (
         <div
           className="flex flex-wrap gap-2"

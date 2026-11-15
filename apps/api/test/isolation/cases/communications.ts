@@ -97,6 +97,42 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** C26: an announcement published to client X, live in their portal. */
+  portalAnnouncement: {
+    clientPrivate: true,
+    async create({ tx, businessId, owner, get }) {
+      const c = await tx.communication.create({
+        data: {
+          businessId,
+          channel: 'ANNOUNCEMENT',
+          name: `Fake announcement ${tag()}`,
+          body: '<p>Fake news.</p>',
+          status: 'SENDING',
+          createdByUserId: owner.id,
+          startedAt: STAMP,
+          selectedCount: 1,
+          autoExcludedCount: 0,
+          manualExcludedCount: 0,
+          finalCount: 1,
+        },
+      });
+      // Recipients are added while it is sending.
+      await tx.communicationRecipient.create({
+        data: {
+          businessId,
+          communicationId: c.id,
+          clientId: await get('client'),
+          status: 'DELIVERED',
+          addressMask: '***-portal',
+        },
+      });
+      await tx.communication.update({
+        where: { id: c.id },
+        data: { status: 'SENT', sentAt: STAMP },
+      });
+      return c.id;
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -238,5 +274,10 @@ export const cases: CaseModule['cases'] = {
     params: {},
     bodyIds: { clientId: 'client' },
     body: { clientId: PLACEHOLDER, channel: 'EMAIL', status: 'OPTED_OUT' },
+  },
+  // C26: the client opened an announcement published to them.
+  'POST /api/v1/portal/:firmSlug/me/announcements/:id/opened': {
+    params: { id: 'portalAnnouncement' },
+    body: {},
   },
 };

@@ -40,8 +40,9 @@ export function ClientIntakesScreen() {
       title={
         <span className="flex flex-wrap items-center justify-between gap-2">
           Intake Forms
+          {/* Clients Review 2 §3/§6: with this client chosen. */}
           <OriginLink
-            href="/intake-forms/send"
+            href={`/intake-forms/send?clientId=${clientId}`}
             className="text-sm font-medium text-link hover:underline"
           >
             Send an Intake Form

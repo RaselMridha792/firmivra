@@ -1,9 +1,10 @@
 'use client';
 
-import type { CommunicationRow, CommunicationTab } from '@firmivra/types';
+import type { CommunicationRow, CommunicationStatus, CommunicationTab } from '@firmivra/types';
 import {
   ActionMenu,
   Button,
+  Input,
   KpiCard,
   Modal,
   Select,
@@ -50,6 +51,7 @@ import {
   hrefOf,
   linkBtn,
   quiet,
+  statusLabel,
 } from './communications-shared';
 import { SegmentsPanel } from './segments-panel';
 
@@ -94,8 +96,8 @@ export function CommunicationsScreen() {
   const [tab, setTab] = useState<TabId>('overview');
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [picker, setPicker] = useState<'template' | 'draft' | 'recipients'>();
-  /** CM-F01: the channel a KPI card opened Sent History with. */
-  const [listChannel, setListChannel] = useState<Channel | ''>('');
+  /** CM-F01, C23: the filter a KPI card opened Sent History with. */
+  const [preset, setPreset] = useState<ListPreset>({});
   /** CM-F04: a channel that could not start because it is not connected. */
   const [blocked, setBlocked] = useState<Channel>();
   const notice = (text: string, tone: 'success' | 'error') => setMessage({ text, tone });
@@ -115,17 +117,28 @@ export function CommunicationsScreen() {
       else notice(errorMessage(e, COMM_ERRORS), 'error');
     }
   };
-  const openSent = (channel: Channel | '') => {
-    setListChannel(channel);
+  const openSent = (p: ListPreset) => {
+    setPreset(p);
     setTab('sent');
   };
 
-  const emails = useApiQuery([...COMM_KEY, 'count', 'EMAIL'], () =>
-    api.communications.list({ tab: 'sent', channel: 'EMAIL', page: 1, pageSize: 1 }),
+  // C23: every card counts what it opens: Sent History's sent ones of the last 30 days (by the
+  // day sent), of a channel or all, and their recipients; each opens that same list.
+  const since = daysAgo(30);
+  const window = { status: 'SENT' as const, from: since };
+  const counted = (channel?: Channel) =>
+    api.communications.list({
+      tab: 'sent',
+      ...window,
+      ...(channel ? { channel } : {}),
+      page: 1,
+      pageSize: 1,
+    });
+  const allSent = useApiQuery([...COMM_KEY, 'list', 'count', 'ALL', since], () => counted());
+  const emails = useApiQuery([...COMM_KEY, 'list', 'count', 'EMAIL', since], () =>
+    counted('EMAIL'),
   );
-  const texts = useApiQuery([...COMM_KEY, 'count', 'SMS'], () =>
-    api.communications.list({ tab: 'sent', channel: 'SMS', page: 1, pageSize: 1 }),
-  );
+  const texts = useApiQuery([...COMM_KEY, 'list', 'count', 'SMS', since], () => counted('SMS'));
 
   const columns: Column<CommunicationRow>[] = [
     {
@@ -385,7 +398,7 @@ export function CommunicationsScreen() {
               aria-selected={tab === t.id}
               onClick={() => {
                 setTab(t.id);
-                setListChannel('');
+                setPreset({});
               }}
               className={`-mb-px min-h-11 shrink-0 border-b-2 px-4 text-sm whitespace-nowrap ${tab === t.id ? 'border-action font-semibold text-action' : 'border-transparent font-medium text-heading hover:text-action'}`}
             >
@@ -442,23 +455,29 @@ export function CommunicationsScreen() {
             >
               {/* CM-F01: each card opens Sent History with its filter set. */}
               <li>
-                <button type="button" className={kpiLink} onClick={() => openSent('')}>
+                <button type="button" className={kpiLink} onClick={() => openSent(window)}>
                   <KpiCard
                     icon={EnvelopeSimple}
                     tone="blue"
-                    value={o?.kpis.sent ?? '—'}
+                    value={allSent.data?.total ?? '—'}
                     label="Total Sent"
-                    loading={overview.isPending}
+                    note="Last 30 days"
+                    loading={allSent.isPending && !allSent.isError}
                   />
                   <span className="sr-only">: open Sent History</span>
                 </button>
               </li>
               <li>
-                <button type="button" className={kpiLink} onClick={() => openSent('EMAIL')}>
+                <button
+                  type="button"
+                  className={kpiLink}
+                  onClick={() => openSent({ ...window, channel: 'EMAIL' })}
+                >
                   <KpiCard
                     icon={ChatCircleDots}
                     tone="purple"
                     value={emails.data?.total ?? '—'}
+                    note="Last 30 days"
                     label="Emails Sent"
                     loading={emails.isPending && !emails.isError}
                   />
@@ -466,11 +485,16 @@ export function CommunicationsScreen() {
                 </button>
               </li>
               <li>
-                <button type="button" className={kpiLink} onClick={() => openSent('SMS')}>
+                <button
+                  type="button"
+                  className={kpiLink}
+                  onClick={() => openSent({ ...window, channel: 'SMS' })}
+                >
                   <KpiCard
                     icon={DeviceMobile}
                     tone="green"
                     value={texts.data?.total ?? '—'}
+                    note="Last 30 days"
                     label="Texts Sent"
                     loading={texts.isPending && !texts.isError}
                   />
@@ -478,15 +502,22 @@ export function CommunicationsScreen() {
                 </button>
               </li>
               <li>
-                <button type="button" className={kpiLink} onClick={() => openSent('')}>
+                <button
+                  type="button"
+                  className={kpiLink}
+                  onClick={() => openSent({ ...window, sort: 'performance' })}
+                >
                   <KpiCard
                     icon={UsersThree}
                     tone="amber"
-                    value={o?.kpis.recipientsReached ?? '—'}
+                    value={allSent.data?.recipients ?? '—'}
                     label="Total Recipients"
-                    loading={overview.isPending}
+                    note="Last 30 days"
+                    loading={allSent.isPending && !allSent.isError}
                   />
-                  <span className="sr-only">: open Sent History, each with its recipients</span>
+                  <span className="sr-only">
+                    : open Sent History, the most recipients first, with their total
+                  </span>
                 </button>
               </li>
             </ul>
@@ -733,9 +764,9 @@ export function CommunicationsScreen() {
         <SegmentsPanel canManage={o?.canManageSegments ?? false} onNotice={notice} />
       ) : (
         <ListPanel
-          key={`${tab}:${listChannel}`}
+          key={`${tab}:${JSON.stringify(preset)}`}
           tab={tab as CommunicationTab}
-          initialChannel={listChannel}
+          initial={preset}
           columns={columns}
           canManage={canCreate}
           onNotice={notice}
@@ -760,35 +791,74 @@ export function CommunicationsScreen() {
   );
 }
 
+/** CM-F01, C23: what a KPI card opens Sent History with. */
+interface ListPreset {
+  channel?: Channel;
+  status?: CommunicationStatus;
+  from?: string;
+  sort?: ListSort;
+}
+type ListSort = 'newest' | 'oldest' | 'name' | 'performance';
+const SORTS: { value: ListSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'name', label: 'Name A–Z' },
+  { value: 'performance', label: 'Most recipients' },
+];
+/** C32: the statuses each list can show. */
+const TAB_STATUSES: Partial<Record<CommunicationTab, CommunicationStatus[]>> = {
+  sent: ['SENT', 'FAILED', 'CANCELLED'],
+  campaigns: ['DRAFT', 'SCHEDULED', 'SENDING', 'PAUSED', 'SENT', 'FAILED', 'CANCELLED'],
+  announcements: ['DRAFT', 'SCHEDULED', 'SENT', 'CANCELLED'],
+};
+/** The calendar day `n` days ago (UTC, as the list's date filter reads it). */
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
 function ListPanel({
   tab,
-  initialChannel = '',
+  initial = {},
   columns,
   canManage,
   onNotice,
 }: {
   tab: CommunicationTab;
-  /** The Type a KPI card opened it with (CM-F01). */
-  initialChannel?: string;
+  /** The filter a KPI card opened it with (CM-F01, C23). */
+  initial?: ListPreset;
   columns: Column<CommunicationRow>[];
   canManage: boolean;
   onNotice: (t: string, tone: 'success' | 'error') => void;
 }) {
   const [search, setSearch] = useState('');
-  const [channel, setChannel] = useState(initialChannel);
+  const [channel, setChannel] = useState<string>(initial.channel ?? '');
+  // C32: status, the dates and the order of the list.
+  const [status, setStatus] = useState<string>(initial.status ?? '');
+  const [from, setFrom] = useState(initial.from ?? '');
+  const [to, setTo] = useState('');
+  const [sort, setSort] = useState<ListSort>(initial.sort ?? 'newest');
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const term = useDeferredValue(search.trim());
-  const list = useApiQuery([...COMM_KEY, 'list', tab, term, channel, archived, page], () =>
-    api.communications.list({
-      tab,
-      ...(term ? { search: term } : {}),
-      ...(channel ? { channel: channel as CommunicationRow['channel'] } : {}),
-      ...(archived ? { archived: true } : {}),
-      page,
-      pageSize: 10,
-    }),
+  const statuses = TAB_STATUSES[tab];
+  const list = useApiQuery(
+    [...COMM_KEY, 'list', tab, term, channel, status, from, to, sort, archived, page],
+    () =>
+      api.communications.list({
+        tab,
+        ...(term ? { search: term } : {}),
+        ...(channel ? { channel: channel as CommunicationRow['channel'] } : {}),
+        ...(status ? { status: status as CommunicationStatus } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        ...(tab !== 'scheduled' ? { sort } : {}),
+        ...(archived ? { archived: true } : {}),
+        page,
+        pageSize: 10,
+      }),
   );
+  const change = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setPage(1);
+  };
   const titles: Record<string, string> = {
     campaigns: 'Bulk Campaigns',
     announcements: 'Announcements',
@@ -839,11 +909,71 @@ function ListPanel({
             />
           </div>
         ) : null}
+        {statuses ? (
+          <div className="w-40">
+            <Select
+              label="Status"
+              hideLabel
+              value={status}
+              onChange={(e) => change(setStatus)(e.target.value)}
+              options={[
+                { value: '', label: 'Any status' },
+                ...statuses.map((v) => ({ value: v, label: statusLabel(v) })),
+              ]}
+            />
+          </div>
+        ) : null}
+        <div className="w-40">
+          <Input
+            label={tab === 'sent' ? 'Sent from' : 'From'}
+            type="date"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => change(setFrom)(e.target.value)}
+          />
+        </div>
+        <div className="w-40">
+          <Input
+            label="To"
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => change(setTo)(e.target.value)}
+          />
+        </div>
+        {tab !== 'scheduled' ? (
+          <div className="w-44">
+            <Select
+              label="Sort by"
+              hideLabel
+              value={sort}
+              onChange={(e) => change((v) => setSort(v as ListSort))(e.target.value)}
+              options={SORTS}
+            />
+          </div>
+        ) : null}
         <Button variant="secondary" onClick={() => setArchived(!archived)}>
           {archived ? 'Hide archived' : 'Show archived'}
         </Button>
       </div>
-      <div className="relative">
+      {tab === 'sent' && list.data ? (
+        <p className="text-sm text-muted" data-testid="list-totals">
+          {list.data.total} {list.data.total === 1 ? 'communication' : 'communications'} ·{' '}
+          {list.data.recipients ?? 0} recipients
+        </p>
+      ) : null}
+      {/* C28: a click anywhere on a row opens it, as its name does (not on its menu or a link). */}
+      <div
+        className="relative [&_tbody_tr]:cursor-pointer"
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('a, button, input, select, textarea, [role="menu"]')) return;
+          target
+            .closest('tr')
+            ?.querySelector<HTMLAnchorElement>('a[data-testid="comm-link"]')
+            ?.click();
+        }}
+      >
         <Table
           rows={list.data?.items ?? []}
           columns={columns}

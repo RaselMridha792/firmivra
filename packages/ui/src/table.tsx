@@ -54,6 +54,11 @@ export interface TableProps<T> {
   selection?: TableSelection;
   /** The last "Actions" column: icon buttons and the row's menu. */
   rowActions?: (row: T) => ReactNode;
+  /**
+   * Keeps the Actions column on the right edge while the rest scrolls sideways (Tasks Review Two
+   * T-C08); a row's hover and selected colours carry into it.
+   */
+  stickyActions?: boolean;
   /** The plural in "Showing 1 – 8 of 127 clients". */
   noun?: string;
   /** The firm workspace lists' 12px text and slim header band. */
@@ -62,6 +67,10 @@ export interface TableProps<T> {
   onPageSize?: (size: number) => void;
 }
 const cellX = 'px-3 first:pl-4 last:pr-4';
+/** The pinned Actions column (stickyActions): its own background, so text scrolls under it. */
+const stickyHead = 'sticky right-0 z-10 border-l border-divider bg-table-head';
+const stickyCell =
+  'sticky right-0 z-10 border-l border-divider bg-surface group-hover:bg-subtle group-data-selected:bg-info-soft';
 export function Table<T>({
   rows,
   columns,
@@ -78,6 +87,7 @@ export function Table<T>({
   keepHeaderWhenEmpty = false,
   selection,
   rowActions,
+  stickyActions = false,
   noun = 'records',
   dense,
   pageSizes,
@@ -184,7 +194,10 @@ export function Table<T>({
               );
             })}
             {rowActions ? (
-              <th scope="col" className={`${head} text-right ${cellX}`}>
+              <th
+                scope="col"
+                className={`${head} text-right ${cellX} ${stickyActions ? stickyHead : ''}`}
+              >
                 Actions
               </th>
             ) : null}
@@ -221,7 +234,7 @@ export function Table<T>({
                   <tr
                     key={key}
                     data-selected={picked.has(key) || undefined}
-                    className="border-b border-divider hover:bg-subtle data-selected:bg-info-soft"
+                    className="group border-b border-divider hover:bg-subtle data-selected:bg-info-soft"
                   >
                     {selection ? (
                       <td className={`py-2.5 ${cellX}`}>
@@ -240,7 +253,7 @@ export function Table<T>({
                       </td>
                     ))}
                     {rowActions ? (
-                      <td className={`py-2.5 ${cellX}`}>
+                      <td className={`py-2.5 ${cellX} ${stickyActions ? stickyCell : ''}`}>
                         <div className="flex items-center justify-end gap-2">{rowActions(row)}</div>
                       </td>
                     ) : null}

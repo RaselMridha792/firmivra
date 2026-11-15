@@ -1,5 +1,5 @@
 /**
- * The Tasks overview's eight views; `?view=` on /tasks opens one (the template editor returns to
+ * The Tasks overview's nine views; `?view=` on /tasks opens one (the template editor returns to
  * `templates`). No imports, so the server page can read it.
  */
 export const TASK_VIEWS = [
@@ -12,5 +12,7 @@ export const TASK_VIEWS = [
   'completed',
   // Octavia's A2.
   'drafts',
+  // Tasks Review Two T-C13: archived tasks, each with Restore.
+  'archived',
 ] as const;
 export type TaskView = (typeof TASK_VIEWS)[number];

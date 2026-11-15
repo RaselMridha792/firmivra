@@ -78,6 +78,8 @@ const last4 = z
 /** One row of the clients list (no profile, SSN, EIN or date of birth). */
 export const ClientListItem = z.object({
   id: z.uuid(),
+  /** Clients Review 2 §3: the Client ID people see and search by, "CL-10024" (never changes). */
+  clientNumber: z.string(),
   accountType: ClientAccountType,
   displayName: z.string(),
   email: z.string().nullable(),
@@ -549,6 +551,15 @@ export const DuplicatePhoneDetails = z.object({
       name: z.string(),
       clientNumber: z.string(),
       archived: z.boolean(),
+      /** Clients Review 2 §5: what tells two clients apart, beside the name and Client ID. */
+      accountType: ClientAccountType,
+      /** The match's email, else its phone; null when it has neither. */
+      contact: z.string().nullable(),
+      /** The assigned staff member's name; null when unassigned. */
+      assignedTo: z.string().nullable(),
+      status: ClientStatus,
+      /** Why it may be the same client: the same phone, or a probable name match. */
+      reason: z.enum(['PHONE', 'NAME']),
     }),
   ),
 });
@@ -743,6 +754,12 @@ export type MyTaxYearList = z.infer<typeof MyTaxYearList>;
 export const ClientErrorCode = z.enum([
   /** 409: another client of the firm has this email. */
   'DUPLICATE_EMAIL',
+  /**
+   * 409 (Clients Review 2 §6): a business client of the firm has a likely matching name (case,
+   * punctuation and endings such as LLC or Inc aside). Details as DUPLICATE_PHONE's, each match's
+   * reason NAME; sent again with `allowDuplicatePhone` (the same Create Anyway), it is saved.
+   */
+  'POSSIBLE_DUPLICATE',
   /** 409: the record is archived; restore it first. */
   'CLIENT_ARCHIVED',
   /** 409: the tax status is archived and cannot be assigned. */

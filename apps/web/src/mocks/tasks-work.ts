@@ -177,7 +177,7 @@ const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): Task
     overdue: false,
     assignedTo: mockMe,
     additionalAssigneeCount: 0,
-    checklist: { done: 0, total: 0 },
+    checklist: { done: 0, total: 0, requiredOpen: 0 },
     blocked: false,
     recurring: false,
     clientVisible: false,
@@ -272,7 +272,14 @@ function seed(empty: boolean): Store {
       title,
       client: CLIENTS[c]!,
       type: ty(t),
-      engagement: { id: uuid('0f10', i + 1), title: project },
+      engagement: {
+        id: uuid('0f10', i + 1),
+        title: project,
+        // T-D04: the business plan task is about the advisory mock's first client.
+        ...(i === 0
+          ? { workspace: { kind: 'ADVISORY' as const, id: '0199c0f1-a200-7000-8000-000000000001' } }
+          : {}),
+      },
       engagementId: uuid('0f10', i + 1),
       priority,
       progress,
@@ -286,6 +293,7 @@ function seed(empty: boolean): Store {
       checklist: {
         done: checklistItems.filter((x) => x.completedAt).length,
         total: checklistItems.length,
+        requiredOpen: checklistItems.filter((x) => x.required && !x.completedAt).length,
       },
       details:
         i === 0
@@ -526,6 +534,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     t.checklist = {
       done: t.checklistItems.filter((i) => i.completedAt).length,
       total: t.checklistItems.length,
+      requiredOpen: t.checklistItems.filter((i) => i.required && !i.completedAt).length,
     };
     t.additionalAssigneeCount = t.additionalAssignees.length;
     const dep = t.dependsOn ? s.tasks.find((x) => x.id === t.dependsOn?.id) : undefined;
@@ -838,9 +847,14 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         .filter(
           (t) =>
             !search ||
-            [t.title, t.client.displayName, t.type?.name ?? '', t.service?.name ?? ''].some((x) =>
-              x.toLowerCase().includes(search),
-            ),
+            // T-D03, as the API: Related To (its engagement) is searched too.
+            [
+              t.title,
+              t.client.displayName,
+              t.type?.name ?? '',
+              t.service?.name ?? '',
+              t.engagement?.title ?? '',
+            ].some((x) => x.toLowerCase().includes(search)),
         );
       const dir = q.direction === 'desc' ? -1 : 1;
       const rank = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
@@ -1187,7 +1201,8 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         touch(t);
         updated++;
       }
-      if (updated === 0 && skipped.length === b.ids.length)
+      // As the API: a 404 only when nothing was found at all; other skips come back named.
+      if (updated === 0 && skipped.every((x) => x.reason === 'NOT_FOUND'))
         throw fail(404, 'NOT_FOUND', 'Not found');
       return { updated, skipped };
     },

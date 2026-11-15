@@ -3,10 +3,21 @@
 import { ApiRequestError, DuplicatePhoneDetails } from '@firmivra/types';
 import { Badge, Button, Modal } from '@firmivra/ui';
 import { ArrowSquareOut } from '@phosphor-icons/react';
+import { ACCOUNT_TYPES } from './client-parts';
+import { STAGES } from './list-parts';
 
-/** The matches of a 409 DUPLICATE_PHONE, or null for any other error. */
+const REASON = { PHONE: 'Same phone number', NAME: 'Similar name' } as const;
+
+/**
+ * The matches of a 409 DUPLICATE_PHONE, or (Clients Review 2 §6) a business's POSSIBLE_DUPLICATE
+ * name match; null for any other error. Both are confirmed by the same Create Anyway.
+ */
 export function duplicateOf(error: unknown): DuplicatePhoneDetails | null {
-  if (!(error instanceof ApiRequestError) || error.code !== 'DUPLICATE_PHONE') return null;
+  if (
+    !(error instanceof ApiRequestError) ||
+    (error.code !== 'DUPLICATE_PHONE' && error.code !== 'POSSIBLE_DUPLICATE')
+  )
+    return null;
   const parsed = DuplicatePhoneDetails.safeParse(error.rawDetails);
   return parsed.success ? parsed.data : { count: 1, matches: [] };
 }
@@ -31,11 +42,17 @@ export function DuplicatePhoneDialog({
   onCancel: () => void;
 }) {
   const hidden = details.count - details.matches.length;
+  // §6: a business name match says so; otherwise it is the phone, as before.
+  const byName = details.matches.length > 0 && details.matches.every((m) => m.reason === 'NAME');
   return (
     <Modal
       open
       title="Possible duplicate client"
-      subtitle="Another client of your firm already has this phone number."
+      subtitle={
+        byName
+          ? 'Another business client of your firm has a similar name.'
+          : 'Another client of your firm already has this phone number.'
+      }
       onClose={onCancel}
       footer={
         <>
@@ -59,6 +76,16 @@ export function DuplicatePhoneDialog({
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-heading">{m.name}</span>
                 <span className="block text-xs text-muted">{m.clientNumber}</span>
+                {/* Clients Review 2 §5: what tells two clients apart, and why it was matched. */}
+                <span className="block text-xs text-muted" data-testid="duplicate-facts">
+                  {[
+                    ACCOUNT_TYPES[m.accountType],
+                    m.contact ?? 'No email or phone',
+                    m.assignedTo ? `Assigned to ${m.assignedTo}` : 'Unassigned',
+                    STAGES[m.status].label,
+                    REASON[m.reason],
+                  ].join(' · ')}
+                </span>
               </span>
               {m.archived ? <Badge tone="neutral">Archived</Badge> : null}
               <a
@@ -76,8 +103,9 @@ export function DuplicatePhoneDialog({
       ) : null}
       {hidden > 0 ? (
         <p className="mt-2 text-xs text-muted">
-          {hidden} more client{hidden === 1 ? '' : 's'} with this phone{' '}
-          {hidden === 1 ? 'is' : 'are'} not assigned to you.
+          {hidden} more client{hidden === 1 ? '' : 's'} with{' '}
+          {byName ? 'a similar name' : 'this phone'} {hidden === 1 ? 'is' : 'are'} not assigned to
+          you.
         </p>
       ) : null}
     </Modal>

@@ -6152,8 +6152,13 @@ model PaymentSettings {
   /// "Due Soon": an open invoice due within this many days.
   dueSoonDays             Int              @default(14) @map("due_soon_days")
   reminderDaysBefore      Int              @default(3) @map("reminder_days_before")
+  /// I-N04 (r60_invoice_reminder_steps): the days before the due date a reminder goes (0: the due
+  /// date), one to five, each 0 to 60. reminder_days_before stays equal to the largest for now.
+  reminderDaysBeforeList  Int[]            @default([3]) @map("reminder_days_before_list")
   /// Repeat the overdue reminder every this many days (0: once).
   overdueReminderDays     Int              @default(7) @map("overdue_reminder_days")
+  /// I-N04: at most this many overdue notices, 1 to 12.
+  overdueReminderMax      Int              @default(3) @map("overdue_reminder_max")
   retryAttempts           Int              @default(3) @map("retry_attempts")
   retryIntervalDays       Int              @default(3) @map("retry_interval_days")
   lateFeeEnabled          Boolean          @default(false) @map("late_fee_enabled")

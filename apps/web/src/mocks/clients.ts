@@ -63,6 +63,8 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
   // Parsed, so a fixture that breaks the contract fails as soon as the mock loads.
   ClientRecord.parse({
     id: clientId(n),
+    // Clients Review 2 §3, as the API: CL- and the firm's number (here 10000 + n).
+    clientNumber: `CL-${10000 + n}`,
     accountType: 'INDIVIDUAL',
     email: null,
     phone: null,
@@ -444,6 +446,51 @@ export function createClientsMock(
       throw fail(409, 'DUPLICATE_EMAIL', 'Another client has this email');
     }
   };
+  /** Clients Review 2 §5, as the API: what a possible duplicate shows of each match. */
+  const duplicateMatch = (r: ClientRecord, reason: 'PHONE' | 'NAME') => ({
+    id: r.id,
+    name: r.displayName,
+    clientNumber: r.clientNumber,
+    archived: !!r.archivedAt,
+    accountType: r.accountType,
+    contact: r.email ?? r.phone,
+    assignedTo: r.assignedTo?.name ?? null,
+    status: workOf(r.id).status,
+    reason,
+  });
+  /** Clients Review 2 §6, as the API: a business with a likely matching name pauses the save. */
+  const ENDINGS =
+    /\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|the|pllc|pc|lp|llp)\b/g;
+  const companyKey = (name: string) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, '')
+      .replace(ENDINGS, '')
+      .replace(/\s+/g, '');
+  const uniqueCompany = (
+    accountType: string,
+    name: string,
+    allow: boolean | undefined,
+    exceptId?: string,
+  ) => {
+    if (accountType !== 'BUSINESS' || allow || companyKey(name).length < 2) return;
+    const same = rows.filter(
+      (r) =>
+        r.id !== exceptId &&
+        r.accountType === 'BUSINESS' &&
+        companyKey(r.displayName) === companyKey(name),
+    );
+    if (same.length === 0) return;
+    throw new ApiRequestError(
+      409,
+      'POSSIBLE_DUPLICATE',
+      'Another business client has a similar name',
+      undefined,
+      undefined,
+      undefined,
+      { count: same.length, matches: same.map((r) => duplicateMatch(r, 'NAME')) },
+    );
+  };
   /** As the API (Clients Review 2): the same phone digits as another client pauses the save. */
   const uniquePhone = (
     phone: string | null | undefined,
@@ -463,12 +510,7 @@ export function createClientsMock(
       undefined,
       {
         count: same.length,
-        matches: same.map((r) => ({
-          id: r.id,
-          name: r.displayName,
-          clientNumber: `CL-${10000 + Number(r.id.slice(-12))}`,
-          archived: !!r.archivedAt,
-        })),
+        matches: same.map((r) => duplicateMatch(r, 'PHONE')),
       },
     );
   };
@@ -918,6 +960,7 @@ export function createClientsMock(
       if (staffOnly && assignedUserId) throw forbidden();
       uniqueEmail(data.email);
       uniquePhone(data.phone, allowDuplicatePhone);
+      uniqueCompany(data.accountType, data.displayName, allowDuplicatePhone);
       const row = fixture(nextId++, {
         ...data,
         assignedTo: staffOnly ? mockStaff : assignee(assignedUserId ?? null),
@@ -940,6 +983,11 @@ export function createClientsMock(
       notArchived(row);
       uniqueEmail(data.email, row.id);
       uniquePhone(data.phone, allowDuplicatePhone, row.id);
+      // §6, as the API: a business renamed (or made a business) to a likely match.
+      const type = data.accountType ?? row.accountType;
+      const name = data.displayName ?? row.displayName;
+      if (name !== row.displayName || type !== row.accountType)
+        uniqueCompany(type, name, allowDuplicatePhone, row.id);
       const defined = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
       return save({
         ...row,

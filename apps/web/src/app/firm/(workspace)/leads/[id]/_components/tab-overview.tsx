@@ -1,6 +1,6 @@
 'use client';
 
-import type { ContactChannel, LeadProfile } from '@firmivra/types';
+import type { ContactChannel, LeadProfile, LeadScore } from '@firmivra/types';
 import { Avatar, Badge, Button, Callout, Modal, tileTones } from '@firmivra/ui';
 import {
   Cake,
@@ -127,6 +127,34 @@ function Figure({
 }
 
 /**
+ * Lead scoring v1 (Leads checklist): the score's label, and "Why this score", the parts that gave
+ * or took points, in plain words (packages/types score.ts), opened on demand so the figure stays
+ * the design's size.
+ */
+function ScoreNote({ score }: { score: LeadScore }) {
+  return (
+    <>
+      <span>{score.label}</span>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-xs text-link">Why this score</summary>
+        <ul aria-label="Why this score" className="mt-1 flex flex-col gap-0.5 text-xs">
+          {score.factors.map((f) => (
+            <li key={f.label} className="flex justify-between gap-2">
+              <span className="min-w-0">{f.label}</span>
+              <span
+                className={`shrink-0 font-semibold ${f.points < 0 ? 'text-danger' : 'text-success'}`}
+              >
+                {f.points < 0 ? `−${-f.points}` : `+${f.points}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </>
+  );
+}
+
+/**
  * Lead Profile > Overview (individual-lead-profile-lead-workspace.jpg; Octavia's Leads review of
  * Oct 20, item 4): Contact Information and Lead Details, the three figures, Recent Activity and
  * Upcoming Appointments, Next Action / Follow-Up, Open Tasks and Quick Actions, all from
@@ -209,6 +237,9 @@ function MergeLinks({ lead }: { lead: LeadProfile }) {
 export function OverviewTab() {
   const { id, profile: lead, open } = useProfile();
   const [declining, setDeclining] = useState(false);
+  // The Follow-Up card is remounted when the lead's version changes (a save), so the form opens on
+  // the saved values; its notice lives here so "Follow-up saved." survives that remount.
+  const [followUpMessage, setFollowUpMessage] = useState<string>();
   const decline = useApiMutation(
     () => api.leadPipeline.update(id, { version: lead?.version, stage: 'DECLINED' }),
     { invalidate: LEAD_PIPELINE_KEY },
@@ -434,8 +465,8 @@ export function OverviewTab() {
               tone="red"
               label="Lead Score"
               testId="figure-lead-score"
-              value={lead?.score ? lead.score.value : '—'}
-              note={lead?.score ? lead.score.label : 'Not scored yet'}
+              value={lead ? lead.score.value : '—'}
+              note={lead ? <ScoreNote score={lead.score} /> : 'Not scored yet'}
             />
             <Figure
               icon={FileText}
@@ -475,7 +506,12 @@ export function OverviewTab() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 min-[1440px]:col-span-1">
-          <FollowUpCard key={lead ? lead.version : 'none'} lead={lead} />
+          <FollowUpCard
+            key={lead ? lead.version : 'none'}
+            lead={lead}
+            message={followUpMessage}
+            onMessage={setFollowUpMessage}
+          />
           <OpenTasksCard />
           <CardFrame icon={Lightning} title="Quick Actions" testId="card-quick-actions">
             <div className="grid grid-cols-2 gap-2">
