@@ -293,12 +293,21 @@ export function ReturnsScreen({
       setSelected([]);
     };
 
+  // Review 2 (Print/Export List): a window opened after the export's await is blocked as a
+  // pop-up, so nothing appeared. A link with the file's name downloads it instead.
   const exportList = async () => {
     const link = await act(
       () => api.taxReturnWorkspace.exportList({ ...query, page: 1 }),
       'Export ready.',
     );
-    if (link) window.open(link.url, '_blank', 'noopener');
+    if (!link) return;
+    const a = document.createElement('a');
+    a.href = link.url;
+    a.download = link.fileName;
+    a.rel = 'noopener';
+    document.body.append(a);
+    a.click();
+    a.remove();
   };
   const bulkArchive = async () => {
     const ids = selected;
