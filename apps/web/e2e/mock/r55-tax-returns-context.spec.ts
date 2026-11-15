@@ -40,3 +40,39 @@ test('Request Client Information from a searched and filtered list comes Back to
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Jamie Sample');
 });
+
+// Tax Returns Review 2 (F03da): Full Review's Signatures opens Firm Sign for this client and this
+// return's service, and Back returns to Full Review.
+test('Full Review Signatures: View / Send opens Firm Sign on the client and the return’s service, with Back', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/tax-returns?q=Morgan%20Testwell'));
+  await page.getByTestId('return-link').first().click({ timeout: 60_000 });
+  await expect(page).toHaveURL(/\/tax-returns\/[0-9a-f-]{36}/);
+  const review = `${page.url().split('?')[0]}/review`;
+  await page.goto(review);
+  const send = page.getByTestId('signatures').getByRole('link', { name: 'View / Send' });
+  const href = new URL((await send.getAttribute('href', { timeout: 60_000 }))!, app('/'));
+  const clientId = href.searchParams.get('clientId');
+  const engagementId = href.searchParams.get('engagementId');
+  expect(engagementId).toMatch(/^[0-9a-f-]{36}$/);
+
+  await send.click();
+  await expect(page).toHaveURL(
+    /\/firm-sign\/new\?clientId=[0-9a-f-]+&engagementId=[0-9a-f-]+&from=/,
+    {
+      timeout: 60_000,
+    },
+  );
+  const client = page.getByLabel('Client', { exact: true });
+  await expect(client).toHaveValue(clientId!, { timeout: 60_000 });
+  await expect(client.locator('option:checked')).toHaveText('Morgan Testwell');
+  const service = page.getByLabel('Service (optional)');
+  await expect(service).toHaveValue(engagementId!);
+  await expect(service.locator('option:checked')).toHaveText(`${season} Tax Return`);
+
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(review);
+  await expect(page.getByTestId('signatures')).toBeVisible();
+});
