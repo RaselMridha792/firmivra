@@ -72,8 +72,13 @@ const iso = (ms: number) => new Date(ms).toISOString();
 const lengthOf = (row: { startsAt: Date; endsAt: Date }) =>
   row.endsAt.getTime() - row.startsAt.getTime();
 
-/** What the client sees: never internal reasons, other clients or the staff member's id. */
-export function toMine(row: AppointmentRow, now: number): MyAppointment {
+/**
+ * What the client sees: never internal reasons, other clients or the staff member's id. A1: an
+ * appointment the client attends (another client's group appointment) shows the same, never who
+ * else attends, and only its own client changes it (`changeableUntil` null for the attendee).
+ */
+export function toMine(row: AppointmentRow, now: number, clientId: string): MyAppointment {
+  const attending = row.clientId.toLowerCase() !== clientId.toLowerCase();
   return {
     id: row.id,
     type: row.type ? { id: row.type.id, name: row.type.name } : null,
@@ -83,11 +88,17 @@ export function toMine(row: AppointmentRow, now: number): MyAppointment {
     status: row.status,
     locationKind: legacyKind(row.locationKind),
     locationDetails: row.locationDetails,
-    changeableUntil: changeableUntil(row, DEFAULT_CUTOFF_HOURS, now)?.toISOString() ?? null,
+    changeableUntil: attending
+      ? null
+      : (changeableUntil(row, DEFAULT_CUTOFF_HOURS, now)?.toISOString() ?? null),
     // Review 2 (B9): the firm's instructions, when it shows them in the portal.
     instructions: row.instructionsInPortal ? row.clientInstructions : null,
+    attending,
   };
 }
+
+/** A1: the people an appointment books, its client and each attendee. */
+const peopleOf = (row: AppointmentRow) => [row.clientId, ...row.attendees.map((a) => a.clientId)];
 
 /**
  * The signed-in client's own appointments at one firm (portal; contract in
@@ -147,7 +158,10 @@ export class MyAppointmentsService {
       : null;
   }
 
-  /** One of the client's own appointments; anything else is 404. */
+  /**
+   * One of the client's own appointments; anything else is 404. One the client only attends
+   * (A1) is not theirs to change: 404 here too.
+   */
   private async mine(
     tx: TxClient,
     businessId: string,
@@ -190,7 +204,11 @@ export class MyAppointmentsService {
       const rows = await tx.appointment.findMany({
         where: {
           businessId,
-          clientId: me.clientId,
+          // A1: their own and those they attend.
+          OR: [
+            { clientId: me.clientId },
+            { attendees: { some: { businessId, clientId: me.clientId } } },
+          ],
           ...(q.when === 'upcoming' ? upcoming : { NOT: upcoming }),
         },
         orderBy:
@@ -208,7 +226,7 @@ export class MyAppointmentsService {
         { when: q.when, count: rows.length },
       );
     }
-    return rows.map((r) => toMine(r, now.getTime()));
+    return me ? rows.map((r) => toMine(r, now.getTime(), me.clientId)) : [];
   }
 
   /** The firm's client-bookable types that are not archived, with their meeting methods. */
@@ -268,7 +286,9 @@ export class MyAppointmentsService {
       );
       const busy = await busyTimes(tx, businessId, dateSpan(timeZone, q.from, q.to));
       const query = { timeZone, from: q.from, to: q.to, minutes, notBefore: Date.now() };
-      const mineBusy = me ? clientBusy(busy, me.clientId, moving?.id) : [];
+      // A1: a new time for a group appointment suits each attendee too.
+      const people = moving ? peopleOf(moving) : me ? [me.clientId] : [];
+      const mineBusy = people.flatMap((c) => clientBusy(busy, c, moving?.id));
       const starts = new Map<number, number>();
       for (const m of members) {
         const taken = [...memberBusy(busy, m.userId, moving?.id), ...mineBusy];
@@ -325,7 +345,7 @@ export class MyAppointmentsService {
       return created;
     });
     await this.notices.send('appointment.booked', businessId, row.id, { clientAccountId });
-    return toMine(row, Date.now());
+    return toMine(row, Date.now(), row.clientId);
   }
 
   /** A new start from the slots, same length, before the cutoff. Same staff member when free. */
@@ -350,7 +370,8 @@ export class MyAppointmentsService {
         current,
         staff.userId,
       );
-      await lockForBooking(tx, businessId, staff.userId, current.clientId);
+      const [, ...attendees] = peopleOf(current);
+      await lockForBooking(tx, businessId, staff.userId, current.clientId, attendees);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {
@@ -368,9 +389,9 @@ export class MyAppointmentsService {
       });
       return { before: current, after: updated };
     });
-    if (!after) return toMine(before, Date.now());
+    if (!after) return toMine(before, Date.now(), before.clientId);
     await this.notices.send('appointment.changed', businessId, after.id, { clientAccountId });
-    return toMine(after, Date.now());
+    return toMine(after, Date.now(), after.clientId);
   }
 
   async cancel(
@@ -395,7 +416,7 @@ export class MyAppointmentsService {
       });
       return updated;
     });
-    return toMine(after, Date.now());
+    return toMine(after, Date.now(), after.clientId);
   }
 
   /**
@@ -404,7 +425,8 @@ export class MyAppointmentsService {
    *   SLOT_UNAVAILABLE;
    * - on the grid, but no one is free then: 409 SLOT_UNAVAILABLE (SLOT_TAKEN when this is a
    *   second try: the time was free a moment ago and someone took it);
-   * - the client has another appointment then: 409 SLOT_TAKEN (the database agrees);
+   * - the client has (or attends, A1) another appointment then, or for a new time of a group
+   *   appointment one of its attendees does: 409 SLOT_TAKEN (the database agrees on the client's);
    * - otherwise the member who has it now (a reschedule) if free, else the client's assigned
    *   member if free, else the free member with the fewest appointments that firm-local day.
    */
@@ -448,7 +470,8 @@ export class MyAppointmentsService {
         me.assignedUserId,
       );
     if (!picked) throw retry ? errors.slotTaken() : errors.slotUnavailable();
-    if (clientBusy(busy, me.clientId, moving?.id).some((b) => overlaps(b, slot))) {
+    const people = moving ? peopleOf(moving) : [me.clientId];
+    if (people.some((c) => clientBusy(busy, c, moving?.id).some((b) => overlaps(b, slot)))) {
       throw errors.slotTaken();
     }
     return { userId: picked.userId, name: picked.name };

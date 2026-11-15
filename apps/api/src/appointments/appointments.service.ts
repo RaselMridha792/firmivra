@@ -27,6 +27,7 @@ import {
   type AppointmentRow,
   busyTimes,
   clientBusy,
+  clientsBusy,
   dateSpan,
   type FirmActor,
   firmTimeZone,
@@ -225,7 +226,11 @@ export class AppointmentsService {
           : type.durationMinutes,
         notBefore: Date.now(),
       };
-      const clients = clientId ? clientBusy(busy, clientId, q.excludeAppointmentId) : [];
+      // A1: a new time for a group appointment suits each attendee too.
+      const people = clientId
+        ? [clientId, ...(moving?.attendees.map((x) => x.clientId) ?? [])]
+        : [];
+      const clients = people.flatMap((c) => clientBusy(busy, c, q.excludeAppointmentId));
       const slots = members.flatMap((staff) =>
         freeStarts(query, hours.get(staff.userId) ?? [], [
           ...memberBusy(busy, staff.userId, q.excludeAppointmentId),
@@ -293,6 +298,9 @@ export class AppointmentsService {
           ? await linkOf(this.links, tx, businessId, body.staffUserId)
           : null);
       await lockForBooking(tx, businessId, body.staffUserId, client.id);
+      // A1: not while the client attends another appointment (the database sees only their own).
+      const span = { start: startsAt.getTime(), end: startsAt.getTime() + minutes * MINUTE };
+      if (await clientsBusy(tx, businessId, [client.id], span)) throw errors.slotTaken();
       const created = await tx.appointment.create({
         data: {
           businessId,
@@ -359,7 +367,14 @@ export class AppointmentsService {
         current,
         staffUserId,
       );
-      await lockForBooking(tx, businessId, staffUserId, current.clientId);
+      const attendees = current.attendees.map((a) => a.clientId);
+      await lockForBooking(tx, businessId, staffUserId, current.clientId, attendees);
+      // A1: the new time suits the client and each attendee (the database sees only the client's
+      // own appointments).
+      const span = { start: startsAt.getTime(), end: startsAt.getTime() + length };
+      if (await clientsBusy(tx, businessId, [current.clientId, ...attendees], span, current.id)) {
+        throw errors.slotTaken();
+      }
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {

@@ -333,6 +333,44 @@ describe('conflict check', () => {
     expect(found.map((f) => f.kind).sort()).toEqual(['CLIENT_DOUBLE_BOOKED', 'ROOM']);
     expect(found.every((f) => f.hard)).toBe(true);
   });
+  it('A1: an attendee who has or attends another appointment then is double booked (hard)', () => {
+    const other = '66666666-6666-4666-8666-666666666666';
+    const attendee = '88888888-8888-4888-8888-888888888888';
+    const elsewhere = { staffUserId: other };
+    // The candidate's attendee has their own appointment then.
+    const own = findConflicts(
+      data({ appointments: [live('10:00', '11:00', { ...elsewhere, clientId: attendee })] }),
+      candidate('10:00', '11:00', { attendeeClientIds: [attendee] }),
+    );
+    expect(own).toMatchObject([
+      {
+        kind: 'CLIENT_DOUBLE_BOOKED',
+        hard: true,
+        message: 'An attendee already has an appointment at this time',
+      },
+    ]);
+    // The candidate's client attends another client's group appointment then.
+    const attending = findConflicts(
+      data({
+        appointments: [live('10:00', '11:00', { ...elsewhere, attendeeClientIds: [clientId] })],
+      }),
+      candidate('10:00', '11:00'),
+    );
+    expect(attending).toMatchObject([
+      {
+        kind: 'CLIENT_DOUBLE_BOOKED',
+        message: 'This client already has an appointment at this time',
+      },
+    ]);
+    // Neither names the other appointment's people, and a later time is free.
+    expect(JSON.stringify([...own, ...attending])).not.toContain('5555');
+    expect(
+      findConflicts(
+        data({ appointments: [live('10:00', '11:00', { ...elsewhere, clientId: attendee })] }),
+        candidate('11:00', '12:00', { attendeeClientIds: [attendee] }),
+      ),
+    ).toEqual([]);
+  });
   it('ignores the appointment being edited and cancelled ones (not loaded)', () => {
     const mine = live('10:00', '11:00');
     expect(

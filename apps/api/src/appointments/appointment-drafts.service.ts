@@ -1,13 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { AppointmentContact, AppointmentDraft, AppointmentDraftList } from '@firmivra/types';
+import type {
+  AppointmentContact,
+  AppointmentDraft,
+  AppointmentDraftList,
+  NamedItem,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { memberNames } from '../workspaces/common.js';
 import { activeMember, type FirmActor } from './calendar-data.js';
 import { errors } from './errors.js';
+import { attendeeClients } from './scheduling-data.js';
 import type { DraftBody } from './scheduling.input.js';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Draft = z.output<typeof DraftBody>;
 
@@ -48,11 +56,43 @@ export class AppointmentDraftsService {
 
   /** One of the member's drafts, with its client as the form shows it (to reopen it). */
   async get(businessId: string, actor: FirmActor, id: string): Promise<AppointmentDraft> {
-    const { row, contact } = await this.inFirm(businessId, async (tx) => {
+    const { row, contact, attendees } = await this.inFirm(businessId, async (tx) => {
       const row = await this.own(tx, businessId, actor, id);
-      return { row, contact: await this.contactOf(tx, businessId, actor, row.data) };
+      return {
+        row,
+        contact: await this.contactOf(tx, businessId, actor, row.data),
+        attendees: await this.attendeesOf(tx, businessId, actor, row.data),
+      };
     });
-    return toDraft(row, await this.nameOf(businessId, actor), contact);
+    return toDraft(row, await this.nameOf(businessId, actor), contact, attendees);
+  }
+
+  /** A1: the other attendees the draft names, by name: active clients in the member's reach. */
+  private async attendeesOf(
+    tx: TxClient,
+    businessId: string,
+    actor: FirmActor,
+    data: Prisma.JsonValue,
+  ): Promise<NamedItem[]> {
+    const named = (data as { attendeeClientIds?: unknown } | null)?.attendeeClientIds;
+    const ids = Array.isArray(named)
+      ? named.filter((v): v is string => typeof v === 'string' && UUID.test(v)).slice(0, 20)
+      : [];
+    if (ids.length === 0) return [];
+    const rows = await tx.client.findMany({
+      where: {
+        businessId,
+        id: { in: ids },
+        archivedAt: null,
+        ...(actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {}),
+      },
+      select: { id: true, displayName: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r.displayName]));
+    return ids.flatMap((id) => {
+      const name = byId.get(id.toLowerCase());
+      return name ? [{ id: id.toLowerCase(), name }] : [];
+    });
   }
 
   /** The draft's client as the form shows it; null when it names none in the member's reach. */
@@ -191,6 +231,9 @@ export class AppointmentDraftsService {
     if (body.roomId)
       await exists(tx.firmRoom.findFirst({ where: { businessId, id: body.roomId }, ...pick }));
     for (const userId of body.staffUserIds ?? []) await activeMember(tx, businessId, userId);
+    // A1: the other attendees, each a client the member may book (as the contact).
+    const own = contact?.kind === 'CLIENT' ? contact.id : null;
+    await attendeeClients(tx, businessId, actor, own, body.attendeeClientIds);
   }
 
   private async nameOf(businessId: string, actor: FirmActor): Promise<string | null> {
@@ -214,11 +257,13 @@ function toDraft(
   row: { id: string; data: Prisma.JsonValue; updatedAt: Date },
   createdBy: string | null,
   contact: AppointmentContact | null,
+  attendees: NamedItem[] = [],
 ): AppointmentDraft {
   return {
     id: row.id,
     data: (row.data ?? {}) as Record<string, unknown>,
     contact,
+    attendees,
     createdBy,
     updatedAt: row.updatedAt.toISOString(),
   };

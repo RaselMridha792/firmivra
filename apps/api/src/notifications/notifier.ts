@@ -132,6 +132,12 @@ export const errorName = (error: unknown) => {
 
 interface RecordInfo {
   clientId: string | null;
+  /**
+   * A1: the other clients who attend an appointment. Their PRIMARY logins are reached on the
+   * client side as the client's is, with the same values (never a name); the staff side stays the
+   * client's.
+   */
+  alsoClientIds?: string[];
   /** Safe values for the text: names, titles, dates, numbers. */
   values: Payload;
   /** A note reminder's owner, or the `user` record itself: the only person it may reach. */
@@ -214,11 +220,17 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
   appointment: async (tx, businessId, id) => {
     const r = await tx.appointment.findFirst({
       where: { businessId, id },
-      select: { clientId: true, startsAt: true, type: { select: { name: true } } },
+      select: {
+        clientId: true,
+        startsAt: true,
+        type: { select: { name: true } },
+        attendees: { select: { clientId: true } },
+      },
     });
     if (!r) return null;
     return {
       clientId: r.clientId,
+      alsoClientIds: r.attendees.map((a) => a.clientId),
       values: {
         title: short(r.type?.name) ?? 'Appointment',
         startsAt: r.startsAt.toISOString(),
@@ -438,7 +450,9 @@ async function recipientsOf(
       : record.clientId
         ? {
             businessId,
-            clientId: record.clientId,
+            clientId: record.alsoClientIds?.length
+              ? { in: [record.clientId, ...record.alsoClientIds] }
+              : record.clientId,
             portalRole: 'PRIMARY' as const,
             status: 'ACTIVE' as const,
           }

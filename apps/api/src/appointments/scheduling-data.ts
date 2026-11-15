@@ -7,6 +7,7 @@ import type {
   MemberRef,
 } from '@firmivra/types';
 import { appointmentSelect, type FirmActor, seesInFull } from './calendar-data.js';
+import { errors } from './errors.js';
 import {
   colorHex,
   displayStatus,
@@ -69,6 +70,11 @@ export const schedulingSelect = {
     },
   },
   type: { select: { id: true, name: true, color: true } },
+  // A1: the other clients who attend (a group appointment), for staff only.
+  attendees: {
+    orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+    select: { clientId: true, client: { select: { displayName: true } } },
+  },
   service: { select: { id: true, name: true } },
   office: { select: { id: true, name: true } },
   room: { select: { id: true, name: true } },
@@ -212,6 +218,7 @@ export function toRecord(
     timezone: row.timeZone ?? timezone,
     internalNotes: row.internalNotes,
     clientInstructions: row.clientInstructions,
+    attendees: row.attendees.map((a) => ({ id: a.clientId, name: a.client.displayName })),
     related: {
       taxReturn: row.engagement?.taxReturns[0]
         ? {
@@ -275,4 +282,38 @@ export async function findSchedulingRow(
     },
     select: schedulingSelect,
   });
+}
+
+/**
+ * A1: the other clients the form names to attend, without repeats and without the appointment's
+ * own client. Each is a client of this firm the member may see (as the client: Staff only their
+ * assigned ones), else 404; an archived one is refused as the client would be. The rows are
+ * locked FOR SHARE, so an archive or a reassignment waits for the booking (as `clientFor`).
+ */
+export async function attendeeClients(
+  tx: TxClient,
+  businessId: string,
+  actor: FirmActor,
+  clientId: string | null,
+  ids: readonly string[] | undefined,
+): Promise<string[]> {
+  const own = clientId?.toLowerCase();
+  const wanted = [...new Set((ids ?? []).map((id) => id.toLowerCase()))].filter((id) => id !== own);
+  if (wanted.length === 0) return [];
+  const rows = await tx.$queryRaw<
+    { id: string; archived_at: Date | null; assigned_user_id: string | null }[]
+  >`
+    SELECT id::text AS id, archived_at, assigned_user_id::text AS assigned_user_id
+    FROM clients WHERE business_id = ${businessId}::uuid AND id = ANY(${wanted}::uuid[])
+    ORDER BY id
+    FOR SHARE`;
+  if (rows.length !== wanted.length) throw errors.notFound();
+  if (
+    actor.role === 'STAFF' &&
+    rows.some((r) => r.assigned_user_id !== actor.userId.toLowerCase())
+  ) {
+    throw errors.notFound();
+  }
+  if (rows.some((r) => r.archived_at)) throw errors.clientArchived();
+  return wanted;
 }

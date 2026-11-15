@@ -618,6 +618,11 @@ export const MyAppointment = z.object({
   changeableUntil: DateTime.nullable(),
   /** Review 2 (B9): the firm's instructions for it, when the firm shows them in the portal. */
   instructions: z.string().nullable().default(null),
+  /**
+   * Appointments A1: the client attends another client's group appointment. It shows read only
+   * (only its own client changes it), and never who else attends.
+   */
+  attending: z.boolean().default(false),
 });
 export type MyAppointment = z.infer<typeof MyAppointment>;
 
