@@ -1,4 +1,4 @@
-import type { SignUpEvent, SignUpListStatus } from '@firmivra/types';
+import type { ClientSignupMode, SignUpEvent, SignUpListStatus } from '@firmivra/types';
 
 /** Every sign-ups query starts with this key. */
 export const SIGN_UPS = ['client-sign-ups'] as const;
@@ -58,3 +58,15 @@ export const EVENT_TEXT: Record<SignUpEvent['kind'], string> = {
   APPROVED: 'Approved',
   DECLINED: 'Declined',
 };
+
+/**
+ * Clients Review 2 (FC-02): the Waiting tab's empty-state help says what the firm's approval mode
+ * does with a verified sign-up (as Manage settings words it). Before the mode loads, the plain line.
+ */
+export function waitingHelp(mode: ClientSignupMode | undefined): string {
+  if (mode === 'AUTOMATIC')
+    return 'Automatic Approval is on: a sign-up with a verified email and phone that matches no client of your firm by email or phone is approved at once. A possible match waits here for your review.';
+  if (mode === 'MANUAL')
+    return 'Manual Review is on: when someone signs up on your client portal and verifies their email and phone, their request waits here for your review.';
+  return 'When someone signs up on your client portal and verifies their email and phone, their request waits here.';
+}

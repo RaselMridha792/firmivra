@@ -140,6 +140,10 @@ function mockClients(): MockClient[] {
   ];
 }
 
+/** A tax return's client is the firm's too: the messages mock reaches it (TR-4, row Send Message). */
+export const taxReturnMockClient = (clientId: string) =>
+  mockClients().some((c) => c.id === clientId);
+
 const maskedOf = (c: MockClient) =>
   c.last4 ? (c.accountType === 'BUSINESS' ? `**-***${c.last4}` : `***-**-${c.last4}`) : null;
 
@@ -628,8 +632,16 @@ function seedAll(): Stored[] {
   return rows;
 }
 
+/** Each return opened in this mock session, with its client: a request may name it (TR-2). */
+let openedReturns: Map<string, string> | undefined;
+const opened = () => (openedReturns ??= new Map());
+/** As the API: a request names only a return of the same client (404 otherwise). */
+export const taxReturnMockOf = (clientId: string, returnId: string) =>
+  opened().get(returnId) === clientId;
+
 /** A return's tax engagement in mock mode, registered so Upload and Request in place work. */
 function engagementOf(returnId: string, taxYear: number, c: { id: string; name: string }) {
+  opened().set(returnId, c.id);
   const id = `0199c1e0-0000-7000-8000-${returnId.slice(-12)}`;
   const title = `${taxYear} Tax Return`;
   registerServiceEngagement({

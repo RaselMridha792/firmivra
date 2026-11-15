@@ -176,6 +176,11 @@ export const CreateMessageThreadRequest = z.strictObject({
   repliesEnabled: z.boolean().optional(),
   /** Tax Returns Review 2 (Messaging): this send's email choices (see MessageDelivery). */
   delivery: MessageDelivery.optional(),
+  /**
+   * Clients Review 2 (N8-05): an entry on the client's Activity timeline (the subject, who and
+   * when, never the message). Default false; the client profile's New Message sends true.
+   */
+  addToTimeline: z.boolean().optional(),
 });
 export type CreateMessageThreadRequest = z.input<typeof CreateMessageThreadRequest>;
 

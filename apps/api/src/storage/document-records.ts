@@ -101,10 +101,11 @@ export async function lockRequest(tx: TxClient, businessId: string, id: string) 
       engagement_id: string;
       status: DocumentRequestStatus;
       packet_id: string | null;
+      tax_year: number | null;
     }[]
   >`
     SELECT client_id::text AS client_id, engagement_id::text AS engagement_id,
-           status::text AS status, packet_id::text AS packet_id
+           status::text AS status, packet_id::text AS packet_id, tax_year
     FROM document_requests r
     WHERE r.business_id = ${businessId}::uuid AND r.id = ${id}::uuid
       -- An item of a request (packet) not sent yet is nobody's to act on (R55).
@@ -118,8 +119,11 @@ export async function lockRequest(tx: TxClient, businessId: string, id: string) 
 export interface Target {
   engagement: { id: string; taxYear: number | null };
   category: { id: string; retentionYears: number | null } | null;
-  /** The open request an upload answers (REQUESTED or REJECTED), locked FOR UPDATE. */
-  request: { id: string; status: DocumentRequestStatus } | null;
+  /**
+   * The open request an upload answers (REQUESTED or REJECTED), locked FOR UPDATE. `taxYear`: a
+   * request made from a tax return names its year, and the file that answers it takes it (TR-2).
+   */
+  request: { id: string; status: DocumentRequestStatus; taxYear: number | null } | null;
 }
 
 /**
@@ -167,7 +171,10 @@ export async function findTarget(
   return {
     engagement: { id: engagement.id, taxYear: engagement.taxYear },
     category: category ? { id: category.id, retentionYears: category.retention_years } : null,
-    request: request && ids.requestId ? { id: ids.requestId, status: request.status } : null,
+    request:
+      request && ids.requestId
+        ? { id: ids.requestId, status: request.status, taxYear: request.tax_year }
+        : null,
   };
 }
 

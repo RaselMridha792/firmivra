@@ -123,6 +123,14 @@ export class DocumentRequestsService {
   ): Promise<FirmDocumentRequest> {
     const request = await this.inFirm(businessId, async (tx) => {
       const { archived } = await lockReachableClient(tx, businessId, actor, clientId);
+      // TR-2: made from a tax return, the request names that return (this client's) and its year.
+      const taxReturn = body.taxReturnId
+        ? await tx.taxReturn.findFirst({
+            where: { businessId, clientId, id: body.taxReturnId },
+            select: { id: true, taxYear: true },
+          })
+        : null;
+      if (body.taxReturnId && !taxReturn) throw notFound();
       await holdEngagement(tx, businessId, body.serviceId);
       const target = await findTarget(tx, businessId, clientId, {
         serviceId: body.serviceId,
@@ -138,6 +146,8 @@ export class DocumentRequestsService {
           title: body.title,
           instructions: body.instructions ?? null,
           dueOn: body.dueOn ? calendarDate(body.dueOn) : null,
+          taxReturnId: taxReturn?.id ?? null,
+          taxYear: taxReturn?.taxYear ?? null,
           requestedByUserId: actor.userId,
         },
         select: requestSelect,
@@ -150,6 +160,7 @@ export class DocumentRequestsService {
           clientId: row.clientId,
           serviceId: row.engagement.id,
           categoryId: row.category?.id ?? null,
+          taxReturnId: taxReturn?.id ?? null,
         },
         { businessId },
       );

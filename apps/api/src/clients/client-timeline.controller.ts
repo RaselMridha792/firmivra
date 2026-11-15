@@ -89,7 +89,8 @@ export class ClientTimelineService {
         },
       });
       const shown = rows.slice(0, q.limit);
-      // A sent message opens its conversation (a portal message) or its outcome in New Message.
+      // A sent message opens its conversation (a portal message) or its outcome in New Message; a
+      // conversation started from the client's Messages tab (N8-05) opens that conversation.
       const recipients = await tx.outboundMessageRecipient.findMany({
         where: {
           businessId,
@@ -113,7 +114,9 @@ export class ClientTimelineService {
             ? sent.message
               ? `/messages?thread=${sent.message.threadId}`
               : `/messages/new?id=${sent.outboundMessageId}`
-            : null,
+            : r.sourceType === 'message_thread' && r.sourceId
+              ? `/messages?thread=${r.sourceId}`
+              : null,
           createdBy: r.createdBy
             ? { userId: r.createdBy.userId, name: r.createdBy.user.name }
             : null,

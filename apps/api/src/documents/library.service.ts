@@ -255,9 +255,9 @@ export class DocumentLibraryService {
     const businessId = tenant.businessId;
     const actor = actorOf(userId, tenant);
     const direction = body.shareWithClient ? 'FIRM_TO_CLIENT' : 'INTERNAL';
-    await this.inFirm(tenant, async (tx) => {
+    const requestYear = await this.inFirm(tenant, async (tx) => {
       const { archived } = await lockReachableClient(tx, businessId, actor, body.clientId);
-      await findTarget(tx, businessId, body.clientId, {
+      const target = await findTarget(tx, businessId, body.clientId, {
         serviceId: body.serviceId,
         categoryId: body.categoryId ?? null,
         requestId: body.requestId ?? null,
@@ -285,6 +285,7 @@ export class DocumentLibraryService {
           );
         }
       }
+      return target.request?.taxYear ?? null;
     });
     return this.uploads.ticket({
       pool: 'STAFF',
@@ -296,7 +297,8 @@ export class DocumentLibraryService {
       requestId: body.requestId ?? null,
       categoryId: body.categoryId ?? null,
       direction,
-      taxYear: body.taxYear ?? null,
+      // TR-2: a file answering a request made from a tax return takes that return's year.
+      taxYear: requestYear ?? body.taxYear ?? null,
       fileName: body.fileName,
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,

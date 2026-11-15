@@ -1,7 +1,8 @@
 'use client';
 import { INVOICE_ERRORS, InvoiceStatus, type InvoiceListItem } from '@firmivra/types';
-import { Badge, Button, Card, Select, Table, type Column } from '@firmivra/ui';
+import { Button, Card, Select, Table, type Column } from '@firmivra/ui';
 import { useState } from 'react';
+import { OriginLink } from '../../../../../components/origin-link';
 import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { api } from '../../../../../lib/api';
@@ -9,6 +10,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { dateText } from '../../clients/_components/client-parts';
 import { useClientRecord } from '../../clients/[id]/_components/use-client-record';
+import { money, ViewPill } from './inv-shared';
 import { InvoiceCancelForm } from './invoice-cancel-form';
 import { InvoiceForm } from './invoice-form';
 const labels = {
@@ -18,26 +20,20 @@ const labels = {
   PAID: 'Paid',
   CANCELED: 'Canceled',
 };
-const amount = (row: InvoiceListItem) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: row.currency }).format(
-    row.totalCents / 100,
-  );
-const statusBadge = (row: InvoiceListItem) => (
-  <span className="whitespace-nowrap">
-    <Badge
-      tone={
-        row.status === 'PAID'
-          ? 'success'
-          : row.status === 'OPEN'
-            ? 'warning'
-            : row.status === 'CANCELED'
-              ? 'neutral'
-              : 'info'
-      }
-    >
-      {labels[row.status]}
-    </Badge>
-  </span>
+const amount = (row: InvoiceListItem) => money(row.totalCents, row.currency);
+const balance = (row: InvoiceListItem) => money(row.balanceDueCents, row.currency);
+// Clients Review 2 (FC-01): the detailed status the Invoices module shows (Partially Paid,
+// Overdue, Due Soon, Sent), not only the stored one.
+const statusBadge = (row: InvoiceListItem) => <ViewPill invoice={row} />;
+/** FC-01: each invoice opens its own page, with the way back to this client. */
+const openInvoice = (row: InvoiceListItem) => (
+  <OriginLink
+    href={`/invoices/${row.id}`}
+    className="font-semibold whitespace-nowrap text-link"
+    aria-label={`Open Invoice ${row.number}`}
+  >
+    Open Invoice
+  </OriginLink>
 );
 export function InvoicesScreen({ clientId }: { clientId?: string }) {
   const [canceling, setCanceling] = useState<InvoiceListItem>();
@@ -57,17 +53,21 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
     if (value) setCursors((previous) => [...previous, value]);
   };
   const previous = () => setCursors((items) => items.slice(0, -1));
-  const action = (row: InvoiceListItem) =>
-    row.status === 'DRAFT' ? (
-      <RequireRole roles={['OWNER', 'ADMIN']}>
-        <DraftActions
-          row={row}
-          pending={send.isPending}
-          onSend={() => send.mutate(row.id)}
-          onCancel={() => setCanceling(row)}
-        />
-      </RequireRole>
-    ) : null;
+  const action = (row: InvoiceListItem) => (
+    <div className="flex flex-wrap items-center gap-2">
+      {openInvoice(row)}
+      {row.status === 'DRAFT' ? (
+        <RequireRole roles={['OWNER', 'ADMIN']}>
+          <DraftActions
+            row={row}
+            pending={send.isPending}
+            onSend={() => send.mutate(row.id)}
+            onCancel={() => setCanceling(row)}
+          />
+        </RequireRole>
+      ) : null}
+    </div>
+  );
   const columns: Column<InvoiceListItem>[] = [
     {
       id: 'number',
@@ -89,7 +89,8 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
       label: 'Due date',
       cell: (row) => (row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '—'),
     },
-    { id: 'amount', label: 'Amount', cell: amount },
+    { id: 'amount', label: 'Total', cell: amount },
+    { id: 'balance', label: 'Balance due', cell: balance },
     { id: 'status', label: 'Status', cell: statusBadge },
     { id: 'actions', label: 'Actions', cell: action },
   ];
@@ -146,7 +147,12 @@ export function InvoicesScreen({ clientId }: { clientId?: string }) {
                   <p className="text-sm text-muted">
                     Due date: {row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '—'}
                   </p>
-                  <p className="font-semibold">{amount(row)}</p>
+                  <dl className="grid grid-cols-2 gap-x-3 text-sm">
+                    <dt className="text-muted">Total</dt>
+                    <dd className="font-semibold">{amount(row)}</dd>
+                    <dt className="text-muted">Balance due</dt>
+                    <dd className="font-semibold">{balance(row)}</dd>
+                  </dl>
                   {statusBadge(row)}
                   {action(row)}
                 </Card>

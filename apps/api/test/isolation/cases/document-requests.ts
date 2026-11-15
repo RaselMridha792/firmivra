@@ -26,8 +26,9 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:clientId/document-requests': { params: { clientId: 'client' } },
   'POST /api/v1/business/clients/:clientId/document-requests': {
     params: { clientId: 'client' },
-    // The request's serviceId is the client's engagement, as for uploads.
-    bodyIds: { serviceId: 'engagement', categoryId: 'documentCategory' },
+    // The request's serviceId is the client's engagement, as for uploads; TR-2: made from a tax
+    // return, the client's return.
+    bodyIds: { serviceId: 'engagement', categoryId: 'documentCategory', taxReturnId: 'taxReturn' },
     body: { title: 'Fake 1099' },
   },
   // Found, but nothing was uploaded for it yet, so there is nothing to accept or reject.

@@ -596,7 +596,8 @@ export class ClientsService {
    * worked out when the list is read, so no other module has to write it: a message in the
    * client's thread, a document uploaded or requested, a task completed, an appointment held
    * (completed, or scheduled and begun), an invoice sent or paid, an e-sign completed, a note
-   * added, and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
+   * added, an entry on the client's Activity timeline (N8-05: an email or text sent with Add to
+   * Client Timeline), and `clients.last_activity_at` (set on e-sign completion). Clients Review 2 (the owner:
    * every recorded client action counts): also the client's own audit rows (profile and contact
    * edits, assignment, tags, status, archive and restore), never a view, list or export. In the
    * firm's scope. With
@@ -637,6 +638,8 @@ export class ClientsService {
           UNION ALL SELECT client_id, completed_at FROM esign_requests
             WHERE business_id = ${b}::uuid AND client_id IS NOT NULL AND completed_at IS NOT NULL
           UNION ALL SELECT client_id, created_at FROM notes WHERE business_id = ${b}::uuid
+          UNION ALL SELECT client_id, occurred_at FROM client_timeline_entries
+            WHERE business_id = ${b}::uuid
           UNION ALL SELECT id, last_activity_at FROM clients
             WHERE business_id = ${b}::uuid AND last_activity_at IS NOT NULL
           UNION ALL SELECT a.entity_id::uuid, a.created_at FROM audit_logs a
@@ -834,6 +837,8 @@ export class ClientsService {
         LEFT JOIN clients c ON c.business_id = sv.business_id AND c.id = en.client_id
           AND c.archived_at IS NULL AND ${mine}
         WHERE sv.business_id = ${businessId}::uuid AND sv.archived_at IS NULL
+          -- Clients Review 2 (N8-33): a draft or inactive service is no tab or Service choice.
+          AND sv.status = 'ACTIVE'
         GROUP BY sv.id, sv.name, sv.kind
         ORDER BY sv.name, sv.id
         LIMIT 100`;

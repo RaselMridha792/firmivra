@@ -8,7 +8,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import {
@@ -723,10 +723,8 @@ describe('Review 2 (Messaging): the new-message email to the client', () => {
       saved: null,
       bodyAllowed: true,
     });
-    // The extras need the email.
-    expect(
-      (await settings({ clientEmailNotice: false, clientEmailIncludesBody: true })).status,
-    ).toBe(400);
+    // TR-4: the email is always sent; nothing turns it off.
+    expect((await settings({ clientEmailNotice: false })).status).toBe(400);
     expectOk(await settings({ clientEmailIncludesDocuments: true }));
     expect((await pref()).firm.emailIncludesDocuments).toBe(true);
     try {
@@ -743,43 +741,48 @@ describe('Review 2 (Messaging): the new-message email to the client', () => {
         delivery: { emailIncludesBody: true },
       });
       expect(mail()[0]?.data).toMatchObject({ body: `Text ${secret}` });
-      // No text or documents in an email that is not sent.
+      // TR-4: a send cannot skip the email.
       expect(
         (
           await firm('post', `/clients/${ids.one}/message-threads`, people.ownerA, {
             subject: 'Bad',
             body: 'Bad',
-            delivery: { emailNotice: false, emailIncludesBody: true },
+            delivery: { emailNotice: false },
           })
         ).status,
       ).toBe(400);
-      // Save for this client: no email, kept as the client's preference.
+      // Save for this client: the text, kept as the client's preference.
       await startThread({
         subject: 'Saved',
-        body: 'Saved',
-        delivery: { emailNotice: false, saveForClient: true },
+        body: `Saved ${secret}`,
+        delivery: { emailIncludesBody: true, saveForClient: true },
       });
-      expect(mail()).toEqual([]);
+      expect(mail()[0]?.data).toMatchObject({ body: `Saved ${secret}` });
       const saved = await pref(people.staffA);
       expect(saved.saved).toMatchObject({
-        emailNotice: false,
+        emailIncludesBody: true,
         updatedBy: { userId: people.ownerA.id },
       });
-      expect(saved.effective.emailNotice).toBe(false);
-      await startThread({ subject: 'Follows the client', body: 'No email' });
-      expect(mail()).toEqual([]);
+      expect(saved.effective).toMatchObject({ emailNotice: true, emailIncludesBody: true });
+      await startThread({ subject: 'Follows the client', body: `Follows ${secret}` });
+      expect(mail()[0]?.data).toMatchObject({ body: `Follows ${secret}` });
       // A send still overrides the saved preference.
-      await startThread({ subject: 'Override', body: 'Email', delivery: { emailNotice: true } });
-      expect(mail()).toHaveLength(1);
+      await startThread({
+        subject: 'Override',
+        body: `Override ${secret}`,
+        delivery: { emailIncludesBody: false },
+      });
+      const override = mail();
+      expect(override).toHaveLength(1);
+      expect(JSON.stringify(override)).not.toContain(secret);
       // Clearing the preference goes back to the firm's defaults; audited both times.
       const cleared = expectOk(
         await firm('put', `/clients/${ids.one}/message-preference`, people.ownerA, {
-          emailNotice: null,
           emailIncludesBody: null,
           emailIncludesDocuments: null,
         }),
       ).body as { saved: unknown; effective: Record<string, boolean> };
-      expect([cleared.saved, cleared.effective.emailNotice]).toEqual([null, true]);
+      expect([cleared.saved, cleared.effective.emailIncludesBody]).toEqual([null, false]);
       const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
       try {
         const audits = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
@@ -797,6 +800,67 @@ describe('Review 2 (Messaging): the new-message email to the client', () => {
       }
     } finally {
       expectOk(await settings({ clientEmailIncludesDocuments: false }));
+    }
+  });
+
+  it('TR-4: a firm or client saved earlier with the email off still gets it, and saves again', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const asFirm = <T>(fn: (tx: TxClient) => Promise<T>) =>
+      runInScope(owner, { kind: 'business', businessId: ids.firmA }, fn);
+    try {
+      expectOk(await settings({ clientEmailIncludesDocuments: false }));
+      await asFirm(async (tx) => {
+        await tx.messageSettings.update({
+          where: { businessId: ids.firmA },
+          data: { clientEmailNotice: false },
+        });
+        await tx.clientMessagePreference.upsert({
+          where: { businessId_clientId: { businessId: ids.firmA, clientId: ids.one } },
+          create: {
+            businessId: ids.firmA,
+            clientId: ids.one,
+            emailNotice: false,
+            emailIncludesBody: false,
+            emailIncludesDocuments: false,
+            updatedByUserId: people.ownerA.id,
+          },
+          update: { emailNotice: false, emailIncludesBody: false, emailIncludesDocuments: false },
+        });
+      });
+      const view = expectOk(await firm('get', '/message-settings', people.ownerA)).body as {
+        clientEmailNotice: boolean;
+      };
+      expect(view.clientEmailNotice).toBe(true);
+      expect((await pref()).effective.emailNotice).toBe(true);
+      mail();
+      await startThread({ subject: 'Old choice', body: 'Still emailed' });
+      expect(mail()).toHaveLength(1);
+      // Saving the text again is accepted (the old "off" is cleared with the save).
+      expectOk(await settings({ clientEmailIncludesBody: true }));
+      expectOk(
+        await firm('put', `/clients/${ids.one}/message-preference`, people.ownerA, {
+          emailIncludesBody: true,
+          emailIncludesDocuments: null,
+        }),
+      );
+      const rows = await asFirm(async (tx) => ({
+        firm: await tx.messageSettings.findUnique({
+          where: { businessId: ids.firmA },
+          select: { clientEmailNotice: true },
+        }),
+        client: await tx.clientMessagePreference.findUnique({
+          where: { businessId_clientId: { businessId: ids.firmA, clientId: ids.one } },
+          select: { emailNotice: true },
+        }),
+      }));
+      expect(rows).toEqual({ firm: { clientEmailNotice: true }, client: { emailNotice: null } });
+    } finally {
+      expectOk(await settings({ clientEmailIncludesBody: false }));
+      await firm('put', `/clients/${ids.one}/message-preference`, people.ownerA, {
+        emailIncludesBody: null,
+        emailIncludesDocuments: null,
+      });
+      await owner.$disconnect();
     }
   });
 
@@ -818,10 +882,52 @@ describe('Review 2 (Messaging): the new-message email to the client', () => {
           'put',
           `/clients/${ids.one}/message-preference`,
           people.ownerB,
-          { emailNotice: false, emailIncludesBody: null, emailIncludesDocuments: null },
+          { emailIncludesBody: true, emailIncludesDocuments: null },
           ids.firmB,
         )
       ).status,
     ).toBe(404);
+  });
+});
+
+describe('Clients Review 2 (N8-05): Add to Client Timeline from the client’s Messages tab', () => {
+  type Entry = { kind: string; title: string; summary: string | null; href: string | null };
+  const timeline = async () =>
+    (
+      expectOk(await firm('get', `/clients/${ids.one}/timeline`, people.ownerA)).body as {
+        items: (Entry & { occurredAt: string })[];
+      }
+    ).items;
+
+  it('puts the subject, sender and link on the Activity, never the message; off adds nothing', async () => {
+    const before = (await timeline()).length;
+    const t = await startThread({
+      subject: `On the timeline ${run}`,
+      body: `Private body ${run}`,
+      addToTimeline: true,
+    });
+    const after = await timeline();
+    expect(after).toHaveLength(before + 1);
+    expect(after[0]).toMatchObject({
+      kind: 'MESSAGE',
+      title: `On the timeline ${run}`,
+      href: `/messages?thread=${t.id}`,
+    });
+    // Who sent it, by name.
+    expect(after[0]!.summary).toMatch(/^Sent through the client portal by \S/);
+    expect(JSON.stringify(after)).not.toContain(`Private body ${run}`);
+    // The directory's Last Activity is at least as new as the entry.
+    const list = expectOk(await firm('get', '/clients?limit=100', people.ownerA)).body as {
+      items: { id: string; lastActivityAt: string | null }[];
+    };
+    const row = list.items.find((c) => c.id === ids.one);
+    expect(row?.lastActivityAt).not.toBeNull();
+    expect(Date.parse(row!.lastActivityAt!)).toBeGreaterThanOrEqual(
+      Date.parse(after[0]!.occurredAt) - 1000,
+    );
+
+    await startThread({ subject: `Not on the timeline ${run}`, body: 'b' });
+    await startThread({ subject: `Off ${run}`, body: 'b', addToTimeline: false });
+    expect(await timeline()).toHaveLength(before + 1);
   });
 });
