@@ -41,6 +41,9 @@ import {
   UpdateLeadTaskRequest,
   type LeadDocument,
   type LeadSequenceRun,
+  idleDaysSince,
+  leadScoreActivitySince,
+  scoreLead,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { beginOnlineFixture } from './leads';
@@ -77,8 +80,11 @@ const staff = (n: number, name: string): MemberRef => ({
   name,
 });
 
+/** A stored lead; its score is computed when it is read (`view`), as the API does. */
+type StoredProfile = Omit<LeadProfile, 'score'>;
+
 interface Lead {
-  profile: LeadProfile;
+  profile: StoredProfile;
   /** R2 4: files the firm added to the lead. */
   files?: LeadDocument[];
   notes: LeadNote[];
@@ -286,7 +292,7 @@ function seed(empty: boolean): Store {
       const n = i + 1;
       const assigned = people[who] ?? null;
       const createdAt = ago(24 * (3 + i));
-      const profile: LeadProfile = {
+      const profile: StoredProfile = {
         id: uuid('0a00', n),
         number: `LD-${10020 + n}`,
         firstName: first,
@@ -332,7 +338,6 @@ function seed(empty: boolean): Store {
         dateOfBirth: null,
         otherContacts: n === 1 ? [{ kind: 'PHONE', value: '(404) 555-0199', label: 'Work' }] : [],
         bestTimeToContact: n === 1 ? 'Evenings (after 5 PM)' : null,
-        score: priority === 'HOT' ? { value: 85, label: 'High Intent' } : undefined,
         recentActivity: [],
         upcomingAppointments: [],
         openTasks: [],
@@ -586,8 +591,37 @@ export function createLeadPipelineMock(options: Options = {}): LeadPipelineClien
     name: `${l.profile.firstName} ${l.profile.lastName}`.trim(),
     number: l.profile.number,
   });
+  /**
+   * Lead scoring v1, as the API (packages/types score.ts): calls, meetings or appointments and
+   * submitted forms on the lead's timeline in the last 30 days (a lead's reply is not recorded),
+   * and the days since its newest timeline row.
+   */
+  const scoreOf = (l: Lead) => {
+    const now = new Date();
+    const since = leadScoreActivitySince(now).getTime();
+    const recent = l.activity.filter((a) => new Date(a.at).getTime() >= since);
+    const count = (...kinds: LeadActivity['kind'][]) =>
+      recent.filter((a) => kinds.includes(a.kind)).length;
+    const newest = Math.max(0, ...l.activity.map((a) => new Date(a.at).getTime()));
+    const p = l.profile;
+    return scoreLead({
+      hasEmail: !!p.email,
+      hasPhone: !!p.phone,
+      services: p.services.length,
+      source: p.source,
+      status: p.stage,
+      recent: {
+        replies: 0,
+        calls: count('CALL'),
+        meetings: count('MEETING', 'APPOINTMENT_SCHEDULED'),
+        forms: count('FORM_SUBMITTED'),
+      },
+      idleDays: idleDaysSince(newest ? new Date(newest) : p.createdAt, now),
+    });
+  };
   const view = (l: Lead): LeadProfile => ({
     ...copy({ ...l.profile, followUps: steps(l) }),
+    score: scoreOf(l),
     sequences: copy(mockLeadSequenceRuns().get(l.profile.id) ?? []),
     // As the API: other open leads with this email or phone (warned and linked, never merged).
     duplicates: {

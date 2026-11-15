@@ -31,6 +31,7 @@ import {
   lockLead,
   type PipelineActor,
   reach,
+  replacedActivityIds,
   requireActiveMember,
   toActivity,
   visibleLead,
@@ -207,9 +208,12 @@ export class LeadPipelineTabsService {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const page = await this.inFirm(businessId, async (tx) => {
       const lead = await this.reachable(tx, businessId, actor, id);
+      // R2 17a: a routing rule's row stands for the plain one it replaces.
+      const replaced = await replacedActivityIds(tx, businessId, id);
       const where: Prisma.LeadActivityWhereInput = {
         AND: [
           { businessId, leadId: id },
+          replaced.length ? { id: { notIn: replaced } } : {},
           q.kind === 'communications' ? { kind: { in: [...COMMUNICATIONS] } } : {},
           after
             ? {

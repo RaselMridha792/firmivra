@@ -682,6 +682,58 @@ describe('Leads Review Two, R2 15', () => {
   });
 });
 
+// Leads checklist "lead scoring" (v1, packages/types/src/leads/score.ts): the profile always
+// carries the score, its label and why, computed when the lead is read.
+describe('Lead scoring v1', () => {
+  it('scores a lead from its contact details, source, stage and the last 30 days, with why', async () => {
+    const lead = await newLead({ phone: '(555) 017-4401', stage: 'APPOINTMENT_SCHEDULED' });
+    const base = [
+      { label: 'Email and phone on file', points: 16 },
+      { label: 'Interested in a service', points: 4 },
+      { label: 'Source: Referral', points: 15 },
+      { label: 'Stage: Appointment Scheduled', points: 25 },
+    ];
+    expect(lead.score).toEqual({ value: 60, label: 'Medium', factors: base });
+    for (const kind of ['CALL', 'CALL', 'MEETING']) {
+      const res = await call('post', `/${lead.id}/activity`, people.ownerA, {
+        kind,
+        summary: 'Synthetic check-in',
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+    }
+    expect(profile(await call('get', `/${lead.id}/profile`, people.ownerA)).score).toEqual({
+      value: 80,
+      label: 'High Intent',
+      factors: [
+        ...base,
+        { label: '2 calls and 1 meeting or appointment in the last 30 days', points: 20 },
+      ],
+    });
+  });
+
+  it('a lead with no activity for 21 days loses 10 points', async () => {
+    const lead = await newLead({ source: 'OTHER' });
+    expect([lead.score.value, lead.score.label]).toEqual([16, 'Low']);
+    // Every row of its timeline (the one the database wrote when it was made) moves back 21 days.
+    await asOwnerA((tx) =>
+      tx.leadActivity.updateMany({
+        where: { businessId: ids.firmA, leadId: lead.id },
+        data: { occurredAt: new Date(Date.now() - (21 * 24 + 1) * 3_600_000) },
+      }),
+    );
+    expect(profile(await call('get', `/${lead.id}/profile`, people.ownerA)).score).toEqual({
+      value: 6,
+      label: 'Low',
+      factors: [
+        { label: 'Email on file', points: 8 },
+        { label: 'Interested in a service', points: 4 },
+        { label: 'Source: Other', points: 4 },
+        { label: 'No activity for 21 days', points: -10 },
+      ],
+    });
+  });
+});
+
 /** Firm A's rows, read as the owner (the audit's own check). */
 async function asOwnerA<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);

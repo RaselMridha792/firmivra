@@ -545,6 +545,22 @@ export const LeadSequenceRun = z.object({
 export type LeadSequenceRun = z.infer<typeof LeadSequenceRun>;
 export type LeadFollowUp = z.infer<typeof LeadFollowUp>;
 
+/** Lead scoring v1: Low under 40, Medium from 40 to 69, High Intent from 70 (score.ts). */
+export const LeadScoreLabel = z.enum(['Low', 'Medium', 'High Intent']);
+export type LeadScoreLabel = z.infer<typeof LeadScoreLabel>;
+
+/** One part of a lead's score, in plain words ("Source: Referral", +15; a wait takes points off). */
+export const LeadScoreFactor = z.object({ label: z.string(), points: z.number().int() });
+export type LeadScoreFactor = z.infer<typeof LeadScoreFactor>;
+
+/** A lead's score (0 to 100), its label, and the parts that gave or took points, in order. */
+export const LeadScore = z.object({
+  value: z.number().int().min(0).max(100),
+  label: LeadScoreLabel,
+  factors: z.array(LeadScoreFactor),
+});
+export type LeadScore = z.infer<typeof LeadScore>;
+
 /** GET /business/leads/{id}/profile: the Lead Profile header and Overview tab in one call. */
 export const LeadProfile = LeadRow.extend({
   address: z.string().nullable(),
@@ -552,11 +568,8 @@ export const LeadProfile = LeadRow.extend({
   /** R2 9: other phones and emails, in the order saved. */
   otherContacts: z.array(LeadContactPoint),
   bestTimeToContact: z.string().nullable(),
-  /**
-   * Lead Score (85, High Intent). No scoring rule is defined yet: optional, left out until the
-   * firm's scoring (Automations or a later module) supplies it.
-   */
-  score: z.object({ value: z.number().int().min(0).max(100), label: z.string() }).optional(),
+  /** Lead Score (85, High Intent) with why: computed on every read by `scoreLead` (score.ts). */
+  score: LeadScore,
   recentActivity: z.array(LeadActivity).max(10),
   upcomingAppointments: z.array(LeadAppointment),
   openTasks: z.array(LeadTask),

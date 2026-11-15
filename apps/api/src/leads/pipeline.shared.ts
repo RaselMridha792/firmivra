@@ -1,16 +1,21 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { Prisma, TxClient } from '@firmivra/db';
 import {
+  idleDaysSince,
   LEAD_STATUS_LABELS,
+  leadScoreActivitySince,
   type LeadActivity,
   type LeadFollowUp,
   type LeadPipelineStatus,
   type LeadProfile,
   type LeadTask,
   type LeadRow,
+  type LeadScore,
+  type LeadScoreInput,
   type LeadSource,
   roleCan,
   type PermissionCapability,
+  scoreLead,
 } from '@firmivra/types';
 import { legacyFirmRole, type TenantRole } from '../common/request-context.js';
 import { notFound } from './leads.service.js';
@@ -230,10 +235,33 @@ export function activityLabel(a: ActivityData, source: LeadSource): string {
     return `Status changed to ${a.status ? LEAD_STATUS_LABELS[a.status as LeadPipelineStatus] : 'a new status'}`;
   }
   if (a.kind === 'ASSIGNED') {
-    return (a.metadata as { assigned?: boolean }).assigned ? 'Lead assigned' : 'Lead unassigned';
+    const assigned = a.metadata as { assigned?: boolean; ruleName?: string };
+    // R2 17a: an owner a routing rule gave (lead-routing.service.ts), named as the rule was then.
+    if (assigned.ruleName) return `Assigned by rule: ${assigned.ruleName}`;
+    return assigned.assigned ? 'Lead assigned' : 'Lead unassigned';
   }
   const base = ACTIVITY_LABELS[a.kind] ?? 'Activity';
   return a.summary && a.kind !== 'NOTE' ? `${base}: ${a.summary}` : base;
+}
+
+/**
+ * R2 17a: the plain "Lead assigned" rows that a routing rule's own ASSIGNED row replaces (written
+ * by the leads_activity trigger in the same change), left out of the lead's timeline so the change
+ * shows once, by its rule. A lead has few ASSIGNED rows.
+ */
+export async function replacedActivityIds(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+): Promise<string[]> {
+  const rows = await tx.leadActivity.findMany({
+    where: { businessId, leadId, kind: 'ASSIGNED' },
+    select: { metadata: true },
+  });
+  return rows.flatMap((r) => {
+    const replaces = (r.metadata as { replaces?: unknown } | null)?.replaces;
+    return typeof replaces === 'string' ? [replaces] : [];
+  });
 }
 
 export function toActivity(a: ActivityData, source: LeadSource): LeadActivity {
@@ -342,6 +370,53 @@ async function followUpsOrLegacy(
   ];
 }
 
+/**
+ * Lead scoring v1 (score.ts): the lead's contact details, source and stage, what was recorded on
+ * it in the last 30 days, and how long it has waited. What counts as activity: a logged call
+ * (CALL), a meeting or appointment (MEETING, APPOINTMENT_SCHEDULED) and a submitted form
+ * (FORM_SUBMITTED) on the lead's timeline. A reply from the lead is not recorded anywhere yet (a
+ * lead's thread holds only the firm's messages: messages_rules needs a client's portal login for a
+ * message to the firm), so replies count 0 until replies are kept. The wait runs from the newest
+ * timeline row of any kind (the database writes one when the lead is made).
+ */
+async function leadScoreOf(
+  tx: TxClient,
+  businessId: string,
+  leadId: string,
+  lead: {
+    row: LeadRow;
+    status: LeadScoreInput['status'];
+    createdAt: Date;
+    newestActivityAt: Date | null;
+  },
+): Promise<LeadScore> {
+  const now = new Date();
+  const recent = await tx.leadActivity.findMany({
+    where: {
+      businessId,
+      leadId,
+      occurredAt: { gte: leadScoreActivitySince(now) },
+      kind: { in: ['CALL', 'MEETING', 'APPOINTMENT_SCHEDULED', 'FORM_SUBMITTED'] },
+    },
+    select: { kind: true },
+  });
+  const count = (...kinds: string[]) => recent.filter((a) => kinds.includes(a.kind)).length;
+  return scoreLead({
+    hasEmail: !!lead.row.email,
+    hasPhone: !!lead.row.phone,
+    services: lead.row.services.length,
+    source: lead.row.source,
+    status: lead.status,
+    recent: {
+      replies: 0,
+      calls: count('CALL'),
+      meetings: count('MEETING', 'APPOINTMENT_SCHEDULED'),
+      forms: count('FORM_SUBMITTED'),
+    },
+    idleDays: idleDaysSince(lead.newestActivityAt ?? lead.createdAt, now),
+  });
+}
+
 export async function loadProfile(
   tx: TxClient,
   businessId: string,
@@ -362,8 +437,9 @@ export async function loadProfile(
     select: profileSelect,
   });
   if (!r) throw notFound();
+  const replaced = await replacedActivityIds(tx, businessId, id);
   const recent = await tx.leadActivity.findMany({
-    where: { businessId, leadId: id },
+    where: { businessId, leadId: id, ...(replaced.length ? { id: { notIn: replaced } } : {}) },
     orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
     take: 10,
     select: activitySelect,
@@ -405,8 +481,15 @@ export async function loadProfile(
   ]
     .filter(Boolean)
     .join(', ');
+  const row = toRow(r);
   return {
-    ...toRow(r),
+    ...row,
+    score: await leadScoreOf(tx, businessId, id, {
+      row,
+      status: r.status,
+      createdAt: r.createdAt,
+      newestActivityAt: recent[0]?.occurredAt ?? null,
+    }),
     address: address || null,
     dateOfBirth: r.dateOfBirth?.toISOString().slice(0, 10) ?? null,
     assignedByRule: r.assignedByRule,

@@ -39,9 +39,28 @@ export const mockedEmpty = (module: string): boolean =>
 
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 const ROLES: readonly MockRole[] = ['OWNER', 'ADMIN', 'STAFF'];
-const role = process.env.NEXT_PUBLIC_API_MOCK_ROLE as MockRole | undefined;
 
-/** Role of the mock signed-in user: NEXT_PUBLIC_API_MOCK_ROLE if it's a firm role, else OWNER. */
+/**
+ * sessionStorage key a mock spec sets (with `page.addInitScript`, before the page loads) to sign
+ * in as another firm role in that tab, without a second mock server (Leads 20a: what Staff are
+ * offered). Read once, when the page loads; the server render keeps the variable's role.
+ */
+export const MOCK_ROLE_KEY = 'fv-mock-role';
+function tabRole(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(MOCK_ROLE_KEY);
+  } catch {
+    // No storage (a private window): the variable's role.
+    return null;
+  }
+}
+const role = (tabRole() ?? process.env.NEXT_PUBLIC_API_MOCK_ROLE) as MockRole | undefined;
+
+/**
+ * Role of the mock signed-in user: this tab's `fv-mock-role` (see MOCK_ROLE_KEY), else
+ * NEXT_PUBLIC_API_MOCK_ROLE, if it's a firm role; else OWNER.
+ */
 export const MOCK_ROLE: MockRole = role && ROLES.includes(role) ? role : 'OWNER';
 
 /** Waits like a real request, so loading states show in mock mode too. */
@@ -53,8 +72,10 @@ export const MOCK_FAIL_KEY = 'fv-mock-fail';
 /**
  * Mock mode, for fault-injection specs (Dashboard Review 2 V6): the module's mock client, whose
  * calls named in sessionStorage `fv-mock-fail` ("dashboard.summary,messages.inbox") answer 500
- * like a failing API, so a spec can show each widget's error state and Try again. Reads the key
- * on every call, so clearing it lets Try again succeed. Mock mode is off in production builds.
+ * like a failing API, so a spec can show each widget's error state and Try again. A name ending
+ * in "@after" ("leadPipeline.update@after") does the call, then answers 500: a change that went
+ * through although its answer was lost (Leads R2 7). Reads the key on every call, so clearing it
+ * lets Try again succeed. Mock mode is off in production builds.
  */
 export function failable<T extends object>(module: string, client: T): T {
   return new Proxy(client, {
@@ -68,11 +89,13 @@ export function failable<T extends object>(module: string, client: T): T {
         } catch {
           // No storage (server render, a private window): nothing fails.
         }
-        if (failing.includes(`${module}.${prop}`))
-          return Promise.reject(
-            new ApiRequestError(500, 'INTERNAL_ERROR', 'Something went wrong on our side.'),
-          );
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
+        const failure = () =>
+          new ApiRequestError(500, 'INTERNAL_ERROR', 'Something went wrong on our side.');
+        if (failing.includes(`${module}.${prop}`)) return Promise.reject(failure());
+        const result = (value as (...a: unknown[]) => unknown).apply(target, args);
+        if (failing.includes(`${module}.${prop}@after`))
+          return Promise.resolve(result).then(() => Promise.reject(failure()));
+        return result;
       };
     },
   });
