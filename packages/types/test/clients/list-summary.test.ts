@@ -63,6 +63,7 @@ describe('ListClientsResponse', () => {
       items: [
         {
           id,
+          clientNumber: 'CL-10001',
           accountType: 'INDIVIDUAL',
           displayName: 'Jamie Sample',
           email: null,
