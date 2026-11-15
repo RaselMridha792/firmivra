@@ -2,7 +2,7 @@
 
 import type { MessageThread } from '@firmivra/types';
 import { Button, Card, Input, Table, type Column } from '@firmivra/ui';
-import { Eye, Mail, MessageSquareText } from 'lucide-react';
+import { Eye, Mail, MessageSquareText, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
@@ -21,6 +21,8 @@ export function ClientMessagesScreen() {
   const [cursors, setCursors] = useState<string[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  // Clients Review 2 (§23): Internal Notes can be hidden to give Messages the width.
+  const [notesOpen, setNotesOpen] = useState(true);
   const cursor = cursors.at(-1);
   const query = {
     ...(search ? { search } : {}),
@@ -35,6 +37,8 @@ export function ClientMessagesScreen() {
     {
       id: 'subject',
       label: 'Subject',
+      // §23: the Subject takes the room; a long one wraps less.
+      className: 'w-full min-w-56',
       cell: (t) => (
         <span className="flex items-center gap-3">
           <Mail aria-hidden className="size-5 shrink-0 text-action" />
@@ -42,7 +46,12 @@ export function ClientMessagesScreen() {
         </span>
       ),
     },
-    { id: 'from', label: 'From', cell: (t) => t.lastMessage?.senderName ?? '—' },
+    {
+      id: 'from',
+      label: 'From',
+      className: 'whitespace-nowrap',
+      cell: (t) => t.lastMessage?.senderName ?? '—',
+    },
     {
       id: 'date',
       label: 'Date',
@@ -76,7 +85,9 @@ export function ClientMessagesScreen() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <Card className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+      <Card
+        className={`flex min-w-0 flex-col gap-4 ${notesOpen ? 'lg:col-span-2' : 'lg:col-span-3'}`}
+      >
         <div className="flex flex-wrap items-start gap-4">
           <MessageSquareText
             aria-hidden
@@ -90,7 +101,22 @@ export function ClientMessagesScreen() {
               Message this client and keep your team&apos;s notes about them in one place.
             </p>
           </div>
-          <Button onClick={() => setComposing(true)}>New Message</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              aria-expanded={notesOpen}
+              aria-controls="client-internal-notes"
+              onClick={() => setNotesOpen((open) => !open)}
+            >
+              {notesOpen ? (
+                <PanelRightClose aria-hidden className="size-5" />
+              ) : (
+                <PanelRightOpen aria-hidden className="size-5" />
+              )}
+              {notesOpen ? 'Hide Internal Notes' : 'Show Internal Notes'}
+            </Button>
+            <Button onClick={() => setComposing(true)}>New Message</Button>
+          </div>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <Button variant={unread ? 'secondary' : 'primary'} onClick={() => show(false)}>
@@ -138,7 +164,10 @@ export function ClientMessagesScreen() {
           )}
         </PageState>
       </Card>
-      <NotesCard clientId={id} />
+      {/* Hidden, not removed: a note being typed is still there when the notes come back. */}
+      <div id="client-internal-notes" className={notesOpen ? 'min-w-0' : 'hidden'}>
+        <NotesCard clientId={id} />
+      </div>
       {open ? <ThreadDialog threadId={open} onClose={() => setOpen(null)} /> : null}
       {composing ? <NewThreadDialog clientId={id} onClose={() => setComposing(false)} /> : null}
     </div>

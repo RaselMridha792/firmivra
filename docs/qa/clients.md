@@ -175,7 +175,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | FC-02 Sign-ups empty state by approval mode | Done: the Waiting tab's empty help names the firm's mode; Manual Review: verified requests wait for review; Automatic Approval: no email or phone match is approved at once, a possible match waits | #PR_NUM | web unit `sign-up-parts.test` "Manual Review: every verified request waits for review", "Automatic Approval: no match is approved at once; a possible match waits" |
 | FC-03 Documents staff guidance | Done, test gap | #1381 (R55) | `r34-documents` checks the no-client note is shown, not its words |
 | FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
-| §23 Messages: wider Subject, collapsible Internal Notes | Not built yet (R55) | — | — |
+| §23 Messages: wider Subject, collapsible Internal Notes | Done: Hide / Show Internal Notes on the client's Messages (Messages then take the whole width; a note being typed is kept), and the Subject takes the room while the sender stays on one line | #PR_NUM | mock `r55-client-messages-notes-collapse` "Hide Internal Notes widens the Subject and keeps the draft note" (at her 1165 px) |
 | §23 V-007 for side menus | Main sidebar: Done (#1396). The Internal Notes rail is the R60 row above | #1396 | `r60-sidebar-collapse` |
 | §23 Mobile-friendly Clients | Her mobile check was not run; nothing new to build. 375 px checks: `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` | — | — |
 | §23 Platform heading and action-row consistency | After Nov 17 (decided): a platform-wide pass | — | — |
