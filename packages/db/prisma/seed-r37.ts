@@ -42,9 +42,6 @@ const ID = {
   reminderSms: '00000000-0000-4a37-8000-000000000074',
   series: '00000000-0000-4a37-8000-000000000075',
   override: '00000000-0000-4a37-8000-000000000076',
-  // R56 (Nov 15, Appointments Review 2 A2): equipment booked with appointments.
-  equipmentProjector: '00000000-0000-4a37-8000-000000000077',
-  equipmentSignaturePad: '00000000-0000-4a37-8000-000000000078',
   tagBackTaxes: '00000000-0000-4a37-8000-000000000081',
   tagW2: '00000000-0000-4a37-8000-000000000082',
   activityCall: '00000000-0000-4a37-8000-000000000091',
@@ -420,33 +417,6 @@ async function seedAppointmentDetails(tx: TxClient, businessId: string) {
       businessId,
       officeId: ID.officeMain,
       name: 'Conference Room 1',
-    },
-  });
-  // Appointments Review 2 (A2): a projector of the main office, and a signature pad any office uses.
-  for (const [id, name, officeId] of [
-    [ID.equipmentProjector, 'Projector', ID.officeMain],
-    [ID.equipmentSignaturePad, 'Signature pad', null],
-  ] as const) {
-    await tx.firmEquipment.upsert({
-      where: { id },
-      update: {},
-      create: { id, businessId, name, officeId },
-    });
-  }
-  // The seeded consultation holds the signature pad (the database keeps its time in step).
-  await tx.appointmentEquipment.upsert({
-    where: {
-      businessId_appointmentId_equipmentId: {
-        businessId,
-        appointmentId: SEED_CALENDAR_IDS.appointment,
-        equipmentId: ID.equipmentSignaturePad,
-      },
-    },
-    update: {},
-    create: {
-      businessId,
-      appointmentId: SEED_CALENDAR_IDS.appointment,
-      equipmentId: ID.equipmentSignaturePad,
     },
   });
   // A weekly series (record only), a day off for the staff member, and the firm's settings.

@@ -303,6 +303,8 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'payment.received',
   // Intake Forms Review Two 19b: a form sent by Email (the sender passes `email: false` otherwise).
   'intake.sent',
+  // Its first and final reminders, the same way.
+  'intake.reminder',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
 
 /** Whether a recipient gets the event's email copy: a client, or a member for a staff email event. */
@@ -366,7 +368,7 @@ async function stillLive(
       (typeof payload.dueAt !== 'string' || d.dueAt.toISOString() === payload.dueAt)
     );
   }
-  if (event === 'intake.sent') {
+  if (event === 'intake.sent' || event === 'intake.reminder') {
     // Not once the form is submitted, completed, expired or archived: nothing left to fill in.
     const i = await db.intake.findFirst({ where: { businessId, id }, select: { status: true } });
     return !!i && OPEN_INTAKE.includes(i.status);
@@ -950,7 +952,7 @@ export class Notifier {
               }
             : template === 'document.requested'
               ? { name: recipient.name, title: str('title'), dueOn: str('dueOn') || null, link }
-              : template === 'intake.sent'
+              : template === 'intake.sent' || template === 'intake.reminder'
                 ? {
                     name: recipient.name,
                     link,

@@ -90,6 +90,16 @@ export interface NotifyTemplates {
     dueOn: string | null;
     expiresAt: Date | null;
   };
+  /** The form's first or final reminder by email (an Email form), with the same words as its send. */
+  'intake.reminder': IgnoredFirmName & {
+    name: string;
+    formTitle: string;
+    link: string;
+    subject: string | null;
+    message: string | null;
+    dueOn: string | null;
+    expiresAt: Date | null;
+  };
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** The firm invites an existing client to its portal: a sealed link that expires. */
@@ -306,6 +316,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'intake.submitted-notice': 'email',
   'intake.lead-link': 'email',
   'intake.sent': 'email',
+  'intake.reminder': 'email',
   'client.portal-invite': 'email',
   'client.portal-invitation': 'email',
   'message.received': 'email',
@@ -358,6 +369,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'intake.submitted-notice': 'firm',
   'intake.lead-link': 'firm',
   'intake.sent': 'firm',
+  'intake.reminder': 'firm',
   'client.portal-invite': 'firm',
   'client.portal-invitation': 'firm',
   'message.received': 'firm',
@@ -397,6 +409,7 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'intake.lead-link',
   // The member chose to send this form by Email (19b): the client's preferences don't stop it.
   'intake.sent',
+  'intake.reminder',
   'lead.message-email',
   'lead.message-sms',
   // The team member chose to write to this person (B6); there is no preference to switch it off.
@@ -446,6 +459,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'intake.lead-link': 'ACCOUNT',
   // Always sent (the member chose Email), so in ACCOUNT, as the lead's link.
   'intake.sent': 'ACCOUNT',
+  'intake.reminder': 'ACCOUNT',
   'client.portal-invite': 'ACCOUNT',
   'client.portal-invitation': 'ACCOUNT',
   'message.received': 'MESSAGES',
