@@ -886,6 +886,52 @@ describe('who reaches which task', () => {
 });
 
 describe('overview, summary and calendar', () => {
+  it('T-D03: searches Related To (its engagement or typed text) and takes % and _ as letters', async () => {
+    const word = `Rel${randomUUID().slice(0, 6)}`;
+    const found = async (term: string) =>
+      TaskOverviewPage.parse(
+        ok(
+          await call(
+            'get',
+            `/tasks/overview?pageSize=100&search=${encodeURIComponent(term)}`,
+            people.ownerA,
+          ),
+        ),
+      ).items.map((t) => t.id);
+    const project = await inFirm('a', async (tx) => {
+      const e1 = await tx.engagement.findUniqueOrThrow({
+        where: { id: engagements.e1 },
+        select: { serviceId: true },
+      });
+      return tx.engagement.create({
+        data: {
+          businessId: firms.a,
+          clientId: clients.c1,
+          serviceId: e1.serviceId,
+          title: `Project ${word}`,
+        },
+        select: { id: true },
+      });
+    });
+    const linked = await create({
+      clientId: clients.c1,
+      engagementId: project.id,
+      title: mark('linked'),
+    });
+    const typed = await create({ clientId: clients.c1, title: mark('typed') });
+    await inFirm('a', (tx) =>
+      tx.task.update({ where: { id: typed.id }, data: { relatedText: `Typed ${word}x` } }),
+    );
+    expect(await found(`Project ${word}`)).toEqual([linked.id]);
+    expect(await found(`Typed ${word}x`)).toEqual([typed.id]);
+    const percent = await create({ clientId: clients.c1, title: `${word} 100% done` });
+    await create({ clientId: clients.c1, title: `${word} 1000 done` });
+    const under = await create({ clientId: clients.c1, title: `${word} a_b` });
+    await create({ clientId: clients.c1, title: `${word} axb` });
+    expect(await found(`${word} 100%`)).toEqual([percent.id]);
+    expect(await found(`${word} a_b`)).toEqual([under.id]);
+  });
+
   it('filters, sorts, searches and pages the table', async () => {
     const word = `Over${randomUUID().slice(0, 6)}`;
     const mk = (title: string, body: object = {}, who: Who = people.ownerA) =>

@@ -12,6 +12,7 @@ import { zonedDate, zonedInstant } from '../appointments/calendar.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
+import { likeEscape } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { memberNames, notFound, sentFields, toDay } from '../workspaces/common.js';
 import {
@@ -184,13 +185,16 @@ export class TaskReadService {
       if (q.dueFrom) and.push({ dueOn: { gte: toDay(q.dueFrom) } });
       if (q.dueTo) and.push({ dueOn: { lte: toDay(q.dueTo) } });
       if (q.search) {
-        const has = { contains: q.search, mode: 'insensitive' } as const;
+        // T-D03: % and _ are letters here, never wildcards; Related To is searched too.
+        const has = { contains: likeEscape(q.search), mode: 'insensitive' } as const;
         and.push({
           OR: [
             { title: has },
             { client: { displayName: has } },
             { type: { name: has } },
             { service: { name: has } },
+            { engagement: { title: has } },
+            { relatedText: has },
           ],
         });
       }

@@ -838,9 +838,14 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         .filter(
           (t) =>
             !search ||
-            [t.title, t.client.displayName, t.type?.name ?? '', t.service?.name ?? ''].some((x) =>
-              x.toLowerCase().includes(search),
-            ),
+            // T-D03, as the API: Related To (its engagement) is searched too.
+            [
+              t.title,
+              t.client.displayName,
+              t.type?.name ?? '',
+              t.service?.name ?? '',
+              t.engagement?.title ?? '',
+            ].some((x) => x.toLowerCase().includes(search)),
         );
       const dir = q.direction === 'desc' ? -1 : 1;
       const rank = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
