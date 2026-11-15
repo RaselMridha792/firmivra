@@ -14,6 +14,7 @@ import type {
   SendDraft,
   SendIntakeFormResult,
 } from '@firmivra/types';
+import { intakeReminderPlan } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { legacyFirmRole, type TenantContext } from '../common/request-context.js';
@@ -428,6 +429,26 @@ export class IntakeSendService {
           ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
         },
       );
+      // Review Two 10c: a reminder the order rules skip is in History from the start, as the
+      // send screen said (the schedule job never sends it).
+      const plan = intakeReminderPlan({
+        sentAt: new Date(),
+        expiresAt: data.expiresAt,
+        firstMinutes: data.reminderFirstMinutes,
+        finalMinutes: data.reminderFinalMinutes,
+      });
+      for (const [kind, reason] of [
+        ['FIRST', plan.firstSkipped],
+        ['FINAL', plan.finalSkipped],
+      ] as const) {
+        if (!reason) continue;
+        await this.audit.logIn(
+          tx,
+          'intake.reminder_skipped',
+          { type: 'intake', id: intake.id },
+          { kind, reason },
+        );
+      }
       return { replay: false as const, id: intake.id, token: link?.token ?? null };
     });
 

@@ -9,6 +9,7 @@ import {
   type IntakeFormDefinition,
   type IntakeStatus,
   intakeFields,
+  intakeReminderSkipWords,
   shownIntakeKeys,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -75,6 +76,25 @@ const EVENTS: Record<string, { kind: EventKind; label: string }> = {
   'intake.archived': { kind: 'ARCHIVED', label: 'Form archived' },
 };
 const COMMUNICATION: EventKind[] = ['SENT', 'RESENT', 'REMINDER'];
+
+/** Why the schedule job held a reminder back (intake-schedule.jobs.ts stopReason). */
+const STOPPED: Record<string, string> = {
+  LEAD_CLOSED: 'the lead is closed',
+  ENGAGEMENT_CLOSED: 'the service is closed',
+  PORTAL_LOCKED: 'the client portal is locked',
+  NO_PORTAL_LOGIN: 'the client has no portal sign-in',
+};
+
+/** A skipped reminder in History: the order rules' words (10c) or the job's stop reason. */
+function skippedLabel(metadata: unknown): string {
+  const m = (metadata ?? {}) as { kind?: string; reason?: string };
+  const kind = m.kind === 'FINAL' ? 'FINAL' : 'FIRST';
+  if (m.reason === 'AFTER_FINAL' || m.reason === 'AFTER_EXPIRY' || m.reason === 'TOO_SOON') {
+    return intakeReminderSkipWords(kind, m.reason);
+  }
+  const why = m.reason ? STOPPED[m.reason] : undefined;
+  return `${kind === 'FINAL' ? 'Final' : 'First'} reminder skipped${why ? `: ${why}` : ''}`;
+}
 
 /** A stable id for an event read from the intake's own dates (no audit row behind it). */
 function eventId(intakeId: string, kind: string, at: Date): string {
@@ -199,6 +219,8 @@ export class IntakeRecordService {
       let event = EVENTS[l.action];
       if (l.action === 'intake.viewed' && l.actorUserId && !names.has(l.actorUserId)) {
         event = { kind: 'OPENED', label: 'Opened by the recipient' };
+      } else if (l.action === 'intake.reminder_skipped') {
+        event = { kind: 'REMINDER', label: skippedLabel(l.metadata) };
       } else if (l.action === 'intake.updated') {
         if (fieldsChanged.includes('assignedUserId')) {
           history.push({
