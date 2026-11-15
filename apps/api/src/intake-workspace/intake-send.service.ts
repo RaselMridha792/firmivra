@@ -30,6 +30,7 @@ import type { SendBody, SendDraftBody } from './workspace-input.js';
 import { day, formMetaOf, iso } from './workspace.common.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { checkDue, chosenExpiry, expiryAfterDays } from './intake-expiry.js';
+import { requestedEngagement } from '../engagements/requested-engagement.js';
 
 /** N8-23: the title of the pending request an intake send makes (no service yet). */
 export const REQUESTED_TITLE = 'Requested (from an intake send)';
@@ -224,7 +225,15 @@ export class IntakeSendService {
     });
     if (!found && engagementId) throw notFound();
     const engagement =
-      found ?? (await this.requested(tx, businessId, userId, client.id, serviceId));
+      found ??
+      (await requestedEngagement(tx, this.audit, {
+        businessId,
+        userId,
+        clientId: client.id,
+        serviceId,
+        title: REQUESTED_TITLE,
+        via: 'intake_send',
+      }));
     return {
       engagementId: engagement.id,
       leadId: null,
@@ -232,50 +241,6 @@ export class IntakeSendService {
       email: client.email,
       clientId: client.id,
     };
-  }
-
-  /**
-   * Clients Review Two N8-23 (the lead's option A, Nov 15): a client with no active service for the
-   * form's service still gets the form. It is linked to a pending request for that service: the
-   * client's open one (one only, never a second), else a new PENDING engagement, "Requested (from
-   * an intake send)". Not active, not billed, not an enrollment step: the firm starts or cancels
-   * it as usual, and the client's lifecycle status is not touched. The client is held so two sends
-   * at once make one request.
-   */
-  private async requested(
-    tx: TxClient,
-    businessId: string,
-    userId: string,
-    clientId: string,
-    serviceId: string,
-  ): Promise<{ id: string; status: string }> {
-    await tx.$executeRaw`SELECT 1 FROM clients
-      WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid FOR UPDATE`;
-    const pending = await tx.engagement.findFirst({
-      where: { businessId, clientId, serviceId, status: 'PENDING' },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, status: true },
-    });
-    if (pending) return pending;
-    const made = await tx.engagement.create({
-      data: {
-        businessId,
-        clientId,
-        serviceId,
-        title: REQUESTED_TITLE,
-        status: 'PENDING',
-        updatedByUserId: userId,
-      },
-      select: { id: true, status: true },
-    });
-    await this.audit.logIn(
-      tx,
-      'engagement.requested',
-      { type: 'engagement', id: made.id },
-      { clientId, serviceId, via: 'intake_send' },
-      { businessId },
-    );
-    return made;
   }
 
   /** Who the form is assigned to: the one chosen, or the form's and then the firm's default. */
