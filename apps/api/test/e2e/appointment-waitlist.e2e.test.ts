@@ -481,6 +481,17 @@ describe('STAFF_APPROVAL', () => {
       );
     }
     expect(await appointmentAt(a1)).toBe(iso(at(day + 2, '10:00')));
+    // Staff hear of the request: a bell item for the Owner and the client's assigned member,
+    // which opens the appointment; never for the client.
+    const bells = await asOwner(ids.firmA, (tx) =>
+      tx.notification.findMany({
+        where: { entityId: a1, entityType: 'appointment', type: 'appointment.waitlist_requested' },
+        select: { recipientUserId: true },
+      }),
+    );
+    expect(bells.map((n) => n.recipientUserId).sort()).toEqual(
+      [people.ownerA.id, people.staffA.id].sort(),
+    );
     // Another firm, another client and a member who does not see it get 404.
     expectError(
       await firm('post', `/${e1.id}/approve`, people.ownerB, {}, ids.firmB),

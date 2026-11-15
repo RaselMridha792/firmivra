@@ -28,6 +28,7 @@ import {
   STATUS_LOOKS,
   dateAndTime,
 } from '../../_components/appointments-parts';
+import { WaitlistRequests } from '../../_components/waitlist-requests';
 
 const card =
   'flex min-w-0 flex-col gap-3 rounded-xl border border-divider bg-surface p-4 shadow-sm';
@@ -223,6 +224,9 @@ export function DetailScreen({ id }: { id: string }) {
           }}
         />
       ) : null}
+
+      {/* Appointments A3: the client asked for an earlier time; staff approve or reject it. */}
+      {r ? <WaitlistRequests timeZone={r.timezone} appointmentId={r.id} /> : null}
 
       <div className="grid grid-cols-1 items-start gap-4 min-[1440px]:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 min-[1440px]:col-span-2">

@@ -125,6 +125,12 @@ export const NOTIFICATION_EVENTS = {
    * and how long it is held, never notes or other details. It opens the portal's appointments.
    */
   'appointment.waitlist-offer': { category: 'APPOINTMENTS', kind: 'appointment', to: 'client' },
+  /**
+   * Appointments A3 (R55): a client asked for an offered earlier time (STAFF_APPROVAL). A bell item
+   * for the client's assigned member and the Owners and Admins; it opens the appointment, where
+   * staff approve or reject it.
+   */
+  'appointment.waitlist-requested': { category: 'APPOINTMENTS', kind: 'appointment', to: 'staff' },
   // ----- Invoices (R7; never an amount) -----
   'invoice.sent': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
