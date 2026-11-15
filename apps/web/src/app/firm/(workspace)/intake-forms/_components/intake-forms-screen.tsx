@@ -408,7 +408,8 @@ function FormStatusChart({ summary }: { summary: IntakeDashboardSummary }) {
   return (
     <Card className="!p-4" data-testid="intake-form-status-chart">
       <h2 className="mb-3 text-base font-bold text-heading">Form Status Chart</h2>
-      <div className="grid grid-cols-1 items-center gap-4 2xl:grid-cols-[7rem_minmax(0,1fr)] 2xl:gap-3">
+      {/* INTAKE-DESIGN-02: a compact card, so a short list leaves no tall blank column beside it. */}
+      <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[7rem_minmax(0,18rem)] sm:justify-center xl:grid-cols-1 2xl:grid-cols-[7rem_minmax(0,1fr)]">
         <div className="flex justify-center">
           <DonutChart
             segments={segments}
@@ -421,18 +422,18 @@ function FormStatusChart({ summary }: { summary: IntakeDashboardSummary }) {
           />
         </div>
         {total > 0 ? (
-          <ul className="min-w-0 space-y-3">
+          <ul className="min-w-0 space-y-1.5">
             {segments.map((segment) => (
               <li
                 key={segment.label}
-                className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 text-[11px] text-text"
+                className="flex min-w-0 items-center justify-between gap-x-1.5 text-[11px] text-text"
               >
                 <span className="flex min-w-0 items-center gap-2 leading-tight">
                   <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${segment.dot}`} />
                   <span>{segment.label}</span>
                 </span>
-                <span className="flex shrink-0 flex-col items-end leading-tight tabular-nums">
-                  <span>{segment.value}</span>
+                <span className="shrink-0 leading-tight whitespace-nowrap tabular-nums">
+                  {segment.value}{' '}
                   <span className="text-muted">({Math.round((segment.value / total) * 100)}%)</span>
                 </span>
               </li>
@@ -443,6 +444,10 @@ function FormStatusChart({ summary }: { summary: IntakeDashboardSummary }) {
     </Card>
   );
 }
+
+/** INTAKE-DESIGN-03: the Actions column, pinned to the right edge of the scrolling table. */
+const STICKY_ACTIONS =
+  '[&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:bg-table-head [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-surface [&_tr:hover>td:last-child]:bg-subtle [&_tr[data-selected]>td:last-child]:bg-info-soft [&_td:last-child]:border-l [&_td:last-child]:border-divider';
 
 function FormRowActions({
   row,
@@ -958,7 +963,9 @@ export function IntakeFormsScreen({
                   caption="Client intake forms"
                   dense
                   loading={assignedForms.isFetching && !assignedForms.isPending}
-                  tableClassName="[&_thead_th]:text-sm [&_thead_th]:font-semibold [&_th:nth-child(4)]:px-2 [&_td:nth-child(4)]:px-2 [&_th:nth-child(5)]:px-2 [&_td:nth-child(5)]:px-2 [&_th:last-child]:px-1 [&_td:last-child]:px-1 [&_td:last-child>div]:gap-1"
+                  // INTAKE-DESIGN-03: Actions stay in view at the right while the other columns
+                  // scroll; the cell keeps its row's hover and selected colour.
+                  tableClassName={`[&_thead_th]:text-sm [&_thead_th]:font-semibold [&_th:nth-child(4)]:px-2 [&_td:nth-child(4)]:px-2 [&_th:nth-child(5)]:px-2 [&_td:nth-child(5)]:px-2 [&_th:last-child]:px-1 [&_td:last-child]:px-1 [&_td:last-child>div]:gap-1 ${STICKY_ACTIONS}`}
                   emptyTitle={
                     search || activeFilterCount || tab !== 'all'
                       ? 'No matching forms'
