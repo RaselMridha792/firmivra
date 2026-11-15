@@ -21,6 +21,7 @@ import {
 } from './appointments-parts';
 import { AppointmentsSide, dayDate, dayString } from './appointments-side';
 import { addDays, isCalendarDate, localParts, toInstant, todayIn, weekdayOf } from './time';
+import { WaitlistRequests } from './waitlist-requests';
 
 type Range = 'week' | 'month';
 
@@ -227,6 +228,8 @@ export function CalendarScreen({ date, view }: { date?: string; view?: string })
 
       <div className="grid grid-cols-1 items-start gap-4 min-[1280px]:grid-cols-[1fr_18rem]">
         <div className="flex min-w-0 flex-col gap-4">
+          {/* Appointments A3: shown only while a waitlist request waits for staff. */}
+          <WaitlistRequests timeZone={tz} />
           <section
             aria-label="Calendar"
             data-testid="appointments-calendar"

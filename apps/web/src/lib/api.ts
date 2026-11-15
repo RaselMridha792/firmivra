@@ -43,6 +43,7 @@ import {
   createMessagesClient,
   createMyAppointmentsClient,
   createMyWaitlistClient,
+  createAppointmentWaitlistClient,
   createPublicBookingClient,
   createMyCalculatorsClient,
   createPublicCalculatorsClient,
@@ -123,7 +124,7 @@ import {
   myIntakeAgreementsMock,
   publicAgreementsMock,
 } from '../mocks/agreements';
-import { myWaitlistMock } from '../mocks/appointment-waitlist';
+import { createAppointmentWaitlistMock, myWaitlistMock } from '../mocks/appointment-waitlist';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createLocationsMock } from '../mocks/locations';
 import { createAdminIntegrationsMock } from '../mocks/admin-integrations-api';
@@ -426,6 +427,11 @@ export const api = {
     dev && mocked('scheduling')
       ? createSchedulingMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
       : createSchedulingClient(request),
+  /** Appointments A3 (R55): the firm's waitlist requests, and its switch and mode. */
+  appointmentWaitlist:
+    dev && mocked('appointmentWaitlist')
+      ? createAppointmentWaitlistMock({ role: MOCK_ROLE, empty: mockedEmpty('scheduling') })
+      : createAppointmentWaitlistClient(request),
   /** Appointments Review 2 (A2): Settings > Appointment Settings' rooms and equipment. */
   appointmentResources:
     dev && mocked('appointmentResources')

@@ -162,6 +162,8 @@ const TEXT: Record<NotificationEvent, Writer> = {
   'appointment.changed': appointment('Appointment changed'),
   'appointment.reminder': appointment('Appointment reminder'),
   'appointment.cancelled': appointment('Appointment cancelled'),
+  // Appointments A3 (R55): staff decide on the appointment's own page.
+  'appointment.waitlist-requested': appointment('Earlier time requested'),
   // Appointments A3 (R55): the offered time is in the portal and the email.
   'appointment.waitlist-offer': (p) => {
     const when = dateTime(text(p, 'startsAt'), text(p, 'timeZone'));
