@@ -413,6 +413,46 @@ describe('filings', () => {
     );
   });
 
+  // Tax Returns Review 2 (F26ba): the server, not only the screen, insists on the mailing date.
+  it('refuses a paper filing record without its mailing date and never puts in today', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2014,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const set = ok(
+      await call('put', `/tax-returns/${fresh.id}/filings`, ownerA, {
+        filings: [{ jurisdiction: 'US', filingMethod: 'PAPER' }],
+      }),
+      TaxReturnFilingList,
+    );
+    const us = set.items.find((f) => f.jurisdiction === 'US')!.id;
+    const path = `/tax-returns/${fresh.id}/filings/${us}/paper-filed`;
+    const tracking = { mailTrackingNumber: '9400 1000 0000 0000 0000 77' };
+    expectError(await call('post', path, ownerA, tracking), 400, 'VALIDATION_FAILED');
+    for (const paperFiledOn of ['', null, '   ']) {
+      expectError(
+        await call('post', path, ownerA, { ...tracking, paperFiledOn }),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+    const after = ok(
+      await call('get', `/tax-returns/${fresh.id}/filings`, ownerA),
+      TaxReturnFilingList,
+    ).items.find((f) => f.id === us)!;
+    expect([after.status, after.paperFiledOn]).toEqual(['NOT_FILED', null]);
+    const logged = await inFirm('a', (tx) =>
+      tx.auditLog.count({ where: { action: 'tax_return.transmission', entityId: fresh.id } }),
+    );
+    expect(logged).toBe(0);
+  });
+
   it('records transmissions and their answers as the database allows', async () => {
     const id = ids.r2!;
     ok(
@@ -581,6 +621,95 @@ describe('filings', () => {
       accepted: 1,
     });
     expect(after.rejections).toEqual([]);
+  });
+
+  // Tax Returns Review 2 (F24): after the retry the first rejection is still there in full, and
+  // its corrective task is the return's preparer's.
+  it('keeps the whole first rejection after a retry, with a corrective task owned by the preparer', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2013,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const id = fresh.id;
+    const move = async (workflowStatus: string, reason?: string) =>
+      ok(
+        await call('post', `/tax-returns/${id}/status`, adminA, {
+          workflowStatus,
+          ...(reason ? { reason } : {}),
+        }),
+        TaxReturnDetail,
+      );
+    await move('READY_TO_FILE');
+    const us = ok(await call('get', `/tax-returns/${id}/filings`, ownerA), TaxReturnFilingList)
+      .items[0]!.id;
+    const first = ok(
+      await call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
+        submissionId: 'FAKE-F24-1',
+        transmittedAt: ago(40),
+      }),
+      TaxReturnFilingList,
+    ).items[0]!.attempts[0]!.id;
+    await move('TRANSMITTED');
+    const rejection = {
+      rejectingAgency: 'IRS',
+      rejectCode: 'IND-181',
+      rejectDescription: 'Fake: the prior-year PIN does not match the IRS record',
+      correctiveAction: "Fake: ask the client for last year's AGI and sign again",
+    };
+    const rejected = ok(
+      await call('patch', `/tax-returns/${id}/attempts/${first}`, staffA, {
+        ackStatus: 'REJECTED',
+        acknowledgedAt: ago(30),
+        ...rejection,
+      }),
+      TaxReturnFilingList,
+    ).items[0]!.attempts[0]!;
+    expect(rejected.correctiveTask).toMatchObject({
+      title: 'Correct the IRS rejection IND-181',
+      status: 'OPEN',
+      owner: { userId: staffA.id },
+    });
+    const task = await inFirm('a', (tx) =>
+      tx.task.findUniqueOrThrow({
+        where: { id: rejected.correctiveTask!.id },
+        select: { assignedUserId: true, details: true },
+      }),
+    );
+    expect(task.assignedUserId).toBe(staffA.id);
+    expect(task.details).toContain(`Rejected: ${rejection.rejectDescription}`);
+
+    await move('REJECTED');
+    await move('IN_CORRECTION', 'Fake: the prior-year PIN');
+    await move('READY_TO_FILE');
+    ok(
+      await call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
+        submissionId: 'FAKE-F24-2',
+        transmittedAt: ago(5),
+      }),
+      TaxReturnFilingList,
+    );
+    // Read back later, by someone else: the earlier attempt still says all of it.
+    const attempts = ok(
+      await call('get', `/tax-returns/${id}/filings`, adminA),
+      TaxReturnFilingList,
+    ).items[0]!.attempts;
+    expect(attempts.map((a) => [a.submissionId, a.ackStatus])).toEqual([
+      ['FAKE-F24-2', 'PENDING'],
+      ['FAKE-F24-1', 'REJECTED'],
+    ]);
+    expect(attempts[1]).toMatchObject({
+      ...rejection,
+      recordedBy: { userId: staffA.id },
+      correctiveTask: { id: rejected.correctiveTask!.id, owner: { userId: staffA.id } },
+    });
   });
 });
 
@@ -1245,6 +1374,39 @@ describe('export and another firm', () => {
     const csv = files.objects.get(link.url.slice('memory:'.length))!.toString('utf8');
     expect(csv).toContain('Cora One (fake)');
     expect(csv.split('\r\n')[0]).toContain('"SSN/EIN"');
+  });
+
+  // Tax Returns Review 2 (CR-5a): an export needs its own permission and leaves an audit row.
+  it('audits each export with who made it and how many rows, and a refused one leaves none', async () => {
+    const exports = () =>
+      inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: firms.a, action: 'tax_returns.exported' },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { actorUserId: true, metadata: true, entityType: true },
+        }),
+      );
+    const before = await exports();
+    expectError(await call('post', '/tax-returns/export', staffA, {}), 403, 'FORBIDDEN');
+    expect(await exports()).toHaveLength(before.length);
+    const link = ok(
+      await call('post', '/tax-returns/export', adminA, { taxYear: 2025 }),
+      TaxReturnExportLink,
+    );
+    const after = await exports();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.at(-1)).toEqual({
+      actorUserId: adminA.id,
+      entityType: 'tax_return',
+      metadata: { rows: link.rowCount },
+    });
+    // The row says what was exported, never what was in it.
+    expect(JSON.stringify(after)).not.toContain('Cora One');
+    // Another firm's audit has none of it.
+    const theirs = await inFirm('b', (tx) =>
+      tx.auditLog.count({ where: { businessId: firms.b, action: 'tax_returns.exported' } }),
+    );
+    expect(theirs).toBe(0);
   });
 
   it('reaches none of it', async () => {

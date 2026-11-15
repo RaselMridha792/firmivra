@@ -30,6 +30,48 @@ test('the workspace: header, six cards, nine tabs and the overview widgets', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+// Tax Returns Review 2 (F01a): on a desktop, Client Details and its two-line address stay in
+// their own card, clear of the Document Checklist beside or below it.
+test('Client Details with a two-line address never runs into the Document Checklist on a desktop', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [1165, 747],
+    [1280, 800],
+    [1440, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto(app('/tax-returns?q=Jamie%20Sample'));
+    await page.getByTestId('return-link').first().click();
+    const details = page.getByTestId('client-details');
+    await expect(details).toContainText('123 Main Street', { timeout: 60_000 });
+    await expect(details).toContainText('Atlanta, GA 30301');
+    const checklist = page.getByTestId('document-checklist');
+    await expect(checklist).toBeVisible();
+    const a = (await details.boundingBox())!;
+    const b = (await checklist.boundingBox())!;
+    const overlap =
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    expect(overlap, `cards overlap at ${String(width)} px`).toBe(false);
+    // Each value, the address too, stays inside the card and inside its own cell.
+    const spills = await details.evaluate((card) => {
+      const c = card.getBoundingClientRect();
+      return Array.from(card.querySelectorAll('dt, dd'))
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return (
+            r.right > c.right + 1 || r.left < c.left - 1 || el.scrollWidth > el.clientWidth + 1
+          );
+        })
+        .map((el) => el.textContent);
+    });
+    expect(spills, `at ${String(width)} px`).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+});
+
 test('preparation checklist, review tab and moving to Ready for Review', async ({ page }) => {
   await openReturn(page, 'IN_PREPARATION');
   await page.getByRole('tab', { name: 'Preparation' }).click();
@@ -92,6 +134,10 @@ test('E-File: record a transmission and its rejection, then retransmit', async (
     .getByTestId('ack-dialog')
     .getByLabel('Corrective action')
     .fill('Correct the dependent and transmit again');
+  await page
+    .getByTestId('ack-dialog')
+    .getByLabel('Description')
+    .fill('Fake: the dependent is claimed on another return');
   await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
   await expect(efile.getByTestId('filing-US')).toContainText('IRS · R0000-504-02');
   await efile
@@ -101,6 +147,26 @@ test('E-File: record a transmission and its rejection, then retransmit', async (
   await page.getByTestId('attempt-dialog').getByLabel('Submission ID').fill('SUB-TEST-0002');
   await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
   await expect(efile.getByTestId('filing-US')).toContainText('Earlier attempts (1)');
+  // Tax Returns Review 2 (F24): opened after the retry, the first rejection is all there, with
+  // its corrective task owned by the return's preparer.
+  const preparer = await page
+    .getByTestId('info-cards')
+    .getByRole('listitem')
+    .filter({ hasText: 'Assigned Preparer' })
+    .locator('span[title]')
+    .getAttribute('title');
+  await efile.getByTestId('filing-US').getByText('Earlier attempts (1)').click();
+  const earlier = efile.getByTestId('filing-US').getByTestId('earlier-attempts');
+  await expect(earlier).toContainText('SUB-TEST-0001');
+  await expect(earlier).toContainText('by IRS (R0000-504-02)');
+  await expect(earlier).toContainText('Fake: the dependent is claimed on another return');
+  await expect(earlier).toContainText(
+    'Corrective action: Correct the dependent and transmit again',
+  );
+  await expect(earlier).toContainText('Recorded by');
+  await expect(earlier.getByTestId('corrective-task')).toContainText(
+    `Correct the IRS rejection R0000-504-02 · ${preparer ?? 'no preparer'} · open`,
+  );
 });
 
 test('Payments & Refunds, Notes and Activity tabs', async ({ page }) => {
