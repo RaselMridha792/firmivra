@@ -35,7 +35,7 @@ import {
   sourceOf,
   toMyDocument,
 } from './document-records.js';
-import { checkDocumentFileSize } from './document-file-size.js';
+import { checkDocumentFileSize, documentFileSizeMb } from './document-file-size.js';
 import { UploadsService } from './uploads.service.js';
 
 type ListQuery = z.output<typeof ListMyDocumentsQuery>;
@@ -206,54 +206,64 @@ export class MyDocumentsService {
    * no open service. An AUTHORIZED login gets only the services with an open request.
    */
   async uploadTargets(caller: PortalCaller): Promise<UploadTargets> {
-    const { targets, clientId } = await this.inFirm(caller.businessId, async (tx) => {
-      const login = await portalLogin(tx, caller);
-      const none = { targets: { tax: [], business: [] }, clientId: login.clientId };
-      if (!login.clientId) return none;
-      const client = await tx.client.findFirst({
-        where: { businessId: caller.businessId, id: login.clientId, archivedAt: null },
-        select: { id: true },
-      });
-      if (!client) return none;
-      const engagements = await tx.engagement.findMany({
-        where: { businessId: caller.businessId, clientId: login.clientId, status: 'ACTIVE' },
-        orderBy: [{ taxYear: { sort: 'desc', nulls: 'last' } }, { title: 'asc' }, { id: 'asc' }],
-        select: { id: true, title: true, taxYear: true, service: { select: { kind: true } } },
-        take: 100,
-      });
-      const requests = await tx.documentRequest.findMany({
-        where: {
-          businessId: caller.businessId,
+    const { targets, clientId, maxFileSizeMb } = await this.inFirm(
+      caller.businessId,
+      async (tx) => {
+        const login = await portalLogin(tx, caller);
+        // DOCUMENTS-LIMIT-01: the firm's limit, for the screen's own check before a file goes.
+        const maxFileSizeMb = await documentFileSizeMb(tx, caller.businessId);
+        const none = {
+          targets: { tax: [], business: [] },
           clientId: login.clientId,
-          status: { in: [...OPEN_REQUEST] },
-          engagementId: { in: engagements.map((e) => e.id) },
-          ...SENT_ITEMS,
-        },
-        orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
-        select: { id: true, title: true, dueOn: true, engagementId: true },
-        take: 200,
-      });
-      const all = engagements
-        .map((e) => ({
-          tax: isTax(e.service.kind),
-          target: {
-            serviceId: e.id,
-            title: e.title,
-            taxYear: e.taxYear,
-            openRequests: requests
-              .filter((r) => r.engagementId === e.id)
-              .map((r) => ({ id: r.id, title: r.title, dueOn: day(r.dueOn) })),
+          maxFileSizeMb,
+        };
+        if (!login.clientId) return none;
+        const client = await tx.client.findFirst({
+          where: { businessId: caller.businessId, id: login.clientId, archivedAt: null },
+          select: { id: true },
+        });
+        if (!client) return none;
+        const engagements = await tx.engagement.findMany({
+          where: { businessId: caller.businessId, clientId: login.clientId, status: 'ACTIVE' },
+          orderBy: [{ taxYear: { sort: 'desc', nulls: 'last' } }, { title: 'asc' }, { id: 'asc' }],
+          select: { id: true, title: true, taxYear: true, service: { select: { kind: true } } },
+          take: 100,
+        });
+        const requests = await tx.documentRequest.findMany({
+          where: {
+            businessId: caller.businessId,
+            clientId: login.clientId,
+            status: { in: [...OPEN_REQUEST] },
+            engagementId: { in: engagements.map((e) => e.id) },
+            ...SENT_ITEMS,
           },
-        }))
-        .filter((t) => login.household || t.target.openRequests.length > 0);
-      return {
-        targets: {
-          tax: all.filter((t) => t.tax).map((t) => t.target),
-          business: all.filter((t) => !t.tax).map((t) => t.target),
-        },
-        clientId: login.clientId,
-      };
-    });
+          orderBy: [{ dueOn: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+          select: { id: true, title: true, dueOn: true, engagementId: true },
+          take: 200,
+        });
+        const all = engagements
+          .map((e) => ({
+            tax: isTax(e.service.kind),
+            target: {
+              serviceId: e.id,
+              title: e.title,
+              taxYear: e.taxYear,
+              openRequests: requests
+                .filter((r) => r.engagementId === e.id)
+                .map((r) => ({ id: r.id, title: r.title, dueOn: day(r.dueOn) })),
+            },
+          }))
+          .filter((t) => login.household || t.target.openRequests.length > 0);
+        return {
+          targets: {
+            tax: all.filter((t) => t.tax).map((t) => t.target),
+            business: all.filter((t) => !t.tax).map((t) => t.target),
+          },
+          clientId: login.clientId,
+          maxFileSizeMb,
+        };
+      },
+    );
     if (clientId) {
       await this.audit.log(
         'documents.upload_targets_viewed',
@@ -264,7 +274,7 @@ export class MyDocumentsService {
         },
       );
     }
-    return targets;
+    return { ...targets, maxFileSizeMb };
   }
 
   /**

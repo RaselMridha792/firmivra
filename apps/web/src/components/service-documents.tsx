@@ -1,6 +1,6 @@
 'use client';
 
-import { DOCUMENT_ERRORS, megabytes, UPLOAD_LIMITS } from '@firmivra/types';
+import { DOCUMENT_ERRORS, megabytes } from '@firmivra/types';
 import { Button, Checkbox, FileDropzone, Input, Modal, Select, Textarea } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -9,6 +9,7 @@ import { api } from '../lib/api';
 import { errorMessage } from '../lib/errors';
 import { useApiQuery } from '../lib/query';
 import { useUnsavedChanges } from '../lib/unsaved';
+import { useFirmDocumentMaxBytes } from '../lib/document-limit';
 import { uploadFile } from '../lib/upload';
 
 /** The client and service a request or upload is for, as the workspace knows them. */
@@ -294,6 +295,8 @@ function UploadDocumentDialog({
   const [file, setFile] = useState<File>();
   const [percent, setPercent] = useState<number>();
   const [error, setError] = useState<string>();
+  // DOCUMENTS-LIMIT-01: the firm's own limit, not the platform's 100 MB.
+  const maxBytes = useFirmDocumentMaxBytes();
   useUnsavedChanges(file !== undefined);
   const year = Number(taxYear);
   const send = async () => {
@@ -310,7 +313,7 @@ function UploadDocumentDialog({
             ...facts,
           }),
         finish: (uploadToken) => api.documents.confirmUpload({ uploadToken }),
-        maxBytes: UPLOAD_LIMITS.maxBytes,
+        maxBytes,
         onProgress: setPercent,
       });
       // TX-F08: the same file, linked to the return in the role chosen.
@@ -382,16 +385,14 @@ function UploadDocumentDialog({
           label="File"
           onFiles={(files) => setFile(files[0])}
           onReject={() =>
-            setError(
-              `Use a PDF, JPG, PNG, Excel or Word file up to ${megabytes(UPLOAD_LIMITS.maxBytes)}.`,
-            )
+            setError(`Use a PDF, JPG, PNG, Excel or Word file up to ${megabytes(maxBytes)}.`)
           }
-          maxBytes={UPLOAD_LIMITS.maxBytes}
+          maxBytes={maxBytes}
           multiple={false}
           hints={[
             file
               ? `Chosen: ${file.name}`
-              : `PDF, JPG, PNG, Excel or Word, up to ${megabytes(UPLOAD_LIMITS.maxBytes)}`,
+              : `PDF, JPG, PNG, Excel or Word, up to ${megabytes(maxBytes)}`,
           ]}
         />
         <Checkbox
