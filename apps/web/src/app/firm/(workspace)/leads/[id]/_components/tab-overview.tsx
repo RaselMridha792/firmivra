@@ -237,6 +237,9 @@ function MergeLinks({ lead }: { lead: LeadProfile }) {
 export function OverviewTab() {
   const { id, profile: lead, open } = useProfile();
   const [declining, setDeclining] = useState(false);
+  // The Follow-Up card is remounted when the lead's version changes (a save), so the form opens on
+  // the saved values; its notice lives here so "Follow-up saved." survives that remount.
+  const [followUpMessage, setFollowUpMessage] = useState<string>();
   const decline = useApiMutation(
     () => api.leadPipeline.update(id, { version: lead?.version, stage: 'DECLINED' }),
     { invalidate: LEAD_PIPELINE_KEY },
@@ -503,7 +506,12 @@ export function OverviewTab() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 min-[1440px]:col-span-1">
-          <FollowUpCard key={lead ? lead.version : 'none'} lead={lead} />
+          <FollowUpCard
+            key={lead ? lead.version : 'none'}
+            lead={lead}
+            message={followUpMessage}
+            onMessage={setFollowUpMessage}
+          />
           <OpenTasksCard />
           <CardFrame icon={Lightning} title="Quick Actions" testId="card-quick-actions">
             <div className="grid grid-cols-2 gap-2">

@@ -25,8 +25,10 @@ test('R2 5: the follow-up editor opens on the saved time, and an unchanged save 
   await expect(time.locator('option:checked')).toHaveText('2:15 PM');
 
   await card.getByRole('button', { name: 'Save Follow-Up' }).click();
-  // Saved (the lead's activity says so; the card then reopens on the saved lead).
+  // Saved (the lead's activity says so; the card then reopens on the saved lead), and the card
+  // says so too: the notice outlives the card's remount on the saved lead.
   await expect(page.getByTestId('card-recent-activity')).toContainText('Follow-up scheduled');
+  await expect(card.getByRole('status')).toHaveText('Follow-up saved.');
   await expect(card).toContainText('Nov 17, 2026, 2:15 PM');
   await expect(time).toHaveValue('14:15');
 
