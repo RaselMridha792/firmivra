@@ -39,9 +39,28 @@ export const mockedEmpty = (module: string): boolean =>
 
 type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 const ROLES: readonly MockRole[] = ['OWNER', 'ADMIN', 'STAFF'];
-const role = process.env.NEXT_PUBLIC_API_MOCK_ROLE as MockRole | undefined;
 
-/** Role of the mock signed-in user: NEXT_PUBLIC_API_MOCK_ROLE if it's a firm role, else OWNER. */
+/**
+ * sessionStorage key a mock spec sets (with `page.addInitScript`, before the page loads) to sign
+ * in as another firm role in that tab, without a second mock server (Leads 20a: what Staff are
+ * offered). Read once, when the page loads; the server render keeps the variable's role.
+ */
+export const MOCK_ROLE_KEY = 'fv-mock-role';
+function tabRole(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(MOCK_ROLE_KEY);
+  } catch {
+    // No storage (a private window): the variable's role.
+    return null;
+  }
+}
+const role = (tabRole() ?? process.env.NEXT_PUBLIC_API_MOCK_ROLE) as MockRole | undefined;
+
+/**
+ * Role of the mock signed-in user: this tab's `fv-mock-role` (see MOCK_ROLE_KEY), else
+ * NEXT_PUBLIC_API_MOCK_ROLE, if it's a firm role; else OWNER.
+ */
 export const MOCK_ROLE: MockRole = role && ROLES.includes(role) ? role : 'OWNER';
 
 /** Waits like a real request, so loading states show in mock mode too. */
