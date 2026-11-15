@@ -678,12 +678,26 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
 
   'message.received': (d, b, o) => {
     const firm = b.name;
+    // Review 2 (Messaging): the text only when the message was sent with it; the documents only
+    // as their number, behind the portal sign-in.
+    const body = field(d, 'body');
+    const documents = field(d, 'documents');
+    const count = typeof documents === 'number' && documents > 0 ? documents : 0;
     return {
       channel: 'email',
       subject: `New message in ${firm}'s portal`,
       blocks: [
         hello(d),
-        text('You have a new message. Open it to read and reply.'),
+        ...(typeof body === 'string' && body.trim()
+          ? [text(`${firm} wrote:`), text(body)]
+          : [text('You have a new message. Open it to read and reply.')]),
+        ...(count
+          ? [
+              text(
+                `It has ${count === 1 ? '1 document' : `${count} documents`}. Sign in to your portal to view ${count === 1 ? 'it' : 'them'}.`,
+              ),
+            ]
+          : []),
         button('Read the message', link(d, 'link', o)),
       ],
     };

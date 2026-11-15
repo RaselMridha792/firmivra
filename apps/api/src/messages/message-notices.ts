@@ -48,6 +48,11 @@ export class MessageNotices {
     private readonly notifier: Notifier,
   ) {}
 
+  /** Review 2 (Messaging): whether a message's text may go in an email at all. */
+  get bodyAllowed(): boolean {
+    return this.env.MESSAGE_EMAIL_BODY === 'on';
+  }
+
   async sent(m: SentMessage): Promise<void> {
     // MSG-F22: a member who muted this conversation gets no bell item and no email for it. The
     // Notifier skips up to 50; more than 50 members muting one conversation is beyond any firm.
@@ -109,7 +114,24 @@ export class MessageNotices {
       recipient: { userId: string } | { clientAccountId: string };
     }[] = [];
     let link: string;
+    // Review 2 (Messaging): the client's email carries the text only when this message was sent
+    // with it (and the platform allows it), and the documents only as their number with the
+    // sign-in link; never a file or its contents.
+    const extras: { body?: string; documents?: number } = {};
     if (m.toSide === 'client') {
+      const message = await db.message.findFirst({
+        where: { businessId: m.businessId, id: m.messageId },
+        select: {
+          body: true,
+          emailIncludesBody: true,
+          emailIncludesDocuments: true,
+          _count: { select: { attachments: true } },
+        },
+      });
+      if (message?.emailIncludesBody && this.bodyAllowed) extras.body = message.body;
+      if (message?.emailIncludesDocuments && message._count.attachments > 0) {
+        extras.documents = message._count.attachments;
+      }
       const business = await db.business.findUnique({
         where: { id: m.businessId },
         select: { slug: true },
@@ -148,7 +170,7 @@ export class MessageNotices {
           to: r.to,
           businessId: m.businessId,
           recipient: r.recipient,
-          data: { name: r.name, link },
+          data: { name: r.name, link, ...extras },
         });
       } catch (error) {
         this.logger.warn(
