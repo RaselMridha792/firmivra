@@ -29,6 +29,12 @@ export const EnvSchema = z
      * test runner (tests start a run by hand).
      */
     LOCATION_JOBS: z.enum(['on', 'off']).optional(),
+    /**
+     * Tax Returns Review 2 (Messaging): whether a message's text may go in the client's
+     * new-message email when the firm, the client's preference or the send asks for it. `off`
+     * keeps every such email to the notice (and document links). Default on (Rasel, Nov 15).
+     */
+    MESSAGE_EMAIL_BODY: z.enum(['on', 'off']).default('on'),
     COGNITO_REGION: z.string().default('us-east-1'),
     COGNITO_STAFF_USER_POOL_ID: optional,
     COGNITO_STAFF_CLIENT_ID: optional,

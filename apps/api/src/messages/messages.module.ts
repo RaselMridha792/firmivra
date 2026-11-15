@@ -16,6 +16,7 @@ import { MessageNotices } from './message-notices.js';
 import { MessageSettingsController } from './message-settings.controller.js';
 import { MessageSettingsService } from './message-settings.service.js';
 import {
+  ClientMessagePreferenceController,
   ClientMessageThreadsController,
   MessageThreadsController,
   MyMessagesController,
@@ -38,6 +39,7 @@ import { TemplatesModule } from '../templates/templates.module.js';
   imports: [NotificationsModule, PortalTabsModule, TemplatesModule],
   controllers: [
     ClientMessageThreadsController,
+    ClientMessagePreferenceController,
     MessageThreadsController,
     MyMessagesController,
     ClientNotesController,

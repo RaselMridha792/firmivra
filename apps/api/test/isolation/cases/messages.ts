@@ -155,6 +155,12 @@ const PH = '00000000-0000-4000-8000-000000000000';
 
 export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/message-threads': { params: { id: 'client' } },
+  // Tax Returns Review 2 (Messaging): the client's saved email choices.
+  'GET /api/v1/business/clients/:id/message-preference': { params: { id: 'client' } },
+  'PUT /api/v1/business/clients/:id/message-preference': {
+    params: { id: 'client' },
+    body: { emailNotice: true, emailIncludesBody: null, emailIncludesDocuments: null },
+  },
   'POST /api/v1/business/clients/:id/message-threads': {
     params: { id: 'client' },
     // Not swept: `related.id`. It is stored as the thread's link and echoed, never looked up, so
