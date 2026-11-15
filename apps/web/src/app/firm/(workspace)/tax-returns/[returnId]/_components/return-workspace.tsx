@@ -145,6 +145,8 @@ export function ReturnWorkspace({ returnId }: { returnId: string }) {
         service: 'Tax Returns',
         period: `Tax year ${r.taxYear}`,
         taxYear: r.taxYear,
+        // TR-2: a request made here names this return and its year.
+        taxReturnId: r.id,
         // Review 2 (TX-F08): the file can be one of this return's own documents.
         linkTo: {
           label: `Link to the ${r.taxYear} return as`,
