@@ -213,6 +213,65 @@ afterAll(async () => {
   await app.close();
 });
 
+describe('N8-17: Start Service', () => {
+  it('starts a pending service and its New client becomes Active; only a pending one; a client past New stays', async () => {
+    const pending = (status: 'NEW' | 'ON_HOLD', name: string) =>
+      inFirm(async (tx) => {
+        const c = await tx.client.create({
+          data: { businessId: ids.firmA, displayName: `${name} (fake)`, status },
+          select: { id: true },
+        });
+        const e = await tx.engagement.create({
+          data: {
+            businessId: ids.firmA,
+            clientId: c.id,
+            serviceId: ids.tax,
+            title: 'Requested (fake)',
+            status: 'PENDING',
+          },
+          select: { id: true },
+        });
+        return { clientId: c.id, engagementId: e.id };
+      });
+    const statusOf = async (id: string) =>
+      (
+        await inFirm((tx) =>
+          tx.client.findFirstOrThrow({ where: { id }, select: { status: true } }),
+        )
+      ).status;
+    const fresh = await pending('NEW', 'Starting');
+    const start = (who = people.ownerA, businessId = ids.firmA) =>
+      firm('post', `/engagements/${fresh.engagementId}/activate`, who, {}, businessId);
+    expect(codeOf(await start(people.ownerB, ids.firmB))).toBe('NOT_FOUND');
+    // Staff reach only the clients assigned to them.
+    expect(codeOf(await start(people.staffA))).toBe('NOT_FOUND');
+    const started = Engagement.parse(expectOk(await start()).body);
+    expect(started.status).toBe('ACTIVE');
+    expect(await statusOf(fresh.clientId)).toBe('ACTIVE');
+    const audit = await inFirm((tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: { in: [fresh.clientId, fresh.engagementId] } },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'engagement.activated' }),
+        {
+          action: 'client.updated',
+          metadata: { fields: ['status'], from: 'NEW', to: 'ACTIVE', via: 'service_started' },
+        },
+      ]),
+    );
+    // Only a pending service starts.
+    expect(codeOf(await start())).toBe('INVALID_STATUS');
+    // A client past New stays as it is.
+    const held = await pending('ON_HOLD', 'Held');
+    expectOk(await firm('post', `/engagements/${held.engagementId}/activate`, people.ownerA, {}));
+    expect(await statusOf(held.clientId)).toBe('ON_HOLD');
+  });
+});
+
 describe('firm: create and list', () => {
   it("creates with the service's billing by default; lists newest first, by status", async () => {
     const tax = await create(ids.one, {

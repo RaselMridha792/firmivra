@@ -10,6 +10,7 @@ import {
   FilePdf,
   PaperPlaneTilt,
   ChatCircle,
+  UserCheck,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -109,6 +110,8 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
   const [managing, setManaging] = useState<ManageAction>();
   const remind = useApiMutation(() => api.intakeForms.remind(id), options);
   const review = useApiMutation(() => api.intakeForms.markReviewed(id), options);
+  // Clients Review Two N8-17: Accept completes the form and makes a New client Active.
+  const accept = useApiMutation(() => api.intakeForms.accept(id), options);
   const revise = useApiMutation(
     () => api.intakeForms.requestRevision(id, { note: note.trim() }),
     options,
@@ -193,8 +196,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
             >
               <PaperPlaneTilt aria-hidden weight="fill" className="size-4" /> Send Follow-Up
             </button>
-            <Button
+            <button
+              type="button"
               disabled={!reviewable || review.isPending}
+              className={outline}
               onClick={() =>
                 review.mutate(undefined, {
                   onSuccess: () => notify('Marked as reviewed.'),
@@ -203,6 +208,23 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               }
             >
               <CheckCircle aria-hidden weight="bold" className="size-4" /> Mark Reviewed
+            </button>
+            <Button
+              disabled={!reviewable || accept.isPending}
+              title="Completes the form, and a New client becomes Active"
+              onClick={() =>
+                accept.mutate(undefined, {
+                  onSuccess: () =>
+                    notify(
+                      r?.recipient.kind === 'LEAD'
+                        ? 'Accepted.'
+                        : 'Accepted. A New client is now Active.',
+                    ),
+                  onError: failed,
+                })
+              }
+            >
+              <UserCheck aria-hidden weight="bold" className="size-4" /> Accept
             </Button>
             {r && manageItems(r, manager, setManaging).length > 0 ? (
               <ActionMenu

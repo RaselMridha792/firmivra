@@ -848,6 +848,19 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       event(r, 'COMPLETED', 'Marked as completed');
       return toView(r);
     },
+    // Clients Review Two N8-17 as the API: completed, and the client New → Active (no client list
+    // in this mock, so only the form changes here).
+    accept: async (id) => {
+      await mockDelay();
+      const r = find(id);
+      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(r.status))
+        throw fail(409, 'INVALID_STATUS', 'Only a submitted form can be accepted');
+      setStatus(r, 'COMPLETED');
+      r.completedAt = new Date().toISOString();
+      r.completedBy = me;
+      event(r, 'COMPLETED', 'Accepted');
+      return toView(r);
+    },
     requestRevision: async (id, body) => {
       await mockDelay();
       managers();
