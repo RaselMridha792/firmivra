@@ -98,6 +98,10 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                   >
                     {client.displayName}
                   </h1>
+                  {/* Clients Review 2 §3: the Client ID people search by. */}
+                  <p className="mt-0.5 text-sm text-muted" data-testid="client-id">
+                    Client ID {client.clientNumber}
+                  </p>
                   <p className="mt-1 text-sm wrap-anywhere text-muted">
                     {client.email}
                     {client.email && client.phone ? ' · ' : null}
@@ -114,6 +118,15 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
+                {/* Clients Review 2 §3/§6: book this client (the form opens with them chosen). */}
+                {client.archivedAt ? null : (
+                  <OriginLink
+                    href={`/calendar/new?clientId=${client.id}`}
+                    className="inline-flex min-h-10 items-center rounded-control border border-border px-4 text-sm font-semibold text-heading hover:bg-subtle"
+                  >
+                    Schedule Appointment
+                  </OriginLink>
+                )}
                 {client.archivedAt ? null : (
                   <EditClient client={client} initiallyOpen={search.get('edit') === '1'} />
                 )}
