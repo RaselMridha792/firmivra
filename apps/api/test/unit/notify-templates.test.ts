@@ -359,4 +359,20 @@ describe('message.received', () => {
     expect(plain.subject).toBe(`New message in ${FIRM_NAME}'s portal`);
     expect(plain.text).toContain('https://portal.example.test/sample/messages');
   });
+
+  it('Review 2 (Messaging): the text only when the message was sent with it; documents as a count', () => {
+    const chosen = email('message.received', {
+      ...SAMPLE_DATA['message.received'],
+      includesBody: true,
+      body: 'Your organizer is ready (fake).',
+      documents: 2,
+    });
+    expect(chosen.text).toContain('Your organizer is ready (fake).');
+    expect(chosen.text).toContain('It has 2 documents. Sign in to your portal to view them.');
+    expect(chosen.text).toContain('https://portal.example.test/sample/messages');
+    // A count, never a file name or a file.
+    const one = email('message.received', { ...SAMPLE_DATA['message.received'], documents: 1 });
+    expect(one.text).toContain('It has 1 document. Sign in to your portal to view it.');
+    expect(one.text).not.toContain('organizer');
+  });
 });

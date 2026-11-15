@@ -38,6 +38,8 @@ import {
   IssueFields,
   issueBody,
   type IssueDraft,
+  pastReview,
+  ResolveRule,
   ReturnIssueChoice,
 } from './issues-panel';
 import {
@@ -136,6 +138,14 @@ export function ValidationPanel({
   const openIssueOf = (lineId: string) =>
     (issues.data ?? []).find((i) => i.step?.id === lineId && !i.resolvedAt);
   const [assigning, setAssigning] = useState<IssueDraft>();
+  // Review 2 (TX-F21): a line's result changes with a reason.
+  const [changing, setChanging] = useState<{
+    id: string;
+    label: string;
+    from: TaxCheckResult;
+    to: TaxCheckResult;
+  }>();
+  const [why, setWhy] = useState('');
   const assign = (c: { id: string; label: string; note: string | null; result: TaxCheckResult }) =>
     setAssigning({
       ...blankIssue(detail.preparer?.userId),
@@ -268,15 +278,15 @@ export function ValidationPanel({
                             aria-label={`Result for ${c.label}`}
                             className="rounded border border-divider bg-surface px-1 text-xs"
                             value={c.result}
-                            onChange={(e) =>
-                              void act(
-                                () =>
-                                  api.taxReturnWorkspace.updateChecklistItem(detail.id, c.id, {
-                                    result: e.target.value as TaxCheckResult,
-                                  }),
-                                'Validation item updated.',
-                              )
-                            }
+                            onChange={(e) => {
+                              setWhy('');
+                              setChanging({
+                                id: c.id,
+                                label: c.label,
+                                from: c.result,
+                                to: e.target.value as TaxCheckResult,
+                              });
+                            }}
                           >
                             {(['VALID', 'INFO', 'WARNING', 'ERROR'] as const).map((r) => (
                               <option key={r} value={r}>
@@ -367,6 +377,43 @@ export function ValidationPanel({
           testId="assign-validation-dialog"
         >
           <IssueFields returnId={detail.id} value={assigning} onChange={setAssigning} />
+        </Dialog>
+      ) : null}
+      {!compact ? <ResolveRule /> : null}
+      {changing ? (
+        <Dialog
+          title="Change the Result"
+          subtitle={`${changing.label}: ${CHECK[changing.from].label} to ${CHECK[changing.to].label}`}
+          confirm="Change Result"
+          disabled={!why.trim()}
+          onConfirm={() =>
+            void act(
+              () =>
+                api.taxReturnWorkspace.updateChecklistItem(detail.id, changing.id, {
+                  result: changing.to,
+                  reason: why.trim(),
+                }),
+              'Validation item updated.',
+            ).then((r) => {
+              if (r) setChanging(undefined);
+            })
+          }
+          onClose={() => setChanging(undefined)}
+          testId="change-result-dialog"
+        >
+          <Textarea
+            label="Reason (kept in the return's history)"
+            value={why}
+            maxLength={500}
+            onChange={(e) => setWhy(e.target.value)}
+          />
+          {changing.from === 'ERROR' &&
+          changing.to !== 'ERROR' &&
+          pastReview(detail.workflowStatus) ? (
+            <p role="note" className="rounded-lg bg-warning-soft p-2 text-sm text-heading">
+              The return goes back to Ready for Review for the reviewer&apos;s approval.
+            </p>
+          ) : null}
         </Dialog>
       ) : null}
     </Panel>

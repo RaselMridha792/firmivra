@@ -520,6 +520,8 @@ describe('booking', () => {
       changeableUntil: minus24h(at(3, '09:00')),
       // Review 2 (B9): the type gives no client instructions.
       instructions: null,
+      // A1: the client's own, not one they attend.
+      attending: false,
       // Review 2 (row 8): the client booked it, so it never asks them to confirm.
       needsConfirmation: false,
     });

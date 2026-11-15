@@ -7,7 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
-import { MESSAGE_SETTINGS_DEFAULTS } from '@firmivra/types';
+import {
+  type ClientMessagePreference,
+  MESSAGE_SETTINGS_DEFAULTS,
+  type MessageDelivery,
+  type MessageEmailChoices,
+  resolveEmailChoices,
+  type SetClientMessagePreferenceRequest,
+} from '@firmivra/types';
 import type {
   CreateMessageThreadRequest,
   CreateMyMessageThreadRequest,
@@ -519,6 +526,7 @@ export class MessagesService {
     body: CreateBody,
     options: { emailNotice?: boolean; assignedUserId?: string | null } = {},
   ): Promise<MessageThreadDetail> {
+    let choices: MessageEmailChoices | undefined;
     const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
         SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
@@ -536,6 +544,15 @@ export class MessagesService {
         });
         if (!engagement) throw notFound();
       }
+      // New Message's Email channel sends its own email: no notice.
+      choices = await this.emailChoices(
+        tx,
+        businessId,
+        clientId,
+        actor.userId,
+        body.delivery,
+        options.emailNotice === false,
+      );
       const thread = await tx.messageThread.create({
         data: {
           businessId,
@@ -557,6 +574,7 @@ export class MessagesService {
           senderUserId: actor.userId,
           direction: 'FIRM_TO_CLIENT',
           body: body.body,
+          ...choices,
         },
         select: { id: true },
       });
@@ -582,7 +600,7 @@ export class MessagesService {
       detail.messages[0]?.id,
       actor.userId,
       'client',
-      options.emailNotice ?? true,
+      choices?.emailNotice ?? false,
     );
     return detail;
   }
@@ -593,9 +611,14 @@ export class MessagesService {
     id: string,
     body: string,
     documentIds: readonly string[] = [],
+    delivery?: z.output<typeof MessageDelivery>,
   ): Promise<Message> {
     const sent = await this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
+      // A client's thread always has its client (a lead's is another route).
+      const choices = t.clientId
+        ? await this.emailChoices(tx, businessId, t.clientId, actor.userId, delivery)
+        : { emailNotice: false, emailIncludesBody: false, emailIncludesDocuments: false };
       // The same lock as a client reply: two messages on one thread queue, so only the first of
       // an unread run is emailed.
       await this.lockThread(tx, businessId, t.id);
@@ -607,6 +630,7 @@ export class MessagesService {
           senderUserId: actor.userId,
           direction: 'FIRM_TO_CLIENT',
           body,
+          ...choices,
         },
         select: { id: true },
       });
@@ -627,7 +651,7 @@ export class MessagesService {
       });
       return {
         threadId: t.id,
-        email,
+        email: email && choices.emailNotice,
         message: this.toMessage(await this.people(tx, businessId, [actor.userId]), sent),
       };
     });
@@ -1221,10 +1245,170 @@ export class MessagesService {
     threadId: string,
     direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM',
   ): Promise<boolean> {
+    // Review 2 (Messaging): a message sent without the email does not start the run.
     const unread = await tx.message.count({
-      where: { businessId, threadId, direction, readAt: null },
+      where: {
+        businessId,
+        threadId,
+        direction,
+        readAt: null,
+        OR: [{ emailNotice: null }, { emailNotice: true }],
+      },
     });
     return unread === 0;
+  }
+
+  /** Review 2 (Messaging): the firm's defaults for the client's new-message email. */
+  private async firmEmailChoices(tx: TxClient, businessId: string): Promise<MessageEmailChoices> {
+    const s = await tx.messageSettings.findUnique({
+      where: { businessId },
+      select: {
+        clientEmailNotice: true,
+        clientEmailIncludesBody: true,
+        clientEmailIncludesDocuments: true,
+      },
+    });
+    const d = MESSAGE_SETTINGS_DEFAULTS;
+    return {
+      emailNotice: s?.clientEmailNotice ?? d.clientEmailNotice,
+      emailIncludesBody: s?.clientEmailIncludesBody ?? d.clientEmailIncludesBody,
+      emailIncludesDocuments: s?.clientEmailIncludesDocuments ?? d.clientEmailIncludesDocuments,
+    };
+  }
+
+  /**
+   * Review 2 (Messaging): a firm message's email choices, the send's, else the client's saved
+   * preference, else the firm's default; never the text when the platform switch is off.
+   * `saveForClient` keeps them as the client's preference, audited in the same transaction.
+   * `noEmail`: New Message's Email channel, which sends its own email.
+   */
+  private async emailChoices(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+    userId: string,
+    delivery: z.output<typeof MessageDelivery> | undefined,
+    noEmail = false,
+  ): Promise<MessageEmailChoices> {
+    if (noEmail) {
+      return { emailNotice: false, emailIncludesBody: false, emailIncludesDocuments: false };
+    }
+    const firm = await this.firmEmailChoices(tx, businessId);
+    const saved = await tx.clientMessagePreference.findUnique({
+      where: { businessId_clientId: { businessId, clientId } },
+      select: { emailNotice: true, emailIncludesBody: true, emailIncludesDocuments: true },
+    });
+    const { saveForClient, ...send } = delivery ?? {};
+    const resolved = resolveEmailChoices(firm, saved, send);
+    if (!this.notices.bodyAllowed) resolved.emailIncludesBody = false;
+    if (saveForClient) {
+      await tx.clientMessagePreference.upsert({
+        where: { businessId_clientId: { businessId, clientId } },
+        create: { businessId, clientId, ...resolved, updatedByUserId: userId },
+        update: { ...resolved, updatedByUserId: userId },
+      });
+      await this.audit.logIn(
+        tx,
+        'client.message_preference_saved',
+        { type: 'client', id: clientId },
+        { ...resolved, from: 'composer' },
+      );
+    }
+    return resolved;
+  }
+
+  /** Review 2 (Messaging): the firm's defaults, the client's saved choices and the result. */
+  private async preferenceView(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+  ): Promise<ClientMessagePreference> {
+    const firm = await this.firmEmailChoices(tx, businessId);
+    const saved = await tx.clientMessagePreference.findUnique({
+      where: { businessId_clientId: { businessId, clientId } },
+      select: {
+        emailNotice: true,
+        emailIncludesBody: true,
+        emailIncludesDocuments: true,
+        updatedAt: true,
+        updatedByUserId: true,
+      },
+    });
+    const effective = resolveEmailChoices(firm, saved);
+    if (!this.notices.bodyAllowed) effective.emailIncludesBody = false;
+    const people = saved ? await this.people(tx, businessId, [saved.updatedByUserId]) : null;
+    const by = saved ? people?.get(saved.updatedByUserId) : undefined;
+    return {
+      firm,
+      saved: saved
+        ? {
+            emailNotice: saved.emailNotice,
+            emailIncludesBody: saved.emailIncludesBody,
+            emailIncludesDocuments: saved.emailIncludesDocuments,
+            updatedAt: saved.updatedAt.toISOString(),
+            updatedBy: by ? { userId: saved.updatedByUserId, name: by.name } : null,
+          }
+        : null,
+      effective,
+      bodyAllowed: this.notices.bodyAllowed,
+    };
+  }
+
+  /** The client must be one this member reaches (404 otherwise), under a share lock. */
+  private async reachClient(tx: TxClient, businessId: string, actor: ClientsActor, id: string) {
+    const client = await tx.client.findFirst({
+      where: { AND: [{ businessId, id }, this.reach(actor)] },
+      select: { id: true },
+    });
+    if (!client) throw notFound();
+  }
+
+  /** GET /business/clients/{id}/message-preference (Review 2, Messaging). */
+  preference(
+    businessId: string,
+    actor: ClientsActor,
+    clientId: string,
+  ): Promise<ClientMessagePreference> {
+    return this.inFirm(businessId, async (tx) => {
+      await this.reachClient(tx, businessId, actor, clientId);
+      return this.preferenceView(tx, businessId, clientId);
+    });
+  }
+
+  /**
+   * PUT /business/clients/{id}/message-preference: null keeps the firm's default; all three null
+   * removes the saved preference. Audited with the three values (never a message).
+   */
+  setPreference(
+    businessId: string,
+    actor: ClientsActor,
+    clientId: string,
+    body: z.output<typeof SetClientMessagePreferenceRequest>,
+  ): Promise<ClientMessagePreference> {
+    return this.inFirm(businessId, async (tx) => {
+      await this.reachClient(tx, businessId, actor, clientId);
+      const where = { businessId_clientId: { businessId, clientId } };
+      if (
+        body.emailNotice === null &&
+        body.emailIncludesBody === null &&
+        body.emailIncludesDocuments === null
+      ) {
+        await tx.clientMessagePreference.deleteMany({ where: { businessId, clientId } });
+      } else {
+        await tx.clientMessagePreference.upsert({
+          where,
+          create: { businessId, clientId, ...body, updatedByUserId: actor.userId },
+          update: { ...body, updatedByUserId: actor.userId },
+        });
+      }
+      await this.audit.logIn(
+        tx,
+        'client.message_preference_saved',
+        { type: 'client', id: clientId },
+        { ...body, from: 'preference' },
+      );
+      return this.preferenceView(tx, businessId, clientId);
+    });
   }
 
   /** The new message's notices, after it committed; they never fail the request. */

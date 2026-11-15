@@ -8,7 +8,13 @@ import { DATABASE } from '../database/database.module.js';
 import { PermissionGrantsService } from '../roles/permission-grants.service.js';
 import { memberNames, memberRef, notAMember } from '../workspaces/common.js';
 import { notFound } from './tax-return-rules.js';
-import { conflict, invalid, returnReach, workspaceRefusal } from './workspace.common.js';
+import {
+  backToReview,
+  conflict,
+  invalid,
+  returnReach,
+  workspaceRefusal,
+} from './workspace.common.js';
 import type { IssueBody, UpdateIssueBody } from './workspace.input.js';
 
 type Out<S extends z.ZodType> = z.output<S>;
@@ -63,7 +69,7 @@ export class TaxReturnIssuesService {
     }
     const r = await tx.taxReturn.findFirst({
       where: { AND: [{ businessId, id }, returnReach(tenant, userId)] },
-      select: { id: true, reviewerUserId: true },
+      select: { id: true, preparerUserId: true, reviewerUserId: true, workflowStatus: true },
     });
     if (!r) throw notFound();
     return r;
@@ -78,19 +84,14 @@ export class TaxReturnIssuesService {
   }
 
   /**
-   * Who may resolve or reopen an issue: who raised it, or the return's reviewer; a Manual Warning
-   * or Info issue also the person responsible. Anyone else only as the override (recorded).
+   * Review 2 (TX-F21): who may resolve or reopen an issue: the return's preparer or reviewer.
+   * An Owner or Admin with APPROVE only as the override (recorded).
    */
   private static responsible(
-    issue: { severity: string; createdByUserId: string; responsibleUserId: string | null },
-    reviewerUserId: string | null,
+    r: { preparerUserId: string | null; reviewerUserId: string | null },
     userId: string,
   ) {
-    return (
-      issue.createdByUserId === userId ||
-      reviewerUserId === userId ||
-      (issue.severity !== 'ERROR' && issue.responsibleUserId === userId)
-    );
+    return r.preparerUserId === userId || r.reviewerUserId === userId;
   }
 
   private log(tx: TxClient, tenant: TenantContext, id: string, metadata: Record<string, unknown>) {
@@ -112,7 +113,7 @@ export class TaxReturnIssuesService {
     tenant: TenantContext,
     userId: string,
     id: string,
-    reviewerUserId: string | null,
+    who: { preparerUserId: string | null; reviewerUserId: string | null },
   ): Promise<Items> {
     const businessId = tenant.businessId;
     // Open first, Errors first, then the newest.
@@ -145,14 +146,14 @@ export class TaxReturnIssuesService {
       createdAt: r.createdAt.toISOString(),
       resolvedAt: r.resolvedAt?.toISOString() ?? null,
       resolvedBy: memberRef(names, r.resolvedByUserId),
-      canResolve: TaxReturnIssuesService.responsible(r, reviewerUserId, userId) || override,
+      canResolve: TaxReturnIssuesService.responsible(who, userId) || override,
     }));
   }
 
   list(tenant: TenantContext, userId: string, id: string): Promise<Items> {
     return this.inFirm(tenant, async (tx) => {
       const r = await this.reach(tx, tenant, userId, id);
-      return this.issuesOf(tx, tenant, userId, id, r.reviewerUserId);
+      return this.issuesOf(tx, tenant, userId, id, r);
     });
   }
 
@@ -160,7 +161,7 @@ export class TaxReturnIssuesService {
     return this.write(tenant, async (tx) => {
       const r = await this.reach(tx, tenant, userId, id, true);
       await this.createIn(tx, tenant, userId, id, body);
-      return this.issuesOf(tx, tenant, userId, id, r.reviewerUserId);
+      return this.issuesOf(tx, tenant, userId, id, r);
     });
   }
 
@@ -255,26 +256,33 @@ export class TaxReturnIssuesService {
       });
       if (!issue) throw notFound();
       if (body.resolved !== undefined && body.resolved !== (issue.resolvedAt !== null)) {
-        const own = TaxReturnIssuesService.responsible(issue, r.reviewerUserId, userId);
+        const own = TaxReturnIssuesService.responsible(r, userId);
         if (!own && !(await this.mayOverride(tenant))) {
           throw new ForbiddenException({
             code: 'FORBIDDEN',
             message:
-              issue.severity === 'ERROR'
-                ? "Only who raised it or the return's reviewer, or an Owner or Admin, can resolve this error"
-                : "Only who raised it, the person responsible or the return's reviewer, or an Owner or Admin, can resolve this issue",
+              "Only the return's preparer or reviewer, or an Owner or Admin, can resolve or reopen an issue",
           });
         }
+        if (body.resolved && !body.reason) throw invalid('Say why it is resolved', 'reason');
         await tx.taxReturnValidationIssue.update({
           where: { id: issueId },
           data: body.resolved
             ? { resolvedAt: new Date(), resolvedByUserId: userId }
             : { resolvedAt: null, resolvedByUserId: null },
         });
+        // An Error resolved past Ready for Review goes back for the reviewer's approval.
+        const reReview =
+          body.resolved && issue.severity === 'ERROR'
+            ? await backToReview(tx, r, userId, body.reason!)
+            : false;
         await this.log(tx, tenant, id, {
           issueId,
           action: body.resolved ? 'resolved' : 'reopened',
           severity: issue.severity,
+          ...(body.resolved ? { resolution: body.resolution ?? 'FIXED' } : {}),
+          ...(body.reason ? { reason: body.reason } : {}),
+          ...(reReview ? { reReview: true } : {}),
           ...(own ? {} : { override: true }),
         });
       }
@@ -293,7 +301,7 @@ export class TaxReturnIssuesService {
           responsibleUserId: body.responsibleUserId,
         });
       }
-      return this.issuesOf(tx, tenant, userId, id, r.reviewerUserId);
+      return this.issuesOf(tx, tenant, userId, id, r);
     });
   }
 }

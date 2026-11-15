@@ -29,6 +29,7 @@ import {
   toResult,
 } from './scheduling-conflicts.js';
 import { errors } from './errors.js';
+import { attendeeClients } from './scheduling-data.js';
 import { expandRecurrence } from './scheduling-recurrence.js';
 import type { ConflictsBody, DayQuery, RulesBody } from './scheduling.input.js';
 
@@ -86,13 +87,16 @@ export class SchedulingAvailabilityService {
       for (const userId of body.staffUserIds)
         members.push(await activeMember(tx, businessId, userId));
       const clientId = await this.clientOf(tx, businessId, actor, body.contact);
+      // A1: who attends already (an edit) stays checkable; a new one only as the client would be.
+      let attending: string[] = [];
       if (body.excludeAppointmentId) {
         // Staff may exclude only an appointment they see in full (else 404), as R12's slots.
         const mine = await tx.appointment.findFirst({
           where: { AND: [{ businessId, id: body.excludeAppointmentId }, inFullWhere(actor)] },
-          select: { id: true },
+          select: { id: true, attendees: { select: { clientId: true } } },
         });
         if (!mine) throw errors.notFound();
+        attending = mine.attendees.map((a) => a.clientId.toLowerCase());
       }
       // The firm's own room and items (else 404); an archived one only when the appointment
       // being edited holds it (Review 2, A2: Archive keeps its appointments).
@@ -125,6 +129,19 @@ export class SchedulingAvailabilityService {
         const usable = items.filter((i) => !i.archivedAt || keeps.has(i.id.toLowerCase()));
         if (usable.length !== equipmentIds.length) throw errors.notFound();
       }
+      const asked = [...new Set((body.attendeeClientIds ?? []).map((c) => c.toLowerCase()))].filter(
+        (c) => c !== clientId?.toLowerCase(),
+      );
+      const attendees = [
+        ...asked.filter((c) => attending.includes(c)),
+        ...(await attendeeClients(
+          tx,
+          businessId,
+          actor,
+          clientId,
+          asked.filter((c) => !attending.includes(c)),
+        )),
+      ];
       const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
       const expansion = expandRecurrence(timeZone, first, body.recurrence);
       if (!expansion.ok) throw errors.unsupported(expansion.message);
@@ -133,6 +150,7 @@ export class SchedulingAvailabilityService {
         occurrences: expansion.occurrences,
         allDay: false,
         clientId,
+        attendeeClientIds: attendees,
         roomId: body.roomId ?? null,
         equipmentIds,
         ...(await typeBuffers(tx, businessId, body.typeId)),
@@ -146,6 +164,7 @@ export class SchedulingAvailabilityService {
         conflictSpan(candidate),
         clientId,
         candidate.roomId,
+        attendees,
         equipmentIds,
       );
       return toResult(data, candidate, actor).result;

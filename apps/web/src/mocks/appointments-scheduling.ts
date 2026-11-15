@@ -18,6 +18,7 @@ import {
   type AppointmentContact,
   type MeetingMethod,
   type MemberRef,
+  type NamedItem,
   parseInput,
   SaveAppointmentDraftRequest,
   ScheduleAppointmentRequest,
@@ -247,6 +248,14 @@ function seed(empty: boolean): Store {
               ],
           createdAt: new Date(Date.parse(startsAt) - 7 * 24 * HOUR).toISOString(),
           version: 'v1',
+          // Appointments A1: Workshop Group brings two other clients.
+          attendees:
+            c?.name === 'Workshop Group'
+              ? [
+                  { id: uuid('1c00', 9), name: 'Jack Banfield' },
+                  { id: uuid('1c00', 10), name: 'Clara Voss' },
+                ]
+              : [],
         };
       });
   return {
@@ -258,6 +267,7 @@ function seed(empty: boolean): Store {
             id: uuid('0d30', 1),
             data: { typeId: types[0]?.id, staffUserIds: [owner.userId] },
             contact: null,
+            attendees: [],
             createdBy: 'Morgan Avery',
             updatedAt: at(today, '08:30'),
           },
@@ -518,6 +528,12 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           clientType: 'INDIVIDUAL',
         };
   };
+  /** A1: the other attendees by name, as the API reads them (known clients of the mock). */
+  const attendeesOf = (ids: readonly string[] | undefined): NamedItem[] =>
+    [...new Set(ids ?? [])].map((id) => ({
+      id,
+      name: s.records.find((r) => r.contact.id === id)?.contact.name ?? 'Selected client',
+    }));
   const notice = (
     kind: AppointmentNotice['kind'],
     channel: AppointmentNotice['channel'] = 'EMAIL',
@@ -717,6 +733,9 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         endsAt: input.endsAt,
         allDay: input.allDay,
         contact: contactOf(input.contact),
+        attendees: attendeesOf(input.attendeeClientIds).filter(
+          (a) => input.contact.kind === 'CONTACT' || a.id !== input.contact.id,
+        ),
         service: SERVICES().find((x) => x.id === input.serviceId) ?? null,
         type: { id: type.id, name: type.name },
         status: input.status,
@@ -805,6 +824,11 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         endsAt,
         staff: staffByIds(staffIds),
         ...(input.contact ? { contact: contactOf(input.contact) } : {}),
+        ...(input.attendeeClientIds !== undefined
+          ? {
+              attendees: attendeesOf(input.attendeeClientIds).filter((a) => a.id !== r.contact.id),
+            }
+          : {}),
         ...(input.allDay !== undefined ? { allDay: input.allDay } : {}),
         ...(input.method ? { method: input.method } : {}),
         ...(input.method || input.otherVideoPlatform !== undefined
@@ -907,8 +931,10 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
           staffUserIds: r.staff.map((x) => x.userId),
           method: r.method,
           contact: r.contact.id ? { kind: r.contact.kind, id: r.contact.id } : undefined,
+          attendeeClientIds: r.attendees.map((a) => a.id),
         },
         contact: copy(r.contact),
+        attendees: copy(r.attendees),
         createdBy: me.name,
         updatedAt: new Date().toISOString(),
       };
@@ -926,7 +952,12 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
       if (!d) throw fail(404, 'NOT_FOUND', 'Not found');
       const named = d.data['contact'] as { kind?: string; id?: string } | undefined;
       const known = s.records.find((r) => named?.id && r.contact.id === named.id)?.contact;
-      return copy({ ...d, contact: known ?? null });
+      const ids = d.data['attendeeClientIds'];
+      return copy({
+        ...d,
+        contact: known ?? null,
+        attendees: attendeesOf(Array.isArray(ids) ? (ids as string[]) : []),
+      });
     },
     createDraft: async (body) => {
       await mockDelay();
@@ -935,6 +966,7 @@ export function createSchedulingMock(options: Options = {}): SchedulingClient {
         id: uuid('0d30', s.next++),
         data: copy(data) as Record<string, unknown>,
         contact: null,
+        attendees: [],
         createdBy: me.name,
         updatedAt: new Date().toISOString(),
       };

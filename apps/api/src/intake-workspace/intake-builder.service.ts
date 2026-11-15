@@ -75,6 +75,7 @@ export class IntakeBuilderService {
         serviceDefault: true,
         archivedAt: true,
         internalNotes: true,
+        defaultAssignedUserId: true,
         service: { select: { kind: true } },
         forms: { select: versionSelect, orderBy: { version: 'desc' }, take: 1 },
       },
@@ -321,6 +322,9 @@ export class IntakeBuilderService {
           serviceId: t.serviceId,
           serviceDefault: asTemplate && !(await this.hasDefault(tx, businessId, t.serviceId)),
           internalNotes: t.internalNotes,
+          // Intake Forms Review Two 18d: the copy keeps the source's settings. Its share link,
+          // portal publishing and the Templates library's message stay the source's own.
+          defaultAssignedUserId: t.defaultAssignedUserId,
           createdByUserId: userId,
         },
         select: { id: true },

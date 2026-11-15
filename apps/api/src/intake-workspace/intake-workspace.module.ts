@@ -4,6 +4,7 @@ import { ReportsModule } from '../reports/reports.module.js';
 import { IntakeBuilderService } from './intake-builder.service.js';
 import { IntakeLibraryService } from './intake-library.service.js';
 import { IntakeRecordService } from './intake-record.service.js';
+import { IntakeScheduleJobs } from './intake-schedule.jobs.js';
 import { IntakeSendService } from './intake-send.service.js';
 import { IntakeSettingsService } from './intake-settings.service.js';
 import { IntakeFormsController, IntakeSettingsController } from './intake-workspace.controller.js';
@@ -26,7 +27,9 @@ import { IntakeWorkspaceService } from './intake-workspace.service.js';
     IntakeBuilderService,
     IntakeSendService,
     IntakeRecordService,
+    // Intake Forms Review Two: the reminders, the staff's expiration alert and Expired.
+    IntakeScheduleJobs,
   ],
-  exports: [IntakeWorkspaceService, IntakeSendService, IntakeRecordService],
+  exports: [IntakeWorkspaceService, IntakeSendService, IntakeRecordService, IntakeScheduleJobs],
 })
 export class IntakeWorkspaceModule {}

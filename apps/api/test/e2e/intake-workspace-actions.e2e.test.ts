@@ -30,6 +30,7 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { REPORT_FILES, type ReportFiles } from '../../src/reports/report-files.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+import { IntakeScheduleJobs } from '../../src/intake-workspace/intake-schedule.jobs.js';
 
 class MemoryFiles implements ReportFiles {
   readonly objects = new Map<string, Buffer>();
@@ -1079,6 +1080,111 @@ describe('the form builder', () => {
     );
     expectError(await call('post', `/intake-forms/${copy.id}/archive`, staffA), 403, 'FORBIDDEN');
   });
+
+  it('18d: a copy keeps every question, the description, the settings, the notes and the default assignee, and stays its own form', async () => {
+    const content = [
+      {
+        key: 'about',
+        title: 'About you',
+        description: 'Fake section help',
+        questions: [
+          {
+            key: 'fullName',
+            type: 'SHORT_ANSWER',
+            label: 'Full name',
+            help: 'As on your ID (fake)',
+            required: true,
+          },
+          {
+            key: 'pick',
+            type: 'DROPDOWN',
+            label: 'Pick one',
+            required: false,
+            options: ['A', 'B'],
+          },
+          {
+            key: 'why',
+            type: 'PARAGRAPH',
+            label: 'Why B',
+            required: false,
+            showIf: { questionKey: 'pick', equals: 'B' },
+          },
+        ],
+      },
+      {
+        key: 'more',
+        title: 'More',
+        questions: [{ key: 'kids', type: 'YES_NO', label: 'Any children?', required: true }],
+      },
+    ];
+    const source = IntakeFormDetail.parse(
+      ok(
+        await call('post', '/intake-forms', ownerA, {
+          name: 'Fake Faithful Form',
+          category: 'PERSONAL_TAX',
+          description: 'Fake words for the client',
+          internalNotes: 'Fake staff notes',
+          sections: content,
+          settings: {
+            requireAllQuestions: true,
+            allowFileUploads: false,
+            requireSignature: true,
+            showProgressBar: false,
+            expiresAfterDays: 21,
+            successMessage: 'Fake thanks',
+          },
+        }),
+        201,
+      ),
+    );
+    await inFirm('a', (tx) =>
+      tx.intakeTemplate.update({
+        where: { id: source.id },
+        data: { defaultAssignedUserId: adminA.id },
+      }),
+    );
+    const assignee = (id: string) =>
+      inFirm('a', (tx) =>
+        tx.intakeTemplate.findFirstOrThrow({
+          where: { id },
+          select: { defaultAssignedUserId: true },
+        }),
+      );
+    const copy = IntakeFormDetail.parse(
+      ok(await call('post', `/intake-forms/${source.id}/duplicate`, ownerA, {}), 201),
+    );
+    expect(copy.id).not.toBe(source.id);
+    expect(copy).toMatchObject({
+      name: 'Copy of Fake Faithful Form',
+      status: 'DRAFT',
+      category: source.category,
+      service: source.service,
+      description: source.description,
+      internalNotes: source.internalNotes,
+      settings: source.settings,
+    });
+    expect(copy.sections).toEqual(source.sections);
+    expect((await assignee(copy.id)).defaultAssignedUserId).toBe(adminA.id);
+    // Changing the copy leaves the source as it was.
+    ok(
+      await call('put', `/intake-forms/${copy.id}`, ownerA, {
+        name: 'Fake Faithful Form, changed',
+        category: 'PERSONAL_TAX',
+        description: 'Changed words',
+        sections: content.slice(0, 1),
+        settings: { requireSignature: false, expiresAfterDays: 3 },
+      }),
+    );
+    const after = IntakeFormDetail.parse(
+      ok(await call('get', `/intake-forms/${source.id}`, ownerA)),
+    );
+    expect(after).toMatchObject({
+      name: source.name,
+      description: source.description,
+      settings: source.settings,
+    });
+    expect(after.sections).toEqual(source.sections);
+  });
 });
 
 describe('another firm', () => {
@@ -1105,5 +1211,165 @@ describe('another firm', () => {
         .parse(ok(await call('get', '/intakes/send-drafts', ownerB, undefined, 'b'))).items,
     ).toEqual([]);
     expectError(await call('post', '/intakes/send', undefined, sendBody()), 401, 'UNAUTHENTICATED');
+  });
+});
+
+describe('the intake schedule (Intake Forms Review Two 10c: reminders, the alert, Expired)', () => {
+  const MIN = 60_000;
+  /** A client of firm A with an active portal login, an engagement and the form sent by Email. */
+  const sentForm = async (key: string) => {
+    const userId = randomUUID();
+    const email = `${key}-${run}@client.test`;
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: userId, cognitoSub: userId, pool: 'CLIENT', email, name: `Fake ${key}` },
+      }),
+    );
+    const clientId = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: { businessId: firms.a, displayName: `${key} (fake)`, email },
+        select: { id: true },
+      });
+      await tx.engagement.create({
+        data: { businessId: firms.a, clientId: c.id, serviceId: ids.service!, title: `${key} tax` },
+      });
+      await tx.clientAccount.create({
+        data: {
+          businessId: firms.a,
+          userId,
+          clientId: c.id,
+          email,
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      });
+      return c.id;
+    });
+    // 20 days: the first reminder (3 days in) and the final (7 days before) fall apart.
+    const expiresAt = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    const res = SendIntakeFormResult.parse(
+      ok(
+        await call(
+          'post',
+          '/intakes/send',
+          ownerA,
+          sendBody({ recipient: { kind: 'CLIENT', id: clientId }, channel: 'EMAIL', expiresAt }),
+        ),
+      ),
+    );
+    return { id: res.form.id, clientId, email, expiresAt: Date.parse(expiresAt) };
+  };
+  const row = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.intake.findFirstOrThrow({
+        where: { id },
+        select: {
+          status: true,
+          reminderFirstMinutes: true,
+          reminderFinalMinutes: true,
+          expiryAlertMinutes: true,
+          firstReminderSentAt: true,
+          finalReminderSentAt: true,
+          expiryAlertSentAt: true,
+        },
+      }),
+    );
+  const audits = (id: string) =>
+    inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: id, action: { startsWith: 'intake.' } },
+        select: { action: true, metadata: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+  const reminders = (to: string) =>
+    mail.filter((m) => m.template === 'intake.reminder' && m.to === to);
+
+  it('keeps the schedule from sending; first and final reminders go once each by email, then the alert and Expired', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const f = await sentForm('sched');
+    // The firm's defaults, fixed on the form when it was sent.
+    expect(await row(f.id)).toMatchObject({
+      reminderFirstMinutes: 4320,
+      reminderFinalMinutes: 10080,
+      expiryAlertMinutes: 1440,
+      firstReminderSentAt: null,
+    });
+    const at = (ms: number) => ({ now: new Date(ms), businessIds: [firms.a] });
+    const sentAt = Date.now();
+    // Nothing is due an hour in.
+    await jobs.run('intake-reminders', at(sentAt + 60 * MIN));
+    expect(reminders(f.email)).toEqual([]);
+    // Three days in: the first reminder, by email, the exact form's link; once.
+    await jobs.run('intake-reminders', at(sentAt + 4320 * MIN + MIN));
+    await jobs.run('intake-reminders', at(sentAt + 4320 * MIN + 2 * MIN));
+    expect(reminders(f.email)).toHaveLength(1);
+    expect((reminders(f.email)[0]!.data as { link: string }).link).toMatch(
+      new RegExp(`/intake/${f.id}$`),
+    );
+    expect((await row(f.id)).firstReminderSentAt).not.toBeNull();
+    // Seven days before it expires: the final reminder (10c counts it back from the expiry).
+    await jobs.run('intake-reminders', at(f.expiresAt - 10080 * MIN + MIN));
+    expect(reminders(f.email)).toHaveLength(2);
+    expect((await row(f.id)).finalReminderSentAt).not.toBeNull();
+    // A day before: the staff's alert, once.
+    await jobs.run('intake-expiry', at(f.expiresAt - 1440 * MIN + MIN));
+    await jobs.run('intake-expiry', at(f.expiresAt - 1440 * MIN + 2 * MIN));
+    expect((await row(f.id)).expiryAlertSentAt).not.toBeNull();
+    // At the expiration: Expired, and it shows in the history.
+    await jobs.run('intake-expiry', at(f.expiresAt + MIN));
+    expect((await row(f.id)).status).toBe('EXPIRED');
+    const actions = (await audits(f.id)).map((a) => a.action);
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        'intake.first_reminder_sent',
+        'intake.final_reminder_sent',
+        'intake.expiry_alert_sent',
+        'intake.expired',
+      ]),
+    );
+    expect(actions.filter((a) => a === 'intake.first_reminder_sent')).toHaveLength(1);
+    const record = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${f.id}/record`, ownerA)),
+    );
+    expect(record.history.map((e) => e.label)).toEqual(
+      expect.arrayContaining(['First reminder sent', 'Final reminder sent', 'Form expired']),
+    );
+    // An expired form takes no reminder.
+    await jobs.run('intake-reminders', at(f.expiresAt + 2 * MIN));
+    expect(reminders(f.email)).toHaveLength(2);
+  });
+
+  it('never emails a locked portal: the reminder is marked and audited as skipped, with its reason; another firm is untouched', async () => {
+    const jobs = app.get(IntakeScheduleJobs);
+    const f = await sentForm('locked');
+    await inFirm('a', (tx) =>
+      tx.clientPortalLock.create({
+        data: { businessId: firms.a, clientId: f.clientId, lockedByUserId: ownerA.id },
+      }),
+    );
+    const due = new Date(Date.now() + 4320 * MIN + MIN);
+    // Firm B's run never reaches firm A's form.
+    await jobs.run('intake-reminders', { now: due, businessIds: [firms.b] });
+    expect((await row(f.id)).firstReminderSentAt).toBeNull();
+    await jobs.run('intake-reminders', { now: due, businessIds: [firms.a] });
+    expect(reminders(f.email)).toEqual([]);
+    expect((await row(f.id)).firstReminderSentAt).not.toBeNull();
+    expect(
+      (await audits(f.id)).find((a) => a.action === 'intake.reminder_skipped')?.metadata,
+    ).toEqual({ kind: 'FIRST', reason: 'PORTAL_LOCKED' });
+  });
+
+  it('Extend Expiration to a later time gives the final reminder and the alert their own time again', async () => {
+    const f = await sentForm('extend');
+    await inFirm('a', (tx) =>
+      tx.intake.update({
+        where: { id: f.id },
+        data: { finalReminderSentAt: new Date(), expiryAlertSentAt: new Date() },
+      }),
+    );
+    const later = new Date(f.expiresAt + 5 * 86_400_000).toISOString();
+    ok(await call('patch', `/intakes/${f.id}`, ownerA, { expiresAt: later }));
+    expect(await row(f.id)).toMatchObject({ finalReminderSentAt: null, expiryAlertSentAt: null });
   });
 });

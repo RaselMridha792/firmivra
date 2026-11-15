@@ -253,6 +253,11 @@ export type RelatedItemsInput = z.input<typeof RelatedItemsInput>;
 /** The form's fields (no defaults, so a PATCH never resets what it leaves out). Times are instants; `timezone` is how the form and notices show them. */
 const scheduleFields = {
   contact: ContactInput,
+  /**
+   * Appointments A1: the other clients in a group appointment (the contact is its primary): up to
+   * 20 of the firm's clients. Left out of an edit, they stay as they are.
+   */
+  attendeeClientIds: z.array(z.uuid()).max(20, 'At most 20 other attendees').optional(),
   typeId: z.uuid(),
   serviceId: z.uuid().nullable().optional(),
   startsAt: DateTime,
@@ -382,6 +387,8 @@ export type RelatedItems = z.infer<typeof RelatedItems>;
 /** GET /business/appointments/{id}/record: the detail panel and Edit Existing. */
 export const AppointmentRecord = AgendaItem.extend({
   timezone: z.string(),
+  /** Appointments A1: the other clients in this group appointment (staff only). */
+  attendees: z.array(NamedItem).max(20).default([]),
   internalNotes: z.string().nullable(),
   clientInstructions: z.string().nullable(),
   /** Review 2 (B9): the channels the client instructions show in. */
@@ -413,6 +420,8 @@ export const AppointmentDraft = z.object({
   data: z.record(z.string(), z.unknown()),
   /** The client the draft names, as the form shows it; null when it names none (or a contact). */
   contact: AppointmentContact.nullable().default(null),
+  /** Appointments A1: the other attendees the draft names that the member may book, by name. */
+  attendees: z.array(NamedItem).max(20).default([]),
   createdBy: z.string().nullable(),
   updatedAt: DateTime,
 });
@@ -545,6 +554,8 @@ export const ConflictCheckRequest = z.strictObject({
   endsAt: DateTime,
   contact: ContactInput.optional(),
   roomId: z.uuid().nullable().optional(),
+  /** Appointments A1: the other attendees, each checked for another appointment at the time. */
+  attendeeClientIds: z.array(z.uuid()).max(20).optional(),
   /** Review 2 (A2): the equipment to check, up to 5 of the firm's items. */
   equipmentIds: z.array(z.uuid()).max(5).optional(),
   recurrence: AppointmentRecurrence.optional(),
