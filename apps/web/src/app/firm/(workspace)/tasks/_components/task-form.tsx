@@ -84,6 +84,10 @@ export function TaskFormScreen({
   /** A2: the draft to reopen; Save Task publishes it, Save as Draft keeps it a draft. */
   draftId?: string;
 }) {
+  // T-C05: Save & Create Another remounts a clean form (as the recurring form): each round is a
+  // new Form with a new idempotency key; the first keeps what the page opened it with.
+  const [round, setRound] = useState(0);
+  const [saved, setSaved] = useState<string>();
   const prefillClient = useApiQuery(
     [...TASKS_KEY, 'prefill-client', prefill?.clientId ?? 'none'],
     async () => (prefill?.clientId ? api.clients.get(prefill.clientId) : null),
@@ -110,12 +114,17 @@ export function TaskFormScreen({
     );
   return (
     <Form
-      key={task.data?.id ?? draft.data?.id ?? template.data?.id ?? 'blank'}
+      key={`${task.data?.id ?? draft.data?.id ?? template.data?.id ?? 'blank'}-${round}`}
+      savedTitle={saved}
+      onAnother={(title) => {
+        setSaved(title);
+        setRound((r) => r + 1);
+      }}
       task={task.data ?? undefined}
       draft={draft.data ?? undefined}
       template={template.data ?? undefined}
       prefill={
-        id === undefined && prefillClient.data
+        id === undefined && round === 0 && prefillClient.data
           ? {
               ...prefill,
               clientId: prefillClient.data.id,
@@ -151,7 +160,12 @@ function Form({
   template,
   prefill,
   loadNote,
+  savedTitle,
+  onAnother,
 }: {
+  /** The task Save & Create Another just saved: this clean form says so (T-C05). */
+  savedTitle?: string | undefined;
+  onAnother: (title: string) => void;
   task: TaskDetail | undefined;
   draft?: TaskDraft | undefined;
   template: TaskTemplate | undefined;
@@ -246,7 +260,9 @@ function Form({
         })),
   );
   const [nextKey, setNextKey] = useState(0);
-  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' }>();
+  const [message, setMessage] = useState<{ text: string; tone: 'success' | 'error' } | undefined>(
+    savedTitle ? { text: `Task saved: ${savedTitle}. Add another.`, tone: 'success' } : undefined,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [tpl, setTpl] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -407,7 +423,7 @@ function Form({
   const options = { invalidate: [...TASKS_KEY] };
   // #1084: one key per new task (or draft), reused only to retry it: a retried save returns the
   // first one instead of making a second.
-  const [createKey, setCreateKey] = useState(() => crypto.randomUUID());
+  const [createKey] = useState(() => crypto.randomUUID());
   const [draftKey] = useState(() => crypto.randomUUID());
   const uploadNew = async () =>
     files.sendable.length && fileService && clientId
@@ -546,12 +562,9 @@ function Form({
       },
       onSuccess: ({ saved, another: again }) => {
         if (again) {
-          setCreateKey(crypto.randomUUID());
-          setMessage({ text: 'Task saved. Add another.', tone: 'success' });
+          guard.allow();
           router.replace('/tasks/new');
-          setTitle('');
-          files.setQueue([]);
-          guard.rebase();
+          onAnother(saved.title);
         } else {
           guard.allow();
           // Opened from a service workspace (SH1): the new task's page keeps Back to it.

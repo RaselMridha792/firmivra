@@ -36,3 +36,24 @@ test('T-C07: the task forms use the palette: Save primary, Template and Draft ou
   expect(await tone(page.getByRole('button', { name: 'Save as Template' }))).toBe('outline');
   expect(await tone(page.getByRole('button', { name: 'Cancel' }))).toBe('secondary');
 });
+
+test('T-C05: Save & Create Another saves, then opens a clean form that says what was saved', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('Collect the 1099s');
+  await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
+  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await page.getByLabel('Assigned to').selectOption({ index: 1 });
+  await page.locator('#tf-due').fill('2027-03-02');
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Ask the client');
+  await page.getByTestId('task-save-another').click();
+  await expect(page.getByText('Task saved: Collect the 1099s. Add another.')).toBeVisible();
+  await expect(page).toHaveURL(/\/tasks\/new$/);
+  await expect(page.getByLabel('Task Name *')).toHaveValue('');
+  await expect(page.getByLabel('Task type')).toHaveValue('');
+  await expect(page.getByLabel('Client', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Checklist item 1')).toHaveCount(0);
+  await expect(page.locator('#tf-due')).toHaveValue('');
+});
