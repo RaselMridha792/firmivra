@@ -769,9 +769,11 @@ export const PaymentRow = z.object({
   invoice: z.object({ id: z.uuid(), number: z.string() }),
   client: z.object({ id: z.uuid(), displayName: z.string() }),
   method: PaymentMethodKey,
+  /** Negative on a REFUNDED row: a confirmed refund (its id is the refund's). */
   amountCents: z.number().int(),
-  /** The day the money came in, on the firm's calendar. */
+  /** The day the money came in (a refund: the day it was confirmed), on the firm's calendar. */
   receivedOn: CalendarDate,
+  /** RECEIVED: a payment; REFUNDED: a refund of one, on its own day; VOIDED: a voided record. */
   status: z.enum(['RECEIVED', 'REFUNDED', 'VOIDED']),
 });
 export type PaymentRow = z.infer<typeof PaymentRow>;
@@ -783,7 +785,10 @@ export const PaymentPage = z.object({
   pageSize: z.number().int(),
   from: CalendarDate,
   to: CalendarDate,
-  /** Money received in the range (not refunded, not voided). */
+  /**
+   * Money received in the range, less the refunds confirmed in it (never a voided record): the
+   * dashboard's revenue for the same days.
+   */
   receivedCents: z.number().int(),
 });
 export type PaymentPage = z.infer<typeof PaymentPage>;

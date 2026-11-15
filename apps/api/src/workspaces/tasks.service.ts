@@ -164,6 +164,9 @@ export class TasksService {
     const filters: Prisma.TaskWhereInput[] = [
       // A lead's task (Leads R2 2) is the lead's, not a client's work: never in this list.
       { businessId, leadId: null },
+      // Dashboard Review 2 (T2): an archived task is in the Tasks table's Archived view only, so
+      // Tasks Due (the dashboard) and a client's tasks leave it out, as View All does.
+      { archivedAt: null },
       this.reach(actor),
       q.clientId ? { clientId: q.clientId } : {},
       q.engagementId ? { engagementId: q.engagementId } : {},

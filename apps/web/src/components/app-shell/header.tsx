@@ -24,6 +24,7 @@ export function Header({
   accountMenu = [],
   clock = false,
   clockZone,
+  clockFallback = false,
 }: {
   /** The current date and time with its time zone (SM10): the firm workspace and Super Admin. */
   clock?: boolean;
@@ -32,6 +33,8 @@ export function Header({
    * never another zone's time first); undefined: the person's own.
    */
   clockZone?: string | null;
+  /** U2: the firm's zone could not be read: the clock shows the device's, named as such. */
+  clockFallback?: boolean;
   /** Account menu entries above Sign out (the firm's My Profile, My Settings, Help & Support). */
   accountMenu?: AccountMenuItem[];
   /** Replaces the search box or greeting, for example the firm's search form. */
@@ -113,7 +116,10 @@ export function Header({
         }
       >
         {clock && clockZone !== null ? (
-          <HeaderClock {...(clockZone ? { timeZone: clockZone } : {})} />
+          <HeaderClock
+            {...(clockZone ? { timeZone: clockZone } : {})}
+            deviceFallback={clockFallback}
+          />
         ) : null}
         {actions}
         {bell ?? (

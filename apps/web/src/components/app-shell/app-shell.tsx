@@ -55,6 +55,7 @@ export function AppShell({
   headerActions,
   accountMenu,
   clockZone,
+  clockFallback = false,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -80,6 +81,8 @@ export function AppShell({
   accountMenu?: AccountMenuItem[];
   /** The header clock's time zone: the firm's in its workspace (U2); see Header. */
   clockZone?: string | null;
+  /** U2: the firm's time zone could not be read; the clock shows the device's and says so. */
+  clockFallback?: boolean;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -122,6 +125,7 @@ export function AppShell({
         <Header
           clock
           clockZone={clockZone}
+          clockFallback={clockFallback}
           search={search}
           greeting={greeting}
           bell={bell}

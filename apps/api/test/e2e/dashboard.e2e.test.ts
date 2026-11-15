@@ -241,6 +241,14 @@ beforeAll(async () => {
         { businessId, clientId: c1, title: 'Fake task tomorrow', dueOn: day(1) },
         { businessId, clientId: c2, title: 'Fake task today', dueOn: day(0), priority: 'HIGH' },
         { businessId, clientId: c2, title: 'Fake task undated' },
+        // Dashboard Review 2 (T2): an archived open task is in neither Tasks Due nor View All.
+        {
+          businessId,
+          clientId: c2,
+          title: 'Fake task archived',
+          dueOn: day(0),
+          archivedAt: new Date(),
+        },
       ],
     });
     return { c1, c2, engagement: engagement.id };
@@ -336,6 +344,25 @@ describe('GET /business/dashboard/summary', () => {
       ['Fake task today', nyDay(0)],
       ['Fake task tomorrow', nyDay(1)],
     ]);
+  });
+
+  it('T2: Tasks Due and its View All list the same tasks; an archived one is in neither', async () => {
+    const { tasksDue } = await read(people.ownerA, 'a');
+    const { token } = await app.get(TokenService).signLocal(people.ownerA.id, 'STAFF');
+    const get = async (path: string) => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/business${path}`)
+        .set('x-business-id', firms.a.id)
+        .set('authorization', `Bearer ${token}`);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return (res.body as { items: { title: string }[] }).items.map((t) => t.title);
+    };
+    // View All: open tasks with a due date (the Tasks table's dueSet view).
+    const viewAll = await get('/tasks/overview?status=OPEN&dueSet=true&pageSize=100');
+    expect(tasksDue.map((t) => t.title).sort()).toEqual(viewAll.sort());
+    expect(viewAll).not.toContain('Fake task archived');
+    // The open tasks a client's Tasks list reads (GET /business/tasks) leave it out too.
+    expect(await get('/tasks?status=OPEN&limit=100')).not.toContain('Fake task archived');
   });
 
   it('gives Staff the numbers of the clients assigned to them only', async () => {
