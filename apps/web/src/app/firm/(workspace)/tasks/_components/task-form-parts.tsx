@@ -6,7 +6,7 @@ import {
   type TaskReminderUnit,
 } from '@firmivra/types';
 import { ArrowDown, ArrowUp, Copy, Plus, Trash, X } from '@phosphor-icons/react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { timeText } from './task-shared';
 
 /** The parts Create / Edit Task and the template editor share. */
@@ -455,5 +455,139 @@ export function ReminderList({
         </button>
       </li>
     </ul>
+  );
+}
+
+/**
+ * Tasks Review Two T-C09: the Client field, one combobox. Typing searches the firm's clients on the
+ * server (Staff: their assigned ones); the list shows under the input with a loading row, "No
+ * clients match" only once the search has answered, click or Enter to choose, and Clear.
+ */
+export function ClientCombobox({
+  id,
+  chosen,
+  text,
+  onText,
+  results,
+  loading,
+  failed,
+  onChoose,
+  onClear,
+  disabled,
+}: {
+  id: string;
+  /** The chosen client's name, or empty. */
+  chosen: string;
+  /** What is typed. */
+  text: string;
+  onText: (text: string) => void;
+  results: readonly { id: string; displayName: string }[];
+  /** The search has not answered yet (typing, debounce or request). */
+  loading: boolean;
+  failed: boolean;
+  onChoose: (client: { id: string; displayName: string }) => void;
+  onClear: () => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  // Closing on blur waits a moment (a click on an option lands first); focus again cancels it.
+  const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const listId = `${id}-list`;
+  const choose = (c: { id: string; displayName: string }) => {
+    onChoose(c);
+    setOpen(false);
+  };
+  const shown = open && !disabled;
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          role="combobox"
+          aria-label="Client"
+          aria-expanded={shown}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          autoComplete="off"
+          placeholder="Search clients by name…"
+          className={field}
+          maxLength={100}
+          disabled={disabled}
+          value={open ? text : chosen || text}
+          onFocus={() => {
+            clearTimeout(closing.current);
+            setOpen(true);
+            setActive(0);
+          }}
+          onBlur={() => {
+            closing.current = setTimeout(() => setOpen(false), 150);
+          }}
+          onChange={(e) => {
+            onText(e.target.value);
+            setOpen(true);
+            setActive(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setOpen(true);
+              setActive((a) => Math.min(a + 1, Math.max(results.length - 1, 0)));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActive((a) => Math.max(a - 1, 0));
+            } else if (e.key === 'Enter' && shown && results[active] && !loading) {
+              e.preventDefault();
+              choose(results[active]);
+            } else if (e.key === 'Escape') setOpen(false);
+          }}
+        />
+        {chosen && !disabled ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-control p-2 text-muted hover:text-danger"
+            aria-label="Clear client"
+            onClick={onClear}
+          >
+            <X aria-hidden weight="bold" className="size-4" />
+          </button>
+        ) : null}
+      </div>
+      {shown ? (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Clients"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-control border border-border bg-surface py-1 shadow-md"
+        >
+          {failed ? (
+            <li className="px-3 py-2 text-sm text-danger" role="presentation">
+              Clients are not available
+            </li>
+          ) : loading ? (
+            <li className="px-3 py-2 text-sm text-muted" role="presentation">
+              Searching…
+            </li>
+          ) : results.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-muted" role="presentation">
+              No clients match
+            </li>
+          ) : (
+            results.map((c, i) => (
+              <li
+                key={c.id}
+                role="option"
+                aria-selected={i === active}
+                className={`cursor-pointer px-3 py-2 text-sm text-text ${i === active ? 'bg-accent-soft' : 'hover:bg-canvas'}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(c)}
+              >
+                {c.displayName}
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
   );
 }

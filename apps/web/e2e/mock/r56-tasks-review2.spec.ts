@@ -6,6 +6,15 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
 
+/** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
+async function chooseClient(page: Page, name?: string) {
+  const box = page.getByRole('combobox', { name: 'Client' });
+  await box.click();
+  await box.fill(name ? name.split(' ')[0]!.toLowerCase() : '');
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await (name ? list.getByRole('option', { name }) : list.getByRole('option').first()).click();
+}
+
 /** The palette a button wears (T-C07): primary is filled, outline and danger are bordered. */
 async function tone(button: Locator): Promise<string> {
   const cls = (await button.getAttribute('class')) ?? '';
@@ -43,7 +52,7 @@ test('T-C05: Save & Create Another saves, then opens a clean form that says what
   await openCreate(page);
   await page.getByLabel('Task Name *').fill('Collect the 1099s');
   await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Add Checklist Item' }).click();
@@ -53,7 +62,7 @@ test('T-C05: Save & Create Another saves, then opens a clean form that says what
   await expect(page).toHaveURL(/\/tasks\/new$/);
   await expect(page.getByLabel('Task Name *')).toHaveValue('');
   await expect(page.getByLabel('Task type')).toHaveValue('');
-  await expect(page.getByLabel('Client', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Client' })).toHaveValue('');
   await expect(page.getByLabel('Checklist item 1')).toHaveCount(0);
   await expect(page.locator('#tf-due')).toHaveValue('');
 });
@@ -134,7 +143,7 @@ test('T-C06: a task’s file opens its document, and is shown, hidden or removed
   await openCreate(page);
   await page.getByLabel('Task Name *').fill('File the engagement letter');
   await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
-  await page.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
+  await chooseClient(page, 'Jamie Sample');
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   const chooser = page.waitForEvent('filechooser');
@@ -189,4 +198,23 @@ test('T-D04: View Related Record opens the task’s record; a bulk Complete name
   await expect(page).toHaveURL(
     /\/business-advisory\/clients\/0199c0f1-a200-7000-8000-000000000001/,
   );
+});
+
+test('T-C09: the Client field is one combobox: searching, then the matches or "No clients match", Enter chooses', async ({
+  page,
+}) => {
+  await openCreate(page);
+  const client = page.getByRole('combobox', { name: 'Client' });
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await client.fill('zzzz-no-such-client');
+  // While the search runs it says so; "No clients match" only once it has answered.
+  await expect(list).toContainText('Searching…');
+  await expect(list).not.toContainText('No clients match');
+  await expect(list).toContainText('No clients match');
+  await client.fill('jam');
+  await expect(list.getByRole('option', { name: 'Jamie Sample' })).toBeVisible();
+  await client.press('Enter');
+  await expect(client).toHaveValue('Jamie Sample');
+  await expect(list).toHaveCount(0);
+  await expect(page.getByTestId('form-summary')).toContainText('Jamie Sample');
 });

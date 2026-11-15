@@ -14,9 +14,7 @@ test('Payroll: Create Task is prefilled, Back asks first, and the new task is li
   await page.goto(`${app}/payroll/clients/${GREEN}`);
   await page.getByTestId('quick-actions').getByRole('link', { name: 'Create Task' }).click();
   await expect(page).toHaveURL(/\/tasks\/new\?clientId=.+&engagementId=.+&from=/);
-  await expect(page.getByLabel('Client', { exact: true }).locator('option:checked')).toHaveText(
-    'Green Leaf Café LLC',
-  );
+  await expect(page.getByRole('combobox', { name: 'Client' })).toHaveValue('Green Leaf Café LLC');
   await expect(page.getByLabel('Related to').locator('option:checked')).toHaveText(/Payroll/);
 
   await page.locator('#tf-title').fill('Fake: collect the Q4 timesheets');

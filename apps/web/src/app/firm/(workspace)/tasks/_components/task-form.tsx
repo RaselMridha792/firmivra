@@ -36,6 +36,7 @@ import {
   toReminders,
   ReminderList,
   Section,
+  ClientCombobox,
   Selectbox,
   field,
 } from './task-form-parts';
@@ -744,43 +745,27 @@ function Form({
           >
             <div className="grid gap-4 md:grid-cols-3">
               <Label text="Client" required htmlFor="tf-client">
-                {editing ? null : (
-                  <input
-                    type="search"
-                    aria-label="Search clients by name"
-                    placeholder="Search clients by name…"
-                    className={field}
-                    maxLength={100}
-                    value={clientSearch}
-                    onChange={(e) => setClientSearch(e.target.value)}
-                    data-testid="client-search"
-                  />
-                )}
-                <Selectbox
+                {/* T-C09: one combobox: type, see the matches below, choose. */}
+                <ClientCombobox
                   id="tf-client"
-                  label="Client"
-                  value={clientId}
+                  chosen={clientId ? (clientName ?? '') : ''}
+                  text={clientSearch}
+                  onText={setClientSearch}
+                  results={editing ? [] : listed}
+                  loading={clientList.isPending || clientSearch.trim() !== clientTerm}
+                  failed={clientList.isError}
                   disabled={editing}
-                  onChange={(v) => {
-                    const c = listed.find((x) => x.id === v);
-                    if (c) setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
-                    setClientId(v);
+                  onChoose={(c) => {
+                    setClientNames((n) => ({ ...n, [c.id]: c.displayName }));
+                    setClientId(c.id);
                     setEngagementId('');
+                    setClientSearch('');
                   }}
-                  options={[
-                    {
-                      value: '',
-                      label: clientList.isError
-                        ? 'Clients are not available'
-                        : clientTerm && listed.length === 0
-                          ? 'No clients match'
-                          : 'Select client',
-                    },
-                    ...(clientId && !listed.some((c) => c.id === clientId) && clientName
-                      ? [{ value: clientId, label: clientName }]
-                      : []),
-                    ...(editing ? [] : listed).map((c) => ({ value: c.id, label: c.displayName })),
-                  ]}
+                  onClear={() => {
+                    setClientId('');
+                    setEngagementId('');
+                    setClientSearch('');
+                  }}
                 />
                 {err('client')}
               </Label>

@@ -1,9 +1,18 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 // R56: the Tasks module in mock mode (playwright.mock.config.ts runs every module on mock data,
 // as an Owner). Task 1 ("Prepare business plan draft") has a checklist with one required item.
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
+
+/** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
+async function chooseClient(page: Page, name?: string) {
+  const box = page.getByRole('combobox', { name: 'Client' });
+  await box.click();
+  await box.fill(name ? name.split(' ')[0]!.toLowerCase() : '');
+  const list = page.getByRole('listbox', { name: 'Clients' });
+  await (name ? list.getByRole('option', { name }) : list.getByRole('option').first()).click();
+}
 const FIRST = '0199c0f0-0a10-7000-8000-000000000001';
 
 test('Overview: five cards, nine views (Drafts, then Archived, last), the table and the side widgets', async ({
@@ -58,7 +67,7 @@ test('Create Task: checks the fields, saves, and opens the new task', async ({ p
   await expect(page.getByText('Enter the task name')).toBeVisible();
   await page.getByLabel('Task Name *').fill('Draft the Q4 estimate');
   await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
-  await page.getByLabel('Client', { exact: true }).selectOption({ index: 1 });
+  await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
   await page.getByRole('button', { name: 'Add Checklist Item' }).click();
