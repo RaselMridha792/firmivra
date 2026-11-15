@@ -48,6 +48,7 @@ import { addDays, localParts, todayIn, toInstant } from '../../../calendar/_comp
 import {
   EmojiPicker,
   MergeFieldPicker,
+  useCaret,
   TEMPLATE_KIND,
   TemplatePicker,
 } from '../../_components/compose-tools';
@@ -180,6 +181,8 @@ export function ComposeScreen({
   const cancelHref = safeOrigin(useSearchParams().get(ORIGIN_PARAM)) ?? '/messages';
   const [saved, setSaved] = useState<OutboundMessage>();
   const [form, setForm] = useState<Form>(() => emptyForm(initialSubject));
+  // M26: merge fields, emoji and a template go in at the cursor; typed text is never replaced.
+  const caret = useCaret();
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
@@ -437,8 +440,10 @@ export function ComposeScreen({
               onUse={(t) =>
                 set({
                   templateId: t.id,
-                  body: t.body,
-                  ...(form.channel !== 'SMS' && t.subject ? { subject: t.subject } : {}),
+                  body: form.body.trim() ? caret.insert(form.body, t.body) : t.body,
+                  ...(form.channel !== 'SMS' && t.subject && !form.subject.trim()
+                    ? { subject: t.subject }
+                    : {}),
                 })
               }
             />
@@ -458,12 +463,10 @@ export function ComposeScreen({
             >
               <MergeFieldPicker
                 onInsert={(token) =>
-                  set({
-                    body: `${form.body}${form.body && !/\s$/.test(form.body) ? ' ' : ''}${token}`,
-                  })
+                  set({ body: caret.insert(form.body, token, { spaced: true }) })
                 }
               />
-              <EmojiPicker onPick={(e) => set({ body: `${form.body}${e}` })} />
+              <EmojiPicker onPick={(e) => set({ body: caret.insert(form.body, e) })} />
             </div>
             <Textarea
               label="Message"
@@ -471,6 +474,7 @@ export function ComposeScreen({
               maxLength={form.channel === 'SMS' ? 1600 : 10_000}
               value={form.body}
               onChange={(e) => set({ body: e.target.value })}
+              {...caret.track}
             />
             <p className="text-right text-xs text-muted" data-testid="compose-count">
               Words: {words(form.body)} · Characters: {form.body.length}

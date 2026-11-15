@@ -638,3 +638,57 @@ describe('MSG-F16: Add to Client Timeline', () => {
     expect(other.status).toBe(404);
   });
 });
+
+describe("M24 (Messaging Review 2): a client's drafts and scheduled messages", () => {
+  it('lists only those to the client, by status; a client out of reach is 404', async () => {
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    const two = await draft({ channel: 'PORTAL', body: `M24 two ${run}`, clientIds: [ids.two] });
+    const three = await draft({
+      channel: 'PORTAL',
+      body: `M24 three ${run}`,
+      clientIds: [ids.three],
+    });
+    const both = await draft({
+      channel: 'PORTAL',
+      body: `M24 both ${run}`,
+      clientIds: [ids.two, ids.three],
+    });
+    const planned = Outbound.parse(
+      ok(
+        await call('post', `/outbound-messages/${both.id}/schedule`, people.ownerA, {
+          version: both.updatedAt,
+          scheduledFor: later,
+        }),
+      ).body,
+    );
+    const listed = async (query: string, who = people.ownerA) =>
+      (
+        ok(await call('get', `/outbound-messages?${query}`, who)).body as {
+          items: { id: string }[];
+        }
+      ).items.map((i) => i.id);
+    const forTwo = await listed(`clientId=${ids.two}`);
+    expect(forTwo).toEqual(expect.arrayContaining([two.id, planned.id]));
+    expect(forTwo).not.toContain(three.id);
+    const scheduled = await listed(`clientId=${ids.two}&status=SCHEDULED`);
+    expect(scheduled).toContain(planned.id);
+    expect(scheduled).not.toContain(two.id);
+    // Staff reach only their own clients; another firm's client is never reached.
+    expect(
+      (await call('get', `/outbound-messages?clientId=${ids.two}`, people.staffA)).status,
+    ).toBe(404);
+    expect((await call('get', `/outbound-messages?clientId=${ids.clientB}`)).status).toBe(404);
+    for (const m of [two, three]) {
+      ok(
+        await call('post', `/outbound-messages/${m.id}/cancel`, people.ownerA, {
+          version: m.updatedAt,
+        }),
+      );
+    }
+    ok(
+      await call('post', `/outbound-messages/${planned.id}/cancel`, people.ownerA, {
+        version: planned.updatedAt,
+      }),
+    );
+  });
+});

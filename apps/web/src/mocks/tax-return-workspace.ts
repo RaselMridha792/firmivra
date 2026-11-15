@@ -47,6 +47,7 @@ import {
   TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
 import { mockFirmDocument } from './documents';
+import { esignStore } from './esign';
 import { registerServiceEngagement } from './service-engagements';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -634,15 +635,29 @@ function seedAll(): Stored[] {
 }
 
 /** Each return opened in this mock session, with its client: a request may name it (TR-2). */
-let openedReturns: Map<string, string> | undefined;
+let openedReturns: Map<string, { clientId: string; taxYear: number; label: string }> | undefined;
 const opened = () => (openedReturns ??= new Map());
 /** As the API: a request names only a return of the same client (404 otherwise). */
 export const taxReturnMockOf = (clientId: string, returnId: string) =>
-  opened().get(returnId) === clientId;
+  opened().get(returnId)?.clientId === clientId;
+/** F10b: a request names the return's year and "2025 1040 Return", as the API does. */
+export const taxReturnMockRef = (returnId: string) => {
+  const r = opened().get(returnId);
+  return r ? { taxYear: r.taxYear, taxReturn: { id: returnId, label: r.label } } : null;
+};
 
 /** A return's tax engagement in mock mode, registered so Upload and Request in place work. */
-function engagementOf(returnId: string, taxYear: number, c: { id: string; name: string }) {
-  opened().set(returnId, c.id);
+function engagementOf(
+  returnId: string,
+  taxYear: number,
+  c: { id: string; name: string },
+  formType: string | null,
+) {
+  opened().set(returnId, {
+    clientId: c.id,
+    taxYear,
+    label: `${taxYear} ${formType ?? 'Tax'} Return`,
+  });
   const id = `0199c1e0-0000-7000-8000-${returnId.slice(-12)}`;
   const title = `${taxYear} Tax Return`;
   registerServiceEngagement({
@@ -753,7 +768,7 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
         phone: c.phone,
       },
       // TX-F08 to F10 (SH3): the return's engagement, known to the documents mock.
-      engagement: r.serviceSetUp === false ? null : engagementOf(r.id, r.taxYear, c),
+      engagement: r.serviceSetUp === false ? null : engagementOf(r.id, r.taxYear, c, r.formType),
       statusReason: r.statusReason,
       filingStatus: r.filingStatus,
       amends: amends ? { id: amends.id, taxYear: amends.taxYear, formType: amends.formType } : null,
@@ -1726,6 +1741,11 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
       if (!a) throw notFound();
       a.esignRequestId = b.esignRequestId;
       a.status = 'SENT';
+      // As the API: the request must exist, and be this return's client's.
+      const request = esignStore().details.find((d) => d.id === b.esignRequestId);
+      if (!request) throw notFound();
+      if (request.client && request.client.id !== r.clientId)
+        throw fail(409, 'INVALID_DOCUMENT', "This request is not this client's");
       a.updatedAt = nowIso();
       touch(r, 'AUTHORIZATION', 'Signature request linked');
       return copy(r.authorizations);

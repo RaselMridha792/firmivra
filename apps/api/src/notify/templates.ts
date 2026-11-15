@@ -399,6 +399,19 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  'firm-application.response-code': (d) => ({
+    channel: 'email',
+    subject: 'Your Firmivra application code',
+    blocks: [
+      hello(d),
+      text('Use this code to answer the request about your Firmivra application:'),
+      { kind: 'code', code: code(d) },
+      small(
+        'The code expires in 10 minutes. Never share it. If you did not ask for a code, you can ignore this email.',
+      ),
+    ],
+  }),
+
   'firm-application.approved': (d, b, o) => ({
     channel: 'email',
     subject: 'Your Firmivra application is approved',

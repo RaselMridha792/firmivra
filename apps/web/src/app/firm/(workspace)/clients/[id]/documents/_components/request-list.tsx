@@ -118,7 +118,12 @@ export function RequestList({ clientId }: { clientId: string }) {
     {
       id: 'service',
       label: 'Service',
-      cell: (row) => <span className="wrap-anywhere">{row.service.title}</span>,
+      cell: (row) => (
+        <span className="wrap-anywhere">
+          {row.service.title}
+          <TaxYear row={row} />
+        </span>
+      ),
     },
     { id: 'status', label: 'Status', cell: (row) => <RequestStatus row={row} /> },
     {
@@ -148,7 +153,10 @@ export function RequestList({ clientId }: { clientId: string }) {
               {rows.map((row) => (
                 <Card key={row.id} className="min-w-0 space-y-3" data-testid="request-card">
                   <h3 className="font-bold text-heading wrap-anywhere">{row.title}</h3>
-                  <p className="text-sm text-muted wrap-anywhere">{row.service.title}</p>
+                  <p className="text-sm text-muted wrap-anywhere">
+                    {row.service.title}
+                    <TaxYear row={row} />
+                  </p>
                   <RequestStatus row={row} />
                   <p className="text-sm text-muted">
                     Due date: {row.dueOn ? dateText(`${row.dueOn}T12:00:00`) : '\u2014'}
@@ -206,6 +214,9 @@ function RequestDetails({ row, onClose }: { row: FirmDocumentRequest; onClose: (
       <div data-testid="request-details-dialog">
         <dl className="divide-y divide-border">
           <Detail label="Service">{row.service.title}</Detail>
+          {/* F10b: a request made from a tax return names its year and that return. */}
+          {row.taxYear ? <Detail label="Tax year">{row.taxYear}</Detail> : null}
+          {row.taxReturn ? <Detail label="Tax return">{row.taxReturn.label}</Detail> : null}
           <Detail label="Category">{row.category?.name ?? 'Uncategorized'}</Detail>
           <Detail label="Status">
             <RequestStatus row={row} />
@@ -246,4 +257,11 @@ function RequestDetails({ row, onClose }: { row: FirmDocumentRequest; onClose: (
       </div>
     </Modal>
   );
+}
+
+/** F10b: " · Tax year 2025" for a request made from a tax return. */
+function TaxYear({ row }: { row: FirmDocumentRequest }) {
+  return row.taxYear ? (
+    <span data-testid="request-tax-year">{` · Tax year ${row.taxYear}`}</span>
+  ) : null;
 }

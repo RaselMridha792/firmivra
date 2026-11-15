@@ -16,6 +16,7 @@ import {
   TaxApprovalList,
   TaxAuthorizationList,
   TaxChecklist,
+  TaxReturnActivityList,
   TaxReturnDetail,
   TaxReturnDocumentList,
   TaxReturnExportLink,
@@ -357,6 +358,51 @@ describe('filings', () => {
       MailingReport,
     );
     expect(theirs.rows.some((r) => r.taxReturnId === ids.r)).toBe(false);
+    // F26d: recorded again, the audit keeps the date, the jurisdiction and what it replaced,
+    // and Activity calls it a paper filing.
+    ok(
+      await call('post', `/tax-returns/${ids.r}/filings/${ca}/paper-filed`, ownerA, {
+        paperFiledOn: '2026-03-02',
+        mailTrackingNumber: '9400 1000 0000 0000 0000 03',
+      }),
+      TaxReturnFilingList,
+    );
+    const paperAudits = await inFirm('a', (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a, action: 'tax_return.transmission', entityId: ids.r },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { metadata: true },
+      }),
+    );
+    expect(
+      paperAudits
+        .map((a) => a.metadata as { action?: string })
+        .filter((m) => m.action === 'paper_filed')
+        .slice(-2),
+    ).toEqual([
+      {
+        filingId: ca,
+        action: 'paper_filed',
+        jurisdiction: 'CA',
+        paperFiledOn: '2026-03-01',
+        mailTrackingNumber: '9400 1000 0000 0000 0000 01',
+        replaced: null,
+      },
+      {
+        filingId: ca,
+        action: 'paper_filed',
+        jurisdiction: 'CA',
+        paperFiledOn: '2026-03-02',
+        mailTrackingNumber: '9400 1000 0000 0000 0000 03',
+        replaced: { paperFiledOn: '2026-03-01', mailTrackingNumber: '9400 1000 0000 0000 0000 01' },
+      },
+    ]);
+    const paperActivity = ok(
+      await call('get', `/tax-returns/${ids.r}/activity`, ownerA),
+      TaxReturnActivityList,
+    );
+    expect(paperActivity.items.filter((i) => i.label === 'Paper filing recorded')).toHaveLength(2);
+    expect(paperActivity.items.some((i) => i.label === 'Transmission recorded')).toBe(false);
     expectError(
       await call('post', `/tax-returns/${ids.r}/filings/${us}/paper-filed`, ownerA, {
         paperFiledOn: '2026-03-01',

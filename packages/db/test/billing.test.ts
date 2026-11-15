@@ -115,8 +115,10 @@ describe('invoice totals', () => {
 });
 
 describe('invoice status', () => {
-  it('lines and amounts are fixed once issued', async () => {
+  it('lines and amounts are fixed once issued and paid into (I-N06: once any payment is on it)', async () => {
     const inv = await openInvoice();
+    // With no money on it a sent invoice can be corrected (invoice-correction.test.ts).
+    await pay(inv.id, 1000);
     await expect(addLine(inv.id, 100)).rejects.toThrow(/draft or scheduled/);
     await expect(firmA().invoiceLine.deleteMany({ where: { invoiceId: inv.id } })).rejects.toThrow(
       /draft or scheduled/,
