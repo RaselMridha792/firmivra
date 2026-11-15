@@ -42,7 +42,7 @@ import { shouldRetry, useApiQuery } from '../../../../../lib/query';
 import { AttachFiles, type ChosenFile, ChosenFiles } from './attach-files';
 import { EmailChoices, useEmailChoices } from '../../../../../components/message-email-choices';
 import { LeaveDialog } from '../../../../../components/leave-message-dialog';
-import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker } from './compose-tools';
+import { EmojiPicker, plainText, TEMPLATE_KIND, TemplatePicker, useCaret } from './compose-tools';
 import { RecentActivity } from './recent-activity';
 import { ClientTagsDialog, clientTagsKey, ThreadActions } from './thread-actions';
 import { TextAction } from './text-action';
@@ -543,6 +543,8 @@ function Conversation({
 }) {
   const detail = useApiQuery([...KEY, 'thread', thread.id], () => api.messages.get(thread.id));
   const [body, setBody] = useState('');
+  // M26: a template or emoji goes in at the cursor; typed text is never replaced.
+  const caret = useCaret();
   const [files, setFiles] = useState<ChosenFile[]>([]);
   const [busy, setBusy] = useState(false);
   const choices = useEmailChoices(thread.client.id);
@@ -660,7 +662,10 @@ function Conversation({
       <PendingMessages clientId={thread.client.id} onNotice={onNotice} />
       {/* MSG-F11: a portal message template and emoji in the reply, the text still editable. */}
       <div className="border-t border-divider pt-3" data-testid="reply-tools">
-        <TemplatePicker kind="PORTAL_MESSAGE" onUse={(t) => setBody(t.body)} />
+        <TemplatePicker
+          kind="PORTAL_MESSAGE"
+          onUse={(t) => setBody(body.trim() ? caret.insert(body, t.body) : t.body)}
+        />
       </div>
       <ChosenFiles
         files={files}
@@ -675,7 +680,7 @@ function Conversation({
           void send();
         }}
       >
-        <EmojiPicker onPick={(emoji) => setBody((b) => `${b}${emoji}`)} />
+        <EmojiPicker onPick={(emoji) => setBody(caret.insert(body, emoji))} />
         {/* MSG-F12: the client's own documents, or a file uploaded into them. */}
         <AttachFiles
           clientId={thread.client.id}
@@ -690,6 +695,7 @@ function Conversation({
             rows={2}
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            {...caret.track}
           />
         </div>
         <button
@@ -824,6 +830,8 @@ function LeadConversation({
   );
   const setChannel = onChannel;
   const [body, setBody] = useState('');
+  // M26: a template or emoji goes in at the cursor; typed text is never replaced.
+  const caret = useCaret();
   const [busy, setBusy] = useState(false);
   const send = async () => {
     if (!body.trim()) return;
@@ -905,7 +913,10 @@ function LeadConversation({
         <TemplatePicker
           key={channel}
           kind={TEMPLATE_KIND[channel]}
-          onUse={(t) => setBody(channel === 'EMAIL' ? plainText(t.body) : t.body)}
+          onUse={(t) => {
+            const text = channel === 'EMAIL' ? plainText(t.body) : t.body;
+            setBody(body.trim() ? caret.insert(body, text) : text);
+          }}
         />
       </div>
       <form
@@ -915,13 +926,14 @@ function LeadConversation({
           void send();
         }}
       >
-        <EmojiPicker onPick={(emoji) => setBody((b) => `${b}${emoji}`)} />
+        <EmojiPicker onPick={(emoji) => setBody(caret.insert(body, emoji))} />
         <div className="min-w-0 flex-1">
           <Textarea
             label="Type a message"
             rows={2}
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            {...caret.track}
           />
         </div>
         <button

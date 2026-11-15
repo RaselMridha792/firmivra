@@ -2,7 +2,7 @@
 
 import type { MessageTemplateRow } from '@firmivra/types';
 import { Smiley } from '@phosphor-icons/react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { type SyntheticEvent, useEffect, useId, useRef, useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiQuery } from '../../../../../lib/query';
@@ -15,6 +15,39 @@ const field =
   'h-10 min-w-0 rounded-lg border border-divider bg-surface px-3 text-sm text-text disabled:opacity-50';
 const small =
   'inline-flex h-10 items-center justify-center gap-1 rounded-lg border border-action bg-surface px-3 text-sm font-semibold text-action hover:bg-accent-soft disabled:opacity-50';
+
+/**
+ * M26 (Messaging Review 2): where the message box's cursor is, so a merge field, an emoji or a
+ * template goes in there and never replaces what was typed. Spread `track` on the box; `insert`
+ * returns the new text (at the end before the box was first used) and puts the cursor after it.
+ */
+export function useCaret() {
+  const at = useRef<{ start: number; end: number; box: HTMLTextAreaElement } | null>(null);
+  const track = {
+    onSelect: (e: SyntheticEvent<HTMLTextAreaElement>) => {
+      const box = e.currentTarget;
+      at.current = { start: box.selectionStart, end: box.selectionEnd, box };
+    },
+  };
+  const insert = (text: string, piece: string, { spaced = false } = {}): string => {
+    const start = Math.min(at.current?.start ?? text.length, text.length);
+    const end = Math.min(Math.max(at.current?.end ?? start, start), text.length);
+    const before = text.slice(0, start);
+    const gap = spaced && before !== '' && !/\s$/.test(before) ? ' ' : '';
+    const next = `${before}${gap}${piece}${text.slice(end)}`;
+    const caret = start + gap.length + piece.length;
+    const box = at.current?.box;
+    if (box) {
+      at.current = { start: caret, end: caret, box };
+      requestAnimationFrame(() => {
+        box.focus();
+        box.setSelectionRange(caret, caret);
+      });
+    }
+    return next;
+  };
+  return { track, insert };
+}
 
 /** A message channel's template kind in the library. */
 export const TEMPLATE_KIND = { PORTAL: 'PORTAL_MESSAGE', EMAIL: 'EMAIL', SMS: 'SMS' } as const;
