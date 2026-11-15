@@ -1032,8 +1032,43 @@ describe('documents, status, versions and delivery', () => {
       ok(await call('post', `/plans/${id}/finalize`, ownerA, await withEtag(id))),
     );
     expect(finalized.version).toBe(1);
+    expect(finalized).toMatchObject({ status: 'FINALIZED', canEdit: false, canTrack: true });
     expectError(await setStatus(id, 'DRAFT'), 409, 'INVALID_STATUS');
+    // C27 (Review 2): from Finalized on, the content is not edited in place: Revise first.
+    const firstStrategy = finalized.strategies[0]!.id;
+    const other = finalized.strategies[0]!.priority === 'LOW' ? 'HIGH' : 'LOW';
+    for (const refused of [
+      await changePlan(id, { name: mark('Renamed in place') }),
+      await call(
+        'patch',
+        `/plans/${id}/strategies/${firstStrategy}`,
+        ownerA,
+        await withEtag(id, { priority: other }),
+      ),
+      await call('post', `/plans/${id}/finalize`, ownerA, await withEtag(id)),
+    ]) {
+      expectError(refused, 409, 'INVALID_STATUS');
+      expect(JSON.stringify(refused.body)).toContain('Use Revise to change a finalized plan');
+    }
+    // Internal notes are not the plan's content: taken, and they never block the send.
     ok(await changePlan(id, { notes: 'Edited after it was finalized (fake)' }));
+    // Revise takes it back to work; a change of its content then needs Finalize again.
+    ok(
+      await call(
+        'post',
+        `/plans/${id}/revise`,
+        ownerA,
+        await withEtag(id, { reason: 'Client asked for another priority (fake)' }),
+      ),
+    );
+    ok(
+      await call(
+        'patch',
+        `/plans/${id}/strategies/${firstStrategy}`,
+        ownerA,
+        await withEtag(id, { priority: other }),
+      ),
+    );
     expectError(
       await call('post', `/plans/${id}/send`, ownerA, { channel: 'PORTAL_MESSAGE' }),
       409,
@@ -1779,6 +1814,44 @@ describe("a plan's work and the firm's resources (Review 2 C12, C15, C17)", () =
       400,
       'VALIDATION_FAILED',
     );
+
+    // C17 (Review 2): the screening reference is for staff only: never made client-facing, and
+    // one saved so before reads as staff-only and is never sent.
+    const ref = 'staff-screening-rules-reference';
+    const asStaff = {
+      title: 'Opportunity Screening Rules (staff reference)',
+      category: 'Staff references',
+      kind: 'GUIDE',
+      summary: 'The rules the screening applies.',
+    };
+    const flipped = await call('put', `/resources/${ref}`, ownerA, {
+      ...asStaff,
+      clientFacing: true,
+    });
+    expectError(flipped, 400, 'VALIDATION_FAILED');
+    expect(JSON.stringify(flipped.body)).toContain('clientFacing');
+    expect(JSON.stringify(flipped.body)).toContain('A staff reference stays for staff only');
+    const kept = PlanningResource.parse(
+      ok(await call('put', `/resources/${ref}`, ownerA, { ...asStaff, clientFacing: false })),
+    );
+    expect(kept).toMatchObject({ clientFacing: false, staffOnly: true, edited: true });
+    await inFirm('a', (tx) =>
+      tx.taxPlanningResource.updateMany({
+        where: { catalogKey: ref },
+        data: { clientFacing: true },
+      }),
+    );
+    const read = PlanningResourceList.parse(ok(await call('get', '/resources', ownerA))).items;
+    expect(read.find((r) => r.key === ref)).toMatchObject({ clientFacing: false, staffOnly: true });
+    expect(read.find((r) => r.key === key)).toMatchObject({ staffOnly: false });
+    expectError(
+      await call('post', `/resources/${ref}/send`, ownerA, {
+        clientId: clients.c1,
+        channel: 'PORTAL_MESSAGE',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });
 
@@ -2471,6 +2544,10 @@ describe('the approved workflow (Review 2)', () => {
       status: 'OPEN',
     });
     expect(asked.workflow.actions).toContain('START_REVISION');
+    // C27: the client's request is answered by Start Revision, never by editing in place.
+    const notYet = await changePlan(p.id, { name: mark('Edited before the revision') });
+    expectError(notYet, 409, 'INVALID_STATUS');
+    expect(JSON.stringify(notYet.body)).toContain('Use Start Revision to change the plan');
     expect(TaxPlanDetail.parse(ok(await setStatus(p.id, 'IN_PROGRESS'))).status).toBe(
       'IN_PROGRESS',
     );
@@ -2505,6 +2582,13 @@ describe('the approved workflow (Review 2)', () => {
       recordedBy: { userId: ownerA.id },
     });
 
+    // C27: the approved content is frozen, while its implementation is tracked.
+    expect(approved).toMatchObject({ canEdit: false, canTrack: true });
+    const frozen = await changePlan(p.id, { goals: ['PURCHASE_HOME'] });
+    expectError(frozen, 409, 'INVALID_STATUS');
+    expect(JSON.stringify(frozen.body)).toContain('Use Revise to change a finalized plan');
+    ok(await changePlan(p.id, { notes: 'Implementation started (fake)' }));
+
     // Implemented only now; delivery is its own step, and neither implies the other.
     const strategyId = approved.strategies[0]?.id ?? '';
     ok(
@@ -2514,6 +2598,28 @@ describe('the approved workflow (Review 2)', () => {
         ownerA,
         await withEtag(p.id, { status: 'IN_PROGRESS' }),
       ),
+    );
+    // C27: Implemented is the content the client approved, unchanged since. A change that went
+    // around the API (here, straight in the database) is caught.
+    const before = await inFirm('a', (tx) =>
+      tx.taxPlanStrategy.findFirstOrThrow({
+        where: { id: strategyId },
+        select: { assumptions: true },
+      }),
+    );
+    await inFirm('a', (tx) =>
+      tx.taxPlanStrategy.update({
+        where: { id: strategyId },
+        data: { assumptions: 'Changed around the API (fake)' },
+      }),
+    );
+    const changed = await setStatus(p.id, 'IMPLEMENTED');
+    expectError(changed, 409, 'INVALID_STATUS');
+    expect(JSON.stringify(changed.body)).toContain(
+      `The plan changed after the client approved version ${sentAgain}`,
+    );
+    await inFirm('a', (tx) =>
+      tx.taxPlanStrategy.update({ where: { id: strategyId }, data: before }),
     );
     const done = TaxPlanDetail.parse(ok(await setStatus(p.id, 'IMPLEMENTED')));
     expect(done.status).toBe('IMPLEMENTED');

@@ -1779,11 +1779,18 @@ function ResourceEdit({
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
         />
-        <Checkbox
-          label="Client-facing: may be sent to a client"
-          checked={clientFacing}
-          onChange={(e) => setClientFacing(e.target.checked)}
-        />
+        {/* C17 (Review 2): a staff reference is never sent to a client. */}
+        {r?.staffOnly ? (
+          <p className="text-sm text-text" data-testid="resource-staff-only">
+            Staff only: a staff reference is never sent to a client.
+          </p>
+        ) : (
+          <Checkbox
+            label="Client-facing: may be sent to a client"
+            checked={clientFacing}
+            onChange={(e) => setClientFacing(e.target.checked)}
+          />
+        )}
       </div>
     </Modal>
   );

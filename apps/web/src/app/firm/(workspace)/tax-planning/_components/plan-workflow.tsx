@@ -394,7 +394,7 @@ function Requests({
               <Badge tone={r.status === 'OPEN' ? 'warning' : 'neutral'}>
                 {REQUEST_STATUS[r.status]}
               </Badge>
-              {r.status === 'OPEN' && plan.canEdit ? (
+              {r.status === 'OPEN' && plan.canTrack ? (
                 <>
                   <button
                     type="button"

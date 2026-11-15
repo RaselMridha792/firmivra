@@ -163,6 +163,12 @@ export const PlanningResource = z.object({
   summary: z.string().optional(),
   /** C17: the firm edited this built-in resource (its own words show instead of the built-in's). */
   edited: z.boolean().optional(),
+  /**
+   * C17 (Review 2): a staff reference (the screening rules): never client-facing, whatever the
+   * firm edits. Manage Strategies shows no client-facing switch for it; the API refuses one (400
+   * at `clientFacing`).
+   */
+  staffOnly: z.boolean().optional(),
 });
 export type PlanningResource = z.infer<typeof PlanningResource>;
 
@@ -439,8 +445,17 @@ export const TaxPlanDetail = TaxPlanRow.extend({
    * client's approvals of exact versions, the delivery, and the requests either way.
    */
   workflow: PlanWorkflow,
-  /** False once the plan is Closed (C27): it changes only by Reopen. */
+  /**
+   * The plan's content may change (C27): false once it is Closed (Reopen), and from Finalized on
+   * (Finalized, Awaiting Client Review, Needs Review, Client Approved, Implemented), where it
+   * changes only through Revise (Start Revision for Needs Review).
+   */
   canEdit: z.boolean(),
+  /**
+   * C27: the implementation may be tracked: a strategy's status and date (not a decline),
+   * documents, discussions, tasks, internal notes, the assignee and the dates. False once Closed.
+   */
+  canTrack: z.boolean(),
   /** C27: may change the plan's status, reopen, revise, archive and restore it. */
   canChangeStatus: z.boolean(),
   canOverride: z.boolean(),
