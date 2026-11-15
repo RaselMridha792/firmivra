@@ -48,6 +48,8 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
           </Button>
         ) : null}
       </div>
+      {/* Clients Review 2 (N8-37): Request a Document and the open requests come first. */}
+      <RequestList clientId={clientId} />
       <PageState query={categories}>
         {(items) => (
           <div className="flex flex-col gap-2">
@@ -130,7 +132,6 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
           </>
         )}
       </PageState>
-      <RequestList clientId={clientId} />
     </div>
   );
 }

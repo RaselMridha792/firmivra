@@ -1,4 +1,4 @@
-# Checks every pull request into main: format, lint, typecheck, test, build, in parallel jobs.
+# Checks every pull request into main: format, lint, typecheck, test (six shards), build, in parallel jobs.
 # A PR that changes only files in apps/, infra/ or docs/ checks only the packages it changed and
 # their dependents; any other change (packages/, the lockfile, root config, CI itself) checks all.
 # AWS access only in the test job, to pull postgres from our ECR cache with the pull-only role
@@ -24,8 +24,10 @@ env:
   NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
-  checks:
-    name: format, lint, typecheck
+  # Format, lint and typecheck are separate jobs so they run side by side (one job ran them one
+  # after another, about 7.5 minutes; lint alone is about 3.5).
+  format:
+    name: format
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -35,6 +37,35 @@ jobs:
           fetch-depth: 2
 
       # pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Prettier's own cache: files whose content and settings are unchanged are not checked again.
+      # By content, because a fresh checkout gives every file a new modified time.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.cache/prettier
+          key: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          restore-keys: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-
+
+      - run: pnpm format:check --cache --cache-strategy content
+
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -60,31 +91,54 @@ jobs:
       # Synthetic local settings, as in local setup.
       - run: cp .env.example .env
 
-      # Turbo's local cache: unchanged packages replay their lint and typecheck results.
+      # Turbo's local cache: unchanged packages replay their lint results.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
-          key: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: turbo-checks-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+          key: turbo-lint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: turbo-lint-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      # Prettier's own cache: files whose content and settings are unchanged are not checked again.
-      # By content, because a fresh checkout gives every file a new modified time.
+      - run: pnpm lint ${FILTER:+"--filter=$FILTER"}
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - *scope
+
+      # Synthetic local settings, as in local setup.
+      - run: cp .env.example .env
+
+      # Turbo's local cache: unchanged packages replay their typecheck results.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: node_modules/.cache/prettier
-          key: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
-          restore-keys: prettier-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.prettierrc*', '.prettierignore') }}-
+          path: .turbo/cache
+          key: turbo-typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: turbo-typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      - run: pnpm format:check --cache --cache-strategy content
-      - run: pnpm lint ${FILTER:+"--filter=$FILTER"}
       - run: pnpm typecheck ${FILTER:+"--filter=$FILTER"}
 
   test:
-    name: test (shard ${{ matrix.shard }}/4)
+    name: test (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     timeout-minutes: 20
     # id-token only here: the pull-only role for postgres from our ECR cache.
     permissions:
@@ -164,10 +218,10 @@ jobs:
           key: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: turbo-test-${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
 
-      # Each shard runs every package's test files that vitest assigns to it; the four shards
+      # Each shard runs every package's test files that vitest assigns to it; the six shards
       # together run the same tests as one full run. A package with fewer test files than shards
       # gets none in some shards, so it sets passWithNoTests in its own vitest setup (ui, infra).
-      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/4
+      - run: pnpm test ${FILTER:+"--filter=$FILTER"} -- --shard="$SHARD"/6
         env:
           SHARD: ${{ matrix.shard }}
 
@@ -214,7 +268,7 @@ jobs:
   # cancelled, instead of being skipped (a skipped required check would let the PR merge).
   ci:
     name: ci
-    needs: [checks, test, build]
+    needs: [format, lint, typecheck, test, build]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
