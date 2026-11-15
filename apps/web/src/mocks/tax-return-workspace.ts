@@ -140,6 +140,10 @@ function mockClients(): MockClient[] {
   ];
 }
 
+/** A tax return's client is the firm's too: the messages mock reaches it (TR-4, row Send Message). */
+export const taxReturnMockClient = (clientId: string) =>
+  mockClients().some((c) => c.id === clientId);
+
 const maskedOf = (c: MockClient) =>
   c.last4 ? (c.accountType === 'BUSINESS' ? `**-***${c.last4}` : `***-**-${c.last4}`) : null;
 

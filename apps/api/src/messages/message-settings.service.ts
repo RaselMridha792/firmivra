@@ -168,6 +168,9 @@ export class MessageSettingsService {
       }
       const data = {
         ...change,
+        // TR-4: the email is always on; a firm saved with it off is turned back on, so the
+        // email's text and documents can be chosen again.
+        clientEmailNotice: true,
         quietHoursStart: toTime(change.quietHoursStart),
         quietHoursEnd: toTime(change.quietHoursEnd),
         updatedByUserId: userId,

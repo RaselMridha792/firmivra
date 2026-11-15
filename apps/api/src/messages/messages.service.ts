@@ -1313,6 +1313,7 @@ export class MessagesService {
           updatedByUserId: userId,
         },
         update: {
+          emailNotice: null,
           emailIncludesBody: resolved.emailIncludesBody,
           emailIncludesDocuments: resolved.emailIncludesDocuments,
           updatedByUserId: userId,
@@ -1404,10 +1405,11 @@ export class MessagesService {
       if (body.emailIncludesBody === null && body.emailIncludesDocuments === null) {
         await tx.clientMessagePreference.deleteMany({ where: { businessId, clientId } });
       } else {
+        // TR-4: the email is always sent; an older "no email" choice is cleared with this save.
         await tx.clientMessagePreference.upsert({
           where,
           create: { businessId, clientId, ...body, updatedByUserId: actor.userId },
-          update: { ...body, updatedByUserId: actor.userId },
+          update: { ...body, emailNotice: null, updatedByUserId: actor.userId },
         });
       }
       await this.audit.logIn(

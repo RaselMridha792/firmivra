@@ -976,6 +976,7 @@ function ActionBar({ detail, onNotice }: { detail: TaxReturnDetail; onNotice: No
         <NewThreadDialog
           clientId={detail.client.id}
           engagementId={detail.engagement?.id}
+          related={{ type: 'tax_return', id: detail.id }}
           initialSubject={`${detail.taxYear} ${detail.formType ?? 'Tax'} Return`}
           onClose={() => setWriting(false)}
           onSent={() => onNotice('Message sent to the client.', 'success')}
