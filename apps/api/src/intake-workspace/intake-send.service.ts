@@ -67,13 +67,24 @@ export interface DeliveryOutcome {
   /** The portal notice (bell item) was written. */
   portalNotice: boolean;
   reason: string | null;
+  /** Why, as a code History can keep (no address or mail-service text in the audit). */
+  code?: DeliveryCode;
 }
+
+/** Why a delivery did not (yet) reach the recipient, for History (19b). */
+export type DeliveryCode =
+  | 'NO_PORTAL_LOGIN'
+  | 'WRITE_FAILED'
+  | 'EMAIL_RETRYING'
+  | 'NOT_OPEN'
+  | 'NO_EMAIL_ADDRESS'
+  | 'LEAD_EMAIL_FAILED';
 
 const NO_PORTAL_LOGIN =
   'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.';
 const WRITE_FAILED =
   'Nothing was sent: the portal notice could not be written (a problem on our side). Use Resend in a moment.';
-const LEAD_EMAIL_FAILED =
+export const LEAD_EMAIL_FAILED =
   'The email with the secure link could not be sent. Use Resend to send a new link.';
 
 interface Recipient {
@@ -472,14 +483,24 @@ export class IntakeSendService {
               entityId: sent.id,
             },
           })) > 0
-          ? { status: 'FAILED', portalNotice: false, reason: LEAD_EMAIL_FAILED }
+          ? {
+              status: 'FAILED',
+              portalNotice: false,
+              reason: LEAD_EMAIL_FAILED,
+              code: 'LEAD_EMAIL_FAILED',
+            }
           : { status: 'SENT', portalNotice: false, reason: null }
         : await this.outcomeOf(businessId, sent.id, key, byEmail, null);
     } else {
       outcome = sent.token
         ? (await this.emailLink(businessId, sent.id, sent.token))
           ? { status: 'SENT', portalNotice: false, reason: null }
-          : { status: 'FAILED', portalNotice: false, reason: LEAD_EMAIL_FAILED }
+          : {
+              status: 'FAILED',
+              portalNotice: false,
+              reason: LEAD_EMAIL_FAILED,
+              code: 'LEAD_EMAIL_FAILED',
+            }
         : await this.deliver(businessId, sent.id, userId, key, byEmail);
       if (outcome.status === 'FAILED') {
         await this.audit.log('intake.delivery_failed', { type: 'intake', id: sent.id });
@@ -571,6 +592,7 @@ export class IntakeSendService {
         status: 'FAILED',
         portalNotice: false,
         reason: written?.failed ? WRITE_FAILED : NO_PORTAL_LOGIN,
+        code: written?.failed ? 'WRITE_FAILED' : 'NO_PORTAL_LOGIN',
       };
     }
     if (!byEmail) return { status: 'SENT', portalNotice: true, reason: null };
@@ -584,6 +606,7 @@ export class IntakeSendService {
       return {
         status: 'RETRYING',
         portalNotice: true,
+        code: 'EMAIL_RETRYING',
         reason: `The mail service has not accepted the email yet${email.lastError ? ` (${email.lastError})` : ''}. It is tried again automatically for about 25 minutes; the portal notice is already there.`,
       };
     }
@@ -593,6 +616,7 @@ export class IntakeSendService {
       reason: email
         ? 'No email was sent: the form is no longer open.'
         : 'No email was sent: the client portal login has no email address. The portal notice is there.',
+      code: email ? 'NOT_OPEN' : 'NO_EMAIL_ADDRESS',
     };
   }
 

@@ -53,6 +53,7 @@ import { BackToDashboard } from '../../../../../components/back-to-dashboard';
 import { PageState as ApiPageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
+import { nudgeNotice } from '../../../../../lib/intake-delivery';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { CreateTemplateDialog } from '../templates/_components/template-dialogs';
 
@@ -747,11 +748,9 @@ export function IntakeFormsScreen({
   function sendAgain(row: AssignedFormRow, action: 'resend' | 'remind') {
     const mutation = action === 'resend' ? resend : remind;
     mutation.mutate(row.id, {
-      onSuccess: () =>
-        setNotice({
-          message: action === 'resend' ? 'Form resent.' : 'Reminder sent.',
-          tone: 'success',
-        }),
+      // 19b: the true result (sent, retrying, or not delivered and why).
+      onSuccess: (record) =>
+        setNotice(nudgeNotice(record, action === 'resend' ? 'Form resent.' : 'Reminder sent.')),
       onError: (error) => setNotice({ message: errorMessage(error), tone: 'error' }),
     });
   }

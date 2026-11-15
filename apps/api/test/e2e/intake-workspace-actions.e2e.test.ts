@@ -879,6 +879,41 @@ describe('one form', () => {
     expectError(await call('post', `/intakes/${ids.sent}/remind`, otherStaffA), 404, 'NOT_FOUND');
   });
 
+  it('19b: a Remind or Resend answers its true result, and History keeps it', async () => {
+    // To the portal: the notice is written.
+    const sent = AssignedFormRecord.parse(
+      ok(await call('post', `/intakes/${ids.sent}/remind`, ownerA)),
+    );
+    expect(sent.delivery).toEqual({ status: 'SENT', reason: null });
+    expect(sent.history.at(-1)?.label).toBe('Reminder sent');
+    // By email to a client with no portal login: nothing reached them, and both say why.
+    for (const [path, label] of [
+      ['remind', 'Reminder not delivered: the client has no portal sign-in'],
+      ['resend', 'Resend not delivered: the client has no portal sign-in'],
+    ] as const) {
+      const missed = AssignedFormRecord.parse(
+        ok(await call('post', `/intakes/${ids.emailed}/${path}`, ownerA)),
+      );
+      expect(missed.delivery).toEqual({
+        status: 'FAILED',
+        reason: expect.stringContaining('no client portal login') as string,
+      });
+      expect(missed.history.map((e) => e.label)).toContain(label);
+    }
+    const kept = await inFirm('a', (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { entityId: ids.emailed!, action: 'intake.reminded' },
+        select: { metadata: true },
+      }),
+    );
+    expect(kept.metadata).toEqual({ delivered: false, status: 'FAILED', code: 'NO_PORTAL_LOGIN' });
+    // A record read later has no delivery: it belongs to the answer only.
+    const later = AssignedFormRecord.parse(
+      ok(await call('get', `/intakes/${ids.emailed}/record`, ownerA)),
+    );
+    expect(later.delivery).toBeUndefined();
+  });
+
   it('exports the answers as a PDF behind a short link', async () => {
     const link = FormFileLink.parse(ok(await call('get', `/intakes/${ids.submitted}/pdf`, adminA)));
     expect(link.url).toMatch(/^memory:tenant\/[0-9a-f-]+\/reports\/intake-/);

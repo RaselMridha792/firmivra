@@ -560,6 +560,38 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
     r.status = status;
     r.progress.readyForReview = status === 'SUBMITTED' || status === 'UNDER_REVIEW';
   };
+  /**
+   * Resend or Remind (19b as the API): only an open form (409 INVALID_STATUS otherwise), and the
+   * true result. Owen Hartley stands for a client with no portal sign-in: nothing reaches him,
+   * and History says so.
+   */
+  const nudge = async (id: string, kind: 'resend' | 'remind'): Promise<AssignedFormRecord> => {
+    await mockDelay();
+    const r = find(id);
+    if (!['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status))
+      throw fail(409, 'INVALID_STATUS', 'Only open forms can be resent or reminded');
+    const missed = r.recipient.name === 'Owen Hartley';
+    const which = kind === 'resend' ? 'Resend' : 'Reminder';
+    event(
+      r,
+      kind === 'resend' ? 'RESENT' : 'REMINDER',
+      missed
+        ? `${which} not delivered: the client has no portal sign-in`
+        : kind === 'resend'
+          ? 'Form resent'
+          : 'Reminder sent',
+    );
+    return {
+      ...copy(r),
+      delivery: missed
+        ? {
+            status: 'FAILED',
+            reason:
+              'Nothing was sent: this client has no client portal login yet, and the form opens in the portal. Invite them to the portal, then use Resend.',
+          }
+        : { status: 'SENT', reason: null },
+    };
+  };
 
   return {
     summary: async () => {
@@ -822,21 +854,9 @@ export function createIntakeFormsMock(options: Options = {}): IntakeFormsClient 
       }
       return copy(r);
     },
-    resend: async (id) => {
-      await mockDelay();
-      const r = find(id);
-      if (r.status === 'COMPLETED') throw fail(409, 'INVALID_STATUS', 'This form is completed');
-      event(r, 'RESENT', 'Form resent');
-      return copy(r);
-    },
-    remind: async (id) => {
-      await mockDelay();
-      const r = find(id);
-      if (!['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'].includes(r.status))
-        throw fail(409, 'INVALID_STATUS', 'Only open forms get reminders');
-      event(r, 'REMINDER', 'Reminder sent');
-      return copy(r);
-    },
+    // 19b as the API: only an open form, and the answer says what really happened.
+    resend: async (id) => nudge(id, 'resend'),
+    remind: async (id) => nudge(id, 'remind'),
     markReviewed: async (id) => {
       await mockDelay();
       const r = find(id);

@@ -21,7 +21,11 @@ import { maskStoredNumbers } from '../intake/intake-numbers.js';
 import { REPORT_FILES, type ReportFiles } from '../reports/report-files.js';
 import { checkAssignee, conflict, memberNames, notFound, toDay } from '../workspaces/common.js';
 import { renderIntakePdf } from './intake-pdf.js';
-import { IntakeSendService } from './intake-send.service.js';
+import {
+  type DeliveryOutcome,
+  IntakeSendService,
+  LEAD_EMAIL_FAILED,
+} from './intake-send.service.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { checkDue, chosenExpiry } from './intake-expiry.js';
 import { newLeadLink } from './lead-link.js';
@@ -84,6 +88,28 @@ const STOPPED: Record<string, string> = {
   PORTAL_LOCKED: 'the client portal is locked',
   NO_PORTAL_LOGIN: 'the client has no portal sign-in',
 };
+
+/** What a delivery that did not (yet) reach the recipient says in History (19b). */
+const UNDELIVERED: Record<string, string> = {
+  NO_PORTAL_LOGIN: 'the client has no portal sign-in',
+  WRITE_FAILED: 'a problem on our side',
+  NOT_OPEN: 'the form is no longer open',
+  NO_EMAIL_ADDRESS: 'the portal login has no email address',
+  LEAD_EMAIL_FAILED: 'the email could not be sent',
+};
+
+/** A Resend or Remind in History, with its true result (19b). Older rows: delivered only. */
+function nudgeLabel(action: string, metadata: unknown): string {
+  const m = (metadata ?? {}) as { delivered?: boolean; status?: string; code?: string };
+  const what = action === 'intake.resent' ? 'Form resent' : 'Reminder sent';
+  const which = action === 'intake.resent' ? 'Resend' : 'Reminder';
+  if (m.status === 'RETRYING') return `${what}: the email is being tried again`;
+  if (m.status === 'FAILED' || m.delivered === false) {
+    const why = m.code ? UNDELIVERED[m.code] : undefined;
+    return `${which} not delivered${why ? `: ${why}` : ''}`;
+  }
+  return what;
+}
 
 /** A skipped reminder in History: the order rules' words (10c) or the job's stop reason. */
 function skippedLabel(metadata: unknown): string {
@@ -221,6 +247,8 @@ export class IntakeRecordService {
         event = { kind: 'OPENED', label: 'Opened by the recipient' };
       } else if (l.action === 'intake.reminder_skipped') {
         event = { kind: 'REMINDER', label: skippedLabel(l.metadata) };
+      } else if (l.action === 'intake.resent' || l.action === 'intake.reminded') {
+        event = { ...event!, label: nudgeLabel(l.action, l.metadata) };
       } else if (l.action === 'intake.updated') {
         if (fieldsChanged.includes('assignedUserId')) {
           history.push({
@@ -422,19 +450,29 @@ export class IntakeRecordService {
       // 19b: a form sent by Email is resent or reminded by email too.
       return { token: link?.token ?? null, channel: row.deliveryChannel };
     });
-    const reached = token
-      ? await this.sender.emailLink(businessId, id, token)
-      : (
-          await this.sender.deliver(
-            businessId,
-            id,
-            userId,
-            `${action}:${randomUUID()}`,
-            channel === 'EMAIL',
-          )
-        ).status !== 'FAILED';
-    await this.audit.log(action, { type: 'intake', id }, { delivered: reached });
-    return this.load(tenant, userId, id);
+    // 19b: what really happened, shown to the member and kept in History (a code, no address).
+    const outcome: Pick<DeliveryOutcome, 'status' | 'reason' | 'code'> = token
+      ? (await this.sender.emailLink(businessId, id, token))
+        ? { status: 'SENT', reason: null }
+        : { status: 'FAILED', reason: LEAD_EMAIL_FAILED, code: 'LEAD_EMAIL_FAILED' }
+      : await this.sender.deliver(
+          businessId,
+          id,
+          userId,
+          `${action}:${randomUUID()}`,
+          channel === 'EMAIL',
+        );
+    await this.audit.log(
+      action,
+      { type: 'intake', id },
+      {
+        delivered: outcome.status !== 'FAILED',
+        status: outcome.status,
+        ...(outcome.code ? { code: outcome.code } : {}),
+      },
+    );
+    const record = await this.load(tenant, userId, id);
+    return { ...record, delivery: { status: outcome.status, reason: outcome.reason } };
   }
 
   /** POST /business/intakes/{id}/resend. */
