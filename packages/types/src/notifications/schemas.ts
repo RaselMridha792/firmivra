@@ -119,6 +119,12 @@ export const NOTIFICATION_EVENTS = {
    * email to the client's primary login, with the reason staff gave (never internal notes).
    */
   'appointment.cancelled': { category: 'APPOINTMENTS', kind: 'appointment', to: 'client' },
+  /**
+   * Appointments A3 (R55): an earlier time opened for the client's appointment on the waitlist. A
+   * bell item and an email (through the outbox) to the client's primary login: the offered time
+   * and how long it is held, never notes or other details. It opens the portal's appointments.
+   */
+  'appointment.waitlist-offer': { category: 'APPOINTMENTS', kind: 'appointment', to: 'client' },
   // ----- Invoices (R7; never an amount) -----
   'invoice.sent': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
