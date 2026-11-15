@@ -349,8 +349,15 @@ describe('send a form', () => {
         sendBody({ recipient: { kind: 'CLIENT', id: ids.bareClient } }),
       ),
       409,
-      'NO_ENGAGEMENT',
+      'PORTAL_UNAVAILABLE',
     );
+    // N8-23: no active service is no longer a refusal; this one fails on the portal, and the
+    // pending request it would have made is rolled back with it.
+    expect(
+      await inFirm('a', (tx) =>
+        tx.engagement.count({ where: { businessId: firms.a, clientId: ids.bareClient } }),
+      ),
+    ).toBe(0);
     expectError(
       await call(
         'post',
