@@ -492,7 +492,7 @@ export function ClientCombobox({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   // Closing on blur waits a moment (a click on an option lands first); focus again cancels it.
-  const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const listId = `${id}-list`;
   const choose = (c: { id: string; displayName: string }) => {
     onChoose(c);
@@ -516,12 +516,12 @@ export function ClientCombobox({
           disabled={disabled}
           value={open ? text : chosen || text}
           onFocus={() => {
-            clearTimeout(closing.current);
+            clearTimeout(closeTimerRef.current);
             setOpen(true);
             setActive(0);
           }}
           onBlur={() => {
-            closing.current = setTimeout(() => setOpen(false), 150);
+            closeTimerRef.current = setTimeout(() => setOpen(false), 150);
           }}
           onChange={(e) => {
             onText(e.target.value);
