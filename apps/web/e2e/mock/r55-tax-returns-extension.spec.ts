@@ -44,3 +44,29 @@ test('the extension panel names the client, the tax year and the current filing 
   const { deadline } = await returnCards(page, 'Jamie Sample');
   await expect(deadline).toContainText(due);
 });
+
+// Tax Returns Review 2 (EXT-4a): Cancel records nothing.
+test('Cancel on the extension panel leaves the return unchanged', async ({ page }) => {
+  const panel = await openExtension(page, 'Jamie Sample');
+  const due = (
+    (await panel.getByText(/^Jamie Sample, \d{4} 1040: due /).textContent()) ?? ''
+  ).split(': due ')[1]!;
+  await panel.getByLabel('Extension filed on *').fill('2026-04-10');
+  await panel.getByLabel('New due date').fill('2099-10-15');
+  await expect(panel.getByRole('button', { name: 'Record Extension' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Cancel' }).click();
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByText(/^Extension recorded/)).toHaveCount(0);
+
+  const { deadline, extension } = await returnCards(page, 'Jamie Sample');
+  await expect(extension).toHaveText('Not Filed');
+  await expect(deadline).toContainText(due);
+  await expect(deadline).not.toContainText('Extended');
+  await expect(deadline).not.toContainText('2099');
+  await expect(page.getByTestId('activity')).not.toContainText(/extension/i);
+  // Opened again, the panel starts from the return as it was: no filing day.
+  await page.getByTestId('info-cards').getByRole('button', { name: 'Record Extension' }).click();
+  await expect(page.getByTestId('extension-dialog').getByLabel('Extension filed on *')).toHaveValue(
+    '',
+  );
+});
