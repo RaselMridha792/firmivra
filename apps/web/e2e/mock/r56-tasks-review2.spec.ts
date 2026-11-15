@@ -6,6 +6,15 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
 
+/** T-C04: the Task Type dropdown: open it and choose a type (the first by default). */
+async function chooseType(page: Page, name?: string) {
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await (
+    name ? list.getByRole('option', { name, exact: true }) : list.getByRole('option').nth(1)
+  ).click();
+}
+
 /** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
 async function chooseClient(page: Page, name?: string) {
   const box = page.getByRole('combobox', { name: 'Client' });
@@ -51,7 +60,7 @@ test('T-C05: Save & Create Another saves, then opens a clean form that says what
 }) => {
   await openCreate(page);
   await page.getByLabel('Task Name *').fill('Collect the 1099s');
-  await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
+  await chooseType(page, 'Tax Preparation');
   await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
@@ -61,7 +70,7 @@ test('T-C05: Save & Create Another saves, then opens a clean form that says what
   await expect(page.getByText('Task saved: Collect the 1099s. Add another.')).toBeVisible();
   await expect(page).toHaveURL(/\/tasks\/new$/);
   await expect(page.getByLabel('Task Name *')).toHaveValue('');
-  await expect(page.getByLabel('Task type')).toHaveValue('');
+  await expect(page.getByLabel('Task type')).toHaveText('Select task type');
   await expect(page.getByRole('combobox', { name: 'Client' })).toHaveValue('');
   await expect(page.getByLabel('Checklist item 1')).toHaveCount(0);
   await expect(page.locator('#tf-due')).toHaveValue('');
@@ -142,7 +151,7 @@ test('T-C06: a task’s file opens its document, and is shown, hidden or removed
 }) => {
   await openCreate(page);
   await page.getByLabel('Task Name *').fill('File the engagement letter');
-  await page.getByLabel('Task type').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await chooseClient(page, 'Jamie Sample');
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
@@ -217,4 +226,30 @@ test('T-C09: the Client field is one combobox: searching, then the matches or "N
   await expect(client).toHaveValue('Jamie Sample');
   await expect(list).toHaveCount(0);
   await expect(page.getByTestId('form-summary')).toContainText('Jamie Sample');
+});
+
+test('T-C04: each Task Type in the dropdown has Edit and Delete; Delete asks, and the type leaves the list', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await chooseType(page, 'Compliance');
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await list.getByRole('button', { name: 'Edit Onboarding' }).click();
+  const rename = page.getByRole('dialog');
+  await rename.getByLabel('Name *').fill('Client Onboarding');
+  await page.getByTestId('save-task-type').click();
+  await expect(page.getByText(/Client Onboarding saved/)).toBeVisible();
+
+  await page.getByLabel('Task type').click();
+  await expect(list.getByRole('option', { name: 'Client Onboarding', exact: true })).toBeVisible();
+  await list.getByRole('button', { name: 'Delete Compliance' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete Compliance?' });
+  await expect(confirm).toContainText('Tasks that already have it keep it.');
+  await confirm.getByRole('button', { name: 'Delete Task Type' }).click();
+  await expect(page.getByText('Compliance is deleted; tasks that have it keep it.')).toBeVisible();
+  // It was the chosen type, so the field is empty again, and the type is gone from the list.
+  await expect(page.getByLabel('Task type')).toHaveText('Select task type');
+  await page.getByLabel('Task type').click();
+  await expect(list.getByRole('option', { name: 'Compliance', exact: true })).toHaveCount(0);
 });

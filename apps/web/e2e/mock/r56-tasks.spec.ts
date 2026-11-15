@@ -5,6 +5,15 @@ import { expect, type Page, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const base = `http://app.localhost:${port}/tasks`;
 
+/** T-C04: the Task Type dropdown: open it and choose a type (the first by default). */
+async function chooseType(page: Page, name?: string) {
+  await page.getByLabel('Task type').click();
+  const list = page.getByRole('listbox', { name: 'Task types' });
+  await (
+    name ? list.getByRole('option', { name, exact: true }) : list.getByRole('option').nth(1)
+  ).click();
+}
+
 /** T-C09: the Client combobox: type, then choose from the list under it (the first by default). */
 async function chooseClient(page: Page, name?: string) {
   const box = page.getByRole('combobox', { name: 'Client' });
@@ -66,7 +75,7 @@ test('Create Task: checks the fields, saves, and opens the new task', async ({ p
   await page.getByTestId('task-save').click();
   await expect(page.getByText('Enter the task name')).toBeVisible();
   await page.getByLabel('Task Name *').fill('Draft the Q4 estimate');
-  await page.getByLabel('Task type').selectOption({ label: 'Tax Preparation' });
+  await chooseType(page, 'Tax Preparation');
   await chooseClient(page);
   await page.getByLabel('Assigned to').selectOption({ index: 1 });
   await page.locator('#tf-due').fill('2027-03-02');
@@ -127,7 +136,7 @@ test('Recurring: previews the next five dates, saves, then skips one', async ({ 
   await page.getByTestId('series-save').click();
   await expect(page.getByText('Enter the task name')).toBeVisible();
   await page.getByLabel('Task Name *').fill('Monthly books close');
-  await page.getByLabel('Task Type *').selectOption({ label: 'Bookkeeping' });
+  await chooseType(page, 'Bookkeeping');
   await page.getByLabel('Client *').selectOption({ index: 1 });
   await page.getByLabel('Assign To *').selectOption({ index: 1 });
   await page.getByTestId('series-save').click();
