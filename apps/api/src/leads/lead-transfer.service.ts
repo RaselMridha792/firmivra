@@ -225,6 +225,8 @@ export class LeadTransferService {
     businessId: string,
     actor: PipelineActor,
     body: z.output<typeof ExportLeadsRequest>,
+    /** Export Filtered: a search matches the campaigns this member sees, as the list does. */
+    tenant?: TenantContext,
   ): Promise<LeadExportLink> {
     let leads: LeadRow[] = [];
     if (body.scope === 'SELECTED') {
@@ -238,11 +240,12 @@ export class LeadTransferService {
     } else {
       const filters = body.scope === 'FILTERED' ? (body.filters ?? {}) : {};
       for (let page = 1; page <= MAX_EXPORT_ROWS / 100; page++) {
-        const part = await this.reads.list(businessId, actor, {
-          ...filters,
-          page,
-          pageSize: 100,
-        } as z.output<typeof LeadPipelineQuery>);
+        const part = await this.reads.list(
+          businessId,
+          actor,
+          { ...filters, page, pageSize: 100 } as z.output<typeof LeadPipelineQuery>,
+          tenant,
+        );
         leads.push(...part.items);
         if (page * 100 >= part.total) break;
       }
@@ -352,6 +355,6 @@ export class LeadTransferController {
         message: 'You do not have access to this action',
       });
     }
-    return this.transfer.export(tenant.businessId, pipelineActor(auth, tenant), body);
+    return this.transfer.export(tenant.businessId, pipelineActor(auth, tenant), body, tenant);
   }
 }

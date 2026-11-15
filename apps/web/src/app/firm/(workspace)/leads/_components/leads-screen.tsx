@@ -49,6 +49,7 @@ import { LAST_LEADS_LIST, leadsPlaceFrom, leadsPlaceQuery } from '../../../../..
 import { useListReturn } from '../../../../../lib/list-return';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { CallOutcomeDialog } from './call-outcome-dialog';
 import { LeadBulkConvertDialog } from './lead-bulk-convert-dialog';
 import { LeadBulkDialog, type LeadBulkDialogState } from './lead-bulk-dialog';
 import { LeadAppointmentDialog } from './lead-appointment-dialog';
@@ -520,11 +521,8 @@ export function LeadsScreen({
       const row = chosen.get(id);
       return row ? [recipientOf(row)] : [];
     });
-  const logCall = useApiMutation(
-    ({ id }: { id: string }) =>
-      api.leadPipeline.logActivity(id, { kind: 'CALL', summary: 'Called lead' }),
-    { invalidate: LEAD_PIPELINE_KEY },
-  );
+  // Leads Review 2 (7): Call opens the phone, then asks for the outcome before anything is logged.
+  const [calling, setCalling] = useState<{ id: string; name: string; phone: string } | null>(null);
 
   const changeFilters = (patch: Partial<LeadFilters>) => {
     setFilters((current) => ({ ...current, ...patch }));
@@ -667,10 +665,12 @@ export function LeadsScreen({
           onSelectionChange={select}
           onCall={(lead) => {
             if (!lead.phone) return;
-            void logCall
-              .mutateAsync({ id: lead.id })
-              .catch(() => undefined)
-              .then(() => window.location.assign(`tel:${lead.phone}`));
+            setCalling({
+              id: lead.id,
+              name: `${lead.firstName} ${lead.lastName}`.trim(),
+              phone: lead.phone,
+            });
+            window.location.assign(`tel:${lead.phone}`);
           }}
           onMessage={(lead, channel) => setMessage({ recipients: [recipientOf(lead)], channel })}
           onRowAction={onRowAction}
@@ -829,6 +829,7 @@ export function LeadsScreen({
       {createOpen ? (
         <LeadCreateDialog open options={options.data} onClose={() => setCreateOpen(false)} />
       ) : null}
+      {calling ? <CallOutcomeDialog lead={calling} onClose={() => setCalling(null)} /> : null}
       {message ? (
         <LeadMessageDialog
           open

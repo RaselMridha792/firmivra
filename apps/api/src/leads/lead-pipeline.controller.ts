@@ -61,7 +61,7 @@ export class LeadPipelineController {
     @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(LeadPipelineQuery)) q: z.output<typeof LeadPipelineQuery>,
   ): Promise<LeadPipelinePage> {
-    return this.reads.list(tenant.businessId, pipelineActor(auth, tenant), q);
+    return this.reads.list(tenant.businessId, pipelineActor(auth, tenant), q, tenant);
   }
 
   @Get('pipeline/summary')
