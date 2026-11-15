@@ -60,6 +60,14 @@ interface MenuItem {
   icon: Icon;
   onSelect: () => void;
   danger?: boolean;
+  /** Greyed out, with the reason (T-C12). */
+  disabled?: string;
+}
+
+/** T-C12: "2 required checklist items are open", or undefined when Complete may be used. */
+export function requiredOpenText(requiredOpen: number): string | undefined {
+  if (requiredOpen <= 0) return undefined;
+  return `${requiredOpen} required checklist item${requiredOpen === 1 ? ' is' : 's are'} open`;
 }
 
 /** What a table of tasks offers: sort, page, select, row menu and the bulk bar. */
@@ -262,6 +270,7 @@ export function TaskTable({
             {
               label: 'Mark Complete',
               icon: CheckCircle,
+              disabled: requiredOpenText(t.checklist.requiredOpen),
               onSelect: () =>
                 complete.mutate(t.id, { onSuccess: done(`${t.title} completed.`), onError: fail }),
             },

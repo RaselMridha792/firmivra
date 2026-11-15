@@ -73,8 +73,9 @@ test('Create Task: checks the fields, saves, and opens the new task', async ({ p
 test('Detail: a required checklist item blocks Complete until it is done', async ({ page }) => {
   await page.goto(`${base}/${FIRST}`);
   await expect(page.getByTestId('checklist-progress')).toContainText('1 of 3 done');
-  await page.getByRole('button', { name: 'Complete', exact: true }).click();
-  await expect(page.getByText('Finish the required checklist items first.')).toBeVisible();
+  // Tasks Review Two T-C12: Complete is off up front, and says why.
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeDisabled();
+  await expect(page.getByRole('note')).toHaveText('1 required checklist item is open');
   await page.getByLabel('Write executive summary').click();
   await expect(page.getByTestId('checklist-progress')).toContainText('2 of 3 done');
   await page.getByRole('button', { name: 'Complete', exact: true }).click();

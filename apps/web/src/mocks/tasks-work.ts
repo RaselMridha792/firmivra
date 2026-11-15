@@ -177,7 +177,7 @@ const rowFields = (t: Partial<TaskDetail> & { id: string; title: string }): Task
     overdue: false,
     assignedTo: mockMe,
     additionalAssigneeCount: 0,
-    checklist: { done: 0, total: 0 },
+    checklist: { done: 0, total: 0, requiredOpen: 0 },
     blocked: false,
     recurring: false,
     clientVisible: false,
@@ -286,6 +286,7 @@ function seed(empty: boolean): Store {
       checklist: {
         done: checklistItems.filter((x) => x.completedAt).length,
         total: checklistItems.length,
+        requiredOpen: checklistItems.filter((x) => x.required && !x.completedAt).length,
       },
       details:
         i === 0
@@ -526,6 +527,7 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
     t.checklist = {
       done: t.checklistItems.filter((i) => i.completedAt).length,
       total: t.checklistItems.length,
+      requiredOpen: t.checklistItems.filter((i) => i.required && !i.completedAt).length,
     };
     t.additionalAssigneeCount = t.additionalAssignees.length;
     const dep = t.dependsOn ? s.tasks.find((x) => x.id === t.dependsOn?.id) : undefined;

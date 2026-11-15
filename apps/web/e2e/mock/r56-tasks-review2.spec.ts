@@ -110,3 +110,20 @@ test('T-C13: Archive asks first; the Archived tab lists the task with View and R
   await page.getByRole('tab', { name: 'All Tasks' }).click();
   await expect(page.getByTestId('task-table')).toContainText(title);
 });
+
+test('T-C12: Mark Complete is greyed out with the reason while a required checklist item is open', async ({
+  page,
+}) => {
+  await page.goto(`${base}/0199c0f0-0a10-7000-8000-000000000001`);
+  await expect(page.getByTestId('checklist-progress')).toContainText('1 of 3 done', {
+    timeout: 60_000,
+  });
+  const title = (await page.getByTestId('task-title').innerText()).trim();
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeDisabled();
+  await page.getByRole('link', { name: 'Tasks', exact: true }).first().click();
+  await page.getByRole('tab', { name: 'All Tasks' }).click();
+  await page.getByRole('button', { name: `Actions for ${title}` }).click();
+  const complete = page.getByRole('menuitem', { name: /Mark Complete/ });
+  await expect(complete).toBeDisabled();
+  await expect(complete).toContainText('1 required checklist item is open');
+});

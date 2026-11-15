@@ -243,7 +243,12 @@ export const TaskRow = z.object({
   overdue: z.boolean(),
   assignedTo: MemberRef.nullable(),
   additionalAssigneeCount: z.number().int(),
-  checklist: z.object({ done: z.number().int(), total: z.number().int() }),
+  checklist: z.object({
+    done: z.number().int(),
+    total: z.number().int(),
+    /** T-C12: required items still open; Complete is refused while any are (REQUIRED_ITEMS_OPEN). */
+    requiredOpen: z.number().int().default(0),
+  }),
   /** It depends on a task that is not done yet. */
   blocked: z.boolean(),
   /** It was made by a recurring series. */

@@ -64,9 +64,12 @@ export async function firmClock(tx: TxClient, businessId: string, at = Date.now(
   return { timeZone, today, nowMinutes };
 }
 
-/** Checklist progress of these tasks: steps done and steps in all, by task id. */
+/**
+ * Checklist progress of these tasks: steps done, steps in all, and required steps still open
+ * (T-C12), by task id.
+ */
 export async function checklistCounts(tx: TxClient, taskIds: string[]) {
-  const [all, done] = await Promise.all([
+  const [all, done, requiredOpen] = await Promise.all([
     tx.taskChecklistItem.groupBy({
       by: ['taskId'],
       where: { taskId: { in: taskIds } },
@@ -77,10 +80,16 @@ export async function checklistCounts(tx: TxClient, taskIds: string[]) {
       where: { taskId: { in: taskIds }, completedAt: { not: null } },
       _count: true,
     }),
+    tx.taskChecklistItem.groupBy({
+      by: ['taskId'],
+      where: { taskId: { in: taskIds }, required: true, completedAt: null },
+      _count: true,
+    }),
   ]);
   return {
     total: new Map(all.map((r) => [r.taskId, r._count])),
     done: new Map(done.map((r) => [r.taskId, r._count])),
+    requiredOpen: new Map(requiredOpen.map((r) => [r.taskId, r._count])),
   };
 }
 

@@ -684,6 +684,18 @@ describe('actions', () => {
       title: 'Actions',
       checklist: [{ label: 'Must', required: true }],
     });
+    // T-C12: the task and its list row say how many required steps are open.
+    expect(t.checklist).toEqual({ done: 0, total: 1, requiredOpen: 1 });
+    const listed = TaskOverviewPage.parse(
+      ok(
+        await call(
+          'get',
+          `/tasks/overview?view=all&pageSize=100&search=${encodeURIComponent(t.title)}`,
+          people.ownerA,
+        ),
+      ),
+    ).items.find((r) => r.id === t.id);
+    expect(listed?.checklist).toEqual({ done: 0, total: 1, requiredOpen: 1 });
     expectError(await act(t.id, 'complete'), 409, 'REQUIRED_ITEMS_OPEN');
     expectError(
       await call('patch', `/tasks/${t.id}`, people.ownerA, { status: 'DONE' }),
@@ -691,7 +703,7 @@ describe('actions', () => {
       'REQUIRED_ITEMS_OPEN',
     );
     const stepped = detail(await act(t.id, `checklist/${t.checklistItems[0]!.id}/complete`));
-    expect(stepped.checklist).toEqual({ done: 1, total: 1 });
+    expect(stepped.checklist).toEqual({ done: 1, total: 1, requiredOpen: 0 });
     expect(stepped.checklistItems[0]?.completedBy?.userId).toBe(people.ownerA.id);
     const done = detail(await act(t.id, 'complete', people.adminA));
     expect(done).toMatchObject({ status: 'DONE', completedBy: { userId: people.adminA.id } });

@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
+import { requiredOpenText } from './task-table';
 import { safeOrigin, withOrigin } from '../../../../../lib/origin';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
@@ -113,16 +114,28 @@ export function TaskDetailScreen({
               <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit
             </Link>
             {t.status === 'OPEN' ? (
-              <button
-                type="button"
-                className={btn}
-                disabled={complete.isPending}
-                onClick={() =>
-                  complete.mutate(undefined, { onSuccess: done('Task completed.'), onError: fail })
-                }
-              >
-                <CheckCircle aria-hidden weight="fill" className="size-4" /> Complete
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={btn}
+                  disabled={complete.isPending || !!requiredOpenText(t.checklist.requiredOpen)}
+                  aria-describedby={t.checklist.requiredOpen ? 'complete-blocked' : undefined}
+                  onClick={() =>
+                    complete.mutate(undefined, {
+                      onSuccess: done('Task completed.'),
+                      onError: fail,
+                    })
+                  }
+                >
+                  <CheckCircle aria-hidden weight="fill" className="size-4" /> Complete
+                </button>
+                {/* T-C12: why Complete is off, before anyone clicks it. */}
+                {requiredOpenText(t.checklist.requiredOpen) ? (
+                  <span id="complete-blocked" className="text-xs text-muted" role="note">
+                    {requiredOpenText(t.checklist.requiredOpen)}
+                  </span>
+                ) : null}
+              </>
             ) : (
               <button
                 type="button"
