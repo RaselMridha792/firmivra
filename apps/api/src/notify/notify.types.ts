@@ -225,6 +225,22 @@ export interface NotifyTemplates {
 
   // ----- Invoices (R7; no amounts in messages) -----
   'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
+  /** I-C02, I-N04: an open invoice is coming due; the portal link to see and pay it. */
+  'invoice.reminder': IgnoredFirmName & {
+    name: string;
+    invoiceNumber: string;
+    /** YYYY-MM-DD. */
+    dueOn: string;
+    link: string;
+  };
+  /** I-C02, I-N04: an unpaid invoice is overdue; the portal link to see and pay it. */
+  'invoice.overdue': IgnoredFirmName & {
+    name: string;
+    invoiceNumber: string;
+    /** YYYY-MM-DD. */
+    dueOn: string;
+    link: string;
+  };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
 
   // ----- Firm Sign (R13): titles, names, dates, links and the sender's own note on a request;
@@ -334,6 +350,8 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
   'invoice.sent': 'email',
+  'invoice.reminder': 'email',
+  'invoice.overdue': 'email',
   'payment.received': 'email',
   'esign.request': 'email',
   'esign.code': 'email',
@@ -390,6 +408,8 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
   'invoice.sent': 'firm',
+  'invoice.reminder': 'firm',
+  'invoice.overdue': 'firm',
   'payment.received': 'firm',
   'esign.request': 'firm',
   'esign.code': 'firm',
@@ -482,6 +502,8 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
+  'invoice.reminder': 'BILLING',
+  'invoice.overdue': 'BILLING',
   'payment.received': 'BILLING',
   // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.
   'esign.request': 'ACCOUNT',

@@ -178,6 +178,19 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'New invoice',
     body: text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'You have a new invoice.',
   }),
+  // I-C02, I-N04: the invoice's number and its due date, never an amount.
+  'invoice.reminder': (p) => ({
+    title: 'Invoice reminder',
+    body: withDue(p, text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'An invoice'),
+  }),
+  'invoice.overdue': (p) => {
+    const invoice = text(p, 'number') ? `Invoice ${text(p, 'number')}` : 'An invoice';
+    const due = calendarDay(text(p, 'dueOn'));
+    return {
+      title: 'Invoice overdue',
+      body: due ? `${invoice} was due ${due}.` : `${invoice} is overdue.`,
+    };
+  },
   'payment.received': (p, side) => {
     const invoice = text(p, 'number') ? `invoice ${text(p, 'number')}` : 'an invoice';
     return {
