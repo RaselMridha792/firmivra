@@ -235,6 +235,13 @@ export function RecipientPanel({
     >
       <KindSwitch kind={kind} onKind={onKind} />
       {kind === 'CLIENT' ? <ClientPicker {...props} /> : <LeadPicker {...props} />}
+      {kind === 'CLIENT' ? (
+        // Clients Review Two N8-23: a client needs no active service to get the form.
+        <p className="text-xs text-muted" data-testid="no-service-needed">
+          No active service is needed. If the client has none for this form&apos;s service, the form
+          is linked to a pending request for it; nothing is billed or started.
+        </p>
+      ) : null}
     </Panel>
   );
 }

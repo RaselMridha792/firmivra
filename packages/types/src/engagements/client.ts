@@ -86,6 +86,12 @@ export function createEngagementsClient(request: ApiRequest) {
       }),
     resume: async (id: string): Promise<Engagement> =>
       request(Engagement, `${one(id)}/resume`, { method: 'POST', body: {} }),
+    /**
+     * Clients Review Two N8-17: Start Service, a pending service begins (PENDING → ACTIVE), and
+     * its client New → Active. 409 INVALID_STATUS for a service that is not pending.
+     */
+    activate: async (id: string): Promise<Engagement> =>
+      request(Engagement, `${one(id)}/activate`, { method: 'POST', body: {} }),
     /** Clients Review 2 (G8): what was done to the service, from its audit rows; newest first. */
     activity: async (id: string): Promise<EngagementActivity['items']> =>
       (await request(EngagementActivity, `${one(id)}/activity`)).items,

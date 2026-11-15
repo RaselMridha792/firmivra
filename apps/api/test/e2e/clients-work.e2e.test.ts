@@ -555,6 +555,32 @@ describe('services from advisory enrollment (E3)', () => {
   });
 });
 
+describe('a requested (pending) service (Clients Review Two N8-23)', () => {
+  it('shows on the row as requested, but is not counted in the tab or listed by its filter', async () => {
+    const svc = await inFirm('a', async (tx) => {
+      const service = await tx.service.create({
+        data: { businessId: firms.a.id, kind: 'PAYROLL', name: 'Payroll (fake)' },
+      });
+      await tx.engagement.create({
+        data: {
+          businessId: firms.a.id,
+          clientId: ids.w2,
+          serviceId: service.id,
+          title: 'Requested (from an intake send)',
+          status: 'PENDING',
+        },
+      });
+      return service.id;
+    });
+    const all = await list('?limit=100');
+    const row = all.items.find((r) => r.id === ids.w2);
+    expect(row?.services.find((s) => s.id === svc)).toMatchObject({ requested: true });
+    expect((await list(`?serviceId=${svc}`)).items).toEqual([]);
+    const s = await summary(people.ownerA);
+    expect(s.counts.byService.find((b) => b.id === svc)).toMatchObject({ count: 0 });
+  });
+});
+
 describe("E2: a client's Last Activity is its latest event", () => {
   const e = {} as Record<'msg' | 'doc' | 'task' | 'note' | 'held' | 'both' | 'none', string>;
 

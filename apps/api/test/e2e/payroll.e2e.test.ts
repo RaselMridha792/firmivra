@@ -918,6 +918,52 @@ describe('the workspace and its service actions', () => {
     );
   });
 
+  it('N8-17: Processing makes a New client Active; other statuses and a client past New do not', async () => {
+    const statusOf = async () =>
+      (
+        await asOwner(ids.firmA, (tx) =>
+          tx.client.findFirstOrThrow({ where: { id: clients.bare }, select: { status: true } }),
+        )
+      ).status;
+    const setClient = (status: 'NEW' | 'ON_HOLD') =>
+      asOwner(ids.firmA, (tx) =>
+        tx.client.updateMany({
+          where: { businessId: ids.firmA, id: clients.bare },
+          data: { status },
+        }),
+      );
+    const setPayroll = async (status: string) =>
+      exact(
+        PayrollClientWorkspace,
+        await call('post', `/clients/${pcId}/status`, people.staffA, { status }),
+      );
+    await setClient('NEW');
+    await setPayroll('ON_TRACK');
+    expect(await statusOf()).toBe('NEW');
+    await setPayroll('PROCESSING');
+    expect(await statusOf()).toBe('ACTIVE');
+    const audit = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findFirst({
+        where: { entityId: clients.bare, action: 'client.updated' },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit?.metadata).toEqual({
+      fields: ['status'],
+      from: 'NEW',
+      to: 'ACTIVE',
+      via: 'payroll_processing',
+    });
+    // A client past New stays as it is.
+    await setClient('ON_HOLD');
+    await setPayroll('ON_TRACK');
+    await setPayroll('PROCESSING');
+    expect(await statusOf()).toBe('ON_HOLD');
+    await setClient('NEW');
+    await setPayroll('ON_TRACK');
+  });
+
   it('assigns, changes the frequency and the plan (Owner or Admin)', async () => {
     expectError(
       await call('post', `/clients/${pcId}/assign`, people.staffA, { assignedUserId: null }),

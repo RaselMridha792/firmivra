@@ -127,6 +127,17 @@ export class EngagementsController {
     return this.engagements.pause(tenant.businessId, actorOf(auth, tenant), id, body.reason);
   }
 
+  /** Clients Review Two N8-17: Start Service, a pending service begins (its New client: Active). */
+  @Post(':id/activate')
+  @HttpCode(200)
+  activate(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<Engagement> {
+    return this.engagements.activate(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   @Post(':id/resume')
   @HttpCode(200)
   resume(

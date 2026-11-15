@@ -14,6 +14,7 @@ import {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { activateNewClient } from '../clients/client-activation.js';
 import { likeEscape } from '../clients/clients.service.js';
 import type { TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
@@ -418,6 +419,17 @@ export class DocumentLibraryService {
       if (!row.reviewerUserId && body.action !== 'REQUEST_REPLACEMENT')
         data.reviewerUserId = userId;
       await tx.document.update({ where: { id }, data });
+      // Clients Review Two N8-17: starting a document's review is the work starting (her
+      // document "Processing"): its New client becomes Active. A plain upload never does.
+      if (body.action === 'START' && row.clientId)
+        await activateNewClient(
+          tx,
+          this.audit,
+          businessId,
+          row.clientId,
+          userId,
+          'document_review_started',
+        );
       await this.audit.logIn(
         tx,
         'document.reviewed',

@@ -19,6 +19,7 @@ import type {
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { activateNewClient } from '../clients/client-activation.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClient } from '../workspaces/common.js';
@@ -441,6 +442,34 @@ export class EngagementsService {
       },
       true,
     );
+  }
+
+  /**
+   * Clients Review Two N8-17: Start Service. A pending (requested) service begins, PENDING →
+   * ACTIVE: her "Currently Working On It". Its client moves New → Active in the same transaction
+   * (a client past New stays as it is). Not for an archived client's service.
+   */
+  async activate(businessId: string, actor: ClientsActor, id: string): Promise<Engagement> {
+    const row = await this.inFirm(businessId, async (tx) => {
+      const current = await this.engagement(tx, businessId, actor, id, true, true);
+      if (current.status !== 'PENDING')
+        throw invalidStatus('Only a pending service can be started');
+      await tx.engagement.update({
+        where: { businessId_id: { businessId, id } },
+        data: { status: 'ACTIVE', updatedByUserId: actor.userId },
+      });
+      await activateNewClient(
+        tx,
+        this.audit,
+        businessId,
+        current.clientId,
+        actor.userId,
+        'service_started',
+      );
+      return this.engagement(tx, businessId, actor, id);
+    });
+    await this.audit.log('engagement.activated', { type: 'engagement', id });
+    return toEngagement(row);
   }
 
   /** The paused service runs again. */

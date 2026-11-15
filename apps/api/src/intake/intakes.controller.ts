@@ -341,6 +341,17 @@ export class IntakesController {
     return this.intakes.move(tenant.businessId, staff(auth, tenant), id, 'COMPLETED');
   }
 
+  /** Clients Review Two N8-17: completed, and its client New → Active. */
+  @Post(':id/accept')
+  @HttpCode(200)
+  accept(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<IntakeView> {
+    return this.intakes.accept(tenant.businessId, staff(auth, tenant), id);
+  }
+
   @Post(':id/request-correction')
   @Roles(...FIRM_MANAGERS)
   @HttpCode(200)
