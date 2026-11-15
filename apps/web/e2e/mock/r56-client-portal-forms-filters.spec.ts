@@ -69,3 +69,28 @@ test('P1-17: an archived form is listed under Archived; Form Type and Service fi
   await expect(rows.first()).toContainText('Archived');
   await expect(rows.first()).toContainText('Personal Tax service');
 });
+
+test('P1-18: Download PDF on a form row opens the PDF in its own tab; a failure says why', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1536, height: 1200 });
+  await page.goto(app(`/client-portal/${JAMIE}/forms`));
+  const forms = page.getByTestId('portal-forms');
+  await expect(forms.getByTestId('form-kpis')).toContainText('Total Forms', { timeout: 60_000 });
+  await requestForm(page, forms, PERSONAL);
+
+  const actions = forms.getByRole('button', { name: `Actions for ${PERSONAL}` });
+  const opened = page.context().waitForEvent('page');
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Download PDF' }).click();
+  await opened;
+  await expect(forms).toBeVisible();
+  await expect(forms.getByRole('alert')).toHaveCount(0);
+
+  await page.evaluate(() => window.sessionStorage.setItem('fv-mock-fail', 'intakeForms.exportPdf'));
+  await actions.click();
+  await page.getByRole('menuitem', { name: 'Download PDF' }).click();
+  await expect(forms.getByRole('alert')).toContainText('The PDF couldn’t be made');
+  await expect(page).toHaveURL(app(`/client-portal/${JAMIE}/forms`));
+});

@@ -1,7 +1,6 @@
 'use client';
 
 import { INTAKE_STATUS_LABELS, type AssignedFormRecord, type IntakeView } from '@firmivra/types';
-import { ApiRequestError } from '@firmivra/types';
 import { ActionMenu, Avatar, Badge, Button, Modal, Textarea, Toast } from '@firmivra/ui';
 import {
   CaretRight,
@@ -15,8 +14,9 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createContext, type ReactNode, use, useState } from 'react';
 import { api } from '../../../../../../lib/api';
-import { errorCode, errorMessage } from '../../../../../../lib/errors';
+import { errorMessage } from '../../../../../../lib/errors';
 import { expiryText, useFirmTimeZone } from '../../_components/expiry';
+import { openPdf } from '../../_components/export-pdf';
 import {
   type ManageAction,
   ManageDialog,
@@ -59,21 +59,6 @@ export function useDetail(): DetailValue {
   const value = use(DetailContext);
   if (!value) throw new Error('useDetail() works only inside <DetailFrame>');
   return value;
-}
-
-/**
- * USABILITY-04: why an export failed, in words, with what to do; the page stays where it is.
- * The cause behind a browser error page is not known: the PDF now opens in its own tab.
- */
-function exportFailed(error: unknown): string {
-  if (error instanceof TypeError)
-    return 'We couldn’t reach Firmivra to make the PDF. Check your connection, then use Export PDF again.';
-  const code = errorCode(error);
-  if (code === 'FILE_STORE_UNAVAILABLE')
-    return 'The PDF couldn’t be saved right now. Use Export PDF again in a minute; nothing on this page changed.';
-  if (error instanceof ApiRequestError && error.status === 400)
-    return 'This form can’t be made into a PDF yet. Its answers are on the Responses tab.';
-  return 'The PDF couldn’t be made. Use Export PDF again; if it keeps failing, contact support with this page’s address.';
 }
 
 const outline =
@@ -149,24 +134,10 @@ export function DetailFrame({ tab, children }: { tab: DetailTab; children: React
               onClick={() => {
                 // USABILITY-04: the PDF opens in a tab of its own (opened in the click, so it is
                 // not blocked), and this review stays as it is whatever happens there.
-                const tab = window.open('', '_blank');
-                exportPdf.mutate(undefined, {
-                  onSuccess: (link) => {
-                    if (tab) {
-                      tab.opener = null;
-                      tab.location.href = link.url;
-                    } else {
-                      notify(
-                        'Your browser blocked the new tab for the PDF. Allow pop-ups for Firmivra, then use Export PDF again.',
-                        'error',
-                      );
-                    }
-                  },
-                  onError: (error) => {
-                    tab?.close();
-                    notify(exportFailed(error), 'error');
-                  },
-                });
+                openPdf(
+                  (handlers) => exportPdf.mutate(undefined, handlers),
+                  (text) => notify(text, 'error'),
+                );
               }}
             >
               <FilePdf aria-hidden weight="fill" className="size-4" /> Export PDF

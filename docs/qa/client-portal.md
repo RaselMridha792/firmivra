@@ -114,7 +114,7 @@ It is built from the canonical records (Clients, Documents, Intake Forms, Messag
 | Every state kept: a submitted form never disappears ("Submitted - Needs Review") | #1414 | `r60-client-portal-forms` |
 | Archived forms listed: Status "Archived" lists them; they stay out of All Statuses, as counted (P1-17). A form sent from Request Form shows on return | this PR (R56) | e2e `intake-workspace` "lists with tabs, search, filters and pages" (tab=archived); mock `r56-client-portal-forms-filters` |
 | Row actions: View Submission, Review, Request Correction, Mark Reviewed, Send Reminder, Send Message, View Form History, Archive | #1414 | `r60-client-portal-forms` |
-| **Row action: Download or Export: not built yet (assigned to R1, Nov 15).** | — | — |
+| Row action: Download PDF, the same export as the form's Export PDF (`GET /intakes/:id/pdf`), in its own tab; a failure says why and the list stays (P1-18) | this PR (R56) | mock `r56-client-portal-forms-filters` "P1-18: Download PDF on a form row…"; the route: e2e `intake-workspace-actions` "exports the answers as a PDF behind a short link" |
 | Pending Client Actions, Quick Actions, Form Templates (Manage Templates) | #1414 | `r60-client-portal-forms` |
 | Form Settings (Client Permissions): the client's Intake Forms switch plus each form's Archive. No per-form portal flag (a Review 2 default). | #1400, #1414 | `client-portal-access`, `r60-client-portal-forms` |
 

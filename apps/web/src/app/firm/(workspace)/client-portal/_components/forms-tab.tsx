@@ -27,6 +27,7 @@ import {
   ClipboardText,
   ClockCounterClockwise,
   DotsThree,
+  DownloadSimple,
   Eye,
   FileText,
   FilePlus,
@@ -42,6 +43,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { openPdf } from '../../intake-forms/_components/export-pdf';
 import { dayText } from './activity-labels';
 
 const STATUS_TONE: Record<
@@ -551,6 +553,13 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
     },
     { invalidate: ['client-portal'] },
   );
+  // Client Portal module item 4: Download PDF, the same export as the form's Export PDF.
+  const pdf = useApiMutation(() => api.intakeForms.exportPdf(form.id));
+  const [pdfError, setPdfError] = useState('');
+  const download = () => {
+    setPdfError('');
+    openPdf((handlers) => pdf.mutate(undefined, handlers), setPdfError);
+  };
   const open = (path = '') => router.push(`/intake-forms/${form.id}${path}`);
   const waiting = OUTSTANDING.includes(form.status);
   const review = form.status === 'SUBMITTED' || form.status === 'UNDER_REVIEW';
@@ -564,6 +573,7 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
           {
             items: [
               { label: 'View Submission', icon: Eye, onSelect: () => open('/responses') },
+              { label: 'Download PDF', icon: DownloadSimple, onSelect: download },
               ...(review
                 ? [
                     { label: 'Review Form', icon: ClipboardText, onSelect: () => open() },
@@ -602,9 +612,9 @@ function FormActions({ form, clientId }: { form: AssignedFormRow; clientId: stri
           },
         ]}
       />
-      {act.error ? (
+      {act.error || pdfError ? (
         <span role="alert" className="text-xs text-danger">
-          {errorMessage(act.error)}
+          {pdfError || errorMessage(act.error)}
         </span>
       ) : null}
     </div>
