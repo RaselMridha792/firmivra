@@ -140,7 +140,11 @@ export class CommunicationResultsService {
             select: { provider: true },
           })
         : null;
-      const supports = this.providers.supports(conn?.provider ?? null);
+      // C26: the portal records an announcement's opens (no clicks); a provider, the rest.
+      const supports =
+        c.channel === 'ANNOUNCEMENT'
+          ? { opens: true, clicks: false }
+          : this.providers.supports(conn?.provider ?? null);
       const rate = (n: number, enabled = true): ResultMetric => ({
         count: n,
         ratePercent: enabled && total > 0 ? Math.round((n / total) * 1000) / 10 : null,

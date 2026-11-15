@@ -623,6 +623,16 @@ describe('changes, versions and the etag', () => {
       await patchT(t.id, { etag: active.etag, subject: 'Better subject' }, people.staffA),
     );
     expect(edited).toMatchObject({ status: 'ACTIVE', subject: 'Better subject' });
+    // C22: Deactivate (back to draft) is an Owner's or Admin's too.
+    expectError(
+      await patchT(t.id, { etag: edited.etag, status: 'DRAFT' }, people.staffA),
+      403,
+      'DEACTIVATE_NOT_ALLOWED',
+    );
+    const deactivated = detail(
+      await patchT(t.id, { etag: edited.etag, status: 'DRAFT' }, people.adminA),
+    );
+    expect(deactivated.status).toBe('DRAFT');
   });
 
   it('an active email needs a subject; as a draft its automation choice stays, unused (TP-F11)', async () => {

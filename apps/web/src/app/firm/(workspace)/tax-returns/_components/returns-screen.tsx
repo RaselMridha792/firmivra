@@ -215,13 +215,15 @@ export function ReturnsScreen({
         formType,
         clientType,
         assigned,
+        // Tax Returns Review 2 (F03): the Status filter too, so Back keeps it.
+        status,
         q: search.trim(),
         archived: archived ? '1' : '',
         page: String(page),
       },
       RETURNS_VIEW,
     );
-  }, [tab, year, formType, clientType, assigned, search, archived, page]);
+  }, [tab, year, formType, clientType, assigned, status, search, archived, page]);
   const [pageSize, setPageSize] = useState(10);
   const [sort, setSort] = useState({ id: 'updated', descending: true });
   const [selected, setSelected] = useState<string[]>([]);

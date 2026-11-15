@@ -136,6 +136,7 @@ export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
 
 const listSelect = {
   id: true,
+  clientNumber: true,
   accountType: true,
   displayName: true,
   email: true,
@@ -161,9 +162,53 @@ type RecordRow = Prisma.ClientGetPayload<{ select: typeof recordSelect }>;
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
 
+/** Clients Review 2 §5: what a possible duplicate shows of each match the caller may see. */
+const duplicateSelect = {
+  id: true,
+  displayName: true,
+  clientNumber: true,
+  archivedAt: true,
+  assignedUserId: true,
+  accountType: true,
+  email: true,
+  phone: true,
+  status: true,
+  assignedMember: { select: { user: { select: { name: true } } } },
+} satisfies Prisma.ClientSelect;
+type DuplicateRow = Prisma.ClientGetPayload<{ select: typeof duplicateSelect }>;
+
+/**
+ * Clients Review 2 §6: a business name's key for a probable match: lower case, no punctuation,
+ * the usual company endings left out ("Smith & Co., LLC" and "smith co" are the same). The SQL in
+ * companyInUse builds the same key from each stored name (the endings pattern is a parameter).
+ */
+const COMPANY_ENDINGS =
+  'llc|inc|incorporated|corp|corporation|co|company|ltd|limited|the|pllc|pc|lp|llp';
+const COMPANY_ENDINGS_SQL = `\\m(${COMPANY_ENDINGS})\\M`;
+export function companyKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(new RegExp(`\\b(${COMPANY_ENDINGS})\\b`, 'g'), '')
+    .replace(/\s+/g, '');
+}
+
+const duplicateMatch = (r: DuplicateRow, reason: 'PHONE' | 'NAME') => ({
+  id: r.id,
+  name: r.displayName,
+  clientNumber: `CL-${r.clientNumber}`,
+  archived: r.archivedAt !== null,
+  accountType: r.accountType,
+  contact: r.email ?? r.phone,
+  assignedTo: r.assignedMember?.user.name ?? null,
+  status: r.status,
+  reason,
+});
+
 function toListItem(row: ListRow): ClientListItem {
   return {
     id: row.id,
+    clientNumber: `CL-${row.clientNumber}`,
     accountType: row.accountType,
     displayName: row.displayName,
     email: row.email,
@@ -1009,6 +1054,15 @@ export class ClientsService {
         null,
         body.allowDuplicatePhone,
       );
+      await this.companyInUse(
+        tx,
+        businessId,
+        actor,
+        body.accountType,
+        body.displayName,
+        null,
+        body.allowDuplicatePhone,
+      );
       const client = await tx.client.create({
         data: {
           id,
@@ -1060,6 +1114,12 @@ export class ClientsService {
       }
       if (body.email !== undefined && body.email !== current.email) {
         await this.uniqueEmail(tx, businessId, body.email);
+      }
+      // §6: a business renamed (or made a business) to a likely match pauses too.
+      const type = body.accountType ?? current.accountType;
+      const name = body.displayName ?? current.displayName;
+      if (name !== current.displayName || type !== current.accountType) {
+        await this.companyInUse(tx, businessId, actor, type, name, id, allowDuplicatePhone);
       }
       await tx.client.update({ where: { businessId_id: { businessId, id } }, data });
       // A new assignee: the open tasks the previous Staff assignee held move along (R12).
@@ -1237,6 +1297,53 @@ export class ClientsService {
   }
 
   /**
+   * Clients Review 2 §6: a business client whose name likely matches another business client's
+   * (companyKey) pauses Add and Edit with 409 POSSIBLE_DUPLICATE until the person confirms it (the
+   * same Create Anyway as the phone). Named matches are the ones the caller may see; nothing is
+   * merged. Individuals are matched by phone and email only.
+   */
+  private async companyInUse(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    accountType: string,
+    name: string,
+    exceptId: string | null,
+    allow: boolean | undefined,
+  ): Promise<void> {
+    if (accountType !== 'BUSINESS' || allow) return;
+    const key = companyKey(name);
+    if (key.length < 2) return;
+    const found = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id::text AS id FROM clients
+      WHERE business_id = ${businessId}::uuid AND account_type = 'BUSINESS'
+        AND (${exceptId}::uuid IS NULL OR id <> ${exceptId}::uuid)
+        AND regexp_replace(
+              regexp_replace(
+                regexp_replace(lower(display_name), '[^a-z0-9 ]', '', 'g'),
+                ${COMPANY_ENDINGS_SQL}, '', 'g'),
+              '[[:space:]]+', '', 'g') = ${key}
+      ORDER BY created_at, id
+      LIMIT 20`;
+    if (found.length === 0) return;
+    const rows = await tx.client.findMany({
+      where: { businessId, id: { in: found.map((f) => f.id) } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: duplicateSelect,
+    });
+    const visible =
+      actor.role === 'STAFF' ? rows.filter((r) => r.assignedUserId === actor.userId) : rows;
+    throw new ConflictException({
+      code: 'POSSIBLE_DUPLICATE',
+      message: 'Another business client has a similar name',
+      details: {
+        count: rows.length,
+        matches: visible.slice(0, 5).map((r) => duplicateMatch(r, 'NAME')),
+      },
+    });
+  }
+
+  /**
    * Clients Review 2 (C2-038): a phone another client of the firm already has (archived ones too)
    * pauses Add and Edit with 409 DUPLICATE_PHONE until the person confirms it. Phones are kept as
    * E.164, so "(202) 555-0103" and "2025550103" are the same number here. The answer names only
@@ -1256,13 +1363,7 @@ export class ClientsService {
       where: { businessId, phone, ...(exceptId ? { id: { not: exceptId } } : {}) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 20,
-      select: {
-        id: true,
-        displayName: true,
-        clientNumber: true,
-        archivedAt: true,
-        assignedUserId: true,
-      },
+      select: duplicateSelect,
     });
     if (rows.length === 0) return;
     const visible =
@@ -1272,12 +1373,7 @@ export class ClientsService {
       message: 'Another client has this phone number',
       details: {
         count: rows.length,
-        matches: visible.slice(0, 5).map((r) => ({
-          id: r.id,
-          name: r.displayName,
-          clientNumber: `CL-${r.clientNumber}`,
-          archived: r.archivedAt !== null,
-        })),
+        matches: visible.slice(0, 5).map((r) => duplicateMatch(r, 'PHONE')),
       },
     });
   }

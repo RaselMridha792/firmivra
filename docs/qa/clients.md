@@ -29,7 +29,7 @@ Rows are named by their IDs and headings only; the report's text is not copied h
 | --- | --- | --- | --- |
 | Expanded directory filters (Added Last 30 Days, Archived, More Filters with chips) | Done | #1385 | `clients-work.e2e`, `r60-clients-filters` |
 | New KPI and destination | Done | #1382 (R1) | `clients-work.e2e`, `clients.e2e` |
-| Client ID search | Done | #1382 (R1) | `clients.e2e` |
+| Client ID search | Done; the Client ID (CL-…) shows on the profile and the list, and the search hint names it | #1382 (R1), #1575 | `clients.e2e` "finds a client by its Client ID…" (record and list carry it); mock `r1-clients-b` §3 |
 | Edit validation (required fields on Add and Edit) | Done | #1380 | `r60-clients-required`, `new-client-form.test` |
 | Edit validation: the API part (a blank email, phone or address) | After Nov 17 (decided) | — | The API still takes them: `clients.e2e` "updates only the fields sent; "" clears…" clears a phone |
 | Edit validation: ZIP format ("abc" accepted) | Fixed (G3) | #1429: US ZIP or ZIP+4 on Add, Edit and the API | `clients.e2e`, `r60-clients-gaps` (Add) |
@@ -41,7 +41,7 @@ Rows are named by their IDs and headings only; the report's text is not copied h
 | Service management (enroll, pause or end with history, package, staff) | Fixed (G8) | #1444: Enroll, Edit, Service & Billing, End, Mark Completed, Reactivate and History (audit rows); #1446 and #1454: a pause with a reason for every service | `engagements.e2e` (activity, pause and resume), `r60-clients-services` |
 | Document and portal actions (profile Upload, Request Details, Portal invitation) | Done | #1384 | `r60-clients-e8-e10` |
 | Bulk and contextual actions: tag, status, inactive, export | Done | #1386, #1387 | `clients-work.e2e`, `r60-clients-export`, `r60-clients-bulk` |
-| Bulk and contextual actions: message, document request, intake for the selected clients | Fixed (G7) | #1431: Send Message, Request Document and Send Intake Form in Bulk Actions | `r60-clients-outreach` |
+| Bulk and contextual actions: message, document request, intake for the selected clients | Fixed (G7); row and profile actions too: Send Intake Form (client chosen) and Schedule Appointment (client prefilled) | #1431: Send Message, Request Document and Send Intake Form in Bulk Actions; #1575: row menu and profile | `r60-clients-outreach`; mock `r1-clients-b` §3/§6 |
 | Last Activity timestamp | Done | #1362 | `clients-work.e2e` |
 | Last Activity logic | Done | #1362 | `clients-work.e2e` |
 
@@ -63,7 +63,7 @@ Rows are named by their IDs and headings only; the report's text is not copied h
 | Row | Status | PR | Test |
 | --- | --- | --- | --- |
 | Duplicate review principle (Create Anyway after the warning) | Fixed (G2) | #1382 (API) and #1429: Possible duplicate client with Create Anyway and Save Anyway | `clients.e2e`, `r60-clients-gaps` |
-| Proposed duplicate popup | Fixed (G2) | #1382 (API) and #1429: Possible duplicate client with Create Anyway and Save Anyway | `clients.e2e`, `r60-clients-gaps` |
+| Proposed duplicate popup | Fixed (G2); each match also shows its type, email or phone, assigned staff, status and why it matched; a business with a likely matching name pauses the same way (409 POSSIBLE_DUPLICATE) | #1382 (API) and #1429: Possible duplicate client with Create Anyway and Save Anyway; #1575: match details and the company match | `clients.e2e` (DUPLICATE_PHONE fields; "§6: a business with a likely matching name…"), `r60-clients-gaps`, mock `r1-clients-b` §5 and §6 |
 | Duplicate safeguards (permission, no cross-firm disclosure) | Fixed (G2) | #1382 (API) and #1429 | `clients.e2e` "pauses Add and Edit with 409 DUPLICATE_PHONE until confirmed…" (Staff see only their own matches; another firm's never count) |
 | Duplicate safeguards: the matched ids in the audit | After Nov 17 (decided) | — | Create Anyway is audited as a field name only |
 | Last Activity owner clarification (every recorded client action counts) | Fixed (G6) | #1429: Last Activity counts the client's own audit rows, never a view | `clients-work.e2e` |
@@ -111,7 +111,7 @@ These rows ask for test coverage, not features.
 | V-006 Request KPI baselines | **Test gap:** R60 adds the check after the product items (Nov 15) | #1381 (R55) | None: no test opens Document Requests' cards |
 | V-007 Main sidebar collapse | Done | #1396 | `r60-sidebar-collapse` |
 | V-008 Full filename disclosure (hover) | **Test gap:** R60 adds the check after the product items (Nov 15) | #1429: the full file name on hover in Documents | None: `r60-clients-gaps` has no hover check |
-| V-009 Approved column alignment | **Test gap:** R60 adds the check after the product items (Nov 15) | #1381 (R55) | None: no test measures the panels |
+| V-009 Approved column alignment | Done: Folders, the table and the right rail take the stat cards' columns (3 at her 1165 px, the rail three across under the table; 5 at 2xl, the rail under the last card), so the edges line up | #1381 (R55), this PR (R56) | mock `r56-documents-columns` (both widths, edges within 1 px) |
 | Visual acceptance limits | Report note; nothing to build | — | — |
 
 ## Additional Documents workflow tests (section 10)
@@ -134,8 +134,8 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-02 Existing intake assignment: detail and start | Done in Intake Forms | #1407, #1425, #1471, #1479 | `intake-forms.md` INTAKE-ACCESS-01 (mock `r55-portal-assigned-intake`) |
 | N8-03 Portal document source filters | Scoped pass; nothing to build | — | — |
 | N8-04 Portal message delivery and read state | Scoped pass; nothing to build | — | — |
-| N8-05 Client Activity and Last Activity | Done: the client's Messages tab New Message has Add to Client Timeline (on by default); the entry shows on Activity with its link, never the message, and an Activity entry counts as Last Activity | #1362, #1429, #1558 | `messages.e2e` "puts the subject, sender and link on the Activity, never the message; off adds nothing"; mock `r55-client-message-timeline`; `clients-work.e2e` "counts the client's own recorded changes, never a view…" (the column) |
-| N8-06 Digits-only phone search | Done: any phone format finds the client, so no hint is needed | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
+| N8-05 Client Activity and Last Activity | Done: Activity lists every recorded client event, newest first and paged, each with its record link: the client's portal replies, documents and requests, completed tasks, held appointments, invoices issued and paid, signed e-sign requests, notes and the client's own changes (never a view, list or export), in the firm's time zone. A firm message is listed only when sent with Add to Client Timeline (her opt-in); Last Activity counts every recorded action, every firm message included (the owner's rule), so the two differ only there | #1362, #1429, #1558, this PR (R56) | `clients-work.e2e` "N8-05: Activity lists each recorded event with its link; a firm message off the timeline moves Last Activity but adds no row"; `messages.e2e` "puts the subject, sender and link on the Activity, never the message; off adds nothing"; mock `r55-client-message-timeline` |
+| N8-06 Digits-only phone search | Done: any phone format finds the client, and the hint under the search says "Phone: type numbers only, e.g. 5551234567" | #1382 (R1), #1575 | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown"; mock `r1-clients-b` §3/N8-06 |
 | N8-07 Client ID search (UUID and CL- number) | Done | #1382 (R1) | `clients.e2e` "finds a client by its Client ID and by a phone typed as shown" |
 | N8-08 Pagination and return | Scoped pass; nothing to build | — | — |
 | N8-09 Profile tab scrollbar (V-001) | Done, test gap | #1381, #1415 (R55) | None (see V-001) |
@@ -177,7 +177,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | FC-04 Unassigned in Assigned Staff | Done: Unassigned in the staff filter, combinable with New; Staff 403 | #1547 | e2e `clients` "FC-04: Unassigned lists the clients nobody is assigned to, with New too; Staff 403" |
 | §23 Messages: wider Subject, collapsible Internal Notes | Done: Hide / Show Internal Notes on the client's Messages (Messages then take the whole width; a note being typed is kept), and the Subject takes the room while the sender stays on one line | #1558 | mock `r55-client-messages-notes-collapse` "Hide Internal Notes widens the Subject and keeps the draft note" (at her 1165 px) |
 | §23 V-007 for side menus | Main sidebar: Done (#1396). The Internal Notes rail is the R60 row above | #1396 | `r60-sidebar-collapse` |
-| §23 Mobile-friendly Clients | Her mobile check was not run; nothing new to build. 375 px checks: `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` | — | — |
+| §23 Mobile-friendly Clients | Checked at 375 px: every profile screen (Overview and its tab bar, Activity, Documents, Messages and New Message, Notes, Tasks, Invoices, Signatures, Intake Forms), Add New Client and Edit have no sideways scroll, and their actions are on the screen; they already fit, so nothing changed in the screens. Her own phone and tablet retest is still hers | this PR (R56) | mock `r56-client-profile-375` (4); also `r23-clients` (cards), `r60-clients-services`, `r60-clients-billing` |
 | §23 Platform heading and action-row consistency | After Nov 17 (decided): a platform-wide pass | — | — |
 | §23 Business Overview and Edit visual check | Scoped pass; nothing to build | — | — |
 

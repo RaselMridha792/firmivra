@@ -183,11 +183,13 @@ export const CommunicationsQuery = z.strictObject({
   tab: CommunicationTab.optional().default('campaigns'),
   channel: CommunicationChannel.optional(),
   status: CommunicationStatus.optional(),
+  /** C32: on Sent History, the day it was sent; on the other lists, the day it was made. */
   from: CalendarDate.optional(),
   to: CalendarDate.optional(),
   createdByUserId: z.uuid().optional(),
   search: SearchText.optional(),
   archived: z.union([z.boolean(), z.stringbool()]).optional(),
+  /** `performance`: the most recipients first. */
   sort: z
     .enum(['newest', 'oldest', 'scheduled', 'name', 'performance'])
     .optional()
@@ -196,7 +198,15 @@ export const CommunicationsQuery = z.strictObject({
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
 export type CommunicationsQuery = z.input<typeof CommunicationsQuery>;
-export const CommunicationPage = z.object({ items: z.array(CommunicationRow).max(100), ...Page });
+export const CommunicationPage = z.object({
+  items: z.array(CommunicationRow).max(100),
+  ...Page,
+  /**
+   * C23: the recipients of every communication the filter finds (their final counts), so a total
+   * on the overview matches the list it opens. The API always sends it.
+   */
+  recipients: z.number().int().optional(),
+});
 export type CommunicationPage = z.infer<typeof CommunicationPage>;
 
 // ---------- The composer ----------
