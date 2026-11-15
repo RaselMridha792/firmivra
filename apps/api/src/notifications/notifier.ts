@@ -132,6 +132,12 @@ export const errorName = (error: unknown) => {
 
 interface RecordInfo {
   clientId: string | null;
+  /**
+   * A1: the other clients who attend an appointment. Their PRIMARY logins are reached on the
+   * client side as the client's is, with the same values (never a name); the staff side stays the
+   * client's.
+   */
+  alsoClientIds?: string[];
   /** Safe values for the text: names, titles, dates, numbers. */
   values: Payload;
   /** A note reminder's owner, or the `user` record itself: the only person it may reach. */
@@ -214,11 +220,17 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
   appointment: async (tx, businessId, id) => {
     const r = await tx.appointment.findFirst({
       where: { businessId, id },
-      select: { clientId: true, startsAt: true, type: { select: { name: true } } },
+      select: {
+        clientId: true,
+        startsAt: true,
+        type: { select: { name: true } },
+        attendees: { select: { clientId: true } },
+      },
     });
     if (!r) return null;
     return {
       clientId: r.clientId,
+      alsoClientIds: r.attendees.map((a) => a.clientId),
       values: {
         title: short(r.type?.name) ?? 'Appointment',
         startsAt: r.startsAt.toISOString(),
@@ -286,6 +298,8 @@ interface Recipient {
   name: string;
   /** The client login's email, for the event's email copy. */
   email?: string;
+  /** A1: the login of a client who attends the appointment, not its own client's. */
+  attendee?: true;
 }
 
 /**
@@ -418,7 +432,12 @@ async function intakeWords(tx: TxClient, businessId: string, id: string) {
   };
 }
 
-const accountSelect = { userId: true, email: true, user: { select: { name: true } } } as const;
+const accountSelect = {
+  userId: true,
+  email: true,
+  clientId: true,
+  user: { select: { name: true } },
+} as const;
 const memberSelect = { userId: true, user: { select: { name: true, email: true } } } as const;
 
 /**
@@ -441,8 +460,20 @@ async function recipientsOf(
 ): Promise<{ recipients: Recipient[]; clientName: string | null }> {
   const out: Recipient[] = [];
   let clientName: string | null = null;
-  const asClient = (a: { userId: string; email: string; user: { name: string } }) =>
-    out.push({ userId: a.userId, side: 'client', name: a.user.name, email: a.email });
+  const also = new Set(record.alsoClientIds?.map((id) => id.toLowerCase()));
+  const asClient = (a: {
+    userId: string;
+    email: string;
+    clientId: string | null;
+    user: { name: string };
+  }) =>
+    out.push({
+      userId: a.userId,
+      side: 'client',
+      name: a.user.name,
+      email: a.email,
+      ...(a.clientId && also.has(a.clientId.toLowerCase()) ? { attendee: true as const } : {}),
+    });
   const asStaff = (m: { userId: string; user: { name: string; email: string } }) =>
     out.push({
       userId: m.userId,
@@ -464,7 +495,9 @@ async function recipientsOf(
       : record.clientId
         ? {
             businessId,
-            clientId: record.clientId,
+            clientId: record.alsoClientIds?.length
+              ? { in: [record.clientId, ...record.alsoClientIds] }
+              : record.clientId,
             portalRole: 'PRIMARY' as const,
             status: 'ACTIVE' as const,
           }
@@ -598,8 +631,11 @@ export class Notifier {
     const reached: { direct: Copy[]; clients: Copy[] } = { direct: [], clients: [] };
     try {
       written = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-        const record = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
-        if (!record) return [];
+        const loaded = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
+        if (!loaded) return [];
+        // A3: a waitlist offer is the appointment's own client's, never its attendees'.
+        const record =
+          event === 'appointment.waitlist-offer' ? { ...loaded, alsoClientIds: [] } : loaded;
         const { recipients, clientName } = await recipientsOf(
           tx,
           businessId,
@@ -1009,6 +1045,8 @@ export class Notifier {
                         ...(await this.database.withScope({ kind: 'business', businessId }, (tx) =>
                           noticeWords(tx, businessId, target.id, template),
                         )),
+                        // A1: only the appointment's own client confirms it.
+                        ...(recipient.attendee ? { confirmAsk: false } : {}),
                       };
       await this.sender.send({
         template,

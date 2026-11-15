@@ -29,6 +29,7 @@ import {
   toResult,
 } from './scheduling-conflicts.js';
 import { errors } from './errors.js';
+import { attendeeClients } from './scheduling-data.js';
 import { expandRecurrence } from './scheduling-recurrence.js';
 import type { ConflictsBody, DayQuery, RulesBody } from './scheduling.input.js';
 
@@ -93,14 +94,30 @@ export class SchedulingAvailabilityService {
         });
         if (!room) throw errors.notFound();
       }
+      // A1: who attends already (an edit) stays checkable; a new one only as the client would be.
+      let attending: string[] = [];
       if (body.excludeAppointmentId) {
         // Staff may exclude only an appointment they see in full (else 404), as R12's slots.
         const mine = await tx.appointment.findFirst({
           where: { AND: [{ businessId, id: body.excludeAppointmentId }, inFullWhere(actor)] },
-          select: { id: true },
+          select: { id: true, attendees: { select: { clientId: true } } },
         });
         if (!mine) throw errors.notFound();
+        attending = mine.attendees.map((a) => a.clientId.toLowerCase());
       }
+      const asked = [...new Set((body.attendeeClientIds ?? []).map((c) => c.toLowerCase()))].filter(
+        (c) => c !== clientId?.toLowerCase(),
+      );
+      const attendees = [
+        ...asked.filter((c) => attending.includes(c)),
+        ...(await attendeeClients(
+          tx,
+          businessId,
+          actor,
+          clientId,
+          asked.filter((c) => !attending.includes(c)),
+        )),
+      ];
       const first = { start: Date.parse(body.startsAt), end: Date.parse(body.endsAt) };
       const expansion = expandRecurrence(timeZone, first, body.recurrence);
       if (!expansion.ok) throw errors.unsupported(expansion.message);
@@ -109,6 +126,7 @@ export class SchedulingAvailabilityService {
         occurrences: expansion.occurrences,
         allDay: false,
         clientId,
+        attendeeClientIds: attendees,
         roomId: body.roomId ?? null,
         ...(await typeBuffers(tx, businessId, body.typeId)),
         exceptId: body.excludeAppointmentId,
@@ -121,6 +139,7 @@ export class SchedulingAvailabilityService {
         conflictSpan(candidate),
         clientId,
         candidate.roomId,
+        attendees,
       );
       return toResult(data, candidate, actor).result;
     });

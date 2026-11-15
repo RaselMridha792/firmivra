@@ -72,11 +72,16 @@ export async function lockForBooking(
   businessId: string,
   staffUserId: string,
   clientId: string,
+  attendeeClientIds: readonly string[] = [],
 ): Promise<void> {
   await tryLock(tx, calendarLockKey(businessId), 'shared');
   await tryLock(tx, calendarLockKey(businessId, staffUserId), 'shared');
   await tryLock(tx, bookingLockKey(businessId, 'staff', staffUserId));
   await tryLock(tx, bookingLockKey(businessId, 'client', clientId));
+  // A1: each other attendee is booked too.
+  for (const id of [...attendeeClientIds].sort()) {
+    await tryLock(tx, bookingLockKey(businessId, 'client', id));
+  }
 }
 
 /** Before new blocked time for `userId`, or the whole firm when it is null. */

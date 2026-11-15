@@ -51,6 +51,8 @@ export interface LiveAppointment {
   end: number;
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
+  /** A1: the other clients who attend it (a group appointment). */
+  attendeeClientIds?: readonly string[];
 }
 
 export interface ConflictBlock {
@@ -72,6 +74,8 @@ export interface Candidate {
   occurrences: readonly Interval[];
   allDay: boolean;
   clientId: string | null;
+  /** A1: the other clients who attend; each is double booked as the client would be. */
+  attendeeClientIds?: readonly string[];
   roomId: string | null;
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
@@ -95,6 +99,11 @@ const iso = (ms: number) => new Date(ms).toISOString();
 export function findConflicts(data: ConflictData, c: Candidate): Found[] {
   const found: Found[] = [];
   const except = c.exceptId?.toLowerCase();
+  const client = c.clientId?.toLowerCase() ?? null;
+  // A1: the people of the candidate, the client and each attendee.
+  const people = new Set(
+    [c.clientId, ...(c.attendeeClientIds ?? [])].flatMap((id) => (id ? [id.toLowerCase()] : [])),
+  );
   c.occurrences.forEach((slot, index) => {
     const push = (
       kind: ConflictKind,
@@ -160,13 +169,18 @@ export function findConflicts(data: ConflictData, c: Candidate): Found[] {
     }
     for (const a of data.appointments) {
       if (a.id === except) continue;
-      if (c.clientId && a.clientId === c.clientId && overlaps(slot, a)) {
+      // A1: the client or an attendee of the candidate already has, or attends, one then.
+      const theirs = [a.clientId, ...(a.attendeeClientIds ?? [])].map((id) => id.toLowerCase());
+      const clash = theirs.filter((id) => people.has(id));
+      if (clash.length > 0 && overlaps(slot, a)) {
         push(
           'CLIENT_DOUBLE_BOOKED',
           true,
           null,
           a,
-          'This client already has an appointment at this time',
+          client && clash.includes(client)
+            ? 'This client already has an appointment at this time'
+            : 'An attendee already has an appointment at this time',
         );
       }
       if (c.roomId && a.roomId === c.roomId && overlaps(slot, a)) {
@@ -255,6 +269,8 @@ export async function loadConflictData(
   span: Interval,
   clientId: string | null,
   roomId: string | null,
+  /** A1: the candidate's other attendees, whose appointments count as the client's. */
+  attendeeClientIds: readonly string[] = [],
 ): Promise<ConflictData> {
   const userIds = members.map((m) => m.userId);
   const weekly = await workingHours(tx, businessId, userIds);
@@ -288,9 +304,16 @@ export async function loadConflictData(
     });
   }
   const touching = { startsAt: { lt: new Date(span.end) }, endsAt: { gt: new Date(span.start) } };
+  const clientIds = [...(clientId ? [clientId] : []), ...attendeeClientIds];
   const people = [
     { staffUserId: { in: userIds } },
-    ...(clientId ? [{ clientId }] : []),
+    // A1: their own appointments and those they attend.
+    ...(clientIds.length > 0
+      ? [
+          { clientId: { in: clientIds } },
+          { attendees: { some: { businessId, clientId: { in: clientIds } } } },
+        ]
+      : []),
     ...(roomId ? [{ roomId }] : []),
   ];
   // One after the other: a transaction runs its queries on one connection.
@@ -305,6 +328,7 @@ export async function loadConflictData(
       endsAt: true,
       bufferBeforeMinutes: true,
       bufferAfterMinutes: true,
+      attendees: { select: { clientId: true } },
     },
   });
   const blocks = await tx.blockedTime.findMany({
@@ -323,6 +347,7 @@ export async function loadConflictData(
       end: a.endsAt.getTime(),
       bufferBeforeMinutes: a.bufferBeforeMinutes,
       bufferAfterMinutes: a.bufferAfterMinutes,
+      attendeeClientIds: a.attendees.map((x) => x.clientId),
     })),
     blocks: blocks.map((b) => ({
       userId: b.userId,
