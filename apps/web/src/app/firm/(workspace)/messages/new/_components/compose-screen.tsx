@@ -34,7 +34,7 @@ import {
 } from '@phosphor-icons/react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import { fileSize } from '../../../../../../components/message-files';
 import { api } from '../../../../../../lib/api';
@@ -42,6 +42,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../../lib/origin';
 import { useApiQuery } from '../../../../../../lib/query';
 import { useUnsavedChanges } from '../../../../../../lib/unsaved';
+import { LeaveDialog } from '../../../../../../components/leave-message-dialog';
 import { uploadFile } from '../../../../../../lib/upload';
 import { addDays, localParts, todayIn, toInstant } from '../../../calendar/_components/time';
 import {
@@ -183,6 +184,9 @@ export function ComposeScreen({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' }>();
   const [reviewing, setReviewing] = useState(false);
+  // M21 (Messaging Review 2): Cancel with unsaved changes asks before they are lost.
+  const [leaving, setLeaving] = useState(false);
+  const router = useRouter();
   useUnsavedChanges(dirty);
   const options = useApiQuery(['scheduling', 'options'], () => api.scheduling.options());
   const timeZone = saved?.timezone ?? options.data?.timezone ?? 'America/New_York';
@@ -562,6 +566,11 @@ export function ComposeScreen({
                 <Link
                   href={cancelHref}
                   data-testid="compose-cancel"
+                  onClick={(e) => {
+                    if (!dirty) return;
+                    e.preventDefault();
+                    setLeaving(true);
+                  }}
                   className="inline-flex min-h-11 items-center rounded-control border border-action px-4 text-sm font-semibold text-action hover:bg-accent-soft"
                 >
                   Cancel
@@ -616,6 +625,14 @@ export function ComposeScreen({
                 onConfirm={(confirm) => void run(form.later ? 'schedule' : 'send', confirm)}
               />
             ) : null}
+            <LeaveDialog
+              open={leaving}
+              onStay={() => setLeaving(false)}
+              onLeave={() => {
+                setDirty(false);
+                router.push(cancelHref);
+              }}
+            />
           </div>
         </div>
       )}
