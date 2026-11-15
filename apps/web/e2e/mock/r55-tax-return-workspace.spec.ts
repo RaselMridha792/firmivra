@@ -92,6 +92,10 @@ test('E-File: record a transmission and its rejection, then retransmit', async (
     .getByTestId('ack-dialog')
     .getByLabel('Corrective action')
     .fill('Correct the dependent and transmit again');
+  await page
+    .getByTestId('ack-dialog')
+    .getByLabel('Description')
+    .fill('Fake: the dependent is claimed on another return');
   await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
   await expect(efile.getByTestId('filing-US')).toContainText('IRS · R0000-504-02');
   await efile
@@ -101,6 +105,26 @@ test('E-File: record a transmission and its rejection, then retransmit', async (
   await page.getByTestId('attempt-dialog').getByLabel('Submission ID').fill('SUB-TEST-0002');
   await page.getByRole('dialog').getByRole('button', { name: 'Record' }).click();
   await expect(efile.getByTestId('filing-US')).toContainText('Earlier attempts (1)');
+  // Tax Returns Review 2 (F24): opened after the retry, the first rejection is all there, with
+  // its corrective task owned by the return's preparer.
+  const preparer = await page
+    .getByTestId('info-cards')
+    .getByRole('listitem')
+    .filter({ hasText: 'Assigned Preparer' })
+    .locator('span[title]')
+    .getAttribute('title');
+  await efile.getByTestId('filing-US').getByText('Earlier attempts (1)').click();
+  const earlier = efile.getByTestId('filing-US').getByTestId('earlier-attempts');
+  await expect(earlier).toContainText('SUB-TEST-0001');
+  await expect(earlier).toContainText('by IRS (R0000-504-02)');
+  await expect(earlier).toContainText('Fake: the dependent is claimed on another return');
+  await expect(earlier).toContainText(
+    'Corrective action: Correct the dependent and transmit again',
+  );
+  await expect(earlier).toContainText('Recorded by');
+  await expect(earlier.getByTestId('corrective-task')).toContainText(
+    `Correct the IRS rejection R0000-504-02 · ${preparer ?? 'no preparer'} · open`,
+  );
 });
 
 test('Payments & Refunds, Notes and Activity tabs', async ({ page }) => {

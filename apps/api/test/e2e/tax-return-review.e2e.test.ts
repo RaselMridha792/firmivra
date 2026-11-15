@@ -576,6 +576,95 @@ describe('filings', () => {
     });
     expect(after.rejections).toEqual([]);
   });
+
+  // Tax Returns Review 2 (F24): after the retry the first rejection is still there in full, and
+  // its corrective task is the return's preparer's.
+  it('keeps the whole first rejection after a retry, with a corrective task owned by the preparer', async () => {
+    const fresh = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId: ids.c1,
+        taxYear: 2013,
+        filingType: 'INDIVIDUAL',
+        formType: '1040',
+        preparerUserId: staffA.id,
+        reviewerUserId: adminA.id,
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const id = fresh.id;
+    const move = async (workflowStatus: string, reason?: string) =>
+      ok(
+        await call('post', `/tax-returns/${id}/status`, adminA, {
+          workflowStatus,
+          ...(reason ? { reason } : {}),
+        }),
+        TaxReturnDetail,
+      );
+    await move('READY_TO_FILE');
+    const us = ok(await call('get', `/tax-returns/${id}/filings`, ownerA), TaxReturnFilingList)
+      .items[0]!.id;
+    const first = ok(
+      await call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
+        submissionId: 'FAKE-F24-1',
+        transmittedAt: ago(40),
+      }),
+      TaxReturnFilingList,
+    ).items[0]!.attempts[0]!.id;
+    await move('TRANSMITTED');
+    const rejection = {
+      rejectingAgency: 'IRS',
+      rejectCode: 'IND-181',
+      rejectDescription: 'Fake: the prior-year PIN does not match the IRS record',
+      correctiveAction: "Fake: ask the client for last year's AGI and sign again",
+    };
+    const rejected = ok(
+      await call('patch', `/tax-returns/${id}/attempts/${first}`, staffA, {
+        ackStatus: 'REJECTED',
+        acknowledgedAt: ago(30),
+        ...rejection,
+      }),
+      TaxReturnFilingList,
+    ).items[0]!.attempts[0]!;
+    expect(rejected.correctiveTask).toMatchObject({
+      title: 'Correct the IRS rejection IND-181',
+      status: 'OPEN',
+      owner: { userId: staffA.id },
+    });
+    const task = await inFirm('a', (tx) =>
+      tx.task.findUniqueOrThrow({
+        where: { id: rejected.correctiveTask!.id },
+        select: { assignedUserId: true, details: true },
+      }),
+    );
+    expect(task.assignedUserId).toBe(staffA.id);
+    expect(task.details).toContain(`Rejected: ${rejection.rejectDescription}`);
+
+    await move('REJECTED');
+    await move('IN_CORRECTION', 'Fake: the prior-year PIN');
+    await move('READY_TO_FILE');
+    ok(
+      await call('post', `/tax-returns/${id}/filings/${us}/attempts`, staffA, {
+        submissionId: 'FAKE-F24-2',
+        transmittedAt: ago(5),
+      }),
+      TaxReturnFilingList,
+    );
+    // Read back later, by someone else: the earlier attempt still says all of it.
+    const attempts = ok(
+      await call('get', `/tax-returns/${id}/filings`, adminA),
+      TaxReturnFilingList,
+    ).items[0]!.attempts;
+    expect(attempts.map((a) => [a.submissionId, a.ackStatus])).toEqual([
+      ['FAKE-F24-2', 'PENDING'],
+      ['FAKE-F24-1', 'REJECTED'],
+    ]);
+    expect(attempts[1]).toMatchObject({
+      ...rejection,
+      recordedBy: { userId: staffA.id },
+      correctiveTask: { id: rejected.correctiveTask!.id, owner: { userId: staffA.id } },
+    });
+  });
 });
 
 describe('review', () => {
