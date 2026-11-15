@@ -493,7 +493,7 @@ function Segmented<T extends string>({
               offered && !offered.includes(v) ? 'Not offered by this appointment type' : undefined
             }
             onClick={() => onChange(v)}
-            className={`min-h-11 flex-1 border-r border-border px-2 text-sm whitespace-nowrap last:border-r-0 ${value === v ? 'bg-action font-semibold text-on-action' : 'bg-surface text-heading hover:bg-canvas'}`}
+            className={`min-h-11 min-w-0 flex-1 border-r border-border px-2 text-sm leading-tight last:border-r-0 ${value === v ? 'bg-action font-semibold text-on-action' : 'bg-surface text-heading hover:bg-canvas'}`}
           >
             {l}
           </button>
@@ -1219,7 +1219,7 @@ function FormBody({
             : ''
         }`
       : 'None';
-  const grid = 'grid gap-4 md:grid-cols-2';
+  const grid = 'grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2';
 
   return (
     <form
@@ -1469,7 +1469,7 @@ function FormBody({
               Check again for new types
             </button>
           </p>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-4">
             <Input
               label="Date *"
               type="date"
@@ -1504,7 +1504,7 @@ function FormBody({
               }
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-[1fr_1.4fr]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[1fr_1.4fr]">
             <Select
               label="Time Zone"
               options={(TIME_ZONES.some(([z]) => z === form.timezone)
@@ -1532,7 +1532,7 @@ function FormBody({
           {/* Office / Branch and Room, used by In Person and greyed out for the others; then the
               Video Meeting Link on its own full-width row (Octavia's A6: the toggle aligned with
               its label, the link field full width with Copy). */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
             <Select
               label="Office / Branch"
               disabled={form.method !== 'IN_PERSON'}
@@ -1611,7 +1611,10 @@ function FormBody({
             ) : null}
           </div>
           {form.method === 'OTHER' ? (
-            <div className="grid gap-4 md:grid-cols-2" data-testid="other-video">
+            <div
+              className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2"
+              data-testid="other-video"
+            >
               <Input
                 label="Video platform"
                 maxLength={60}
@@ -1637,7 +1640,7 @@ function FormBody({
         </Section>
 
         <Section title="Staff & Status" icon={UsersThree} testId="staff-status">
-          <div className="grid gap-4 md:grid-cols-[1.8fr_1.3fr_1.2fr_auto] md:items-end">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[1.8fr_1.3fr_1.2fr_auto] md:items-end">
             <MultiPick
               chips="people"
               label="Assigned Staff *"
