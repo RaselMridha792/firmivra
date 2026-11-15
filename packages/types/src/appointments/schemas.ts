@@ -618,6 +618,11 @@ export const MyAppointment = z.object({
   changeableUntil: DateTime.nullable(),
   /** Review 2 (B9): the firm's instructions for it, when the firm shows them in the portal. */
   instructions: z.string().nullable().default(null),
+  /**
+   * Review 2 (row 8): the firm booked it and asks the client to confirm (scheduled, upcoming,
+   * not yet confirmed). `confirm()` confirms it; one the client booked themselves never asks.
+   */
+  needsConfirmation: z.boolean().default(false),
 });
 export type MyAppointment = z.infer<typeof MyAppointment>;
 

@@ -288,6 +288,15 @@ function Upcoming({
           {item.instructions}
         </p>
       ) : null}
+      {/* Review 2 (row 8): the firm booked it and asks the client to confirm. */}
+      {item.needsConfirmation ? (
+        <ConfirmPrompt
+          slug={slug}
+          id={item.id}
+          onDone={done('Your appointment is confirmed.')}
+          onStale={stale}
+        />
+      ) : null}
       {!item.changeableUntil ? (
         <p className="text-xs text-muted">To change this appointment, please contact us.</p>
       ) : null}
@@ -539,5 +548,47 @@ function Cancel({
         </p>
       ) : null}
     </form>
+  );
+}
+
+/** Review 2 (row 8): the firm booked this and asks the client to confirm it. */
+function ConfirmPrompt({
+  slug,
+  id,
+  onDone,
+  onStale,
+}: {
+  slug: string;
+  id: string;
+  onDone: () => void;
+  onStale: (error: unknown) => void;
+}) {
+  const confirm = useApiMutation(() => api.myAppointments(slug).confirm(id), {
+    invalidate: myAppointmentsKey(slug),
+  });
+  return (
+    <div
+      data-testid="my-appointment-confirm"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-canvas p-3"
+    >
+      <p className="text-sm text-text">We booked this for you. Please confirm it.</p>
+      <Button
+        variant="dark"
+        disabled={confirm.isPending}
+        onClick={() =>
+          confirm.mutate(undefined, {
+            onSuccess: onDone,
+            onError: (error) => (STALE.has(errorCode(error) ?? '') ? onStale(error) : undefined),
+          })
+        }
+      >
+        {confirm.isPending ? 'Confirming…' : 'Confirm Appointment'}
+      </Button>
+      {confirm.error && !STALE.has(errorCode(confirm.error) ?? '') ? (
+        <p role="alert" className="w-full text-sm text-danger">
+          {errorMessage(confirm.error, APPOINTMENT_ERRORS)}
+        </p>
+      ) : null}
+    </div>
   );
 }

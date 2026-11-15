@@ -142,6 +142,17 @@ describe('templates', () => {
     expect(confirmed.text).toContain('Fake: we look forward to seeing you.');
   });
 
+  it('Review 2 (row 8): a notice asks the client to confirm only while the firm waits for it', () => {
+    const ask = 'Please confirm this appointment in your client portal.';
+    expect(email('appointment.booked').text).not.toContain(ask);
+    for (const template of ['appointment.booked', 'appointment.reminder'] as const) {
+      const waiting = email(template, { ...SAMPLE_DATA[template], confirmAsk: true });
+      expect(waiting.text).toContain(ask);
+      const done = email(template, { ...SAMPLE_DATA[template], confirmAsk: false });
+      expect(done.text).not.toContain(ask);
+    }
+  });
+
   it('q18: a declined client sign-up carries no reason; a declined firm application does', () => {
     const data = { ...SAMPLE_DATA['client.signup-declined'], reason: 'Synthetic private reason' };
     expect(JSON.stringify(email('client.signup-declined', data))).not.toContain('Synthetic');
