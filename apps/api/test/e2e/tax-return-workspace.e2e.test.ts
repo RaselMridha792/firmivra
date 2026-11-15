@@ -29,6 +29,7 @@ const people = {
   ownerA: person('owner-a'),
   adminA: person('admin-a'),
   staffA: person('staff-a'),
+  preparerA: person('preparer-a'),
   ownerB: person('owner-b'),
 };
 type Who = (typeof people)[keyof typeof people];
@@ -82,7 +83,7 @@ const ok = <T>(res: Response, parse: { parse: (v: unknown) => T }, status = 200)
   expect(res.status, JSON.stringify(res.body)).toBe(status);
   return parse.parse(res.body);
 };
-const { ownerA, adminA, staffA, ownerB } = people;
+const { ownerA, adminA, staffA, preparerA, ownerB } = people;
 
 beforeAll(async () => {
   await asOwner({ kind: 'platform' }, async (tx) => {
@@ -105,6 +106,7 @@ beforeAll(async () => {
     ['a', ownerA.id, 'OWNER'],
     ['a', adminA.id, 'ADMIN'],
     ['a', staffA.id, 'STAFF'],
+    ['a', preparerA.id, 'TAX_PREPARER'],
     ['b', ownerB.id, 'OWNER'],
   ] as const) {
     await inFirm(firm, (tx) =>
@@ -591,5 +593,63 @@ describe("a business return's own identity (Octavia's TX-F31, F32; R1's #1176)",
       409,
       'RETURN_LOCKED',
     );
+  });
+
+  // Tax Returns Review 2 (F32b): the role decides who may correct the return's own copy.
+  it('lets only a member who may edit tax returns correct the business identity', async () => {
+    // The Tax Preparer role views and creates returns but does not edit them; their own client.
+    const clientId = await inFirm('a', async (tx) => {
+      const c = await tx.client.create({
+        data: {
+          businessId: firms.a,
+          displayName: 'Harbor Kiln Co (fake)',
+          accountType: 'BUSINESS',
+          assignedUserId: preparerA.id,
+        },
+      });
+      await tx.clientProfile.create({
+        data: { businessId: firms.a, clientId: c.id, businessName: 'Harbor Kiln Co LLC (fake)' },
+      });
+      return c.id;
+    });
+    const created = ok(
+      await call('post', '/tax-returns', ownerA, {
+        clientId,
+        taxYear: 2024,
+        filingType: 'BUSINESS',
+        formType: '1120',
+      }),
+      TaxReturnDetail,
+      201,
+    );
+    const path = `/tax-returns/${created.id}/business-identity`;
+    const seen = ok(await call('get', `/tax-returns/${created.id}`, preparerA), TaxReturnDetail);
+    expect(seen.businessIdentity).toMatchObject({
+      name: 'Harbor Kiln Co LLC (fake)',
+      correctable: true,
+    });
+    expectError(
+      await call('put', path, preparerA, { name: 'Harbor Kiln Renamed (fake)' }),
+      403,
+      'FORBIDDEN',
+    );
+    expect(
+      ok(await call('get', `/tax-returns/${created.id}`, ownerA), TaxReturnDetail).businessIdentity
+        ?.name,
+    ).toBe('Harbor Kiln Co LLC (fake)');
+    const corrections = () =>
+      inFirm('a', (tx) =>
+        tx.auditLog.findMany({
+          where: { entityId: created.id, action: 'tax_return.business_identity_corrected' },
+          select: { actorUserId: true },
+        }),
+      );
+    expect(await corrections()).toEqual([]);
+    // A member whose role may edit returns corrects it.
+    expect(
+      ok(await call('put', path, adminA, { name: 'Harbor Kiln Renamed (fake)' }), TaxReturnDetail)
+        .businessIdentity?.name,
+    ).toBe('Harbor Kiln Renamed (fake)');
+    expect(await corrections()).toEqual([{ actorUserId: adminA.id }]);
   });
 });
