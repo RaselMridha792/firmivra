@@ -62,3 +62,40 @@ export const initialsOf = (name: string) =>
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
+
+/**
+ * Client Portal instructions 24 (View Related Record): the record an activity row opens, from its
+ * entity's type and id only, on the firm's own pages (each checks access again, so a record the
+ * member may not see is 404 there). Null when the entity has no page of its own.
+ */
+export function activityHref(
+  entity: { type: string; id: string } | null,
+  clientId: string,
+): string | null {
+  if (!entity) return null;
+  const { type, id } = entity;
+  switch (type) {
+    case 'document':
+      return `/documents/${id}`;
+    case 'document_request':
+      return `/documents/requests/${id}`;
+    case 'document_request_packet':
+      return `/clients/${clientId}/documents`;
+    case 'intake':
+      return `/intake-forms/${id}`;
+    case 'invoice':
+      return `/invoices/${id}`;
+    case 'appointment':
+      return `/calendar/${id}`;
+    case 'message_thread':
+      return `/messages?thread=${id}`;
+    case 'message':
+      return `/clients/${clientId}/messages`;
+    case 'engagement':
+      return `/workspaces/${id}`;
+    case 'client':
+      return `/clients/${id}`;
+    default:
+      return null;
+  }
+}

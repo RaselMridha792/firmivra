@@ -363,6 +363,8 @@ export class PortalManagementService {
         kind: PendingClientAction['kind'],
         rows: { id: string; title: string; due: Date | null }[],
         extra: Partial<PendingClientAction> = {},
+        /** Instructions 17: the reminder of the first item (the earliest due), when it is overdue. */
+        reminder?: (first: { id: string }) => PendingClientAction['reminder'],
       ) => {
         const first = rows[0];
         if (!first) return;
@@ -376,6 +378,7 @@ export class PortalManagementService {
           dueOn: earliest(dues),
           at: null,
           overdue: overdue(dues),
+          reminder: reminder && overdue([first.due]) ? reminder(first) : null,
           ...extra,
         });
       };
@@ -385,11 +388,18 @@ export class PortalManagementService {
           where: { clientId, status: { in: ['REQUESTED', 'REJECTED'] } },
           orderBy: [...byDue],
           take: 200,
-          select: { id: true, title: true, dueOn: true },
+          select: { id: true, title: true, dueOn: true, packetId: true },
         });
+        const packetOf = new Map(requests.map((r) => [r.id, r.packetId]));
         add(
           'DOCUMENTS_REQUESTED',
           requests.map((r) => ({ id: r.id, title: r.title, due: r.dueOn })),
+          {},
+          // A request is reminded through its packet (Documents > Requests' Remind).
+          (first) => {
+            const packetId = packetOf.get(first.id);
+            return packetId ? { kind: 'REQUEST_PACKET', id: packetId } : null;
+          },
         );
       }
       if (can.INTAKE_FORMS) {
@@ -407,7 +417,12 @@ export class PortalManagementService {
           title: i.form.title,
           due: i.dueOn,
         });
-        add('INTAKE_INCOMPLETE', intakes.filter((i) => i.status !== 'SUBMITTED').map(row));
+        add(
+          'INTAKE_INCOMPLETE',
+          intakes.filter((i) => i.status !== 'SUBMITTED').map(row),
+          {},
+          (first) => ({ kind: 'INTAKE', id: first.id }),
+        );
         // Waiting on the firm: never overdue for the client.
         add('INTAKE_SUBMITTED', intakes.filter((i) => i.status === 'SUBMITTED').map(row), {
           dueOn: null,
@@ -430,6 +445,8 @@ export class PortalManagementService {
         add(
           'SIGNATURE_REQUIRED',
           envelopes.map((e) => ({ id: e.id, title: e.title, due: e.expiresAt })),
+          {},
+          (first) => ({ kind: 'SIGNATURE', id: first.id }),
         );
       }
       if (can.INVOICES_PAYMENTS) {

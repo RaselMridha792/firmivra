@@ -407,7 +407,7 @@ export function ActivityTab({ clientId }: { clientId: string }) {
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted">No portal activity matches.</p>
       ) : (
-        <ActivityRows items={shown} />
+        <ActivityRows items={shown} clientId={clientId} />
       )}
       {page.data?.nextCursor ? (
         <Button

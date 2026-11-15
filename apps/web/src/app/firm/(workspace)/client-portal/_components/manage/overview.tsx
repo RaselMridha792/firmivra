@@ -1,6 +1,11 @@
 'use client';
 
-import type { ClientPortalHeader, PendingClientAction, PortalModule } from '@firmivra/types';
+import type {
+  ClientPortalHeader,
+  PendingActionReminder,
+  PendingClientAction,
+  PortalModule,
+} from '@firmivra/types';
 import { PORTAL_MODULE_LABELS } from '@firmivra/types';
 import { Button, Card, Modal, Textarea, Toggle } from '@firmivra/ui';
 import type { Icon } from '@phosphor-icons/react';
@@ -32,7 +37,7 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NotesCard } from '../../../clients/[id]/messages/_components/notes-card';
-import { activityOf, dayText, timeText } from '../activity-labels';
+import { activityHref, activityOf, dayText, timeText } from '../activity-labels';
 import { headerKey } from '../keys';
 import { useClientHeader } from './client-shell';
 
@@ -110,6 +115,54 @@ const PENDING: Record<
   },
 };
 
+/** Each reminder through its own route (the route checks who may send it). */
+async function remind(r: PendingActionReminder): Promise<void> {
+  if (r.kind === 'REQUEST_PACKET') await api.documentLibrary.remindRequest(r.id);
+  else if (r.kind === 'INTAKE') await api.intakeForms.remind(r.id);
+  else await api.esign.remind(r.id);
+}
+
+/**
+ * Instructions 17 (Overdue Item): Send Reminder for the row's first overdue item, a document
+ * request, an intake form or a signature request; the client gets that item's usual reminder.
+ */
+function SendReminder({
+  clientId,
+  reminder,
+  title,
+}: {
+  clientId: string;
+  reminder: PendingActionReminder;
+  title: string;
+}) {
+  const send = useApiMutation(() => remind(reminder), {
+    invalidate: ['client-portal', 'pending', clientId],
+  });
+  return (
+    <span className="flex items-center gap-2 pb-3 @md:pb-0">
+      {send.isSuccess ? (
+        <span role="status" className="text-sm text-success">
+          Reminder sent.
+        </span>
+      ) : (
+        <Button
+          variant="outline"
+          aria-label={`Send Reminder: ${title}`}
+          disabled={send.isPending}
+          onClick={() => send.mutate()}
+        >
+          {send.isPending ? 'Sending…' : 'Send Reminder'}
+        </Button>
+      )}
+      {send.error ? (
+        <span role="alert" className="text-sm text-danger">
+          {errorMessage(send.error)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /** What waits on the client (instructions 17): each row opens the canonical record. */
 export function PendingActionsCard({ clientId }: { clientId: string }) {
   const pending = useApiQuery(['client-portal', 'pending', clientId], () =>
@@ -142,10 +195,10 @@ export function PendingActionsCard({ clientId }: { clientId: string }) {
                 .filter(Boolean)
                 .join(' · ');
               return (
-                <li key={a.kind}>
+                <li key={a.kind} className="flex flex-wrap items-center gap-x-3">
                   <Link
                     href={kind.href(a, clientId)}
-                    className="flex items-center gap-3 py-3 hover:bg-canvas"
+                    className="flex min-w-0 flex-1 items-center gap-3 py-3 hover:bg-canvas"
                     data-testid={`pending-${a.kind}`}
                   >
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-info-soft text-info">
@@ -162,6 +215,9 @@ export function PendingActionsCard({ clientId }: { clientId: string }) {
                     </span>
                     <CaretRight aria-hidden className="size-4 text-muted" />
                   </Link>
+                  {a.overdue && a.reminder ? (
+                    <SendReminder clientId={clientId} reminder={a.reminder} title={a.title} />
+                  ) : null}
                 </li>
               );
             })}
@@ -478,22 +534,26 @@ export function PortalActivityCard({ clientId, limit }: { clientId: string; limi
         empty="No portal activity recorded yet."
         isEmpty={(p) => p.items.length === 0}
       >
-        {(p) => <ActivityRows items={p.items} />}
+        {(p) => <ActivityRows items={p.items} clientId={clientId} />}
       </PageState>
     </Card>
   );
 }
 
+/** The activity, newest first; each row opens its record (instructions 24) when it has one. */
 export function ActivityRows({
   items,
+  clientId,
 }: {
   items: {
     id: string;
     at: string;
     type: string;
     actor: { kind: string; name: string | null };
+    entity: { type: string; id: string } | null;
     ip: string | null;
   }[];
+  clientId: string;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -510,15 +570,26 @@ export function ActivityRows({
           {items.map((e) => {
             const kind = activityOf(e.type);
             const Glyph = kind.icon;
+            const href = activityHref(e.entity, clientId);
             return (
-              <tr key={e.id} className="border-t border-divider">
+              <tr key={e.id} className="border-t border-divider" data-testid="activity-row">
                 <td className="py-2 pr-4 whitespace-nowrap text-text">
                   {dayText(e.at)} <span className="text-muted">{timeText(e.at)}</span>
                 </td>
                 <td className="py-2 pr-4">
-                  <span className="flex items-center gap-2 text-text">
-                    <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
-                  </span>
+                  {href ? (
+                    <Link
+                      href={href}
+                      className="flex items-center gap-2 text-link hover:underline"
+                      data-testid="activity-record"
+                    >
+                      <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
+                    </Link>
+                  ) : (
+                    <span className="flex items-center gap-2 text-text">
+                      <Glyph aria-hidden className="size-4 text-action" /> {kind.label}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 pr-4 text-muted">
                   {e.actor.name ?? (e.actor.kind === 'CLIENT' ? 'Client' : 'Firmivra')}
