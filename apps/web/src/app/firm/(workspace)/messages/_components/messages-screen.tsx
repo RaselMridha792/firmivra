@@ -1,11 +1,12 @@
 'use client';
 
-import type {
-  LeadMessageChannel,
-  LeadMessageThread,
-  LeadThreadContact,
-  MessageThread,
-  OutboundRecipientStatus,
+import {
+  filesOnlyBody,
+  type LeadMessageChannel,
+  type LeadMessageThread,
+  type LeadThreadContact,
+  type MessageThread,
+  type OutboundRecipientStatus,
 } from '@firmivra/types';
 import {
   Avatar,
@@ -605,11 +606,12 @@ function Conversation({
       .then(onChanged)
       .catch((e: unknown) => onNotice(errorMessage(e), 'error'));
   const send = async () => {
-    if (!body.trim()) return;
+    // M22: files may go without text (the message then says what was sent).
+    if (!body.trim() && files.length === 0) return;
     setBusy(true);
     try {
       await api.messages.send(thread.id, {
-        body: body.trim(),
+        ...(body.trim() ? { body: body.trim() } : {}),
         ...(files.length ? { documentIds: files.map((f) => f.documentId) } : {}),
         ...(choices.delivery ? { delivery: choices.delivery } : {}),
       });
@@ -680,11 +682,19 @@ function Conversation({
           const mine = m.sender.kind === 'STAFF';
           return (
             <li key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-              <p
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${mine ? 'bg-info-soft text-heading' : 'bg-canvas text-text'}`}
-              >
-                {m.body}
-              </p>
+              {/* M22: files sent with no text read as a system line. */}
+              {m.attachments.length > 0 &&
+              m.body === filesOnlyBody(m.attachments.map((f) => f.fileName)) ? (
+                <p className="text-xs text-muted italic" data-testid="files-only-line">
+                  {m.body}
+                </p>
+              ) : (
+                <p
+                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${mine ? 'bg-info-soft text-heading' : 'bg-canvas text-text'}`}
+                >
+                  {m.body}
+                </p>
+              )}
               {/* MSG-F12: the message's files, opened through Documents once checked. */}
               <MessageFiles
                 files={m.attachments}
@@ -751,7 +761,7 @@ function Conversation({
         <button
           type="submit"
           aria-label="Send message"
-          disabled={busy || !body.trim()}
+          disabled={busy || (!body.trim() && files.length === 0)}
           className="flex size-12 shrink-0 items-center justify-center rounded-control bg-gold text-on-action disabled:opacity-50"
         >
           <PaperPlaneRight aria-hidden weight="fill" className="size-5" />

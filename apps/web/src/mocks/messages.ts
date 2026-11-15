@@ -20,6 +20,7 @@ import {
   type ClientNotesClient,
   CreateInternalNoteRequest,
   CreateMessageThreadRequest,
+  filesOnlyBody,
   CreateMyMessageThreadRequest,
   InternalNote,
   InternalNoteId,
@@ -1363,7 +1364,13 @@ export function createMessagesMock(
           status: d.scanStatus === 'CLEAN' ? 'READY' : 'CHECKING',
         });
       }
-      const sent = addMessage(t, staff(me), b.body, files);
+      // As the API (M22): files with no text say what was sent.
+      const sent = addMessage(
+        t,
+        staff(me),
+        b.body ?? filesOnlyBody(files.map((f) => f.fileName)),
+        files,
+      );
       (s().clientReads ??= new Map()).set(sent.id, Date.now() + 10_000);
       return sent;
     },
