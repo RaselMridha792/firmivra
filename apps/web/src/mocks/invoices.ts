@@ -587,6 +587,15 @@ function toListItem(r: Row, day: string): InvoiceListItem {
     archivedAt: r.archivedAt ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    // I-N10 as the API: how money came in (the mock's Stripe payments are cards).
+    paymentMethods: [
+      ...new Set([
+        ...r.payments
+          .filter((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED')
+          .map(() => 'CARD' as const),
+        ...r.offline.filter((o) => !o.voidedAt).map((o) => o.method),
+      ]),
+    ],
   };
 }
 

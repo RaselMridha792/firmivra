@@ -105,3 +105,18 @@ test('I-P01/I-P02: Create Task and Schedule Follow-Up open with the invoice’s 
   await expect(page.locator('main')).toContainText('Jamie Sample', { timeout: 60_000 });
   await expect(page.locator('input[value="jamie.sample@example.test"]')).toBeVisible();
 });
+
+test('I-N10: the Payment Method filter lists the invoices paid that way (a voided payment does not count)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  const table = page.locator('main').getByRole('table');
+  const method = page.locator('main').getByLabel('Payment Method', { exact: true });
+  await method.selectOption({ label: 'Check' }, { timeout: 60_000 });
+  // INV-2026-0095 has a live check (and a voided cash payment).
+  await expect(table).toContainText('INV-2026-0095');
+  await expect(page).toHaveURL(/method=CHECK/);
+  await method.selectOption({ label: 'Cash' });
+  await expect(page.locator('main').getByRole('link', { name: 'INV-2026-0095' })).toHaveCount(0);
+});
