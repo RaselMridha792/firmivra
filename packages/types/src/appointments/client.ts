@@ -231,6 +231,14 @@ export function createMyAppointmentsClient(request: ApiRequest, firmSlug: string
         `${mine(id)}/reschedule`,
         post(parseInput(RescheduleMyAppointmentRequest, body)),
       ),
+    /**
+     * Review 2 (row 8): the client confirms an appointment the firm booked (`needsConfirmation`).
+     * Once confirmed, it is confirmed for the firm too, and later reminders stop asking. Again
+     * changes nothing; a cancelled or finished one is 409 APPOINTMENT_CLOSED, a past one 409
+     * CHANGE_WINDOW_CLOSED.
+     */
+    confirm: async (id: string): Promise<MyAppointment> =>
+      request(MyAppointment, `${mine(id)}/confirm`, post()),
     cancel: async (id: string, body: CancelMyAppointmentRequest = {}): Promise<MyAppointment> =>
       request(
         MyAppointment,

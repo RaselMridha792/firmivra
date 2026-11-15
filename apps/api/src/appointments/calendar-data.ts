@@ -92,6 +92,8 @@ export const appointmentSelect = {
   locationDetails: true,
   bookedByClient: true,
   rescheduleCount: true,
+  // Review 2 (row 8): whether the client still needs to confirm it.
+  confirmedAt: true,
   cancelledAt: true,
   cancelReason: true,
   createdAt: true,

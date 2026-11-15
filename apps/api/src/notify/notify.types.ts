@@ -262,6 +262,8 @@ export interface AppointmentData extends IgnoredFirmName {
   message?: string | null;
   /** Review 2 (B9): the client instructions, when the appointment shows them in email. */
   instructions?: string | null;
+  /** Review 2 (row 8): the firm booked it and asks the client to confirm it in the portal. */
+  confirmAsk?: boolean;
 }
 
 export type NotifyTemplate = keyof NotifyTemplates;
