@@ -4,7 +4,8 @@
 // the firm recorded by hand, not voided. Staff see only their clients' money; another firm none.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PaymentMethodsSummary } from '@firmivra/types';
+import request from 'supertest';
+import { DashboardSummary, PaymentMethodsSummary, PaymentPage } from '@firmivra/types';
 import { codeOf, expectOk, nyDay, startInvoiceApp } from './invoice-setup.js';
 
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
@@ -24,8 +25,19 @@ const record = (invoiceId: string, method: string, amountCents: number, extra: o
     ...(method === 'CHECK' ? { reference: '2201' } : {}),
     ...extra,
   });
-/** A Stripe card payment its webhook confirmed, paid `daysAgo` days ago, less a confirmed refund. */
-const stripePaid = (invoiceId: string, amountCents: number, daysAgo = 0, refundCents = 0) =>
+/**
+ * A Stripe card payment its webhook confirmed, paid `daysAgo` days ago, and a confirmed refund of
+ * `refundCents` confirmed `refundDaysAgo` days ago.
+ */
+const midday = (daysAgo: number) =>
+  daysAgo === 0 ? new Date() : new Date(`${nyDay(-daysAgo)}T17:00:00.000Z`);
+const stripePaid = (
+  invoiceId: string,
+  amountCents: number,
+  daysAgo = 0,
+  refundCents = 0,
+  refundDaysAgo = 0,
+) =>
   t.inScope(t.ids.firmA, async (tx) => {
     const p = await tx.payment.create({
       data: {
@@ -53,7 +65,7 @@ const stripePaid = (invoiceId: string, amountCents: number, daysAgo = 0, refundC
       // change and land on the day before near midnight, which the range test then misses.
       data: {
         status: 'SUCCEEDED',
-        paidAt: daysAgo === 0 ? new Date() : new Date(`${nyDay(-daysAgo)}T17:00:00.000Z`),
+        paidAt: midday(daysAgo),
       },
     });
     if (refundCents > 0) {
@@ -76,7 +88,7 @@ const stripePaid = (invoiceId: string, amountCents: number, daysAgo = 0, refundC
           processorRefundId: `re_${randomUUID().replace(/-/g, '')}`,
           status: 'SUCCEEDED',
           eventId: refunded.id,
-          refundedAt: new Date(),
+          refundedAt: midday(refundDaysAgo),
         },
       });
     }
@@ -146,5 +158,78 @@ describe('Payment Methods (IP-F20)', () => {
       }),
     );
     expect(audit).toBeGreaterThan(0);
+  });
+});
+
+describe('Dashboard Review 2: a refund counts on the day it is confirmed, in every total', () => {
+  it('the dashboard, All Payments and Payment Methods agree on the payment day, the refund day and both', async () => {
+    const tokenRes = await request(t.app.getHttpServer())
+      .post('/api/v1/dev/token')
+      .send({ email: t.people.ownerA.email })
+      .expect(200);
+    const token = (tokenRes.body as { token: string }).token;
+    const dashboard = async (from: string, to: string) => {
+      const res = await request(t.app.getHttpServer())
+        .get(
+          `/api/v1/business/dashboard/summary?revenuePeriod=CUSTOM&revenueFrom=${from}&revenueTo=${to}`,
+        )
+        .set('x-business-id', t.ids.firmA)
+        .set('authorization', `Bearer ${token}`);
+      return DashboardSummary.parse(expectOk(res).body).revenue;
+    };
+    const payments = async (from: string, to: string) =>
+      PaymentPage.parse(
+        expectOk(await t.firm('get', `/payments?from=${from}&to=${to}`, t.people.ownerA)).body,
+      );
+    const totals = async (from: string, to: string) => {
+      const [d, p, m] = await Promise.all([
+        dashboard(from, to),
+        payments(from, to),
+        methods(`?from=${from}&to=${to}`),
+      ]);
+      return { dashboard: d.totalCents, allPayments: p.receivedCents, methods: m.totalCents };
+    };
+
+    // $300 by card five days ago; $100 of it refunded, confirmed two days ago (day X).
+    const invoice = await t.draft(t.ids.one, { status: 'OPEN' });
+    await stripePaid(invoice.id, 30_000, 5, 10_000, 2);
+    const paidOn = nyDay(-5);
+    const refundOn = nyDay(-2);
+
+    // The payment's day keeps the whole payment: the refund is not on it.
+    expect(await totals(paidOn, paidOn)).toEqual({
+      dashboard: 30_000,
+      allPayments: 30_000,
+      methods: 30_000,
+    });
+    // Both days: the payment less the refund, everywhere.
+    expect(await totals(paidOn, refundOn)).toEqual({
+      dashboard: 20_000,
+      allPayments: 20_000,
+      methods: 20_000,
+    });
+    // Day X alone: the refund lowers its total. Payment Methods leaves a method at or below zero
+    // out, as Service Breakdown does.
+    expect(await totals(refundOn, refundOn)).toEqual({
+      dashboard: -10_000,
+      allPayments: -10_000,
+      methods: 0,
+    });
+    const dayX = await dashboard(refundOn, refundOn);
+    expect(dayX.buckets).toEqual([{ from: refundOn, to: refundOn, cents: -10_000 }]);
+    // All Payments lists the refund on its own day, as its own row.
+    const rows = (await payments(refundOn, refundOn)).items;
+    expect(rows).toEqual([
+      expect.objectContaining({
+        status: 'REFUNDED',
+        amountCents: -10_000,
+        receivedOn: refundOn,
+        invoice: expect.objectContaining({ id: invoice.id }),
+      }),
+    ]);
+    const onPaidDay = (await payments(paidOn, paidOn)).items;
+    expect(onPaidDay).toEqual([
+      expect.objectContaining({ status: 'RECEIVED', amountCents: 30_000, receivedOn: paidOn }),
+    ]);
   });
 });

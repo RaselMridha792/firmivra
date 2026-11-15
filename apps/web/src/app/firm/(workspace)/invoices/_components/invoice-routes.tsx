@@ -154,7 +154,7 @@ export function AllPaymentsScreen({
       <SubHeader
         icon={ListBullets}
         title="All Payments"
-        subtitle="Every payment received on your invoices: online and recorded."
+        subtitle="Every payment received on your invoices, online and recorded, and each refund on the day it was confirmed."
       >
         <Link href="/invoices/record-payment" className={outlined}>
           <Receipt aria-hidden weight="fill" className="size-5" /> Record Payment
@@ -210,7 +210,7 @@ export function AllPaymentsScreen({
             }}
           />
           <div className="flex flex-col justify-end text-sm text-muted" data-testid="received">
-            Received in the range
+            Received in the range, less refunds
             <span className="font-display text-2xl font-bold text-heading">
               {data ? money(data.receivedCents) : '—'}
             </span>

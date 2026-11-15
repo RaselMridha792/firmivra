@@ -10,6 +10,11 @@
 //   bounce), so a manual Send Reminder or a confirmation can do no harm.
 // Fixed ids, created once (a re-run adds nothing). Not run when the firm or an active Owner is
 // missing.
+// Rolling (Dashboard Review 2 A1/A4, R55, Nov 16; the lead's approval under Rasel's packages/db
+// delegation): once one of these SCHEDULED appointments has gone past, a re-run puts every one of
+// them that is still SCHEDULED back on the plan from the run day (all together, so none overlaps),
+// marked reminded again. A cancelled or completed one stays as QA left it. Only these fixed ids
+// move; no other row of Test Firm B, and nothing of another firm.
 import { runInScope, type createPrismaClient } from '../src/client.js';
 import { qaExtraId } from './seed-qa-extra.js';
 
@@ -40,7 +45,7 @@ const PLAN: [days: number, hourUtc: number, kind: 'VIDEO' | 'PHONE' | 'IN_PERSON
   [16, 14, 'IN_PERSON'],
 ];
 
-export type QaAppointmentsResult = 'seeded' | 'already' | 'missing' | 'no-owner';
+export type QaAppointmentsResult = 'seeded' | 'rolled' | 'already' | 'missing' | 'no-owner';
 
 export async function seedQaAppointments(
   owner: PrismaClient,
@@ -51,8 +56,45 @@ export async function seedQaAppointments(
   );
   if (!firm) return 'missing';
   const businessId = firm.id;
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  /** The plan's start for row `i` (0-based), counted from the run day. */
+  const startOf = (i: number) => {
+    const [days, hour] = PLAN[i]!;
+    return new Date(today + days * DAY + hour * HOUR);
+  };
   return runInScope(owner, { kind: 'business', businessId }, async (tx) => {
-    if (await tx.client.findUnique({ where: { id: id(0) } })) return 'already';
+    if (await tx.client.findUnique({ where: { id: id(0) } })) {
+      const ids = PLAN.map((_, i) => id(i + 1));
+      const scheduled = await tx.appointment.findMany({
+        where: { businessId, id: { in: ids }, status: 'SCHEDULED' },
+        select: { id: true, startsAt: true },
+      });
+      if (!scheduled.some((a) => a.startsAt.getTime() <= now.getTime())) return 'already';
+      // No double booking (a client's or a member's SCHEDULED visits may not overlap): park them
+      // apart, in 2000, before each takes its place, so no move lands on another not moved yet.
+      const parked = Date.UTC(2000, 0, 1);
+      for (const a of scheduled) {
+        const at = parked + ids.indexOf(a.id) * 2 * HOUR;
+        await tx.appointment.update({
+          where: { businessId_id: { businessId, id: a.id } },
+          data: { startsAt: new Date(at), endsAt: new Date(at + HOUR) },
+        });
+      }
+      for (const a of scheduled) {
+        const startsAt = startOf(ids.indexOf(a.id));
+        await tx.appointment.update({
+          where: { businessId_id: { businessId, id: a.id } },
+          data: { startsAt, endsAt: new Date(startsAt.getTime() + HOUR) },
+        });
+      }
+      // A move clears reminder_sent_at (the database's reschedule trigger): marked reminded again
+      // apart, so the reminder job still never mails them.
+      await tx.appointment.updateMany({
+        where: { businessId, id: { in: scheduled.map((a) => a.id) } },
+        data: { reminderSentAt: now },
+      });
+      return 'rolled';
+    }
     const staff = await tx.membership.findFirst({
       where: { businessId, role: 'OWNER', status: 'ACTIVE' },
       orderBy: { createdAt: 'asc' },
@@ -68,9 +110,8 @@ export async function seedQaAppointments(
         assignedUserId: staff.userId,
       },
     });
-    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    for (const [i, [days, hour, kind]] of PLAN.entries()) {
-      const startsAt = new Date(today + days * DAY + hour * HOUR);
+    for (const [i, [, , kind]] of PLAN.entries()) {
+      const startsAt = startOf(i);
       await tx.appointment.create({
         data: {
           id: id(i + 1),
