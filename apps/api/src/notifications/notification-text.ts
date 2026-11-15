@@ -201,6 +201,12 @@ const TEXT: Record<NotificationEvent, Writer> = {
     title: 'Automation notice',
     body: forClient(p, text(p, 'title') ?? 'A rule ran.'),
   }),
+  // Tasks T-D12: the task's title and when it is due (its time, when it has one).
+  'task.reminder': (p) => {
+    const at = dateTime(text(p, 'dueAt'), text(p, 'timeZone'));
+    const title = text(p, 'title') ?? 'A task';
+    return { title: 'Task reminder', body: at ? `${title}, due ${at}` : withDue(p, 'A task') };
+  },
   // Tax Planning Review 2 (Project Deadlines): the deadline's name and when it is due.
   'project-deadline.reminder': (p) => {
     const title = text(p, 'title') ?? 'A project deadline';

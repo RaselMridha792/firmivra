@@ -83,6 +83,14 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     timeZone: 'America/Chicago',
     link,
   },
+  'task.reminder': {
+    name: 'Fake Member',
+    title: 'Fake task',
+    dueOn: '2026-12-01',
+    dueAt: new Date('2026-12-01T19:30:00Z'),
+    timeZone: 'America/New_York',
+    link: 'https://app.example.test/tasks/00000000-0000-4000-8000-000000000000',
+  },
   'project-deadline.reminder': {
     name: 'Sam Staff',
     title: 'Finish the 2027 planning projections',

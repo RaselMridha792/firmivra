@@ -905,3 +905,111 @@ describe('project deadline reminders', () => {
     expect(await bell(people.ownerB, b, ids.firmB)).toEqual([]);
   });
 });
+
+describe('task reminders (Tasks T-D12)', () => {
+  const TIME = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
+  const t: Record<string, string> = {};
+  const r: Record<string, string> = {};
+  const at = (iso: string) => ({ ...only, now: new Date(iso) });
+  const fired = (id: string) =>
+    inFirm(ids.firm, (tx) =>
+      tx.taskReminder.findUnique({ where: { id }, select: { lastFiredFor: true } }),
+    ).then((x) => x?.lastFiredFor?.toISOString().slice(0, 10) ?? null);
+
+  beforeAll(async () => {
+    await inFirm(ids.firm, async (tx) => {
+      // The firm works in Chicago (UTC-6 in December).
+      await tx.businessSettings.upsert({
+        where: { businessId: ids.firm },
+        create: { businessId: ids.firm, timezone: 'America/Chicago' },
+        update: { timezone: 'America/Chicago' },
+      });
+      const task = (title: string, extra: object = {}) =>
+        tx.task
+          .create({
+            data: {
+              businessId: ids.firm,
+              clientId: ids.client,
+              title: `${title} ${run}`,
+              dueOn: new Date('2026-12-10T00:00:00Z'),
+              dueTime: TIME('14:30'),
+              allDay: false,
+              assignedUserId: people.staff.id,
+              createdByUserId: people.owner.id,
+              ...extra,
+            },
+            select: { id: true },
+          })
+          .then((x) => x.id);
+      t.open = await task('Fake open task');
+      t.done = await task('Fake done task', { status: 'DONE', completedAt: new Date() });
+      await tx.taskAssignee.create({
+        data: { businessId: ids.firm, taskId: t.open, userId: people.other.id },
+      });
+      const reminder = (taskId: string, data: object) =>
+        tx.taskReminder
+          .create({ data: { businessId: ids.firm, taskId, ...data } })
+          .then((x) => x.id);
+      // A day before at 9:00 (Chicago), with an email; and 90 minutes before the due time.
+      r.day = await reminder(t.open, {
+        daysBefore: 1,
+        timeOfDay: TIME('09:00'),
+        channels: ['EMAIL'],
+      });
+      r.custom = await reminder(t.open, { daysBefore: 0, minutesBefore: 90, unit: 'MINUTES' });
+      r.done = await reminder(t.done, { daysBefore: 1, timeOfDay: TIME('09:00') });
+    });
+  });
+
+  it("fires in the firm's time zone, once, to the assignees; never for a done task", async () => {
+    outbox.length = 0;
+    // 10:00 UTC is 4:00 in Chicago: 9:00 there has not come yet.
+    expect(await jobs.run('task-reminders', at('2026-12-09T10:00:00Z'))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    // 9:05 in Chicago (15:05 UTC): the day-before reminder goes, to both assignees.
+    expect(await jobs.run('task-reminders', at('2026-12-09T15:05:00Z'))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    for (const who of [people.staff, people.other]) {
+      const items = await bell(who, t.open);
+      expect(items.map((i) => i.type)).toEqual(['task.reminder']);
+    }
+    expect(await bell(people.owner, t.open)).toEqual([]);
+    expect(outbox.map((m) => [m.template, m.to]).sort()).toEqual(
+      [
+        ['task.reminder', people.other.email],
+        ['task.reminder', people.staff.email],
+      ].sort(),
+    );
+    expect(await fired(r.day!)).toBe('2026-12-10');
+    expect(await fired(r.done!)).toBeNull();
+    // Once: the next run sends nothing more.
+    expect(await jobs.run('task-reminders', at('2026-12-09T15:06:00Z'))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    // 90 minutes before 14:30 Chicago is 13:00 there (19:00 UTC), a bell item only.
+    outbox.length = 0;
+    expect(await jobs.run('task-reminders', at('2026-12-10T19:01:00Z'))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    expect(outbox).toEqual([]);
+    expect(await bell(people.staff, t.open)).toHaveLength(2);
+  });
+
+  it('a new due date re-arms the reminders', async () => {
+    await inFirm(ids.firm, (tx) =>
+      tx.task.update({ where: { id: t.open! }, data: { dueOn: new Date('2026-12-15T00:00:00Z') } }),
+    );
+    expect(await jobs.run('task-reminders', at('2026-12-14T15:05:00Z'))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    expect(await fired(r.day!)).toBe('2026-12-15');
+    expect(await bell(people.staff, t.open)).toHaveLength(3);
+  });
+});

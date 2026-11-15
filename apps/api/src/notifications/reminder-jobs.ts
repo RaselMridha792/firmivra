@@ -6,6 +6,14 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
+import { firmTimeZone } from '../appointments/calendar-data.js';
+import {
+  addDays,
+  minutesOf,
+  timeOfDayFromDb,
+  zonedDate,
+  zonedInstant,
+} from '../appointments/calendar.js';
 import { DATABASE } from '../database/database.module.js';
 import type { NotifyConfig } from '../notify/config.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
@@ -20,6 +28,7 @@ export const JOB_LOCK_KEYS = {
   'note-reminders': 0x5236_0002,
   'email-retries': 0x5236_0003,
   'project-deadline-reminders': 0x5236_0004,
+  'task-reminders': 0x5236_0005,
 } as const;
 export type ReminderJob = keyof typeof JOB_LOCK_KEYS;
 
@@ -38,6 +47,13 @@ export const EMAIL_RETRY_AFTER_MS = 5 * 60_000;
  * deadline passed (a reminder at the due time, or one held up by a stopped task); later, never.
  */
 export const PROJECT_DEADLINE_LATE_MS = 60 * 60_000;
+/**
+ * Tasks T-D12: a task reminder still goes out this long after its time (a run that was held up);
+ * later, never.
+ */
+export const TASK_REMINDER_LATE_MS = 60 * 60_000;
+/** A days rule with no time of its own fires at this time of day, in the firm's time zone. */
+export const TASK_REMINDER_DEFAULT_TIME = '09:00';
 /** The Notifier reaches at most this many chosen members per call. */
 const CHOSEN_PER_CALL = 20;
 /** A reminder whose notify() failed is left out of the runs this long. */
@@ -136,7 +152,9 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
                 ? await this.noteReminders(options)
                 : job === 'project-deadline-reminders'
                   ? await this.projectDeadlineReminders(options)
-                  : await this.emailRetries(options);
+                  : job === 'task-reminders'
+                    ? await this.taskReminders(options)
+                    : await this.emailRetries(options);
           if (sent > 0) this.logger.log(`${job}: ${sent} sent`);
           return { skipped: false, sent } as const;
         },
@@ -347,6 +365,125 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * Tasks T-D12: each task reminder whose time has come, in the firm's time zone, for a task still
+   * OPEN (not done, cancelled, a draft or archived), within TASK_REMINDER_LATE_MS of its time. A
+   * days rule fires `daysBefore` days before the due date at its time (or
+   * TASK_REMINDER_DEFAULT_TIME); a Custom rule `minutesBefore` before the due date and time
+   * (MINUTES and HOURS count back from that moment; DAYS is the same clock time that many days
+   * earlier). It reaches the task's assignee and additional assignees (or, with none, the member
+   * who made it), ACTIVE members only: a bell item when `inApp`, and an email copy through the
+   * outbox when its channels have EMAIL, as the Notifier's rules and each member's preferences
+   * allow; never a text. Once per due moment: the Notifier's `eventKey` names it, and
+   * `last_fired_for` keeps the due date it went out for, so a new due date (or a new due time,
+   * which clears it) re-arms the reminder.
+   */
+  private async taskReminders(options: JobRunOptions): Promise<number> {
+    const now = options.now ?? new Date();
+    const stop = Date.now() + BUDGET_MS;
+    const backingOff = new Set(this.backingOff('task-reminders', now));
+    let sent = 0;
+    for (const businessId of await this.firms(options)) {
+      if (Date.now() > stop) break;
+      const found = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+        const timeZone = await firmTimeZone(tx, businessId);
+        const today = zonedDate(timeZone, now.getTime());
+        // A reminder fires before its task is due, so only tasks due from yesterday on.
+        const rows = await tx.taskReminder.findMany({
+          where: {
+            businessId,
+            task: {
+              status: 'OPEN',
+              archivedAt: null,
+              dueOn: {
+                gte: new Date(`${addDays(today, -1)}T00:00:00Z`),
+                lte: new Date(`${addDays(today, 366)}T00:00:00Z`),
+              },
+            },
+          },
+          select: {
+            id: true,
+            daysBefore: true,
+            timeOfDay: true,
+            minutesBefore: true,
+            unit: true,
+            inApp: true,
+            channels: true,
+            lastFiredFor: true,
+            task: {
+              select: {
+                id: true,
+                dueOn: true,
+                dueTime: true,
+                allDay: true,
+                assignedUserId: true,
+                createdByUserId: true,
+                assignees: { select: { userId: true } },
+              },
+            },
+          },
+          orderBy: { id: 'asc' },
+          take: 2_000,
+        });
+        return { timeZone, rows };
+      });
+      const due = found.rows
+        .map((r) => {
+          const dueOn = r.task.dueOn!.toISOString().slice(0, 10);
+          // Once per due date: one that went out for this date waits for a new one.
+          if (r.lastFiredFor?.toISOString().slice(0, 10) === dueOn) return null;
+          const fireAt = taskReminderAt(found.timeZone, r, dueOn);
+          if (fireAt === null) return null;
+          if (fireAt > now.getTime() || now.getTime() - fireAt > TASK_REMINDER_LATE_MS) return null;
+          return { r, dueOn, fireAt };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null && !backingOff.has(x.r.id))
+        .sort((a, b) => a.fireAt - b.fireAt)
+        .slice(0, BATCH);
+      const db = this.database.forBusiness(businessId);
+      for (const { r, dueOn } of due) {
+        if (Date.now() > stop) break;
+        const t = r.task;
+        const assignees = [t.assignedUserId, ...t.assignees.map((a) => a.userId)].filter(
+          (u): u is string => !!u,
+        );
+        const to = [
+          ...new Set(assignees.length ? assignees : t.createdByUserId ? [t.createdByUserId] : []),
+        ];
+        // The due moment it is for: the date and time when the task has one.
+        const dueKey = t.dueTime && !t.allDay ? `${dueOn}T${timeOfDayFromDb(t.dueTime)}` : dueOn;
+        let failed = false;
+        for (let i = 0; i < to.length; i += CHOSEN_PER_CALL) {
+          const result = await this.notifier.notify({
+            businessId,
+            event: 'task.reminder',
+            recordId: t.id,
+            toUserIds: to.slice(i, i + CHOSEN_PER_CALL),
+            eventKey: `task.reminder:${r.id}:${dueKey}`,
+            channels: { inApp: r.inApp, email: r.channels.includes('EMAIL'), sms: false },
+          });
+          failed ||= result.failed === true;
+        }
+        if (failed) {
+          this.failedAt.set(`task-reminders:${r.id}`, now.getTime());
+          continue;
+        }
+        // Only for the date it went out for (an edit meanwhile keeps its own reminder).
+        const { count } = await db.taskReminder.updateMany({
+          where: {
+            businessId,
+            id: r.id,
+            lastFiredFor: r.lastFiredFor,
+            task: { dueOn: t.dueOn },
+          },
+          data: { lastFiredFor: t.dueOn },
+        });
+        sent += count;
+      }
+    }
+    return sent;
+  }
+
+  /**
    * The outbox (notification_deliveries): email copies that failed, or that a stopped task left
    * QUEUED, are tried again after EMAIL_RETRY_AFTER_MS, up to EMAIL_MAX_ATTEMPTS in all; then they
    * stay FAILED (with the error's name) for support. Fewest attempts first, so rows that keep
@@ -379,4 +516,33 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
     }
     return sent;
   }
+}
+
+/**
+ * Tasks T-D12: the instant a task reminder fires, in the firm's time zone; null when it cannot be
+ * told (a Custom rule on a task with no due time, which the API never keeps).
+ */
+export function taskReminderAt(
+  timeZone: string,
+  r: {
+    daysBefore: number;
+    timeOfDay: Date | null;
+    minutesBefore: number | null;
+    unit: 'MINUTES' | 'HOURS' | 'DAYS' | null;
+    task: { dueTime: Date | null; allDay: boolean };
+  },
+  dueOn: string,
+): number | null {
+  const dueMinutes =
+    r.task.dueTime && !r.task.allDay ? minutesOf(timeOfDayFromDb(r.task.dueTime)) : null;
+  if (r.minutesBefore === null) {
+    const at = r.timeOfDay ? timeOfDayFromDb(r.timeOfDay) : TASK_REMINDER_DEFAULT_TIME;
+    return zonedInstant(timeZone, addDays(dueOn, -r.daysBefore), minutesOf(at));
+  }
+  if (dueMinutes === null) return null;
+  if (r.unit === 'DAYS') {
+    // The same clock time that many days earlier.
+    return zonedInstant(timeZone, addDays(dueOn, -Math.round(r.minutesBefore / 1_440)), dueMinutes);
+  }
+  return zonedInstant(timeZone, dueOn, dueMinutes) - r.minutesBefore * 60_000;
 }

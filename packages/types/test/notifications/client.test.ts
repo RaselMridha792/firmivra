@@ -242,6 +242,9 @@ describe('notification links', () => {
     expect(notificationLink(target('automation_run'), portal)).toBeNull();
     // Tax Planning Review 2: a project deadline's reminder opens the member's deadlines.
     expect(notificationLink(target('project_deadline'), firm)).toBe('/tax-planning/deadlines');
+    // T-D12: a task's reminder opens the task; never the portal.
+    expect(notificationLink(target('task'), firm)).toBe(`/tasks/${id}`);
+    expect(notificationLink(target('task'), portal)).toBeNull();
     expect(notificationLink(target('project_deadline'), portal)).toBeNull();
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');

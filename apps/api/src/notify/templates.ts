@@ -486,6 +486,29 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ),
 
   // Tax Planning Review 2 (Project Deadlines): a member's reminder, never the description.
+  // Tasks T-D12: a task assigned to the member is coming due (its title and due date only).
+  'task.reminder': (d, b, o) => ({
+    channel: 'email',
+    subject: `Reminder: ${required(d, 'title')} is due soon`,
+    blocks: [
+      hello(d),
+      text(`This is a reminder of a task at ${b.name}.`),
+      {
+        kind: 'facts',
+        rows: [
+          ['Task', required(d, 'title')],
+          [
+            'Due',
+            d.dueAt
+              ? dateTime(d, 'dueAt', required(d, 'timeZone'))
+              : calendarDate(required(d, 'dueOn')),
+          ],
+        ],
+      },
+      button('Open the task', link(d, 'link', o)),
+    ],
+  }),
+
   'project-deadline.reminder': (d, b, o) => ({
     channel: 'email',
     subject: `Reminder: ${required(d, 'title')} is due soon`,

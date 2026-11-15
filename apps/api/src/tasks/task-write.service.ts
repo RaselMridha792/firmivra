@@ -438,6 +438,16 @@ export class TaskWriteService {
       }
       if (changes.reminders !== undefined) {
         await this.saveReminders(tx, businessId, id, shape.reminders);
+      } else if (
+        changes.dueOn !== undefined ||
+        changes.dueTime !== undefined ||
+        changes.allDay !== undefined
+      ) {
+        // T-D12: a new due moment re-arms its reminders (each fires once per due moment).
+        await tx.taskReminder.updateMany({
+          where: { businessId, taskId: id },
+          data: { lastFiredFor: null },
+        });
       }
       if (changes.status === 'DONE' && current.status !== 'DONE')
         await this.unblock(tx, businessId, id);
