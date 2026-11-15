@@ -17,6 +17,7 @@ import type {
 import type { z } from 'zod';
 import { timeOfDayFromDb, timeOfDayToDb } from '../appointments/calendar.js';
 import { AuditService } from '../audit/audit.service.js';
+import { likeEscape } from '../clients/clients.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import {
@@ -207,8 +208,13 @@ export class TaskSeriesService {
         ...(q.search
           ? {
               OR: [
-                { title: { contains: q.search, mode: 'insensitive' } },
-                { client: { displayName: { contains: q.search, mode: 'insensitive' } } },
+                // T-D03: % and _ are letters here, never wildcards.
+                { title: { contains: likeEscape(q.search), mode: 'insensitive' } },
+                {
+                  client: {
+                    displayName: { contains: likeEscape(q.search), mode: 'insensitive' },
+                  },
+                },
               ],
             }
           : {}),

@@ -12,6 +12,7 @@ import { zonedDate, zonedInstant } from '../appointments/calendar.js';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
+import { likeEscape } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { memberNames, notFound, sentFields, toDay } from '../workspaces/common.js';
 import {
@@ -63,9 +64,12 @@ export async function firmClock(tx: TxClient, businessId: string, at = Date.now(
   return { timeZone, today, nowMinutes };
 }
 
-/** Checklist progress of these tasks: steps done and steps in all, by task id. */
+/**
+ * Checklist progress of these tasks: steps done, steps in all, and required steps still open
+ * (T-C12), by task id.
+ */
 export async function checklistCounts(tx: TxClient, taskIds: string[]) {
-  const [all, done] = await Promise.all([
+  const [all, done, requiredOpen] = await Promise.all([
     tx.taskChecklistItem.groupBy({
       by: ['taskId'],
       where: { taskId: { in: taskIds } },
@@ -76,10 +80,16 @@ export async function checklistCounts(tx: TxClient, taskIds: string[]) {
       where: { taskId: { in: taskIds }, completedAt: { not: null } },
       _count: true,
     }),
+    tx.taskChecklistItem.groupBy({
+      by: ['taskId'],
+      where: { taskId: { in: taskIds }, required: true, completedAt: null },
+      _count: true,
+    }),
   ]);
   return {
     total: new Map(all.map((r) => [r.taskId, r._count])),
     done: new Map(done.map((r) => [r.taskId, r._count])),
+    requiredOpen: new Map(requiredOpen.map((r) => [r.taskId, r._count])),
   };
 }
 
@@ -184,13 +194,16 @@ export class TaskReadService {
       if (q.dueFrom) and.push({ dueOn: { gte: toDay(q.dueFrom) } });
       if (q.dueTo) and.push({ dueOn: { lte: toDay(q.dueTo) } });
       if (q.search) {
-        const has = { contains: q.search, mode: 'insensitive' } as const;
+        // T-D03: % and _ are letters here, never wildcards; Related To is searched too.
+        const has = { contains: likeEscape(q.search), mode: 'insensitive' } as const;
         and.push({
           OR: [
             { title: has },
             { client: { displayName: has } },
             { type: { name: has } },
             { service: { name: has } },
+            { engagement: { title: has } },
+            { relatedText: has },
           ],
         });
       }

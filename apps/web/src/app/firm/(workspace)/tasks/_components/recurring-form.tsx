@@ -912,7 +912,7 @@ function RecurringForm({
         </Button>
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            variant="secondary"
+            variant="outline"
             onClick={() => {
               setTplName(title);
               setTpl(true);
@@ -920,15 +920,11 @@ function RecurringForm({
           >
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
-          <Button
-            variant="secondary"
-            disabled={save.isPending}
-            onClick={() => submit(false)}
-            data-testid="series-save"
-          >
+          <Button disabled={save.isPending} onClick={() => submit(false)} data-testid="series-save">
             Save Recurring Task
           </Button>
           <Button
+            variant="outline"
             disabled={save.isPending}
             onClick={() => submit(true)}
             data-testid="series-save-another"

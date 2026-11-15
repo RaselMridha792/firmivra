@@ -210,6 +210,22 @@ export interface NotifyTemplates {
     link: string;
   };
 
+  // ----- Tasks (R60, Tasks T-D12) -----
+  /** To a member: a task assigned to them is coming due. */
+  'task.reminder': IgnoredFirmName & {
+    name: string;
+    /** The task's title: the firm's own words. */
+    title: string;
+    /** The due date (YYYY-MM-DD). */
+    dueOn: string;
+    /** The due date and time, when the task has a time. */
+    dueAt?: Date;
+    /** The firm's time zone (IANA). */
+    timeZone: string;
+    /** The task on the firm's app site. */
+    link: string;
+  };
+
   // ----- Tax Planning (R56, Tax Planning Review 2: Project Deadlines) -----
   /** To a member: a project deadline (their own or shared with them) is coming up. */
   'project-deadline.reminder': IgnoredFirmName & {
@@ -349,6 +365,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.cancelled': 'email',
   'appointment.waitlist-offer': 'email',
   'project-deadline.reminder': 'email',
+  'task.reminder': 'email',
   'invoice.sent': 'email',
   'invoice.reminder': 'email',
   'invoice.overdue': 'email',
@@ -407,6 +424,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.cancelled': 'firm',
   'appointment.waitlist-offer': 'firm',
   'project-deadline.reminder': 'firm',
+  'task.reminder': 'firm',
   'invoice.sent': 'firm',
   'invoice.reminder': 'firm',
   'invoice.overdue': 'firm',
@@ -501,6 +519,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.cancelled': 'APPOINTMENTS',
   'appointment.waitlist-offer': 'APPOINTMENTS',
   'project-deadline.reminder': 'SERVICES',
+  'task.reminder': 'SERVICES',
   'invoice.sent': 'BILLING',
   'invoice.reminder': 'BILLING',
   'invoice.overdue': 'BILLING',

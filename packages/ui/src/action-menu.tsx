@@ -13,6 +13,8 @@ export interface ActionMenuItem {
   submenu?: boolean;
   /** "Admin Only": a lock and this text, in red, at the end of the row. */
   restricted?: string;
+  /** Greys the choice out and says why under its label ("2 required checklist items are open"). */
+  disabled?: string;
 }
 export interface ActionMenuSection {
   /** "COMMUNICATION" or "Send & Collect". */
@@ -158,20 +160,26 @@ export function ActionMenu({
             </p>
           ) : null}
           {section.items.map(
-            ({ label: text, icon: Glyph, onSelect, danger, submenu, restricted }) => (
+            ({ label: text, icon: Glyph, onSelect, danger, submenu, restricted, disabled }) => (
               <button
                 key={text}
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
+                disabled={!!disabled}
+                aria-disabled={disabled ? true : undefined}
                 onClick={() => {
+                  if (disabled) return;
                   onSelect();
                   if (!submenu) close(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-left text-sm hover:bg-canvas focus-visible:bg-canvas ${danger ? 'text-danger' : 'text-text'}`}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-left text-sm hover:bg-canvas focus-visible:bg-canvas disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-transparent ${danger ? 'text-danger' : 'text-text'}`}
               >
                 {Glyph ? <Glyph aria-hidden weight="fill" className="size-4 shrink-0" /> : null}
-                <span className="flex-1">{text}</span>
+                <span className="flex flex-1 flex-col">
+                  {text}
+                  {disabled ? <span className="text-xs text-muted">{disabled}</span> : null}
+                </span>
                 {restricted ? (
                   <span className="flex items-center gap-1 text-xs font-medium text-danger">
                     <Lock aria-hidden weight="fill" className="size-3.5" />

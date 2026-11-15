@@ -522,6 +522,75 @@ describe('Convert Lead to Client (POST :id/convert-to-client)', () => {
   });
 });
 
+// Leads Review Two, row 6: a logged call, a sent message and the conversion each land on the lead's
+// own timeline with who did it and when.
+describe('Leads 6: the timeline names the author', () => {
+  it('a logged call, a sent email and the conversion each show on the lead with their author and time', async () => {
+    const lead = await newLead({ assignedUserId: people.staffA.id });
+    const other = await newLead();
+    const call1 = Activity.parse(
+      ok(
+        await call('post', `/${lead.id}/activity`, people.staffA, {
+          kind: 'CALL',
+          summary: 'Left a voicemail',
+        }),
+        201,
+      ),
+    );
+    expect(call1.by).toEqual({ userId: people.staffA.id, name: 'Fake staffA' });
+    outbox.length = 0;
+    expect(
+      ok(
+        await call('post', '/messages', people.ownerA, {
+          ids: [lead.id],
+          channel: 'EMAIL',
+          subject: 'Next steps',
+          body: 'Synthetic body',
+        }),
+      ),
+    ).toEqual({ changed: 1, skipped: 0 });
+    expect(outbox.map((m) => m.template)).toEqual(['lead.message-email']);
+    Converted.parse(
+      ok(
+        await call('post', `/${lead.id}/convert-to-client`, people.ownerA, {
+          idempotencyKey: randomUUID(),
+          accountType: 'INDIVIDUAL',
+          fullName: 'Pat Author',
+          email: lead.email,
+          phone: '+15550106006',
+          serviceIds: [ids.tax],
+          primaryStaffUserId: people.staffA.id,
+        }),
+      ),
+    );
+
+    const timeline = ActivityPage.parse(
+      ok(await call('get', `/${lead.id}/activity`, people.ownerA)),
+    ).items;
+    const byLabel = (label: string) => timeline.find((a) => a.label === label);
+    const owner = { userId: people.ownerA.id, name: 'Fake ownerA' };
+    expect(byLabel('Call: Left a voicemail')).toMatchObject({
+      kind: 'CALL',
+      by: { userId: people.staffA.id, name: 'Fake staffA' },
+    });
+    expect(byLabel('Email sent: Next steps')).toMatchObject({ kind: 'EMAIL_SENT', by: owner });
+    expect(byLabel('Converted to client')).toMatchObject({ kind: 'CONVERTED', by: owner });
+    // Each has its time, newest first: the conversion after the email after the call.
+    const order = ['Converted to client', 'Email sent: Next steps', 'Call: Left a voicemail'].map(
+      (label) => Date.parse(byLabel(label)!.at),
+    );
+    expect(order).toEqual([...order].sort((a, b) => b - a));
+    expect(order.every((t) => Date.now() - t < 5 * 60_000)).toBe(true);
+    // Only on this lead.
+    const others = ActivityPage.parse(
+      ok(await call('get', `/${other.id}/activity`, people.ownerA)),
+    ).items.map((a) => a.kind);
+    expect(others).not.toContain('CALL');
+    expect(others).not.toContain('EMAIL_SENT');
+    expect(others).not.toContain('CONVERTED');
+  });
+});
+
 describe('firm isolation', () => {
   it("firm B reads and changes none of firm A's leads through these routes", async () => {
     const lead = await newLead();

@@ -66,8 +66,9 @@ const columns: Column<LeadRow>[] = [
   {
     id: 'name',
     label: 'Name',
-    // Leads R2 6: wide enough to read, wrapping onto a second line rather than cut off; with the
-    // columns below, the whole table still fits 1440 px with the menu open (R1's audit).
+    // Leads R2 6: wide enough to read; with the columns below, the whole table still fits 1440 px
+    // with the menu open (R1's audit). R2 6b: a long name wraps onto as many lines as it needs,
+    // never cut off after two.
     className: 'w-34',
     cell: (lead) => {
       const name = fullName(lead.firstName, lead.lastName, lead.email);
@@ -78,7 +79,7 @@ const columns: Column<LeadRow>[] = [
           className="flex min-w-0 items-center gap-1 text-navigation hover:underline"
         >
           <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-          <span className="line-clamp-2 min-w-0 text-xs font-semibold break-words">{name}</span>
+          <span className="min-w-0 text-xs font-semibold break-words">{name}</span>
         </Link>
       );
     },
@@ -252,7 +253,7 @@ const archivedColumns: Column<LeadRow>[] = columns.map((column) =>
           return (
             <span className="flex min-w-0 items-center gap-1 text-navigation" title={name}>
               <Avatar name={name} src={lead.avatarUrl ?? undefined} size="md" />
-              <span className="line-clamp-2 min-w-0 text-xs font-semibold break-words">{name}</span>
+              <span className="min-w-0 text-xs font-semibold break-words">{name}</span>
             </span>
           );
         },
