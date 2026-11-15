@@ -63,6 +63,7 @@ Not built yet, assigned to R55:
 
 After Nov 17 (decided):
 
+- 14: text (SMS) campaigns. The toll-free number is not registered yet, so no real text can go out; R55 makes the readiness reason say so plainly.
 - 7: a telephony integration.
 - 17: communications, appointments and the campaign carried to the client on conversion.
 - 26: appointments for leads before conversion, with their activity on the lead.
