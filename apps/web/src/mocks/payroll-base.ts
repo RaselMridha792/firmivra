@@ -28,6 +28,8 @@ export type MockRole = 'OWNER' | 'ADMIN' | 'STAFF';
 export interface Options {
   role?: MockRole;
   empty?: boolean;
+  /** Review 2 (B01): a report's attached file by name, from the app's documents mock. */
+  documentName?: (id: string) => Promise<string>;
 }
 
 const DAY = 86_400_000;

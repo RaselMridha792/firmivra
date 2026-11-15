@@ -67,7 +67,7 @@ const providers: { code: string; name: string; category: IntegrationCategory; su
       code: 'website_forms',
       name: 'Website & Lead Forms',
       category: 'CRM_LEADS',
-      summary: 'Intake and consultation leads',
+      summary: 'Intake form links and website buttons',
     },
     {
       code: 'custom_api',

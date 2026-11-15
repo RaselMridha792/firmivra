@@ -496,7 +496,14 @@ export const api = {
    */
   payroll:
     dev && mocked('payroll')
-      ? createPayrollMock({ role: MOCK_ROLE, empty: mockedEmpty('payroll') })
+      ? createPayrollMock({
+          role: MOCK_ROLE,
+          empty: mockedEmpty('payroll'),
+          // Review 2 (B01): a report names the file uploaded through the documents mock.
+          ...(documentsMock
+            ? { documentName: async (id: string) => (await documentsMock.get(id)).fileName }
+            : {}),
+        })
       : createPayrollClient(request),
   /**
    * Compliance & Deadlines (R57): deadlines, calendars, recurrences, rules, logs, settings. Mock:

@@ -74,7 +74,7 @@ const catalog: { key: string; name: string; category: IntegrationCategory; summa
     key: 'website_forms',
     name: 'Website & Lead Forms',
     category: 'CRM_LEADS',
-    summary: 'Capture and sync leads from your website.',
+    summary: 'Intake form links and website buttons for your website.',
   },
   {
     key: 'custom_api',

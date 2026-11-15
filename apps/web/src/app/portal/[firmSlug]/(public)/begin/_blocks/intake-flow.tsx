@@ -11,6 +11,7 @@ import {
   type IntakeSignatureInput,
   type IntakeStep,
   type IntakeUpload,
+  ShareCampaign,
   shownIntakeKeys,
   StartBeginDraftRequest,
   UPLOAD_LIMITS,
@@ -339,6 +340,21 @@ function SignedInStart({ firmSlug, token }: { firmSlug: string; token: string })
   );
 }
 
+/**
+ * Leads Review Two, row 24: the campaign of the link the visitor came by (utm_source, utm_medium,
+ * utm_campaign), sent with the start so the lead keeps it. A value that is not plain text is left
+ * out rather than refusing the visitor.
+ */
+function campaignOf(): { utm?: ShareCampaign } {
+  const params = new URLSearchParams(window.location.search);
+  const utm: ShareCampaign = {};
+  for (const key of ['source', 'medium', 'campaign'] as const) {
+    const value = params.get(`utm_${key}`)?.trim();
+    if (value && ShareCampaign.shape[key].safeParse(value).success) utm[key] = value;
+  }
+  return Object.keys(utm).length ? { utm } : {};
+}
+
 function SharedForm({
   firmSlug,
   token,
@@ -372,7 +388,7 @@ function SharedForm({
             found={found}
             honeypot
             onStart={async (body) => {
-              const started = await client.startShare(token, body);
+              const started = await client.startShare(token, { ...body, ...campaignOf() });
               queryClient.setQueryData(draftKey(firmSlug, found.form), started);
             }}
           />
