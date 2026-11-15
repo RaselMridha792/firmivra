@@ -63,6 +63,8 @@ export const NotificationTargetKind = z.enum([
   'project_deadline',
   /** A task (T-D12): the firm site only, the task itself. */
   'task',
+  /** A recurring task series (T-D15): the firm site only, its overview. */
+  'task_series',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
 
@@ -163,6 +165,12 @@ export const NOTIFICATION_EVENTS = {
    * the outbox), to its assignees, ACTIVE members only. It opens the task.
    */
   'task.reminder': { category: 'SERVICES', kind: 'task', to: 'staff' },
+  /**
+   * Tasks Review Two T-D15: an occurrence of a recurring series could not be made after its
+   * retries (FAILED). Owners and Admins only (the series is the record, not the client's). It
+   * opens the series, where the occurrence shows why and can be skipped.
+   */
+  'task.series_failed': { category: 'SERVICES', kind: 'task_series', to: 'staff' },
 } as const satisfies Record<
   string,
   {

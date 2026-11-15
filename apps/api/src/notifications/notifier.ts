@@ -291,6 +291,12 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
       }
     );
   },
+  // Tasks T-D15: a recurring series. No client: it reaches Owners and Admins only, and the text
+  // names the series, never the client.
+  task_series: async (tx, businessId, id) => {
+    const s = await tx.taskSeries.findFirst({ where: { businessId, id }, select: { title: true } });
+    return s && { clientId: null, values: { title: short(s.title) } };
+  },
   // Tasks T-D12: a task still to do (OPEN, not archived). Who it reaches is the caller's choice
   // (its assignees), and the text names the task, never the client.
   task: async (tx, businessId, id) => {

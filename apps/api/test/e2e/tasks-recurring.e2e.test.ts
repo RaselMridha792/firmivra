@@ -912,6 +912,51 @@ describe('the generation job', () => {
   });
 });
 
+describe('a failed occurrence (Tasks Review Two T-D15)', () => {
+  it('tells every Owner and Admin once, after the fifth try fails, and opens the series', async () => {
+    const s = await mkSeries();
+    const occ = await inFirm('a', (tx) =>
+      tx.taskOccurrence.create({
+        data: {
+          businessId: firms.a,
+          seriesId: s.id,
+          scheduledOn: new Date('2030-01-01T00:00:00Z'),
+          dueOn: new Date('2030-01-01T00:00:00Z'),
+        },
+        select: { id: true },
+      }),
+    );
+    const fail = (
+      job as unknown as { fail: (b: string, o: string, e: unknown) => Promise<void> }
+    ).fail.bind(job);
+    const bells = () =>
+      inFirm('a', (tx) =>
+        tx.notification.findMany({
+          where: { businessId: firms.a, type: 'task.series_failed', entityId: s.id },
+          select: { recipientUserId: true, entityType: true },
+        }),
+      );
+    for (let i = 0; i < 4; i++) await fail(firms.a, occ!.id, new TypeError('boom'));
+    expect(await bells()).toEqual([]);
+    expect((await occurrences(s.id)).items.find((o) => o.id === occ!.id)).toMatchObject({
+      state: 'SCHEDULED',
+      attempts: 4,
+      failureCode: 'TypeError',
+    });
+    await fail(firms.a, occ!.id, new TypeError('boom'));
+    await fail(firms.a, occ!.id, new TypeError('boom')); // already FAILED: nothing more
+    const told = await bells();
+    expect(told.map((b) => b.recipientUserId).sort()).toEqual(
+      [people.ownerA.id, people.adminA.id].sort(),
+    );
+    expect(told.every((b) => b.entityType === 'task_series')).toBe(true);
+    expect((await occurrences(s.id, '&state=FAILED')).items[0]).toMatchObject({
+      id: occ!.id,
+      attempts: 5,
+    });
+  });
+});
+
 describe('editing and controlling a series', () => {
   it('FUTURE changes the definition, not the tasks made; ENTIRE also the open ones', async () => {
     const s = await mkSeries({
