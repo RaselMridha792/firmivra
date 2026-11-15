@@ -536,6 +536,44 @@ function FilterButton({
   );
 }
 
+/**
+ * M18 (Messaging Review 2): find words in one conversation. Only the messages that match stay
+ * (their text or a file's name), with how many; clearing the box shows them all again.
+ */
+function useConversationSearch<
+  T extends { body: string; attachments?: readonly { fileName: string }[] },
+>(items: readonly T[]) {
+  const [q, setQ] = useState('');
+  const term = q.trim().toLowerCase();
+  const shown = term
+    ? items.filter(
+        (m) =>
+          m.body.toLowerCase().includes(term) ||
+          (m.attachments ?? []).some((a) => a.fileName.toLowerCase().includes(term)),
+      )
+    : items;
+  const box = (
+    <div className="flex flex-col gap-1" data-testid="conversation-search">
+      <Input
+        label="Search this conversation"
+        hideLabel
+        type="search"
+        placeholder="Search this conversation…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {term ? (
+        <p className="text-xs text-muted" role="status" data-testid="conversation-search-count">
+          {shown.length === 0
+            ? `No message here has “${q.trim()}”.`
+            : `${shown.length} of ${items.length} ${items.length === 1 ? 'message' : 'messages'}`}
+        </p>
+      ) : null}
+    </div>
+  );
+  return { box, shown };
+}
+
 function Conversation({
   thread,
   onChanged,
@@ -559,6 +597,7 @@ function Conversation({
   const [busy, setBusy] = useState(false);
   const choices = useEmailChoices(thread.client.id);
   const d = detail.data;
+  const find = useConversationSearch(d?.messages ?? []);
   // Only a client's message can be marked unread for the firm.
   const fromClient = d?.messages.some((m) => m.direction === 'CLIENT_TO_FIRM') ?? false;
   const run = (call: () => Promise<unknown>) =>
@@ -635,8 +674,9 @@ function Conversation({
         </p>
       ) : null}
       {detail.isPending ? <p className={quiet}>Loading…</p> : null}
+      {find.box}
       <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
-        {(d?.messages ?? []).map((m) => {
+        {find.shown.map((m) => {
           const mine = m.sender.kind === 'STAFF';
           return (
             <li key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
@@ -742,6 +782,7 @@ function LeadConversation({
   const detail = useApiQuery([...KEY, 'lead-thread', thread.id], () =>
     api.messages.leads.get(thread.id),
   );
+  const leadFind = useConversationSearch(detail.data?.messages ?? []);
   const setChannel = onChannel;
   const [body, setBody] = useState('');
   // M26: a template or emoji goes in at the cursor; typed text is never replaced.
@@ -791,8 +832,9 @@ function LeadConversation({
         </p>
       ) : null}
       {detail.isPending ? <p className={quiet}>Loading…</p> : null}
+      {leadFind.box}
       <ul className="flex max-h-120 flex-col gap-3 overflow-auto" aria-label="Messages">
-        {(detail.data?.messages ?? []).map((m) => (
+        {leadFind.shown.map((m) => (
           <li key={m.id} className="flex flex-col items-end">
             <p className="max-w-[85%] rounded-xl bg-info-soft px-3 py-2 text-sm whitespace-pre-wrap text-heading">
               {m.body}
