@@ -684,7 +684,9 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     const firm = b.name;
     // Review 2 (Messaging): the text only when the message was sent with it; the documents only
     // as their number, behind the portal sign-in.
-    const body = field(d, 'body');
+    // Only an explicit `includesBody: true` (set when the message was sent with its text) shows
+    // it; a stray `body` alone never does.
+    const body = field(d, 'includesBody') === true ? field(d, 'body') : undefined;
     const documents = field(d, 'documents');
     const count = typeof documents === 'number' && documents > 0 ? documents : 0;
     return {

@@ -117,7 +117,7 @@ export class MessageNotices {
     // Review 2 (Messaging): the client's email carries the text only when this message was sent
     // with it (and the platform allows it), and the documents only as their number with the
     // sign-in link; never a file or its contents.
-    const extras: { body?: string; documents?: number } = {};
+    const extras: { includesBody?: true; body?: string; documents?: number } = {};
     if (m.toSide === 'client') {
       const message = await db.message.findFirst({
         where: { businessId: m.businessId, id: m.messageId },
@@ -128,7 +128,10 @@ export class MessageNotices {
           _count: { select: { attachments: true } },
         },
       });
-      if (message?.emailIncludesBody && this.bodyAllowed) extras.body = message.body;
+      if (message?.emailIncludesBody && this.bodyAllowed) {
+        extras.includesBody = true;
+        extras.body = message.body;
+      }
       if (message?.emailIncludesDocuments && message._count.attachments > 0) {
         extras.documents = message._count.attachments;
       }

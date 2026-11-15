@@ -100,6 +100,8 @@ export interface NotifyTemplates {
   'message.received': IgnoredFirmName & {
     name: string;
     link: string;
+    /** Both or neither: the message was sent with its text. */
+    includesBody?: true;
     body?: string;
     documents?: number;
   };
