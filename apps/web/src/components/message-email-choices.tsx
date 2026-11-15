@@ -106,13 +106,13 @@ function Fields({
       <legend className="px-1 text-xs font-semibold text-muted">Email to the client</legend>
       <p className="text-xs text-muted">The message always goes to their client portal.</p>
       <Checkbox
-        label="Email them that a new message is waiting"
+        label="Email them a notice with a link to the portal"
         checked={on}
         onChange={(e) => set({ ...value, emailNotice: e.target.checked })}
       />
       {preference.bodyAllowed ? (
         <Checkbox
-          label="Include the message text in the email"
+          label="Include the text in the email"
           checked={on && value.emailIncludesBody}
           disabled={!on}
           onChange={(e) => set({ ...value, emailIncludesBody: e.target.checked })}

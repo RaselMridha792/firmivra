@@ -49,7 +49,7 @@ function Recipient({ clientId }: { clientId: string }) {
         {record.isPending
           ? '…'
           : login
-            ? `By email to ${login.email}, as chosen below`
+            ? `An email to ${login.email}, as chosen below`
             : 'None: they have no active portal login yet, so they see it once they sign in'}
       </dd>
     </dl>
