@@ -4,6 +4,8 @@ import {
   INTAKE_ALERT_MINUTES,
   INTAKE_REMINDER_MINUTES,
   type IntakeRetentionYears,
+  retentionDateWords,
+  retentionYearsAfter,
   type IntakeSettings,
   type PortalInfo,
   UpdateIntakeSettingsRequest,
@@ -186,6 +188,16 @@ export function withCurrent(values: readonly number[], current: number | null): 
   return [...new Set(all)].sort((a, b) => a - b);
 }
 export const EXPIRATION_DAYS = [7, 14, 21, 30, 45, 60, 90];
+/**
+ * Review Two 14b, the Security panel's "Kept until" for a category with `years` in effect, as the
+ * server's RetentionGuard keeps to: from its job's completion, with today's date as the example.
+ */
+export function retentionKeptLine(years: number | null, today: Date = new Date()): string {
+  if (years === null) return 'No minimum: nothing holds these records.';
+  const example = retentionDateWords(retentionYearsAfter(today, years));
+  return `Kept until ${years} ${years === 1 ? 'year' : 'years'} after its job is completed (a job completed today: until ${example}). While its job isn’t completed, or if it has none, it is kept.`;
+}
+
 /**
  * Review Two 14b: Apply to all as saved under I12 (1 to 100 years then) reads as it is and is never
  * rewritten; a change is 1 to 30. While the draft still holds that saved value over 30, the screen
