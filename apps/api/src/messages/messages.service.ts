@@ -596,7 +596,7 @@ export class MessagesService {
       // Clients Review 2 (N8-05): Add to Client Timeline, one entry on the client's Activity (the
       // subject, who and when), never the message. It also counts as the client's Last Activity.
       if (body.addToTimeline) {
-        const by = made.messages[0]?.senderName;
+        const by = made.messages[0]?.sender.name;
         await tx.clientTimelineEntry.create({
           data: {
             businessId,

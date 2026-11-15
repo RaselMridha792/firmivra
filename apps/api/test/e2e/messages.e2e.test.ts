@@ -849,7 +849,8 @@ describe('Clients Review 2 (N8-05): Add to Client Timeline from the client’s M
       title: `On the timeline ${run}`,
       href: `/messages?thread=${t.id}`,
     });
-    expect(after[0]!.summary).toContain('Sent through the client portal');
+    // Who sent it, by name.
+    expect(after[0]!.summary).toMatch(/^Sent through the client portal by \S/);
     expect(JSON.stringify(after)).not.toContain(`Private body ${run}`);
     // The directory's Last Activity is at least as new as the entry.
     const list = expectOk(await firm('get', '/clients?limit=100', people.ownerA)).body as {
