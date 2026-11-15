@@ -45,3 +45,20 @@ test('I-P03: Record Payment starts with Send receipt ticked, and it can be untic
   await receipt.uncheck();
   await expect(receipt).not.toBeChecked();
 });
+
+test('I-N09: Invoice Templates opens the invoice templates, and Back returns to Invoices', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/invoices'));
+  await page.getByRole('link', { name: 'Invoice Templates' }).click({ timeout: 60_000 });
+  await expect(page).toHaveURL(/\/settings\/payments\?from=%2Finvoices#invoice-templates$/, {
+    timeout: 60_000,
+  });
+  await expect(page.getByRole('region', { name: 'Invoice templates' })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId('back-to-origin')).toHaveText('Back to Invoices & Payments');
+  await page.getByTestId('back-to-origin').click();
+  await expect(page).toHaveURL(/\/invoices$/, { timeout: 60_000 });
+});

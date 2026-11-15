@@ -1385,7 +1385,13 @@ function Side({ paymentsEnabled, loaded }: { paymentsEnabled?: boolean; loaded: 
   const links = [
     { href: '/invoices/new', label: 'Create Invoice', icon: FileText, change: true },
     { href: '/invoices/record-payment', label: 'Record Payment', icon: Receipt, change: true },
-    { href: '/templates', label: 'Invoice Templates', icon: Copy, change: false },
+    // I-N09: the invoice templates (Settings > Payments), with Back to this list.
+    {
+      href: '/settings/payments#invoice-templates',
+      label: 'Invoice Templates',
+      icon: Copy,
+      change: false,
+    },
     { href: '/services-pricing', label: 'Services & Pricing', icon: ListBullets, change: false },
     { href: '/reports', label: 'Payment Reports', icon: ChartBar, change: false },
     // IP-F17: the routes the review found missing.
