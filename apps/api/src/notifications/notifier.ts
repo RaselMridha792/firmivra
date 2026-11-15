@@ -245,9 +245,9 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
   invoice: async (tx, businessId, id) => {
     const r = await tx.invoice.findFirst({
       where: { businessId, id },
-      select: { clientId: true, number: true },
+      select: { clientId: true, number: true, dueOn: true },
     });
-    return r && { clientId: r.clientId, values: { number: short(r.number) } };
+    return r && { clientId: r.clientId, values: { number: short(r.number), dueOn: day(r.dueOn) } };
   },
   // A sign-up waiting: the firm's sign-ups page, no client record yet.
   client_account: async (tx, businessId, id) => {
@@ -349,6 +349,9 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'task.reminder',
   'invoice.sent',
   'payment.received',
+  // Invoices Review 2 (I-C02, I-N04): the reminders before the due date and the overdue notices.
+  'invoice.reminder',
+  'invoice.overdue',
   // Intake Forms Review Two 19b: a form sent by Email (the sender passes `email: false` otherwise).
   'intake.sent',
   // Its first and final reminders, the same way.
@@ -411,6 +414,18 @@ async function stillLive(
       a?.status === 'SCHEDULED' &&
       a.startsAt.getTime() > Date.now() &&
       (typeof payload.startsAt !== 'string' || a.startsAt.toISOString() === payload.startsAt)
+    );
+  }
+  // I-C02, I-N04: still open (not paid or canceled) and still due when the copy says.
+  if (event === 'invoice.reminder' || event === 'invoice.overdue') {
+    const i = await db.invoice.findFirst({
+      where: { businessId, id },
+      select: { status: true, dueOn: true },
+    });
+    return (
+      !!i &&
+      i.status === 'OPEN' &&
+      (typeof payload.dueOn !== 'string' || day(i.dueOn) === payload.dueOn)
     );
   }
   if (event === 'invoice.sent' || event === 'payment.received') {
@@ -1092,20 +1107,27 @@ export class Notifier {
                       }
                     : template === 'invoice.sent' || template === 'payment.received'
                       ? { name: recipient.name, invoiceNumber: str('number'), link }
-                      : {
-                          name: recipient.name,
-                          title: str('title'),
-                          startsAt: new Date(str('startsAt')),
-                          timeZone: str('timeZone'),
-                          link,
-                          // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
-                          ...(await this.database.withScope(
-                            { kind: 'business', businessId },
-                            (tx) => noticeWords(tx, businessId, target.id, template),
-                          )),
-                          // A1: only the appointment's own client confirms it.
-                          ...(recipient.attendee ? { confirmAsk: false } : {}),
-                        };
+                      : template === 'invoice.reminder' || template === 'invoice.overdue'
+                        ? {
+                            name: recipient.name,
+                            invoiceNumber: str('number'),
+                            dueOn: str('dueOn'),
+                            link,
+                          }
+                        : {
+                            name: recipient.name,
+                            title: str('title'),
+                            startsAt: new Date(str('startsAt')),
+                            timeZone: str('timeZone'),
+                            link,
+                            // Review 2 (B7, B9): read when the email is sent, never kept in the outbox.
+                            ...(await this.database.withScope(
+                              { kind: 'business', businessId },
+                              (tx) => noticeWords(tx, businessId, target.id, template),
+                            )),
+                            // A1: only the appointment's own client confirms it.
+                            ...(recipient.attendee ? { confirmAsk: false } : {}),
+                          };
       await this.sender.send({
         template,
         to: recipient.email!,
