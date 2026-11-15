@@ -142,6 +142,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     formTitle: 'Personal Tax Intake Form',
     link: 'https://app.example.test/intake-forms',
   },
+  'intake.received': { formTitle: 'Personal Tax Intake Form' },
   'intake.lead-link': {
     formTitle: 'Personal Tax Intake Form',
     link: 'https://portal.example.test/sample/form#token=synthetic-token',

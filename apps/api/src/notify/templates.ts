@@ -639,6 +639,22 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
+  'intake.received': (d, b) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} received your form`,
+      blocks: [
+        text('Hello,'),
+        text(`Thank you. ${firm} received ${required(d, 'formTitle')}.`),
+        text(
+          `${firm} will contact you if anything else is needed. This email has none of your answers.`,
+        ),
+        small('If you did not send this form, you can ignore this email.'),
+      ],
+    };
+  },
+
   'intake.lead-link': (d, b, o) => {
     const firm = b.name;
     const subject = field(d, 'subject');
