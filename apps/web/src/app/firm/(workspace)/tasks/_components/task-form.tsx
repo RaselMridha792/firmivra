@@ -1116,12 +1116,12 @@ function Form({
           >
             Cancel
           </Button>
-          <Button variant="secondary" onClick={() => setTpl(true)}>
+          <Button variant="outline" onClick={() => setTpl(true)}>
             <FloppyDisk aria-hidden weight="fill" className="size-4" /> Save as Template
           </Button>
           {editing ? null : (
             <Button
-              variant="secondary"
+              variant="outline"
               disabled={saveDraft.isPending || save.isPending || !!loadNote}
               onClick={keepDraft}
               data-testid="task-save-draft"
@@ -1131,7 +1131,7 @@ function Form({
           )}
           {draft ? (
             <Button
-              variant="secondary"
+              variant="danger"
               onClick={() => setDiscarding(true)}
               data-testid="task-discard-draft"
             >
@@ -1141,7 +1141,6 @@ function Form({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            variant="secondary"
             disabled={save.isPending || !!loadNote}
             onClick={() => submit(false)}
             data-testid="task-save"
@@ -1150,6 +1149,7 @@ function Form({
           </Button>
           {editing || draft ? null : (
             <Button
+              variant="outline"
               disabled={save.isPending}
               onClick={() => submit(true)}
               data-testid="task-save-another"
