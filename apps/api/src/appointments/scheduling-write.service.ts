@@ -18,7 +18,12 @@ import {
   loadConflictData,
   toResult,
 } from './scheduling-conflicts.js';
-import { findSchedulingRow, type SchedulingRow, toRecord } from './scheduling-data.js';
+import {
+  attendeeClients,
+  findSchedulingRow,
+  type SchedulingRow,
+  toRecord,
+} from './scheduling-data.js';
 import { errors, isSlotConflict, isUniqueViolation } from './errors.js';
 import {
   detailsAfterStaffChange,
@@ -197,6 +202,14 @@ export class SchedulingWriteService {
       if (!gone.count) throw errors.notFound();
     }
     const client = await this.clientFor(tx, businessId, actor, body.contact);
+    // A1: the other clients who attend (a group appointment), each booked as the client is.
+    const attendees = await attendeeClients(
+      tx,
+      businessId,
+      actor,
+      client.id,
+      body.attendeeClientIds,
+    );
     if (body.staffUserIds.length > 1) {
       throw errors.unsupported('An appointment has one staff member for now. Choose one.');
     }
@@ -239,7 +252,7 @@ export class SchedulingWriteService {
     const place = await this.placeFor(tx, businessId, kind, body.officeId, body.roomId);
     const reminders = await this.remindersFor(tx, businessId, body.reminders, client.phone);
 
-    await lockForBooking(tx, businessId, staff.userId, client.id);
+    await lockForBooking(tx, businessId, staff.userId, client.id, attendees);
     const location = await this.locationOf(tx, businessId, kind, staff.userId, {
       details: body.details,
       videoUrl: body.videoUrl,
@@ -252,6 +265,7 @@ export class SchedulingWriteService {
         occurrences: expansion.occurrences,
         allDay: body.allDay,
         clientId: client.id,
+        attendeeClientIds: attendees,
         roomId: place.roomId,
         bufferBeforeMinutes: type.bufferBeforeMinutes,
         bufferAfterMinutes: type.bufferAfterMinutes,
@@ -372,6 +386,7 @@ export class SchedulingWriteService {
         });
       }
       await this.history.record(tx, 'BOOKED', row, { by: 'STAFF', from: null, to: placed(row) });
+      await this.addAttendees(tx, businessId, actor, row, attendees);
     }
     if (series) {
       await this.audit.logIn(
@@ -617,15 +632,40 @@ export class SchedulingWriteService {
         body.reminders !== undefined &&
         (await this.replaceReminders(tx, businessId, current, body.reminders));
       if (remindersChanged) fields.add('reminders');
+      // A1: the other attendees as the form names them now. Only the new ones are checked as the
+      // client is (one a Staff member does not see may stay on, as it was).
+      const before = current.attendees.map((a) => a.clientId.toLowerCase());
+      let attendees = before;
+      let added: string[] = [];
+      let removed: string[] = [];
+      if (body.attendeeClientIds !== undefined) {
+        const own = current.clientId.toLowerCase();
+        attendees = [...new Set(body.attendeeClientIds.map((c) => c.toLowerCase()))].filter(
+          (c) => c !== own,
+        );
+        added = await attendeeClients(
+          tx,
+          businessId,
+          actor,
+          current.clientId,
+          attendees.filter((c) => !before.includes(c)),
+        );
+        removed = before.filter((c) => !attendees.includes(c));
+        if (added.length > 0 || removed.length > 0) fields.add('attendees');
+      }
       // After the lookups above, so an id of another firm is 404 before a stale version is 409.
       if (body.version !== versionOf(current.updatedAt)) throw errors.saveConflict();
       if (fields.size === 0)
-        return { record: await this.recordIn(tx, businessId, actor, id), notify: false };
+        return {
+          record: await this.recordIn(tx, businessId, actor, id),
+          notify: [] as string[],
+          added: [] as string[],
+        };
 
       const moved = timeChanged || staffUserId !== current.staffUserId;
       const roomOrPlaceMoved = roomId !== current.roomId;
-      if (moved || roomOrPlaceMoved || kindChanged || fields.has('buffers')) {
-        await lockForBooking(tx, businessId, staffUserId, current.clientId);
+      if (moved || roomOrPlaceMoved || kindChanged || fields.has('buffers') || added.length > 0) {
+        await lockForBooking(tx, businessId, staffUserId, current.clientId, attendees);
         await this.checkConflicts(tx, businessId, actor, {
           staff: [staff],
           candidate: {
@@ -633,6 +673,7 @@ export class SchedulingWriteService {
             occurrences: [{ start, end }],
             allDay,
             clientId: current.clientId,
+            attendeeClientIds: attendees,
             roomId,
             bufferBeforeMinutes: buffers.before,
             bufferAfterMinutes: buffers.after,
@@ -653,6 +694,18 @@ export class SchedulingWriteService {
           to: placed(updated),
         });
       }
+      if (removed.length > 0) {
+        await tx.appointmentAttendee.deleteMany({
+          where: { businessId, appointmentId: current.id, clientId: { in: removed } },
+        });
+        await this.audit.logIn(
+          tx,
+          'appointment.attendees_removed',
+          { type: 'appointment', id: current.id },
+          { clientId: current.clientId, attendeeClientIds: removed },
+        );
+      }
+      await this.addAttendees(tx, businessId, actor, updated, added);
       await this.audit.logIn(
         tx,
         'appointment.details_updated',
@@ -661,10 +714,19 @@ export class SchedulingWriteService {
       );
       // The client hears about a new time, staff member, place or link; not about notes or colour.
       const notify = moved || fields.has('place') || fields.has('location') || fields.has('method');
-      return { record: await this.recordIn(tx, businessId, actor, id), notify };
+      // A1: a new attendee hears of the booking; the client and the others of the change.
+      const kept = [current.clientId, ...attendees.filter((c) => !added.includes(c))];
+      return {
+        record: await this.recordIn(tx, businessId, actor, id),
+        notify: notify ? kept : [],
+        added,
+      };
     });
-    if (outcome.notify) {
-      await this.notices.send('appointment.changed', businessId, id);
+    if (outcome.notify.length > 0) {
+      await this.notices.send('appointment.changed', businessId, id, { clientIds: outcome.notify });
+    }
+    if (outcome.added.length > 0) {
+      await this.notices.send('appointment.booked', businessId, id, { clientIds: outcome.added });
     }
     return outcome.record;
   }
@@ -998,6 +1060,31 @@ export class SchedulingWriteService {
     return true;
   }
 
+  /** A1: the other attendees of one appointment, added and audited (ids only). */
+  private async addAttendees(
+    tx: TxClient,
+    businessId: string,
+    actor: FirmActor,
+    appointment: { id: string; clientId: string },
+    clientIds: readonly string[],
+  ): Promise<void> {
+    if (clientIds.length === 0) return;
+    await tx.appointmentAttendee.createMany({
+      data: clientIds.map((clientId) => ({
+        businessId,
+        appointmentId: appointment.id,
+        clientId,
+        addedByUserId: actor.userId,
+      })),
+    });
+    await this.audit.logIn(
+      tx,
+      'appointment.attendees_added',
+      { type: 'appointment', id: appointment.id },
+      { clientId: appointment.clientId, attendeeClientIds: [...clientIds] },
+    );
+  }
+
   /**
    * The conflict check in the caller's transaction. Hard conflicts stop the change (409). Soft
    * ones (working hours, buffers) stop it unless an Owner or Admin gave a reason, which is
@@ -1018,6 +1105,7 @@ export class SchedulingWriteService {
       conflictSpan(input.candidate),
       input.candidate.clientId,
       input.candidate.roomId,
+      input.candidate.attendeeClientIds,
     );
     const { result, found } = toResult(data, input.candidate, actor);
     if (result.ok) return;

@@ -5,6 +5,7 @@ import {
   type AppointmentRecord,
   type AppointmentDraft,
   type MeetingMethod,
+  type NamedItem,
   type ReminderChannel,
   type ReminderUnit,
   ScheduleAppointmentRequest,
@@ -43,6 +44,7 @@ import { METHOD_LABELS, NOT_LOADED, SCHEDULING, STATUS_LOOKS } from './appointme
 import { TONE_DOTS, TONE_NAMES, colourTone } from './colour';
 import { remindersFromType } from './reminder-defaults';
 import { addedType } from './new-type';
+import { AttendeePicker } from './attendee-picker';
 import { StaffDayPanel } from './staff-day-panel';
 import { localParts, todayIn, toInstant } from './time';
 import { useUnsavedChanges } from '../../../../../lib/unsaved';
@@ -130,7 +132,8 @@ function readKept(): Form | null {
       window.sessionStorage.removeItem(keptKey());
       return null;
     }
-    return kept.form;
+    // A1: a form kept before Other Attendees has none.
+    return { ...kept.form, attendees: kept.form.attendees ?? [] };
   } catch {
     // Storage unavailable or unreadable: start from the form as it is.
     return null;
@@ -167,6 +170,8 @@ const pick = (r: { amount: number; unit: ReminderUnit }) => ({ amount: r.amount,
 interface Form {
   contact: AppointmentContact | null;
   newContact: boolean;
+  /** Appointments A1: the firm's other clients in a group appointment. */
+  attendees: NamedItem[];
   name: string;
   email: string;
   phone: string;
@@ -211,6 +216,7 @@ function blank(o: SchedulingOptions, at?: { date: string; time: string }): Form 
   return {
     contact: null,
     newContact: false,
+    attendees: [],
     name: '',
     email: '',
     phone: '',
@@ -257,6 +263,7 @@ function fromRecord(r: AppointmentRecord, o: SchedulingOptions): Form {
   return {
     ...base,
     contact: r.contact,
+    attendees: r.attendees,
     typeId: r.type?.id ?? '',
     serviceId: r.service?.id ?? '',
     date: start.date,
@@ -763,7 +770,10 @@ function FormBody({
   const [start] = useState<Form>(() => {
     if (record) return fromRecord(record, o);
     const base = prefill ? prefilled(o, blank(o, at), prefill) : blank(o, at);
-    return savedDraft ? fromDraft(savedDraft.data, base) : base;
+    // A1: a draft names its attendees by id; the API gives their names back.
+    return savedDraft
+      ? { ...fromDraft(savedDraft.data, base), attendees: savedDraft.attendees }
+      : base;
   });
   // Review 2 (B2): the unsaved form outlives leaving the page (Edit My Availability, Back): it is
   // kept for this exact address and given back on return, until it is saved, cancelled or
@@ -983,6 +993,8 @@ function FormBody({
       ? { related: { taxReturnId: linkedReturn || null } }
       : {}),
     contact: contactInput(),
+    // A1: the other attendees as the form names them (an edit replaces them).
+    attendeeClientIds: form.newContact ? [] : form.attendees.map((a) => a.id),
     typeId: form.typeId,
     serviceId: form.serviceId || null,
     startsAt,
@@ -1345,6 +1357,13 @@ function FormBody({
             </div>
           )}
           {errors.contact ? <p className="text-xs text-danger">{errors.contact}</p> : null}
+          {!form.newContact ? (
+            <AttendeePicker
+              clientId={linkClientId}
+              value={form.attendees}
+              onChange={(next) => set('attendees', next)}
+            />
+          ) : null}
           {saveClient.error ? (
             <p role="alert" className="text-xs text-danger" data-testid="save-client-error">
               {errorMessage(saveClient.error, {

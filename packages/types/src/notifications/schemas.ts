@@ -96,6 +96,10 @@ export const NOTIFICATION_EVENTS = {
   'document.uploaded': { category: 'DOCUMENTS', kind: 'document', to: 'staff' },
   // ----- Intake (R10) -----
   'intake.sent': { category: 'INTAKE', kind: 'intake', to: 'client' },
+  /** Intake Forms Review Two: the form's first or final reminder (with its email for an Email form). */
+  'intake.reminder': { category: 'INTAKE', kind: 'intake', to: 'client' },
+  /** The expiration alert: the form expires soon (to its assigned member, else Owners and Admins). */
+  'intake.expiring': { category: 'INTAKE', kind: 'intake', to: 'staff' },
   'intake.submitted': { category: 'INTAKE', kind: 'intake', to: 'staff' },
   // ----- Services and tax returns (R10, R12) -----
   'engagement.status-changed': { category: 'SERVICES', kind: 'engagement', to: 'both' },

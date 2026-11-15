@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import {
   MESSAGE_SETTINGS_DEFAULTS,
@@ -10,6 +16,8 @@ import type { z } from 'zod';
 import { firmTimeZone } from '../appointments/calendar-data.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import type { NotifyConfig } from '../notify/config.js';
 import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 
@@ -35,6 +43,9 @@ const select = {
   quietHoursEnd: true,
   bulkConfirmThreshold: true,
   bulkRequiresManager: true,
+  clientEmailNotice: true,
+  clientEmailIncludesBody: true,
+  clientEmailIncludesDocuments: true,
   updatedAt: true,
   defaultAssignee: { select: { userId: true, user: { select: { name: true } } } },
   updatedBy: { select: { userId: true, user: { select: { name: true } } } },
@@ -69,6 +80,9 @@ const FIELDS = [
   'quietHoursEnd',
   'bulkConfirmThreshold',
   'bulkRequiresManager',
+  'clientEmailNotice',
+  'clientEmailIncludesBody',
+  'clientEmailIncludesDocuments',
 ] as const;
 
 /**
@@ -81,6 +95,7 @@ export class MessageSettingsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(NOTIFY_CONFIG) private readonly notify: NotifyConfig,
+    @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
   ) {}
 
@@ -114,6 +129,11 @@ export class MessageSettingsService {
       quietHoursEnd: hhmm(row?.quietHoursEnd ?? null),
       bulkConfirmThreshold: row?.bulkConfirmThreshold ?? d.bulkConfirmThreshold,
       bulkRequiresManager: row?.bulkRequiresManager ?? d.bulkRequiresManager,
+      clientEmailNotice: row?.clientEmailNotice ?? d.clientEmailNotice,
+      clientEmailIncludesBody: row?.clientEmailIncludesBody ?? d.clientEmailIncludesBody,
+      clientEmailIncludesDocuments:
+        row?.clientEmailIncludesDocuments ?? d.clientEmailIncludesDocuments,
+      clientEmailBodyAllowed: this.env.MESSAGE_EMAIL_BODY === 'on',
       timezone,
       updatedAt: row?.updatedAt.toISOString() ?? null,
       updatedBy: member(row?.updatedBy ?? null),
@@ -131,6 +151,7 @@ export class MessageSettingsService {
 
   async update(businessId: string, userId: string, body: Body): Promise<MessageSettings> {
     const { version, ...change } = body;
+    const d = MESSAGE_SETTINGS_DEFAULTS;
     const touched = FIELDS.filter((f) => change[f] !== undefined);
     const result = await this.inFirm(businessId, async (tx) => {
       // One save at a time per firm, the first one included (no row to lock yet).
@@ -144,13 +165,27 @@ export class MessageSettingsService {
       }
       const current = await tx.messageSettings.findUnique({
         where: { businessId },
-        select: { updatedAt: true },
+        select: { updatedAt: true, clientEmailNotice: true },
       });
       if (version !== undefined && (current?.updatedAt.toISOString() ?? null) !== version) {
         throw new ConflictException({
           code: 'STALE_VERSION',
           message: 'Someone saved these settings since you opened them. Reload to see them.',
         });
+      }
+      // Review 2 (Messaging): the email's text and documents go only in an email that is sent.
+      // Turning the email off turns them off; turning one on while it is off is refused.
+      const notice = change.clientEmailNotice ?? current?.clientEmailNotice ?? d.clientEmailNotice;
+      if (!notice) {
+        if (change.clientEmailIncludesBody || change.clientEmailIncludesDocuments) {
+          throw new BadRequestException({
+            code: 'VALIDATION_FAILED',
+            message: 'The message text and documents go only in an email that is sent',
+            path: ['clientEmailNotice'],
+          });
+        }
+        change.clientEmailIncludesBody = false;
+        change.clientEmailIncludesDocuments = false;
       }
       const data = {
         ...change,

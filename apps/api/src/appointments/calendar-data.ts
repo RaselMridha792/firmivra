@@ -103,6 +103,8 @@ export const appointmentSelect = {
   client: { select: { displayName: true, assignedUserId: true } },
   staff: { select: memberSelect },
   type: { select: { id: true, name: true } },
+  // A1: the other clients who attend (ids only: a new time must suit them too).
+  attendees: { select: { clientId: true } },
 } satisfies Prisma.AppointmentSelect;
 
 export type AppointmentRow = Prisma.AppointmentGetPayload<{ select: typeof appointmentSelect }>;
@@ -182,8 +184,18 @@ export async function workingHours(
 
 /** What makes the firm's members busy in a span of time. */
 export interface BusyTimes {
-  /** Live appointments: every status but CANCELLED, as the exclusion constraints count them. */
-  appointments: { id: string; staffUserId: string; clientId: string; start: number; end: number }[];
+  /**
+   * Live appointments: every status but CANCELLED, as the exclusion constraints count them.
+   * `clientIds`: its client and (A1) the other clients who attend it.
+   */
+  appointments: {
+    id: string;
+    staffUserId: string;
+    clientId: string;
+    clientIds: string[];
+    start: number;
+    end: number;
+  }[];
   /** Blocked time; userId null blocks the whole firm. */
   blocks: { userId: string | null; start: number; end: number }[];
 }
@@ -197,7 +209,14 @@ export async function busyTimes(
   // One after the other: a transaction runs its queries on one connection.
   const appointments = await tx.appointment.findMany({
     where: { businessId, status: { not: 'CANCELLED' }, ...touching },
-    select: { id: true, staffUserId: true, clientId: true, startsAt: true, endsAt: true },
+    select: {
+      id: true,
+      staffUserId: true,
+      clientId: true,
+      startsAt: true,
+      endsAt: true,
+      attendees: { select: { clientId: true } },
+    },
   });
   const blocks = await tx.blockedTime.findMany({
     where: { businessId, ...touching },
@@ -208,6 +227,7 @@ export async function busyTimes(
       id: a.id,
       staffUserId: a.staffUserId,
       clientId: a.clientId,
+      clientIds: [a.clientId, ...a.attendees.map((x) => x.clientId)].map((id) => id.toLowerCase()),
       start: a.startsAt.getTime(),
       end: a.endsAt.getTime(),
     })),
@@ -228,10 +248,44 @@ export function memberBusy(busy: BusyTimes, userId: string, exceptId?: string): 
   ];
 }
 
-/** One client's live appointments (but `exceptId`): a client is in one meeting at a time. */
+/**
+ * One client's live appointments (but `exceptId`), their own and (A1) those they attend: a client
+ * is in one meeting at a time.
+ */
 export function clientBusy(busy: BusyTimes, clientId: string, exceptId?: string): Interval[] {
   const [client, except] = [clientId.toLowerCase(), exceptId?.toLowerCase()];
-  return busy.appointments.filter((a) => a.clientId === client && a.id !== except);
+  return busy.appointments.filter((a) => a.clientIds.includes(client) && a.id !== except);
+}
+
+/**
+ * A1: whether one of `clientIds` has or attends another live appointment (but `exceptId`) over
+ * `span`. The database refuses a client's own double booking but cannot see attending, so the
+ * paths without the full conflict check (Reschedule, the R12 booking) ask this and answer 409.
+ */
+export async function clientsBusy(
+  tx: TxClient,
+  businessId: string,
+  clientIds: readonly string[],
+  span: Interval,
+  exceptId?: string,
+): Promise<boolean> {
+  if (clientIds.length === 0) return false;
+  const ids = [...clientIds];
+  const hit = await tx.appointment.findFirst({
+    where: {
+      businessId,
+      status: { not: 'CANCELLED' },
+      startsAt: { lt: new Date(span.end) },
+      endsAt: { gt: new Date(span.start) },
+      ...(exceptId ? { id: { not: exceptId } } : {}),
+      OR: [
+        { clientId: { in: ids } },
+        { attendees: { some: { businessId, clientId: { in: ids } } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return hit !== null;
 }
 
 /** From the firm-local start of `from` to the end of `to` (both YYYY-MM-DD, included). */

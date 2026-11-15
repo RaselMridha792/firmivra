@@ -451,6 +451,8 @@ export const AssignedFormEvent = z.object({
     'ASSIGNED',
     'EXTENDED',
     'ARCHIVED',
+    // The schedule job set it Expired at its expiration.
+    'EXPIRED',
   ]),
   label: z.string(),
   by: z.string().nullable(),

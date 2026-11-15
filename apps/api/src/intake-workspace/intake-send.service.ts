@@ -357,6 +357,7 @@ export class IntakeSendService {
       );
       // A lead's secure link: the token for the email only, its hash kept on the intake.
       const link = to.leadId ? newLeadLink(dates.expiresAt) : null;
+      const reminders = body.reminders?.enabled ?? settings?.remindersEnabled ?? true;
       const data = {
         ...dates,
         ...(link?.data ?? {}),
@@ -364,7 +365,17 @@ export class IntakeSendService {
         deliveryChannel: body.channel,
         messageSubject: body.subject,
         messageBody: body.message,
-        remindersEnabled: body.reminders?.enabled ?? settings?.remindersEnabled ?? true,
+        remindersEnabled: reminders,
+        // The schedule, fixed now (r1_intake_schedule): later settings never move this form. The
+        // first counts from sending; the final and the staff alert count back from its expiry.
+        reminderFirstMinutes: reminders ? (settings?.firstReminderMinutes ?? 4320) : null,
+        reminderFinalMinutes:
+          reminders && dates.expiresAt ? (settings?.finalReminderMinutes ?? 10080) : null,
+        expiryAlertMinutes: dates.expiresAt
+          ? settings
+            ? settings.expiryAlertMinutes
+            : 1440
+          : null,
         allowSaveResume: body.allowSaveAndContinue,
         ...(body.appointmentId ? { appointmentId: body.appointmentId } : {}),
       };
@@ -487,22 +498,24 @@ export class IntakeSendService {
   async deliver(
     businessId: string,
     intakeId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     eventKey: string,
     byEmail: boolean,
+    /** The schedule job's reminders use their own words (`intake.reminder`). */
+    event: 'intake.sent' | 'intake.reminder' = 'intake.sent',
   ): Promise<DeliveryOutcome> {
     let written: { written: number; failed?: boolean };
     try {
       written = await this.notifier.notify({
         businessId,
-        event: 'intake.sent',
+        event,
         recordId: intakeId,
         actorUserId,
         eventKey,
         channels: { inApp: true, email: byEmail, sms: false },
       });
     } catch (error) {
-      this.logger.warn(`intake.sent for intake ${intakeId} not written (${errorName(error)})`);
+      this.logger.warn(`${event} for intake ${intakeId} not written (${errorName(error)})`);
       written = { written: 0, failed: true };
     }
     return this.outcomeOf(businessId, intakeId, eventKey, byEmail, written);
