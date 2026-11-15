@@ -521,6 +521,16 @@ function Segmented<T extends string>({
  * with the Staff Availability panel, the Appointment Summary and the Pro Tip. A conflict
  * (409 SCHEDULING_CONFLICT) shows what clashes; an Owner or Admin may book anyway with a reason.
  */
+/**
+ * Review 2 (TX-F06): the form inside a workspace's side panel, not its own page: no page header or
+ * drafts, no Save as Draft, nothing kept in the browser for the page's address; Schedule and
+ * Cancel call back instead of leaving.
+ */
+export interface EmbeddedSchedule {
+  onDone: (appointmentId: string) => void;
+  onCancel: () => void;
+}
+
 export function ScheduleForm({
   record,
   at,
@@ -528,7 +538,10 @@ export function ScheduleForm({
   cancelHref,
   taxPlanId,
   draftId,
+  embedded,
 }: {
+  /** Review 2 (TX-F06): shown in a workspace's side panel (see EmbeddedSchedule). */
+  embedded?: EmbeddedSchedule;
   record?: AppointmentRecord;
   /** Review 2 (Save as Draft): one of the member's drafts to reopen (`?draft=`). */
   draftId?: string;
@@ -557,7 +570,7 @@ export function ScheduleForm({
     [...SCHEDULING, 'prefill-engagement', prefill?.engagementId ?? ''],
     async () => (prefill?.engagementId ? api.engagements.get(prefill.engagementId) : null),
   );
-  const header = (
+  const header = embedded ? null : (
     <>
       <ScheduleHeader editing={Boolean(record)} />
       {!record && !draftId && options.data ? <MyDrafts types={options.data.types} /> : null}
@@ -596,6 +609,7 @@ export function ScheduleForm({
         taxPlanId={taxPlanId}
         linkReturnId={prefill?.taxReturnId}
         header={header}
+        embedded={embedded}
         draft={draft.data ?? undefined}
       />
     );
@@ -765,7 +779,9 @@ function FormBody({
   header,
   draft: savedDraft,
   linkReturnId,
+  embedded,
 }: {
+  embedded?: EmbeddedSchedule;
   options: SchedulingOptions;
   /** Review 2 (Save as Draft): the draft reopened here. */
   draft?: AppointmentDraft;
@@ -790,7 +806,8 @@ function FormBody({
   // Review 2 (B2): the unsaved form outlives leaving the page (Edit My Availability, Back): it is
   // kept for this exact address and given back on return, until it is saved, cancelled or
   // discarded. Browser storage only: nothing is sent, and a blocked storage keeps the old behaviour.
-  const [kept] = useState<Form | null>(readKept);
+  // In a side panel the page's address is the workspace's: nothing is kept for it.
+  const [kept] = useState<Form | null>(() => (embedded ? null : readKept()));
   const [form, setForm] = useState<Form>(() => kept ?? start);
   // Review 2 (TX-F06): Link to Tax Return, one of the client's returns that has its service.
   const linkClientId = form.contact?.kind === 'CLIENT' ? form.contact.id : null;
@@ -808,13 +825,13 @@ function FormBody({
   useUnsavedChanges(dirty);
   const [restored, setRestored] = useState(kept !== null);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || embedded) return;
     try {
       window.sessionStorage.setItem(keptKey(), JSON.stringify({ at: Date.now(), form }));
     } catch {
       // Storage full or blocked: the form stays as it is on the page.
     }
-  }, [form, dirty]);
+  }, [form, dirty, embedded]);
   const forgetKept = () => {
     try {
       window.sessionStorage.removeItem(keptKey());
@@ -1125,7 +1142,8 @@ function FormBody({
         {
           onSuccess: (r) => {
             forgetKept();
-            router.push(`/calendar/${r.id}`);
+            if (embedded) embedded.onDone(r.id);
+            else router.push(`/calendar/${r.id}`);
           },
         },
       );
@@ -1144,7 +1162,8 @@ function FormBody({
         {
           onSuccess: (r) => {
             forgetKept();
-            router.push(`/calendar/${r.id}`);
+            if (embedded) embedded.onDone(r.id);
+            else router.push(`/calendar/${r.id}`);
           },
         },
       );
@@ -2200,14 +2219,24 @@ function FormBody({
       </aside>
 
       <div className="flex flex-wrap items-center justify-end gap-3 min-[1440px]:col-span-2">
-        <Link
-          onClick={forgetKept}
-          href={record ? `/calendar/${record.id}` : (cancelHref ?? '/calendar')}
-          className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
-        >
-          Cancel
-        </Link>
-        {record ? null : (
+        {embedded ? (
+          <button
+            type="button"
+            onClick={embedded.onCancel}
+            className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
+          >
+            Cancel
+          </button>
+        ) : (
+          <Link
+            onClick={forgetKept}
+            href={record ? `/calendar/${record.id}` : (cancelHref ?? '/calendar')}
+            className="inline-flex min-h-11 items-center rounded-control border border-action px-6 text-sm font-semibold text-action hover:bg-folder-surface"
+          >
+            Cancel
+          </Link>
+        )}
+        {record || embedded ? null : (
           <Button variant="secondary" disabled={busy} onClick={saveDraft}>
             Save as Draft
           </Button>

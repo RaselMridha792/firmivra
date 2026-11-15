@@ -516,6 +516,32 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
+  // Appointments A3 (R55): an earlier time opened for a client on the waitlist. The times only.
+  'appointment.waitlist-offer': (d, b, o) => {
+    const firm = b.name;
+    const zone = required(d, 'timeZone');
+    return {
+      channel: 'email',
+      subject: `An earlier appointment time is open with ${firm}`,
+      blocks: [
+        hello(d),
+        text(`An earlier time opened for your appointment with ${firm}.`),
+        {
+          kind: 'facts',
+          rows: [
+            ['Earlier time', dateTime(d, 'offeredStartsAt', zone)],
+            ['Your time now', dateTime(d, 'startsAt', zone)],
+            ['Held for you until', dateTime(d, 'expiresAt', zone)],
+          ],
+        },
+        text(
+          'Your appointment stays at its current time unless you take the earlier one. Open your appointments to take it or let it go.',
+        ),
+        button('View appointments', link(d, 'link', o)),
+      ],
+    };
+  },
+
   'invoice.sent': (d, b, o) => {
     const firm = b.name;
     return {

@@ -1,6 +1,6 @@
 // Appointments, meeting types and blocked time, firm side and portal side.
 import { randomUUID } from 'node:crypto';
-import type { CaseModule } from '../world.js';
+import type { CaseModule, SeedContext } from '../world.js';
 
 const later = (days: number) => new Date(Date.now() + days * 86_400_000);
 /** 15:00 UTC in some days: on the 15-minute grid. */
@@ -66,6 +66,40 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /**
+   * A3: client X's appointment on the waitlist (the firm's waitlist on), with its live entry, so
+   * joining again is 409 ALREADY_WAITING; and the entry, WAITING (accept, decline, approve and
+   * reject are 409 on it).
+   */
+  waitlistAppointment: {
+    clientPrivate: true,
+    async create(ctx) {
+      return waitlisted(ctx, 11);
+    },
+  },
+  waitlistEntry: {
+    clientPrivate: true,
+    async create({ tx, businessId, get }) {
+      const appointmentId = await get('waitlistAppointment');
+      const row = await tx.appointmentWaitlistEntry.findFirstOrThrow({
+        where: { businessId, appointmentId },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
+  /** A3: another entry of client X, which the leave case ends. */
+  waitlistEntryToLeave: {
+    clientPrivate: true,
+    async create(ctx) {
+      const appointmentId = await waitlisted(ctx, 12);
+      const row = await ctx.tx.appointmentWaitlistEntry.findFirstOrThrow({
+        where: { businessId: ctx.businessId, appointmentId },
+        select: { id: true },
+      });
+      return row.id;
+    },
+  },
   firmOffice: {
     async create({ tx, businessId }) {
       const row = await tx.firmOffice.create({
@@ -92,6 +126,32 @@ export const records: CaseModule['records'] = {
     },
   },
 };
+
+/** A3: client X's appointment in `days` days, waiting for an earlier time (the waitlist on). */
+async function waitlisted({ tx, businessId, get }: SeedContext, days: number): Promise<string> {
+  await tx.appointmentSettings.upsert({
+    where: { businessId },
+    create: { businessId, waitlistEnabled: true },
+    update: { waitlistEnabled: true },
+  });
+  const clientId = await get('client');
+  const startsAt = later(days);
+  const row = await tx.appointment.create({
+    data: {
+      businessId,
+      clientId,
+      staffUserId: await get('staffUser'),
+      typeId: await get('appointmentType'),
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 30 * 60_000),
+      locationKind: 'VIDEO',
+    },
+  });
+  await tx.appointmentWaitlistEntry.create({
+    data: { businessId, appointmentId: row.id, clientId },
+  });
+  return row.id;
+}
 
 /** The body ids of Schedule Appointment; the form's contact is a client here. */
 const scheduleIds = {
@@ -244,6 +304,33 @@ export const cases: CaseModule['cases'] = {
     expect: 409,
   },
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/cancel': { params: { id: 'appointment' } },
+  // A3: the waitlist. Found, but already waiting (409 ALREADY_WAITING).
+  'POST /api/v1/portal/:firmSlug/me/appointment-waitlist': {
+    params: {},
+    bodyIds: { appointmentId: 'waitlistAppointment' },
+    expect: 409,
+  },
+  // Found, but WAITING: no offer to take or turn down (409 WAITLIST_ENTRY_CLOSED).
+  'POST /api/v1/portal/:firmSlug/me/appointment-waitlist/:id/accept': {
+    params: { id: 'waitlistEntry' },
+    expect: 409,
+  },
+  'POST /api/v1/portal/:firmSlug/me/appointment-waitlist/:id/decline': {
+    params: { id: 'waitlistEntry' },
+    expect: 409,
+  },
+  'POST /api/v1/portal/:firmSlug/me/appointment-waitlist/:id/leave': {
+    params: { id: 'waitlistEntryToLeave' },
+  },
+  // Found, but not requested: nothing for staff to decide (409 WAITLIST_ENTRY_CLOSED).
+  'POST /api/v1/business/appointment-waitlist/:id/approve': {
+    params: { id: 'waitlistEntry' },
+    expect: 409,
+  },
+  'POST /api/v1/business/appointment-waitlist/:id/reject': {
+    params: { id: 'waitlistEntry' },
+    expect: 409,
+  },
   // Review 2 (row 8): the client confirms an appointment the firm booked.
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/confirm': { params: { id: 'appointment' } },
   // Found, but the staff member has no working hours, so no slot is free.
