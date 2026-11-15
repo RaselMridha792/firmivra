@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TaxFilingType, TaxReturnStatus } from '../db-enums.js';
-import { CalendarDate } from '../clients/schemas.js';
+import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
 // Database enums, also exported from here as before db-enums.ts (other modules import them).
@@ -46,6 +46,11 @@ export const TaxReturn = z.object({
   status: TaxReturnStatus,
   filedOn: CalendarDate.nullable(),
   document: DocumentRef.nullable(),
+  /**
+   * The assigned staff (Client Portal instructions 4): its preparer and reviewer, null when none.
+   */
+  preparer: MemberRef.nullable().default(null),
+  reviewer: MemberRef.nullable().default(null),
   createdAt: DateTime,
   updatedAt: DateTime,
 });

@@ -19,6 +19,7 @@ import {
   UpdateDocumentSettingsRequest,
   type DocumentLibraryClient,
   type DocumentsClient,
+  LibraryQuery,
   parseInput,
   type RequestPacketDetail,
   type RequestPacketRow,
@@ -641,7 +642,30 @@ export function createDocumentLibraryMock(options: {
     return { id: itemId } as unknown as FirmRequest;
   };
   return {
-    list: notInMock,
+    /**
+     * One client's documents (the Client Portal module's Documents tab), with its filters; the
+     * library-wide list across clients is not in the mock.
+     */
+    list: async (query = {}) => {
+      const q = parseInput(LibraryQuery, query);
+      if (!q.clientId) return notInMock();
+      const base = await options.documents.list(q.clientId);
+      const term = q.search?.toLowerCase();
+      const rows = (await Promise.all(base.items.map((d) => libraryDoc(d.id)))).filter(
+        (d) =>
+          (!term || d.fileName.toLowerCase().includes(term)) &&
+          (!q.categoryId || d.category?.id === q.categoryId) &&
+          (!q.reviewStatus || d.reviewStatus === q.reviewStatus) &&
+          (!q.direction || d.direction === q.direction),
+      );
+      const start = (q.page - 1) * q.pageSize;
+      return {
+        items: rows.slice(start, start + q.pageSize),
+        total: rows.length,
+        page: q.page,
+        pageSize: q.pageSize,
+      };
+    },
     summary: notInMock,
     get: async (id) => {
       await mockDelay();

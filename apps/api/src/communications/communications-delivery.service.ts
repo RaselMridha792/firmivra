@@ -16,6 +16,7 @@ import {
   DeliveryError,
 } from './communications-provider.js';
 import { CommunicationsService } from './communications.service.js';
+import { HELD_ON_DEV } from './firmivra-mail.js';
 
 /** The job's advisory lock key: fixed, in a range no other module uses ("R5" = 0x5235). */
 export const COMMUNICATION_LOCK_KEY = 0x5235_0100;
@@ -255,6 +256,8 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
       ok: boolean;
       messageId?: string;
       code?: string;
+      /** Leads row 14: Firmivra Mail held it on a test site (not sent, never a failure). */
+      held?: boolean;
     }[] = [];
     for (const r of queued) {
       const p: Person = r.client
@@ -304,6 +307,10 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
         outcomes.push({ id: r.id, ok: true, messageId: out.messageId.slice(0, 200) });
       } catch (error) {
         if (error instanceof DeliveryError && error.retry && age <= GIVE_UP_MS) continue;
+        if (error instanceof DeliveryError && error.code === HELD_ON_DEV) {
+          outcomes.push({ id: r.id, ok: false, held: true, code: HELD_ON_DEV });
+          continue;
+        }
         outcomes.push({
           id: r.id,
           ok: false,
@@ -318,9 +325,12 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
           where: { businessId, id: o.id, status: 'QUEUED' },
           data: o.ok
             ? { status: 'SENT', sentAt: now, providerMessageId: o.messageId ?? null }
-            : { status: 'FAILED', failureCode: o.code ?? 'provider_error' },
+            : o.held
+              ? { status: 'NOT_SENT', failureCode: HELD_ON_DEV }
+              : { status: 'FAILED', failureCode: o.code ?? 'provider_error' },
         });
-        if (changed.count === 0) continue;
+        // A held message is not an event: nothing was tried.
+        if (changed.count === 0 || o.held) continue;
         await tx.communicationEvent.create({
           data: {
             businessId,
@@ -335,7 +345,7 @@ export class CommunicationDelivery implements OnApplicationBootstrap, OnModuleDe
     });
     return {
       sent: outcomes.filter((o) => o.ok).length,
-      failed: outcomes.filter((o) => !o.ok).length,
+      failed: outcomes.filter((o) => !o.ok && !o.held).length,
     };
   }
 

@@ -63,8 +63,11 @@ type Out<S extends z.ZodType> = z.output<S>;
 const toDay = (v: string) => new Date(`${v}T00:00:00Z`);
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 const iso = (d: Date | null) => d?.toISOString() ?? null;
-/** Review 2 (rounding): cents rounded half up to the whole dollar (amounts are never negative). */
-export const toDollar = (cents: number) => Math.floor((cents + 50) / 100) * 100;
+/**
+ * Review 2 (rounding, her "Round up figures", never down): any cents go up to the next whole
+ * dollar; a whole-dollar amount stays as it is (amounts are never negative).
+ */
+export const toDollar = (cents: number) => Math.ceil(cents / 100) * 100;
 
 /**
  * The Tax Returns workspace, part 2 (R55): Frame 3's filings per jurisdiction and their
@@ -480,7 +483,14 @@ export class TaxReturnReviewService {
     if (Date.parse(body.transmittedAt) > Date.now())
       throw invalid('Not in the future', 'transmittedAt');
     return this.write(tenant, async (tx) => {
-      await this.reach(tx, tenant, userId, id, true);
+      const r = await this.reach(tx, tenant, userId, id, true);
+      // Review 2 (TX-F22): a rejected return is corrected and reviewed before it is sent again.
+      if (r.workflowStatus === 'REJECTED' || r.workflowStatus === 'IN_CORRECTION') {
+        throw conflict(
+          'STATUS_BLOCKED',
+          'Correct the return and take it through review before it is sent again',
+        );
+      }
       const f = await this.filing(tx, businessId, id, filingId);
       if (f.filingMethod !== 'EFILE')
         throw invalid('A paper filing has no transmissions', 'filingId');
@@ -809,9 +819,17 @@ export class TaxReturnReviewService {
       await this.reach(tx, tenant, userId, id, true);
       const item = await tx.taxReturnChecklistItem.findFirst({
         where: { businessId, id: itemId, taxReturnId: id },
-        select: { id: true },
+        select: { id: true, section: true },
       });
       if (!item) throw notFound();
+      // Review 2 (TX-F21): a validation line is resolved (with a reason, in the history), never
+      // removed, so its result can't be bypassed by deleting it.
+      if (item.section === 'VALIDATION') {
+        throw conflict(
+          'VALIDATION_LINE',
+          'Resolve it instead: a validation line stays on the return',
+        );
+      }
       await tx.taxReturnChecklistItem.delete({ where: { id: itemId } });
       await this.log(tx, tenant, id, 'checklist_changed', { itemId, action: 'removed' });
       return this.checklistOf(tx, businessId, id);

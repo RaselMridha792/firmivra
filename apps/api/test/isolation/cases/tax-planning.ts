@@ -41,7 +41,8 @@ export const records: CaseModule['records'] = {
           updatedAt: STAMP,
         },
       });
-      // Finalized once, so the versions can be read and the plan can be sent.
+      // Finalized once, so the versions can be read and the plan can be sent. C27: a send checks
+      // the plan's content against this version, so it is the plan's own (its name, nothing else).
       await tx.taxPlanVersion.create({
         data: {
           businessId,
@@ -50,7 +51,7 @@ export const records: CaseModule['records'] = {
           event: 'FINALIZED',
           taxYear: 2026,
           snapshot: {
-            planName: 'Fake plan',
+            planName: row.name,
             strategies: [],
             inputs: [],
             projectedSavingsCents: null,

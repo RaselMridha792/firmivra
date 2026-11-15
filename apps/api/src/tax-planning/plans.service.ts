@@ -93,6 +93,67 @@ const FINALIZE_MOVES: readonly string[] = [
   'FINALIZED',
 ];
 
+/**
+ * C27 (Review 2): from Finalized on, the plan's content (what the client sees and approves) is not
+ * edited in place: Revise takes it back to work as a new version. Implementation tracking (a
+ * strategy's status and date, documents, discussions, tasks, internal notes, the assignee and the
+ * dates) goes on. Needs Review is the client's request: Start Revision opens it to change.
+ */
+const FROZEN: Partial<Record<TaxPlanStatus, string>> = {
+  FINALIZED: 'Use Revise to change a finalized plan',
+  AWAITING_CLIENT: 'Use Revise to change a finalized plan',
+  CLIENT_APPROVED: 'Use Revise to change a finalized plan',
+  IMPLEMENTED: 'Use Revise to change a finalized plan',
+  READY_FOR_REVIEW: 'Use Start Revision to change the plan',
+};
+/** The plan fields that are its content; the rest are tracking. */
+const CONTENT_FIELDS = [
+  'name',
+  'planYear',
+  'planType',
+  'filingStatus',
+  'entityType',
+  'goals',
+  'otherGoal',
+  'clientNotes',
+] as const;
+/** The strategy fields that are content (the status and date are tracking, but not a decline). */
+const STRATEGY_CONTENT_FIELDS = [
+  'selected',
+  'priority',
+  'assumptions',
+  'overrideSavingsCents',
+  'overrideReason',
+] as const;
+
+/**
+ * A plan's content as a version keeps it, comparable (C27): the snapshot's own content, without
+ * the words the code supplies (labels, categories, the disclaimer), in a key order of its own
+ * (jsonb reorders keys). What a send and Implemented check against.
+ */
+function planContent(snapshot: Snapshot): string {
+  return JSON.stringify({
+    planName: snapshot.planName,
+    projectedSavingsCents: snapshot.projectedSavingsCents,
+    strategies: snapshot.strategies.map((x) => [
+      x.name,
+      x.priority,
+      x.estimate?.cents ?? null,
+      x.assumptions ?? null,
+    ]),
+    inputs: (snapshot.inputs ?? []).map((i) => [
+      i.key,
+      i.kind,
+      i.taxYear,
+      i.amountCents,
+      i.textValue ?? null,
+      i.source ?? null,
+      i.asOf ?? null,
+      i.note ?? null,
+    ]),
+  });
+}
+
 /** C27 (Review 2): what Revise takes back to In Progress, to be finalized again. */
 const REVISABLE: readonly string[] = [
   'FINALIZED',
@@ -191,6 +252,12 @@ export class TaxPlansService {
         actorUserId: ctx.actor.userId,
       },
     });
+  }
+
+  /** C27: 409 when the plan's content is frozen in its status (Revise or Start Revision first). */
+  private frozen(plan: PlanShape): void {
+    const message = FROZEN[plan.status];
+    if (message) throw tpErrors.invalidStatus(message);
   }
 
   /** The plan locked for a change: the caller's own, not archived, not closed. */
@@ -360,6 +427,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.editable(ctx, id, body.etag);
+      if (CONTENT_FIELDS.some((k) => body[k] !== undefined)) this.frozen(plan);
       const goals = body.goals ?? plan.goals;
       let otherGoal = body.otherGoal !== undefined ? body.otherGoal : plan.otherGoal;
       if (!goals.includes('OTHER')) {
@@ -446,6 +514,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.editable(ctx, id, body.etag);
+      this.frozen(plan);
       const seen = new Set<string>();
       body.inputs.forEach((input, i) => {
         const at = `inputs.${i}`;
@@ -528,6 +597,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.editable(ctx, id);
+      this.frozen(plan);
       const position = plan.strategies.reduce((m, s) => Math.max(m, s.position), -1) + 1;
       let created: { id: string };
       try {
@@ -615,6 +685,11 @@ export class TaxPlansService {
       const plan = await this.editable(ctx, id, body.etag);
       const cur = plan.strategies.find((s) => s.id === strategyId);
       if (!cur) throw notFound();
+      const declines =
+        body.status !== undefined &&
+        body.status !== cur.status &&
+        (body.status === 'DECLINED' || cur.status === 'DECLINED');
+      if (STRATEGY_CONTENT_FIELDS.some((k) => body[k] !== undefined) || declines) this.frozen(plan);
       const data: Prisma.TaxPlanStrategyUncheckedUpdateInput = {};
       if (body.selected !== undefined) data.selected = body.selected;
       if (body.priority !== undefined) data.priority = body.priority;
@@ -689,6 +764,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.editable(ctx, id, body.etag);
+      this.frozen(plan);
       const have = new Set(plan.strategies.map((s) => s.id));
       if (
         body.ids.length !== have.size ||
@@ -723,6 +799,7 @@ export class TaxPlansService {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const { tx } = ctx;
       const plan = await this.editable(ctx, id);
+      this.frozen(plan);
       const figures = await this.figures(ctx, plan);
       let updated = 0;
       for (const s of plan.strategies) {
@@ -867,6 +944,27 @@ export class TaxPlansService {
         )
       )
         throw tpErrors.invalidStatus('A strategy must be in progress or implemented first');
+      // C27: implemented is the plan the client approved, unchanged since (its exact version).
+      if (body.status === 'IMPLEMENTED') {
+        const approval = await tx.taxPlanApproval.findFirst({
+          where: { businessId, planId: id },
+          orderBy: { version: 'desc' },
+          select: { version: true, planVersion: { select: { snapshot: true } } },
+        });
+        // Client Approved always has its approval; none is refused all the same.
+        if (!approval)
+          throw tpErrors.invalidStatus(
+            "A plan is implemented only after the client's approval: use Record Client Approval first",
+          );
+        const now = await this.snapshotOf(ctx, plan);
+        if (
+          planContent(approval.planVersion.snapshot as unknown as Snapshot) !==
+          planContent(now.snapshot)
+        )
+          throw tpErrors.invalidStatus(
+            `The plan changed after the client approved version ${approval.version}: use Revise and send it for approval again`,
+          );
+      }
       await tx.taxPlan.update({
         where: { businessId_id: { businessId, id } },
         data: { status: body.status },
@@ -1015,6 +1113,7 @@ export class TaxPlansService {
     return this.run(businessId, tenant, userId, async (ctx) => {
       if (!ctx.perms.edit) throw tpErrors.forbidden();
       const plan = await this.editable(ctx, id, body.etag);
+      this.frozen(plan);
       const kept = await this.snapshotOf(ctx, plan);
       const missing = this.missingForFinal(plan, kept.snapshot.inputs ?? []);
       if (missing.length > 0) throw tpErrors.planNotReady(missing);
@@ -1090,18 +1189,21 @@ export class TaxPlansService {
         const finalized = await ctx.tx.taxPlanVersion.findFirst({
           where: { businessId, planId: id, event: 'FINALIZED' },
           orderBy: { version: 'desc' },
-          select: { createdAt: true },
+          select: { snapshot: true },
         });
-        // C09 (Review 2): each blocker says what to do.
+        kept = await this.snapshotOf(ctx, plan);
+        // C09 (Review 2): each blocker says what to do. C27: "changed" is its content (what the
+        // client sees), so implementation tracking and internal notes since never block a send.
         const missing: string[] = [];
         if (!finalized)
           missing.push('The plan is not finalized: use Finalize Plan in Review & Save first.');
-        else if (plan.updatedAt > finalized.createdAt)
+        else if (
+          planContent(finalized.snapshot as unknown as Snapshot) !== planContent(kept.snapshot)
+        )
           missing.push(
             'The plan changed after it was finalized: use Finalize Plan in Review & Save again.',
           );
         if (missing.length > 0) throw tpErrors.planNotReady(missing);
-        kept = await this.snapshotOf(ctx, plan);
       }
       const lines = kept.snapshot.strategies.map((s) => {
         const c = s.estimate.cents;

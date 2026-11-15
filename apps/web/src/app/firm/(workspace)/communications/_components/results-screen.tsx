@@ -135,6 +135,16 @@ export function ResultsScreen({ id }: { id: string }) {
           ← Sent History
         </Link>
       </nav>
+      {/* Leads row 14: Firmivra Mail on a test site sends only to the firm's own team. */}
+      {r.note ? (
+        <p
+          role="note"
+          data-testid="hold-note"
+          className="rounded-lg bg-info-soft p-3 text-sm text-text"
+        >
+          {r.note}
+        </p>
+      ) : null}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
@@ -634,7 +644,9 @@ function RecipientTable({
       label: 'Status',
       cell: (x) => (
         <span title={x.failureLabel ?? undefined}>
-          <Badge tone={RECIPIENT_TONE[x.status] ?? 'neutral'}>{RECIPIENT_LABEL[x.status]}</Badge>
+          <Badge tone={RECIPIENT_TONE[x.status] ?? 'neutral'}>
+            {x.failureCode === 'held_on_dev' ? 'Held on test site' : RECIPIENT_LABEL[x.status]}
+          </Badge>
         </span>
       ),
     },

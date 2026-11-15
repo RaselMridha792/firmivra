@@ -119,6 +119,9 @@ describe('shapes', () => {
       status: 'FILED',
       filedOn: '2025-04-12',
       document: { id: docId, fileName: 'Fake.pdf' },
+      // Client Portal instructions 4: nobody assigned on this row.
+      preparer: null,
+      reviewer: null,
       createdAt: '2026-10-01T09:00:00.000Z',
       updatedAt: '2026-10-02T09:00:00.000Z',
     });
