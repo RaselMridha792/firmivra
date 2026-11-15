@@ -46,6 +46,7 @@ import {
   type TaxValidationIssue,
   TAX_RETURN_IN_PROGRESS_STATUSES,
 } from '@firmivra/types';
+import { mockFirmDocument } from './documents';
 import { registerServiceEngagement } from './service-engagements';
 import { mockDelay } from '../lib/mock';
 import { clientFixtures } from './clients';
@@ -1746,17 +1747,35 @@ export function createTaxReturnWorkspaceMock(options: Options = {}): TaxReturnWo
 
     documents: async (id) => {
       await mockDelay();
-      return copy(find(id).documents);
+      // As the API, each linked file is read from the client's documents: its name and scan now.
+      return copy(find(id).documents).map((d) => {
+        const file = mockFirmDocument(d.document.id);
+        return file
+          ? {
+              ...d,
+              document: { ...d.document, fileName: file.fileName, scanStatus: file.scanStatus },
+            }
+          : d;
+      });
     },
     linkDocument: async (id, body) => {
       await mockDelay();
       const b = parseInput(LinkTaxReturnDocumentRequest, body);
       const r = find(id);
+      // As the API: the same file the client's documents hold, and only one of this client's.
+      const file = mockFirmDocument(b.documentId);
+      if (file && file.clientId !== r.clientId) {
+        throw fail(409, 'INVALID_DOCUMENT', "This file is not this client's");
+      }
       r.documents.push({
         id: newId('0c30'),
         kind: b.kind,
         jurisdiction: b.jurisdiction ?? null,
-        document: { id: b.documentId, fileName: 'Linked document.pdf', scanStatus: 'CLEAN' },
+        document: {
+          id: b.documentId,
+          fileName: file?.fileName ?? 'Linked document.pdf',
+          scanStatus: file?.scanStatus ?? 'CLEAN',
+        },
         addedBy: me,
         createdAt: nowIso(),
       });
