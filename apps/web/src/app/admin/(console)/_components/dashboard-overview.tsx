@@ -27,7 +27,13 @@ import { api } from '../../../../lib/api';
 import { mocked } from '../../../../lib/mock';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiQuery } from '../../../../lib/query';
-import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
+import {
+  attentionItems,
+  dashboardStats,
+  platformModules,
+  systemStatuses,
+  usersThisWeekHref,
+} from './dashboard-data';
 import { EmailText } from './list-parts';
 import { PlatformGrowth } from './platform-growth';
 import { SectionTitle } from './section-title';
@@ -41,6 +47,9 @@ const localDateLabel = () =>
     year: 'numeric',
   }).format(new Date());
 const serverDateLabel = () => '';
+/** SA-DSH-F10: on the server, Reports' Users view without dates; the browser adds this week. */
+const weekHref = () => usersThisWeekHref(new Date());
+const serverWeekHref = () => '/reports/users';
 
 function StatCard({
   stat,
@@ -259,6 +268,7 @@ export function DashboardOverview() {
   const recent = useApiQuery(['firm-applications', 'recent'], () =>
     api.firmApplications.list({ pageSize: 5 }),
   );
+  const usersThisWeek = useSyncExternalStore(subscribeToNothing, weekHref, serverWeekHref);
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
   // Mock mode has no API behind it: the statuses show the mockup's Online.
@@ -360,11 +370,12 @@ export function DashboardOverview() {
                 Tasks Requiring Attention
               </SectionTitle>
               <ul className="divide-y divide-border">
-                {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
+                {attentionItems.map(({ label, key, icon: Icon, href: to }, index) => {
                   // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
                   // Unknown when the figures could not be read: a dash, never a zero.
                   const count = dashboard.data ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
                   // SA-DSH-F07 to F11: a row with a list opens it at any count.
+                  const href = to === 'week' ? usersThisWeek : to;
                   return (
                     <li
                       key={label}

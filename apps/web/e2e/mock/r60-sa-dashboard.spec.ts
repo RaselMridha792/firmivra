@@ -76,3 +76,17 @@ test('SA-DSH-F09: Open support tickets opens Support filtered to Open, with the 
   await expect(page.getByTestId('active-filters')).toContainText('Status: Open');
   await expect(page.getByTestId('ticket-link')).toHaveCount(Math.min(count, 10));
 });
+
+test('SA-DSH-F10: New users this week opens Reports Users from Monday to today', async ({
+  page,
+}) => {
+  await dashboard(page);
+  const week = await page.evaluate(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const monday = new Date(`${today}T00:00:00.000Z`);
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    return `from=${monday.toISOString().slice(0, 10)}&to=${today}`;
+  });
+  await page.getByRole('link', { name: 'Open New users this week' }).click();
+  await expect(page).toHaveURL(admin(`/reports/users?${week}`));
+});

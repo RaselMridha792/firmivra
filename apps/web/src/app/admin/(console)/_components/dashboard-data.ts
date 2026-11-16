@@ -60,7 +60,8 @@ export const dashboardStats = [
 ] as const;
 
 /**
- * Each row opens the list it counts, filtered the same way, at any count.
+ * Each row opens the list it counts, filtered the same way, at any count. `href: 'week'` is
+ * Reports' Users view for this week, from Monday (the page builds it on the viewer's clock).
  */
 export const attentionItems: {
   label: string;
@@ -83,9 +84,18 @@ export const attentionItems: {
     icon: Headset,
     href: '/support?status=OPEN',
   },
-  { label: 'New users this week', key: 'newUsersThisWeek', icon: Users },
+  // SA-DSH-F10: Reports' Users view, this week.
+  { label: 'New users this week', key: 'newUsersThisWeek', icon: Users, href: 'week' },
   { label: 'Renewals this week', icon: ChartColumn },
 ];
+
+/** SA-DSH-F10: Reports' Users view from this week's Monday to today (UTC days, as Reports). */
+export function usersThisWeekHref(now: Date): string {
+  const today = now.toISOString().slice(0, 10);
+  const monday = new Date(`${today}T00:00:00.000Z`);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  return `/reports/users?from=${monday.toISOString().slice(0, 10)}&to=${today}`;
+}
 
 export const systemStatuses = [
   'Platform',
