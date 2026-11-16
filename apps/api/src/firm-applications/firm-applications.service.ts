@@ -52,6 +52,7 @@ import {
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { FirmKeyJob } from './firm-key-job.js';
+import { openTicketsFor } from '../admin-support/support-context.js';
 import { OWNER_INVITES } from './owner-invites.js';
 
 /**
@@ -85,8 +86,6 @@ const PLATFORM_TIME_ZONE = 'America/New_York';
 const PENDING = ['PENDING_REVIEW', 'IN_REVIEW', 'INFO_REQUESTED'] as const;
 /** SA-APP-Y06: an information request's link works for 14 days. */
 const REQUEST_DAYS = 14;
-/** SA-DSH-F04: firms counted in parallel for the dashboard's Total Users. */
-const DASHBOARD_FIRMS_AT_ONCE = 8;
 /** Audit actions that count as an application's activity (SA-APP-F07, F09). */
 const NOTE_SAVED = 'firm_application.notes_saved';
 const REVIEWER_ASSIGNED = 'firm_application.reviewer_assigned';
@@ -510,8 +509,8 @@ export class FirmApplicationsService {
   async dashboard(): Promise<AdminDashboard> {
     const db = this.admin.db;
     // Logins are a platform table (users_select allows platform scope); admin scope sees only
-    // owners, so the active staff and client logins are counted in each firm's own scope
-    // (numbers only, as the platform rollups do).
+    // owners. Counted from `users` alone, never memberships or client accounts: the admin site
+    // never opens a firm's scope.
     const users = this.database.forPlatform().user;
     const staffAndClients = { pool: { not: 'ADMIN' } } as const;
     // SA-DSH-F10, F11: this week from Monday 00:00 UTC (Reports and Subscriptions count UTC days).
@@ -519,41 +518,32 @@ export class FirmApplicationsService {
     const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
     const monday = new Date(Date.parse(`${today}T00:00:00Z`) - ((weekday + 6) % 7) * 86_400_000);
     const sunday = new Date(monday.getTime() + 6 * 86_400_000);
-    const [pendingApplications, firms, newUsersThisWeek, openTickets, renewalsThisWeek] =
-      await Promise.all([
-        // SA-APP-Y04: Pending and In Review; Awaiting Information waits on the applicant.
-        db.firmApplication.count({ where: { status: { in: ['PENDING_REVIEW', 'IN_REVIEW'] } } }),
-        db.business.findMany({ where: { status: 'ACTIVE' }, select: { id: true } }),
-        users.count({ where: { ...staffAndClients, createdAt: { gte: monday } } }),
-        db.supportTicket.count({ where: { status: 'OPEN', deletedAt: null } }),
-        db.platformFirmSubscription.count({
-          where: {
-            status: { in: ['ACTIVE', 'PAST_DUE'] },
-            autoRenew: true,
-            nextBillingDate: { gte: monday, lte: sunday },
-          },
-        }),
-      ]);
-    // SA-DSH-F04: active staff and active client logins, each firm in its own scope (counts only),
-    // a few firms at a time.
-    let totalUsers = 0;
-    for (let i = 0; i < firms.length; i += DASHBOARD_FIRMS_AT_ONCE) {
-      const counts = await Promise.all(
-        firms.slice(i, i + DASHBOARD_FIRMS_AT_ONCE).map(({ id: businessId }) =>
-          this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-            const [staff, clients] = await Promise.all([
-              tx.membership.count({ where: { businessId, status: 'ACTIVE' } }),
-              tx.clientAccount.count({ where: { businessId, status: 'ACTIVE' } }),
-            ]);
-            return staff + clients;
-          }),
-        ),
-      );
-      totalUsers += counts.reduce((a, n) => a + n, 0);
-    }
+    const [
+      pendingApplications,
+      activeFirms,
+      totalUsers,
+      newUsersThisWeek,
+      openTickets,
+      renewalsThisWeek,
+    ] = await Promise.all([
+      // SA-APP-Y04: Pending and In Review; Awaiting Information waits on the applicant.
+      db.firmApplication.count({ where: { status: { in: ['PENDING_REVIEW', 'IN_REVIEW'] } } }),
+      db.business.count({ where: { status: 'ACTIVE' } }),
+      users.count({ where: staffAndClients }),
+      users.count({ where: { ...staffAndClients, createdAt: { gte: monday } } }),
+      // SA-DSH-F09: what this viewer's Support list shows (all, or only their own).
+      this.admin.transaction((tx) => openTicketsFor(tx, this.admin.adminUserId)),
+      db.platformFirmSubscription.count({
+        where: {
+          status: { in: ['ACTIVE', 'PAST_DUE'] },
+          autoRenew: true,
+          nextBillingDate: { gte: monday, lte: sunday },
+        },
+      }),
+    ]);
     return {
       pendingApplications,
-      activeFirms: firms.length,
+      activeFirms,
       totalUsers,
       newUsersThisWeek,
       openTickets,

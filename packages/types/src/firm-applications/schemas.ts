@@ -777,9 +777,8 @@ export const AdminDashboard = z.object({
   pendingApplications: z.number().int().min(0),
   activeFirms: z.number().int().min(0),
   /**
-   * SA-DSH-F04: active staff (ACTIVE memberships of active firms) and active client logins (ACTIVE
-   * client accounts of active firms); Super Admins never counted. Nullable only for older API
-   * builds; the API always sends a number.
+   * Staff and client logins (the staff and clients identity pools; Super Admins not counted).
+   * Nullable only for older API builds; the API always sends a number.
    */
   totalUsers: z.number().int().min(0).nullable(),
   /**
@@ -787,7 +786,10 @@ export const AdminDashboard = z.object({
    * Users view the row opens counts the same days); nullable like `totalUsers`.
    */
   newUsersThisWeek: z.number().int().min(0).nullable(),
-  /** SA-DSH-F09: support tickets with status Open (Support, filtered to Open). */
+  /**
+   * SA-DSH-F09: support tickets with status Open that this viewer's Support list shows: every one,
+   * or only their own with "View own tickets". Null when their support role shows none.
+   */
   openTickets: z.number().int().min(0).nullable().optional(),
   /**
    * SA-DSH-F11: subscriptions renewing this week, Monday to Sunday (UTC): Active or Past Due,

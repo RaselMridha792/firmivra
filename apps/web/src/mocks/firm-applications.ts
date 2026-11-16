@@ -983,7 +983,11 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         totalUsers: null,
         newUsersThisWeek: null,
         // SA-DSH-F09, F11: what the Support and Subscriptions mocks list for the same filters.
-        openTickets: (await adminSupport.tickets({ statuses: ['OPEN'], pageSize: 1 })).total,
+        // A support role that shows no tickets: null, as the API.
+        openTickets: await adminSupport.tickets({ statuses: ['OPEN'], pageSize: 1 }).then(
+          (page) => page.total,
+          () => null,
+        ),
         renewalsThisWeek: (await adminSubscriptions.subscriptions({ status: 'RENEWING_THIS_WEEK' }))
           .total,
         monthlyRevenueCents: null,

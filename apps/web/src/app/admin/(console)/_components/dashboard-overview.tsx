@@ -400,9 +400,13 @@ export function DashboardOverview() {
                 {attentionItems.map(({ label, key, icon: Icon, href: to }, index) => {
                   // Payments have nothing to count yet, and an unknown count shows 0.
                   // Unknown when the figures could not be read: a dash, never a zero.
-                  const count = dashboard.data ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
+                  // SA-DSH-F09: a null count is a list this viewer cannot open (Support with no
+                  // view permission): a dash and no link, never a number the click can't show.
+                  const closed = key !== undefined && dashboard.data?.[key] === null;
+                  const count =
+                    dashboard.data && !closed ? (key ? (dashboard.data[key] ?? 0) : 0) : null;
                   // SA-DSH-F07 to F11: a row with a list opens it at any count.
-                  const href = to === 'week' ? usersThisWeek : to;
+                  const href = closed ? undefined : to === 'week' ? usersThisWeek : to;
                   return (
                     <li
                       key={label}

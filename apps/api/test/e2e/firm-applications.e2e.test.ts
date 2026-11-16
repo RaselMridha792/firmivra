@@ -19,6 +19,7 @@ import {
   ListFirmApplicationsResponse,
   ListFirmsResponse,
 } from '@firmivra/types';
+import { openTicketsFor } from '../../src/admin-support/support-context.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -515,24 +516,85 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     const d = (await get('/admin/dashboard').expect(200)).body as AdminDashboard;
     expect(d.pendingApplications).toBeGreaterThanOrEqual(2);
     expect(d.activeFirms).toBeGreaterThanOrEqual(2);
-    // The staff and client fixtures; the Super Admin and admins-pool logins never count.
-    expect(d.totalUsers).toBeGreaterThanOrEqual(2);
+    // The seven staff and client fixtures; the Super Admin and admins-pool logins never count.
+    expect(d.totalUsers).toBeGreaterThanOrEqual(7);
     expect(d.newUsersThisWeek).toBeGreaterThanOrEqual(7);
+    expect(d.newUsersThisWeek).toBeLessThanOrEqual(d.totalUsers!);
     expect(d.monthlyRevenueCents).toBe(0);
   });
 
-  it('SA-DSH-F04, F09, F10, F11: counts what the screens they open show', async () => {
+  it("SA-DSH-F09: Open support tickets counts only what the viewer's Support list shows", async () => {
+    // The Owner's grid is shared by every Super Admin, so it changes only inside a transaction
+    // that is rolled back: no other test ever sees it.
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
-    const run = randomUUID().slice(0, 8);
-    const firms = { active: randomUUID(), suspended: randomUUID() };
-    const person = (key: string, pool: 'STAFF' | 'CLIENT') => ({ id: randomUUID(), key, pool });
-    const people = {
-      staff: person('staff', 'STAFF'),
-      leftStaff: person('left', 'STAFF'),
-      client: person('client', 'CLIENT'),
-      invitedClient: person('invited', 'CLIENT'),
-      suspendedStaff: person('suspended', 'STAFF'),
-    };
+    const me = fx.users.admin.id;
+    const rollback = new Error('rollback');
+    try {
+      await runInScope(owner, { kind: 'admin', adminUserId: me }, async (tx) => {
+        const category = await tx.supportCategory.findFirstOrThrow({ where: { isActive: true } });
+        const priority = await tx.supportPriority.findFirstOrThrow({ where: { isActive: true } });
+        // One open ticket assigned to this Super Admin, one to nobody.
+        for (const assignedUserId of [me, null]) {
+          await tx.supportTicket.create({
+            data: {
+              businessId: fx.firmA.id,
+              contactUserId: fx.users.ownerA.id,
+              subject: 'Fake dashboard ticket',
+              description: 'Fake',
+              categoryId: category.id,
+              priorityId: priority.id,
+              source: 'INTERNAL',
+              createdByUserId: me,
+              assignedUserId,
+            },
+          });
+        }
+        const roles = await tx.platformRoleDefinition.findMany({
+          where: { code: 'EXECUTIVE_CEO' },
+          select: { id: true },
+        });
+        expect(roles.length).toBeGreaterThan(0);
+        /** The Owner's View all tickets and View own tickets. */
+        const grid = async (viewAll: boolean, viewOwn: boolean) => {
+          for (const { id: roleDefinitionId } of roles) {
+            for (const [permissionKey, on] of [
+              ['support.view_all', viewAll],
+              ['support.view_own', viewOwn],
+            ] as const) {
+              const state = on ? 'ALLOW' : 'DENY';
+              await tx.platformRolePermission.upsert({
+                where: { roleDefinitionId_permissionKey: { roleDefinitionId, permissionKey } },
+                create: { roleDefinitionId, permissionKey, state },
+                update: { state },
+              });
+            }
+          }
+        };
+        const open = (where: Prisma.SupportTicketWhereInput = {}) =>
+          tx.supportTicket.count({ where: { status: 'OPEN', deletedAt: null, ...where } });
+
+        await grid(true, true);
+        expect(await openTicketsFor(tx, me)).toBe(await open());
+        // View own tickets only: their own open tickets, fewer than all of them.
+        await grid(false, true);
+        const own = await open({ assignedUserId: me });
+        expect(own).toBeGreaterThanOrEqual(1);
+        expect(own).toBeLessThan(await open());
+        expect(await openTicketsFor(tx, me)).toBe(own);
+        // Neither: Support shows no list, so there is no number.
+        await grid(false, false);
+        expect(await openTicketsFor(tx, me)).toBeNull();
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('SA-DSH-F09, F10, F11: counts what the screens they open show', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
     // This week from Monday 00:00 UTC.
     const monday = new Date();
     monday.setUTCHours(0, 0, 0, 0);
@@ -541,12 +603,13 @@ describe('GET /admin/firms and /admin/dashboard', () => {
     const admin = { kind: 'admin', adminUserId: fx.users.admin.id } as const;
     /** The counts as the screens they open read them, straight from the database. */
     const expected = async () => {
-      const platform = await runInScope(owner, { kind: 'platform' }, async (tx) => ({
-        firms: await tx.business.findMany({ where: { status: 'ACTIVE' }, select: { id: true } }),
-        newUsersThisWeek: await tx.user.count({
-          where: { pool: { in: ['STAFF', 'CLIENT'] }, createdAt: { gte: monday } },
-        }),
-      }));
+      const logins = { pool: { in: ['STAFF', 'CLIENT'] } } as const;
+      const users = await runInScope(owner, { kind: 'platform' }, (tx) =>
+        Promise.all([
+          tx.user.count({ where: logins }),
+          tx.user.count({ where: { ...logins, createdAt: { gte: monday } } }),
+        ]),
+      );
       const [openTickets, renewalsThisWeek] = await runInScope(owner, admin, (tx) =>
         Promise.all([
           tx.supportTicket.count({ where: { status: 'OPEN', deletedAt: null } }),
@@ -559,87 +622,9 @@ describe('GET /admin/firms and /admin/dashboard', () => {
           }),
         ]),
       );
-      let totalUsers = 0;
-      for (const { id: businessId } of platform.firms) {
-        totalUsers += await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
-          const staff = await tx.membership.findMany({
-            where: { businessId },
-            select: { status: true },
-          });
-          const clients = await tx.clientAccount.findMany({
-            where: { businessId },
-            select: { status: true },
-          });
-          return [...staff, ...clients].filter((x) => x.status === 'ACTIVE').length;
-        });
-      }
-      return {
-        totalUsers,
-        newUsersThisWeek: platform.newUsersThisWeek,
-        openTickets,
-        renewalsThisWeek,
-      };
+      return { totalUsers: users[0], newUsersThisWeek: users[1], openTickets, renewalsThisWeek };
     };
     try {
-      await runInScope(owner, { kind: 'platform' }, async (tx) => {
-        for (const p of Object.values(people)) {
-          await tx.user.create({
-            data: {
-              id: p.id,
-              cognitoSub: p.id,
-              pool: p.pool,
-              email: `r60-dash-${p.key}-${run}@users.example.test`,
-              name: `Fake R60 ${p.key}`,
-            },
-          });
-        }
-        await tx.business.create({
-          data: {
-            id: firms.active,
-            slug: `r60-dash-${run}`,
-            name: `Fake ${run}`,
-            status: 'ACTIVE',
-          },
-        });
-        await tx.business.create({
-          data: {
-            id: firms.suspended,
-            slug: `r60-dash-off-${run}`,
-            name: `Fake ${run} off`,
-            status: 'SUSPENDED',
-          },
-        });
-      });
-      // In the active firm: one active and one deactivated staff member, one active and one
-      // invited client login. In the suspended firm: an active staff member (not counted).
-      const seat = (businessId: string, userId: string, status: 'ACTIVE' | 'DEACTIVATED') =>
-        runInScope(owner, { kind: 'business', businessId }, (tx) =>
-          tx.membership.create({ data: { businessId, userId, role: 'STAFF', status } }),
-        );
-      await seat(firms.active, people.staff.id, 'ACTIVE');
-      await seat(firms.active, people.leftStaff.id, 'DEACTIVATED');
-      await seat(firms.suspended, people.suspendedStaff.id, 'ACTIVE');
-      await runInScope(owner, { kind: 'business', businessId: firms.active }, async (tx) => {
-        for (const [p, status] of [
-          [people.client, 'ACTIVE'],
-          [people.invitedClient, 'INVITED'],
-        ] as const) {
-          const email = `r60-dash-${p.key}-${run}@users.example.test`;
-          const client = await tx.client.create({
-            data: { businessId: firms.active, displayName: `Fake ${p.key}`, email },
-          });
-          await tx.clientAccount.create({
-            data: { businessId: firms.active, userId: p.id, clientId: client.id, email, status },
-          });
-        }
-      });
-      const mine = await runInScope(owner, { kind: 'business', businessId: firms.active }, (tx) =>
-        Promise.all([
-          tx.membership.count({ where: { businessId: firms.active, status: 'ACTIVE' } }),
-          tx.clientAccount.count({ where: { businessId: firms.active, status: 'ACTIVE' } }),
-        ]),
-      );
-      expect(mine).toEqual([1, 1]);
       // Other test files write at the same time: compare in a window where nothing changed.
       let matched = false;
       for (let i = 0; i < 5 && !matched; i++) {
