@@ -309,3 +309,48 @@ test('T-C11: Apply the same checklist sits in the Checklist section; the Recurri
   await expect(apply.getByRole('checkbox')).toBeChecked();
   await expect(apply).toContainText('Each occurrence gets its own copy');
 });
+
+test('T-D16: Edit Series changes this and future occurrences; a task from a series asks which to change', async ({
+  page,
+}) => {
+  await page.goto(`${base}/0199c0f0-0a10-7000-8000-000000000001`);
+  await expect(page.getByTestId('checklist-progress')).toBeVisible({ timeout: 60_000 });
+  const actions = page.getByRole('group', { name: 'Task actions' });
+  await actions.getByRole('button', { name: 'Convert to Recurring' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Convert' }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}$/);
+  const seriesUrl = page.url();
+
+  // From the series page: the form is the series', saved for this and future occurrences.
+  await page.getByRole('link', { name: 'Edit Series' }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/[0-9a-f-]{36}\/edit$/);
+  await expect(page.getByRole('heading', { name: 'Edit Recurring Task' })).toBeVisible();
+  await expect(page.getByTestId('edit-series-scope')).toContainText(
+    'tasks already made keep theirs',
+  );
+  await expect(page.getByTestId('series-save-another')).toHaveCount(0);
+  await expect(page.getByLabel('Client *')).toHaveValue(/[0-9a-f-]{36}/);
+  await page.getByLabel('Task Name *').fill('Business plan check-in (sample)');
+  await chooseType(page, 'Business Advisory');
+  await page.getByTestId('series-save').click();
+  await expect(page).toHaveURL(seriesUrl);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(
+    'Business plan check-in (sample)',
+  );
+
+  // From the task the series came from: this occurrence, or this and future ones.
+  await page.goBack(); // the edit page
+  await page.goBack(); // the series
+  await page.goBack(); // the task
+  await expect(page).toHaveURL(/0199c0f0-0a10-7000-8000-000000000001$/);
+  await actions.getByRole('button', { name: 'Edit', exact: true }).click();
+  const scope = page.getByTestId('edit-scope');
+  await expect(scope.getByRole('link', { name: /This occurrence/ })).toHaveAttribute(
+    'href',
+    '/tasks/0199c0f0-0a10-7000-8000-000000000001/edit',
+  );
+  await expect(scope.getByRole('link', { name: /This and future occurrences/ })).toHaveAttribute(
+    'href',
+    /\/tasks\/recurring\/[0-9a-f-]{36}\/edit$/,
+  );
+});

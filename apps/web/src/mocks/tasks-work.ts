@@ -1516,6 +1516,12 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
       if (b.details !== undefined) x.detail.details = b.details ?? null;
       if (b.priority) x.detail.priority = b.priority;
       if (b.clientVisible !== undefined) x.detail.clientVisible = b.clientVisible;
+      // T-D16: the checklist new occurrences start with.
+      if (b.checklist)
+        x.detail.checklist = b.checklist.map((c) => ({
+          label: c.label,
+          required: c.required ?? false,
+        }));
       if (b.recurrence)
         x.detail.recurrence = {
           ...x.detail.recurrence,

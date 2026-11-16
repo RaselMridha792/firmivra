@@ -2,12 +2,13 @@
 
 import type { TaskOccurrence } from '@firmivra/types';
 import { Badge, Button, Modal, Select, Toast } from '@firmivra/ui';
-import { ArrowLeft, Pause, Play, Stop } from '@phosphor-icons/react';
+import { ArrowLeft, Pause, PencilSimple, Play, Stop } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { useFirm } from '../../../../../components/firm-context';
 import { OriginLink } from '../../../../../components/origin-link';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText, shortName } from './task-shared';
 
@@ -68,6 +69,9 @@ const btn =
 /** /tasks/recurring/[id]: one series, its settings, its occurrences, and pause, resume, stop, skip. */
 export function SeriesDetailScreen({ id }: { id: string }) {
   const series = useApiQuery([...TASKS_KEY, 'series', id], () => api.taskWork.series(id));
+  // T-D16: Owner and Admin edit a series (the API refuses others).
+  const { role } = useFirm();
+  const manages = role === 'OWNER' || role === 'ADMIN';
   // T-C03: upcoming, made, skipped or failed occurrences, one state at a time or all.
   const [state, setState] = useState<TaskOccurrence['state'] | ''>('');
   const occ = useApiQuery([...TASKS_KEY, 'series', id, 'occurrences', state], () =>
@@ -122,6 +126,15 @@ export function SeriesDetailScreen({ id }: { id: string }) {
             role="group"
             aria-label="Series actions"
           >
+            {/* T-D16: Edit Series, for this and future occurrences (while it still runs). */}
+            {manages && (s.status === 'ACTIVE' || s.status === 'PAUSED') ? (
+              <Link
+                href={`/tasks/recurring/${id}/edit`}
+                className="inline-flex min-h-10 items-center gap-2 rounded-control bg-action px-4 text-sm font-medium text-on-action hover:bg-action-hover"
+              >
+                <PencilSimple aria-hidden weight="fill" className="size-4" /> Edit Series
+              </Link>
+            ) : null}
             {s.status === 'ACTIVE' ? (
               <button
                 type="button"
