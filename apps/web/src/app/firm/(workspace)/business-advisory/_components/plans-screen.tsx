@@ -33,6 +33,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { ErrorLine, useMembers } from './ba-dialogs';
 import { FilterSelect, SearchBox, serverPaging, useAct } from './ba-list-kit';
 import { BaShell } from './ba-shell';
+import { PlanSnapshot } from './plan-snapshot';
 import {
   BASE,
   BA_KEY,
@@ -416,22 +417,13 @@ export function VersionsDialog({ plan, onClose }: { plan: AdvisoryPlanRow; onClo
                 <h3 className="font-semibold text-heading">
                   Version {open}: {snap.data.planName} · {snap.data.targetYear}
                 </h3>
-                {snap.data.strategy.summary ? (
-                  <p className="text-text">{snap.data.strategy.summary}</p>
-                ) : null}
-                <p className="text-text">
-                  <span className="font-medium text-heading">Goals:</span>{' '}
-                  {snap.data.goals.length ? snap.data.goals.map((g) => g.title).join('; ') : 'None'}
-                </p>
-                <p className="text-text">
-                  <span className="font-medium text-heading">Recommendations:</span>{' '}
-                  {snap.data.recommendations.length
-                    ? snap.data.recommendations.map((r) => r.title).join('; ')
-                    : 'None'}
-                </p>
                 <p className="text-xs text-muted">
-                  A snapshot is read only: it is the plan as it was finalized.
+                  This snapshot is read only: the whole plan as it was finalized
+                  {snap.data.createdBy ? ` by ${snap.data.createdBy.name}` : ''} on{' '}
+                  {dayText(snap.data.createdAt)}. A change to the plan makes a new version.
                 </p>
+                {/* Advisory Review 2 A-07: the whole historical plan, not a summary. */}
+                <PlanSnapshot version={snap.data} />
               </>
             ) : (
               <p className="text-muted">This version could not be loaded.</p>

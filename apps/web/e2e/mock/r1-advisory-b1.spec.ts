@@ -73,3 +73,32 @@ test('A-10/A-11: a client’s Schedule Meeting opens with the advisory type, and
   });
   await expect(page.getByTestId('meetings-schedule')).toBeVisible({ timeout: 60_000 });
 });
+
+test('A-07: View Snapshot shows the whole finalized plan, read only', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app('/business-advisory/plans'));
+  const list = page.getByTestId('ba-plans');
+  await list
+    .getByRole('button', { name: 'Actions for Fleet Expansion Plan' })
+    .click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Finalize Plan' }).click();
+  await expect(page.getByText('Fleet Expansion Plan finalized.')).toBeVisible();
+  await list.getByRole('button', { name: 'Actions for Fleet Expansion Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Version History' }).click();
+  await page.getByTestId('view-snapshot').first().click();
+  const snapshot = page.getByTestId('plan-snapshot-full');
+  for (const part of [
+    'Business Profile',
+    'Financial & Business Assessment',
+    'Goals & Strategy',
+    'Recommendations',
+    'Services',
+  ]) {
+    await expect(snapshot.getByRole('region', { name: part, exact: true })).toBeVisible();
+  }
+  await expect(snapshot.getByRole('region', { name: 'Business Profile' })).toContainText(
+    'Entity / industry',
+  );
+  // Nothing in it can be changed.
+  await expect(snapshot.locator('input, textarea, select, button')).toHaveCount(0);
+});
