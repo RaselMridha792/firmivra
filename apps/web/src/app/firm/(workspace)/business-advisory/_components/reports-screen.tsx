@@ -17,11 +17,15 @@ import {
 import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../lib/api';
+import { OriginLink } from '../../../../../components/origin-link';
 import { useApiQuery } from '../../../../../lib/query';
 import { useMembers } from './ba-dialogs';
+import { useAdvisoryClient } from './client-shell';
 import { FilterSelect } from './ba-list-kit';
 import { BaShell, Disclaimer } from './ba-shell';
 import {
+  ADVISORY_MEETINGS_HREF,
+  BASE,
   BA_KEY,
   CLIENT_STATUS,
   GOAL_STATUS,
@@ -66,6 +70,7 @@ function StatusRing({
   total,
   note,
   testId,
+  href,
 }: {
   icon: Icon;
   title: string;
@@ -74,6 +79,8 @@ function StatusRing({
   total: number | undefined;
   note?: string | undefined;
   testId: string;
+  /** Advisory A-09: the list behind the card. */
+  href?: string;
 }) {
   return (
     <section className={card} aria-label={title} data-testid={testId}>
@@ -91,7 +98,52 @@ function StatusRing({
         emptyText="Nothing to count yet"
       />
       {note ? <p className="mt-2 text-sm text-muted">{note}</p> : null}
+      {href ? <OpenLink href={href} label={title} /> : null}
     </section>
+  );
+}
+
+/** Advisory A-09: each report card opens the list it counts. */
+function OpenLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="mt-3 inline-flex min-h-10 items-center gap-1 text-sm font-medium text-link hover:underline"
+    >
+      Open {label} <ArrowRight aria-hidden weight="bold" className="size-4" />
+    </Link>
+  );
+}
+
+/**
+ * Advisory A-09: opened from a client (Generate Report), the page says so, with the way back to
+ * that client and their plan summary: the counts themselves cover every advisory client.
+ */
+function ClientContext({ advisoryClientId }: { advisoryClientId: string }) {
+  const q = useAdvisoryClient(advisoryClientId);
+  const c = q.data;
+  if (!c) return null;
+  const name = c.businessName ? `${c.client.name} (${c.businessName})` : c.client.name;
+  return (
+    <Callout icon={UsersThree} title={`Opened from ${name}`} surface="plain">
+      <p data-testid="report-client-context">
+        The counts below cover every advisory client.{' '}
+        <Link href={`${BASE}/clients/${advisoryClientId}`} className="text-link hover:underline">
+          Back to {c.client.name}
+        </Link>
+        {c.currentPlan ? (
+          <>
+            {' · '}
+            <Link
+              href={`${BASE}/plans/${c.currentPlan.id}/edit/review`}
+              className="text-link hover:underline"
+            >
+              Their business plan summary
+            </Link>
+          </>
+        ) : null}
+      </p>
+    </Callout>
   );
 }
 
@@ -106,8 +158,12 @@ function Figure({ label, value, tone }: { label: string; value: string; tone?: '
   );
 }
 
-/** /business-advisory/reports: live counts across the program, by status, service and advisor. */
-export function AdvisoryReportsView() {
+/**
+ * /business-advisory/reports: live counts across the program, by status, service and advisor.
+ * Advisory A-09: `advisoryClientId` (from a client's Generate Report) shows which client it was
+ * opened from; Save and schedule opens Reports on the Advisory category, with the way back.
+ */
+export function AdvisoryReportsView({ advisoryClientId }: { advisoryClientId?: string } = {}) {
   const members = useMembers();
   const [advisor, setAdvisor] = useState('');
   const q = useApiQuery([...BA_KEY, 'reports', advisor], () =>
@@ -179,14 +235,16 @@ export function AdvisoryReportsView() {
             ? `Live counts as of ${new Date(r.generatedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`
             : null}
         </span>
-        <Link
-          href="/reports"
+        <OriginLink
+          href="/reports/library?category=ADVISORY"
           className="ml-auto inline-flex items-center gap-1 text-sm font-medium text-link hover:underline"
+          data-testid="advisory-reports-library"
         >
-          Save and schedule reports in Reports{' '}
+          Save and schedule advisory reports in Reports{' '}
           <ArrowRight aria-hidden weight="bold" className="size-4" />
-        </Link>
+        </OriginLink>
       </div>
+      {advisoryClientId ? <ClientContext advisoryClientId={advisoryClientId} /> : null}
       {q.isError ? (
         <p role="alert" className={quiet} data-testid="ba-error">
           Advisory reports are not available right now. We could not load them. Try again in a
@@ -202,6 +260,7 @@ export function AdvisoryReportsView() {
           labels={CLIENT_STATUS}
           total={r?.clients.total}
           testId="report-clients"
+          href={`${BASE}/clients`}
         />
         <StatusRing
           icon={FileText}
@@ -211,6 +270,7 @@ export function AdvisoryReportsView() {
           total={r?.plans.total}
           note={r ? `${r.plans.sentThisYear} sent to clients this year` : undefined}
           testId="report-plans"
+          href={`${BASE}/plans`}
         />
         <StatusRing
           icon={Target}
@@ -224,6 +284,7 @@ export function AdvisoryReportsView() {
               : undefined
           }
           testId="report-goals"
+          href={`${BASE}/goals`}
         />
         <StatusRing
           icon={Briefcase}
@@ -261,6 +322,7 @@ export function AdvisoryReportsView() {
               </li>
             ))}
           </ul>
+          <OpenLink href={`${BASE}/action-plans`} label="Action Plans" />
         </section>
         <section className={card} aria-label="Meetings" data-testid="report-meetings">
           <SectionHead icon={CalendarDots} title="Advisory Meetings" />
@@ -268,6 +330,7 @@ export function AdvisoryReportsView() {
             <Figure label="Next 30 days" value={n(r?.meetings.upcoming30Days)} />
             <Figure label="Last 90 days" value={n(r?.meetings.past90Days)} />
           </div>
+          <OpenLink href={ADVISORY_MEETINGS_HREF} label="Advisory Meetings" />
         </section>
       </div>
 

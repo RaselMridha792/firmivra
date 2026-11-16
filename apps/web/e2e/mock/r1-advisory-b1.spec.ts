@@ -102,3 +102,23 @@ test('A-07: View Snapshot shows the whole finalized plan, read only', async ({ p
   // Nothing in it can be changed.
   await expect(snapshot.locator('input, textarea, select, button')).toHaveCount(0);
 });
+
+test('A-09: advisory reports keep the client and Advisory context, and their cards open their lists', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(app(`/business-advisory/clients/${MARCUS}`));
+  await page.getByRole('button', { name: 'Generate Report' }).click({ timeout: 60_000 });
+  await page.getByRole('menuitem', { name: 'Advisory Reports' }).click();
+  await expect(page).toHaveURL(new RegExp(`/business-advisory/reports[?]client=${MARCUS}&from=`));
+  await expect(page.getByTestId('report-client-context')).toContainText(
+    'The counts below cover every advisory client.',
+    { timeout: 60_000 },
+  );
+  await expect(page.getByTestId('advisory-reports-library')).toHaveAttribute(
+    'href',
+    /^\/reports\/library\?category=ADVISORY&from=/,
+  );
+  await page.getByTestId('report-goals').getByRole('link', { name: 'Open Goals' }).click();
+  await expect(page).toHaveURL(app('/business-advisory/goals'));
+});
