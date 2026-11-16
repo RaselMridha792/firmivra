@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import {
+  EIN_STATUS,
   BASE,
   BA_KEY,
   BUSINESS_STAGES,
@@ -546,7 +547,15 @@ function ProfileStep({ plan }: { plan?: AdvisoryPlanDetail }) {
             />
             <Input
               label="EIN"
-              value={d?.businessProfile.einMasked ?? (plan || clientId ? 'Not on file' : '')}
+              // A-X01: the number, else its status (Not Applicable, To Be Applied For).
+              value={
+                d?.businessProfile.einMasked ??
+                (d?.businessProfile.einStatus
+                  ? EIN_STATUS[d.businessProfile.einStatus]
+                  : plan || clientId
+                    ? 'Not on file'
+                    : '')
+              }
               readOnly
               title="Kept masked on the client's record"
             />

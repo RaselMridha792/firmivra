@@ -43,6 +43,7 @@ import {
   outlined,
   primary,
   quiet,
+  EIN_STATUS,
   meetingsTab,
   scheduleMeetingHref,
 } from './ba-shared';
@@ -422,6 +423,11 @@ export function ClientOverview({ advisoryClientId }: { advisoryClientId: string 
                 [
                   ['Business Name', c.businessName],
                   ['EIN', c.businessProfile.einMasked],
+                  // A-X01: the status apart from the number.
+                  [
+                    'EIN Status',
+                    c.businessProfile.einStatus ? EIN_STATUS[c.businessProfile.einStatus] : null,
+                  ],
                   ['Entity Type', c.businessProfile.entityType],
                   ['Industry', c.industry],
                   [

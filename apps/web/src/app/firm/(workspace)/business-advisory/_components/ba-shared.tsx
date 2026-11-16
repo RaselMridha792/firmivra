@@ -46,6 +46,13 @@ export function scheduleMeetingHref(
 export const meetingsTab = (advisoryClientId: string) =>
   `${BASE}/clients/${advisoryClientId}/meetings`;
 
+/** Advisory Review 2 A-X01 (B15): the EIN's status, shown apart from the masked number. */
+export const EIN_STATUS: Record<string, string> = {
+  HAS_EIN: 'Has EIN',
+  NOT_APPLICABLE: 'Not Applicable',
+  TO_BE_APPLIED_FOR: 'To Be Applied For',
+};
+
 /** Octavia's B5: Appointments with only the Business Advisory meetings, the full calendar a click away. */
 export const ADVISORY_MEETINGS_HREF = '/calendar/list?serviceKind=BUSINESS_DEVELOPMENT';
 

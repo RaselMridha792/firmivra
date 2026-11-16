@@ -590,6 +590,7 @@ export function createAdvisoryMock({
           },
           website: `https://www.${domain}.example.test`,
           einMasked: `XX-XXX${String(6789 - i * 111).padStart(4, '0')}`,
+          einStatus: 'HAS_EIN',
         },
         workstreams: [
           ws(s.primary, 'PRIMARY', 0),
@@ -1583,6 +1584,7 @@ export function createAdvisoryMock({
             address: null,
             website: null,
             einMasked: null,
+            einStatus: null,
           },
           workstreams: [
             primary.serviceId,
