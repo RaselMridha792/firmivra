@@ -11,6 +11,13 @@ async function dashboard(page: Page) {
   await page.goto(admin('/'));
   await expect(page.getByTestId('stat-pending-applications-value')).toHaveText('4');
 }
+/** A Tasks Requiring Attention row's count. */
+async function rowCount(page: Page, label: string) {
+  const row = page
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name: `Open ${label}` }) });
+  return Number(await row.locator('span.font-semibold').innerText());
+}
 
 test('SA-DSH-F02, SA-FRM-F01: Active Firms opens Firms on Active; the tab lives in the address', async ({
   page,
@@ -55,4 +62,17 @@ test('SA-DSH-F07: the pending row opens Applications on its Pending tab', async 
     'aria-selected',
     'true',
   );
+});
+
+test('SA-DSH-F09: Open support tickets opens Support filtered to Open, with the same count', async ({
+  page,
+}) => {
+  await dashboard(page);
+  await expect(page.getByRole('link', { name: 'Open Open support tickets' })).toBeVisible();
+  const count = await rowCount(page, 'Open support tickets');
+  expect(count).toBeGreaterThan(0);
+  await page.getByRole('link', { name: 'Open Open support tickets' }).click();
+  await expect(page).toHaveURL(admin('/support?status=OPEN'));
+  await expect(page.getByTestId('active-filters')).toContainText('Status: Open');
+  await expect(page.getByTestId('ticket-link')).toHaveCount(Math.min(count, 10));
 });

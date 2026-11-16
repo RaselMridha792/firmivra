@@ -27,6 +27,7 @@ import {
   websiteHost,
 } from '@firmivra/types';
 import { mockDelay, mockedEmpty } from '../lib/mock';
+import { adminSupport } from './admin-support';
 import { mockBusiness } from './me';
 
 /**
@@ -968,6 +969,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         // The mock has no logins to count: a dash, as an older API build.
         totalUsers: null,
         newUsersThisWeek: null,
+        // SA-DSH-F09, F11: what the Support and Subscriptions mocks list for the same filters.
+        openTickets: (await adminSupport.tickets({ statuses: ['OPEN'], pageSize: 1 })).total,
         monthlyRevenueCents: null,
       };
     },

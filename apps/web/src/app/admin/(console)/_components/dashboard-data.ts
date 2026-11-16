@@ -12,7 +12,10 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AdminDashboard } from '@firmivra/types';
 
-type DashboardMetric = keyof Pick<AdminDashboard, 'pendingApplications' | 'newUsersThisWeek'>;
+type DashboardMetric = keyof Pick<
+  AdminDashboard,
+  'pendingApplications' | 'newUsersThisWeek' | 'openTickets'
+>;
 
 /** Labels and presentation only; all displayed figures come from api.firmApplications. */
 export const dashboardStats = [
@@ -73,7 +76,13 @@ export const attentionItems: {
     href: '/applications?tab=PENDING_REVIEW',
   },
   { label: 'Payment issues', icon: TriangleAlert },
-  { label: 'Open support tickets', icon: Headset },
+  // SA-DSH-F09: Support filtered to Open.
+  {
+    label: 'Open support tickets',
+    key: 'openTickets',
+    icon: Headset,
+    href: '/support?status=OPEN',
+  },
   { label: 'New users this week', key: 'newUsersThisWeek', icon: Users },
   { label: 'Renewals this week', icon: ChartColumn },
 ];
