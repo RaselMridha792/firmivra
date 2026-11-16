@@ -173,7 +173,7 @@ Her scoped passes need nothing built; they are listed so every row is accounted 
 | N8-33 Draft services in Clients | Done: only active services are Clients tabs and Service choices; draft and inactive services stay in the catalog | #1558 | `clients-work.e2e` "counts the firm's cards and tabs; archived clients are in none of them" (a draft and an inactive service are not in `byService`); mock `r55-clients-draft-services` |
 | N8-34 Sign-ups list checks | Scoped pass; the empty-state copy: Done in FC-02 | #1558 | web unit `sign-up-parts.test` |
 | N8-35 Signature history and filters | Scoped pass; nothing to build | — | — |
-| N8-36 Tasks tab with New Task for the client | **GAP:** the Tasks tab lists the client's open tasks but has no New Task: its compact list never shows the Add Task link (`task-table.tsx`, the compact branch), so `/tasks/new?clientId=…` can't be reached from the tab. Fix: a New Task link to `newTaskHref({ clientId })` on the tab | #1378 (the tab) | `r60-clients-tabs` opens the Tasks tab |
+| N8-36 Tasks tab with New Task for the client | Done: the Tasks tab has New Task, opening Create Task on this client with Back to the tab | #1378 (the tab), #1584 | mock `r55-clients-tasks-tab` "N8-36: New Task on the client Tasks tab opens Create Task on this client, with Back"; `r60-clients-tabs` opens the Tasks tab |
 | N8-37 Request a Document at the top | Done: Request a Document and the open requests come first | #1547 (R60); test #1584 | mock `r55-clients-profile-documents` "N8-37: Request a document is at the top of the profile Documents tab, before the files" (in the first screenful at 1165 x 747, above and before the list) |
 | N8-38 Task details readable | Scoped pass; nothing to build | — | — |
 | N8-39 Portal notification filter | Scoped pass; clearing needs a known-unread notice (her retest) | — | — |
@@ -219,7 +219,6 @@ G1 to G12 are closed; G9's prefill is #1558 (Nov 15, 2026). The open items are l
 - #1584 (R55, tests only): §2 and §4 stale profile (C2-034), §4 Last Activity dismissal and names (C2-018, C2-019), N8-10, §4 Dirty Add (C2-029), §6 Edit's Save Anyway, §6 bulk unassign, §6 Reliability a, V-001, N8-09, V-002 to V-006, V-008, C2-051, C2-049, N8-25, N8-37's order, FC-03's words
 
 **Open: product (GAP)**
-- N8-36: a New Task on the client's Tasks tab, opening `/tasks/new` with the client chosen (the tab has none today)
 - C2-051: an archived file stays in the Documents table (the client documents list does not leave archived or trashed files out)
 - V-003 (minor): a client name past about 26 characters is cut by a few pixels at 1165 px in the Documents client filter, with no hover text
 
