@@ -123,3 +123,21 @@ test('SA-DSH-F13: Platform Settings opens System Settings', async ({ page }) => 
   await page.getByRole('link', { name: 'Platform Settings' }).click();
   await expect(page).toHaveURL(admin('/system-settings'));
 });
+
+test('SA-APP-F10: an approved application resends the owner invitation; a joined owner has none', async ({
+  page,
+}) => {
+  await page.goto(admin('/applications'));
+  await page.getByRole('link', { name: 'Open application for Sample Riverside Tax Co' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Sample Riverside Tax Co');
+  await page.getByRole('button', { name: 'Resend Owner Invitation' }).click();
+  await expect(page.getByTestId('owner-invite-resent')).toContainText(
+    'A new activation link was sent to',
+  );
+
+  // Example Northside: approved, its owner has joined.
+  await page.goto(admin('/applications/0199b6a2-0000-7000-8000-000000000005'));
+  await expect(page.getByTestId('page-title')).toHaveText('Example Northside Accounting LLC');
+  await expect(page.getByTestId('approved-firm-summary')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resend Owner Invitation' })).toHaveCount(0);
+});

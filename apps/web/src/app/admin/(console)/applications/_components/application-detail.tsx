@@ -22,6 +22,7 @@ import {
   IdCard,
   MessageSquare,
   NotepadText,
+  Send,
   ShieldCheck,
   UserRound,
   X,
@@ -58,6 +59,11 @@ const DECISION_ERRORS: Record<string, string> = {
   APPLICATION_DECIDED: 'Another administrator has already decided this application.',
   SLUG_TAKEN: 'Another firm already uses this portal address.',
   VALIDATION_FAILED: 'Check the text: it may be too long, or the same as your last message.',
+};
+/** SA-APP-F10: the resend's refusals (firm-applications controller). */
+const RESEND_ERRORS: Record<string, string> = {
+  INVITE_NOT_NEEDED: 'The owner has already joined, or the firm is no longer open to them.',
+  RATE_LIMITED: 'Too many invitations were sent just now. Try again in a few minutes.',
 };
 function humanize(value: string) {
   return value
@@ -116,8 +122,16 @@ export function ApplicationRecord({
     (value: string | null) => api.firmApplications.saveNotes(application.id, { notes: value }),
     { invalidate: APPLICATIONS_KEY },
   );
+  // SA-APP-F10: a new activation link for the owner; the earlier one stops working.
+  const resend = useApiMutation(() => api.firmApplications.resendOwnerInvite(application.id), {
+    invalidate: APPLICATIONS_KEY,
+  });
   const busy =
-    approve.isPending || requestInfo.isPending || decline.isPending || saveNotes.isPending;
+    approve.isPending ||
+    requestInfo.isPending ||
+    decline.isPending ||
+    saveNotes.isPending ||
+    resend.isPending;
   const business = application.business;
   const address = business ? (
     <>
@@ -391,8 +405,34 @@ export function ApplicationRecord({
             </Button>
           </div>
         )}
+        {application.can.resendOwnerInvite ? (
+          <div className="flex flex-col items-start gap-2">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                resend.reset();
+                resend.mutate(undefined);
+              }}
+            >
+              <Send aria-hidden className="size-4" />
+              {resend.isPending ? 'Sending…' : 'Resend Owner Invitation'}
+            </Button>
+          </div>
+        ) : null}
         {/* SA-APP-F12: no shortcut into a firm's private workspace from the Super Admin console. */}
       </header>
+      {resend.isSuccess ? (
+        <p role="status" data-testid="owner-invite-resent" className="text-sm text-success">
+          A new activation link was sent to {application.contactEmail}. The earlier link no longer
+          works.
+        </p>
+      ) : null}
+      {resend.error ? (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(resend.error, RESEND_ERRORS)}
+        </p>
+      ) : null}
 
       {/* One grid, so rows fill in order at every width. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">

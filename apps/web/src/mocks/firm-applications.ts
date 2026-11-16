@@ -517,6 +517,18 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       emailDomainCheck(row.contactEmail, row.business?.website ?? null),
     ];
   };
+  /**
+   * SA-APP-F10, as the API: approved, its firm Pending Setup or Active (not suspended or closed),
+   * and the owner has not joined.
+   */
+  const canResend = (row: Row) => {
+    const status = firms.find((f) => f.firm.id === row.firm?.id)?.firm.status;
+    return (
+      row.status === 'APPROVED' &&
+      (status === 'PENDING_SETUP' || status === 'ACTIVE') &&
+      row.ownerInvite?.status !== 'ACCEPTED'
+    );
+  };
   /** What the API returns: a copy, with the derived fields filled in. */
   const view = (row: Row): Row => {
     const invite = row.ownerInvite;
@@ -553,7 +565,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         approve: open,
         decline: open,
         assign: open,
-        resendOwnerInvite: row.status === 'APPROVED' && invite?.status !== 'ACCEPTED',
+        resendOwnerInvite: canResend(row),
       },
       checks: checks(row),
       suggestedSlug: open ? suggest(row.legalName) : null,
@@ -913,7 +925,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     resendOwnerInvite: async (id) => {
       await mockDelay();
       const row = find(parseInput(FirmApplicationId, id));
-      if (row.status !== 'APPROVED' || row.ownerInvite?.status === 'ACCEPTED') {
+      if (!canResend(row)) {
         throw fail(409, 'INVITE_NOT_NEEDED', 'There is no activation link to send');
       }
       return save({
