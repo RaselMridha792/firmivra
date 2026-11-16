@@ -1592,6 +1592,10 @@ export function createTaskWorkMock(options: Options = {}): TaskWorkClient {
         b.recurrence.interval,
         b.recurrence.unit,
       );
+      // T-C11, as the API: the task's checklist for every occurrence unless told not to.
+      made.detail.checklist = b.applyChecklist
+        ? t.checklistItems.map((i) => ({ label: i.label, required: i.required }))
+        : [];
       t.recurring = true;
       t.series = { id: made.detail.id, title: made.detail.title };
       touch(t);

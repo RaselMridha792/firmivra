@@ -289,3 +289,23 @@ test('T-C03: the series lists upcoming and skipped occurrences with the reason, 
   await occurrences.getByLabel('Occurrence status').selectOption('SCHEDULED');
   await expect(rows.first()).toContainText('Upcoming');
 });
+
+test('T-C11: Apply the same checklist sits in the Checklist section; the Recurring switch carries the typed checklist', async ({
+  page,
+}) => {
+  await openCreate(page);
+  await page.getByLabel('Task Name *').fill('Monthly bank reconciliation');
+  await page.getByRole('button', { name: 'Add Checklist Item' }).click();
+  await page.getByLabel('Checklist item 1').fill('Download statements');
+  await page.getByRole('switch', { name: 'Recurring Task' }).click();
+  const leave = page.getByRole('dialog');
+  if (await leave.isVisible().catch(() => false))
+    await leave.getByRole('button', { name: /Discard|Leave/ }).click();
+  await expect(page).toHaveURL(/\/tasks\/recurring\/new/, { timeout: 60_000 });
+  await expect(page.getByLabel('Task Name *')).toHaveValue('Monthly bank reconciliation');
+  const checklist = page.getByTestId('rec-checklist');
+  await expect(checklist.getByLabel('Checklist item 1')).toHaveValue('Download statements');
+  const apply = checklist.getByTestId('rec-apply-checklist');
+  await expect(apply.getByRole('checkbox')).toBeChecked();
+  await expect(apply).toContainText('Each occurrence gets its own copy');
+});

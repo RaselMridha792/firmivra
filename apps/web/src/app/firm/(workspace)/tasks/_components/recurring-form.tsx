@@ -19,7 +19,7 @@ import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { ORIGIN_PARAM, safeOrigin } from '../../../../../lib/origin';
 import { useClients, useMembers } from './task-data';
-import { ChecklistItems, type Item } from './task-form-parts';
+import { ChecklistItems, type Item, takeRecurringHandoff } from './task-form-parts';
 import { TaskTypeSelect, useTypeChoice } from './task-type-field';
 import { UnsavedDialog, useUnsavedGuard } from './unsaved-guard';
 import { PRIORITY_LABEL, TASKS_KEY, TASK_ERRORS, dayText } from './task-shared';
@@ -98,12 +98,15 @@ type Prefill = { clientId?: string | undefined; engagementId?: string | undefine
 
 export function RecurringFormScreen({ prefill = {} }: { prefill?: Prefill }) {
   const [round, setRound] = useState(0);
+  // T-C11: what Create Task's Recurring switch handed over, for the first form only.
+  const [handoff] = useState(() => (typeof window === 'undefined' ? null : takeRecurringHandoff()));
   const [saved, setSaved] = useState<string>();
   return (
     <RecurringForm
       key={round}
       // Save & Create Another starts empty; the first form keeps what it was opened with.
       prefill={round === 0 ? prefill : {}}
+      handoff={round === 0 ? handoff : null}
       saved={saved}
       onAnother={(title) => {
         setSaved(title);
@@ -115,10 +118,12 @@ export function RecurringFormScreen({ prefill = {} }: { prefill?: Prefill }) {
 
 function RecurringForm({
   prefill,
+  handoff,
   saved,
   onAnother,
 }: {
   prefill: Prefill;
+  handoff: { title: string; items: Item[] } | null;
   saved: string | undefined;
   onAnother: (title: string) => void;
 }) {
@@ -129,7 +134,7 @@ function RecurringForm({
   // A5 (#1084): one key per form, reused only to retry its save, so a retried Save never makes a
   // second series; Save & Create Another starts a fresh form with a new key.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(handoff?.title ?? '');
   const [typeId, setTypeId] = useState('');
   const typeChoice = useTypeChoice(typeId);
   const [details, setDetails] = useState('');
@@ -161,7 +166,7 @@ function RecurringForm({
   const [remind, setRemind] = useState(true);
   const [reminders, setReminders] = useState([1]);
   const [notifyClient, setNotifyClient] = useState(false);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<Item[]>(handoff?.items ?? []);
   // Octavia's C8: each task the series makes starts with its own copy of this checklist (the API
   // snapshots it), so ticking a step on one occurrence never ticks it on another.
   const [applyChecklist, setApplyChecklist] = useState(true);
@@ -712,6 +717,22 @@ function RecurringForm({
             }
           >
             <ChecklistItems items={items} onChange={setItems} showDone={false} />
+            {/* Tasks Review Two T-C11: the choice sits with the checklist it applies. */}
+            <div className="mt-3" data-testid="rec-apply-checklist">
+              <Checkbox
+                label="Apply the same checklist to all occurrences"
+                checked={applyChecklist && checklist.length > 0}
+                disabled={checklist.length === 0}
+                onChange={(e) => setApplyChecklist(e.target.checked)}
+              />
+              <p className="ml-8 text-xs text-muted" data-testid="rec-checklist-note">
+                {checklist.length === 0
+                  ? 'Add a checklist item to apply it to every occurrence.'
+                  : applyChecklist
+                    ? 'Each occurrence gets its own copy: ticking a step on one task does not tick it on the others.'
+                    : 'Occurrences start without a checklist.'}
+              </p>
+            </div>
           </Section>
           <Section
             title="Attachments (Optional)"
@@ -810,19 +831,6 @@ function RecurringForm({
                   ))}
                 </select>
               ) : null}
-              <Checkbox
-                label="Apply the same checklist to all occurrences"
-                checked={applyChecklist && checklist.length > 0}
-                disabled={checklist.length === 0}
-                onChange={(e) => setApplyChecklist(e.target.checked)}
-              />
-              <p className="ml-8 text-xs text-muted" data-testid="rec-checklist-note">
-                {checklist.length === 0
-                  ? 'Add a checklist item to apply it to every occurrence.'
-                  : applyChecklist
-                    ? 'Each occurrence gets its own copy: ticking a step on one task does not tick it on the others.'
-                    : 'Occurrences start without a checklist.'}
-              </p>
             </div>
           </Section>
           <Section title="Notifications & Reminders" testId="rec-reminders">

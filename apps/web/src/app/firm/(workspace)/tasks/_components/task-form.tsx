@@ -37,6 +37,7 @@ import {
   ReminderList,
   Section,
   ClientCombobox,
+  handOffToRecurring,
   Selectbox,
   field,
 } from './task-form-parts';
@@ -957,7 +958,11 @@ function Form({
                   <Toggle
                     label="Recurring Task"
                     checked={false}
-                    onChange={() => guard.leave(keepOrigin(recurringHref(clientId, engagementId)))}
+                    onChange={() => {
+                      // T-C11: the title and checklist typed here come along.
+                      handOffToRecurring({ title, items });
+                      guard.leave(keepOrigin(recurringHref(clientId, engagementId)));
+                    }}
                   />
                   <span>
                     <span className="block font-medium">Recurring Task</span>

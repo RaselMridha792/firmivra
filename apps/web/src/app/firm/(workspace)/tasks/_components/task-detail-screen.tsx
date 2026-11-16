@@ -1,7 +1,7 @@
 'use client';
 
 import { DOCUMENT_ERRORS, type TaskDetail } from '@firmivra/types';
-import { Badge, Button, Input, Modal, Select, Toast } from '@firmivra/ui';
+import { Badge, Button, Checkbox, Input, Modal, Select, Toast } from '@firmivra/ui';
 import {
   Archive,
   ArrowCounterClockwise,
@@ -570,6 +570,7 @@ function ConvertDialog({
 }) {
   const [interval, setInterval] = useState('1');
   const [unit, setUnit] = useState<'DAY' | 'WEEK' | 'MONTH' | 'QUARTER' | 'YEAR'>('MONTH');
+  const [applyChecklist, setApplyChecklist] = useState(true);
   const convert = useApiMutation(
     () =>
       api.taskWork.convertToRecurring(task.id, {
@@ -582,6 +583,7 @@ function ConvertDialog({
           endOn: null,
           holidayRule: 'NEXT_BUSINESS_DAY',
         },
+        applyChecklist: applyChecklist && task.checklistItems.length > 0,
       }),
     { invalidate: [...TASKS_KEY] },
   );
@@ -626,6 +628,20 @@ function ConvertDialog({
             { value: 'YEAR', label: 'Year(s)' },
           ]}
         />
+      </div>
+      {/* T-C11: the checklist for every occurrence, each its own copy. */}
+      <div className="mt-3" data-testid="convert-apply-checklist">
+        <Checkbox
+          label="Apply the same checklist to all occurrences"
+          checked={applyChecklist && task.checklistItems.length > 0}
+          disabled={task.checklistItems.length === 0}
+          onChange={(e) => setApplyChecklist(e.target.checked)}
+        />
+        <p className="ml-8 text-xs text-muted">
+          {task.checklistItems.length === 0
+            ? 'This task has no checklist.'
+            : `Each occurrence gets its own copy of the ${task.checklistItems.length} step${task.checklistItems.length === 1 ? '' : 's'}.`}
+        </p>
       </div>
       {convert.isError ? (
         <p role="alert" className="mt-2 text-sm text-danger">

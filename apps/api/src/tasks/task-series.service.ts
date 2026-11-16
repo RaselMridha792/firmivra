@@ -703,7 +703,11 @@ export class TaskSeriesService {
         extraAssigneeIds: task.assignees.map((a) => a.userId),
         dueTime: task.dueTime,
         clientVisible: task.clientVisible,
-        checklist: task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
+        // T-C11: the same checklist for every occurrence, unless the converter said not to.
+        checklist:
+          body.applyChecklist === false
+            ? []
+            : task.taskChecklistItems.map((i) => ({ label: i.label, required: i.required })),
         // Custom ones too, in the order they fire (the series keeps the task's due time).
         reminders: remindersJson(
           inFiringOrder(

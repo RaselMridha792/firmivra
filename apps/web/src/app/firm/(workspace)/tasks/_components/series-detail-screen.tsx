@@ -211,6 +211,27 @@ export function SeriesDetailScreen({ id }: { id: string }) {
             <p className={quiet}>{note}</p>
           )}
         </Card>
+        {/* T-C11: the checklist each occurrence gets its own copy of. */}
+        <Card title="Checklist for Each Occurrence" testId="series-checklist">
+          {!s || s.checklist.length === 0 ? (
+            <p className={quiet}>{s ? 'Occurrences start without a checklist.' : note}</p>
+          ) : (
+            <>
+              <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-heading">
+                {s.checklist.map((c, i) => (
+                  <li key={`${i}-${c.label}`}>
+                    {c.label}
+                    {c.required ? <span className="text-xs text-muted"> (required)</span> : null}
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 text-xs text-muted">
+                Each occurrence gets its own copy: ticking a step on one task does not tick it on
+                the others.
+              </p>
+            </>
+          )}
+        </Card>
         <Card title="Next Occurrences" testId="series-upcoming">
           {!s || s.upcoming.length === 0 ? (
             <p className={quiet}>{s ? 'No more occurrences are scheduled.' : note}</p>

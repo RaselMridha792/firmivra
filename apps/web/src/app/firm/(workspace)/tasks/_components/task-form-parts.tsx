@@ -112,6 +112,45 @@ export interface Item {
   required: boolean;
   done: boolean;
 }
+/** T-C11: what Create Task's Recurring switch carries to Set Up Recurring Task. */
+const RECURRING_HANDOFF = 'fv-task-recurring-handoff';
+export function handOffToRecurring(v: { title: string; items: readonly Item[] }): void {
+  try {
+    window.sessionStorage.setItem(
+      RECURRING_HANDOFF,
+      JSON.stringify({
+        title: v.title,
+        items: v.items
+          .filter((i) => i.label.trim())
+          .map((i) => ({ label: i.label, required: i.required })),
+      }),
+    );
+  } catch {
+    // No storage (a private window): the recurring form starts empty.
+  }
+}
+/** Taken once: the title and checklist Create Task handed over, or null. */
+export function takeRecurringHandoff(): { title: string; items: Item[] } | null {
+  try {
+    const raw = window.sessionStorage.getItem(RECURRING_HANDOFF);
+    window.sessionStorage.removeItem(RECURRING_HANDOFF);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { title?: unknown; items?: unknown };
+    const items = Array.isArray(v.items) ? v.items.slice(0, 50) : [];
+    return {
+      title: typeof v.title === 'string' ? v.title.slice(0, 200) : '',
+      items: items.map((i: { label?: unknown; required?: unknown }, n) => ({
+        key: `h${n}`,
+        label: String(i.label ?? '').slice(0, 200),
+        required: i.required === true,
+        done: false,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface Reminder {
   key: string;
   /** NaN while a custom number is being typed (the form says what to fix). */

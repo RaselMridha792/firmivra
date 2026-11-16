@@ -1666,6 +1666,30 @@ describe('idempotency keys', () => {
     }
   });
 
+  it('T-C11: Convert carries the task checklist to every occurrence, unless told not to', async () => {
+    const withSteps = async () =>
+      TaskDetail.parse(
+        ok(
+          await call('post', '/tasks', people.ownerA, {
+            clientId: clients.c1,
+            title: mark('Steps to convert'),
+            dueOn: '2031-03-10',
+            checklist: [{ label: 'Collect receipts', required: true }, { label: 'Reconcile' }],
+          }),
+          201,
+        ),
+      );
+    const kept = series(await convert((await withSteps()).id, {}), 201);
+    toStop.push(kept.id);
+    expect(kept.checklist).toEqual([
+      { label: 'Collect receipts', required: true },
+      { label: 'Reconcile', required: false },
+    ]);
+    const bare = series(await convert((await withSteps()).id, { applyChecklist: false }), 201);
+    toStop.push(bare.id);
+    expect(bare.checklist).toEqual([]);
+  });
+
   it('Convert twice with one key returns the same series; the key on another task is 409', async () => {
     const t = await dated();
     const key = randomUUID();

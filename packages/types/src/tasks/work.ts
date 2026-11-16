@@ -902,6 +902,11 @@ export type SkipFutureRequest = z.input<typeof SkipFutureRequest>;
  */
 export const ConvertToRecurringRequest = z.strictObject({
   recurrence: endRules(z.strictObject(recurrenceShape)),
+  /**
+   * Tasks Review Two T-C11: the task's checklist goes to every occurrence (each gets its own
+   * copy); `false` starts the occurrences without one.
+   */
+  applyChecklist: z.boolean().optional().default(true),
   idempotencyKey: IdempotencyKey.optional(),
 });
 export type ConvertToRecurringRequest = z.input<typeof ConvertToRecurringRequest>;
