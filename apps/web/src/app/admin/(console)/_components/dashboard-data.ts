@@ -38,7 +38,8 @@ export const dashboardStats = [
   {
     key: 'totalUsers',
     label: 'Total Users',
-    href: undefined,
+    // SA-DSH-F03: Reports' Users view (read-only).
+    href: '/reports/users',
     linkLabel: 'View Users',
     icon: Users,
     tone: 'purple',

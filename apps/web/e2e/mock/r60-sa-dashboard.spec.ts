@@ -40,3 +40,9 @@ test('SA-DSH-F02, SA-FRM-F01: Active Firms opens Firms on Active; the tab lives 
     'true',
   );
 });
+
+test('SA-DSH-F03: Total Users opens Reports Users', async ({ page }) => {
+  await dashboard(page);
+  await page.getByTestId('stat-total-users').getByRole('link', { name: 'View Users' }).click();
+  await expect(page).toHaveURL(admin('/reports/users'));
+});
